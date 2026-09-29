@@ -38,14 +38,17 @@ release.
 and checks that each upgrades to the current schemas (with a backup exactly when a migration ran)
 and still holds what `expected.json` says.
 
-When cutting a release, after its last schema change and before tagging:
+`cargo xtask release empyrean <version>` makes it: after setting the version, it runs the
+generator when the release has no fixture yet and commits the three files with the version (or on
+their own, when the version was already set). By hand, after the release's last schema change:
 
 ```
 cargo run -p empyrean-store --example upgrade_fixture -- empyrean/crates/store/tests/fixtures/upgrade/<version>
 ```
 
-The generator refuses a folder that exists, so a committed fixture is never rewritten. Commit the
-three files. The harness fails when the current version has no fixture.
+The folder is named by the numeric version (`0.2.0-rc.1` makes `0.2.0`). The generator refuses a
+folder that exists, so a committed fixture is never rewritten. The harness fails when the current
+version has no fixture.
 
 Every migration must pass the harness over every earlier release's fixture. A migration that
 deliberately changes stored values (so an older `expected.json` no longer matches) changes the

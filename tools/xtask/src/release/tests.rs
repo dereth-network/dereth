@@ -103,3 +103,17 @@ fn the_push_publishes_main_then_the_tag() {
     assert_eq!(first, ["git", "push", "forgejo", "main"]);
     assert_eq!(second, ["git", "push", "forgejo", "empyrean-v0.2.0"]);
 }
+
+/// An Empyrean release's upgrade fixture is kept under its numeric version, a pre-release under
+/// the release it leads to, where the store's upgrade harness looks for it.
+#[test]
+fn the_upgrade_fixture_folder_is_named_by_the_numeric_version() {
+    assert_eq!(
+        upgrade_fixture_dir("0.1.1"),
+        "empyrean/crates/store/tests/fixtures/upgrade/0.1.1"
+    );
+    assert_eq!(
+        upgrade_fixture_dir("0.2.0-rc.1"),
+        "empyrean/crates/store/tests/fixtures/upgrade/0.2.0"
+    );
+}

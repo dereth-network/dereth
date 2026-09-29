@@ -127,8 +127,10 @@ cargo xtask release empyrean <MAJOR.MINOR.PATCH[-pre]> [--push] [--remote <name>
    numbers, not older than the version the crates carry, and `empyrean-v<version>` exists neither
    here nor on the remote (default `origin`); its upgrade declaration keeps the rules above.
 2. Sets every `empyrean-*` crate's `version` to `<version>`, updates `Cargo.lock`'s entries for the
-   workspace's own packages, and commits exactly those files as `Empyrean <version>`. When the
-   crates already carry `<version>` (the first release of a version), there is nothing to commit.
+   workspace's own packages, makes the release's database upgrade fixture when it has none
+   (`empyrean/crates/store/UPGRADES.md`), and commits exactly those files as `Empyrean <version>`.
+   When the crates already carry `<version>`, there is no version to commit; a missing fixture is
+   still made and committed on its own.
 3. Runs `cargo xtask ci tier0`, then `cargo xtask package empyrean` for the host's target.
 4. Tags that commit `empyrean-v<version>` (annotated).
 5. Prints the two push commands, `git push <remote> main` and `git push <remote> empyrean-v<version>`,

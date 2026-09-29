@@ -5,7 +5,9 @@
 //! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher) to `<version>` and
 //! commits that with the lock files (skipped when the tree already carries it), runs
 //! `cargo xtask ci tier0` and packages the host's own target as a smoke test, then makes the
-//! annotated tag `empyrean-v<version>` or `dereth-v<version>`. It prints the two push commands and
+//! annotated tag `empyrean-v<version>` or `dereth-v<version>`. An Empyrean release also makes its
+//! database upgrade fixture (`empyrean/crates/store/UPGRADES.md`) when the tree has none for that
+//! release, and commits it with the version. It prints the two push commands and
 //! runs them only with `--push`: the product's release workflow starts when the tag reaches the
 //! public repository, and builds, checks and drafts the release from there.
 
@@ -184,6 +186,55 @@ fn locks(product: Product) -> &'static [(&'static str, &'static str)] {
     }
 }
 
+/// Where Empyrean release `requested` keeps its database upgrade fixture, relative to the
+/// workspace: one folder per release, named by its numeric version (`0.2.0-rc.1` is `0.2.0`), as
+/// the store's upgrade harness reads them.
+pub fn upgrade_fixture_dir(requested: &str) -> String {
+    let core = requested.split('-').next().unwrap_or(requested);
+    format!("empyrean/crates/store/tests/fixtures/upgrade/{core}")
+}
+
+/// For an Empyrean release whose fixture folder does not exist yet: make it with the store's
+/// generator (after the version is set, so it is the new release's store that writes it) and stage
+/// it. Returns the folder to commit, or `None` when there is nothing to make.
+fn make_upgrade_fixture(
+    ws: &Path,
+    product: Product,
+    requested: &str,
+) -> Result<Option<String>, String> {
+    if product != Product::Empyrean {
+        return Ok(None);
+    }
+    let dir = upgrade_fixture_dir(requested);
+    if ws.join(&dir).exists() {
+        println!("=== the upgrade fixture {dir} is already there");
+        return Ok(None);
+    }
+    println!("=== making the upgrade fixture {dir}");
+    if !crate::util::run(
+        ws,
+        "cargo",
+        &[
+            "run",
+            "-q",
+            "--profile",
+            "test-release",
+            "-p",
+            "empyrean-store",
+            "--example",
+            "upgrade_fixture",
+            "--",
+            &dir,
+        ],
+    ) {
+        return Err(format!(
+            "the upgrade fixture generator failed for {dir}; nothing is committed"
+        ));
+    }
+    git(ws, &["add", "--", &dir])?;
+    Ok(Some(dir))
+}
+
 fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<(), String> {
     let ws = workspace_root();
     let name = product.display_name();
@@ -237,6 +288,9 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
                 "after the edit the crates carry {now}, not {requested}"
             ));
         }
+        if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
+            paths.push(dir);
+        }
         let message = format!("{name} {requested}");
         let mut args = vec!["commit", "-m", &message, "--"];
         args.extend(paths.iter().map(String::as_str));
@@ -244,6 +298,11 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
         println!("committed: {message}");
     } else {
         println!("=== the crates already carry {requested}; nothing to bump");
+        if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
+            let message = format!("{name} {requested}: its upgrade fixture");
+            git(&ws, &["commit", "-m", &message, "--", &dir])?;
+            println!("committed: {message}");
+        }
     }
 
     let head = git(&ws, &["rev-parse", "HEAD"])?;
