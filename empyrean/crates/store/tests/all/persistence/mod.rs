@@ -1,0 +1,12 @@
+pub(crate) mod authentication;
+pub(crate) mod bcrypt;
+pub(crate) mod biota_roundtrip;
+pub(crate) mod characters;
+pub(crate) mod database_thread;
+pub(crate) mod kill_point_durability;
+pub(crate) mod name_collation;
+pub(crate) mod shard_caching;
+pub(crate) mod shard_config;
+pub(crate) mod shard_queries;
+pub(crate) mod upgrade_fixtures;
+pub(crate) mod upgrades;

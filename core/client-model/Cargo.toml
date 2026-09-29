@@ -1,0 +1,54 @@
+[package]
+name = "dereth-client-model"
+description = "The client-side half of the game rules: the object model and state cache the server's messages fill, with the display formulas and legality prechecks read from it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+dereth-protocol = { path = "../protocol" }
+dereth-assets = { path = "../assets" }
+# The pure retail rules (curves, formulas, stacking, chess, the name filter, slot tables) live
+# here; each of those modules is re-exported at its `dereth_client_model` path.
+dereth-rules = { path = "../rules" }
+# The chat-entry and console action ids the command interpreter's entry points are keyed by.
+dereth-client-contract = { path = "../client-contract" }
+thiserror.workspace = true
+
+[dev-dependencies]
+dereth-dat = { path = "../dat", features = ["test-support"] }
+# The kernel32 NLS arm is not in the production graph, so Windows FFI is not a normal dependency
+# of the game logic: the chat model, `taboo.rs` and `turbine.rs` go through
+# `dereth_primitives::HostEncoding`, which the application implements over
+# `dereth_primitives::text` with its `host-nls` feature (`dereth_client::platform::text`). The
+# feature is on here, for tests only, so `tests/cpu/ui/host_text_encoding.rs` can check the 1252 default
+# against the real NLS answer on a Windows host -- the one place the two implementations can be
+# compared.
+dereth-primitives = { workspace = true, features = ["host-nls"] }
+# Tests only: `tests/cpu/common/corpus_size.rs` reads the recorded corpus's own sizes back out of
+# `fixtures/message-corpus` so that the suite's denominators are not integers typed into assertions,
+# through `dereth_client_net::client_session::testing`. `dereth-client-model` itself does not depend
+# on `dereth-client-net`.
+dereth-client-net = { path = "../client-net" }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

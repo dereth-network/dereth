@@ -1,0 +1,3 @@
+0x100001F7 visible [495,158 300x337]
+  0x100001E6 visible [500,163 290x590]
+    0x100001E7 visible [500,163 280x24] "You do not currently own a house."

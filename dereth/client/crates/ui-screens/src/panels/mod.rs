@@ -1,0 +1,42 @@
+//! The panel stack and the panel catalogue: the toolbar and panel behaviour.
+
+pub mod abuse;
+pub mod allegiance;
+pub mod attributes;
+pub mod barber;
+pub mod book;
+pub mod catalogue;
+pub mod characterinfo;
+pub mod contracts;
+pub mod effects;
+pub mod examination;
+pub mod external_container;
+pub mod fellowship;
+pub mod friends;
+pub mod house;
+pub mod inforegion;
+pub mod inventory;
+pub mod journal;
+pub mod linkstatus;
+pub mod listbox;
+pub mod minigame;
+pub mod numfmt;
+pub mod pagelist;
+pub mod panel_stack;
+pub mod remaining;
+pub mod rows;
+pub mod salvage;
+pub mod skills;
+pub mod slumlord;
+pub mod spell_examine;
+pub mod spellbook;
+pub mod spellcasting;
+pub mod spellcomponent;
+pub mod squelch;
+pub mod statmgmt;
+pub mod titles;
+pub mod trade;
+/// The urgent-assistance request window.
+pub mod urgent_assistance;
+pub mod vendor;
+pub mod vitae;

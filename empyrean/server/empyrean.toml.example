@@ -1,0 +1,344 @@
+# Empyrean configuration: empyrean.toml.
+#
+# This file is the server's only configuration. Every key is optional: a key left out keeps its
+# default, which each key's comment gives with the ACE Config.js setting it stands for (or
+# "Empyrean only"). The server reads empyrean.toml from the working directory, else from beside
+# the server executable; `--config <path>` names another file. With neither, it runs on the
+# defaults.
+#
+# Paths: a leading ~ is your home folder (~/ac, or ~\ac on Windows); an absolute path is used as
+# it is; a relative path is relative to the folder this file is in (the working directory when the
+# server runs on the defaults, with no file). The server logs where each path resolved at info level.
+#
+# The server reads no environment variables: this file is all of its configuration.
+# `--config <path>` names the file, and `--status <ip>:<port>` on the command line overrides
+# server.status_address.
+#
+# ACE's Config.js is not read. Convert one once with
+#     empyrean-server --write-config --from Config.js --out empyrean.toml
+# which drops the settings Empyrean does not have and lists them. `empyrean-server --write-config
+# [<path>]` writes the configuration in use as a file like this one.
+
+# ----------------------------------------------------------------------------------------------
+[server]
+# The game server.
+
+# default: "Empyrean" (ACE Config.js: Server.WorldName)
+# The world's name.
+world_name = "Empyrean"
+
+# default: "" (ACE Config.js: Server.DatFilesDirectory)
+# The folder that holds the retail dat files (client_cell_1.dat, client_portal.dat,
+# client_highres.dat, client_local_English.dat). Empty means this file's folder, then the
+# folder the server executable is in. Only this key names the folder: the server reads no
+# environment variable.
+dat_files_directory = ""
+
+# default: "./world.pack" (Empyrean only)
+# The world database, built from ACE's world-database SQL dump with
+# `empyrean-import --sql <dump.sql> --out world.pack`. It replaces ACE's MySql.World connection.
+# The default (./world.pack) is also looked for beside the server executable; a path you
+# write names one file.
+world_pack_path = "./world.pack"
+
+# default: "" (Empyrean only)
+# The content overlay, an SQLite file beside world.pack that the developer
+# content commands (import-sql, import-json, createinst, nudge, ...) write to and the world
+# database reads first. Empty means no overlay. `empyrean-import --overlay <file>` publishes it
+# into a new world.pack. Needs world_base_sql (and world_base_patches) to write.
+world_overlay_path = ""
+
+# default: "" (Empyrean only)
+# The ACE world-database SQL dump world.pack was built from. The overlay
+# loads it on its first write, so a write runs as an empyrean-import patch does.
+world_base_sql = ""
+
+# default: [] (Empyrean only)
+# The empyrean-import patch inputs world.pack was built from, in order after the
+# dump: a file or folder of SQL, or "json:<path>" for ACE JSON content.
+world_base_patches = []
+
+# default: 60 (ACE Config.js: Server.ShutdownInterval)
+# Seconds the server waits before shutting down after a shutdown is called from the
+# console or by an admin in game.
+shutdown_interval = 60
+
+# default: false (ACE Config.js: Server.ServerPerformanceMonitorAutoStart)
+# Start the performance monitor (the /serverperformance command) with the server.
+server_performance_monitor_auto_start = false
+
+# default: 31 (ACE Config.js: Server.ShardPlayerBiotaCacheTime)
+# Minutes a player object read from the shard database stays in memory.
+shard_player_biota_cache_time = 31
+
+# default: 11 (ACE Config.js: Server.ShardNonPlayerBiotaCacheTime)
+# Minutes a non-player object read from the shard database stays in memory.
+shard_non_player_biota_cache_time = 11
+
+# default: true (ACE Config.js: Server.LandblockPreloading)
+# Load the landblocks in [[server.preloaded_landblocks]] at startup. Perma-load
+# landblocks can hold server-wide mechanics and should always be active.
+landblock_preloading = true
+
+# default: "info" (Empyrean only)
+# The server log's level: "error", "warn", "info", "debug" or "trace". Any other
+# value is warned about at startup and logs at "info".
+log_level = "info"
+
+# default: "" (Empyrean only)
+# The HTTP status endpoint (GET /status and GET /health) as "<ip>:<port>", for
+# example "127.0.0.1:9100". Empty leaves it off. `--status <ip>:<port>` on the command
+# line wins. It has no authentication: keep it on loopback or a private network.
+status_address = ""
+
+# default: true (Empyrean only)
+# Read console commands from standard input. Set it false when the server runs as a
+# service or in a container with no terminal.
+interactive_console = true
+
+# default: "" (Empyrean only)
+# Where players are told this server's source code is (the login welcome, @source, the
+# version report and the status endpoint). Empty means the repository the build came
+# from. The server is AGPL-3.0: if you run a modified version for players, set this to
+# where your modified source can be had.
+source_url = ""
+
+# default: "off" (Empyrean only)
+# Which new releases the server installs by itself: "off", "patch" (patch releases of
+# this minor version, which change no database, world pack or configuration) or "minor"
+# (also minor releases, with their database migrations and world-pack rebuilds). Major
+# releases and pre-releases are only reported. `empyrean-server update --check` says what
+# would be taken and why. See SETUP.md, "Automatic updates".
+update = "off"
+
+# default: 6 (Empyrean only)
+# Hours between checks for a new release while update is not "off".
+update_check_hours = 6
+
+# default: 300 (Empyrean only)
+# Seconds of in-game shutdown countdown before the server restarts into a new release.
+update_warning_seconds = 300
+
+# default: "" (Empyrean only)
+# Where new releases are looked for. Empty means the GitHub repository this build came
+# from (the source `empyrean-server --version` prints). Otherwise a GitHub repository
+# ("https://github.com/<owner>/<name>"), or a mirror that serves GitHub's releases API
+# for one ("https://mirror.example.org/repos/<owner>/<name>"). Every download is
+# checked against the release's SHA256SUMS and release.json.
+update_source = ""
+
+# ----------------------------------------------------------------------------------------------
+[server.network]
+# The listener and session limits.
+
+# default: "0.0.0.0" (ACE Config.js: Server.Network.Host)
+# The address to listen on. Change it only for special network setups, such as several
+# network adapters.
+host = "0.0.0.0"
+
+# default: 9000 (ACE Config.js: Server.Network.Port)
+# The first of two UDP ports: the server also opens port + 1. Open both in the firewall.
+port = 9000
+
+# default: 128 (ACE Config.js: Server.Network.MaximumAllowedSessions)
+# Must be above 0 for anyone to connect.
+maximum_allowed_sessions = 128
+
+# default: 60 (ACE Config.js: Server.Network.DefaultSessionTimeout)
+# Seconds until an idle session is declared dead.
+default_session_timeout = 60
+
+# default: -1 (ACE Config.js: Server.Network.MaximumAllowedSessionsPerIPAddress)
+# Sessions allowed from one IP address; -1 is unlimited.
+maximum_allowed_sessions_per_ip_address = -1
+
+# default: [] (ACE Config.js: Server.Network.AllowUnlimitedSessionsFromIPAddresses)
+# IP addresses exempt from that limit; best kept to admins and developers.
+# Example: ["127.0.0.1", "8.8.8.8"]
+allow_unlimited_sessions_from_ip_addresses = []
+
+# ----------------------------------------------------------------------------------------------
+[server.websocket]
+# The WebSocket endpoint: browser clients connect here directly, one game datagram per message.
+# Off unless enabled. wss:// needs a certificate and key; plain ws:// is served only on a
+# loopback address or with behind_tls_proxy.
+
+# default: false (Empyrean only)
+# Listen for WebSocket connections.
+enabled = false
+
+# default: "0.0.0.0:9443" (Empyrean only)
+# The address to listen on, "<ip>:<port>". Behind a reverse proxy on this machine, a loopback
+# address such as "127.0.0.1:9180".
+listen = "0.0.0.0:9443"
+
+# default: "" (Empyrean only)
+# The PEM certificate chain for wss://. Empty serves plain ws://, which is allowed only on
+# loopback or with behind_tls_proxy.
+tls_certificate = ""
+
+# default: "" (Empyrean only)
+# The PEM private key for tls_certificate.
+tls_private_key = ""
+
+# default: false (Empyrean only)
+# A reverse proxy in front (nginx, Cloudflare) terminates TLS, so plain ws:// may be served
+# on a non-loopback address. The proxy must be the only way in.
+behind_tls_proxy = false
+
+# default: [] (Empyrean only)
+# The proxies whose X-Forwarded-For header names the client, for the limits and the log.
+# Example: ["127.0.0.1"]. A connection from any other address is taken as the client.
+trusted_proxies = []
+
+# default: [] (Empyrean only)
+# The web pages allowed to connect, by origin. Example: ["https://play.example.org"].
+# Empty refuses every browser page.
+allowed_origins = []
+
+# default: 4 (Empyrean only)
+# WebSocket connections open at once from one client address; -1 is unlimited.
+maximum_connections_per_ip_address = 4
+
+# default: 60 (Empyrean only)
+# Seconds a connection may send nothing before it is closed. Keep a proxy's read timeout
+# longer than this.
+idle_timeout = 60
+
+# default: "" (Empyrean only)
+# The URL clients use, reported by the status endpoint ("wss://play.example.org/ws").
+# Empty derives it from listen.
+public_url = ""
+
+# ----------------------------------------------------------------------------------------------
+[server.accounts]
+# Account creation and permissions.
+
+# default: true (ACE Config.js: Server.Accounts.OverrideCharacterPermissions)
+# Account-level permissions (true) rather than character-level ones (retail).
+override_character_permissions = true
+
+# default: 0 (ACE Config.js: Server.Accounts.DefaultAccessLevel)
+# The access level of a new account (0 is Player).
+default_access_level = 0
+
+# default: true (ACE Config.js: Server.Accounts.AllowAutoAccountCreation)
+# Create an account on its first login.
+allow_auto_account_creation = true
+
+# default: 8 (ACE Config.js: Server.Accounts.PasswordHashWorkFactor)
+# The BCrypt work factor for passwords.
+password_hash_work_factor = 8
+
+# default: true (ACE Config.js: Server.Accounts.ForceWorkFactorMigration)
+# Rehash a password whose work factor differs from password_hash_work_factor.
+force_work_factor_migration = true
+
+# ----------------------------------------------------------------------------------------------
+# [[server.preloaded_landblocks]], default: 6 entries (E74EFFFF, A9B4FFFF, DA55FFFF, 7D64FFFF, 0007FFFF, 00000000) (ACE Config.js: Server.PreloadedLandblocks).
+# The landblocks loaded (and perma-loaded) at startup; they need landblock_preloading.
+# In most cases they need no change. Any entry written here replaces the whole default list;
+# `preloaded_landblocks = []` under [server] loads none.
+#   id: The landblock id in hex.
+#   description: Free text.
+#   permaload: Never unload.
+#   include_adjacents: Also load the adjacent landblocks.
+#   enabled: Use this entry.
+
+[[server.preloaded_landblocks]]
+id = "E74EFFFF"
+description = "Hebian-To (Global Events)"
+permaload = true
+include_adjacents = false
+enabled = true
+
+[[server.preloaded_landblocks]]
+id = "A9B4FFFF"
+description = "Holtburg"
+permaload = true
+include_adjacents = true
+enabled = false
+
+[[server.preloaded_landblocks]]
+id = "DA55FFFF"
+description = "Shoushi"
+permaload = true
+include_adjacents = true
+enabled = false
+
+[[server.preloaded_landblocks]]
+id = "7D64FFFF"
+description = "Yaraq"
+permaload = true
+include_adjacents = true
+enabled = false
+
+[[server.preloaded_landblocks]]
+id = "0007FFFF"
+description = "Town Network"
+permaload = true
+include_adjacents = false
+enabled = false
+
+[[server.preloaded_landblocks]]
+id = "00000000"
+description = "Apartment Landblocks"
+permaload = true
+include_adjacents = false
+enabled = false
+
+# ----------------------------------------------------------------------------------------------
+[database]
+# The database files. (ACE's MySql section; Empyrean's databases are SQLite files, and
+# the world database is world_pack_path.)
+
+# default: "./shard.db" (Empyrean only)
+# The shard (characters) database, a SQLite file created on first start.
+shard_db_path = "./shard.db"
+
+# default: "./auth.db" (Empyrean only)
+# The authentication (accounts) database, a SQLite file created on first
+# start; it may be the same file as shard_db_path.
+auth_db_path = "./auth.db"
+
+# ----------------------------------------------------------------------------------------------
+[offline]
+# Maintenance run before the world starts. The shard should not be in use by a running world.
+
+# default: false (ACE Config.js: Offline.PurgeDeletedCharacters)
+# Permanently delete characters (and their objects) deleted longer than
+# purge_deleted_characters_days ago.
+purge_deleted_characters = false
+
+# default: 30 (ACE Config.js: Offline.PurgeDeletedCharactersDays)
+# Days a character must have been deleted before it can be purged.
+purge_deleted_characters_days = 30
+
+# default: false (ACE Config.js: Offline.PurgeOrphanedBiotas)
+# Purge objects disconnected from the world. This can take a while: run it once every
+# few months, not at every start.
+purge_orphaned_biotas = false
+
+# default: true (ACE Config.js: Offline.PruneDeletedCharactersFromFriendLists)
+# Remove deleted characters from every friend list.
+prune_deleted_characters_from_friend_lists = true
+
+# default: false (ACE Config.js: Offline.PruneDeletedObjectsFromShortcutBars)
+# Remove shortcuts to objects that no longer exist.
+prune_deleted_objects_from_shortcut_bars = false
+
+# default: false (ACE Config.js: Offline.PruneDeletedCharactersFromSquelchLists)
+# Remove deleted characters from every squelch list (account squelches are kept).
+prune_deleted_characters_from_squelch_lists = false
+
+# ----------------------------------------------------------------------------------------------
+[ddd]
+# Patching the client's dat files from the server's.
+
+# default: false (ACE Config.js: DDD.EnableDATPatching)
+# Let the server patch client dat files from its own.
+enable_dat_patching = false
+
+# default: false (ACE Config.js: DDD.PrecacheCompressedDATFiles)
+# At startup, precache every dat file that would be sent compressed.
+precache_compressed_dat_files = false

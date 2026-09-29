@@ -1,0 +1,48 @@
+[package]
+name = "empyrean-common"
+description = "The port of ACE's Source/ACE.Common, with the .NET-semantics shims, clocks, configuration and the not-ported instrument every server crate uses."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+log.workspace = true
+# Config.js loading, and the golden-vector loader (`vectors`). `float_roundtrip` gives exact double
+# parsing, which every crate reading vectors needs (without it a parsed double can be off by one ulp).
+serde.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+# empyrean.toml, the native configuration.
+toml.workspace = true
+# `SHA2.Hash`.
+sha2.workspace = true
+# `math`: the portable transcendental functions, which live in `dereth_primitives::num::math`.
+dereth-primitives.workspace = true
+dereth-protocol.workspace = true
+# `cryptography`: ACE's Hash32 and ISAAC are the shared transport core's.
+dereth-transport.workspace = true
+
+[features]
+# `math` calls the host C runtime (std) instead of the portable functions: bit-exact with ACE on
+# Windows, host-dependent elsewhere. It switches `dereth_primitives::num::math`, so the
+# shared crates (physics, animation) change with it.
+host-libm = ["dereth-primitives/host-libm"]
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

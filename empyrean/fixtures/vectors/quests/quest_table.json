@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {"in":{"name":"KillTaskRats"},"out":{"max_solves":10,"min_delta":72000}},
+    {"in":{"name":"DailyRun"},"out":{"max_solves":-1,"min_delta":86400}},
+    {"in":{"name":"OnceOnly"},"out":{"max_solves":1,"min_delta":0}},
+    {"in":{"name":"ColoArenaKeyTimer"},"out":{"max_solves":-1,"min_delta":3600}},
+    {"in":{"name":"BitFlags"},"out":{"max_solves":-1,"min_delta":0}},
+    {"in":{"name":"Weekly"},"out":{"max_solves":3,"min_delta":604800}},
+    {"in":{"name":"ColoArenaCap"},"out":{"max_solves":2,"min_delta":1000}},
+    {"in":{"name":"ShortTimer"},"out":{"max_solves":5,"min_delta":7}},
+    {"in":{"name":"NotInDb"},"out":null},
+    {"in":{"name":"Mystery"},"out":null}
+  ],
+  "generator": "ace-vectors quests",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/QuestManager.cs","member":"the quest rows the script installs into DatabaseManager.World's cachedQuest","notes":"in: {name}; out: {min_delta, max_solves}, or null for a name the table lacks.","runtime":"10.0.12","sdk":"10.0.401"}
+}

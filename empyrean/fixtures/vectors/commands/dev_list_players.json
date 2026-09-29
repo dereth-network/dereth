@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {"in":{"parameters":[]},"out":{"console":["Total connected Players: 0\n"]}},
+    {"in":{"parameters":["Admin"]},"out":{"console":["Listing only Admins:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["admin"]},"out":{"console":["Listing only Admins:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["ADMIN"]},"out":{"console":["Listing only Admins:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["Player"]},"out":{"console":["Listing only Players:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["Developer"]},"out":{"console":["Listing only Developers:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["Envoy"]},"out":{"console":["Listing only Envoys:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["Sentinel"]},"out":{"console":["Listing only Sentinels:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["Advocate"]},"out":{"console":["Listing only Advocates:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["0"]},"out":{"console":["Listing only Players:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["5"]},"out":{"console":["Listing only Admins:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["6"]},"out":{"console":["Listing only 6s:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["99"]},"out":{"console":["Listing only 99s:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["abc"]},"out":{"console":["Invalid AccessLevel value"]}},
+    {"in":{"parameters":["-1"]},"out":{"console":["Listing only -1s:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["65535"]},"out":{"console":["Listing only 65535s:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["65536"]},"out":{"console":["Listing only 65536s:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":[" 3"]},"out":{"console":["Listing only Envoys:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["3 "]},"out":{"console":["Listing only Envoys:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["Admin,Envoy"]},"out":{"console":["Listing only 7s:\nTotal connected Players: 0\n"]}},
+    {"in":{"parameters":["4294967295"]},"out":{"console":["Invalid AccessLevel value"]}},
+    {"in":{"parameters":[""]},"out":{"console":["Invalid AccessLevel value"]}},
+    {"in":{"parameters":["\u0663"]},"out":{"console":["Invalid AccessLevel value"]}},
+    {"in":{"parameters":["1e2"]},"out":{"console":["Invalid AccessLevel value"]}}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperCommands.cs","member":"ACE.Server.Command.Handlers.DeveloperCommands.HandleListPlayers(null, params string[])","notes":"From the console with no player online; out.console is what WriteOutputInfo logged.","runtime":"10.0.12","sdk":"10.0.401"}
+}

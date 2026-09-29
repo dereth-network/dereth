@@ -1,0 +1,43 @@
+[package]
+name = "dereth-headless"
+description = "The Dereth client with no window, no device and no UI, driven by a text script of actions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# One test target, and `autotests = false` so a stray `tests/*.rs` cannot become a second link
+# step silently -- the same arrangement `dereth-client` and `dereth-client-net` use.
+autotests = false
+
+# **No graphics feature, and nothing to turn one on with.** This crate exists to prove that a whole
+# client runs with no device, no window and no UI: it is built on the client SDK alone, so no
+# renderer, UI, window system or audio device is in its dependency tree at all (`cargo xtask seams`
+# checks that its only `dereth-*` dependency is `dereth-client-sdk`).
+[features]
+default = []
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose one module
+# opens the retail dats under $DERETH_TEST_DAT_DIR and replays a capture through a real `App`.
+retail-dats = []
+
+[dependencies]
+# The client SDK: the runtime's `App` over `NullShell`, `NullPresentation` and `Platform::headless`
+# is the whole of what this binary is, and every type that crosses that seam -- the snapshot, the
+# input actions, the session state, the capture reader, the dat store's directory -- is one of the
+# crates the SDK re-exports.
+dereth-client-sdk = { path = "../../core/client-sdk" }
+thiserror.workspace = true
+# The subscriber for the runtime's events: stderr only, so the script transcript keeps stdout to
+# itself. `tracing-log` bridges the `log` records of the sound decoders.
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+dereth-client-sdk = { path = "../../core/client-sdk", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dereth</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #17171a; --fg: #e9e5dc; --muted: #9a9486; --line: #34312c; --accent: #d7b46a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  #view { display: block; background: #000; outline: none; image-rendering: auto; cursor: default; }
+  #launch { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); }
+  #launch form { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px 24px; width: min(420px, calc(100vw - 32px)); box-sizing: border-box; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: var(--accent); letter-spacing: 0.02em; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+  #problem { color: #e08a7a; margin: 12px 0 0; font-size: 13px; white-space: pre-wrap; }
+  #problem:empty { display: none; }
+  label { display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
+  input[type=text], input[type=password], select { width: 100%; box-sizing: border-box; padding: 6px 8px; background: #0f0f11; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button { margin-top: 16px; width: 100%; padding: 8px; font: 600 14px system-ui, sans-serif; color: #111; background: var(--accent); border: 0; border-radius: 4px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #files { display: none; }
+  #status { position: fixed; left: 8px; bottom: 6px; font: 11px ui-monospace, monospace; color: var(--muted); pointer-events: none; text-shadow: 0 0 3px #000; }
+  #log { position: fixed; right: 8px; bottom: 6px; max-width: 46vw; max-height: 30vh; overflow: auto; margin: 0; font: 11px/1.3 ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; pointer-events: none; text-shadow: 0 0 3px #000; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="view" width="800" height="600" tabindex="0"></canvas></div>
+
+<div id="launch">
+  <form id="form">
+    <h1>Dereth</h1>
+    <p class="sub">Asheron's Call, in this browser. Your data files are read on this machine and never uploaded.</p>
+    <label for="source">Data files</label>
+    <select id="source">
+      <option value="store">Pick the four client_*.dat files and keep a copy in this browser</option>
+      <option value="opfs">The copy already in this browser</option>
+      <option value="files">Pick the four files for this visit only</option>
+    </select>
+    <input id="files" type="file" multiple accept=".dat">
+    <label for="server">Server</label>
+    <input id="server" type="text" value="ws://127.0.0.1:9180/" spellcheck="false"
+           title="The server's wss:// URL, its status address (https://…/status), or ws://127.0.0.1:9180/ for dereth-web-relay">
+    <div class="row">
+      <div><label for="account">Account</label><input id="account" type="text" autocomplete="username"></div>
+      <div><label for="password">Password</label><input id="password" type="password" autocomplete="current-password"></div>
+    </div>
+    <button id="go" type="submit">Play</button>
+    <p id="problem" role="alert"></p>
+  </form>
+</div>
+
+<div id="status"></div>
+<pre id="log"></pre>
+
+<script type="module" src="play.js"></script>
+</body>
+</html>

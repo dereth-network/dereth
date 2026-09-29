@@ -1,0 +1,25 @@
+// Ported from ACE (ACEmulator), AGPL-3.0: Source/ACE.Server/Network/GameAction/Actions/GameActionCloseTradeNegotiations.cs
+//! Port of `Source/ACE.Server/Network/GameAction/Actions/GameActionCloseTradeNegotiations.cs`.
+
+use empyrean_entity::enums::EndTradeReason;
+use empyrean_net::SessionId;
+
+use crate::managers::player_manager;
+use crate::network::managers::inbound_message_manager::{session_player, HandlerResult, Payload};
+use crate::world_objects::player_trade;
+use crate::World;
+
+// ACE: GameActionCloseTradeNegotiations.Handle
+pub fn handle(w: &mut World, _message: &mut Payload<'_>, session: SessionId) -> HandlerResult {
+    let player = session_player(w, session);
+    let target =
+        player_manager::get_online_player(w, player_trade::trade_partner(w, player).full());
+
+    if let Some(target) = target {
+        player_trade::handle_action_close_trade_negotiations(w, player, EndTradeReason::Normal);
+
+        //Close the trade window for the trade partner
+        player_trade::handle_action_close_trade_negotiations(w, target, EndTradeReason::Normal);
+    }
+    Ok(())
+}

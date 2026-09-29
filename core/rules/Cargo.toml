@@ -1,0 +1,32 @@
+[package]
+name = "dereth-rules"
+description = "The pure retail game rules shared by the client and the server: values and decoded tables in, numbers out."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[features]
+default = ["proto"]
+# Two modules need `dereth-protocol`: `enchant` (the registry's entries carry the wire `StatMod` and are
+# built from the decoded wire registry) and `taboo` (it encodes patterns with `dereth_protocol::cp1252`).
+# A UI crate that wants only the arithmetic (burden bands, chargen credits) takes this crate with
+# `default-features = false` and stays off the wire crate.
+proto = ["dep:dereth-protocol"]
+
+[dependencies]
+dereth-primitives.workspace = true
+# The dat tables the rules read: `XpTable`, `SkillTable`, `Attribute2ndTable`, `SkillFormula`,
+# `TabooTable`, `CharGen`. Decoded values only; nothing here opens a file.
+dereth-assets = { path = "../assets" }
+dereth-protocol = { path = "../protocol", optional = true }
+
+[dev-dependencies]
+# `taboo`'s tests encode through `dereth_protocol::cp1252::Cp1252`, and `enchant`'s build wire values.
+dereth-protocol = { path = "../protocol" }
+
+[lints]
+workspace = true

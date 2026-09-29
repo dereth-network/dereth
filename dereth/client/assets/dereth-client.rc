@@ -1,0 +1,7 @@
+// The application icon, linked into the executable. Windows only: the resource compiler runs
+// from this directory (see build.rs), so the icon is named as the sibling file it is.
+//
+// The ordinal must stay 1: it is `IDI_APP` in src/platform/window.rs, which loads the same
+// resource to put the icon on the window, and Explorer shows the lowest-numbered icon in the
+// file as the executable's own.
+1 ICON "dereth.ico"

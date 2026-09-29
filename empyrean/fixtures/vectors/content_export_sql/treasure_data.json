@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {"in":{"v":0,"weenie":false},"out":{"named":"UNKNOWN RANDOMLY GENERATED TREASURE","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":0,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":5,"weenie":false},"out":{"named":"RANDOMLY GENERATED TREASURE from Loot Tier 3 from Death Treasure Table id: 5","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":5,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":6,"weenie":false},"out":{"named":"RANDOMLY GENERATED TREASURE from Loot Tier 1 from Death Treasure Table id: 6","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":6,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":9,"weenie":false},"out":{"named":"something from one or more sets from Wielded Treasure Table id: 9\r\n                                   # Set: 1\r\n                                   |  50.00% chance of 5x Pyreal (273)\r\n                                   |  25.00% chance of Trade Note (250,000) (274) | Palette: BluePurple (3) | Shade: 0.5\r\n                                   |  25.00% chance of nothing from this set\r\n                                   # Set: 2\r\n                                   | 100.00% chance of 5x to 10x Drudge Skulker (7) | StackSizeVariance: 0.5\r\n                                   |         with\r\n                                   |             30.00% chance of Drudge, , Slinker (8)\r\n                                   |             60.00% chance of Banderling (9)\r\n                                   |             10.00% chance of nothing from this subset\r\n                                   # Set: 3\r\n                                   |  70.00% chance of Human (1)\r\n                                   |  30.00% chance of nothing from this set","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":9,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":10,"weenie":false},"out":{"named":{"throws":"System.Collections.Generic.KeyNotFoundException"},"plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":10,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":777,"weenie":false},"out":{"named":"UNKNOWN RANDOMLY GENERATED TREASURE","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":777,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":3000,"weenie":false},"out":{"named":"UNKNOWN RANDOMLY GENERATED TREASURE","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":3000,"weenie":true},"out":{"named":"RANDOMLY GENERATED TREASURE from Loot Tier 3 from Death Treasure Table id: 5","plain":"nothing"}},
+    {"in":{"v":3001,"weenie":false},"out":{"named":"UNKNOWN RANDOMLY GENERATED TREASURE","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":3001,"weenie":true},"out":{"named":"nothing","plain":"nothing"}},
+    {"in":{"v":3002,"weenie":false},"out":{"named":"UNKNOWN RANDOMLY GENERATED TREASURE","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":3002,"weenie":true},"out":{"named":"something from one or more sets from Wielded Treasure Table id: 9\r\n                                   # Set: 1\r\n                                   |  50.00% chance of 5x Pyreal (273)\r\n                                   |  25.00% chance of Trade Note (250,000) (274) | Palette: BluePurple (3) | Shade: 0.5\r\n                                   |  25.00% chance of nothing from this set\r\n                                   # Set: 2\r\n                                   | 100.00% chance of 5x to 10x Drudge Skulker (7) | StackSizeVariance: 0.5\r\n                                   |         with\r\n                                   |             30.00% chance of Drudge, , Slinker (8)\r\n                                   |             60.00% chance of Banderling (9)\r\n                                   |             10.00% chance of nothing from this subset\r\n                                   # Set: 3\r\n                                   |  70.00% chance of Human (1)\r\n                                   |  30.00% chance of nothing from this set","plain":"nothing"}},
+    {"in":{"v":3003,"weenie":false},"out":{"named":"UNKNOWN RANDOMLY GENERATED TREASURE","plain":"UNKNOWN RANDOMLY GENERATED TREASURE"}},
+    {"in":{"v":3003,"weenie":true},"out":{"named":"nothing","plain":"nothing"}}
+  ],
+  "generator": "ace-vectors content_export_sql",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Database/SQLFormatters/SQLWriter.cs","member":"SQLWriter.GetValueForTreasureData(uint, bool)","notes":"in: {v, weenie}; out: {plain, named} (a string or {throws}); named uses dicts.json (Weenies included).","runtime":"10.0.12","sdk":"10.0.401"}
+}

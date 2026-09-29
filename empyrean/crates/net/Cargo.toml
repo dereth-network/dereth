@@ -1,0 +1,47 @@
+[package]
+name = "empyrean-net"
+description = "The port of Source/ACE.Server/Network's transport: sans-IO server sessions over the shared wire layer, with UDP and in-memory drivers."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# The test client and the in-memory driver's lossy link (`src/testing.rs`), for empyrean-testkit and for
+# this crate's own integration tests.
+testing = ["dep:dereth-client-net"]
+# The one socket smoke test. Outside the unit tier: `cargo test -p empyrean-net --features real-sockets`.
+real-sockets = ["testing"]
+
+[dependencies]
+empyrean-common.workspace = true
+dereth-transport.workspace = true
+# `testing` only: its test client is the real client connection (`dereth_client_net::Net`).
+dereth-client-net = { workspace = true, optional = true }
+dereth-protocol.workspace = true
+dereth-primitives.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+# Self dev-dependency: turns on `testing` for tests/all without making it a default feature.
+empyrean-net = { path = ".", features = ["testing"] }
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

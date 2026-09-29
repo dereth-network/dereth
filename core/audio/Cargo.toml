@@ -1,0 +1,43 @@
+[package]
+name = "dereth-audio"
+description = "The client's sound engine short of the output device: the mixer, attenuation and pan, the trigger paths, ambience and the audio and video codecs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs can no longer become a test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# The one hard edge: this crate takes the decoders' `Wave`,
+# `SoundTable` and region ambient descriptors and decodes none of the dat itself.
+dereth-assets = { path = "../assets" }
+thiserror.workspace = true
+# The single 5 KB MP3 in the shipped data (`0A000393`). symphonia decodes it in place of the
+# Windows ACM codec the original handed it to, which is a system component and not portable.
+symphonia-bundle-mp3 = { version = "0.6", default-features = false, features = ["mp3"] }
+symphonia-core = "0.6"
+
+[dev-dependencies]
+# Tests read the retail dats directly as their oracle, exactly as the decoders' do, and skip when
+# the install is absent. No production code path touches dereth-dat.
+dereth-dat = { path = "../dat", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

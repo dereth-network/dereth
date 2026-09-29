@@ -1,0 +1,26 @@
+# What upgrading to each Empyrean release involves, beyond replacing its binaries.
+#
+# `cargo xtask package empyrean` writes it, with what the code says, into the release's
+# release.json, where the server's updater (`empyrean-server update`, `server.update`) reads it
+# before it installs anything. From the code, at this release and at the previous release's tag:
+# the shard and authentication schema versions (and so the migrations between the two), the
+# world.pack format and record schema (and so whether the pack must be rebuilt), and the
+# configuration keys renamed in this release (toml_config's RENAMED). Declared here, because the
+# code cannot say it:
+#
+#   version        the release, MAJOR.MINOR.PATCH (its pre-releases carry the same declaration)
+#   upgrades_from  the oldest version that can upgrade straight to it; the previous release or
+#                  older, and for the first release the release itself
+#   config         keys it removes or newly requires, each
+#                  { key = "server.some_key", change = "removed" | "required", note = "..." }
+#                  (a server only installs a release that requires a key by hand)
+#   notes          anything else an operator should read first
+#
+# Every first, minor and major release has an entry. A patch release has none: it declares
+# nothing, and the packaging refuses a patch release that migrates a database, changes world.pack
+# or renames a configuration key. Entries are never removed.
+
+[[release]]
+version = "0.1.0"
+upgrades_from = "0.1.0"
+notes = "The first release: its database schemas are version 1."

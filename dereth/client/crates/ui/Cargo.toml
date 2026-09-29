@@ -1,0 +1,49 @@
+[package]
+name = "dereth-ui"
+description = "The game-agnostic engine UI: the element model, the description system, the event channels, text editing, dialogs, persistence and the mode machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+# `ElementId` and `UiMode` live in the contract crate, because `UiRequest` carries them.
+# `dereth_ui::ElementId` and `dereth_ui::framework::UiMode` are `pub use`s of them.
+dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-primitives.workspace = true
+thiserror.workspace = true
+# `dereth-assets` owns the on-disk `LayoutDesc` byte layout and already decodes all 101 shipped
+# layouts byte-exactly (the UI layout type's `decode_payload` method). This crate owns the
+# *in-memory* description objects, the full-description query, incorporation and the description
+# cache; it reads the payload through `dereth-assets` rather than shipping a second copy of the
+# payload decoder and its property-type-map plumbing.
+dereth-assets = { path = "../../../../core/assets" }
+# The input-action catalogue. `focus::action` and `focus::DRAG_THRESHOLD_SQUARED` are re-exports
+# of `dereth_input::action`. There is no cycle -- `dereth-input` depends only on
+# `dereth-primitives`.
+dereth-input = { path = "../input" }
+
+[dev-dependencies]
+# Test-only: the acceptance gate reads the retail `client_local_English.dat` when it is present.
+dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+serde_json = "1"
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

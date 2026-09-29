@@ -1,0 +1,40 @@
+[package]
+name = "xtask"
+description = "The workspace task runner: the gate tiers, the clippy policy, the seams and the checks clippy cannot express."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# One test binary per tier, as every crate has: a stray tests/*.rs cannot become a
+# test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it, and this crate has no `dat` test binary. It exists so
+# that a workspace-wide `--features retail-dats` run resolves here.
+retail-dats = []
+
+[dependencies]
+# `crate-docs` reads `cargo metadata`; the unit tier's budget keeps its history as JSON.
+serde_json = "1"
+# `test-lint` states its naming rules as the regular expressions the test standard writes them in.
+regex = "1"
+# The sweep runs test binaries without cargo, so it reads the Cargo configuration's `[env]` itself.
+toml = "1"
+# Where the gates look for the retail dats: the same lookup the tests they run use.
+dereth-dat = { path = "../../core/dat", features = ["test-support"] }
+
+# `package`: the release archives (a .zip for Windows, a .tar.gz elsewhere, with the same
+# zlib-rs deflate the importer already builds) and their checksums.
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+sha2 = "0.10"
+
+[lints]
+workspace = true
+
+# The repository-wide gates: each runs a checker over the tracked tree.
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

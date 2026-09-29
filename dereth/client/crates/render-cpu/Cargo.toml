@@ -1,0 +1,35 @@
+[package]
+name = "dereth-render-cpu"
+description = "The device-free half of rendering: image codecs, the CPU-side pipeline descriptions, the font atlas, the UI quad path and the camera."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# The recording backend (`src/mock.rs`). On by default for the same reason it was on by default in
+# `dereth-render`: a bare `cargo test -p dereth-render-cpu` then exercises the RecordingBackend suite.
+# `dereth-render` depends on this crate with `default-features = false` and forwards its own `mock`.
+default = ["mock"]
+mock = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# `camera.rs`'s projection *parameters* -- `ViewParams` and the fog, light and aspect
+# types it carries -- live in `dereth-client-contract`, because `dereth_client_runtime::present::Scene`
+# names `ViewParams` and may not depend on a renderer. This crate re-exports them at their
+# `camera` paths and keeps all the arithmetic.
+dereth-client-contract = { path = "../../../../core/client-contract" }
+thiserror.workspace = true
+# `camera.rs` builds the projection and view matrices; `pso.rs` and `ui.rs` use the vector types.
+glam = "0.30"
+# `jpeg.rs` only. The decoder for the dat's JPEG surfaces.
+zune-jpeg = "0.5"
+
+# Unlike `dereth-render`, this crate takes the workspace lints, which `forbid(unsafe_code)`. It has no
+# `unsafe` and must never acquire any: that is why the device-free half is its own crate.
+[lints]
+workspace = true

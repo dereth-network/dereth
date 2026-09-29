@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {"in":{"kind":"damage_type","value":0},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":1},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":2},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":4},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":8},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":16},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":32},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":64},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":128},"out":[10,9]},
+    {"in":{"kind":"damage_type","value":256},"out":[12,11]},
+    {"in":{"kind":"damage_type","value":512},"out":[14,13]},
+    {"in":{"kind":"damage_type","value":1024},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":127},"out":[0,0]},
+    {"in":{"kind":"damage_type","value":-1},"out":[0,0]},
+    {"in":{"kind":"vital","value":0},"out":[0,0]},
+    {"in":{"kind":"vital","value":1},"out":[0,0]},
+    {"in":{"kind":"vital","value":2},"out":[10,9]},
+    {"in":{"kind":"vital","value":3},"out":[0,0]},
+    {"in":{"kind":"vital","value":4},"out":[12,11]},
+    {"in":{"kind":"vital","value":5},"out":[0,0]},
+    {"in":{"kind":"vital","value":6},"out":[14,13]},
+    {"in":{"kind":"vital","value":7},"out":[0,0]},
+    {"in":{"kind":"vital","value":8},"out":[0,0]},
+    {"in":{"kind":"vital","value":9},"out":[0,0]}
+  ],
+  "generator": "ace-vectors magic",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/WorldObject_Magic.cs","member":"ACE.Server.WorldObjects.WorldObject.GetBoostResistanceType / GetDrainResistanceType (DamageType and PropertyAttribute2nd overloads, private static)","notes":"kind is damage_type or vital; out is [boost, drain] as ResistanceType numbers.","runtime":"10.0.12","sdk":"10.0.401"}
+}

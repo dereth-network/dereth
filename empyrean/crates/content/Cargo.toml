@@ -1,0 +1,44 @@
+[package]
+name = "empyrean-content"
+description = "The world content database: the World side of ACE's Source/ACE.Database over the read-only, memory-mapped world.pack, and the importer that builds the pack from ACE's SQL dump."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# The content tier: builds a pack from the real ACE SQL dump.
+real-content = []
+
+[dependencies]
+empyrean-common.workspace = true
+empyrean-entity.workspace = true
+# The Shard SQL writers (BiotaSQLWriter, CharacterSQLWriter) write empyrean-store rows.
+empyrean-store.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde_json.workspace = true
+memmap2.workspace = true
+blake3.workspace = true
+# The content overlay file.
+rusqlite.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# NOT `[lints] workspace = true`: the workspace forbids `unsafe_code`, and this crate needs exactly
+# one `#[allow(unsafe_code)]` on `Pack::open`, because `memmap2::Mmap::map` is unsafe by
+# construction. `deny` can be overridden locally; `forbid` cannot. Otherwise the server's lint
+# levels, as every other server crate carries them.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

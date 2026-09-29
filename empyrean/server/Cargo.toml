@@ -1,0 +1,91 @@
+[package]
+name = "empyrean-server"
+description = "The Empyrean server: ACE's Program start-up around the world loop, configured by one empyrean.toml."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[build-dependencies]
+# Links the application icon (`assets/empyrean.ico`) into the executable. Explorer, the task bar
+# and Alt-Tab read the icon out of the binary before any of our code runs, so it cannot be a file
+# loaded at start-up. Same crate and version as the client's build script uses.
+embed-resource = "3"
+
+[dependencies]
+empyrean-world.workspace = true
+empyrean-command.workspace = true
+empyrean-net.workspace = true
+empyrean-store.workspace = true
+empyrean-content.workspace = true
+empyrean-dat.workspace = true
+empyrean-common.workspace = true
+empyrean-entity.workspace = true
+# `locate_retail_dats`: the one search for the retail dat folder, shared with the client.
+dereth-dat.workspace = true
+log.workspace = true
+# Named for its `log` feature alone: the shared crates the server runs on (dats, physics, world
+# data) emit `tracing` events, and with no `tracing` subscriber installed the feature hands each
+# one to the `log` facade, so it reaches this binary's own logger with the same line format and
+# level filter as every other server line. The server installs no `tracing` subscriber.
+tracing = { workspace = true, features = ["log"] }
+# Ctrl-C as a graceful shutdown.
+ctrlc = { version = "3.5", features = ["termination"] }
+# The WebSocket endpoint (`src/websocket.rs`): the frame's codec, the WebSocket handshake and
+# framing (blocking, one thread per connection), and wss:// with rustls on its ring provider, the
+# same TLS stack `empyrean-import fetch` already builds. Only this crate listens, so only it
+# carries them.
+dereth-transport.workspace = true
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# The updater (`src/update/`): the releases API and the downloads over HTTPS (the same client and
+# TLS stack `empyrean-import fetch` builds), the archives (.zip on Windows, .tar.gz elsewhere),
+# their checksums, and the JSON of `release.json`, the releases API and the updater's record.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+dereth-dat = { path = "../../core/dat", features = ["test-support"] }
+# The WebSocket endpoint's tests log a real client in over it: the test client and its accounts.
+empyrean-net = { workspace = true, features = ["testing"] }
+# A self-signed certificate made at test time for the wss:// test, so no key is kept in the tree.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+# The updater tests build synthetic databases for an installation.
+rusqlite.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"
+
+[[bin]]
+name = "empyrean-server"
+path = "src/main.rs"
+
+# The updater's end-to-end tests: a release whose server reports its facts but never comes up, to
+# be rolled back. Built only with the real-content tests that run the real server around it.
+[[bin]]
+name = "empyrean-server-unhealthy-fixture"
+path = "tests/fixtures/unhealthy_server.rs"
+required-features = ["real-content"]
+test = false
+doc = false
+
+[features]
+# Tests that boot the real binary on the retail dats and world.pack (the gate's real-content tier).
+real-content = []

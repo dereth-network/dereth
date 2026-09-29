@@ -1,0 +1,26 @@
+[package]
+name = "dereth-protocol"
+description = "The Asheron's Call wire protocol's message codecs: bytes to typed messages and back, with no behaviour."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it, and this crate has no `dat` test binary. It exists so
+# that a workspace-wide `--features retail-dats` run resolves here.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

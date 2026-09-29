@@ -1,0 +1,41 @@
+[package]
+name = "dereth-input"
+description = "The client's device input: devices and gamepads, window-message modelling, key bindings and the keymap file, the input-map stack and the toggle and repeat machine, ending in actions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Private-data tier switch only: no production code is gated on it. It selects `dat`, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# The action vocabulary this pipeline ends in: the action ids, their names and the action the
+# runtime takes.
+dereth-client-contract = { path = "../../../../core/client-contract" }
+# The byte decoders for the action map and the master input maps; this crate builds its typed
+# input maps from what they read.
+dereth-assets = { path = "../../../../core/assets" }
+thiserror.workspace = true
+
+[dev-dependencies]
+# The `dat` binary reads the shipped ActionMap and master keymaps off the retail dats.
+dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

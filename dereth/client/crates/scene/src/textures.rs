@@ -1,0 +1,441 @@
+//! Resolving a dat texture id to pixels.
+//!
+//! **Nothing here decodes anything.** The container is `dereth_dat`, the record layouts are
+//! `dereth_assets`, and the pixel expansion is `dereth_render::texture` / `dereth_render::dxt` /
+//! `dereth_render::palette`. This module owns the three-hop *lookup* from a surface id to the
+//! render-surface payload:
+//!
+//! ```text
+//! Surface record (0x08) --orig_texture_id--> SurfaceTexture (0x05) --source_levels[0]--> RenderSurface (0x06)
+//! ```
+//!
+//! `TexMerge`'s `TerrainDesc::tex_gid` and `CodeTexture::tex_gid` name the middle link directly, and
+//! a `GfxObj`'s surface list names the first, so all three entry points are accepted and the hop is
+//! chosen by `dereth_dat::divine_type`.
+//!
+//! This module carries texture records from dat ids through decoding into GPU textures.
+
+use std::collections::HashMap;
+
+use dereth_assets::texture_lookup::{LookupError, TextureLookup};
+use dereth_assets::RenderSurface;
+use dereth_dat::RetailDatStore;
+use dereth_primitives::{DataId, TextureData, TextureFormat};
+use dereth_render::palette::ExpandedPalette;
+use dereth_render::pixel_format::PixelFormatId;
+use dereth_render::texture::{decode_surface, SourcePixels};
+use dereth_world_render::land::merge::Bgra8;
+
+/// Anything the lookup can refuse to do. A missing texture is **not** an error at the call sites:
+/// the terrain compositor renders a missing tile as the client's `00 FF 00 00` debug colour
+/// (`copy_and_tile`), and an object surface that will not resolve is drawn untextured.
+#[derive(Debug, thiserror::Error)]
+pub enum TextureError {
+    #[error("{0}: {1}")]
+    Dat(DataId, dereth_dat::DatError),
+    #[error("{0}: {1}")]
+    Asset(DataId, dereth_assets::AssetError),
+    #[error("{0}: {1}")]
+    Decode(DataId, dereth_render::RenderError),
+    #[error("{0} is not a texture id, or names an empty level chain")]
+    NotATexture(DataId),
+}
+
+impl From<LookupError> for TextureError {
+    fn from(error: LookupError) -> Self {
+        match error {
+            LookupError::Dat(id, error) => Self::Dat(id, error),
+            LookupError::Asset(id, error) => Self::Asset(id, error),
+            LookupError::NotATexture(id) => Self::NotATexture(id),
+        }
+    }
+}
+
+/// The decoded pixels of one texture id, plus the palette it needed.
+///
+/// A block-compressed source stays compressed for [`TextureData`] (that is what the client does —
+/// its texture creation copies DXT blocks verbatim) and is expanded for [`Bgra8`], because the
+/// terrain compositor blends texels on the CPU.
+#[derive(Debug)]
+pub struct TextureStore<'a> {
+    lookup: TextureLookup<'a>,
+    // ORDER-OK: keyed by DataId and only ever looked up, never iterated for output.
+    bgra: HashMap<DataId, Option<Bgra8>>,
+}
+
+impl<'a> TextureStore<'a> {
+    /// A store at the registered `Render.EnvironmentTextureDetail` default, which is not the
+    /// highest setting, so a two-level `SurfaceTexture` resolves to its original art.
+    #[must_use]
+    pub fn new(store: &'a RetailDatStore) -> Self {
+        Self::with_environment_texture_detail(
+            store,
+            crate::render_prefs::RenderPreferences::default().environment_texture_detail,
+        )
+    }
+
+    /// A store at a given `Render.EnvironmentTextureDetail`. The high-detail drop predicate keeps
+    /// the high-res level only when the database has the HiFi file (`0x69466948`) and
+    /// `EnvironmentTextureDetail` is 0, and drops it otherwise, so the high-res level survives
+    /// only with the dat granted by the server ([`RetailDatStore::grant_highres`]) and the
+    /// preference at its highest, 0. At the common `Medium` (2) setting, or against a server
+    /// that grants nothing (ACE's default), the low-res level is used.
+    #[must_use]
+    pub fn with_environment_texture_detail(store: &'a RetailDatStore, detail: u32) -> Self {
+        Self {
+            lookup: TextureLookup::new(store, detail),
+            bgra: HashMap::new(),
+        }
+    }
+
+    /// Whether this store resolves a two-level `SurfaceTexture` to its high-res level.
+    #[must_use]
+    pub fn keeps_high_detail(&self) -> bool {
+        self.lookup.keeps_high_detail()
+    }
+
+    /// Follow the shared record lookup to the render-surface payload.
+    ///
+    /// # Errors
+    /// A missing, malformed or non-texture record in the chain.
+    pub fn resolve(&self, id: DataId) -> Result<(DataId, RenderSurface, Vec<u8>), TextureError> {
+        self.lookup.resolve(id).map_err(Into::into)
+    }
+
+    /// The GPU-ready form: DXT stays compressed, everything else lands as BGRA8.
+    ///
+    /// # Errors
+    /// [`TextureError`] when the chain is broken or the payload will not decode.
+    pub fn texture_data(&self, id: DataId) -> Result<TextureData, TextureError> {
+        self.texture_data_clipped(id, false)
+    }
+
+    /// [`Self::texture_data`], with the outer surface record's `BASE1_CLIPMAP` bit.
+    ///
+    /// The flag reaches the palettised decoders and nothing else, and it cannot be recovered from
+    /// inside the id chain — the surface record that carries it sits at the *top*, and by the time a
+    /// `RenderSurface` is in hand it is two hops out of reach. So the caller that read the surface
+    /// passes it down.
+    ///
+    /// # Errors
+    /// [`TextureError`] when the chain is broken or the payload will not decode.
+    pub fn texture_data_clipped(
+        &self,
+        id: DataId,
+        clip_map: bool,
+    ) -> Result<TextureData, TextureError> {
+        self.texture_data_shifted(id, clip_map, None)
+    }
+
+    /// [`Self::texture_data_clipped`], with an `ObjDesc`'s **shift palette** substituted for the
+    /// texture's own default.
+    ///
+    /// This is surface setup's `SH_PALSHIFT` arm:
+    /// Palette-shift restoration loads the indexed image texture, takes the base palette — which
+    /// surface setup has just replaced with the part array's shift palette — and combines
+    /// `(indexed texture, palette, clip-map flag)`.
+    ///
+    /// Palette expansion **requires** the source to be `PFID_P8` or `PFID_INDEX16`, so a
+    /// shift palette on any other format is not consulted at all; that is what
+    /// [`Self::is_palettised`] answers for a caller that has to key a cache.
+    ///
+    /// # Errors
+    /// [`TextureError`] when the chain is broken or the payload will not decode.
+    pub fn texture_data_shifted(
+        &self,
+        id: DataId,
+        clip_map: bool,
+        shift: Option<&ExpandedPalette>,
+    ) -> Result<TextureData, TextureError> {
+        let (rsid, rs, bytes) = self.resolve(id)?;
+        let payload = rs.payload(&bytes).ok_or(TextureError::NotATexture(rsid))?;
+        self.decode_render_surface(rsid, &rs, payload, clip_map, shift)
+    }
+
+    /// Whether the id chain ends at a palettised `RenderSurface`, i.e. whether a shift palette can
+    /// change anything about it. `PFID_P8 (41)` and `PFID_INDEX16 (101)` are the two formats
+    /// accepted by palette combination.
+    ///
+    /// # Errors
+    /// [`TextureError`] when the chain is broken.
+    pub fn is_palettised(&self, id: DataId) -> Result<bool, TextureError> {
+        let (_, rs, _) = self.resolve(id)?;
+        Ok(matches!(
+            PixelFormatId::from_raw(rs.format),
+            PixelFormatId::P8 | PixelFormatId::Index16
+        ))
+    }
+
+    /// One dat `Palette` (`0x04`), expanded to the 2048 entries every palettised path assumes.
+    #[must_use]
+    pub fn palette(&self, id: DataId) -> Option<ExpandedPalette> {
+        let p = self.lookup.palette(id).ok()?;
+        ExpandedPalette::from_dat(&p.colors_argb)
+    }
+
+    /// The decode itself, shared by [`Self::texture_data_clipped`] and [`Self::bgra8`] so neither
+    /// resolves the id chain twice.
+    fn decode_render_surface(
+        &self,
+        rsid: DataId,
+        rs: &RenderSurface,
+        payload: &[u8],
+        clip_map: bool,
+        shift: Option<&ExpandedPalette>,
+    ) -> Result<TextureData, TextureError> {
+        let format = PixelFormatId::from_raw(rs.format);
+        let own = self.palette_for(rs);
+        // Retail's palette-shift surface restore hands `base1pal` — the part's shift palette — to
+        // the combined-texture creation **in place of** the texture's own default, and only for the
+        // two palettised formats accepted by palette combination.
+        let palettised = matches!(format, PixelFormatId::P8 | PixelFormatId::Index16);
+        let palette: Option<&ExpandedPalette> = match shift {
+            Some(p) if palettised => Some(p),
+            _ => own.as_ref(),
+        };
+        // `PFID_INDEX16` cannot go through `source_pixels`: `SourcePixels::Palettised16` borrows a
+        // `&[u16]`, and the payload is bytes, so the widened buffer has to be owned by whoever
+        // calls `decode_surface`. That is very likely why the arm was missing — and the failure was
+        // silent, because 101 fell through to `Direct`, which is for formats D3D accepts natively,
+        // and produced an all-black image with no error. Every part of a human body is INDEX16.
+        if format == PixelFormatId::Index16 {
+            let table = palette.ok_or(TextureError::NotATexture(rsid))?;
+            let indices: Vec<u16> = payload
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .collect();
+            let src = SourcePixels::Palettised16 {
+                indices: &indices,
+                palette: table,
+                clip_map,
+            };
+            return decode_surface(src, rs.width, rs.height)
+                .map_err(|e| TextureError::Decode(rsid, e));
+        }
+        let src = self.source_pixels(format, payload, palette, clip_map)?;
+        decode_surface(src, rs.width, rs.height).map_err(|e| TextureError::Decode(rsid, e))
+    }
+
+    /// The CPU-readable form the terrain compositor needs: always BGRA8.
+    ///
+    /// # Errors
+    /// [`TextureError`] when the chain is broken or the payload will not decode.
+    pub fn bgra8(&self, id: DataId) -> Result<Bgra8, TextureError> {
+        let (rsid, rs, bytes) = self.resolve(id)?;
+        let payload = rs.payload(&bytes).ok_or(TextureError::NotATexture(rsid))?;
+        let format = PixelFormatId::from_raw(rs.format);
+        let pixels = match format {
+            PixelFormatId::Dxt1
+            | PixelFormatId::Dxt2
+            | PixelFormatId::Dxt3
+            | PixelFormatId::Dxt4
+            | PixelFormatId::Dxt5 => {
+                dereth_render::dxt::decode(format, payload, rs.width, rs.height)
+                    .map_err(|e| TextureError::Decode(rsid, e))?
+            }
+            _ => {
+                // No terrain texture is clip-mapped: the compositor blends through an alpha map
+                // rather than testing against a key colour.
+                let data = self.decode_render_surface(rsid, &rs, payload, false, None)?;
+                if data.format != TextureFormat::Bgra8 {
+                    return Err(TextureError::NotATexture(rsid));
+                }
+                data.levels.into_iter().next().unwrap_or_default()
+            }
+        };
+        let n = rs.width as usize * rs.height as usize;
+        if pixels.len() < n * 4 {
+            return Err(TextureError::NotATexture(rsid));
+        }
+        Ok(Bgra8 {
+            width: rs.width,
+            height: rs.height,
+            pixels: pixels.as_chunks::<4>().0[..n].to_vec(),
+        })
+    }
+
+    /// [`Self::bgra8`], memoised, and `None` rather than an error — which is what
+    /// `dereth_world_render::land::merge::TerrainTextureSource` is typed as.
+    pub fn bgra8_cached(&mut self, id: DataId) -> Option<Bgra8> {
+        if let Some(hit) = self.bgra.get(&id) {
+            return hit.clone();
+        }
+        let v = self.bgra8(id).ok();
+        self.bgra.insert(id, v.clone());
+        v
+    }
+
+    /// The palettised decode arms read the surface's default palette id. Only formats 41 (`P8`) and
+    /// 101 (`INDEX16`) carry one, and both are decoded here —
+    /// `INDEX16` in [`Self::decode_render_surface`], because it needs an owned index buffer.
+    fn palette_for(&self, rs: &RenderSurface) -> Option<ExpandedPalette> {
+        let id = rs.default_palette_id?;
+        let p = self.lookup.palette(id).ok()?;
+        ExpandedPalette::from_dat(&p.colors_argb)
+    }
+
+    fn source_pixels<'p>(
+        &self,
+        format: PixelFormatId,
+        payload: &'p [u8],
+        palette: Option<&'p ExpandedPalette>,
+        clip_map: bool,
+    ) -> Result<SourcePixels<'p>, TextureError> {
+        Ok(match format {
+            PixelFormatId::Dxt1
+            | PixelFormatId::Dxt2
+            | PixelFormatId::Dxt3
+            | PixelFormatId::Dxt4
+            | PixelFormatId::Dxt5 => SourcePixels::Dxt {
+                format,
+                blocks: payload,
+            },
+            PixelFormatId::CustomRawJpeg => SourcePixels::Jpeg(payload),
+            PixelFormatId::CustomLscapeR8G8B8 => SourcePixels::LandscapeRgb(payload),
+            PixelFormatId::CustomLscapeAlpha => SourcePixels::LandscapeAlpha(payload),
+            PixelFormatId::P8 => {
+                let palette = palette.ok_or(TextureError::NotATexture(DataId(0)))?;
+                SourcePixels::Palettised8 {
+                    indices: payload,
+                    palette,
+                    clip_map,
+                }
+            }
+            other => SourcePixels::Direct {
+                format: other,
+                bits: payload,
+                pitch: 0,
+            },
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn the_retail_jpeg_surface_the_character_screen_uses_decodes() {
+        let store = dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {} -- \
+                 set DERETH_TEST_DAT_DIR",
+                dereth_dat::testing::dat_dir().display()
+            )
+        });
+        let t = TextureStore::new(&store);
+        let id = DataId(0x0600_7576);
+        let (_, rs, _) = t.resolve(id).expect("the record decodes");
+        assert_eq!(rs.format, 500, "PFID_CUSTOM_RAW_JPEG");
+        assert_eq!(
+            (rs.width, rs.height),
+            (0, 0),
+            "the header carries no extent"
+        );
+
+        let data = t.texture_data(id).expect("the JPEG decodes");
+        assert!(
+            data.width > 0 && data.height > 0,
+            "{}x{}",
+            data.width,
+            data.height
+        );
+        assert_eq!(data.format, dereth_primitives::TextureFormat::Bgra8);
+        assert_eq!(
+            data.levels[0].len(),
+            data.width as usize * data.height as usize * 4,
+            "one BGRA texel per pixel"
+        );
+        // ...and it is a picture, not a flat fill: a background that decoded to one colour would
+        // pass every size assertion above and still be wrong.
+        let distinct: std::collections::BTreeSet<[u8; 4]> =
+            data.levels[0].as_chunks::<4>().0.iter().copied().collect();
+        assert!(
+            distinct.len() > 16,
+            "only {} distinct colours",
+            distinct.len()
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_render_surface_id_resolves_to_itself_and_decodes_both_ways() {
+        let store = dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {} -- \
+                 set DERETH_TEST_DAT_DIR",
+                dereth_dat::testing::dat_dir().display()
+            )
+        });
+        let t = TextureStore::new(&store);
+        let id = DataId(crate::gpu::FIRST_PIXEL_SURFACE);
+        let (rsid, rs, _) = t.resolve(id).expect("resolves");
+        assert_eq!(rsid, id, "a 0x06 id is already the pixel record");
+        assert_eq!((rs.width, rs.height), (256, 256));
+
+        // The GPU form keeps the DXT blocks, exactly as retail's texture creation does.
+        let data = t.texture_data(id).expect("decodes for the GPU");
+        assert_eq!(data.format, TextureFormat::Bc1);
+        assert_eq!(
+            data.levels[0].len(),
+            256 * 256 / 2,
+            "DXT1 is 4 bits per texel"
+        );
+
+        // The CPU form expands them, which is what the terrain compositor blends.
+        let img = t.bgra8(id).expect("decodes to BGRA");
+        assert_eq!((img.width, img.height), (256, 256));
+        assert_eq!(img.pixels.len(), 256 * 256);
+    }
+
+    // Oracle: the retail region record 0x13000000. Every `TerrainDesc::tex_gid` in the shipped
+    // TexMerge must resolve to real pixels -- if any did not, the terrain would composite the
+    // client's `00 FF 00 00` debug colour and the landscape would be visibly green.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn every_retail_terrain_texture_resolves_to_pixels() {
+        let store = dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {} -- \
+                 set DERETH_TEST_DAT_DIR",
+                dereth_dat::testing::dat_dir().display()
+            )
+        });
+        let region = crate::world::load_region(&store).expect("the region decodes");
+        let tm = region
+            .land_surf
+            .tex_merge
+            .as_ref()
+            .expect("retail ships a texture compositor");
+        let t = TextureStore::new(&store);
+        for d in &tm.terrain_desc {
+            let img = t.bgra8(d.tex_gid).unwrap_or_else(|e| {
+                panic!("terrain type {} texture {}: {e}", d.terrain_type, d.tex_gid)
+            });
+            assert!(img.width > 0 && img.height > 0);
+        }
+        for maps in [
+            &tm.corner_terrain_maps,
+            &tm.side_terrain_maps,
+            &tm.road_maps,
+        ] {
+            for m in maps {
+                let img = t
+                    .bgra8(m.tex_gid)
+                    .unwrap_or_else(|e| panic!("alpha map {} (code {}): {e}", m.tex_gid, m.code));
+                assert!(img.width > 0 && img.height > 0);
+            }
+        }
+    }
+}

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tier0:
+    name: tier0 (${{ matrix.os }})
+    strategy:
+      # Every platform reports, even when another fails.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the Linux build inputs
+        if: runner.os == 'Linux'
+        # ALSA for the audio output (cpal) and pkg-config to find it; the README's platform table.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - name: Install the workspace Rust version
+        run: |
+          # `[workspace.package] rust-version`, the one `rust-version = "..."` line in Cargo.toml.
+          $found = Select-String -Path Cargo.toml -Pattern '^rust-version\s*=\s*"([^"]+)"'
+          if (@($found).Count -ne 1) { Write-Error "Cargo.toml must hold exactly one rust-version line"; exit 1 }
+          $toolchain = $found.Matches[0].Groups[1].Value
+          rustup toolchain install $toolchain --profile minimal --component clippy,rustfmt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup override set $toolchain
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      # The one check, the same command a contributor runs before pushing (CONTRIBUTING.md): the
+      # build, every test that needs no game data (client and server), clippy, every rule and the
+      # documentation check.
+      - name: cargo xtask ci tier0
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo xtask ci tier0

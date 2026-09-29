@@ -1,0 +1,33 @@
+[package]
+name = "dereth-world-data"
+description = "The retail data files turned into the shapes physics and animation consume, shared by the client and the server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# The dat -> physics / animation adapters, shared by the client and the server;
+# `dereth-client-runtime` re-exports every module. Nothing here may depend on a render, UI,
+# input, audio, network or game-model
+# crate: the adapters take dat records in and hand physics and animation structures out.
+[features]
+# Tier switch only: no code is gated on it. The lib tests that read the retail dats under
+# $DERETH_TEST_DAT_DIR are ignored without it, so a checkout with no dats tests green.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+dereth-dat     = { path = "../dat" }
+dereth-assets  = { path = "../assets" }
+dereth-physics = { path = "../physics" }
+dereth-animation    = { path = "../animation" }
+thiserror.workspace = true
+# Diagnostics (a facade: this crate installs no subscriber and writes no output of its own).
+tracing.workspace = true
+
+[dev-dependencies]
+dereth-dat = { path = "../dat", features = ["test-support"] }
+
+[lints]
+workspace = true

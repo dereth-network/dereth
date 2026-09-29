@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {"in":{"avail":1.0,"label":"Apartments:","sold":0,"total":3000.0},"out":"Apartments:     0 / 3000 (100.00% available for purchase)\n"},
+    {"in":{"avail":0.9934615384615385,"label":"Cottages:","sold":17,"total":2600.0},"out":"Cottages:      17 / 2600 ( 99.35% available for purchase)\n"},
+    {"in":{"avail":0.0,"label":"Villas:","sold":570,"total":570.0},"out":"Villas:       570 /  570 (  0.00% available for purchase)\n"},
+    {"in":{"avail":0.9875,"label":"Mansions:","sold":1,"total":80.0},"out":"Mansions:       1 /   80 ( 98.75% available for purchase)\n"},
+    {"in":{"avail":0.90592,"label":"Total:","sold":588,"total":6250.0},"out":"Total:        588 / 6250 ( 90.59% available for purchase)\n"},
+    {"in":{"avail":0.0003333333333333333,"label":"Apartments:","sold":2999,"total":3000.0},"out":"Apartments:  2999 / 3000 (  0.03% available for purchase)\n"},
+    {"in":{"avail":0.9947368421052631,"label":"Villas:","sold":3,"total":570.0},"out":"Villas:         3 /  570 ( 99.47% available for purchase)\n"},
+    {"in":{"avail":0.0125,"label":"Mansions:","sold":79,"total":80.0},"out":"Mansions:      79 /   80 (  1.25% available for purchase)\n"},
+    {"in":{"avail":0.0,"label":"Total:","sold":6250,"total":6250.0},"out":"Total:       6250 / 6250 (  0.00% available for purchase)\n"},
+    {"in":{"avail":-3.748076923076923,"label":"Cottages:","sold":12345,"total":2600.0},"out":"Cottages:    12345 / 2600 (-374.81% available for purchase)\n"}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminCommands.cs","member":"string.Format(\"{0, -12} {1, 4:0} / {2, 4:0} ({3, 7:P2} available for purchase)\\n\", string, int, double, double)","notes":"The adminhouse dump_all summary line.","runtime":"10.0.12","sdk":"10.0.401"}
+}

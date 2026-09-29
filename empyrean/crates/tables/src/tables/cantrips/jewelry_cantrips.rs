@@ -1,0 +1,113 @@
+// Ported from ACE (ACEmulator), AGPL-3.0: Source/ACE.Server/Factories/Tables/Cantrips/JewelryCantrips.cs
+// @generated from ACE's `Source/ACE.Server/Factories/Tables/Cantrips/JewelryCantrips.cs`; do not edit by hand
+
+//! The literal data of ACE's `JewelryCantrips` (`Factories/Tables/Cantrips/JewelryCantrips.cs`).
+//!
+//! Runtime state, hand-ported in `crate::logic` (not literal here):
+//! - `Table` (`SpellId[][]`)
+
+use crate::entity::ChanceTable;
+use empyrean_entity::enums::SpellId;
+
+/// ACE `JewelryCantrips.spells` (`List<SpellId>`).
+pub static SPELLS: [SpellId; 46] = [
+    SpellId::CANTRIPHEAVYWEAPONSAPTITUDE1,
+    SpellId::CANTRIPLIGHTWEAPONSAPTITUDE1,
+    SpellId::CANTRIPFINESSEWEAPONSAPTITUDE1,
+    SpellId::CANTRIPMISSILEWEAPONSAPTITUDE1,
+    SpellId::CANTRIPTWOHANDEDAPTITUDE1,
+    SpellId::CANTRIPINVULNERABILITY1,
+    SpellId::CANTRIPIMPREGNABILITY1,
+    SpellId::CANTRIPMAGICRESISTANCE1,
+    SpellId::CANTRIPCREATUREENCHANTMENTAPTITUDE1,
+    SpellId::CANTRIPITEMENCHANTMENTAPTITUDE1,
+    SpellId::CANTRIPLIFEMAGICAPTITUDE1,
+    SpellId::CANTRIPWARMAGICAPTITUDE1,
+    SpellId::CantripVoidMagicAptitude1,
+    SpellId::CantripSummoningProwess1,
+    SpellId::CANTRIPARCANEPROWESS1,
+    SpellId::CANTRIPDECEPTIONPROWESS1,
+    SpellId::CANTRIPHEALINGPROWESS1,
+    SpellId::CANTRIPLOCKPICKPROWESS1,
+    SpellId::CANTRIPJUMPINGPROWESS1,
+    SpellId::CANTRIPMANACONVERSIONPROWESS1,
+    SpellId::CANTRIPSPRINT1,
+    SpellId::CantripDualWieldAptitude1,
+    SpellId::CantripDirtyFightingProwess1,
+    SpellId::CantripRecklessnessProwess1,
+    SpellId::CantripSneakAttackProwess1,
+    SpellId::CantripShieldAptitude1,
+    SpellId::CANTRIPALCHEMICALPROWESS1,
+    SpellId::CANTRIPCOOKINGPROWESS1,
+    SpellId::CANTRIPFLETCHINGPROWESS1,
+    SpellId::CANTRIPLEADERSHIP1,
+    SpellId::CANTRIPFEALTY1,
+    SpellId::CantripSalvaging1,
+    SpellId::CANTRIPARMOREXPERTISE1,
+    SpellId::CANTRIPITEMEXPERTISE1,
+    SpellId::CANTRIPMAGICITEMEXPERTISE1,
+    SpellId::CANTRIPWEAPONEXPERTISE1,
+    SpellId::CANTRIPMONSTERATTUNEMENT1,
+    SpellId::CANTRIPPERSONATTUNEMENT1,
+    SpellId::CANTRIPARMOR1,
+    SpellId::CANTRIPACIDWARD1,
+    SpellId::CANTRIPBLUDGEONINGWARD1,
+    SpellId::CANTRIPFROSTWARD1,
+    SpellId::CANTRIPSTORMWARD1,
+    SpellId::CANTRIPFLAMEWARD1,
+    SpellId::CANTRIPSLASHINGWARD1,
+    SpellId::CANTRIPPIERCINGWARD1,
+];
+
+/// ACE `JewelryCantrips.NumLevels` (`int`).
+pub const NUM_LEVELS: i32 = 4;
+
+/// ACE `JewelryCantrips.jewelryCantrips` (`ChanceTable<SpellId>`).
+pub static JEWELRY_CANTRIPS: ChanceTable<SpellId> = ChanceTable::new(&[
+    (SpellId::CANTRIPARMOR1, 0.03),
+    (SpellId::CANTRIPACIDWARD1, 0.03),
+    (SpellId::CANTRIPBLUDGEONINGWARD1, 0.03),
+    (SpellId::CANTRIPFLAMEWARD1, 0.03),
+    (SpellId::CANTRIPFROSTWARD1, 0.03),
+    (SpellId::CANTRIPPIERCINGWARD1, 0.03),
+    (SpellId::CANTRIPSLASHINGWARD1, 0.03),
+    (SpellId::CANTRIPSTORMWARD1, 0.03),
+    (SpellId::CANTRIPHEAVYWEAPONSAPTITUDE1, 0.02),
+    (SpellId::CANTRIPLIGHTWEAPONSAPTITUDE1, 0.02),
+    (SpellId::CANTRIPFINESSEWEAPONSAPTITUDE1, 0.02),
+    (SpellId::CANTRIPMISSILEWEAPONSAPTITUDE1, 0.02),
+    (SpellId::CANTRIPTWOHANDEDAPTITUDE1, 0.02),
+    (SpellId::CANTRIPIMPREGNABILITY1, 0.02),
+    (SpellId::CANTRIPINVULNERABILITY1, 0.02),
+    (SpellId::CANTRIPMAGICRESISTANCE1, 0.02),
+    (SpellId::CANTRIPCREATUREENCHANTMENTAPTITUDE1, 0.02),
+    (SpellId::CANTRIPITEMENCHANTMENTAPTITUDE1, 0.02),
+    (SpellId::CANTRIPLIFEMAGICAPTITUDE1, 0.02),
+    (SpellId::CANTRIPWARMAGICAPTITUDE1, 0.02),
+    (SpellId::CantripVoidMagicAptitude1, 0.02),
+    (SpellId::CANTRIPALCHEMICALPROWESS1, 0.02),
+    (SpellId::CANTRIPARCANEPROWESS1, 0.02),
+    (SpellId::CANTRIPARMOREXPERTISE1, 0.02),
+    (SpellId::CANTRIPCOOKINGPROWESS1, 0.02),
+    (SpellId::CANTRIPDECEPTIONPROWESS1, 0.02),
+    (SpellId::CANTRIPFEALTY1, 0.02),
+    (SpellId::CANTRIPFLETCHINGPROWESS1, 0.02),
+    (SpellId::CANTRIPHEALINGPROWESS1, 0.02),
+    (SpellId::CANTRIPITEMEXPERTISE1, 0.02),
+    (SpellId::CANTRIPJUMPINGPROWESS1, 0.02),
+    (SpellId::CANTRIPLEADERSHIP1, 0.02),
+    (SpellId::CANTRIPLOCKPICKPROWESS1, 0.02),
+    (SpellId::CANTRIPMAGICITEMEXPERTISE1, 0.02),
+    (SpellId::CANTRIPMANACONVERSIONPROWESS1, 0.02),
+    (SpellId::CANTRIPMONSTERATTUNEMENT1, 0.02),
+    (SpellId::CANTRIPPERSONATTUNEMENT1, 0.02),
+    (SpellId::CANTRIPSPRINT1, 0.02),
+    (SpellId::CANTRIPWEAPONEXPERTISE1, 0.02),
+    (SpellId::CantripDirtyFightingProwess1, 0.02),
+    (SpellId::CantripDualWieldAptitude1, 0.02),
+    (SpellId::CantripRecklessnessProwess1, 0.02),
+    (SpellId::CantripSalvaging1, 0.02),
+    (SpellId::CantripShieldAptitude1, 0.02),
+    (SpellId::CantripSneakAttackProwess1, 0.02),
+    (SpellId::CantripSummoningProwess1, 0.02),
+]);

@@ -1,0 +1,223 @@
+{
+  "checks_applied": [
+    "the recording starts at t=0, rebased to its own first datagram",
+    "header size field matches payload length",
+    "EncryptedChecksum set iff fragments or a non-disposable optional header",
+    "one connection per session: exactly one ConnectRequest, answering the first LoginRequest; further LoginRequests are counted as unanswered_login_requests",
+    "session ends with a Disconnect; a recording that does not is listed in without_disconnect and left out of everything else"
+  ],
+  "note": "Recorded sessions between the retail client and a local ACE server, pseudonymised in place (by the dereth-corpus tool). Not reproducible from the retail data; if the raw files are lost the set is lost.",
+  "private_source": "fixtures/packet-captures/raw",
+  "raw_source": "fixtures/packet-captures",
+  "recipe": "tools/corpus/README.md",
+  "sessions": [
+    {
+      "bytes": 90611,
+      "clean_disconnect": true,
+      "client_to_server": 239,
+      "datagrams": 978,
+      "duration_s": 140.105,
+      "fragment_packets": 760,
+      "name": "combat-mode-while-moving",
+      "server_to_client": 739,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 915,
+      "clean_disconnect": true,
+      "client_to_server": 11,
+      "datagrams": 22,
+      "duration_s": 8.004,
+      "fragment_packets": 5,
+      "name": "ddd-interrogation-only",
+      "server_to_client": 11,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 150823,
+      "clean_disconnect": true,
+      "client_to_server": 475,
+      "datagrams": 1501,
+      "duration_s": 278.116,
+      "fragment_packets": 1063,
+      "name": "early-inventory-and-casting",
+      "server_to_client": 1026,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 103556,
+      "clean_disconnect": true,
+      "client_to_server": 624,
+      "datagrams": 1704,
+      "duration_s": 616.255,
+      "fragment_packets": 674,
+      "name": "fellowship-one-vassal",
+      "server_to_client": 1080,
+      "unanswered_login_requests": 16
+    },
+    {
+      "bytes": 65971,
+      "clean_disconnect": true,
+      "client_to_server": 344,
+      "datagrams": 1041,
+      "duration_s": 372.156,
+      "fragment_packets": 426,
+      "name": "fellowship-three-vassal",
+      "server_to_client": 697,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 85933,
+      "clean_disconnect": true,
+      "client_to_server": 475,
+      "datagrams": 1385,
+      "duration_s": 498.215,
+      "fragment_packets": 577,
+      "name": "fellowship-two-monarch",
+      "server_to_client": 910,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 41996,
+      "clean_disconnect": true,
+      "client_to_server": 128,
+      "datagrams": 387,
+      "duration_s": 158.061,
+      "fragment_packets": 145,
+      "name": "first-login-walk-jump",
+      "server_to_client": 259,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 283764,
+      "clean_disconnect": true,
+      "client_to_server": 1442,
+      "datagrams": 4158,
+      "duration_s": 1358.388,
+      "fragment_packets": 1962,
+      "name": "house-purchase-and-trade",
+      "server_to_client": 2716,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 60454,
+      "clean_disconnect": true,
+      "client_to_server": 268,
+      "datagrams": 713,
+      "duration_s": 318.153,
+      "fragment_packets": 190,
+      "name": "house-purchase-refused",
+      "server_to_client": 445,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 361,
+      "clean_disconnect": true,
+      "client_to_server": 5,
+      "datagrams": 8,
+      "duration_s": 5.726,
+      "fragment_packets": 1,
+      "name": "login-account-booted",
+      "server_to_client": 3,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 386554,
+      "clean_disconnect": true,
+      "client_to_server": 957,
+      "datagrams": 4855,
+      "duration_s": 1108.587,
+      "fragment_packets": 3356,
+      "name": "long-movement-run",
+      "server_to_client": 3898,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 758602,
+      "clean_disconnect": true,
+      "client_to_server": 2767,
+      "datagrams": 8816,
+      "duration_s": 1098.55,
+      "fragment_packets": 7184,
+      "name": "long-solo-play",
+      "server_to_client": 6049,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 75742,
+      "clean_disconnect": true,
+      "client_to_server": 287,
+      "datagrams": 980,
+      "duration_s": 190.554,
+      "fragment_packets": 682,
+      "name": "melee-attack-run",
+      "server_to_client": 693,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 284899,
+      "clean_disconnect": true,
+      "client_to_server": 705,
+      "datagrams": 2876,
+      "duration_s": 470.225,
+      "fragment_packets": 2246,
+      "name": "post-relog-attribute-training",
+      "server_to_client": 2171,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 168186,
+      "clean_disconnect": true,
+      "client_to_server": 433,
+      "datagrams": 1827,
+      "duration_s": 546.404,
+      "fragment_packets": 1101,
+      "name": "pre-relog-play",
+      "server_to_client": 1394,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 1056885,
+      "clean_disconnect": true,
+      "client_to_server": 2116,
+      "datagrams": 7678,
+      "duration_s": 1728.764,
+      "fragment_packets": 4868,
+      "name": "requested-death-vitae-salvage",
+      "server_to_client": 5562,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 61156,
+      "clean_disconnect": true,
+      "client_to_server": 137,
+      "datagrams": 468,
+      "duration_s": 118.149,
+      "fragment_packets": 292,
+      "name": "short-play-with-training",
+      "server_to_client": 331,
+      "unanswered_login_requests": 0
+    },
+    {
+      "bytes": 19930,
+      "clean_disconnect": true,
+      "client_to_server": 31,
+      "datagrams": 128,
+      "duration_s": 28.013,
+      "fragment_packets": 80,
+      "name": "short-second-connection",
+      "server_to_client": 97,
+      "unanswered_login_requests": 0
+    }
+  ],
+  "totals": {
+    "bytes": 3696338,
+    "datagrams": 39525,
+    "fragment_packets": 25612,
+    "sessions": 18
+  },
+  "without_disconnect": [
+    "unclean-logout-long",
+    "unclean-logout-short"
+  ]
+}

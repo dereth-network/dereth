@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {"in":{"hex":"020000000700000008000000","kind":"list_u_int32"},"out":{"pos":12,"value":[7,8]}},
+    {"in":{"hex":"0300000007000000","kind":"list_u_int32"},"out":{"throws":"System.IO.EndOfStreamException"}},
+    {"in":{"hex":"0200000001000000020000000A000000FCFFFFFF05000000FBFFFFFF09000000020000000300000000000000","kind":"c_all_iteration_list"},"out":{"throws":"System.IO.EndOfStreamException"}},
+    {"in":{"hex":"01000000010000000200000003000000F6FFFFFF","kind":"c_all_iteration_list"},"out":{"throws":"System.IO.EndOfStreamException"}},
+    {"in":{"hex":"0100000001000000020000000100000000000080","kind":"c_all_iteration_list"},"out":{"throws":"System.OverflowException"}},
+    {"in":{"hex":"D2040300","kind":"layered_spell"},"out":{"pos":4,"value":[1234,3]}},
+    {"in":{"hex":"020000000100008005000100","kind":"shortcut"},"out":{"pos":12,"value":[2,2147483649,5,1]}},
+    {"in":{"hex":"0000C03F000000C000005040","kind":"vector3"},"out":{"pos":12,"value":[1.5,-2.0,3.25]}},
+    {"in":{"hex":"0000003FCDCCCC3DCDCC4C3E9A99993E","kind":"quaternion"},"out":{"pos":16,"value":[0.5,0.10000000149011612,0.20000000298023224,0.30000001192092896]}},
+    {"in":{"hex":"0000403F0000803F00000040000040400400050006000700","kind":"jump_pack"},"out":{"pos":24,"value":[0.75,1.0,2.0,3.0,4,5,6,7]}},
+    {"in":{"hex":"030005800000C03F","kind":"motion_item"},"out":{"pos":8,"value":[1090519043,32773,5,true,1.5]}},
+    {"in":{"hex":"FFFF01000000C03F","kind":"motion_item"},"out":{"pos":8,"value":[0,1,1,false,1.5]}},
+    {"in":{"hex":"870000000000C03F","kind":"motion_item"},"out":{"pos":8,"value":[318767239,0,0,false,1.5]}},
+    {"in":{"hex":"FF070000000000410100004102000041030000410000004005000041060000410000604008000041090000410000A040","kind":"raw_motion_state"},"out":{"pos":48,"value":[2047,2047,0,1090519040,1090519041,1090519042,1090519043,2.0,1090519045,1090519046,3.5,1090519048,1090519049,5.0]}},
+    {"in":{"hex":"00000000","kind":"raw_motion_state"},"out":{"pos":4,"value":[0,0,0,0,0,0,0,0.0,0,0,0.0,0,0,0.0]}},
+    {"in":{"hex":"0501000002000000050000450D000065","kind":"raw_motion_state"},"out":{"pos":16,"value":[261,261,0,2,0,1157627909,0,0.0,0,0,0.0,1694498829,0,0.0]}},
+    {"in":{"hex":"04000000050000451900B4A90000A8423333E3408F02BC42492E7F3F0000000000000000E5D0A2BD010002000300040000EEEEEEDDDDDDDD","kind":"move_to_state"},"out":{"pos":52,"value":[[4,4,0,0,0,1157627909,0,0.0,0,0,0.0,0,0,0.0],[2847146009,84.0,7.099999904632568,94.00499725341797,0.9968000054359436,0.0,0.0,-0.0794999971985817],1,2,3,4,0,false,false]}},
+    {"in":{"hex":"04000000050000451900B4A90000A8423333E3408F02BC42492E7F3F0000000000000000E5D0A2BD010002000300040001EEEEEEDDDDDDDD","kind":"move_to_state"},"out":{"pos":52,"value":[[4,4,0,0,0,1157627909,0,0.0,0,0,0.0,0,0,0.0],[2847146009,84.0,7.099999904632568,94.00499725341797,0.9968000054359436,0.0,0.0,-0.0794999971985817],1,2,3,4,1,true,false]}},
+    {"in":{"hex":"04000000050000451900B4A90000A8423333E3408F02BC42492E7F3F0000000000000000E5D0A2BD010002000300040002EEEEEEDDDDDDDD","kind":"move_to_state"},"out":{"pos":52,"value":[[4,4,0,0,0,1157627909,0,0.0,0,0,0.0,0,0,0.0],[2847146009,84.0,7.099999904632568,94.00499725341797,0.9968000054359436,0.0,0.0,-0.0794999971985817],1,2,3,4,2,false,true]}},
+    {"in":{"hex":"04000000050000451900B4A90000A8423333E3408F02BC42492E7F3F0000000000000000E5D0A2BD010002000300040003EEEEEEDDDDDDDD","kind":"move_to_state"},"out":{"pos":52,"value":[[4,4,0,0,0,1157627909,0,0.0,0,0,0.0,0,0,0.0],[2847146009,84.0,7.099999904632568,94.00499725341797,0.9968000054359436,0.0,0.0,-0.0794999971985817],1,2,3,4,3,true,true]}}
+  ],
+  "generator": "ace-vectors messages",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Network/Structure/","member":"ACE.Server.Network.Structure / Motion readers (ReadListUInt32, ReadCAllIterationList, ReadLayeredSpell, ReadShortcut, ReadVector3, ReadQuaternion, JumpPack(reader), MotionItem(reader), RawMotionState(reader), MoveToState(reader))","notes":"in.hex is the stream; out is the value read (and out.pos the stream position after), or throws.","runtime":"10.0.12","sdk":"10.0.401"}
+}

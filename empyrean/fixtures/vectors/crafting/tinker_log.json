@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {"in":{"csv":null},"out":{"num":0,"tinkers":[]}},
+    {"in":{"csv":""},"out":{"num":0,"tinkers":[]}},
+    {"in":{"csv":"64"},"out":{"num":1,"tinkers":[64]}},
+    {"in":{"csv":"64,64,61"},"out":{"num":2,"tinkers":[64,64,61]}},
+    {"in":{"csv":"Steel"},"out":{"num":1,"tinkers":[64]}},
+    {"in":{"csv":"steel,IRON"},"out":{"num":1,"tinkers":[64,61]}},
+    {"in":{"csv":" 64 , Iron "},"out":{"num":1,"tinkers":[64,61]}},
+    {"in":{"csv":"64,,61"},"out":{"num":1,"tinkers":[64,61]}},
+    {"in":{"csv":"abc,64"},"out":{"num":1,"tinkers":[64]}},
+    {"in":{"csv":"4294967295"},"out":{"num":0,"tinkers":[4294967295]}},
+    {"in":{"csv":"4294967296"},"out":{"num":0,"tinkers":[]}},
+    {"in":{"csv":"-1"},"out":{"num":0,"tinkers":[]}},
+    {"in":{"csv":"+5"},"out":{"num":0,"tinkers":[5]}},
+    {"in":{"csv":"-0"},"out":{"num":0,"tinkers":[0]}},
+    {"in":{"csv":"Steel,Iron"},"out":{"num":1,"tinkers":[64,61]}},
+    {"in":{"csv":"Steel, Iron"},"out":{"num":1,"tinkers":[64,61]}},
+    {"in":{"csv":"1,2,3,4,5,6,7,8,9,10"},"out":{"num":0,"tinkers":[1,2,3,4,5,6,7,8,9,10]}},
+    {"in":{"csv":"64 "},"out":{"num":1,"tinkers":[64]}},
+    {"in":{"csv":"0x40"},"out":{"num":0,"tinkers":[]}},
+    {"in":{"csv":"SteelIron"},"out":{"num":0,"tinkers":[]}},
+    {"in":{"csv":"Unknown"},"out":{"num":0,"tinkers":[0]}},
+    {"in":{"csv":"77"},"out":{"num":0,"tinkers":[77]}},
+    {"in":{"csv":"999"},"out":{"num":0,"tinkers":[999]}}
+  ],
+  "generator": "ace-vectors crafting",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/TinkerLog.cs","member":"new TinkerLog(string csv).Tinkers, TinkerLog.NumTinkers(MaterialType)","notes":"in.csv (null allowed); out.tinkers the parsed MaterialType values, out.num = NumTinkers(Steel) (64).","runtime":"10.0.12","sdk":"10.0.401"}
+}

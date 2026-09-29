@@ -1,0 +1,3 @@
+0x10000049 visible [175,20 450x72]
+  0x1000004A visible [175,38 450x18] "The Aluvian Pathwarden Chest is locked"
+  0x1000004A visible [175,20 450x18] "Using the Aluvian Pathwarden Chest"

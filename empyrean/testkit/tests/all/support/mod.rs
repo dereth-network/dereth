@@ -1,0 +1,11 @@
+pub(crate) mod command_characters;
+pub(crate) mod creature_and_item_world;
+pub(crate) mod empty_shard;
+pub(crate) mod event_world;
+pub(crate) mod inventory_action_world;
+pub(crate) mod login_fixture;
+pub(crate) mod messages;
+pub(crate) mod object_message_world;
+pub(crate) mod object_use_world;
+pub(crate) mod real_content_bot;
+pub(crate) mod tracking_world;

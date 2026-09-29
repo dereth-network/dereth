@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"in":{"index":0},"out":{"description":"for content creators to live edit weenies. defaults to Content folder found in same directory as ACE.Server.dll","item":"Content","key":"content_folder"}},
+    {"in":{"index":1},"out":{"description":"Warning message displayed (if show_dat_warning is true) to player if client attempts DAT download from server","item":"Your DAT files are incomplete.\nThis server does not support dynamic DAT updating at this time.\nPlease visit https://emulator.ac/how-to-play to download the complete DAT files.","key":"dat_older_warning_msg"}},
+    {"in":{"index":2},"out":{"description":"Warning message displayed (if show_dat_warning is true) to player if client connects to this server","item":"Your DAT files are newer than expected.\nPlease visit https://emulator.ac/how-to-play to download the correct DAT files.","key":"dat_newer_warning_msg"}},
+    {"in":{"index":3},"out":{"description":"Welcome message displayed when you log in","item":"Welcome to Asheron's Call!","key":"popup_header"}},
+    {"in":{"index":4},"out":{"description":"Welcome message popup in training halls","item":"To begin your training, speak to the Society Greeter. Walk up to the Society Greeter using the 'W' key, then double-click on her to initiate a conversation.","key":"popup_welcome"}},
+    {"in":{"index":5},"out":{"description":"Welcome message displayed on the first login for an Olthoi Player","item":"Welcome to the Olthoi hive! Be sure to talk to the Olthoi Queen to receive the Olthoi protections granted by the energies of the hive.","key":"popup_welcome_olthoi"}},
+    {"in":{"index":6},"out":{"description":"Popup message of the day","item":"","key":"popup_motd"}},
+    {"in":{"index":7},"out":{"description":"Server message of the day","item":"","key":"server_motd"}}
+  ],
+  "generator": "ace-vectors properties",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/PropertyManager.cs","member":"DefaultPropertyManager.DefaultStringProperties","notes":"One case per entry, in the dictionary's enumeration order (ToDictionary over the literal pairs). in.index is the position; out is {key, item, description}.","runtime":"10.0.12","sdk":"10.0.401"}
+}

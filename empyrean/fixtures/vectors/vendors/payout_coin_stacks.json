@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {"in":{"amount":-5,"weenies":[{"class_name":"coinstack","ints":[[1,64],[11,25000],[12,1],[15,1],[13,0],[19,1],[5,0]],"type":9,"wcid":273},{"class_name":"u57gem","ints":[[1,2048],[11,100],[12,1],[15,7],[13,3],[19,7],[5,3]],"type":51,"wcid":5701},{"class_name":"u57cup","ints":[[1,128],[19,50],[5,20]],"type":1,"wcid":5702},{"class_name":"u57zero","ints":[[1,128],[11,0],[12,4],[19,5]],"type":1,"wcid":5703},{"class_name":"u57bundle","ints":[[1,128],[11,10],[12,1],[15,2],[13,1],[19,2],[5,1]],"type":1,"wcid":5704},{"class_name":"u57scrap","ints":[[1,128],[11,1],[12,1],[15,9],[19,9]],"type":51,"wcid":5705}]},"out":[]},
+    {"in":{"amount":0},"out":[]},
+    {"in":{"amount":1},"out":[[1,1,0,null,null,273]]},
+    {"in":{"amount":2},"out":[[2,2,0,null,null,273]]},
+    {"in":{"amount":9},"out":[[9,9,0,null,null,273]]},
+    {"in":{"amount":10},"out":[[10,10,0,null,null,273]]},
+    {"in":{"amount":11},"out":[[11,11,0,null,null,273]]},
+    {"in":{"amount":99},"out":[[99,99,0,null,null,273]]},
+    {"in":{"amount":100},"out":[[100,100,0,null,null,273]]},
+    {"in":{"amount":101},"out":[[101,101,0,null,null,273]]},
+    {"in":{"amount":250},"out":[[250,250,0,null,null,273]]},
+    {"in":{"amount":24999},"out":[[24999,24999,0,null,null,273]]},
+    {"in":{"amount":25000},"out":[[25000,25000,0,null,null,273]]},
+    {"in":{"amount":25001},"out":[[25000,25000,0,null,null,273],[1,1,0,null,null,273]]},
+    {"in":{"amount":50000},"out":[[25000,25000,0,null,null,273],[25000,25000,0,null,null,273]]},
+    {"in":{"amount":50001},"out":[[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[1,1,0,null,null,273]]},
+    {"in":{"amount":123456},"out":[[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[25000,25000,0,null,null,273],[23456,23456,0,null,null,273]]}
+  ],
+  "generator": "ace-vectors vendors",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/Player_Commerce.cs","member":"Player.CreatePayoutCoinStacks(int) (private)","notes":"The weenies of the first case's in.weenies are the only ones in DatabaseManager.World ('coinstack' is 273). in.amount is the argument; out lists the created stacks as [StackSize, Value, EncumbranceVal, PaletteTemplate, Shade, WeenieClassId].","runtime":"10.0.12","sdk":"10.0.401"}
+}

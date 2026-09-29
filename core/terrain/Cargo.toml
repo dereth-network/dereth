@@ -1,0 +1,22 @@
+[package]
+name = "dereth-terrain"
+description = "The landscape's geometry and static contents: landblock meshes, terrain merge keys, stitching, vertex lighting, water, roads, scenery placement and the per-cell building registry, as pure functions of the retail records."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[features]
+# The synthetic meshes the unit tests share, for the crates that draw this landscape and test
+# against the same shapes.
+test-support = []
+
+[dependencies]
+dereth-primitives.workspace = true
+dereth-assets = { path = "../assets" }
+dereth-landscape = { path = "../landscape" }
+
+[lints]
+workspace = true

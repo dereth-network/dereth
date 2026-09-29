@@ -1,0 +1,5 @@
+# R4.3 acceptance: first-login-walk-jump, logged in over its own recording, stopped
+# at the character-select screen, and the fourteen steps of the frame that got there.
+login first-login-walk-jump
+dump steps
+quit

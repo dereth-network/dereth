@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {"in":{"parameters":[]},"out":""},
+    {"in":{"parameters":["acehelp"]},"out":"acehelp - Displays help.\nUsage: acehelp (command)\n"},
+    {"in":{"parameters":["Acehelp"]},"out":"acehelp - Displays help.\nUsage: acehelp (command)\n"},
+    {"in":{"parameters":["tele"]},"out":"Unknown command: tele\n"},
+    {"in":{"parameters":["accountcreate"]},"out":"accountcreate - Creates a new account.\nUsage: accountcreate username password (accesslevel)\naccesslevel can be a number or enum name\n0 = Player | 1 = Advocate | 2 = Sentinel | 3 = Envoy | 4 = Developer | 5 = Admin\n"},
+    {"in":{"parameters":["testlootgen"]},"out":"testlootgen - Generates Loot for testing LootFactories.  Do testlootgen -info for examples.\nUsage: testlootgen <number of items> <loot tier> <melee, missile, caster, armor, pet, aetheria (optional)>\n"},
+    {"in":{"parameters":["verify-xp"]},"out":"verify-xp - Verifies and optionally fixes any bugs with player xp\nUsage: verify-xp \n"},
+    {"in":{"parameters":["passwd"]},"out":"Unknown command: passwd\n"},
+    {"in":{"parameters":["nosuch"]},"out":"Unknown command: nosuch\n"},
+    {"in":{"parameters":["commands"]},"out":"For more information, type acehelp < command >.\n@acecommands - Lists all commands.\n@showprops - Displays the name of all properties configurable via the modify commands\n@verify-player-data - Verifies and optionally fixes any bugs with player data. Runs all of the verify* commands.\n"},
+    {"in":{"parameters":["commands","x"]},"out":"For more information, type acehelp < command >.\n@acecommands - Lists all commands.\n@showprops - Displays the name of all properties configurable via the modify commands\n@verify-player-data - Verifies and optionally fixes any bugs with player data. Runs all of the verify* commands.\n"},
+    {"in":{"parameters":["deletecharacter","x"]},"out":"deletecharacter - Deletes a character and removes it from players restore list\nUsage: deletecharacter [character name]\nGiven the name of a character, this command deletes that character, booting it if in game, and removes it from character's restore list.  (You can find the name for a character using the @finger command.)\n\n"},
+    {"in":{"parameters":[""]},"out":"Unknown command: \n"}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/HelpCommands.cs","member":"ACE.Server.Command.Handlers.HelpCommands.HandleACEHelp(null, params string[])","notes":"From the console (session null). out is the console text.","runtime":"10.0.12","sdk":"10.0.401"}
+}

@@ -1,0 +1,7 @@
+{
+  "cases": [
+    {"in":{},"out":"Complete list of EnvironChangeType:\nClear\nRedFog\nBlueFog\nWhiteFog\nGreenFog\nBlackFog\nBlackFog2\nRoarSound\nBellSound\nChant1Sound\nChant2Sound\nDarkWhispers1Sound\nDarkWhispers2Sound\nDarkLaughSound\nDarkWindSound\nDarkSpeechSound\nDrumsSound\nGhostSpeakSound\nBreathingSound\nHowlSound\nLostSoulsSound\nSquealSound\nThunder1Sound\nThunder2Sound\nThunder3Sound\nThunder4Sound\nThunder5Sound\nThunder6Sound\nNotes about above list:\nClear resets to default.\nAll options ending with Fog are continuous.\nAll options ending with Fog2 are continuous and blank radar.\nAll options ending with Sound play once and do not repeat."}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminCommands.cs","member":"ACE.Server.Command.Handlers.AdminCommands.EnvironListMsg() (private, by reflection)","runtime":"10.0.12","sdk":"10.0.401"}
+}

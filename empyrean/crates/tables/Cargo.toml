@@ -1,0 +1,31 @@
+[package]
+name = "empyrean-tables"
+description = "The generated literal data of ACE.Server's factories: loot tables, house cells, weenie class names and the table logic."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+empyrean-common.workspace = true
+empyrean-entity.workspace = true
+log.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

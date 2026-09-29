@@ -1,0 +1,181 @@
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+player-teleport-use-time
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame
+step UiQueueStep
+step ClockSample
+step ProcessWindowEvents
+step NetworkStep
+step LoginEvents
+step PacketStep
+step AssetCacheStep
+step UiStep
+jump-use-time
+step WorldViewStep
+player-teleport-use-time
+control-transfer
+position-use-time
+render-preferences-polled flushed=false mid-radius=false detail-texturing=false queued=0 rebuilt=0 surfaces=0
+step PrepareDevice
+step BeginFrame
+step DrawWorld
+step PresentFrame
+frame-drawn
+step PaceFrame

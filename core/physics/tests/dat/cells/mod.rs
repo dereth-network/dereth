@@ -1,0 +1,1 @@
+mod outdoor_bbox_registration;

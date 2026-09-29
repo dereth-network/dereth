@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {"in":{"command":null,"parameters":[]},"out":{"command":null,"console":"","response":"InvalidCommand"}},
+    {"in":{"command":"pop","parameters":null},"out":{"command":null,"console":"","response":"InvalidCommand"}},
+    {"in":{"command":"pop","parameters":[]},"out":{"command":"pop","console":"","response":"Ok"}},
+    {"in":{"command":"POP","parameters":[]},"out":{"command":"pop","console":"","response":"Ok"}},
+    {"in":{"command":"nosuchcommand","parameters":[]},"out":{"command":null,"console":"Invalid Command\n","response":"InvalidCommand"}},
+    {"in":{"command":"sudo","parameters":[]},"out":{"command":null,"console":"","response":"InvalidCommand"}},
+    {"in":{"command":"sudo","parameters":["pop"]},"out":{"command":"pop","console":"SUDO does not work on the console because you already have full access. Remove SUDO from command and execute again.\n","response":"InvalidCommand"}},
+    {"in":{"command":"sudo","parameters":["nosuch"]},"out":{"command":null,"console":"","response":"InvalidCommand"}},
+    {"in":{"command":"SUDO","parameters":["pop"]},"out":{"command":"pop","console":"SUDO does not work on the console because you already have full access. Remove SUDO from command and execute again.\n","response":"InvalidCommand"}},
+    {"in":{"command":"boot","parameters":["char"]},"out":{"command":"boot","console":"The syntax of the command is incorrect.\nUsage: boot [account | char | iid] who (, reason) \nThis command boots the specified character out of the game. You can specify who to boot by account, character name, or player instance id. 'who' is the account / character / instance id to actually boot. You can optionally include a reason for the boot.\nExample: @boot char Character Name\n         @boot account AccountName\n         @boot iid 0x51234567\n         @boot char Character Name, Reason for being booted\n\n","response":"InvalidParameterCount"}},
+    {"in":{"command":"boot","parameters":["char","x"]},"out":{"command":"boot","console":"","response":"Ok"}},
+    {"in":{"command":"ban","parameters":["a","1","2"]},"out":{"command":"ban","console":"The syntax of the command is incorrect.\nUsage: ban [accountname] [days] [hours] [minutes] (reason)\nThis command bans the specified player account for the specified time. This player will not be able to enter the game with any character until the time expires.\nExample: @ban AccountName 0 0 5\nExample: @ban AccountName 1 0 0 banned 1 day because reasons\n\n","response":"InvalidParameterCount"}},
+    {"in":{"command":"ban","parameters":["a","1","2","3"]},"out":{"command":"ban","console":"","response":"Ok"}},
+    {"in":{"command":"cloak","parameters":[]},"out":{"command":"cloak","console":"The syntax of the command is incorrect.\nUsage: cloak < on / off / player / creature >\nThis command sets your current cloaking state\n< on > You will be completely invisible to players.\n< off > You will show up as a normal.\n< player > You will appear as a player. (No + and a white radar dot.)\n< creature > You will appear as a creature. (No + and an orange radar dot.)\n","response":"InvalidParameterCount"}},
+    {"in":{"command":"cloak","parameters":["on"]},"out":{"command":"cloak","console":"","response":"NotInWorld"}},
+    {"in":{"command":"version","parameters":[]},"out":{"command":"version","console":"","response":"Ok"}},
+    {"in":{"command":"exit","parameters":["x"]},"out":{"command":"exit","console":"","response":"Ok"}},
+    {"in":{"command":"cell-export","parameters":[]},"out":{"command":"cell-export","console":"The syntax of the command is incorrect.\nUsage: cell-export <export-directory-without-spaces>\n","response":"InvalidParameterCount"}},
+    {"in":{"command":"house-select","parameters":[]},"out":{"command":"house-select","console":"The syntax of the command is incorrect.\nUsage: house-select \n","response":"InvalidParameterCount"}},
+    {"in":{"command":"reportbug","parameters":["a"]},"out":{"command":"reportbug","console":"The syntax of the command is incorrect.\nUsage: reportbug <category> <description>\nThis command generates a URL for you to copy and paste into your web browser to submit for review by server operators and developers.\nCategory can be the following:\nCreature\nNPC\nItem\nQuest\nRecipe\nLandblock\nMechanic\nCode\nOther\nFor the first three options, the bug report will include identifiers for what you currently have selected/targeted.\nAfter category, please include a brief description of the issue, which you can further detail in the report on the website.\nExamples:\n/reportbug creature Drudge Prowler is over powered\n/reportbug npc Ulgrim doesn't know what to do with Sake\n/reportbug quest I can't enter the portal to the Lost City of Frore\n/reportbug recipe I cannot combine Bundle of Arrowheads with Bundle of Arrowshafts\n/reportbug code I was killed by a Non-Player Killer\n\n","response":"InvalidParameterCount"}},
+    {"in":{"command":"deaf","parameters":["on"]},"out":{"command":"deaf","console":"The syntax of the command is incorrect.\nUsage: deaf \n","response":"InvalidParameterCount"}},
+    {"in":{"command":"deaf","parameters":["hear","x"]},"out":{"command":"deaf","console":"","response":"NotInWorld"}},
+    {"in":{"command":"config","parameters":[]},"out":{"command":"config","console":"The syntax of the command is incorrect.\nUsage: config <setting> <on/off>\n","response":"InvalidParameterCount"}},
+    {"in":{"command":"","parameters":[]},"out":{"command":null,"console":"Invalid Command\n","response":"InvalidCommand"}}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/CommandManager.cs","member":"ACE.Server.Command.CommandManager.GetCommandHandler(null, string command, string[] parameters, out CommandHandlerInfo)","notes":"The console's call (session null). out.response is the CommandHandlerResponse name, out.command the found attribute's Command (or null), out.console what it printed.","runtime":"10.0.12","sdk":"10.0.401"}
+}

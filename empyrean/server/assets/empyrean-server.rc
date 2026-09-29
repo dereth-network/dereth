@@ -1,0 +1,6 @@
+// The application icon, linked into the executable. Windows only: the resource compiler runs
+// from this directory (see build.rs), so the icon is named as the sibling file it is.
+//
+// The ordinal is 1 because Explorer shows the lowest-numbered icon in the file as the
+// executable's own. Nothing loads it by number: the server has no window to put it on.
+1 ICON "empyrean.ico"

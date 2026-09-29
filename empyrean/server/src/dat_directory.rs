@@ -1,0 +1,46 @@
+//! Where the server finds the retail dat files. Not ACE.
+//!
+//! Only `server.dat_files_directory` names it; the server reads no environment variable. The value
+//! resolves as every path in `empyrean.toml` does ([`empyrean_common::config_paths`]): `~` is the home
+//! directory, an absolute folder is used as it is, a relative one is relative to the configuration
+//! file's folder (the working directory without a file). An empty `dat_files_directory` (the
+//! default) searches: the configuration file's folder (the working directory without a file),
+//! then the folder the server executable is in; the first that holds `client_portal.dat`. ACE's
+//! default was a Windows drive path, which is wrong on the Linux and macOS builds; the default here
+//! is the same on every platform.
+//!
+//! The search is `dereth-dat`'s ([`dereth_dat::locate_retail_dats`]), the one the client uses for
+//! its own candidates; this module only decides which folders are candidates.
+
+use std::path::PathBuf;
+
+use empyrean_common::config_paths::PathBase;
+use empyrean_common::master_configuration::MasterConfiguration;
+
+/// The folders the configured `dat_files_directory` allows under `base`, in order: the one folder
+/// a set key names, or the search folders of an empty one.
+#[must_use]
+pub fn dat_directory_candidates(configured: &str, base: &PathBase) -> Vec<PathBuf> {
+    if configured.trim().is_empty() {
+        base.search_candidates("")
+    } else {
+        vec![base.resolve(configured)]
+    }
+}
+
+/// The dat directory for the configured `dat_files_directory` under `base`: the first candidate
+/// holding the dats, or -- when none does -- the first candidate, so the error names it.
+#[must_use]
+pub fn dat_directory(configured: &str, base: &PathBase) -> PathBuf {
+    let candidates = dat_directory_candidates(configured, base);
+    match dereth_dat::locate_retail_dats(&candidates) {
+        Ok(dir) => dir.into_path_buf(),
+        Err(_) => candidates.into_iter().next().unwrap_or_default(),
+    }
+}
+
+/// [`dat_directory`] for this process: the loaded configuration under `base`.
+#[must_use]
+pub fn configured_dat_directory(config: &MasterConfiguration, base: &PathBase) -> PathBuf {
+    dat_directory(&config.server.dat_files_directory, base)
+}

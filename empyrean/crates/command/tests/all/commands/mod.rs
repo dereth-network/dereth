@@ -1,0 +1,9 @@
+pub(crate) mod account_advocate_help_commands;
+pub(crate) mod admin_commands;
+pub(crate) mod command_manager;
+pub(crate) mod command_parsing;
+pub(crate) mod console_prompt;
+pub(crate) mod developer_commands;
+pub(crate) mod empyrean_commands;
+pub(crate) mod fix_and_account_commands;
+pub(crate) mod server_performance;

@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {"in":{"s":null},"out":{"sql":null}},
+    {"in":{"s":""},"out":{"fix":"","sql":"''"}},
+    {"in":{"s":"a"},"out":{"fix":"a","sql":"'a'"}},
+    {"in":{"s":"a, ,b"},"out":{"fix":"a, NULL,b","sql":"'a, ,b'"}},
+    {"in":{"s":"a, , , ,b"},"out":{"fix":"a, NULL, NULL, NULL,b","sql":"'a, , , ,b'"}},
+    {"in":{"s":"a, , ,, , )"},"out":{"fix":"a, NULL, NULL,, NULL, NULL)","sql":"'a, , ,, , )'"}},
+    {"in":{"s":", )"},"out":{"fix":", NULL)","sql":"', )'"}},
+    {"in":{"s":"x /*  */ y"},"out":{"fix":"x y","sql":"'x /*  */ y'"}},
+    {"in":{"s":" /*  */"},"out":{"fix":"","sql":"' /*  */'"}},
+    {"in":{"s":"it's 'quoted'"},"out":{"fix":"it's 'quoted'","sql":"'it''s ''quoted'''"}},
+    {"in":{"s":"''"},"out":{"fix":"''","sql":"''''''"}},
+    {"in":{"s":"back\\slash"},"out":{"fix":"back\\slash","sql":"'back\\slash'"}},
+    {"in":{"s":"a, ,, , ,"},"out":{"fix":"a, NULL,, NULL, NULL,","sql":"'a, ,, , ,'"}},
+    {"in":{"s":"\u00e9\u4e2d"},"out":{"fix":"\u00e9\u4e2d","sql":"'\u00e9\u4e2d'"}}
+  ],
+  "generator": "ace-vectors content_export_sql",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Database/SQLFormatters/SQLWriter.cs","member":"SQLWriter.FixNullFields, SQLWriter.GetSQLString","notes":"in: {s}; out: {fix, sql} (fix of null is omitted: FixNullFields(null) throws).","runtime":"10.0.12","sdk":"10.0.401"}
+}

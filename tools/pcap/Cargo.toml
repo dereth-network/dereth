@@ -1,0 +1,37 @@
+[package]
+name = "dereth-pcap"
+description = "The retail capture index: reads packet captures, reassembles and decodes every session, and writes a queryable SQLite index."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Every test is a `#[cfg(test)]` module beside the code it tests (no `tests/` directory), the
+# arrangement `dereth-corpus` uses; the corpus-reading checks skip with a printed count when
+# `DERETH_RETAIL_PCAPS` is unset.
+autotests = false
+
+[dependencies]
+# The transport: packet header, optional headers, fragments, blob reassembly, checksums and the
+# key stream. Without the replay harness, which this app does not need.
+dereth-transport.workspace = true
+# Every reassembled message is decoded by the protocol crate.
+dereth-protocol.workspace = true
+dereth-primitives.workspace = true
+# The index. `bundled` compiles SQLite into the binary.
+rusqlite = { workspace = true, features = ["functions"] }
+# The content hash that makes ingest incremental.
+blake3.workspace = true
+# zip members are stored or deflated; both are read in memory.
+flate2 = "1"
+crc32fast = "1"
+# 7z members, read in memory. LZMA/LZMA2 only; no encryption, no C codecs.
+sevenz-rust2 = { version = "0.23", default-features = false }
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Tests build 7z archives in memory; the encoder is pure Rust and only linked into tests.
+sevenz-rust2 = { version = "0.23", default-features = false, features = ["compress"] }

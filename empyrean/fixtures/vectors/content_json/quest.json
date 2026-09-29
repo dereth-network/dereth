@@ -1,0 +1,10 @@
+{
+  "cases": [
+    {"in":{"json":"{\r\n  \"key\": \"KillTask's, , Rats\",\r\n  \"value\": {\r\n    \"fullname\": \"Kill some rats\",\r\n    \"maxsolves\": -1,\r\n    \"mindelta\": 72000\r\n  }\r\n}","name":"export"},"out":{"sql":"DELETE FROM `quest` WHERE `name` = 'KillTask''s, , Rats';\n\nINSERT INTO `quest` (`name`, `min_Delta`, `max_Solves`, `message`, `last_Modified`)\nVALUES ('KillTask''s, NULL, Rats', 72000, -1, 'Kill some rats', '2026-01-02 03:04:05');\n"}},
+    {"in":{"json":"{\"key\": \"Neg\", \"value\": {\"fullname\": null, \"maxsolves\": 3, \"mindelta\": -5}}","name":"negative_mindelta"},"out":{"sql":"DELETE FROM `quest` WHERE `name` = 'Neg';\n\nINSERT INTO `quest` (`name`, `min_Delta`, `max_Solves`, `message`, `last_Modified`)\nVALUES ('Neg', 4294967291, 3, NULL, '2026-01-02 03:04:05');\n"}},
+    {"in":{"json":"{\"key\": \"NoValue\"}","name":"fail_value_null"},"out":{"error":"convert"}},
+    {"in":{"json":"{\"value\": {\"fullname\": \"f\", \"maxsolves\": 1, \"mindelta\": 1}}","name":"key_null"},"out":{"sql":"DELETE FROM `quest` WHERE `name` = ;\n\nINSERT INTO `quest` (`name`, `min_Delta`, `max_Solves`, `message`, `last_Modified`)\nVALUES (, 1, 1, 'f', '2026-01-02 03:04:05');\n"}}
+  ],
+  "generator": "ace-vectors content_json",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperContentCommands.cs","member":"DeveloperContentCommands.json2sql_quest","notes":"in: {name, json}; out: {sql} (the text json2sql writes, LF line endings) or {error: load|convert|write}. DateTime.UtcNow is 2026-01-02 03:04:05; the writers have no name dictionaries.","runtime":"10.0.12","sdk":"10.0.401"}
+}

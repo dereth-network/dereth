@@ -1,0 +1,61 @@
+[package]
+name = "empyrean-world"
+description = "The port of Source/ACE.Server's gameplay: world objects, managers, factories, game messages, events and actions."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# Tier switch only: selects the real-content test modules, which read the
+# retail dats under DERETH_TEST_DAT_DIR, world.pack under EMPYREAN_TEST_WORLD_PACK
+# (default world.pack in the repository) and fixtures/packet-captures/, and fail when they are absent.
+real-content = ["empyrean-dat/real-content"]
+
+[dependencies]
+empyrean-common.workspace = true
+dereth-animation.workspace = true
+dereth-assets.workspace = true
+dereth-physics.workspace = true
+dereth-protocol.workspace = true
+dereth-rules.workspace = true
+dereth-primitives.workspace = true
+# `anim_convert`: the decoded dat records turned into dereth-animation's runtime shapes.
+dereth-world-data.workspace = true
+empyrean-entity.workspace = true
+empyrean-tables.workspace = true
+empyrean-content.workspace = true
+empyrean-store.workspace = true
+empyrean-dat.workspace = true
+empyrean-net.workspace = true
+log.workspace = true
+zlib-rs.workspace = true
+
+[dev-dependencies]
+dereth-client-net.workspace = true
+dereth-dat = { path = "../../../core/dat", features = ["test-support"] }
+dereth-transport.workspace = true
+serde_json.workspace = true
+dereth-client-model.workspace = true
+# The flat-land + synthetic-setup helper (`empyrean_testkit::land`). Integration tests only; a
+# dev-dependency cycle is fine for them (one empyrean-world lib).
+empyrean-testkit.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

@@ -1,0 +1,25 @@
+[package]
+name = "dereth-transport"
+description = "The role-neutral UDP transport a client and a server both speak: packet framing, the checksums, the ISAAC key stream, fragments and reassembly, retransmission and the handshake records."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+# The role-neutral transport: packet framing, checksums, the key stream, fragments and
+# reassembly, the receive/retransmit state, the send queue and the connection handshake. No socket
+# and no unsafe -- the client's socket is `dereth-client-net`'s.
+[dependencies]
+dereth-primitives.workspace = true
+thiserror.workspace = true
+
+[features]
+# Tier switch only: no code is gated on it and there is no test binary behind it. Kept so
+# workspace-wide `--features retail-dats` runs still resolve here.
+retail-dats = []
+
+[lints]
+workspace = true

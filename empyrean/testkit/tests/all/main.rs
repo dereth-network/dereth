@@ -1,0 +1,27 @@
+//! Integration tests for the server test harness and game-message flows.
+mod chat;
+mod combat;
+mod commands;
+mod crafting;
+mod emotes;
+mod games;
+mod harness;
+mod housing;
+mod interactions;
+mod inventory;
+mod login;
+mod magic;
+mod movement;
+mod net;
+mod objects;
+mod persistence;
+mod replay;
+mod server;
+mod soak;
+mod social;
+mod vectors;
+mod world;
+use combat::monster_ai;
+mod instruments;
+mod players;
+mod support;

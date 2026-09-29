@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"in":{"names":["Arwic","arwic","Al-Arqas","Al Arqas","Aluvian","Ayan Baqur","Baishi","Candeth Keep","Cragstone","Crater","Dryreach","Eastham","Fort Tethana","Glendon Wood","Hebian-To","Holtburg","Kara","Khayyaban","Kryst","Lin","Lytelthorpe","Mayoi","Nanto","Neydisa","Oolutanga's Refuge","Plateau","Qalaba'r","Rithwic","Samsur","Sawato","Shoushi","Stonehold","Timaru","Tufa","Underground City","Uziz","Wai Jhou","Xarabydun","Yanshi","Yaraq","Zaikhal","MacNiall's Freehold","Mac Niall","Mac-Niall"]},"out":["Al Arqas","Al-Arqas","Aluvian","arwic","Arwic","Ayan Baqur","Baishi","Candeth Keep","Cragstone","Crater","Dryreach","Eastham","Fort Tethana","Glendon Wood","Hebian-To","Holtburg","Kara","Khayyaban","Kryst","Lin","Lytelthorpe","Mac Niall","Mac-Niall","MacNiall's Freehold","Mayoi","Nanto","Neydisa","Oolutanga's Refuge","Plateau","Qalaba'r","Rithwic","Samsur","Sawato","Shoushi","Stonehold","Timaru","Tufa","Underground City","Uziz","Wai Jhou","Xarabydun","Yanshi","Yaraq","Zaikhal"]},
+    {"in":{"names":["b","B","a","A","_x","1st","10th","2nd","Z","zz","Zz","zZ","a b","a-b","a'b","ab","a.b","a,b","a_b","A B","aB","Ab"]},"out":["_x","10th","1st","2nd","a","A","a b","A B","a_b","a-b","a,b","a.b","a'b","ab","aB","Ab","b","B","Z","zz","zZ","Zz"]},
+    {"in":{"names":["Town Network","town network","Town network","Town-Network","Towns","Town","Tow","town"]},"out":["Tow","town","Town","town network","Town network","Town Network","Town-Network","Towns"]}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"IEnumerable<string>.OrderBy(k => k) (Comparer<string>.Default, en-US)","notes":"telepoi list sorts the point-of-interest names this way. in.names in input order, out the sorted names.","runtime":"10.0.12","sdk":"10.0.401"}
+}

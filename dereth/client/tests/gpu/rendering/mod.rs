@@ -1,0 +1,48 @@
+//! What the renderer draws and how: detail and degrade levels, particles, lighting, fog, sky,
+//! textures and samplers, translucency, draw order, portals between outdoors and interiors,
+//! and the terrain.
+
+mod adaptive_degrade;
+mod billboards;
+pub(crate) mod building_boundary_draw;
+mod clipped_outdoor_pass;
+mod degrade_marker_parts;
+mod detail_textures;
+mod foliage_occlusion;
+mod game_viewport;
+mod highres_texture_policy;
+mod hud_raster;
+mod indoor_depth_clear;
+mod indoor_outdoor_gate;
+mod interior_cell_views;
+mod interiors_through_outdoor_portals;
+mod landscape_draw_distance;
+mod lighting;
+mod mip_deferral;
+mod object_draw_distance;
+mod object_part_submission;
+mod object_viewcone_cull;
+mod objects_through_doorways;
+mod part_degrade_levels;
+mod part_translucency;
+mod particle_emitter_degrade_cutoff;
+mod particle_lighting;
+mod particles;
+mod play_script_messages;
+mod preview_level_zero;
+mod rain_extent;
+mod render_and_day_commands;
+mod render_preferences;
+mod sky;
+mod solid_colour_textures;
+mod static_degrade_levels;
+mod static_scene;
+mod surface_translucency;
+mod terrain_compositor_parity;
+mod terrain_lod_seams;
+mod texture_cache_key_spaces;
+mod texture_filtering;
+mod ui_sampler_selection;
+mod ui_texture_addressing;
+mod unseen_cell_particles;
+mod villa_door_visibility;

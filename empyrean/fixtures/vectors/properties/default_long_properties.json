@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {"in":{"index":0},"out":{"description":"the amount of time in seconds a deleted character can be restored","item":3600,"key":"char_delete_time"}},
+    {"in":{"index":1},"out":{"description":"the amount of time in seconds an account is required to have existed for for global chat privileges","item":0,"key":"chat_requires_account_time_seconds"}},
+    {"in":{"index":2},"out":{"description":"the amount of time in seconds a player is required to have played for global chat privileges","item":0,"key":"chat_requires_player_age"}},
+    {"in":{"index":3},"out":{"description":"the level a player is required to have for global chat privileges","item":0,"key":"chat_requires_player_level"}},
+    {"in":{"index":4},"out":{"description":"the number of corpses a player is allowed to leave on a landblock at one time","item":15,"key":"corpse_spam_limit"}},
+    {"in":{"index":5},"out":{"description":"retail defaults to 1, 1 = standard subscription (same as 2 and 3), 4 grants ToD pre-order bonus item Asheron's Benediction","item":1,"key":"default_subscription_level"}},
+    {"in":{"index":6},"out":{"description":"level when fellowship XP sharing is no longer restricted","item":50,"key":"fellowship_even_share_level"}},
+    {"in":{"index":7},"out":{"description":"overrides the default allegiance rank required to own a mansion","item":6,"key":"mansion_min_rank"}},
+    {"in":{"index":8},"out":{"description":"retail defaults to 11, client supports up to 20","item":11,"key":"max_chars_per_account"}},
+    {"in":{"index":9},"out":{"description":"the number of seconds where a player cannot perform certain actions (ie. teleporting) after becoming involved in a PK battle","item":20,"key":"pk_timer"}},
+    {"in":{"index":10},"out":{"description":"the number of seconds between automatic player saves","item":300,"key":"player_save_interval"}},
+    {"in":{"index":11},"out":{"description":"for rares_real_time_v2: the maximum number of days a player can go before a rare is generated on rare eligible creature kills","item":45,"key":"rares_max_days_between"}},
+    {"in":{"index":12},"out":{"description":"for rares_real_time: the maximum number of seconds a player can go before a second chance at a rare is allowed on rare eligible creature kills that did not generate a rare","item":5256000,"key":"rares_max_seconds_between"}},
+    {"in":{"index":13},"out":{"description":"if allow_summoning_killtask_multicredit is enabled, the maximum # of killtask credits a player can receive from 1 kill","item":2,"key":"summoning_killtask_multicredit_cap"}},
+    {"in":{"index":14},"out":{"description":"Fixes some possible issues with invisible players and mobs. 0 = default / disabled, 1 = players only, 2 = creatures, 3 = all world objects","item":0,"key":"teleport_visibility_fix"}}
+  ],
+  "generator": "ace-vectors properties",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/PropertyManager.cs","member":"DefaultPropertyManager.DefaultLongProperties","notes":"One case per entry, in the dictionary's enumeration order (ToDictionary over the literal pairs). in.index is the position; out is {key, item, description}.","runtime":"10.0.12","sdk":"10.0.401"}
+}

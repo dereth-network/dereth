@@ -1,0 +1,6 @@
+{
+ "source": "MariaDB 12.3.3-MariaDB, WEIGHT_STRING(CHAR(cp USING utf32) COLLATE utf8mb4_uca1400_ai_ci) for every code point",
+ "encoding": "per code point ascending, surrogates skipped: u32 LE cp, u8 weight count, u16 LE weights",
+ "code_points": 1112064,
+ "sha256": "52f10d8560e535d2946f521653f873353234f21ba4e372a0ab7b05e14fe38e66"
+}

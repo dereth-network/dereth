@@ -1,0 +1,275 @@
+{
+  "scenarios": [
+    {
+      "blobs": 869,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F7B1": 143,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 148,
+      "duplicate_datagrams": 0,
+      "name": "combat-mode-while-moving",
+      "server_to_client": 721
+    },
+    {
+      "blobs": 6,
+      "client_opcodes": {
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 2,
+      "duplicate_datagrams": 0,
+      "name": "ddd-interrogation-only",
+      "server_to_client": 4
+    },
+    {
+      "blobs": 1481,
+      "client_opcodes": {
+        "F653": 1,
+        "F656": 1,
+        "F657": 1,
+        "F7B1": 290,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 296,
+      "duplicate_datagrams": 0,
+      "name": "early-inventory-and-casting",
+      "server_to_client": 1185
+    },
+    {
+      "blobs": 937,
+      "client_opcodes": {
+        "F653": 1,
+        "F656": 1,
+        "F657": 1,
+        "F7B1": 168,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 174,
+      "duplicate_datagrams": 1,
+      "name": "fellowship-one-vassal",
+      "server_to_client": 763
+    },
+    {
+      "blobs": 567,
+      "client_opcodes": {
+        "F653": 1,
+        "F656": 1,
+        "F657": 1,
+        "F7B1": 57,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 63,
+      "duplicate_datagrams": 0,
+      "name": "fellowship-three-vassal",
+      "server_to_client": 504
+    },
+    {
+      "blobs": 786,
+      "client_opcodes": {
+        "F653": 1,
+        "F656": 1,
+        "F657": 1,
+        "F7B1": 131,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 137,
+      "duplicate_datagrams": 0,
+      "name": "fellowship-two-monarch",
+      "server_to_client": 649
+    },
+    {
+      "blobs": 229,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F7B1": 26,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 31,
+      "duplicate_datagrams": 0,
+      "name": "first-login-walk-jump",
+      "server_to_client": 198
+    },
+    {
+      "blobs": 2804,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F6EA": 3,
+        "F7B1": 447,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 455,
+      "duplicate_datagrams": 0,
+      "name": "house-purchase-and-trade",
+      "server_to_client": 2349
+    },
+    {
+      "blobs": 282,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F7B1": 18,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 23,
+      "duplicate_datagrams": 0,
+      "name": "house-purchase-refused",
+      "server_to_client": 259
+    },
+    {
+      "blobs": 1,
+      "client_opcodes": {},
+      "client_to_server": 0,
+      "duplicate_datagrams": 0,
+      "name": "login-account-booted",
+      "server_to_client": 1
+    },
+    {
+      "blobs": 4175,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F7B1": 428,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 433,
+      "duplicate_datagrams": 0,
+      "name": "long-movement-run",
+      "server_to_client": 3742
+    },
+    {
+      "blobs": 8939,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F6EA": 35,
+        "F7B1": 2179,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 2219,
+      "duplicate_datagrams": 0,
+      "name": "long-solo-play",
+      "server_to_client": 6720
+    },
+    {
+      "blobs": 816,
+      "client_opcodes": {
+        "F657": 1,
+        "F7B1": 167,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 171,
+      "duplicate_datagrams": 0,
+      "name": "melee-attack-run",
+      "server_to_client": 645
+    },
+    {
+      "blobs": 3232,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F6EA": 1,
+        "F7B1": 494,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 500,
+      "duplicate_datagrams": 0,
+      "name": "post-relog-attribute-training",
+      "server_to_client": 2732
+    },
+    {
+      "blobs": 1430,
+      "client_opcodes": {
+        "F653": 2,
+        "F656": 1,
+        "F657": 2,
+        "F7B1": 183,
+        "F7C8": 2,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 192,
+      "duplicate_datagrams": 0,
+      "name": "pre-relog-play",
+      "server_to_client": 1238
+    },
+    {
+      "blobs": 12907,
+      "client_opcodes": {
+        "F653": 6,
+        "F655": 1,
+        "F656": 2,
+        "F657": 6,
+        "F7B1": 856,
+        "F7C8": 6,
+        "F7D9": 1,
+        "F7DE": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 881,
+      "duplicate_datagrams": 0,
+      "name": "requested-death-vitae-salvage",
+      "server_to_client": 12026
+    },
+    {
+      "blobs": 465,
+      "client_opcodes": {
+        "F653": 1,
+        "F656": 1,
+        "F657": 1,
+        "F7B1": 62,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 68,
+      "duplicate_datagrams": 0,
+      "name": "short-play-with-training",
+      "server_to_client": 397
+    },
+    {
+      "blobs": 124,
+      "client_opcodes": {
+        "F653": 1,
+        "F657": 1,
+        "F7B1": 7,
+        "F7C8": 1,
+        "F7E6": 1,
+        "F7EA": 1
+      },
+      "client_to_server": 12,
+      "duplicate_datagrams": 0,
+      "name": "short-second-connection",
+      "server_to_client": 112
+    }
+  ]
+}

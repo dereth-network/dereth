@@ -1,0 +1,27 @@
+[package]
+name = "dereth-console"
+description = "The console the Windows client has to ask for, because its binary is linked under the windows subsystem."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# NOT `[lints] workspace = true`, for exactly the reason `dereth-clipboard`'s manifest gives: the
+# workspace sets `unsafe_code = "forbid"`, `forbid` cannot be lifted by an inner `#[allow]`, and
+# `dereth-client`'s own manifest asserts that it keeps `forbid`. So the two console calls this crate
+# exists for cannot live in `dereth-client`. `deny` here, with one `#[allow(unsafe_code)]` on
+# `mod windows` and one on `mod message_box` (the modal error box the client shows when its first
+# connection fails, one user32 call), is the narrowest scope the language offers.
+#
+# The precedents are `dereth-primitives`' `text` module (kernel32 NLS conversion) and `dereth-clipboard` (user32 clipboard).
+# Like those, this crate takes **no dependencies at all**: two `extern "system"` declarations are
+# smaller than a `windows` crate feature set, and a crate whose whole job is two calls should be
+# readable in one sitting.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"

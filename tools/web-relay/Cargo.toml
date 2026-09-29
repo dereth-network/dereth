@@ -1,0 +1,18 @@
+[package]
+name = "dereth-web-relay"
+description = "The local proxy a player runs to play in a browser on a server that speaks only UDP: one game datagram per WebSocket message, on the player's own machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The frame: a two-byte port, then one datagram; port 0 the will.
+dereth-transport.workspace = true
+# The WebSocket handshake and framing, blocking, one thread per browser connection.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {"in":{"password":"","salt":""},"out":"z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=="},
+    {"in":{"password":"abc","salt":""},"out":"3a81oZNherrMQXNJriBBMRLm+k6JqX6iCp7u5ktV05ohkpkqJ0/BqDa6PCOj/uu9RU1EI2Q86A4qmslPpUyknw=="},
+    {"in":{"password":"Pa55w0rd!","salt":""},"out":"4gX3F3ah+4zdFuEYGIiba8PbKuclA/gPsPuDCwx8NOogXWiF8F3w+KCPZoTQmV1Jg1kqVPzdeWDdgr24ax5vRA=="},
+    {"in":{"password":"\u00e9t\u00e9","salt":""},"out":"iitiBJ61IOBAFsbapfEEJ18xSFXF13fWfzTKa4rL4sVqJ35Eh2/6WT5QULqsfhiufNOBw2/A+3/Izm5xzQm4dA=="},
+    {"in":{"password":"","salt":"AAAA"},"out":"bVGPizHRiC/qzhCpIV9djPWv4DdlKh0R2cFAjZiMKk9xpe38hdBxL6P04hssCiRMjA0zO6tFQxHiQGfSqD5eWQ=="},
+    {"in":{"password":"abc","salt":"AAAA"},"out":"fYoQoKjPBMaCckw+UdHeJ2b9QL6VF3GXcQ8/gyrlTQ9EPrexYWJe4tw124YbtjKDfX20W6YsJG1waC6QFKtdyQ=="},
+    {"in":{"password":"Pa55w0rd!","salt":"AAAA"},"out":"WgqTVFp+9AdUd1+Fu6ThwI2tsFTO+67KrkZatVO+UPGOkovKGzgyo1CnrOhW4+YaWR1Xon39lVPi15nXgsGAYg=="},
+    {"in":{"password":"\u00e9t\u00e9","salt":"AAAA"},"out":"5SFwsguh1NfVGWjtPeEuQOJeXIwAK0CI+DQpfu7IMZKbvLIOay5l5TNjzgfRw575O4uH6QMPOuBiyvKBT1Kq5A=="},
+    {"in":{"password":"","salt":"c2FsdA=="},"out":"Lj/Od8+MTHR4qW0gfBw5cViSyshKGMvsm2NPS8IrOQtIzTCk3y5+u67mXDRqZixb4tEkQTIvekusgho4LErwkQ=="},
+    {"in":{"password":"abc","salt":"c2FsdA=="},"out":"UuwKVJ3sVFdDutxIR6zRFfqB9OaRjYphO5pgXwaLdQqqQbZYn2R1SDBPZ5quwxAYtrytU2iTLWthNajjksoEZA=="},
+    {"in":{"password":"Pa55w0rd!","salt":"c2FsdA=="},"out":"uQj2Fdw+IKF67wTj9BaGlmNse0XQKzuvV0Qu+iJ/a1OwbfgF0SKpg8ZRkiPYREShyp7LApahdqdvO3X7bF0QBQ=="},
+    {"in":{"password":"\u00e9t\u00e9","salt":"c2FsdA=="},"out":"UpNpyMV/KkaUUIEeh+Hz7jz34wo61FDtsJ1Z7CFTPZ6jtytoGKPtYy62GABOjhYTERcZcVjANSDwWEorB4H2MQ=="},
+    {"in":{"password":"","salt":"3q2+7w=="},"out":"EoSy1SFTUZbyIXXV9VgQQiCmrXaA54tJ+m8g5X6nsYXXHsHtsTfnDrpSje2xQfXS+LtTFJ0mKTKyfPQf7Zaqfw=="},
+    {"in":{"password":"abc","salt":"3q2+7w=="},"out":"tTiyYYJCm7X3/2y1bZOcxAiq3YwzbQI3AAr7jKRbF4oWTb11TbOQE0Pacr0WESnbuFhhYc3RInDPchnw05Uo6w=="},
+    {"in":{"password":"Pa55w0rd!","salt":"3q2+7w=="},"out":"nMA60YuqyX0n7QUj3tHqQuUP0E/EZ4xld30GbaauEnubLu+7bnAjH+Qt0C3Rvj40lnmgjbjB04IRSTHb6tMF2A=="},
+    {"in":{"password":"\u00e9t\u00e9","salt":"3q2+7w=="},"out":"Ni6gt3pgX+YPO57qgpKXyjNd2kFNe+n4Ca6QIw6tjUqh+qRIHDy+9YpxZbtROT8CDKjxiWcNUAPM60bXvrUXQQ=="},
+    {"in":{"password":"","salt":"not base64!"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"abc","salt":"not base64!"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"Pa55w0rd!","salt":"not base64!"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"\u00e9t\u00e9","salt":"not base64!"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"","salt":"use bcrypt"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"abc","salt":"use bcrypt"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"Pa55w0rd!","salt":"use bcrypt"},"out":{"throws":"System.FormatException"}},
+    {"in":{"password":"\u00e9t\u00e9","salt":"use bcrypt"},"out":{"throws":"System.FormatException"}}
+  ],
+  "generator": "ace-vectors store",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Database/Models/Auth/AccountExtensions.cs","member":"ACE.Database.Models.Auth.AccountExtensions.GetPasswordHash(Account account, string password)","notes":"Base64(SHA512(UTF8(password) ++ FromBase64(account.PasswordSalt))). out is the string, or {throws: type}.","runtime":"10.0.12","sdk":"10.0.401"}
+}

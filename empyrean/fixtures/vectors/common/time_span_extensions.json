@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {"in":{"ticks":0},"out":{"friendly":"","friendly_long":"","months":0,"years":0}},
+    {"in":{"ticks":10000000},"out":{"friendly":"1s","friendly_long":"1 second","months":0,"years":0}},
+    {"in":{"ticks":20000000},"out":{"friendly":"2s","friendly_long":"2 seconds","months":0,"years":0}},
+    {"in":{"ticks":600000000},"out":{"friendly":"1m","friendly_long":"1 minute","months":0,"years":0}},
+    {"in":{"ticks":36000000000},"out":{"friendly":"1h","friendly_long":"1 hour","months":0,"years":0}},
+    {"in":{"ticks":36610000000},"out":{"friendly":"1h 1m 1s","friendly_long":"1 hour , 1 minute and 1 second","months":0,"years":0}},
+    {"in":{"ticks":864000000000},"out":{"friendly":"1d","friendly_long":"1 day","months":0,"years":0}},
+    {"in":{"ticks":900610000000},"out":{"friendly":"1d 1h 1m 1s","friendly_long":"1 day , 1 hour , 1 minute and 1 second","months":0,"years":0}},
+    {"in":{"ticks":1234567891234},"out":{"friendly":"1d 10h 17m 36s","friendly_long":"1 day , 10 hours , 17 minutes and 36 seconds","months":0,"years":0}},
+    {"in":{"ticks":1728000000000},"out":{"friendly":"2d","friendly_long":"2 days","months":0,"years":0}},
+    {"in":{"ticks":1840000000000},"out":{"friendly":"2d 3h 6m 40s","friendly_long":"2 days , 3 hours , 6 minutes and 40 seconds","months":0,"years":0}},
+    {"in":{"ticks":25920000000000},"out":{"friendly":"30d","friendly_long":"30 days","months":1,"years":0}},
+    {"in":{"ticks":315360000000000},"out":{"friendly":"365d","friendly_long":"365 days","months":12,"years":1}},
+    {"in":{"ticks":3153600000000000},"out":{"friendly":"3650d","friendly_long":"3650 days","months":121,"years":10}},
+    {"in":{"ticks":-10000000},"out":{"friendly":"1s","friendly_long":"1 second","months":0,"years":0}},
+    {"in":{"ticks":-900610000000},"out":{"friendly":"1d 1h 1m 1s","friendly_long":"1 day , 1 hour , 1 minute and 1 second","months":0,"years":0}},
+    {"in":{"ticks":-315360000000000},"out":{"friendly":"365d","friendly_long":"365 day","months":0,"years":0}},
+    {"in":{"ticks":99999999},"out":{"friendly":"9s","friendly_long":"9 seconds","months":0,"years":0}},
+    {"in":{"ticks":5999999999},"out":{"friendly":"9m 59s","friendly_long":"9 minutes and 59 seconds","months":0,"years":0}},
+    {"in":{"ticks":9223372036854775},"out":{"friendly":"10675d 4h 46m 43s","friendly_long":"10675 days , 4 hours , 46 minutes and 43 seconds","months":355,"years":29}}
+  ],
+  "generator": "ace-vectors common",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Common/Extensions/TimeSpanExtensions.cs","member":"ACE.Common.Extensions.TimeSpanExtensions.GetFriendlyString / GetFriendlyLongString / GetMonths / GetYears (this TimeSpan)","notes":"in.ticks is new TimeSpan(ticks). GetMonths/GetYears cast TotalSeconds to uint, which saturates on net10 (negative spans give 0).","runtime":"10.0.12","sdk":"10.0.401"}
+}

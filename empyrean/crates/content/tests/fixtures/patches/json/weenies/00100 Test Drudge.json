@@ -1,0 +1,12 @@
+{
+  "wcid": 100,
+  "weenieType": 10,
+  "intStats": [ { "key": 1, "value": 16 }, { "key": 25, "value": 7 } ],
+  "floatStats": [ { "key": 39, "value": 1.25 } ],
+  "stringStats": [ { "key": 1, "value": "Test Drudge" } ],
+  "emoteTable": [
+    { "key": 1, "value": [ { "category": 1, "probability": 1, "emotes": [
+      { "type": 10, "msg": "Hello again", "delay": 0, "extent": 1 },
+      { "type": 10, "msg": "Bye now", "delay": 0, "extent": 1 } ] } ] }
+  ]
+}

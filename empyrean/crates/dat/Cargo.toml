@@ -1,0 +1,45 @@
+[package]
+name = "empyrean-dat"
+description = "ACE's DatManager surface (Source/ACE.DatLoader) over the shared data-file readers, plus the server-only decoders."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# Tier switch only: selects the real-dat test modules, which read the
+# retail dats under DERETH_TEST_DAT_DIR and fail when they are absent.
+real-content = []
+
+[dependencies]
+empyrean-common.workspace = true
+empyrean-entity.workspace = true
+dereth-assets.workspace = true
+dereth-dat.workspace = true
+dereth-physics.workspace = true
+dereth-primitives.workspace = true
+dereth-world-data.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+dereth-dat = { path = "../../../core/dat", features = ["test-support"] }
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

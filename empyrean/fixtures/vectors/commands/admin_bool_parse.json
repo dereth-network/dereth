@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {"in":{"s":"true"},"out":{"value":true}},
+    {"in":{"s":"false"},"out":{"value":false}},
+    {"in":{"s":"True"},"out":{"value":true}},
+    {"in":{"s":"FALSE"},"out":{"value":false}},
+    {"in":{"s":" true"},"out":{"value":true}},
+    {"in":{"s":"true "},"out":{"value":true}},
+    {"in":{"s":"\ttrue\t"},"out":{"value":true}},
+    {"in":{"s":"true\u0000"},"out":{"value":true}},
+    {"in":{"s":"true\u0000 "},"out":{"value":true}},
+    {"in":{"s":"\u0000true"},"out":{"value":true}},
+    {"in":{"s":"tru"},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":"1"},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":"0"},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":"yes"},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":""},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":" "},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":"t"},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":"truee"},"out":{"throws":"System.FormatException"}},
+    {"in":{"s":"\u00a0true"},"out":{"value":true}}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":"System.Boolean.Parse(string)","notes":"modifybool's parse; out.value or out.throws.","runtime":"10.0.12","sdk":"10.0.401"}
+}

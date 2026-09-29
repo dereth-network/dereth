@@ -1,0 +1,16 @@
+# Findings `cargo xtask lint` has seen and that belong to another track to resolve.
+#
+# Track N reports the diff; the owning track decides whether the diff is a bug, a deliberate
+# choice, or a documented deviation (BUILDER_BRIEF.md section 9, track spec section 1). A row here
+# prints as ACK and does not fail the build. Anything NOT on this list does fail, so the list is a
+# ratchet, not an amnesty.
+#
+# Do NOT add a row for your own code. Annotate it instead:
+#     // ORDER-OK: <why a randomised iteration order cannot leak here>
+#     // LINT-OK:  <why this float-to-int cast is not a fidelity question>
+# A row is for code another track owns and that you must not edit during Wave 1.
+#
+# Format:  <path fragment>|<rule keyword>|<owner> -- <reason and what would clear it>
+#
+# Rule keywords: "as i32", "HashMap"
+

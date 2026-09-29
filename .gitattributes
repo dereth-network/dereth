@@ -1,0 +1,38 @@
+# Line endings: LF everywhere, stored and checked out, on every platform.
+# `cargo xtask line-endings --tree` checks the tree against these rules.
+* text=auto eol=lf
+
+# Windows batch files: cmd.exe mis-parses labels and `goto` in LF files.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Byte-exact: fixtures whose bytes are compared, hashed or replayed. No conversion.
+fixtures/** -text
+**/fixtures/** -text
+*.sql -text
+*.patch -text
+*.diff -text
+*.log -text
+
+# Binary, stated rather than sniffed.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.pgm binary
+*.mp4 binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.dat binary
+*.pack binary
+*.pcap binary
+*.pcapng binary
+*.zip binary
+*.gz binary
+*.exe binary
+*.dll binary
+*.pdb binary

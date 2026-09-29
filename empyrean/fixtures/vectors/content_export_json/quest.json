@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"in":{"name":"quest","quest":"KillTask's <Rats> & \u00e9","sql":"DELETE FROM `quest` WHERE `name` = 'KillTask''s <Rats> & \u00e9';\n\nINSERT INTO `quest` (`name`, `min_Delta`, `max_Solves`, `message`, `last_Modified`)\nVALUES ('KillTask''s <Rats> & \u00e9', 72000, -1, 'Kill some rats', '2026-01-02 03:04:05');\n"},"out":{"json":"{\r\n  \"key\": \"KillTask's <Rats> & \u00e9\",\r\n  \"value\": {\r\n    \"fullname\": \"Kill some rats\",\r\n    \"maxsolves\": -1,\r\n    \"mindelta\": 72000\r\n  }\r\n}"}},
+    {"in":{"name":"null_message_big_delta","quest":"BigDelta","sql":"DELETE FROM `quest` WHERE `name` = 'BigDelta';\n\nINSERT INTO `quest` (`name`, `min_Delta`, `max_Solves`, `message`, `last_Modified`)\nVALUES ('BigDelta', 3000000000, 0, NULL, '2026-01-02 03:04:05');\n"},"out":{"json":"{\r\n  \"key\": \"BigDelta\",\r\n  \"value\": {\r\n    \"maxsolves\": 0,\r\n    \"mindelta\": -1294967296\r\n  }\r\n}"}}
+  ],
+  "generator": "ace-vectors content_export_json",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/GDLEConverter.cs","member":"GDLEConverter.TryConvert(Quest, out Models.Quest)","notes":"in: {name, sql, ...}; out: {json} (the text ACE writes, CRLF indentation) or {error}. DateTime.UtcNow is 2026-01-02T03:04:05Z. in.quest is read back with GetCachedQuest.","runtime":"10.0.12","sdk":"10.0.401"}
+}

@@ -1,0 +1,34 @@
+[package]
+name = "dereth-dat"
+description = "The retail data-file container and the serialisation primitives every decoder reads through."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[features]
+# Tier switch: it selects the `dat` test binary, whose modules read the retail dats that
+# `testing` finds, and turns that module on.
+retail-dats = ["test-support"]
+# `dereth_dat::testing`: where the tests of every crate find the retail dats (`DERETH_TEST_DAT_DIR`).
+# Test builds only: crates enable it in `[dev-dependencies]`.
+test-support = []
+
+[dependencies]
+dereth-primitives.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

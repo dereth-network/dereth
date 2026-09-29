@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {"in":{"max":null,"min":null},"out":{"avg":0.0,"max":0.0,"min":0.0,"to_string":"0 - 0"}},
+    {"in":{"max":0.0,"min":0.0},"out":{"avg":0.0,"max":0.0,"min":0.0,"to_string":"0 - 0"}},
+    {"in":{"max":1.0,"min":0.0},"out":{"avg":0.5,"max":1.0,"min":0.0,"to_string":"0 - 1"}},
+    {"in":{"max":2.0,"min":1.0},"out":{"avg":1.5,"max":2.0,"min":1.0,"to_string":"1 - 2"}},
+    {"in":{"max":0.20000000298023224,"min":0.10000000149011612},"out":{"avg":0.15000000596046448,"max":0.20000000298023224,"min":0.10000000149011612,"to_string":"0.1 - 0.2"}},
+    {"in":{"max":3.25,"min":-1.5},"out":{"avg":0.875,"max":3.25,"min":-1.5,"to_string":"-1.5 - 3.25"}},
+    {"in":{"max":1000.0,"min":100.0},"out":{"avg":550.0,"max":1000.0,"min":100.0,"to_string":"100 - 1000"}},
+    {"in":{"max":300000000.0,"min":1.0000000116860974E-07},"out":{"avg":150000000.0,"max":300000000.0,"min":1.0000000116860974E-07,"to_string":"1E-07 - 300000000"}},
+    {"in":{"max":0.6666666865348816,"min":0.3333333134651184},"out":{"avg":0.5,"max":0.6666666865348816,"min":0.3333333134651184,"to_string":"0.3333333 - 0.6666667"}},
+    {"in":{"max":0.0,"min":-0.0},"out":{"avg":0.0,"max":0.0,"min":-0.0,"to_string":"-0 - 0"}},
+    {"in":{"max":9999999.0,"min":1234567.75},"out":{"avg":5617283.5,"max":9999999.0,"min":1234567.75,"to_string":"1234567.8 - 9999999"}},
+    {"in":{"max":3.4028234663852886E+38,"min":3.4028234663852886E+38},"out":{"avg":"Infinity","max":3.4028234663852886E+38,"min":3.4028234663852886E+38,"to_string":"3.4028235E+38 - 3.4028235E+38"}},
+    {"in":{"max":1.0,"min":"NaN"},"out":{"avg":"NaN","max":1.0,"min":"NaN","to_string":"NaN - 1"}},
+    {"in":{"max":"Infinity","min":"-Infinity"},"out":{"avg":"NaN","max":"Infinity","min":"-Infinity","to_string":"-\u221e - \u221e"}}
+  ],
+  "generator": "ace-vectors helpers",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Range.cs","member":"ACE.Server.Entity.Range(float min, float max): Avg and ToString()","notes":"Floats are written as their exact double; min null is the parameterless constructor.","runtime":"10.0.12","sdk":"10.0.401"}
+}

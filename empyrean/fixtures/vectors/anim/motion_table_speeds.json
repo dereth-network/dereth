@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"in":{"motion_table_id":150994945},"out":{"run_speed":3.9999895095825195,"turn_speed":1.5}},
+    {"in":{"motion_table_id":150995087},"out":{"run_speed":3.9999895095825195,"turn_speed":4.5}},
+    {"in":{"motion_table_id":150995159},"out":{"run_speed":0.0,"turn_speed":3.5}},
+    {"in":{"motion_table_id":150995224},"out":{"run_speed":0.0,"turn_speed":0.0}},
+    {"in":{"motion_table_id":150995290},"out":{"run_speed":0.0,"turn_speed":0.0}},
+    {"in":{"motion_table_id":150995352},"out":{"run_speed":0.0,"turn_speed":3.5}},
+    {"in":{"motion_table_id":150995418},"out":{"run_speed":0.0,"turn_speed":3.5}},
+    {"in":{"motion_table_id":150995484},"out":{"run_speed":0.0,"turn_speed":0.0}}
+  ],
+  "generator": "ace-vectors anim",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Physics/Animation/MotionTable.cs","member":"ACE.Server.Physics.Animation.MotionTable.GetRunSpeed(uint motionTableID) / GetTurnSpeed(uint motionTableID)","runtime":"10.0.12","sdk":"10.0.401"}
+}

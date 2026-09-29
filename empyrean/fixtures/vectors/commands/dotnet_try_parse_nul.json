@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {"in":{"s":"\u0000"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"1\u0000"},"out":{"double":1.0,"float":1.0,"int":1,"long":1,"uint":1,"ulong":1}},
+    {"in":{"s":"1\u0000\u0000"},"out":{"double":1.0,"float":1.0,"int":1,"long":1,"uint":1,"ulong":1}},
+    {"in":{"s":"1.5\u0000"},"out":{"double":1.5,"float":1.5,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":" 1.5 \u0000"},"out":{"double":1.5,"float":1.5,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"1.5\u0000 "},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"\u00001.5"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"1\u0000.5"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"-2.5\u0000\u0000\u0000"},"out":{"double":-2.5,"float":-2.5,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"1e3\u0000"},"out":{"double":1000.0,"float":1000.0,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"1,000\u0000"},"out":{"double":1000.0,"float":1000.0,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":".5\u0000"},"out":{"double":0.5,"float":0.5,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"5.\u0000"},"out":{"double":5.0,"float":5.0,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"NaN\u0000"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"\u221e\u0000"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"Infinity\u0000"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":" \u0000"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"+\u0000"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"12\u0000x"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"3.4028235E+38\u0000"},"out":{"double":3.4028235E+38,"float":3.4028234663852886E+38,"int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"1.8E+308\u0000"},"out":{"double":"Infinity","float":"Infinity","int":null,"long":null,"uint":null,"ulong":null}},
+    {"in":{"s":"\t7\n\u0000"},"out":{"double":7.0,"float":7.0,"int":7,"long":7,"uint":7,"ulong":7}},
+    {"in":{"s":"7\u0000\t"},"out":{"double":null,"float":null,"int":null,"long":null,"uint":null,"ulong":null}}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":null,"member":".NET int/uint/long/ulong/float/double.TryParse(string, out T) with NUL characters","notes":"Culture en-US. Each result is the parsed value or null when TryParse returns false.","runtime":"10.0.12","sdk":"10.0.401"}
+}

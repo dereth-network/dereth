@@ -1,0 +1,59 @@
+[package]
+name = "dereth-scene"
+description = "The client's drawn world: the landblock window, its objects, the sky, the particles and the preview spaces, drawn on the graphics device."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# The crate's tests are its modules' unit tests; the client's tier binaries exercise it through the
+# desktop client.
+autotests = false
+
+# A device backend is what the drawing is gated on: without one the crate still builds and holds
+# the scene's plain types, as the desktop client does with no backend. `wgpu` is the default,
+# because it builds for every target, the browser's included; the desktop client turns this off and
+# forwards its own three.
+[features]
+default = ["wgpu"]
+vulkan = ["dereth-render/vulkan"]
+wgpu = ["dereth-render/wgpu"]
+d3d12 = ["dereth-render/d3d12"]
+# Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
+# under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# The simulation the scene draws: the world state, the object stream, the models, the movement,
+# the landblock window's residency, and the presentation seam the scene implements.
+dereth-client-runtime = { path = "../../../../core/client-runtime" }
+dereth-render = { path = "../render", default-features = false, features = ["mock"] }
+dereth-world-render = { path = "../world-render" }
+dereth-dat = { path = "../../../../core/dat" }
+dereth-assets = { path = "../../../../core/assets" }
+dereth-physics = { path = "../../../../core/physics" }
+dereth-animation = { path = "../../../../core/animation" }
+# The landscape's terrain neighbourhood, which picks the ambient sounds.
+dereth-audio = { path = "../../../../core/audio" }
+# The wire appearance a server object arrives with.
+dereth-protocol = { path = "../../../../core/protocol" }
+# The target reticule's projection and the character-generation state the preview spaces read.
+dereth-ui-screens = { path = "../ui-screens" }
+thiserror.workspace = true
+tracing.workspace = true
+# The matrix type `dereth_render::camera` is expressed in. Same version as dereth-render's.
+glam = "0.30"
+# A monotonic clock a browser can read too; natively it is the standard library's.
+web-time = "0.2"
+# The capture writes a PNG.
+png = "0.17"
+
+[dev-dependencies]
+# `dereth_dat::testing`: where the tests find the retail dats.
+dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+# `DERETH_TEST_RENDERER`: the backend a test's device comes up on.
+dereth-render = { path = "../render", default-features = false, features = ["mock", "test-support"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,199 @@
+[workspace]
+resolver = "2"
+members = [
+    # core/: the shared crates (MIT), for the client, the server and any other AC client or tool,
+    # among them the client SDK: `client-net`, `client-model`, `client-runtime`, `client-contract`
+    # and `audio`, with `dereth-client-sdk` (core/client-sdk) the facade over them.
+    "core/primitives",
+    "core/dat",
+    "core/assets",
+    "core/world-data",
+    "core/landscape",
+    "core/terrain",
+    "core/physics",
+    "core/animation",
+    "core/transport",
+    "core/protocol",
+    "core/rules",
+    "core/client-net",
+    "core/client-model",
+    "core/client-contract",
+    "core/client-runtime",
+    "core/audio",
+    "core/client-sdk",
+    # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
+    # dereth/client/crates/ (drawing, the scene, the client shell, the retail UI, the device input,
+    # the clipboard and the console); the headless client; and the test kit.
+    "dereth/client",
+    "dereth/client/crates/render",
+    "dereth/client/crates/render-cpu",
+    "dereth/client/crates/world-render",
+    "dereth/client/crates/scene",
+    "dereth/client/crates/shell",
+    "dereth/client/crates/ui",
+    "dereth/client/crates/ui-screens",
+    "dereth/client/crates/input",
+    "dereth/client/crates/clipboard",
+    "dereth/client/crates/console",
+    "dereth/headless",
+    # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
+    # wasm32-unknown-unknown; the host build checks and tests the rest.
+    "dereth/web",
+    # Test support only: the behaviour scenarios. Nothing in any crate's `src/` or in `tools/`
+    # depends on it, and it is a member so that `cargo check --workspace --all-targets` covers it.
+    "dereth/testkit",
+    # tools/: research and build tools (MIT).
+    "tools/pcap",
+    "tools/web-relay",
+    "tools/web-dev",
+    "tools/corpus",
+    "tools/xtask",
+    # empyrean/: Empyrean, the server: a Rust port of ACE (ACEmulator), AGPL-3.0-only
+    # (empyrean/LICENSE; every server crate says so in its own `license`): the ported crates
+    # under empyrean/crates/, the `empyrean-server` and `empyrean-import` binaries and the server's
+    # test kit. The dependency rule between the halves is `cargo xtask separation`: a server
+    # crate may depend on the core crates but never on a dereth/ one, and no core, dereth or tools
+    # crate may ever depend on an empyrean-* crate.
+    "empyrean/crates/common",
+    "empyrean/crates/entity",
+    "empyrean/crates/tables",
+    "empyrean/crates/content",
+    "empyrean/crates/store",
+    "empyrean/crates/dat",
+    "empyrean/crates/net",
+    "empyrean/crates/world",
+    "empyrean/crates/command",
+    "empyrean/server",
+    "empyrean/import",
+    "empyrean/testkit",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+dereth-primitives = { path = "core/primitives" }
+thiserror = "2"
+# Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output
+# of its own); each binary installs the one subscriber that receives them. `tracing-subscriber`
+# is a binary's dependency only -- no library crate may name it. The server keeps its `log`
+# backend and turns on `tracing`'s `log` feature, so the shared crates' events reach it as
+# ordinary `log` records.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "registry", "smallvec", "tracing-log"] }
+
+# The core crates as the server names them (`dereth-x.workspace = true`). The client crates still
+# name most of these by path directly; the entries are the same crates either way.
+dereth-protocol   = { path = "core/protocol" }
+dereth-client-net = { path = "core/client-net", default-features = false }
+dereth-transport  = { path = "core/transport" }
+dereth-dat        = { path = "core/dat" }
+dereth-assets     = { path = "core/assets" }
+dereth-physics    = { path = "core/physics" }
+dereth-animation  = { path = "core/animation" }
+dereth-rules      = { path = "core/rules" }
+dereth-world-data = { path = "core/world-data" }
+dereth-landscape  = { path = "core/landscape" }
+# Test-only: empyrean-world cross-checks its ACE port against the
+# client's retail-derived rules. A dev-dependency of empyrean-world only.
+dereth-client-model = { path = "core/client-model" }
+
+# The server's crates (AGPL-3.0-only).
+empyrean-common  = { path = "empyrean/crates/common" }
+empyrean-entity  = { path = "empyrean/crates/entity" }
+empyrean-tables  = { path = "empyrean/crates/tables" }
+empyrean-content = { path = "empyrean/crates/content" }
+empyrean-store   = { path = "empyrean/crates/store" }
+empyrean-dat     = { path = "empyrean/crates/dat" }
+empyrean-net     = { path = "empyrean/crates/net" }
+empyrean-world   = { path = "empyrean/crates/world" }
+empyrean-command = { path = "empyrean/crates/command" }
+empyrean-testkit = { path = "empyrean/testkit" }
+
+# Third-party dependencies of the server crates.
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The native configuration file, empyrean.toml (empyrean-common). `preserve_order` keeps a
+# table's keys in file order, as Config.js's are (the thread multiplier setters run in that order).
+toml = { version = "1", features = ["preserve_order"] }
+memmap2 = "0.9"
+blake3 = { version = "1", default-features = false }
+# Shard/auth persistence (empyrean-store). `bundled` compiles SQLite into the binary: no system library.
+rusqlite = { version = "0.31", features = ["bundled"] }
+# Legacy SHA512 account passwords (empyrean-store, AccountExtensions.GetPasswordHash).
+sha2 = "0.10"
+# bcrypt salts (empyrean-store, BCryptProvider.HashPassword): the OS random source.
+getrandom = "0.3"
+# DDDManager.Compress (empyrean-world): ZLibStream at SmallestSize. .NET 10 compresses with
+# zlib-ng; zlib-rs is its memory-safe Rust port (vectored against ACE's own output).
+zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
+
+# Lints applied to every client and shared crate via `[lints] workspace = true`. The server crates do
+# not inherit these: each carries its own `[lints]` tables with the server's levels (no
+# `undocumented_unsafe_blocks`; `module_inception` allowed, because ACE folders often contain a file
+# of the same name). `clippy.toml` is shared by all, and every crate formats with rustfmt's defaults.
+# The float-to-int rule is the important one: the original truncates toward zero and produces the
+# x86 integer-indefinite value for NaN and for anything outside `i32`, where Rust's `as` saturates
+# to the nearest bound instead. The two therefore disagree by the full width of the type at both
+# ends, so every float-to-int conversion goes through `dereth_primitives::num::to_i32` and its siblings; `cargo
+# xtask lint` is the backstop that survives an `#[allow]`.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+cast_possible_truncation = "warn"   # catches raw `as i32` on floats; use dereth_primitives::num::to_i32
+undocumented_unsafe_blocks = "warn"
+
+# The profile every test tier runs in: `--profile test-release`, the default of `cargo xtask` (its
+# test and CI tiers, and its sweep). Optimised like
+# `--release`, so a tier runs at release speed, but with debug assertions and overflow checks on,
+# so a `debug_assert!`, a `#[cfg(debug_assertions)]` test and an arithmetic overflow still fail a
+# run. Each of those tools takes `--debug` for the unoptimised dev profile, for investigating one
+# failure under a debugger or with full backtraces.
+[profile.test-release]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
+
+# `cargo xtask` runs in the dev profile (the alias is a plain `cargo run`), and its rules read every
+# source file in the workspace: optimised, with the regular expressions they are written in, they
+# take seconds rather than most of a minute.
+[profile.dev.package.xtask]
+opt-level = 3
+
+[profile.dev.package.regex]
+opt-level = 3
+
+[profile.dev.package.regex-automata]
+opt-level = 3
+
+[profile.dev.package.regex-syntax]
+opt-level = 3
+
+# The web client's WebAssembly build (`cargo xtask web` builds with it): whole-program
+# optimisation for a smaller download. A panic aborts, which in a browser is the trap it would
+# become anyway once the panic hook has logged it.
+[profile.web-release]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# The server's optimised build, for the soak and capture-replay tiers and for release builds:
+# `--profile server-release`. A profile of its own
+# rather than `[profile.release]` so the client's release build is unchanged by the merge; these are
+# the settings the server's own workspace gave `--release`, which the soak baselines were recorded
+# with.
+[profile.server-release]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"

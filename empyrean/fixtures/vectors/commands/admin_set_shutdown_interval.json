@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {"in":{"s":"0"},"out":{"console":["Server shutdown interval reset: 0","Shutdown Interval (seconds to shutdown server) has been set to 0."],"interval":0}},
+    {"in":{"s":"30"},"out":{"console":["Server shutdown interval reset: 30","Shutdown Interval (seconds to shutdown server) has been set to 30."],"interval":30}},
+    {"in":{"s":"99999"},"out":{"console":["Server shutdown interval reset: 99999","Shutdown Interval (seconds to shutdown server) has been set to 99999."],"interval":99999}},
+    {"in":{"s":"123456"},"out":{"console":["Server shutdown interval reset: 12345","Shutdown Interval (seconds to shutdown server) has been set to 12345."],"interval":12345}},
+    {"in":{"s":"12a"},"out":{"console":["Usage: /set-shutdown-interval <00000>"],"interval":60}},
+    {"in":{"s":" 5"},"out":{"console":["Server shutdown interval reset: 5","Shutdown Interval (seconds to shutdown server) has been set to 5."],"interval":5}},
+    {"in":{"s":"5 "},"out":{"console":["Server shutdown interval reset: 5","Shutdown Interval (seconds to shutdown server) has been set to 5."],"interval":5}},
+    {"in":{"s":"-1"},"out":{"console":["Usage: /set-shutdown-interval <00000>"],"interval":60}},
+    {"in":{"s":"-0"},"out":{"console":["Server shutdown interval reset: 0","Shutdown Interval (seconds to shutdown server) has been set to 0."],"interval":0}},
+    {"in":{"s":"+7"},"out":{"console":["Server shutdown interval reset: 7","Shutdown Interval (seconds to shutdown server) has been set to 7."],"interval":7}},
+    {"in":{"s":"00000"},"out":{"console":["Server shutdown interval reset: 0","Shutdown Interval (seconds to shutdown server) has been set to 0."],"interval":0}},
+    {"in":{"s":"000001"},"out":{"console":["Server shutdown interval reset: 0","Shutdown Interval (seconds to shutdown server) has been set to 0."],"interval":0}},
+    {"in":{"s":"4294967295"},"out":{"console":["Server shutdown interval reset: 42949","Shutdown Interval (seconds to shutdown server) has been set to 42949."],"interval":42949}},
+    {"in":{"s":"\u0663"},"out":{"console":["Usage: /set-shutdown-interval <00000>"],"interval":60}},
+    {"in":{"s":""},"out":{"console":["Usage: /set-shutdown-interval <00000>"],"interval":60}},
+    {"in":{"s":"1.5"},"out":{"console":["Usage: /set-shutdown-interval <00000>"],"interval":60}},
+    {"in":{"s":"1e3"},"out":{"console":["Usage: /set-shutdown-interval <00000>"],"interval":60}},
+    {"in":{"s":"65535"},"out":{"console":["Server shutdown interval reset: 65535","Shutdown Interval (seconds to shutdown server) has been set to 65535."],"interval":65535}},
+    {"in":{"s":"65536"},"out":{"console":["Server shutdown interval reset: 65536","Shutdown Interval (seconds to shutdown server) has been set to 65536."],"interval":65536}}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdminShardCommands.cs","member":"ACE.Server.Command.Handlers.AdminShardCommands.HandleSetShutdownInterval(null, params string[])","notes":"From the console, starting at interval 60. out.console is what WriteOutputInfo logged, out.interval ServerManager.ShutdownInterval after.","runtime":"10.0.12","sdk":"10.0.401"}
+}

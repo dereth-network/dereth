@@ -1,0 +1,42 @@
+[package]
+name = "empyrean-store"
+description = "Shard and authentication persistence: the Shard and Authentication sides of ACE's Source/ACE.Database over embedded SQLite, with an in-memory store for tests."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# The kill-point durability gate: child processes and temp files, so not in the unit tier.
+real-sqlite = []
+
+[dependencies]
+empyrean-common.workspace = true
+empyrean-entity.workspace = true
+thiserror.workspace = true
+log.workspace = true
+rusqlite = { workspace = true, features = ["collation", "backup"] }
+sha2.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
+# `module_inception` allowed: ACE folders often contain a file of the same name, e.g.
+# Entity/Chess/Chess.cs, and the mirror is deliberate).
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

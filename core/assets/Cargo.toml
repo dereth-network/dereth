@@ -1,0 +1,35 @@
+[package]
+name = "dereth-assets"
+description = "One pure decoder per data-file object type: geometry, setups, animations, palettes, textures and tables."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs can no longer become a test target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-dat = { path = "../dat" }
+dereth-primitives.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+dereth-dat = { path = "../dat", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

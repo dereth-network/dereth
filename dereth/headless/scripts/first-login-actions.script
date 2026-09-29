@@ -1,0 +1,11 @@
+# The action verbs over first-login-walk-jump: log in as the recording's character, then turn,
+# jump and rotate the camera by their retail action names. Each `dump events` shows the route the
+# action took through the frame's handlers.
+login first-login-walk-jump +Aldis
+hold MovementTurnLeft 0.3
+dump events
+press MovementJump
+dump events
+hold CameraRotateLeft 0.2
+dump events
+quit

@@ -1,0 +1,45 @@
+[package]
+name = "empyrean-import"
+description = "The world.pack builder: builds the pack from ACE's world database dump, compares two packs, and reports what the server's corrections do to one."
+version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+# The `empyrean-import` binary: builds `world.pack` from ACE's world database, compares packs and
+# reports the corrections. The importer, the pack and the corrections are `empyrean-content`'s
+# library; this crate is the command line over them.
+[dependencies]
+empyrean-common.workspace = true
+empyrean-content.workspace = true
+serde_json.workspace = true
+# `fetch`: downloading ACE-World's release over HTTPS (rustls with its ring provider and the
+# bundled web roots, so no system TLS library), verifying it, and unzipping it. Only this binary
+# downloads anything, so these stay out of the workspace's shared dependencies.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+sha2.workspace = true
+
+[features]
+real-content = ["empyrean-content/real-content"]
+
+[dev-dependencies]
+empyrean-entity.workspace = true
+
+[[bin]]
+name = "empyrean-import"
+path = "src/main.rs"
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"
+
+# The server's lint levels, as every other server crate carries them.
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+module_inception = "allow"

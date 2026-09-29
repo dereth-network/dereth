@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"in":{"nums":[]},"out":{"ranges":[],"show":""}},
+    {"in":{"nums":[7]},"out":{"ranges":[[7,8]],"show":"  |    7"}},
+    {"in":{"nums":[1,2,3]},"out":{"ranges":[[1,4]],"show":"  |    1 - 3"}},
+    {"in":{"nums":[1,2,3,5,7,8,10]},"out":{"ranges":[[1,4],[5,6],[7,9],[10,11]],"show":"  |    1 - 3\r\n  |    5\r\n  |    7 - 8\r\n  |    10"}},
+    {"in":{"nums":[3,2,1]},"out":{"ranges":[[3,4],[2,3],[1,2]],"show":"  |    3\r\n  |    2\r\n  |    1"}},
+    {"in":{"nums":[0,1,2]},"out":{"ranges":[[0,3]],"show":"  |     - 2"}},
+    {"in":{"nums":[100,101,5000,5001,5002]},"out":{"ranges":[[100,102],[5000,5003]],"show":"  |    100 - 101\r\n  |    5000 - 5002"}},
+    {"in":{"nums":[4294967294,4294967295]},"out":{"ranges":[[4294967294,0]],"show":"  |    4294967294 - 4294967295"}}
+  ],
+  "generator": "ace-vectors ddd",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Managers/DDDManager.cs","member":"ACE.Server.Managers.DDDManager.Ranges(this IEnumerable<uint>) and Show(this IEnumerable<(uint, uint)>)","notes":"out.ranges is [begin, end) pairs; out.show the joined text (Environment.NewLine is \\r\\n).","runtime":"10.0.12","sdk":"10.0.401"}
+}

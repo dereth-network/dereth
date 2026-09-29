@@ -1,0 +1,41 @@
+[package]
+name = "dereth-physics"
+description = "The swept-sphere physics engine: cells, BSP trees, collision and the object step."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[dependencies]
+dereth-primitives.workspace = true
+thiserror.workspace = true
+
+# Tests read the original client's data files directly: the dat decoders are the strongest oracle
+# available for landblock geometry, setups and BSPs, and no locked fixture set covers them yet.
+# These are dev-only, so the library keeps the dependency set its own spec mandates: nothing but
+# `dereth-primitives` at build time.
+[dev-dependencies]
+dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-assets = { path = "../assets" }
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+# The trace recorder used by the physics trace gate.
+trace = []
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

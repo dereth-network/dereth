@@ -1,0 +1,64 @@
+[package]
+name = "dereth-client-net"
+description = "The client's side of the UDP connection: the socket, the client session above the transport, and the capture and replay harness."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[dependencies]
+# The role-neutral transport this crate is the client of.
+dereth-transport = { path = "../transport" }
+dereth-primitives.workspace = true
+# The client session (`client_session`) decodes message bodies.
+# The transport half of this crate still never looks past a blob's first byte; only the session
+# layer above it reads bodies, and it reaches the transport only through `dereth_primitives::Transport`
+# (checked by the `cpu` test `client_session::isolation`).
+dereth-protocol = { path = "../protocol" }
+thiserror.workspace = true
+# Only the replay harness parses JSON; the transport itself has no serialisation dependency.
+serde_json = { version = "1", optional = true }
+
+# SO_RCVBUF and interface binding, which std's UdpSocket does not expose. Named by the track spec.
+# It is also what keeps this crate free of `unsafe` despite being permitted it. A browser has no
+# UDP socket at all, so the WebAssembly build leaves it out and `NetSocket::bind` reports the
+# socket as unsupported there: a browser client feeds the session its datagrams itself.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+socket2 = "0.5"
+
+[features]
+# Tier switch only: no code and no test binary is gated on it. It is kept because the workspace's
+# tier tooling passes the same name to every client crate.
+retail-dats = []
+default = ["replay"]
+# The capture/replay harness and its gate test, the transport's acceptance gate.
+#
+# **On by default, and the reason is a measurement.** `tests/replay.rs` carries
+# `#![cfg(feature = "replay")]`, so with the feature off the binary compiles to nothing and
+# `cargo test -p dereth-client-net` prints `test result: ok. 0 passed` for it. That is indistinguishable
+# from a passing gate in every summary anyone reads, and it is the same silence as the
+# `SKIP replay_handshake` that was removed one level down: an optional gate is a gate that does not
+# run. `--no-default-features` still gives the JSON-free transport, and nothing in the
+# workspace asks for that -- serde_json is already a plain dependency of dereth-input, dereth-ui,
+# dereth-ui-screens and dereth-world-render, all of which the client links.
+replay = ["dep:serde_json"]
+
+[dev-dependencies]
+serde_json = "1"
+
+# This crate is one of the two allowed unsafe (socket interop). It does NOT inherit the workspace
+# lints, because those forbid unsafe outright -- but it uses none, and `lib.rs` carries its own
+# `#![deny(unsafe_code)]` to keep it that way.
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

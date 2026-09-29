@@ -1,0 +1,117 @@
+[package]
+name = "dereth-render"
+description = "The graphics device and renderer core: the window surface, the Vulkan, Direct3D 12 and wgpu backends, the pipeline state and draw submission."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+# `mock` is on by default so that `cargo xtask gates` (which runs a bare `cargo test -p dereth-render`)
+# exercises the RecordingBackend suite. `cargo test -p dereth-render --features mock` works too.
+# Both on by default so that `cargo xtask gates` (which runs a bare `cargo test -p dereth-render`)
+# exercises the whole renderer, including the parts that need a device. The Vulkan tests create a
+# device and *skip with a printed line* if none is available, so a machine without a Vulkan driver
+# still passes the gate rather than failing it.
+default = ["mock", "vulkan", "wgpu"]
+# Test builds only (enabled in `[dev-dependencies]`): a device made without a named backend comes
+# up on the one the test-only `DERETH_TEST_RENDERER` names, so a GPU tier can run on D3D12.
+test-support = []
+mock = ["dereth-render-cpu/mock"]
+# The real Vulkan device (`src/vulkan.rs`). Portable: the same code runs on Windows, Linux and
+# macOS (through MoltenVK). Without it the pure-logic modules still build and test.
+vulkan = ["dep:ash", "dep:ash-window", "dep:gpu-allocator", "dep:naga"]
+# The `wgpu` device (`src/wgpu.rs`): WebGPU or WebGL 2 in a browser, and Metal, Vulkan or
+# Direct3D 12 natively through `wgpu`. A third backend beside the other two, chosen the same way.
+wgpu = ["dep:wgpu", "dep:pollster", "dep:web-sys"]
+# The Direct3D 12 device (`src/d3d12.rs`).
+# Windows only: the module itself is `cfg(all(windows, feature = "d3d12"))`, and the feature only
+# turns on more of the `windows` crate, which is already a Windows-only dependency of this crate.
+# Vulkan stays the default everywhere; this is an option beside it, never instead of it.
+d3d12 = [
+    "windows/Win32_Security",
+    "windows/Win32_Graphics_Direct3D",
+    "windows/Win32_Graphics_Direct3D_Fxc",
+    "windows/Win32_Graphics_Direct3D12",
+    "windows/Win32_Graphics_Dxgi",
+    "windows/Win32_Graphics_Dxgi_Common",
+    "windows/Win32_System_Threading",
+]
+
+[dependencies]
+dereth-primitives.workspace = true
+# The `wgpu` backend. WebGL 2 is compiled in for a browser without WebGPU; natively `wgpu` takes
+# its platform's own API. `pollster` makes its asynchronous set-up synchronous outside a browser.
+wgpu = { version = "30", optional = true, features = ["webgl"] }
+pollster = { version = "0.4", optional = true }
+thiserror.workspace = true
+# The validation layer's reports. A facade: the client binary installs the subscriber.
+tracing.workspace = true
+# The device-free half of the renderer: the codecs, the PSO catalogue,
+# the font atlas, the UI quad path, the camera, the descriptor tables and the recording backend.
+# This crate re-exports every item of it under `dereth_render::`, so `dereth-client`
+# and the two test binaries never name `dereth_render_cpu` at all.
+dereth-render-cpu = { path = "../render-cpu", default-features = false }
+# `device::Backend`'s *selection* half -- the `vulkan` / `d3d12` spellings a command
+# line or a preferences file names -- is `dereth_client_contract::RendererChoice`, so
+# that `dereth_client::config` can hold one without naming a renderer. `Backend::compiled_in`
+# reads this crate's own features and stays here; the conversion between them is in `device.rs`.
+dereth-client-contract = { path = "../../../../core/client-contract" }
+# `device.rs`'s `hlsl_matrix` and the two backends' matrix plumbing. The camera that produces
+# those matrices is in `dereth-render-cpu`, which depends on `glam` for the same reason.
+glam = "0.30"
+
+# The Vulkan backend. `ash` is the raw binding, `ash-window` turns a `raw-window-handle` into a
+# `VkSurfaceKHR` on every platform (including the CAMetalLayer dance on macOS), `gpu-allocator`
+# sub-allocates device memory so a session of thousands of textures stays under
+# `maxMemoryAllocationCount`, and `naga` compiles the WGSL shader set to SPIR-V at device creation,
+# the point where the D3D12 build calls `D3DCompile`, so there is no shader toolchain to install.
+ash = { version = "0.38", optional = true, default-features = false, features = ["loaded", "std"] }
+ash-window = { version = "0.13", optional = true }
+# Ungated: `device::WindowHandles` is part of the backend-neutral surface, so the two raw handle
+# types are named by `src/device.rs`, which every build compiles.
+raw-window-handle = "0.6"
+gpu-allocator = { version = "0.28", optional = true, default-features = false, features = ["vulkan", "std"] }
+naga = { version = "30", optional = true, features = ["wgsl-in", "spv-out"] }
+
+# The Win32 half of the crate: the dat cursor (`cursor.rs`), the top-level exception filter
+# (`debug.rs`) and the two read-only USER32/GDI queries in `window_proc.rs`. None of it is
+# rendering; all of it is Windows-only and compiled out everywhere else.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# This crate is allowed unsafe (Vulkan and Win32 interop). It does NOT inherit the workspace
+# lints, because those forbid unsafe outright. Unsafe is isolated in `src/vulkan.rs` and the Win32 modules with a SAFETY
+# comment per block; see `src/lib.rs`'s module documentation.
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats", "vulkan"]
+
+# A browser device is made on an `OffscreenCanvas` the page hands over.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3.104", optional = true, features = ["OffscreenCanvas"] }

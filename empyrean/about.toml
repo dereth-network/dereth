@@ -1,0 +1,28 @@
+# cargo-about's configuration for Empyrean's THIRD-PARTY-LICENSES.html (`cargo xtask package
+# empyrean` runs it once per binary). The licences a crate linked into the server may carry; a
+# crate under any other licence, or one whose licence text cannot be found, fails the package.
+accepted = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# What is linked into the binaries: not the build scripts' or the tests' dependencies.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# The repository's own crates (the server's, AGPL-3.0-only, and the shared ones, MIT) are not
+# third-party: their licences are LICENSE and NOTICE.txt.
+private = { ignore = true }

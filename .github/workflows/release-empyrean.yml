@@ -1,0 +1,242 @@
+name: Release Empyrean
+
+# Builds, checks and drafts an Empyrean release. A pushed `empyrean-v<version>` tag builds every
+# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand.
+# Running it by hand (workflow_dispatch) is a dry run: the same builds and checks, the release
+# files kept as a workflow artifact for 7 days, nothing published.
+#
+# Every job runs `cargo xtask package empyrean`, the same command a contributor runs locally
+# (empyrean/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every push.
+
+on:
+  push:
+    tags: ['empyrean-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-empyrean-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The build tools, pinned.
+  CARGO_ABOUT_VERSION: 0.9.2
+  CARGO_ZIGBUILD_VERSION: 0.23.3
+  ZIGLANG_VERSION: 0.15.2
+  # The AGPL source offer the binaries and NOTICE.txt carry: this repository.
+  EMPYREAN_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
+
+jobs:
+  version:
+    name: version and tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        shell: bash
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - name: The tag names the version every empyrean-* crate carries, on main
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(cargo xtask version empyrean --tag "$GITHUB_REF_NAME")
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          else
+            version=$(cargo xtask version empyrean)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Empyrean $version"
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `tests`: the server's tests run natively, once per operating system.
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, tests: true }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, tests: true }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, tests: false }
+          - { target: aarch64-apple-darwin, os: macos-latest, tests: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, tests: false }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The build number is the commit count.
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target ${{ matrix.target }}
+          rustup override set "$toolchain"
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
+      - name: Install zig and cargo-zigbuild (Linux targets, linked against glibc 2.28)
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m pip install --user "ziglang==$ZIGLANG_VERSION"
+          cargo install --locked "cargo-zigbuild@$CARGO_ZIGBUILD_VERSION"
+      - name: The server's tests, natively
+        if: matrix.tests
+        run: cargo test --locked --profile test-release -p 'empyrean-*'
+      - name: cargo xtask package empyrean
+        run: cargo xtask package empyrean --target ${{ matrix.target }} --out dist
+      - name: Smoke-run the packaged binaries
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          root="empyrean-$VERSION-$TARGET"
+          mkdir smoke
+          case "$TARGET" in
+            *windows*) (cd smoke && 7z x "../dist/$root.zip" > /dev/null) ;;
+            *) tar -xzf "dist/$root.tar.gz" -C smoke ;;
+          esac
+          dir="smoke/$root"
+          run() { "$@"; }
+          # Linux runs on a runner of its own architecture, in each of these images: AlmaLinux 8
+          # carries glibc 2.28, the floor the binaries are linked against; Ubuntu 24.04 is a
+          # current distribution.
+          images=""
+          case "$TARGET" in
+            *-linux-gnu)
+              images="almalinux:8 ubuntu:24.04"
+              run() { docker run --rm -v "$PWD/$dir:/pkg" -w /pkg "$image" "${@/#$dir//pkg}"; } ;;
+            x86_64-apple-darwin)
+              if arch -x86_64 /usr/bin/true 2> /dev/null; then
+                run() { arch -x86_64 "$@"; }
+              else
+                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
+                exit 0
+              fi ;;
+          esac
+          exe=""; case "$TARGET" in *windows*) exe=".exe" ;; esac
+          smoke() {
+            run "$dir/empyrean-server$exe" --version | tee version-server.txt
+            run "$dir/empyrean-import$exe" --version | tee version-import.txt
+            grep -qx "empyrean-server $VERSION" version-server.txt
+            grep -qx "empyrean-import $VERSION" version-import.txt
+            grep -qx "target: $TARGET" version-server.txt
+            rm -f "$dir/smoke.toml"
+            run "$dir/empyrean-server$exe" --write-config "$dir/smoke.toml"
+            test -s "$dir/smoke.toml"
+            rm -f "$dir/smoke.toml"
+          }
+          if [ -n "$images" ]; then
+            for image in $images; do
+              echo "::group::$image"
+              smoke
+              echo "::endgroup::"
+            done
+          else
+            smoke
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: empyrean-${{ matrix.target }}
+          path: |
+            dist/empyrean-*-${{ matrix.target }}.zip
+            dist/empyrean-*-${{ matrix.target }}.tar.gz
+            dist/empyrean-*-${{ matrix.target }}.*.manifest
+          if-no-files-found: error
+          retention-days: 7
+
+  gather:
+    name: gather the release
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: empyrean-*
+          path: dist
+          merge-multiple: true
+      # Scans every archive again and writes the source tarball, MANIFEST.txt, release.json and
+      # SHA256SUMS over them.
+      - name: cargo xtask package empyrean --gather
+        run: cargo xtask package empyrean --gather dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-empyrean-${{ needs.version.outputs.version }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/MANIFEST.txt
+            dist/release.json
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: [version, gather]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-empyrean-${{ needs.version.outputs.version }}
+          path: dist
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          cat > ../notes.md <<EOF
+          Empyrean $VERSION, the Asheron's Call server (a Rust port of ACE), for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon and Intel).
+
+          **No game data is included**: the server reads the client's data files from your own install, and \`empyrean-import fetch --pack\` builds the world from ACE-World's database release. SETUP.md in each archive is the guide.
+
+          The source of this release is \`empyrean-$VERSION-source.tar.gz\` and https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA.
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          PRE=""
+          case "$TAG" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+            --title "Empyrean $VERSION" --notes-file ../notes.md \
+            *.zip *.tar.gz SHA256SUMS MANIFEST.txt release.json

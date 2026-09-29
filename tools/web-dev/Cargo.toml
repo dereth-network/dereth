@@ -1,0 +1,22 @@
+[package]
+name = "dereth-web-dev"
+description = "The web client's developer runner: builds the browser client and serves it on this machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The bindgen step as a library, pinned to the web client's own `wasm-bindgen` (a mismatch is a
+# refused module at load time), so no separate `wasm-bindgen` executable is needed. It is why the
+# runner is its own binary rather than part of xtask, which every tier builds.
+wasm-bindgen-cli-support = "=0.2.127"
+# The four retail data files' names, the only files `--dat-dir` serves.
+dereth-dat = { path = "../../core/dat" }
+# Stops the relay the runner started when the runner is interrupted.
+ctrlc = "3.5"
+
+[lints]
+workspace = true

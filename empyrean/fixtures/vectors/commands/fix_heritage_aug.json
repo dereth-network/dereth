@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {"in":{"heritage":-1},"out":null},
+    {"in":{"heritage":0},"out":null},
+    {"in":{"heritage":1},"out":326},
+    {"in":{"heritage":2},"out":326},
+    {"in":{"heritage":3},"out":326},
+    {"in":{"heritage":4},"out":326},
+    {"in":{"heritage":5},"out":298},
+    {"in":{"heritage":6},"out":310},
+    {"in":{"heritage":7},"out":299},
+    {"in":{"heritage":8},"out":230},
+    {"in":{"heritage":9},"out":296},
+    {"in":{"heritage":10},"out":298},
+    {"in":{"heritage":11},"out":233},
+    {"in":{"heritage":12},"out":null},
+    {"in":{"heritage":13},"out":null},
+    {"in":{"heritage":14},"out":null},
+    {"in":{"heritage":15},"out":null},
+    {"in":{"heritage":16},"out":null}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperFixCommands.cs","member":"ACE.Server.Command.Handlers.DeveloperFixCommands.GetHeritageAug(HeritageGroup)","notes":"out is the PropertyInt value, or null.","runtime":"10.0.12","sdk":"10.0.401"}
+}

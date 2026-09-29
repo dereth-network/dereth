@@ -1,0 +1,193 @@
+[package]
+name = "dereth-client"
+description = "The Dereth 3D client: the window, the graphics device, the renderer, the retail UI and the sound device, plugged into the runtime's frame loop."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# One test target per tier, listed at the bottom of this file. `autotests = false` so that a
+# stray `tests/*.rs` cannot silently become another link step.
+autotests = false
+
+[build-dependencies]
+# Links the application icon (`assets/dereth.ico`) into the executable. Explorer, the taskbar and
+# Alt-Tab read the icon out of the binary before any of our code runs, so it cannot be a file
+# loaded at start-up. Same crate and version as the launcher's build script uses.
+embed-resource = "3"
+
+# `vulkan` and `d3d12` are on by default and forward to dereth-render's features of the same names,
+# which gate the real devices. `d3d12` compiles to nothing off Windows, so a plain build on Windows
+# has both backends and the `Renderer=` preference can choose either; Vulkan is still the one used
+# when nothing chooses. Without them the crate still builds and the pure-logic units
+# (config, the message pump, the frame order) still test, which is what keeps
+# `cargo check --no-default-features` honest on a host with no graphics driver at all.
+[features]
+default = ["vulkan", "d3d12", "wgpu"]
+vulkan = ["dereth-render/vulkan", "dereth-scene/vulkan", "dereth-client-shell/vulkan"]
+# `wgpu` forwards to dereth-render's third backend: Metal, Vulkan or Direct3D 12 through `wgpu`,
+# selected with `--renderer wgpu` or `Renderer=wgpu`.
+wgpu = ["dereth-render/wgpu", "dereth-scene/wgpu", "dereth-client-shell/wgpu"]
+# `d3d12` forwards to dereth-render's feature of the same name: the Direct3D 12 device. It is an
+# *option beside* Vulkan on Windows, never instead of it -- Vulkan stays the default everywhere --
+# and which one a run uses is chosen at
+# startup by `--renderer vulkan|d3d12`, or the `Renderer=` preference.
+d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12"]
+# Tier switch only: no code is gated on it. It selects the `dat` and `gpu` test binaries,
+# whose modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+# The one crate that is an application. It may depend on many subsystems -- that is what an
+# application is -- which is exactly why nothing else may depend on it.
+[dependencies]
+dereth-primitives.workspace = true
+# The contract this binary implements and dispatches -- `GameView` for `HudView` and
+# `GameSnapshot`, `UiRequest` for `run_ui_requests`. Naming it directly keeps this crate from
+# depending upward on `dereth-ui-screens` for it; the `dereth_ui_screens::view::…` paths also
+# resolve, through that crate's re-export.
+dereth-client-contract = { path = "../../core/client-contract" }
+# The headless half of the client. Its modules are re-exported from `lib.rs` under
+# `dereth_client::…` paths, so call sites and tests can name either.
+dereth-client-runtime = { path = "../../core/client-runtime" }
+dereth-render = { path = "crates/render", default-features = false, features = ["mock"] }
+# The application: the front end over the runtime, generic over its host, and the drawn world it
+# renders. This crate is the desktop host under them.
+dereth-client-shell = { path = "crates/shell", default-features = false }
+dereth-scene = { path = "crates/scene", default-features = false }
+dereth-dat    = { path = "../../core/dat" }
+dereth-assets = { path = "../../core/assets" }
+# Decides everything about the world's appearance: the mesh, the texture merge, the LOD window,
+# the lighting, the draw order and where scenery grows. This crate calls it and hands the result to
+# `dereth-render`; see the table at the top of src/world_scene.rs.
+dereth-world-render = { path = "crates/world-render" }
+# `dereth-physics` owns collision and movement; `dereth-animation` owns motion tables, animation
+# sequencing and the part array. They meet at `dereth_primitives::MotionSource`, which animation
+# implements and physics consumes; the client runtime supplies the two things neither owns -- a
+# `LandSource` over the retail cell dat and an `AnimAssets` over the retail portal dat -- and then
+# drives the pair once per frame.
+dereth-physics = { path = "../../core/physics" }
+dereth-animation    = { path = "../../core/animation" }
+# `dereth-transport` owns the UDP transport and implements `dereth_primitives::Transport`, so this
+# crate hands it a real socket rather than writing an adapter. `dereth-client-net` owns everything
+# above a blob and reaches the network only through that trait -- an isolation this crate does not
+# breach, because it gives `Session` a `Net` and changes nothing else. The session itself is
+# `dereth_client_net::client_session`.
+dereth-client-net = { path = "../../core/client-net" }
+dereth-transport = { path = "../../core/transport" }
+# The wire message types, for the two things the application itself must read out of a decoded
+# message: the character list it picks a character from, and the player description that puts it in
+# the world. It decodes nothing -- the client session does that -- it only names the results.
+dereth-protocol   = { path = "../../core/protocol" }
+# Owns the object tables, the create/merge/recreate rules and the destruction queue; this crate
+# hands it decoded messages and asks it nothing else.
+dereth-client-model    = { path = "../../core/client-model" }
+# The shell. `dereth-ui` owns the element model, the message buses and `UiFlow`;
+# `dereth-ui-screens` owns the eight screens and every panel; `dereth-input` owns the whole input
+# pipeline below a `MSG`; `dereth-audio` owns the mixer and every sound decision. This crate owns
+# four seams between them and nothing else: the UI manager's per-frame step and its slot in the
+# frame (src/ui.rs), the 2D blit the frame end performs (src/ui_draw.rs), the `MSG` the pump
+# already builds (src/input.rs) and the sound device `dereth-audio` deliberately does not wire
+# (src/audio.rs).
+dereth-ui         = { path = "crates/ui" }
+# Putting a string on the system clipboard is six user32 calls and there is no safe
+# way to make them, so the hop lives in its own crate under `deny` instead of the workspace `forbid`
+# -- the arrangement `dereth-primitives`' `text` module already uses for kernel32 NLS. `dereth-client` itself keeps `forbid`:
+# `src/clipboard.rs` contains no unsafe at all.
+dereth-clipboard  = { path = "crates/clipboard" }
+# The console, under the windows subsystem. `main.rs` is linked with
+# `#![windows_subsystem = "windows"]` so that `--no-console` can mean "no console" rather than
+# "a console window that closes again"; that makes borrowing or creating one an explicit act, and
+# `AttachConsole`/`AllocConsole` are unsafe, so the hop lives in its own crate under `deny` for the
+# same reason `dereth-clipboard` does. `dereth-client` itself keeps `forbid`.
+dereth-console    = { path = "crates/console" }
+dereth-ui-screens = { path = "crates/ui-screens" }
+dereth-input      = { path = "crates/input" }
+dereth-audio      = { path = "../../core/audio" }
+thiserror.workspace = true
+# The client's own events and spans, and the subscriber `main` installs for every crate's:
+# stderr, and optionally a file in the settings directory. `tracing-log` bridges the `log`
+# records some dependencies (the window system, the GPU allocator, the decoders) emit.
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# The matrix type dereth_render::camera is expressed in. Same version as dereth-render's, so there is one
+# glam in the tree and the Mat4 that crosses the boundary is the same type.
+glam = "0.30"
+
+# The window and the message pump, keeping the retail window-procedure-to-message mapping.
+# Default features off; `rwh_06` is what yields the raw window and display handles that
+# `dereth_render::device::Gpu::new` turns into a surface. The X11 and Wayland backends are added for
+# Linux only, below, so the Windows and macOS builds carry neither.
+winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
+# `--capture out.png` writes a PNG. dereth-render's own smoke example writes a PPM to avoid adding
+# an encoder to the renderer; the application is the right place for the encoder. The decoder is
+# the other half of the same dependency: off Windows and macOS the window's icon is a picture the
+# window system is handed as pixels, and `assets/dereth-256.png` is where they come from. (macOS
+# takes no icon from a window at all: it reads one out of the application bundle that
+# `cargo xtask bundle-macos` builds.)
+png = "0.17"
+
+# The sound device. `dereth-audio`'s own documentation says why the backend is not in that
+# crate: "`VoicePool::mix` fills a caller-supplied interleaved stereo block, so the whole crate --
+# and its acceptance gate -- runs without a sound card. Wiring that to `cpal` is a handful of lines
+# and deliberately not done here". This is that handful of lines, and it is the application's,
+# exactly as the window is. Default features: no ASIO, no JACK.
+cpal = { version = "0.15", default-features = false }
+
+# `Globalization` + `Foundation` are for the local clock in `src/platform/`. Every Win32 entry point
+# in this crate is an `unsafe fn` and `GetTimeZoneInformation` -- what MSVCR70's `localtime` calls
+# -- is no exception, but the WinRT bindings are **safe** fns, so `Windows.Globalization.Calendar`
+# is how this crate learns the local zone without breaking `forbid(unsafe_code)`. `System` is the
+# `Launcher` the Options page's support buttons open a URL with.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Foundation", "Globalization", "System"] }
+
+# The same two host services off Windows. `chrono` answers the local-zone question `platform.rs`
+# asks (it reads the host's zoneinfo itself, no `unsafe` on this side), and `open` is
+# `ShellExecuteA(NULL, "open", url, ...)` for `xdg-open` / `open`.
+[target.'cfg(not(windows))'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+open = "5"
+
+# The Linux window backends. winit's defaults are off above so that Windows and macOS do not carry
+# them; Linux needs both, because which one a session runs is the user's compositor's choice.
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { version = "0.29", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+
+# The physics trace recorder and its comparison. `dereth-physics` is already a dependency; the
+# feature only adds `dereth_physics::trace`, which the embodied-movement test uses to show a script
+# replays bit-identically. See tests/gpu/movement/embodied_character.rs for why that is reproducibility and not
+# fidelity.
+[dev-dependencies]
+dereth-physics = { path = "../../core/physics", features = ["trace"] }
+# `dereth_dat::testing`: where the tests find the retail dats.
+dereth-dat = { path = "../../core/dat", features = ["test-support"] }
+# `DERETH_TEST_RENDERER`: the backend a GPU test's device comes up on.
+dereth-render = { path = "crates/render", default-features = false, features = ["mock", "test-support"] }
+# The tests build animation runtime shapes from decoded records with `anim_convert`.
+dereth-world-data = { path = "../../core/world-data" }
+
+[lints]
+workspace = true
+
+# Three test binaries, one per tier:
+#
+#   cpu  no retail dats, no device        `cargo test -p dereth-client --test cpu`
+#   dat  reads the retail dats            `... --features retail-dats --test dat`
+#   gpu  holds a device (a software rasteriser is enough)          `... --features retail-dats,vulkan --test gpu`
+#        The test-only `DERETH_TEST_RENDERER=d3d12` runs the same binary on the D3D12 device,
+#        which the default features include on Windows.
+#
+# Each test file is a module of its tier's binary: run one with `--test <tier> <stem>::<fn>`.
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats", "vulkan"]

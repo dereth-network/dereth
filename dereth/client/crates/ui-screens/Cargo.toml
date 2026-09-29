@@ -1,0 +1,56 @@
+[package]
+name = "dereth-ui-screens"
+description = "Every concrete screen, panel, window and game-specific widget of the retail UI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# The tests are two binaries (`tests/cpu/main.rs`, `tests/dat/main.rs`), not one target
+# per file, so a stray `tests/*.rs` must not become a third target silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is `#[cfg]`-ed on it. It gates the `dat` test binary, whose modules
+# read the retail `client_local_English.dat` through `dereth_dat::testing`.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# The read-only view (`GameView`), the request enum (`UiRequest`) and the value structs they
+# carry. Shared with `dereth-client`, so neither crate has to depend on the other.
+dereth-client-contract = { path = "../../../../core/client-contract" }
+thiserror.workspace = true
+# The hard edge: this crate implements `dereth_ui::Screen` and subclasses `dereth_ui::Element`.
+dereth-ui = { path = "../ui" }
+# Only for `PropertyValue`, which `dereth-ui` re-exports from `dereth-assets`; the layout byte
+# format belongs to that crate and this one never decodes a layout itself.
+dereth-assets = { path = "../../../../core/assets" }
+# The key-binding page calls the input crate's `pub` binding surface (`capture_key_hit`,
+# `set_binding`, `find_keys_for_action`) and reads the shipped `ActionMap` to know which actions
+# are bindable. `dereth-input` depends on nothing in the UI crates, so this edge is acyclic.
+dereth-input = { path = "../input" }
+# The chargen credit arithmetic and the burden bands, from the shared rules crate.
+# `default-features = false` keeps `dereth-protocol` (the wire) out of this crate's graph: the two
+# modules that need it, `enchant` and `taboo`, are not used here.
+dereth-rules = { path = "../../../../core/rules", default-features = false }
+# The gameplay screen's trace lines. A facade: the client binary installs the subscriber.
+tracing.workspace = true
+
+[dev-dependencies]
+# Test-only: the acceptance gate constructs every screen from the retail
+# `client_local_English.dat` when it is present.
+dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+# One test binary per tier. A single test runs as `--test <tier> <stem>::<fn>`.
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

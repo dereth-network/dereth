@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"in":{"character_id":1342177281,"idx_to_obj":[]},"out":["DELETE FROM `character_properties_shortcut_bar` WHERE `character_Id`=1342177281;"]},
+    {"in":{"character_id":1342177281,"idx_to_obj":[[0,2147483649]]},"out":["DELETE FROM `character_properties_shortcut_bar` WHERE `character_Id`=1342177281;","INSERT INTO `character_properties_shortcut_bar` SET `character_Id`=1342177281, `shortcut_Bar_Index`=0, `shortcut_Object_Id`=2147483649;"]},
+    {"in":{"character_id":1342177282,"idx_to_obj":[[3,2147483657],[0,2147483658],[17,4294967295]]},"out":["DELETE FROM `character_properties_shortcut_bar` WHERE `character_Id`=1342177282;","INSERT INTO `character_properties_shortcut_bar` SET `character_Id`=1342177282, `shortcut_Bar_Index`=3, `shortcut_Object_Id`=2147483657;","INSERT INTO `character_properties_shortcut_bar` SET `character_Id`=1342177282, `shortcut_Bar_Index`=0, `shortcut_Object_Id`=2147483658;","INSERT INTO `character_properties_shortcut_bar` SET `character_Id`=1342177282, `shortcut_Bar_Index`=17, `shortcut_Object_Id`=4294967295;"]}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/DeveloperDatabaseCommands.cs","member":"ACE.Server.Command.Handlers.DeveloperDatabaseCommands.OutputShortcutSQLCommand(string, uint, Dictionary<uint, uint>)","notes":"in.idx_to_obj is the dictionary's [key, value] pairs in insertion order.","runtime":"10.0.12","sdk":"10.0.401"}
+}

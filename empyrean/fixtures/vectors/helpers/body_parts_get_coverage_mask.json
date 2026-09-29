@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {"in":{"body_part":1},"out":16384},
+    {"in":{"body_part":2},"out":1032},
+    {"in":{"body_part":4},"out":2064},
+    {"in":{"body_part":8},"out":4128},
+    {"in":{"body_part":16},"out":8256},
+    {"in":{"body_part":32},"out":32768},
+    {"in":{"body_part":64},"out":258},
+    {"in":{"body_part":128},"out":516},
+    {"in":{"body_part":256},"out":65536},
+    {"in":{"body_part":512},"out":1},
+    {"in":{"body_part":0},"out":1},
+    {"in":{"body_part":3},"out":1},
+    {"in":{"body_part":511},"out":1},
+    {"in":{"body_part":-1},"out":1}
+  ],
+  "generator": "ace-vectors helpers",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/BodyPart.cs","member":"ACE.Server.Entity.BodyParts.GetCoverageMask(BodyPart bodyPart)","notes":"body_part and the result are the enum values.","runtime":"10.0.12","sdk":"10.0.401"}
+}

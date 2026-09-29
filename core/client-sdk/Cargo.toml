@@ -1,0 +1,38 @@
+[package]
+name = "dereth-client-sdk"
+description = "The front door to the client crates: one dependency that re-exports the runtime, the model, the contract, the network session, audio and the shared crates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# The one crate an AC client or tool built on this code names: a facade that re-exports the
+# client crates (`dereth-client-runtime`, `dereth-client-model`, `dereth-client-contract`,
+# `dereth-client-net`, `dereth-audio`) and the shared crates their public types are
+# expressed in. It adds no code of its own; each re-export is the crate itself, so a type reached
+# through the facade is the same type reached directly.
+[features]
+# `dat::testing`, where tests find the retail dats: for a crate that reaches `dereth-dat` only
+# through this facade, enabled in its `[dev-dependencies]`.
+test-support = ["dereth-dat/test-support"]
+
+[dependencies]
+dereth-client-runtime = { path = "../client-runtime" }
+dereth-client-model = { path = "../client-model" }
+dereth-client-contract = { path = "../client-contract" }
+dereth-audio = { path = "../audio" }
+dereth-primitives.workspace = true
+dereth-dat.workspace = true
+dereth-assets.workspace = true
+dereth-physics.workspace = true
+dereth-animation.workspace = true
+dereth-world-data.workspace = true
+dereth-landscape.workspace = true
+dereth-transport.workspace = true
+dereth-client-net.workspace = true
+dereth-protocol.workspace = true
+dereth-rules.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,27 @@
+{
+  "cases": [
+    {"in":{"damage_type":1},"out":8},
+    {"in":{"damage_type":2},"out":16},
+    {"in":{"damage_type":4},"out":32},
+    {"in":{"damage_type":8},"out":128},
+    {"in":{"damage_type":16},"out":512},
+    {"in":{"damage_type":32},"out":64},
+    {"in":{"damage_type":64},"out":256},
+    {"in":{"damage_type":128},"out":0},
+    {"in":{"damage_type":256},"out":0},
+    {"in":{"damage_type":512},"out":0},
+    {"in":{"damage_type":1024},"out":16384},
+    {"in":{"damage_type":2048},"out":0},
+    {"in":{"damage_type":4096},"out":0},
+    {"in":{"damage_type":0},"out":0},
+    {"in":{"damage_type":3},"out":0},
+    {"in":{"damage_type":7},"out":0},
+    {"in":{"damage_type":24},"out":0},
+    {"in":{"damage_type":120},"out":0},
+    {"in":{"damage_type":268435456},"out":0},
+    {"in":{"damage_type":2047},"out":0},
+    {"in":{"damage_type":-1},"out":0}
+  ],
+  "generator": "ace-vectors helpers",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/WorldObjects/WorldObject_Weapon.cs","member":"ACE.Server.WorldObjects.WorldObject.GetRendDamageType(DamageType damageType)","notes":"damage_type and the result are the enum values.","runtime":"10.0.12","sdk":"10.0.401"}
+}

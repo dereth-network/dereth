@@ -1,0 +1,11 @@
+{
+  "cases": [
+    {"in":{"base":10,"experience_spent":100,"ranks":5},"out":{"current":15,"level_from_cp":0,"ranks":5,"xp_spent":100}},
+    {"in":{"base":null,"experience_spent":1,"ranks":5},"out":{"current":null,"level_from_cp":0,"ranks":5,"xp_spent":1}},
+    {"in":{"base":10,"experience_spent":null,"ranks":null},"out":{"current":null,"level_from_cp":0,"ranks":null,"xp_spent":null}},
+    {"in":{"base":4294967295,"experience_spent":0,"ranks":2},"out":{"current":1,"level_from_cp":0,"ranks":2,"xp_spent":0}},
+    {"in":{"base":0,"experience_spent":0,"ranks":0},"out":{"current":0,"level_from_cp":0,"ranks":0,"xp_spent":0}}
+  ],
+  "generator": "ace-vectors content_gdle",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Adapter/GDLE/Models/Vital.cs","member":"Vital.Convert(Ability)","notes":"in: {base, ranks, experience_spent} (Lifestoned.DataModel.DerethForever.Ability); out: the Vital dump.","runtime":"10.0.12","sdk":"10.0.401"}
+}

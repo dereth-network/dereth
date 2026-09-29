@@ -1,0 +1,21 @@
+# Findings of `cargo xtask comment-lint` that are correct as written.
+#
+# Format: <workspace-relative path>|<rule>|<matched text>|<why it is not a work-item label,
+# private-document pointer or study-method word>
+#
+# A row covers every occurrence of that text under that rule in that file. The list may only
+# shrink: a row that matches nothing fails the lint. Fix the text rather than adding a row
+# whenever the text can say the same thing without the flagged word.
+
+core/animation/src/table/sequence_gen.rs|work-item label|B1|a branch label defined in this function's own (A)-(D) case comments
+core/animation/src/table/sequence_gen.rs|work-item label|C1|a branch label defined in this function's own (A)-(D) case comments
+core/animation/src/table/sequence_gen.rs|work-item label|C2|a branch label defined in this function's own (A)-(D) case comments
+core/primitives/src/text/cp1252.rs|work-item label|C1|the C1 control-code range of Unicode
+dereth/client/crates/input/src/objname.rs|work-item label|C1|the ABNT C1 key's name on a Brazilian keyboard
+dereth/client/crates/input/src/objname.rs|work-item label|C2|the ABNT C2 key's name on a Brazilian keyboard
+dereth/client/crates/render/examples/smoke.rs|work-item label|P6|the binary PPM file magic
+dereth/client/crates/render-cpu/src/pixel_format.rs|work-item label|P8|the 8-bit palettised pixel format
+dereth/client/crates/render-cpu/src/texture.rs|work-item label|P8|the 8-bit palettised pixel format
+dereth/client/crates/scene/src/textures.rs|work-item label|P8|the 8-bit palettised pixel format
+dereth/client/crates/ui-screens/src/screens/chargen.rs|work-item label|B0b|a sample character name the name rules refuse
+empyrean/crates/common/src/extensions/double_extensions.rs|work-item label|F99|the .NET F99 numeric format specifier

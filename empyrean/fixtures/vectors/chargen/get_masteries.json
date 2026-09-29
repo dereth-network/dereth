@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {"in":{"heritage":-1},"out":{"melee":0,"ranged":0}},
+    {"in":{"heritage":0},"out":{"melee":0,"ranged":0}},
+    {"in":{"heritage":1},"out":{"melee":6,"ranged":8}},
+    {"in":{"heritage":2},"out":{"melee":7,"ranged":12}},
+    {"in":{"heritage":3},"out":{"melee":1,"ranged":8}},
+    {"in":{"heritage":4},"out":{"melee":2,"ranged":9}},
+    {"in":{"heritage":5},"out":{"melee":1,"ranged":9}},
+    {"in":{"heritage":6},"out":{"melee":4,"ranged":9}},
+    {"in":{"heritage":7},"out":{"melee":5,"ranged":10}},
+    {"in":{"heritage":8},"out":{"melee":3,"ranged":10}},
+    {"in":{"heritage":9},"out":{"melee":2,"ranged":12}},
+    {"in":{"heritage":10},"out":{"melee":1,"ranged":9}},
+    {"in":{"heritage":11},"out":{"melee":3,"ranged":10}},
+    {"in":{"heritage":12},"out":{"melee":0,"ranged":0}},
+    {"in":{"heritage":13},"out":{"melee":0,"ranged":0}},
+    {"in":{"heritage":14},"out":{"melee":0,"ranged":0}},
+    {"in":{"heritage":15},"out":{"melee":0,"ranged":0}}
+  ],
+  "generator": "ace-vectors chargen",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Factories/PlayerFactory.cs","member":"ACE.Server.Factories.PlayerFactory.GetMasteries(HeritageGroup, out WeaponType, out WeaponType) (private, by reflection)","notes":"heritage and the two weapon types are the enum values.","runtime":"10.0.12","sdk":"10.0.401"}
+}

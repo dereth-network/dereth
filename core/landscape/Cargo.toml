@@ -1,0 +1,17 @@
+[package]
+name = "dereth-landscape"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The landscape's block window: which landblocks are resident around the viewer, at what level of detail, and which way each one stitches to its neighbours."
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+# Nothing: the window is index arithmetic over its own slots, and the geometry a slot holds is the
+# caller's type.
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {"in":{"parameters":["Bob","5"]},"out":{"advocate_level":5,"advocate_name":"Bob","level":"5"}},
+    {"in":{"parameters":["Bob","Smith","3"]},"out":{"advocate_level":3,"advocate_name":"Bob Smith","level":"3"}},
+    {"in":{"parameters":["Bob5","5"]},"out":{"advocate_level":5,"advocate_name":"Bob","level":"5"}},
+    {"in":{"parameters":["Bob","11","1"]},"out":{"advocate_level":1,"advocate_name":"Bob","level":"1"}},
+    {"in":{"parameters":["Sam3","3"]},"out":{"advocate_level":3,"advocate_name":"Sam","level":"3"}},
+    {"in":{"parameters":["Bob","05"]},"out":{"advocate_level":5,"advocate_name":"Bob","level":"05"}},
+    {"in":{"parameters":["Bob","x"]},"out":{"advocate_level":null,"advocate_name":"Bob","level":"x"}},
+    {"in":{"parameters":["Bob","8"]},"out":{"advocate_level":null,"advocate_name":"Bob","level":"8"}},
+    {"in":{"parameters":["Bob","0"]},"out":{"advocate_level":null,"advocate_name":"Bob","level":"0"}},
+    {"in":{"parameters":["Bob","-1"]},"out":{"advocate_level":null,"advocate_name":"Bob","level":"-1"}},
+    {"in":{"parameters":[" Bob ","2"]},"out":{"advocate_level":2,"advocate_name":"Bob","level":"2"}},
+    {"in":{"parameters":["Bob"," 2"]},"out":{"advocate_level":2,"advocate_name":"Bob","level":" 2"}},
+    {"in":{"parameters":["5","5"]},"out":{"advocate_level":5,"advocate_name":"","level":"5"}},
+    {"in":{"parameters":["Anna Bell","7"]},"out":{"advocate_level":7,"advocate_name":"Anna Bell","level":"7"}},
+    {"in":{"parameters":["Test 1","1"]},"out":{"advocate_level":1,"advocate_name":"Test","level":"1"}},
+    {"in":{"parameters":["Bob","+4"]},"out":{"advocate_level":4,"advocate_name":"Bob","level":"+4"}}
+  ],
+  "generator": "ace-vectors commands",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Command/Handlers/AdvocateCommands.cs","member":"AdvocateCommands.HandleBestow's name parsing: string.Join, Trim, TrimEnd(char[]) and int.TryParse","notes":"The handler's expressions evaluated on in.parameters: out.level (the last parameter), out.advocate_level (int.TryParse, or null when it fails or is outside 1..7) and out.advocate_name.","runtime":"10.0.12","sdk":"10.0.401"}
+}

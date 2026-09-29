@@ -1,0 +1,40 @@
+// @generated from the ACE folder of the same name; do not edit by hand
+//! `network/structure`: module list generated from the ACE folder of the same name.
+
+pub mod allegiance_data;
+pub mod allegiance_hierarchy;
+pub mod allegiance_profile;
+pub mod appraise_info;
+pub mod armor_level;
+pub mod armor_profile;
+pub mod c_all_iteration_list;
+pub mod c_mostly_consecutive_int_set;
+pub mod chess_move_data;
+pub mod contract_tracker;
+pub mod creature_profile;
+pub mod enchantment;
+pub mod enchantment_registry;
+pub mod extensions;
+pub mod fellowship_lock_data;
+pub mod guest_info;
+pub mod hash_comparer;
+pub mod hook_profile;
+pub mod house_access;
+pub mod house_data;
+pub mod house_payment;
+pub mod house_profile;
+pub mod jump_pack;
+pub mod layered_spell;
+pub mod origin;
+pub mod p_hash_table;
+pub mod p_tagged_iteration_list;
+pub mod packable_hash_table;
+pub mod packable_list;
+pub mod page_data;
+pub mod position_pack;
+pub mod restriction_db;
+pub mod salvage_result;
+pub mod shortcut;
+pub mod squelch_db;
+pub mod squelch_info;
+pub mod weapon_profile;

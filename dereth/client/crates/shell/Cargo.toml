@@ -1,0 +1,55 @@
+[package]
+name = "dereth-client-shell"
+description = "The client's front end over the runtime: the retail UI, the HUD's panels, the cursor, the clipboard bridge, the device input and the renderer that draws the UI over the scene, generic over the platform under it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# The crate's tests are its modules' unit tests; the client's tier binaries exercise it through the
+# desktop client.
+autotests = false
+
+# As the scene's: the renderer is gated on a device backend, `wgpu` by default because it builds
+# for every target, and the desktop client turns this off and forwards its own three.
+[features]
+default = ["wgpu"]
+vulkan = ["dereth-scene/vulkan", "dereth-render/vulkan"]
+wgpu = ["dereth-scene/wgpu", "dereth-render/wgpu"]
+d3d12 = ["dereth-scene/d3d12", "dereth-render/d3d12"]
+# Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
+# under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+dereth-client-contract = { path = "../../../../core/client-contract" }
+# The application state machine, its frame loop and the platform seams the host fills.
+dereth-client-runtime = { path = "../../../../core/client-runtime" }
+dereth-client-model = { path = "../../../../core/client-model" }
+dereth-client-net = { path = "../../../../core/client-net" }
+dereth-protocol = { path = "../../../../core/protocol" }
+dereth-dat = { path = "../../../../core/dat" }
+dereth-assets = { path = "../../../../core/assets" }
+dereth-physics = { path = "../../../../core/physics" }
+dereth-animation = { path = "../../../../core/animation" }
+dereth-audio = { path = "../../../../core/audio" }
+# The drawn world and the device it is on.
+dereth-scene = { path = "../scene", default-features = false }
+dereth-render = { path = "../render", default-features = false, features = ["mock"] }
+dereth-world-render = { path = "../world-render" }
+# The UI framework, the retail screens and the device input under them.
+dereth-ui = { path = "../ui" }
+dereth-ui-screens = { path = "../ui-screens" }
+dereth-input = { path = "../input" }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# `dereth_dat::testing`: where the tests find the retail dats.
+dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+# `DERETH_TEST_RENDERER`: the backend a test's device comes up on.
+dereth-render = { path = "../render", default-features = false, features = ["mock", "test-support"] }
+
+[lints]
+workspace = true

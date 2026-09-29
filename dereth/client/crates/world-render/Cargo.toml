@@ -1,0 +1,45 @@
+[package]
+name = "dereth-world-render"
+description = "What the world draws each frame and in what order, emitted as draw batches with no GPU code."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+thiserror.workspace = true
+# World data only: the decoded landblock / Region / Scene / GfxObjDegradeInfo structs. This crate
+# consumes decoded structs; it decodes nothing itself. The renderer is reached only through
+# the `RenderBackend` trait in dereth-primitives, and no renderer crate is linked.
+dereth-assets = { path = "../../../../core/assets" }
+# The landscape's block window: the ring and stitch direction each block's mesh is generated for.
+dereth-landscape = { path = "../../../../core/landscape" }
+# The landscape's geometry and static contents: every module of it is re-exported here at the path
+# it had before it moved.
+dereth-terrain = { path = "../../../../core/terrain" }
+
+[dev-dependencies]
+# Tests read the retail dats directly. That is the oracle: real landblocks, real region tables.
+dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+dereth-terrain = { path = "../../../../core/terrain", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

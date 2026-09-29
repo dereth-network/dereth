@@ -1,0 +1,573 @@
+isaac	00000000	182600F3,0:300B4A8D,1:301B6622,2:B08ACD21,3:296FD679,4:995206E9,5:B3FFA8B5,6:0FC99C24,7:5F071FAF,8:52251DEF,9:894F41C2,10:CC4C9AFB,11:96C33F74,97:C6BA1971,194:0F955969,291:C87C8006,388:B388D96C,485:CBC8B7C2,582:45BAE606,591:3D469303,592:FE4CB380,593:C9CD808C,594:37A97DF6,595:308F751F,596:276DF0B4,597:E5FBB9C7,598:97CA2070,599:88412761
+isaac	00000001	38168FDD,0:173FF3D7,1:832DDC13,2:C4291D70,3:56EA8D9B,4:C41D285C,5:10DABB10,6:8D81F41A,7:28BAC882,8:29D2E881,9:123353A6,10:A6E2DDFA,11:90BAD86B,97:AEE3E998,194:FD475CA7,291:A9EFAF26,388:18CEB7D8,485:7030A998,582:BDA10131,591:20C3EEED,592:63702613,593:9B8A2DE2,594:962640DF,595:F0ADE214,596:B7221670,597:4581CE85,598:201C0942,599:495D025F
+isaac	12345678	FDD4AFEB,0:398311D2,1:C71829A4,2:B19DF96A,3:7ED4A1E7,4:B718A446,5:5FA77DF1,6:5CB793D2,7:52C95BAC,8:A8F8FD7E,9:18582C04,10:D257F506,11:4D11A3F0,97:6A493704,194:41D0D09B,291:460875E1,388:CD5D265B,485:4636EAF5,582:3563313F,591:1A78806D,592:2DFF3796,593:173EC35C,594:085210A3,595:2AFC59BC,596:0DF4F585,597:3DDC8713,598:03E8411A,599:A8023247
+isaac	FFFFFFFF	4317C641,0:1D124727,1:E877449D,2:5C326457,3:38523B75,4:7172F54C,5:9F8FF2B9,6:50803842,7:C4BA77A0,8:7DA14CF3,9:C7311410,10:DD03DEB8,11:912ACB5A,97:D52DDB12,194:030A4DC8,291:058AAA10,388:02E96F44,485:C47C2E0D,582:CB058D24,591:A94CB552,592:C610BCA9,593:A6B5EF66,594:B24794C8,595:EF75841C,596:CC8E9D9C,597:71657785,598:B23C3B8C,599:AC746306
+isaac	DEADBEEF	5DA22D96,0:DB3BA3B6,1:9FD967F9,2:07487047,3:0A8E4664,4:74803C1F,5:EEFDEC2C,6:A4E4FB92,7:D01AD0CD,8:D55D04E7,9:AD34E0B8,10:1A5F0998,11:98A7AE41,97:2EBAB5B1,194:9EAD5158,291:F923F422,388:3D40CB6A,485:87CC8AE7,582:43207803,591:1C804976,592:FAC0BF1E,593:41CA3A19,594:99E84B47,595:CE2CAC95,596:CBD37BC2,597:A6CBA384,598:59A5A372,599:82C7B89F
+crypto_search	T0:FDD4AFEB|398311D2|T2:B19DF96A|T2:B19DF96A|2:7ED4A1E7|1:7ED4A1E7|F256:28278E9B|F256:28278E9B|7ED4A1E7,C71829A4,B718A446,5FA77DF1,5CB793D2
+hash32		00000000
+hash32	01	01010000
+hash32	010203	01050300
+hash32	01020304	04070201
+hash32	FFFFFFFFFFFFFF	0006FEFF
+hash32	102030405060708090A0B0	514C3060
+hash32	4B6304F69562E168FF4199EA1FB201B061B1380D3CA8FF7782662A0429E932148BAF54E41F825B31689C5F65B284C5A652E625B467227CA2648D732F37DD3F160F855F705E1D90DF5506A4A0499AC4FDA084B143C47DAC6832B17F920E2CFA8B5D48552D	3C2A946A
+hash32_off	rb[3..50]	8DD4AA0E
+ddt_ticks	d:0000000000000000	0|10|1|1|8|Date: Morningthaw 1, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ticks	d:3FF0000000000000	1|10|1|1|8|Date: Morningthaw 1, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ticks	d:4059000000000000	100|10|1|1|8|Date: Morningthaw 1, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ticks	d:406A200000000000	209|10|1|1|9|Date: Morningthaw 1, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ticks	d:406A400000000000	210|10|1|1|9|Date: Morningthaw 1, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ticks	d:406DC00000000000	238|10|1|1|9|Date: Morningthaw 1, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ticks	d:407DC40000000000	476.25|10|1|1|9|Date: Morningthaw 1, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ticks	d:408F400000000000	1000|10|1|1|10|Date: Morningthaw 1, 10 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ticks	d:40BDC40000000000	7620|10|1|2|8|Date: Morningthaw 2, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ticks	d:40ADC40000000000	3810|10|1|1|16|Date: Morningthaw 1, 10 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ticks	d:40BDC3FD70A3D70A	7619.99|10|1|2|8|Date: Morningthaw 2, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ticks	d:40C81CD6C8B43958	12345.678|10|1|3|2|Date: Morningthaw 3, 10 P.Y.  Time: Darktide-and-Half|Spring|False
+ddt_ticks	d:412E848000000000	1000000|10|5|12|12|Date: Verdantine 12, 10 P.Y.  Time: Warmtide-and-Half|Summer|True
+ddt_ticks	d:41B1E1A300000000	300000000|119|5|11|9|Date: Verdantine 11, 119 P.Y.  Time: Midsong|Summer|True
+ddt_ticks	d:41B312D000200000	320000000.125|126|8|26|4|Date: Leafcull 26, 126 P.Y.  Time: Foredawn-and-Half|Autumn|False
+ddt_ticks	d:41CFFFE3DF800000	1073727423|401|5|30|10|Date: Verdantine 30, 401 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ticks	d:41CFFFE3E0000000	1073727424|401|5|30|10|Date: Verdantine 30, 401 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ticks	d:41CFFFE30C000000	1073727000|401|5|30|9|Date: Verdantine 30, 401 P.Y.  Time: Midsong|Summer|True
+ddt_ticks	d:4124E79000000000	685000|10|4|1|6|Date: Leafdawning 1, 10 P.Y.  Time: Dawnsong-and-Half|Summer|True
+ddt_ticks	d:414170D800000000	2286000|10|-1|1|8|Date: Coldeve 1, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ticks	d:4144EDCF80000000	2743199|11|1|1|8|Date: Morningthaw 1, 11 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	10,-2,1,1	2054010|10|-2|1|1|Date: Snowreap 1, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,-2,1,8	2057343.75|10|-2|1|8|Date: Snowreap 1, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,-2,1,9	2057820|10|-2|1|9|Date: Snowreap 1, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,-2,1,10	2058296.25|10|-2|1|10|Date: Snowreap 1, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,-2,1,16	2061153.75|10|-2|1|16|Date: Snowreap 1, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,-2,2,1	2061630|10|-2|2|1|Date: Snowreap 2, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,-2,2,8	2064963.75|10|-2|2|8|Date: Snowreap 2, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,-2,2,9	2065440|10|-2|2|9|Date: Snowreap 2, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,-2,2,10	2065916.25|10|-2|2|10|Date: Snowreap 2, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,-2,2,16	2068773.75|10|-2|2|16|Date: Snowreap 2, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,-2,30,1	2274990|10|-2|30|1|Date: Snowreap 30, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,-2,30,8	2278323.75|10|-2|30|8|Date: Snowreap 30, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,-2,30,9	2278800|10|-2|30|9|Date: Snowreap 30, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,-2,30,10	2279276.25|10|-2|30|10|Date: Snowreap 30, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,-2,30,16	2282133.75|10|-2|30|16|Date: Snowreap 30, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,-1,1,1	2282610|10|-1|1|1|Date: Coldeve 1, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,-1,1,8	2285943.75|10|-1|1|8|Date: Coldeve 1, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,-1,1,9	2286420|10|-1|1|9|Date: Coldeve 1, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,-1,1,10	2286896.25|10|-1|1|10|Date: Coldeve 1, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,-1,1,16	2289753.75|10|-1|1|16|Date: Coldeve 1, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,-1,2,1	2290230|10|-1|2|1|Date: Coldeve 2, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,-1,2,8	2293563.75|10|-1|2|8|Date: Coldeve 2, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,-1,2,9	2294040|10|-1|2|9|Date: Coldeve 2, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,-1,2,10	2294516.25|10|-1|2|10|Date: Coldeve 2, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,-1,2,16	2297373.75|10|-1|2|16|Date: Coldeve 2, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,-1,30,1	2503590|10|-1|30|1|Date: Coldeve 30, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,-1,30,8	2506923.75|10|-1|30|8|Date: Coldeve 30, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,-1,30,9	2507400|10|-1|30|9|Date: Coldeve 30, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,-1,30,10	2507876.25|10|-1|30|10|Date: Coldeve 30, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,-1,30,16	2510733.75|10|-1|30|16|Date: Coldeve 30, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,0,1,1	2511210|10|0|1|1|Date: Wintersebb 1, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,0,1,8	2514543.75|10|0|1|8|Date: Wintersebb 1, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,0,1,9	2515020|10|0|1|9|Date: Wintersebb 1, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,0,1,10	2515496.25|10|0|1|10|Date: Wintersebb 1, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,0,1,16	2518353.75|10|0|1|16|Date: Wintersebb 1, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,0,2,1	2518830|10|0|2|1|Date: Wintersebb 2, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,0,2,8	2522163.75|10|0|2|8|Date: Wintersebb 2, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,0,2,9	2522640|10|0|2|9|Date: Wintersebb 2, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,0,2,10	2523116.25|10|0|2|10|Date: Wintersebb 2, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,0,2,16	2525973.75|10|0|2|16|Date: Wintersebb 2, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,0,30,1	2732190|10|0|30|1|Date: Wintersebb 30, 10 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	10,0,30,8	2735523.75|10|0|30|8|Date: Wintersebb 30, 10 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	10,0,30,9	2736000|10|0|30|9|Date: Wintersebb 30, 10 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	10,0,30,10	2736476.25|10|0|30|10|Date: Wintersebb 30, 10 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	10,0,30,16	2739333.75|10|0|30|16|Date: Wintersebb 30, 10 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	10,1,1,1	0|10|1|1|8|Date: Morningthaw 1, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	10,1,1,8	0|10|1|1|8|Date: Morningthaw 1, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	10,1,1,9	210|10|1|1|9|Date: Morningthaw 1, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	10,1,1,10	686.25|10|1|1|10|Date: Morningthaw 1, 10 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	10,1,1,16	3543.75|10|1|1|16|Date: Morningthaw 1, 10 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	10,1,2,1	4230|10|1|2|1|Date: Morningthaw 2, 10 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	10,1,2,8	7563.75|10|1|2|8|Date: Morningthaw 2, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	10,1,2,9	8040|10|1|2|9|Date: Morningthaw 2, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	10,1,2,10	8516.25|10|1|2|10|Date: Morningthaw 2, 10 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	10,1,2,16	11373.75|10|1|2|16|Date: Morningthaw 2, 10 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	10,1,30,1	217590|10|1|30|1|Date: Morningthaw 30, 10 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	10,1,30,8	220923.75|10|1|30|8|Date: Morningthaw 30, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	10,1,30,9	221400|10|1|30|9|Date: Morningthaw 30, 10 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	10,1,30,10	221876.25|10|1|30|10|Date: Morningthaw 30, 10 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	10,1,30,16	224733.75|10|1|30|16|Date: Morningthaw 30, 10 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	10,5,1,1	911010|10|5|1|1|Date: Verdantine 1, 10 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	10,5,1,8	914343.75|10|5|1|8|Date: Verdantine 1, 10 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	10,5,1,9	914820|10|5|1|9|Date: Verdantine 1, 10 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	10,5,1,10	915296.25|10|5|1|10|Date: Verdantine 1, 10 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	10,5,1,16	918153.75|10|5|1|16|Date: Verdantine 1, 10 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	10,5,2,1	918630|10|5|2|1|Date: Verdantine 2, 10 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	10,5,2,8	921963.75|10|5|2|8|Date: Verdantine 2, 10 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	10,5,2,9	922440|10|5|2|9|Date: Verdantine 2, 10 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	10,5,2,10	922916.25|10|5|2|10|Date: Verdantine 2, 10 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	10,5,2,16	925773.75|10|5|2|16|Date: Verdantine 2, 10 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	10,5,30,1	1131990|10|5|30|1|Date: Verdantine 30, 10 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	10,5,30,8	1135323.75|10|5|30|8|Date: Verdantine 30, 10 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	10,5,30,9	1135800|10|5|30|9|Date: Verdantine 30, 10 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	10,5,30,10	1136276.25|10|5|30|10|Date: Verdantine 30, 10 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	10,5,30,16	1139133.75|10|5|30|16|Date: Verdantine 30, 10 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	10,9,1,1	1825410|10|9|1|1|Date: Frostfell 1, 10 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	10,9,1,8	1828743.75|10|9|1|8|Date: Frostfell 1, 10 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	10,9,1,9	1829220|10|9|1|9|Date: Frostfell 1, 10 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	10,9,1,10	1829696.25|10|9|1|10|Date: Frostfell 1, 10 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	10,9,1,16	1832553.75|10|9|1|16|Date: Frostfell 1, 10 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	10,9,2,1	1833030|10|9|2|1|Date: Frostfell 2, 10 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	10,9,2,8	1836363.75|10|9|2|8|Date: Frostfell 2, 10 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	10,9,2,9	1836840|10|9|2|9|Date: Frostfell 2, 10 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	10,9,2,10	1837316.25|10|9|2|10|Date: Frostfell 2, 10 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	10,9,2,16	1840173.75|10|9|2|16|Date: Frostfell 2, 10 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	10,9,30,1	2046390|10|9|30|1|Date: Frostfell 30, 10 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	10,9,30,8	2049723.75|10|9|30|8|Date: Frostfell 30, 10 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	10,9,30,9	2050200|10|9|30|9|Date: Frostfell 30, 10 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	10,9,30,10	2050676.25|10|9|30|10|Date: Frostfell 30, 10 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	10,9,30,16	2053533.75|10|9|30|16|Date: Frostfell 30, 10 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	11,-2,1,1	4797210|11|-2|1|1|Date: Snowreap 1, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,-2,1,8	4800543.75|11|-2|1|8|Date: Snowreap 1, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,-2,1,9	4801020|11|-2|1|9|Date: Snowreap 1, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,-2,1,10	4801496.25|11|-2|1|10|Date: Snowreap 1, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,-2,1,16	4804353.75|11|-2|1|16|Date: Snowreap 1, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,-2,2,1	4804830|11|-2|2|1|Date: Snowreap 2, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,-2,2,8	4808163.75|11|-2|2|8|Date: Snowreap 2, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,-2,2,9	4808640|11|-2|2|9|Date: Snowreap 2, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,-2,2,10	4809116.25|11|-2|2|10|Date: Snowreap 2, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,-2,2,16	4811973.75|11|-2|2|16|Date: Snowreap 2, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,-2,30,1	5018190|11|-2|30|1|Date: Snowreap 30, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,-2,30,8	5021523.75|11|-2|30|8|Date: Snowreap 30, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,-2,30,9	5022000|11|-2|30|9|Date: Snowreap 30, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,-2,30,10	5022476.25|11|-2|30|10|Date: Snowreap 30, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,-2,30,16	5025333.75|11|-2|30|16|Date: Snowreap 30, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,-1,1,1	5025810|11|-1|1|1|Date: Coldeve 1, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,-1,1,8	5029143.75|11|-1|1|8|Date: Coldeve 1, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,-1,1,9	5029620|11|-1|1|9|Date: Coldeve 1, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,-1,1,10	5030096.25|11|-1|1|10|Date: Coldeve 1, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,-1,1,16	5032953.75|11|-1|1|16|Date: Coldeve 1, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,-1,2,1	5033430|11|-1|2|1|Date: Coldeve 2, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,-1,2,8	5036763.75|11|-1|2|8|Date: Coldeve 2, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,-1,2,9	5037240|11|-1|2|9|Date: Coldeve 2, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,-1,2,10	5037716.25|11|-1|2|10|Date: Coldeve 2, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,-1,2,16	5040573.75|11|-1|2|16|Date: Coldeve 2, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,-1,30,1	5246790|11|-1|30|1|Date: Coldeve 30, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,-1,30,8	5250123.75|11|-1|30|8|Date: Coldeve 30, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,-1,30,9	5250600|11|-1|30|9|Date: Coldeve 30, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,-1,30,10	5251076.25|11|-1|30|10|Date: Coldeve 30, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,-1,30,16	5253933.75|11|-1|30|16|Date: Coldeve 30, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,0,1,1	5254410|11|0|1|1|Date: Wintersebb 1, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,0,1,8	5257743.75|11|0|1|8|Date: Wintersebb 1, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,0,1,9	5258220|11|0|1|9|Date: Wintersebb 1, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,0,1,10	5258696.25|11|0|1|10|Date: Wintersebb 1, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,0,1,16	5261553.75|11|0|1|16|Date: Wintersebb 1, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,0,2,1	5262030|11|0|2|1|Date: Wintersebb 2, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,0,2,8	5265363.75|11|0|2|8|Date: Wintersebb 2, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,0,2,9	5265840|11|0|2|9|Date: Wintersebb 2, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,0,2,10	5266316.25|11|0|2|10|Date: Wintersebb 2, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,0,2,16	5269173.75|11|0|2|16|Date: Wintersebb 2, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,0,30,1	5475390|11|0|30|1|Date: Wintersebb 30, 11 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	11,0,30,8	5478723.75|11|0|30|8|Date: Wintersebb 30, 11 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	11,0,30,9	5479200|11|0|30|9|Date: Wintersebb 30, 11 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	11,0,30,10	5479676.25|11|0|30|10|Date: Wintersebb 30, 11 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	11,0,30,16	5482533.75|11|0|30|16|Date: Wintersebb 30, 11 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	11,1,1,1	2739810|11|1|1|1|Date: Morningthaw 1, 11 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	11,1,1,8	2743143.75|11|1|1|8|Date: Morningthaw 1, 11 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	11,1,1,9	2743620|11|1|1|9|Date: Morningthaw 1, 11 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	11,1,1,10	2744096.25|11|1|1|10|Date: Morningthaw 1, 11 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	11,1,1,16	2746953.75|11|1|1|16|Date: Morningthaw 1, 11 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	11,1,2,1	2747430|11|1|2|1|Date: Morningthaw 2, 11 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	11,1,2,8	2750763.75|11|1|2|8|Date: Morningthaw 2, 11 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	11,1,2,9	2751240|11|1|2|9|Date: Morningthaw 2, 11 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	11,1,2,10	2751716.25|11|1|2|10|Date: Morningthaw 2, 11 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	11,1,2,16	2754573.75|11|1|2|16|Date: Morningthaw 2, 11 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	11,1,30,1	2960790|11|1|30|1|Date: Morningthaw 30, 11 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	11,1,30,8	2964123.75|11|1|30|8|Date: Morningthaw 30, 11 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	11,1,30,9	2964600|11|1|30|9|Date: Morningthaw 30, 11 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	11,1,30,10	2965076.25|11|1|30|10|Date: Morningthaw 30, 11 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	11,1,30,16	2967933.75|11|1|30|16|Date: Morningthaw 30, 11 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	11,5,1,1	3654210|11|5|1|1|Date: Verdantine 1, 11 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	11,5,1,8	3657543.75|11|5|1|8|Date: Verdantine 1, 11 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	11,5,1,9	3658020|11|5|1|9|Date: Verdantine 1, 11 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	11,5,1,10	3658496.25|11|5|1|10|Date: Verdantine 1, 11 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	11,5,1,16	3661353.75|11|5|1|16|Date: Verdantine 1, 11 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	11,5,2,1	3661830|11|5|2|1|Date: Verdantine 2, 11 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	11,5,2,8	3665163.75|11|5|2|8|Date: Verdantine 2, 11 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	11,5,2,9	3665640|11|5|2|9|Date: Verdantine 2, 11 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	11,5,2,10	3666116.25|11|5|2|10|Date: Verdantine 2, 11 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	11,5,2,16	3668973.75|11|5|2|16|Date: Verdantine 2, 11 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	11,5,30,1	3875190|11|5|30|1|Date: Verdantine 30, 11 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	11,5,30,8	3878523.75|11|5|30|8|Date: Verdantine 30, 11 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	11,5,30,9	3879000|11|5|30|9|Date: Verdantine 30, 11 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	11,5,30,10	3879476.25|11|5|30|10|Date: Verdantine 30, 11 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	11,5,30,16	3882333.75|11|5|30|16|Date: Verdantine 30, 11 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	11,9,1,1	4568610|11|9|1|1|Date: Frostfell 1, 11 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	11,9,1,8	4571943.75|11|9|1|8|Date: Frostfell 1, 11 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	11,9,1,9	4572420|11|9|1|9|Date: Frostfell 1, 11 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	11,9,1,10	4572896.25|11|9|1|10|Date: Frostfell 1, 11 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	11,9,1,16	4575753.75|11|9|1|16|Date: Frostfell 1, 11 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	11,9,2,1	4576230|11|9|2|1|Date: Frostfell 2, 11 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	11,9,2,8	4579563.75|11|9|2|8|Date: Frostfell 2, 11 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	11,9,2,9	4580040|11|9|2|9|Date: Frostfell 2, 11 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	11,9,2,10	4580516.25|11|9|2|10|Date: Frostfell 2, 11 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	11,9,2,16	4583373.75|11|9|2|16|Date: Frostfell 2, 11 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	11,9,30,1	4789590|11|9|30|1|Date: Frostfell 30, 11 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	11,9,30,8	4792923.75|11|9|30|8|Date: Frostfell 30, 11 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	11,9,30,9	4793400|11|9|30|9|Date: Frostfell 30, 11 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	11,9,30,10	4793876.25|11|9|30|10|Date: Frostfell 30, 11 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	11,9,30,16	4796733.75|11|9|30|16|Date: Frostfell 30, 11 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	150,-2,1,1	386102010|150|-2|1|1|Date: Snowreap 1, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,-2,1,8	386105343.75|150|-2|1|8|Date: Snowreap 1, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,-2,1,9	386105820|150|-2|1|9|Date: Snowreap 1, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,-2,1,10	386106296.25|150|-2|1|10|Date: Snowreap 1, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,-2,1,16	386109153.75|150|-2|1|16|Date: Snowreap 1, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,-2,2,1	386109630|150|-2|2|1|Date: Snowreap 2, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,-2,2,8	386112963.75|150|-2|2|8|Date: Snowreap 2, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,-2,2,9	386113440|150|-2|2|9|Date: Snowreap 2, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,-2,2,10	386113916.25|150|-2|2|10|Date: Snowreap 2, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,-2,2,16	386116773.75|150|-2|2|16|Date: Snowreap 2, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,-2,30,1	386322990|150|-2|30|1|Date: Snowreap 30, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,-2,30,8	386326323.75|150|-2|30|8|Date: Snowreap 30, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,-2,30,9	386326800|150|-2|30|9|Date: Snowreap 30, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,-2,30,10	386327276.25|150|-2|30|10|Date: Snowreap 30, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,-2,30,16	386330133.75|150|-2|30|16|Date: Snowreap 30, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,-1,1,1	386330610|150|-1|1|1|Date: Coldeve 1, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,-1,1,8	386333943.75|150|-1|1|8|Date: Coldeve 1, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,-1,1,9	386334420|150|-1|1|9|Date: Coldeve 1, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,-1,1,10	386334896.25|150|-1|1|10|Date: Coldeve 1, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,-1,1,16	386337753.75|150|-1|1|16|Date: Coldeve 1, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,-1,2,1	386338230|150|-1|2|1|Date: Coldeve 2, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,-1,2,8	386341563.75|150|-1|2|8|Date: Coldeve 2, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,-1,2,9	386342040|150|-1|2|9|Date: Coldeve 2, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,-1,2,10	386342516.25|150|-1|2|10|Date: Coldeve 2, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,-1,2,16	386345373.75|150|-1|2|16|Date: Coldeve 2, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,-1,30,1	386551590|150|-1|30|1|Date: Coldeve 30, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,-1,30,8	386554923.75|150|-1|30|8|Date: Coldeve 30, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,-1,30,9	386555400|150|-1|30|9|Date: Coldeve 30, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,-1,30,10	386555876.25|150|-1|30|10|Date: Coldeve 30, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,-1,30,16	386558733.75|150|-1|30|16|Date: Coldeve 30, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,0,1,1	386559210|150|0|1|1|Date: Wintersebb 1, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,0,1,8	386562543.75|150|0|1|8|Date: Wintersebb 1, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,0,1,9	386563020|150|0|1|9|Date: Wintersebb 1, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,0,1,10	386563496.25|150|0|1|10|Date: Wintersebb 1, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,0,1,16	386566353.75|150|0|1|16|Date: Wintersebb 1, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,0,2,1	386566830|150|0|2|1|Date: Wintersebb 2, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,0,2,8	386570163.75|150|0|2|8|Date: Wintersebb 2, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,0,2,9	386570640|150|0|2|9|Date: Wintersebb 2, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,0,2,10	386571116.25|150|0|2|10|Date: Wintersebb 2, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,0,2,16	386573973.75|150|0|2|16|Date: Wintersebb 2, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,0,30,1	386780190|150|0|30|1|Date: Wintersebb 30, 150 P.Y.  Time: Darktide|Winter|False
+ddt_ymdh	150,0,30,8	386783523.75|150|0|30|8|Date: Wintersebb 30, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_ymdh	150,0,30,9	386784000|150|0|30|9|Date: Wintersebb 30, 150 P.Y.  Time: Midsong|Winter|True
+ddt_ymdh	150,0,30,10	386784476.25|150|0|30|10|Date: Wintersebb 30, 150 P.Y.  Time: Midsong-and-Half|Winter|True
+ddt_ymdh	150,0,30,16	386787333.75|150|0|30|16|Date: Wintersebb 30, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_ymdh	150,1,1,1	384044610|150|1|1|1|Date: Morningthaw 1, 150 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	150,1,1,8	384047943.75|150|1|1|8|Date: Morningthaw 1, 150 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	150,1,1,9	384048420|150|1|1|9|Date: Morningthaw 1, 150 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	150,1,1,10	384048896.25|150|1|1|10|Date: Morningthaw 1, 150 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	150,1,1,16	384051753.75|150|1|1|16|Date: Morningthaw 1, 150 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	150,1,2,1	384052230|150|1|2|1|Date: Morningthaw 2, 150 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	150,1,2,8	384055563.75|150|1|2|8|Date: Morningthaw 2, 150 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	150,1,2,9	384056040|150|1|2|9|Date: Morningthaw 2, 150 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	150,1,2,10	384056516.25|150|1|2|10|Date: Morningthaw 2, 150 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	150,1,2,16	384059373.75|150|1|2|16|Date: Morningthaw 2, 150 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	150,1,30,1	384265590|150|1|30|1|Date: Morningthaw 30, 150 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	150,1,30,8	384268923.75|150|1|30|8|Date: Morningthaw 30, 150 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	150,1,30,9	384269400|150|1|30|9|Date: Morningthaw 30, 150 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	150,1,30,10	384269876.25|150|1|30|10|Date: Morningthaw 30, 150 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	150,1,30,16	384272733.75|150|1|30|16|Date: Morningthaw 30, 150 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	150,5,1,1	384959010|150|5|1|1|Date: Verdantine 1, 150 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	150,5,1,8	384962343.75|150|5|1|8|Date: Verdantine 1, 150 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	150,5,1,9	384962820|150|5|1|9|Date: Verdantine 1, 150 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	150,5,1,10	384963296.25|150|5|1|10|Date: Verdantine 1, 150 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	150,5,1,16	384966153.75|150|5|1|16|Date: Verdantine 1, 150 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	150,5,2,1	384966630|150|5|2|1|Date: Verdantine 2, 150 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	150,5,2,8	384969963.75|150|5|2|8|Date: Verdantine 2, 150 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	150,5,2,9	384970440|150|5|2|9|Date: Verdantine 2, 150 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	150,5,2,10	384970916.25|150|5|2|10|Date: Verdantine 2, 150 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	150,5,2,16	384973773.75|150|5|2|16|Date: Verdantine 2, 150 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	150,5,30,1	385179990|150|5|30|1|Date: Verdantine 30, 150 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	150,5,30,8	385183323.75|150|5|30|8|Date: Verdantine 30, 150 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	150,5,30,9	385183800|150|5|30|9|Date: Verdantine 30, 150 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	150,5,30,10	385184276.25|150|5|30|10|Date: Verdantine 30, 150 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	150,5,30,16	385187133.75|150|5|30|16|Date: Verdantine 30, 150 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	150,9,1,1	385873410|150|9|1|1|Date: Frostfell 1, 150 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	150,9,1,8	385876743.75|150|9|1|8|Date: Frostfell 1, 150 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	150,9,1,9	385877220|150|9|1|9|Date: Frostfell 1, 150 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	150,9,1,10	385877696.25|150|9|1|10|Date: Frostfell 1, 150 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	150,9,1,16	385880553.75|150|9|1|16|Date: Frostfell 1, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	150,9,2,1	385881030|150|9|2|1|Date: Frostfell 2, 150 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	150,9,2,8	385884363.75|150|9|2|8|Date: Frostfell 2, 150 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	150,9,2,9	385884840|150|9|2|9|Date: Frostfell 2, 150 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	150,9,2,10	385885316.25|150|9|2|10|Date: Frostfell 2, 150 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	150,9,2,16	385888173.75|150|9|2|16|Date: Frostfell 2, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	150,9,30,1	386094390|150|9|30|1|Date: Frostfell 30, 150 P.Y.  Time: Darktide|Autumn|False
+ddt_ymdh	150,9,30,8	386097723.75|150|9|30|8|Date: Frostfell 30, 150 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_ymdh	150,9,30,9	386098200|150|9|30|9|Date: Frostfell 30, 150 P.Y.  Time: Midsong|Autumn|True
+ddt_ymdh	150,9,30,10	386098676.25|150|9|30|10|Date: Frostfell 30, 150 P.Y.  Time: Midsong-and-Half|Autumn|True
+ddt_ymdh	150,9,30,16	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_ymdh	401,-2,1,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,1,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,1,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,1,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,1,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,2,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,2,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,2,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,2,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,2,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,30,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,30,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,30,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,30,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-2,30,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,1,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,1,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,1,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,1,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,1,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,2,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,2,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,2,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,2,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,2,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,30,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,30,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,30,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,30,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,-1,30,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,1,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,1,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,1,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,1,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,1,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,2,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,2,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,2,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,2,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,2,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,30,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,30,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,30,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,30,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,0,30,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,1,1,1	1072587810|401|1|1|1|Date: Morningthaw 1, 401 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	401,1,1,8	1072591143.75|401|1|1|8|Date: Morningthaw 1, 401 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	401,1,1,9	1072591620|401|1|1|9|Date: Morningthaw 1, 401 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	401,1,1,10	1072592096.25|401|1|1|10|Date: Morningthaw 1, 401 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	401,1,1,16	1072594953.75|401|1|1|16|Date: Morningthaw 1, 401 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	401,1,2,1	1072595430|401|1|2|1|Date: Morningthaw 2, 401 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	401,1,2,8	1072598763.75|401|1|2|8|Date: Morningthaw 2, 401 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	401,1,2,9	1072599240|401|1|2|9|Date: Morningthaw 2, 401 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	401,1,2,10	1072599716.25|401|1|2|10|Date: Morningthaw 2, 401 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	401,1,2,16	1072602573.75|401|1|2|16|Date: Morningthaw 2, 401 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	401,1,30,1	1072808790|401|1|30|1|Date: Morningthaw 30, 401 P.Y.  Time: Darktide|Spring|False
+ddt_ymdh	401,1,30,8	1072812123.75|401|1|30|8|Date: Morningthaw 30, 401 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_ymdh	401,1,30,9	1072812600|401|1|30|9|Date: Morningthaw 30, 401 P.Y.  Time: Midsong|Spring|True
+ddt_ymdh	401,1,30,10	1072813076.25|401|1|30|10|Date: Morningthaw 30, 401 P.Y.  Time: Midsong-and-Half|Spring|True
+ddt_ymdh	401,1,30,16	1072815933.75|401|1|30|16|Date: Morningthaw 30, 401 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_ymdh	401,5,1,1	1073502210|401|5|1|1|Date: Verdantine 1, 401 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	401,5,1,8	1073505543.75|401|5|1|8|Date: Verdantine 1, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,5,1,9	1073506020|401|5|1|9|Date: Verdantine 1, 401 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	401,5,1,10	1073506496.25|401|5|1|10|Date: Verdantine 1, 401 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	401,5,1,16	1073509353.75|401|5|1|16|Date: Verdantine 1, 401 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	401,5,2,1	1073509830|401|5|2|1|Date: Verdantine 2, 401 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	401,5,2,8	1073513163.75|401|5|2|8|Date: Verdantine 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,5,2,9	1073513640|401|5|2|9|Date: Verdantine 2, 401 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	401,5,2,10	1073514116.25|401|5|2|10|Date: Verdantine 2, 401 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	401,5,2,16	1073516973.75|401|5|2|16|Date: Verdantine 2, 401 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	401,5,30,1	1073723190|401|5|30|1|Date: Verdantine 30, 401 P.Y.  Time: Darktide|Summer|False
+ddt_ymdh	401,5,30,8	1073726523.75|401|5|30|8|Date: Verdantine 30, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,5,30,9	1073727000|401|5|30|9|Date: Verdantine 30, 401 P.Y.  Time: Midsong|Summer|True
+ddt_ymdh	401,5,30,10	1073727476.25|401|5|30|10|Date: Verdantine 30, 401 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_ymdh	401,5,30,16	1073730333.75|401|5|30|16|Date: Verdantine 30, 401 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_ymdh	401,9,1,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,1,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,1,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,1,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,1,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,2,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,2,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,2,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,2,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,2,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,30,1	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,30,8	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,30,9	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,30,10	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_ymdh	401,9,30,16	1073741824|401|6|2|8|Date: Thistledown 2, 401 P.Y.  Time: Morntide-and-Half|Summer|True
+ddt_addh	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addd	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addm	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addy	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addt	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subd	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subh	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subm	0	386101533.75|150|9|30|16|Date: Frostfell 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addh	1	386102010|150|-2|1|1|Date: Snowreap 1, 150 P.Y.  Time: Darktide|Winter|False
+ddt_addd	1	386109153.75|150|-2|1|16|Date: Snowreap 1, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addm	1	386330133.75|150|-2|30|16|Date: Snowreap 30, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addy	1	388844733.75|151|9|30|16|Date: Frostfell 30, 151 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addt	1	386102534.25|150|-2|1|2|Date: Snowreap 1, 150 P.Y.  Time: Darktide-and-Half|Winter|False
+ddt_subd	1	386093913.75|150|9|29|16|Date: Frostfell 29, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subh	1	386101057.5|150|9|30|15|Date: Frostfell 30, 150 P.Y.  Time: Gloaming|Autumn|False
+ddt_subm	1	385872933.75|150|8|30|16|Date: Leafcull 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addh	2	386102486.25|150|-2|1|2|Date: Snowreap 1, 150 P.Y.  Time: Darktide-and-Half|Winter|False
+ddt_addd	2	386116773.75|150|-2|2|16|Date: Snowreap 2, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addm	2	386558733.75|150|-1|30|16|Date: Coldeve 30, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addy	2	391587933.75|152|9|30|16|Date: Frostfell 30, 152 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addt	2	386103534.75|150|-2|1|4|Date: Snowreap 1, 150 P.Y.  Time: Foredawn-and-Half|Winter|False
+ddt_subd	2	386086293.75|150|9|28|16|Date: Frostfell 28, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subh	2	386100581.25|150|9|30|14|Date: Frostfell 30, 150 P.Y.  Time: Evensong-and-Half|Autumn|False
+ddt_subm	2	385644333.75|150|7|30|16|Date: HarvestGain 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addh	13	386107725|150|-2|1|13|Date: Snowreap 1, 150 P.Y.  Time: Evensong|Winter|False
+ddt_addd	13	386200593.75|150|-2|13|16|Date: Snowreap 13, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addm	13	389073333.75|151|-2|30|16|Date: Snowreap 30, 151 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addy	13	421763133.75|163|9|30|16|Date: Frostfell 30, 163 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addt	13	386114540.25|150|-2|2|11|Date: Snowreap 2, 150 P.Y.  Time: Warmtide|Winter|True
+ddt_subd	13	386002473.75|150|9|17|16|Date: Frostfell 17, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subh	13	386095342.5|150|9|30|3|Date: Frostfell 30, 150 P.Y.  Time: Foredawn|Autumn|False
+ddt_subm	13	383129733.75|149|8|30|16|Date: Leafcull 30, 149 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addh	-1	386101057.5|150|9|30|15|Date: Frostfell 30, 150 P.Y.  Time: Gloaming|Autumn|False
+ddt_addd	-1	386093913.75|150|9|29|16|Date: Frostfell 29, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addm	-1	385872933.75|150|8|30|16|Date: Leafcull 30, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addy	-1	383358333.75|149|9|30|16|Date: Frostfell 30, 149 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addt	-1	386100533.25|150|9|30|14|Date: Frostfell 30, 150 P.Y.  Time: Evensong-and-Half|Autumn|False
+ddt_subd	-1	386109153.75|150|-2|1|16|Date: Snowreap 1, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_subh	-1	386102010|150|-2|1|1|Date: Snowreap 1, 150 P.Y.  Time: Darktide|Winter|False
+ddt_subm	-1	386330133.75|150|-2|30|16|Date: Snowreap 30, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addh	-40	386082483.75|150|9|28|8|Date: Frostfell 28, 150 P.Y.  Time: Morntide-and-Half|Autumn|True
+ddt_addd	-40	385796733.75|150|8|20|16|Date: Leafcull 20, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addm	-40	376957533.75|147|5|30|16|Date: Verdantine 30, 147 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_addy	-40	276373533.75|110|9|30|16|Date: Frostfell 30, 110 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_addt	-40	386061513.75|150|9|25|12|Date: Frostfell 25, 150 P.Y.  Time: Warmtide-and-Half|Autumn|True
+ddt_subd	-40	386406333.75|150|-1|10|16|Date: Coldeve 10, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_subh	-40	386120583.75|150|-2|3|8|Date: Snowreap 3, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_subm	-40	395245533.75|154|1|30|16|Date: Morningthaw 30, 154 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_addh	400	386292033.75|150|-2|25|16|Date: Snowreap 25, 150 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addd	400	389149533.75|151|-1|10|16|Date: Coldeve 10, 151 P.Y.  Time: Gloaming-and-Half|Winter|False
+ddt_addm	400	477541533.75|184|1|30|16|Date: Morningthaw 30, 184 P.Y.  Time: Gloaming-and-Half|Spring|False
+ddt_addy	400	EX:ArgumentOutOfRangeException
+ddt_addt	400	386501733.75|150|-1|23|8|Date: Coldeve 23, 150 P.Y.  Time: Morntide-and-Half|Winter|True
+ddt_subd	400	383053533.75|149|8|20|16|Date: Leafcull 20, 149 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subh	400	385911033.75|150|9|5|16|Date: Frostfell 5, 150 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_subm	400	294661533.75|117|5|30|16|Date: Verdantine 30, 117 P.Y.  Time: Gloaming-and-Half|Summer|False
+ddt_emu	638400100290000000	218531229|89|8|30|2|Date: Leafcull 30, 89 P.Y.  Time: Darktide-and-Half|Autumn|False
+ddt_gdle	638400100290000000	768269229|290|1|24|4|Date: Morningthaw 24, 290 P.Y.  Time: Foredawn-and-Half|Spring|False
+ddt_lore	638400100290000000	70664490|35|-2|5|1|Date: Snowreap 5, 35 P.Y.  Time: Darktide|Winter|False
+ddt_emu	639256815000000000	304202700|120|-1|23|2|Date: Coldeve 23, 120 P.Y.  Time: Darktide-and-Half|Winter|False
+ddt_gdle	639256815000000000	853940700|321|4|17|3|Date: Leafdawning 17, 321 P.Y.  Time: Foredawn|Summer|False
+ddt_lore	639256815000000000	75370316.25|37|6|22|10|Date: Thistledown 22, 37 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_emu	636214788000000000	0|10|1|1|8|Date: Morningthaw 1, 10 P.Y.  Time: Morntide-and-Half|Spring|True
+ddt_gdle	636214788000000000	549738000|210|5|25|10|Date: Verdantine 25, 210 P.Y.  Time: Midsong-and-Half|Summer|True
+ddt_lore	636214788000000000	51657828.75|28|-2|30|12|Date: Snowreap 30, 28 P.Y.  Time: Warmtide-and-Half|Winter|True
+ddt_emu	630900629400000000	EX:ArgumentOutOfRangeException
+ddt_gdle	630900629400000000	18322140|16|9|5|16|Date: Frostfell 5, 16 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_lore	630900629400000000	5475390|11|0|30|1|Date: Wintersebb 30, 11 P.Y.  Time: Darktide|Winter|False
+ddt_emu	631139039400000000	EX:ArgumentOutOfRangeException
+ddt_gdle	631139039400000000	42163140|25|5|14|12|Date: Verdantine 14, 25 P.Y.  Time: Warmtide-and-Half|Summer|True
+ddt_lore	631139039400000000	4796733.75|11|9|30|16|Date: Frostfell 30, 11 P.Y.  Time: Gloaming-and-Half|Autumn|False
+ddt_emu	637242714000000000	102792600|47|6|21|6|Date: Thistledown 21, 47 P.Y.  Time: Dawnsong-and-Half|Summer|True
+ddt_gdle	637242714000000000	652530600|247|-1|15|7|Date: Coldeve 15, 247 P.Y.  Time: Morntide|Winter|True
+ddt_lore	637242714000000000	57866223.75|31|2|5|8|Date: Solclaim 5, 31 P.Y.  Time: Morntide-and-Half|Spring|True
+formatchance	d:3FF0000000000000	100%
+formatchance	d:0000000000000000	0%
+formatchance	d:3FE0000000000000	50%
+formatchance	d:3FBF9ACFFA7EB6BF	12.3%
+formatchance	d:3F202C9DEDBC309D	0.01%
+formatchance	d:3E112E0BE826D695	0.0000001%
+formatchance	d:3FEFFFEB074A771D	99.9%
+formatchance	d:3FB999999999999A	10%
+formatchance	d:3FD0000000000000	25%
+formatchance	d:3FF8000000000000	150%
+formatchance	d:3B92E3B40A0E9B4F	0.00000000000000000009%
+roundf	f:40200000	0	3	f:40000000
+roundf	f:40200000	1	2	f:40200000
+roundf	f:40200000	2	2	f:40200000
+roundf	f:C0200000	0	-3	f:C0000000
+roundf	f:C0200000	1	-2	f:C0200000
+roundf	f:C0200000	2	-2	f:C0200000
+roundf	f:3FB9999A	0	1	f:3F800000
+roundf	f:3FB9999A	1	1	f:3FB33333
+roundf	f:3FB9999A	2	1	f:3FB9999A
+roundf	f:402B3333	0	3	f:40000000
+roundf	f:402B3333	1	2	f:40266666
+roundf	f:402B3333	2	2	f:402AE148
+roundf	f:501502F9	0	-2147483648	f:501502F9
+roundf	f:501502F9	1	-2147483648	f:501502F9
+roundf	f:501502F9	2	-2147483648	f:501502F9
+roundf	f:FFC00000	0	-2147483648	f:FFC00000
+roundf	f:FFC00000	1	-2147483648	f:FFC00000
+roundf	f:FFC00000	2	-2147483648	f:FFC00000
+roundf	f:3F000000	0	1	f:00000000
+roundf	f:3F000000	1	0	f:3F000000
+roundf	f:3F000000	2	0	f:3F000000
+roundf	f:BF000000	0	-1	f:80000000
+roundf	f:BF000000	1	0	f:BF000000
+roundf	f:BF000000	2	0	f:BF000000
+roundf	f:3FC00000	0	2	f:3F800000
+roundf	f:3FC00000	1	1	f:3FC00000
+roundf	f:3FC00000	2	1	f:3FC00000
+roundd	d:4004000000000000	0	3
+roundd	d:4004000000000000	1	2
+roundd	d:4004000000000000	2	2
+roundd	d:C004000000000000	0	-3
+roundd	d:C004000000000000	1	-2
+roundd	d:C004000000000000	2	-2
+roundd	d:3FF7333333333333	0	1
+roundd	d:3FF7333333333333	1	1
+roundd	d:3FF7333333333333	2	1
+roundd	d:4005666666666666	0	3
+roundd	d:4005666666666666	1	2
+roundd	d:4005666666666666	2	2
+roundd	d:4202A05F20000000	0	-2147483648
+roundd	d:4202A05F20000000	1	-2147483648
+roundd	d:4202A05F20000000	2	-2147483648
+roundd	d:FFF8000000000000	0	-2147483648
+roundd	d:FFF8000000000000	1	-2147483648
+roundd	d:FFF8000000000000	2	-2147483648
+roundd	d:3FE0000000000000	0	1
+roundd	d:3FE0000000000000	1	0
+roundd	d:3FE0000000000000	2	0
+eps	True	False	False
+plural	Sarcophagus	Sarcophaguss
+plural	Torch	Torches
+plural	Glass	Glasses
+plural	Dish	Dishes
+plural	Box	Boxes
+plural	Topaz	Topazes
+plural	Moth	Moth
+plural	Drudge	Drudges
+plural	Ch	Chs
+plural	s	ses
+plural		s
+plural	Us	Uses
+vowel	apple	True
+vowel	Egg	True
+vowel	banana	False
+vowel		False
+vowel	i	True
+vowel	Y	False
+trimstart	World	Hello	abc	abc
+wildcard	a*b	^a.*b$
+wildcard	*.txt	^.*\.txt$
+wildcard	x+y?(z)[w]{1}^$|#\ .	^x\+y\?\(z\)\[w]\{1}\^\$\|\#\\\ \.$
+wildcard	tab\there	^tab\there$
+charname	Some Name	Name	A B C D	A
+flags	0	0	False
+flags	1	1	False
+flags	3	2	True
+flags	2147483648	1	False
+flags	4294967295	32	True
+flags	6	2	True
+shuffle	42	9,0,4,2,5,7,3,8,1,6
+tsr	7	3,6,4,1,3,d:3FE2D1970C55A32E,d:3FD15B897842B713,d:3FE74374AD1E86EA,d:3FE164E5DFF5FCFF,d:3FE1C23FF076B7B3,d:3FC313161972F2FA,d:3FEFFFFFFFFFFFFF,d:3FEFFFFFFFFFFFFF,d:3FEFFFFFFFFFFFFF
+product	f:40FF8D50	f:3F800000
+tsfriendly	0			0	0
+tsfriendly	10000000	1s	1 second	0	0
+tsfriendly	20000000	2s	2 seconds	0	0
+tsfriendly	900610000000	1d 1h 1m 1s	1 day , 1 hour , 1 minute and 1 second	0	0
+tsfriendly	1234567891234	1d 10h 17m 36s	1 day , 10 hours , 17 minutes and 36 seconds	0	0
+tsfriendly	1728000000000	2d	2 days	0	0
+tsfriendly	36610000000	1h 1m 1s	1 hour , 1 minute and 1 second	0	0
+tsfriendly	-10000000	1s	1 second	1657	136
+tsfriendly	1840000000000	2d 3h 6m 40s	2 days , 3 hours , 6 minutes and 40 seconds	0	0
+time	d:41D965D20B42E148	638355968001234567	621355967985000000
+common	2024-01-05 1:07:09 PM

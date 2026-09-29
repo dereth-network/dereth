@@ -1,0 +1,45 @@
+[package]
+name = "dereth-clipboard"
+description = "The two clipboard calls, copy out and paste in, kept in their own crate because on Windows they need unsafe code."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
+# modules read the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+# NOT `[lints] workspace = true`. The workspace sets `unsafe_code = "forbid"`, and `forbid` cannot
+# be lifted by an inner `#[allow]` at all -- so the single Win32 hop this crate exists for could not
+# live in `dereth-client`, which stays under the workspace `forbid` untouched. `deny` here, with
+# exactly one `#[allow(unsafe_code)]` on `mod windows`, is the narrowest scope the language offers:
+# every other module of every other crate in the tree is unchanged.
+#
+# The precedents are `dereth-primitives`' `text` module (kernel32 NLS conversion) and the server's `empyrean-content`
+# (`memmap2::Mmap::map`). The exception covers the clipboard and nothing else.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+# Off Windows the same two calls go through `arboard`, whose API is safe -- `mod unix` carries no
+# `#[allow(unsafe_code)]`. `default-features = false` drops `image-data`; only text moves here.
+[target.'cfg(not(windows))'.dependencies]
+arboard = { version = "3.6.1", default-features = false }
+
+# X11 is arboard's baseline on Linux; `wayland-data-control` adds the wlr-data-control path so a
+# Wayland session copies and pastes too (arboard picks at runtime from `WAYLAND_DISPLAY`).
+[target.'cfg(target_os = "linux")'.dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

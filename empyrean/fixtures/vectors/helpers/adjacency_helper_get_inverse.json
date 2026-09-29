@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {"in":{"adj":-2},"out":null},
+    {"in":{"adj":-1},"out":null},
+    {"in":{"adj":0},"out":4},
+    {"in":{"adj":1},"out":5},
+    {"in":{"adj":2},"out":6},
+    {"in":{"adj":3},"out":7},
+    {"in":{"adj":4},"out":0},
+    {"in":{"adj":5},"out":1},
+    {"in":{"adj":6},"out":2},
+    {"in":{"adj":7},"out":3},
+    {"in":{"adj":8},"out":null},
+    {"in":{"adj":9},"out":null},
+    {"in":{"adj":10},"out":null},
+    {"in":{"adj":-2147483648},"out":null},
+    {"in":{"adj":2147483647},"out":null}
+  ],
+  "generator": "ace-vectors helpers",
+  "source": {"ace_commit":"47edade3bd3f6044b676d4eb877c4965c7eda62b","culture":"en-US","file":"Source/ACE.Server/Entity/Adjacency.cs","member":"ACE.Server.Entity.AdjacencyHelper.GetInverse(Adjacency adj)","notes":"adj and the result are the enum values; null is no inverse.","runtime":"10.0.12","sdk":"10.0.401"}
+}

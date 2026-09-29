@@ -1,0 +1,90 @@
+[package]
+name = "dereth-testkit"
+description = "Test support for the client: the behaviour registry and the harness a behaviour scenario is written in."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# One test target per tier, and `autotests = false` so a stray `tests/*.rs` cannot become a second
+# link step silently -- the same arrangement `dereth-client`, `dereth-client-net` and `dereth-headless` use.
+autotests = false
+
+# **The harness crate.** It is test support: nothing in `tools/`,
+# `core/*/src` or `dereth/*/src` may depend on it, and it holds no oracle of its own. What it holds is the
+# *vocabulary* a scenario is written in -- a headless client, a behaviour registry, and a golden
+# event log -- so that a station is its claim and not four hundred lines of setup.
+[features]
+default = []
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose scenarios open
+# the retail dats under $DERETH_TEST_DAT_DIR and replay recorded sessions through a real `App`.
+retail-dats = []
+
+[dependencies]
+# The client. `App::with_platform(cfg, NullPresentation, Platform::headless(w, h))` is what the
+# retail-assets backend is; `default-features = false` because the default is a graphics backend and
+# a scenario never has a device.
+dereth-client = { path = "../client", default-features = false }
+# The headless half: `ObjectStream`, `ClientNetwork` and the frame steps the no-assets backend runs
+# without an `App`.
+dereth-client-runtime = { path = "../../core/client-runtime" }
+# `GameSnapshot` (what `snapshot()` answers with) and `UiRequest`.
+dereth-client-contract = { path = "../../core/client-contract" }
+# `World`, `Request`, `Notice` -- the model a scenario asserts over, and the requests it watches go
+# out.
+dereth-client-model = { path = "../../core/client-model" }
+# `InputEvent` and the named movement actions a `Player` step injects.
+dereth-input = { path = "../client/crates/input" }
+# The typed messages `Inbound::message` takes and the opcodes `outbound_opcodes` reports.
+dereth-protocol = { path = "../../core/protocol" }
+# `Corpus` (the decoded corpus), `capture` (the raw one),
+# `MockTransport` and `Session`, which is how an outbound request is turned back into an opcode:
+# all `dereth_client_net::client_session`, from the `dereth-client-net` dependency below.
+# `ChatMessage` -- the type `Hud::apply_events` answers with, which is what `chat_lines()` is.
+dereth-ui-screens = { path = "../client/crates/ui-screens" }
+# `dereth_dat::testing` -- the one lookup of the retail dats every test uses.
+dereth-dat = { path = "../../core/dat", features = ["test-support"] }
+# `framework::mode::GAME_PLAY` -- the screen a gameplay scenario asks the shell to put up.
+dereth-ui = { path = "../client/crates/ui" }
+dereth-primitives.workspace = true
+# The one thing a raw-capture login replay needs that `dereth_client_net::client_session::testing::capture`
+# cannot hold: the recorded connection sequence number, which is read by parsing a datagram header,
+# the transport's work, which the client session does not name (its isolation rule). Rather than write a
+# second copy, the harness calls the one that exists. See `src/login.rs`.
+dereth-headless = { path = "../headless" }
+# One seeded behaviour is about where a body may enter the world, which is the collision walk's
+# question and not the frame's.
+dereth-physics = { path = "../../core/physics" }
+# A normal dependency, not a dev one: `src/replay.rs` and `src/wire.rs` build a `ConnectRequest`
+# datagram and parse the ones a scenario sends, so the crate that frames and parses a datagram is
+# library code here. Path-only, and nothing in `tools/`,
+# `core/*/src` or `dereth/*/src` gains an edge, because nothing there may depend on this crate at all.
+dereth-client-net = { path = "../../core/client-net" }
+dereth-transport = { path = "../../core/transport" }
+thiserror.workspace = true
+
+[dev-dependencies]
+# `dereth_primitives::num::math`: the scenarios build headings with the same portable trigonometry as the client.
+dereth-primitives.workspace = true
+# The scenario modules whose drives build animation and asset records. Path-only and dev-only.
+dereth-animation = { path = "../../core/animation" }
+dereth-assets = { path = "../../core/assets" }
+# The mouse messages one seeded scenario delivers. It is `dereth-client`'s own window dependency,
+# taken here at the same version and with the same features so that a `Win32Message` this crate
+# builds is the one the client's pump reads.
+winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
+
+[lints]
+workspace = true
+
+# The two tiers. `cpu` runs with no feature flags and reaches no dat; `dat` opens
+# the retail dats and replays recorded sessions through a real `App`, and **must run serially** --
+# two headless `App`s in one process share `dereth_ui_screens`' request globals.
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
