@@ -33,6 +33,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # The whole history and its tags: a release's upgrade declaration is checked against the
+          # previous release's tag, and the build number is the commit count.
+          fetch-depth: 0
       - name: Install the Linux build inputs
         if: runner.os == 'Linux'
         # ALSA for the audio output (cpal) and pkg-config to find it; the README's platform table.
