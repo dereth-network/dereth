@@ -72,7 +72,7 @@ dereth-assets = { path = "../../core/assets" }
 # The mouse messages one seeded scenario delivers. It is `dereth-client`'s own window dependency,
 # taken here at the same version and with the same features so that a `Win32Message` this crate
 # builds is the one the client's pump reads.
-winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 
 [lints]
 workspace = true

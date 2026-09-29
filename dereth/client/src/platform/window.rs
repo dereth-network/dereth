@@ -1,9 +1,9 @@
 //! The window, the display it sits on, and the event pump.
 //!
 //! `winit` is named here and in [`crate::pump`] and nowhere else in the client's logic modules:
-//! window creation, monitor enumeration, the `pump_events` callback, presentation-time window
-//! placement, the application icon on each of the three platforms, and the fly-cam's raw key arms
-//! all live here, so the application state machine can
+//! window creation, monitor enumeration, the event loop's handlers, presentation-time window
+//! placement, the application icon on each of the three platforms, the dat cursors as the window
+//! system's own, and the fly-cam's raw key arms all live here, so the application state machine can
 //! be compiled, read and driven without a window system. `WindowHost` is what `App` actually needs from a window; the two
 //! implementations are the real one (`WinitWindow`) and the headless one (`NullWindow`).
 //!
@@ -21,6 +21,11 @@
 //! there and the window loads that same resource), X11 carries it on the window as pixels, and
 //! macOS reads it out of the application bundle, so this module has nothing to set there. The
 //! three start from one picture, kept in `assets/` in the three forms those platforms read.
+//!
+//! **The window is made inside its event loop.** The loop is started first, and the window is
+//! made when the loop reports itself running, which every desktop backend does on its first
+//! drain; [`open_window`] drains until it has. The window and the loop are then shared with the
+//! cursor images ([`DesktopWindow`]), which make cursors on the loop between drains.
 //!
 //! **The window keeps its events.** `WinitWindow` hands the runtime no events from its drain;
 //! it queues every one, lifecycle and device alike and in arrival order, on the `WindowEvents`
@@ -101,8 +106,10 @@ const IDI_APP: u16 = 1;
 /// start over a picture; the reason is printed instead, because a silent generic icon is precisely
 /// the symptom that sent this round-trip.
 #[cfg(windows)]
-fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window::WindowBuilder {
-    use winit::platform::windows::{IconExtWindows as _, WindowBuilderExtWindows as _};
+fn with_application_icon(
+    builder: winit::window::WindowAttributes,
+) -> winit::window::WindowAttributes {
+    use winit::platform::windows::{IconExtWindows as _, WindowAttributesExtWindows as _};
 
     let load = |w: u32, h: u32| {
         winit::window::Icon::from_resource(IDI_APP, Some(winit::dpi::PhysicalSize::new(w, h)))
@@ -164,7 +171,9 @@ fn window_icon() -> Option<winit::window::Icon> {
 
 /// Put the icon on the window: X11 and the other window systems that take one.
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window::WindowBuilder {
+fn with_application_icon(
+    builder: winit::window::WindowAttributes,
+) -> winit::window::WindowAttributes {
     builder.with_window_icon(window_icon())
 }
 
@@ -173,8 +182,10 @@ fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window
 /// that name. A Wayland window has no other way to show one. The entry is written here, before the
 /// window exists, when it is missing or differs ([`register_desktop_entry`]).
 #[cfg(target_os = "linux")]
-fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window::WindowBuilder {
-    use winit::platform::wayland::WindowBuilderExtWayland as _;
+fn with_application_icon(
+    builder: winit::window::WindowAttributes,
+) -> winit::window::WindowAttributes {
+    use winit::platform::wayland::WindowAttributesExtWayland as _;
 
     register_desktop_entry();
     let id = dereth_launch::desktop::CLIENT_APP_ID;
@@ -215,7 +226,9 @@ fn register_desktop_entry() {
 /// run straight out of `target/` is not an application in that sense and wears the generic
 /// executable icon, which is the platform's answer and not a gap in this module.
 #[cfg(target_os = "macos")]
-fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window::WindowBuilder {
+fn with_application_icon(
+    builder: winit::window::WindowAttributes,
+) -> winit::window::WindowAttributes {
     builder
 }
 
@@ -258,10 +271,106 @@ fn adapter_display_modes(
 // The real window
 // -------------------------------------------------------------------------------------------
 
+/// The window and the event loop it belongs to, shared by the [`WinitWindow`] that pumps the loop
+/// and the cursor images that make cursors on it ([`cursor_window`]).
+///
+/// The window is declared first so it is dropped first, before the loop it was made on.
+pub struct DesktopWindow {
+    window: winit::window::Window,
+    /// Borrowed mutably only while a drain runs; a cursor is made between drains.
+    event_loop: std::cell::RefCell<winit::event_loop::EventLoop<()>>,
+}
+
+impl std::fmt::Debug for DesktopWindow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DesktopWindow")
+            .field("window", &self.window.id())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A dat cursor's picture as the window system takes it, before there is a cursor made from it:
+/// what building a cursor needs no window for.
+#[derive(Debug)]
+pub struct CursorPicture(winit::window::CustomCursorSource);
+
+/// A cursor the window system made from a [`CursorPicture`]; cheap to clone, and freed with its
+/// last clone.
+#[derive(Debug, Clone)]
+pub struct HostCursor(winit::window::CustomCursor);
+
+/// The picture of the cursor `bits` describes, with its hotspot.
+///
+/// The picture is the 32x32 image the icon builder made, so a cursor keeps its size, its
+/// placement in the top-left corner and its transparent surround, and every pixel is either
+/// shown or transparent ([`dereth_render::cursor::IconBits::rgba`]). The window system refuses a
+/// hotspot outside the image, which a 32x32 cursor's bitmap pair would have accepted; one is held
+/// to the image's last row or column instead, the nearest place the window system will take.
+///
+/// # Errors
+/// The window system's reason when it will not take the picture.
+pub fn cursor_picture(bits: &dereth_render::cursor::IconBits) -> Result<CursorPicture, String> {
+    let extent = u16::try_from(dereth_render::cursor::CURSOR_EXTENT).unwrap_or(u16::MAX);
+    winit::window::CustomCursor::from_rgba(
+        bits.rgba(),
+        extent,
+        extent,
+        picture_hotspot(bits.hot_x),
+        picture_hotspot(bits.hot_y),
+    )
+    .map(CursorPicture)
+    .map_err(|e| e.to_string())
+}
+
+/// One coordinate of a cursor's hotspot inside its 32x32 picture: itself, or the last row or
+/// column when it is past the picture's edge.
+fn picture_hotspot(h: u32) -> u16 {
+    let last = dereth_render::cursor::CURSOR_EXTENT - 1;
+    u16::try_from(h.min(last)).unwrap_or(0)
+}
+
+impl DesktopWindow {
+    /// Make the window system's cursor from `picture`; `None` while the event loop is draining,
+    /// which no caller does.
+    #[must_use]
+    pub fn make_cursor(&self, picture: CursorPicture) -> Option<HostCursor> {
+        let event_loop = self.event_loop.try_borrow().ok()?;
+        Some(HostCursor(event_loop.create_custom_cursor(picture.0)))
+    }
+
+    /// Make `cursor` the pointer's image over the window's client area.
+    ///
+    /// The window system keeps it there: on Windows the window answers every `WM_SETCURSOR` in
+    /// the client area with it, and the frame and border keep the system's sizing cursors; X11,
+    /// Wayland and macOS attach it to the window's surface.
+    pub fn set_cursor(&self, cursor: &HostCursor) {
+        self.window.set_cursor(cursor.0.clone());
+    }
+}
+
+std::thread_local! {
+    /// The window this thread opened, by its [`WindowHost::raw_handle`], for the cursor images.
+    static CURSOR_WINDOW: std::cell::RefCell<Option<(isize, std::rc::Weak<DesktopWindow>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The window opened on this thread whose [`WindowHost::raw_handle`] is `handle`, for the cursor
+/// images to put cursors on. The host is handed the handle, not the window, so this is how the
+/// cursor images reach it. It is a weak reference: the window closes when its [`WinitWindow`] is
+/// dropped, whoever still holds cursors for it.
+#[must_use]
+pub fn cursor_window(handle: isize) -> Option<std::rc::Weak<DesktopWindow>> {
+    CURSOR_WINDOW.with(|w| {
+        w.borrow()
+            .as_ref()
+            .filter(|(h, window)| *h == handle && window.strong_count() > 0)
+            .map(|(_, window)| window.clone())
+    })
+}
+
 /// The window, its event loop, and the swap chain's handle.
 pub struct WinitWindow {
-    event_loop: winit::event_loop::EventLoop<()>,
-    window: winit::window::Window,
+    shared: std::rc::Rc<DesktopWindow>,
     /// Where the drain puts its events. See the module documentation.
     events: WindowEvents,
     /// Whether this module, rather than the window system's backend, keeps the fixed window's
@@ -441,37 +550,18 @@ fn is_wayland(window: &winit::window::Window) -> bool {
 impl std::fmt::Debug for WinitWindow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WinitWindow")
-            .field("window", &self.window.id())
+            .field("window", &self.shared.window.id())
             .finish()
     }
 }
 
-/// The startup sequence's window-creation half.
-///
-/// # Errors
-/// The window system's reason when the event loop or the window cannot be created. `App` turns it
-/// into a `StartupError::Device`.
-#[allow(clippy::too_many_lines)]
-pub fn open_window(
+/// The window the startup sequence asks for, on `monitor`.
+fn window_attributes(
     cfg: &crate::config::Config,
-    events: WindowEvents,
-) -> Result<WinitWindow, String> {
+    monitor: Option<&winit::monitor::MonitorHandle>,
+) -> winit::window::WindowAttributes {
     use winit::dpi::PhysicalSize;
     use winit::window::{WindowButtons, WindowLevel};
-
-    let mut builder = winit::event_loop::EventLoopBuilder::new();
-    // **A deliberate modernization** (client divergence CD-004). Display resolutions name
-    // physical client pixels, not retail's DPI-virtualized logical pixels. winit's
-    // Windows backend enables per-monitor awareness (V2 when available) before creating
-    // the window; the PhysicalSize requests below then mean the same pixels as the
-    // back buffer. X11, Wayland and macOS report physical pixels through `inner_size`
-    // without being asked.
-    #[cfg(windows)]
-    {
-        use winit::platform::windows::EventLoopBuilderExtWindows;
-        builder.with_dpi_aware(true);
-    }
-    let event_loop = builder.build().map_err(|e| format!("event loop: {e}"))?;
 
     // The documented style is 0x12CA0000 = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
     // WS_CLIPCHILDREN | WS_VISIBLE. **There is no WS_THICKFRAME and no WS_MAXIMIZEBOX**,
@@ -494,8 +584,7 @@ pub fn open_window(
     // login, character select, the intro -- is windowed. `App::follow_gameplay_full_screen` is
     // the other half; this function's job is only to not pre-empt it, so
     // `cfg.display.full_screen` is *not* read here.
-    let monitor = event_loop.primary_monitor();
-    let screen = monitor_metrics(monitor.as_ref(), (0, 0, 0));
+    let screen = monitor_metrics(monitor, (0, 0, 0));
     let place = dereth_render::window_proc::placement(
         false,
         true,
@@ -509,7 +598,7 @@ pub fn open_window(
     // account on it, because several clients are often up at once on one machine -- for
     // example a two-account test of trade or housing -- and the task bar is the only place
     // that tells them apart. See `Config::window_title`.
-    let mut builder = winit::window::WindowBuilder::new()
+    let attributes = winit::window::Window::default_attributes()
         .with_title(cfg.window_title())
         .with_inner_size(PhysicalSize::new(client_w, client_h))
         .with_resizable(false)
@@ -529,12 +618,68 @@ pub fn open_window(
         })
         .with_decorations(place.style & dereth_render::window_proc::WS_POPUP == 0)
         .with_visible(true);
-    // After the rest of the builder, and before `build`: the icon is the window's, so it
-    // has to be on the attributes winit creates the window from.
-    builder = with_application_icon(builder);
-    let window = builder
-        .build(&event_loop)
-        .map_err(|e| format!("window: {e}"))?;
+    // After the rest of the attributes: the icon is the window's, so it has to be on the
+    // attributes winit creates the window from.
+    with_application_icon(attributes)
+}
+
+/// How long the startup sequence waits for the window system to let it make its window.
+const OPEN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The startup sequence's window-creation half.
+///
+/// The window is made inside the event loop, when the loop reports itself running (`resumed`),
+/// which every desktop backend does on the first drain; the events the new window raises while
+/// that drain lasts -- its first focus, its first size -- are queued as any later drain's are.
+///
+/// # Errors
+/// The window system's reason when the event loop or the window cannot be created. `App` turns it
+/// into a `StartupError::Device`.
+pub fn open_window(
+    cfg: &crate::config::Config,
+    events: WindowEvents,
+) -> Result<WinitWindow, String> {
+    use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
+
+    let mut builder = winit::event_loop::EventLoop::builder();
+    // **A deliberate modernization** (client divergence CD-004). Display resolutions name
+    // physical client pixels, not retail's DPI-virtualized logical pixels. winit's
+    // Windows backend enables per-monitor awareness (V2 when available) before creating
+    // the window; the PhysicalSize requests below then mean the same pixels as the
+    // back buffer. X11, Wayland and macOS report physical pixels through `inner_size`
+    // without being asked.
+    #[cfg(windows)]
+    {
+        use winit::platform::windows::EventLoopBuilderExtWindows;
+        builder.with_dpi_aware(true);
+    }
+    let mut event_loop = builder.build().map_err(|e| format!("event loop: {e}"))?;
+
+    let held = HeldSize::default();
+    let mut opening = Opening {
+        cfg,
+        opened: None,
+        queue: Vec::new(),
+        held: &held,
+    };
+    let deadline = std::time::Instant::now() + OPEN_DEADLINE;
+    let mut wait = std::time::Duration::ZERO;
+    let (window, pins_size_limits) = loop {
+        let status = event_loop.pump_app_events(Some(wait), &mut opening);
+        if let Some(opened) = opening.opened.take() {
+            break opened?;
+        }
+        if let PumpStatus::Exit(code) = status {
+            return Err(format!(
+                "window: the event loop ended ({code}) before it was made"
+            ));
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("window: the window system never let the event loop make it".to_string());
+        }
+        wait = std::time::Duration::from_millis(10);
+    };
+    events.borrow_mut().append(&mut opening.queue);
 
     // The process is DPI-aware (see above), so these are physical pixels; an OS-side query of the
     // window's geometry stays the independent measurement if an external compatibility override
@@ -551,14 +696,165 @@ pub fn open_window(
     // measure are read back through the trait, by `App::bring_up`: [`WinitWindow::client_size`],
     // [`WinitWindow::frame_metrics`] and [`WinitWindow::window_rect`], which are those same three
     // expressions and are also what a later frame re-reads.
-    let pins_size_limits = is_wayland(&window);
-    Ok(WinitWindow {
-        event_loop,
+    let shared = std::rc::Rc::new(DesktopWindow {
         window,
+        event_loop: std::cell::RefCell::new(event_loop),
+    });
+    let opened = WinitWindow {
+        shared,
         events,
         pins_size_limits,
-        held: HeldSize::default(),
-    })
+        held,
+    };
+    if let Some(handle) = opened.raw_handle() {
+        let weak = std::rc::Rc::downgrade(&opened.shared);
+        CURSOR_WINDOW.with(|w| *w.borrow_mut() = Some((handle, weak)));
+    }
+    Ok(opened)
+}
+
+/// The event loop's handler while the window is being made: it makes the window when the loop
+/// is running, and routes the window's first events as [`Drain`] routes every later one.
+struct Opening<'a> {
+    cfg: &'a crate::config::Config,
+    /// The window and whether its size limits are held here, or why it could not be made.
+    opened: Option<Result<(winit::window::Window, bool), String>>,
+    queue: Vec<HostEvent>,
+    held: &'a HeldSize,
+}
+
+impl winit::application::ApplicationHandler for Opening<'_> {
+    fn new_events(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _cause: winit::event::StartCause,
+    ) {
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+    }
+
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        if self.opened.is_some() {
+            return;
+        }
+        let monitor = event_loop.primary_monitor();
+        let attributes = window_attributes(self.cfg, monitor.as_ref());
+        self.opened = Some(
+            event_loop
+                .create_window(attributes)
+                .map(|window| {
+                    let pins = is_wayland(&window);
+                    (window, pins)
+                })
+                .map_err(|e| format!("window: {e}")),
+        );
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        let Some(Ok((window, pins))) = &self.opened else {
+            return;
+        };
+        let requested = winit::dpi::PhysicalSize::new(self.cfg.width, self.cfg.height);
+        route_window_event(
+            window,
+            self.held,
+            *pins,
+            (requested, false),
+            &mut self.queue,
+            event,
+        );
+    }
+}
+
+/// The event loop's handler for one drain: every window event, routed onto the queue.
+struct Drain<'a> {
+    window: &'a winit::window::Window,
+    held: &'a HeldSize,
+    pins_size_limits: bool,
+    /// The client size last asked for, and whether the window is full screen.
+    presentation: (winit::dpi::PhysicalSize<u32>, bool),
+    queue: &'a mut Vec<HostEvent>,
+}
+
+impl winit::application::ApplicationHandler for Drain<'_> {
+    fn new_events(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _cause: winit::event::StartCause,
+    ) {
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+    }
+
+    /// The window is made once, by [`open_window`]; a loop resumed later has nothing to make.
+    fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
+
+    fn window_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        route_window_event(
+            self.window,
+            self.held,
+            self.pins_size_limits,
+            self.presentation,
+            self.queue,
+            event,
+        );
+    }
+}
+
+/// One window event onto the queue, with the two the window answers itself on the way: a DPI
+/// change's size, and a resize the fixed window settles.
+///
+/// `presentation` is the client size last asked for and whether the window is full screen.
+fn route_window_event(
+    window: &winit::window::Window,
+    held: &HeldSize,
+    pins_size_limits: bool,
+    presentation: (winit::dpi::PhysicalSize<u32>, bool),
+    queue: &mut Vec<HostEvent>,
+    mut event: winit::event::WindowEvent,
+) {
+    let (requested, full_screen) = presentation;
+    if let winit::event::WindowEvent::ScaleFactorChanged {
+        inner_size_writer, ..
+    } = &mut event
+    {
+        // winit's WM_DPICHANGED default preserves *logical* size. Override it while this writer
+        // is live (it expires on callback return), keeping selected physical pixels windowed and
+        // the monitor extent borderless.
+        let size = if full_screen {
+            window
+                .current_monitor()
+                .map_or_else(|| window.inner_size(), |m| m.size())
+        } else {
+            requested
+        };
+        if let Err(e) = inner_size_writer.request_inner_size(size) {
+            tracing::warn!("DPI physical client-size request failed: {e}");
+        }
+        // Where the size limits are held here, they are held in the old scale's units; hold
+        // them again at the same physical size in the new one.
+        if pins_size_limits && !full_screen {
+            window.set_size_limits(Some((requested.width, requested.height)));
+        }
+    }
+    if let winit::event::WindowEvent::Resized(size) = &event {
+        tracing::debug!("window resized to {}x{}", size.width, size.height);
+        // The size the window has once the resize is settled, which is what the back buffer
+        // must follow: after a second ask it is the one asked for.
+        let (width, height) =
+            settle_resized(window, held, (size.width, size.height), pins_size_limits);
+        queue.push(HostEvent::Resized { width, height });
+        return;
+    }
+    queue.extend(host_event(&event));
 }
 
 impl WindowHost for WinitWindow {
@@ -566,24 +862,10 @@ impl WindowHost for WinitWindow {
         true
     }
 
-    /// The native window handle used by the cursor subclass: a Win32 notion with no counterpart on the
-    /// other platforms, where the dat cursor is not installed (see `crate::cursor`).
-    ///
-    /// Read off winit rather than off the device's `WindowHandles`, so that this
-    /// -- and `App` with it -- needs no graphics backend to build.
+    /// The window's identity, which the cursor images find the window by ([`cursor_window`]).
+    /// On Windows it is the window handle.
     fn raw_handle(&self) -> Option<isize> {
-        #[cfg(windows)]
-        {
-            use winit::raw_window_handle::HasWindowHandle as _;
-            match self.window.window_handle().map(|h| h.as_raw()) {
-                Ok(winit::raw_window_handle::RawWindowHandle::Win32(w)) => Some(w.hwnd.get()),
-                _ => None,
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            None
-        }
+        isize::try_from(u64::from(self.shared.window.id())).ok()
     }
 
     /// The two raw handles `Gpu::new` turns into a surface, read off a winit window. No `unsafe`
@@ -594,13 +876,13 @@ impl WindowHost for WinitWindow {
     /// answers `None`, and `Gpu::new(None, …)` is the offscreen device, which is what the caller
     /// would have made of the error anyway.
     fn render_handles(&self) -> Option<dereth_render::device::WindowHandles> {
-        window_handles(&self.window)
+        window_handles(&self.shared.window)
             .map_err(|e| tracing::warn!("{e}"))
             .ok()
     }
 
     fn client_size(&self) -> (u32, u32) {
-        let s = self.window.inner_size();
+        let s = self.shared.window.inner_size();
         (s.width, s.height)
     }
 
@@ -611,8 +893,8 @@ impl WindowHost for WinitWindow {
     /// a framed window wherever the window manager chooses, and *that* is where the player's
     /// window is.
     fn window_rect(&self) -> Option<Rect> {
-        let p = self.window.outer_position().ok()?;
-        let o = self.window.outer_size();
+        let p = self.shared.window.outer_position().ok()?;
+        let o = self.shared.window.outer_size();
         Some(Rect {
             left: p.x,
             top: p.y,
@@ -629,7 +911,8 @@ impl WindowHost for WinitWindow {
     /// `SM_CXDLGFRAME == SM_CYDLGFRAME` on every Windows this targets. A borderless window has
     /// no frame at all, which is why the caller drops this for a full-screen presentation.
     fn frame_metrics(&self) -> Option<(i32, i32, i32)> {
-        let (outer, inner) = (self.window.outer_size(), self.window.inner_size());
+        let window = &self.shared.window;
+        let (outer, inner) = (window.outer_size(), window.inner_size());
         let frame = i32::try_from(outer.width.saturating_sub(inner.width)).unwrap_or(0) / 2;
         let caption =
             i32::try_from(outer.height.saturating_sub(inner.height)).unwrap_or(0) - 2 * frame;
@@ -637,31 +920,31 @@ impl WindowHost for WinitWindow {
     }
 
     fn screen_metrics(&self, frame_metrics: (i32, i32, i32)) -> ScreenMetrics {
-        let monitor = self
-            .window
+        let window = &self.shared.window;
+        let monitor = window
             .current_monitor()
-            .or_else(|| self.window.primary_monitor());
+            .or_else(|| window.primary_monitor());
         monitor_metrics(monitor.as_ref(), frame_metrics)
     }
 
     fn display_modes(&self) -> Vec<DisplayMode> {
-        let monitor = self
-            .window
+        let window = &self.shared.window;
+        let monitor = window
             .current_monitor()
-            .or_else(|| self.window.primary_monitor());
+            .or_else(|| window.primary_monitor());
         adapter_display_modes(monitor.as_ref())
     }
 
     fn set_title(&self, title: &str) {
-        self.window.set_title(title);
+        self.shared.window.set_title(title);
     }
 
     fn set_decorations(&self, decorated: bool) {
-        self.window.set_decorations(decorated);
+        self.shared.window.set_decorations(decorated);
     }
 
     fn set_topmost(&self, topmost: bool) {
-        self.window.set_window_level(if topmost {
+        self.shared.window.set_window_level(if topmost {
             winit::window::WindowLevel::AlwaysOnTop
         } else {
             winit::window::WindowLevel::Normal
@@ -672,7 +955,7 @@ impl WindowHost for WinitWindow {
     /// move with it.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         let applied = resize_fixed_window(
-            &self.window,
+            &self.shared.window,
             &self.held,
             (width, height),
             self.pins_size_limits,
@@ -683,78 +966,51 @@ impl WindowHost for WinitWindow {
             applied.0,
             applied.1,
             self.pins_size_limits,
-            self.window.scale_factor()
+            self.shared.window.scale_factor()
         );
         applied
     }
 
     fn set_outer_position(&self, x: i32, y: i32) {
-        self.window
+        self.shared
+            .window
             .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
     }
 
     /// [`set_fixed_window_full_screen`]: on Wayland the size limits are released on the way in,
     /// and a window that is not full screen is not asked to leave it.
     fn set_borderless_fullscreen(&self, full_screen: bool) {
-        set_fixed_window_full_screen(&self.window, &self.held, full_screen, self.pins_size_limits);
+        set_fixed_window_full_screen(
+            &self.shared.window,
+            &self.held,
+            full_screen,
+            self.pins_size_limits,
+        );
     }
 
     /// Drain the event queue completely.
     ///
     /// "the pump drains the queue completely each frame — it is not the classic `PeekMessage`-or-
-    /// render alternation", which is what a zero timeout on `pump_events` gives.
+    /// render alternation", which is what a zero timeout on `pump_app_events` gives.
     fn pump_events(&mut self, requested: (u32, u32), full_screen: bool) -> PumpedEvents {
         use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 
-        let mut events = self.events.borrow_mut();
-        let requested = winit::dpi::PhysicalSize::new(requested.0, requested.1);
-        let window = &self.window;
-        let pins_size_limits = self.pins_size_limits;
-        let held = &self.held;
+        let mut queue = self.events.borrow_mut();
+        let mut drain = Drain {
+            window: &self.shared.window,
+            held: &self.held,
+            pins_size_limits: self.pins_size_limits,
+            presentation: (
+                winit::dpi::PhysicalSize::new(requested.0, requested.1),
+                full_screen,
+            ),
+            queue: &mut queue,
+        };
         let status = self
+            .shared
             .event_loop
-            .pump_events(Some(std::time::Duration::ZERO), |event, elwt| {
-                elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
-                if let winit::event::Event::WindowEvent { mut event, .. } = event {
-                    if let winit::event::WindowEvent::ScaleFactorChanged {
-                        inner_size_writer, ..
-                    } = &mut event
-                    {
-                        // winit 0.29's WM_DPICHANGED default preserves *logical* size. Override
-                        // it while this writer is live (it expires on callback return), keeping
-                        // selected physical pixels windowed and the monitor extent borderless.
-                        let size = if full_screen {
-                            window
-                                .current_monitor()
-                                .map_or_else(|| window.inner_size(), |m| m.size())
-                        } else {
-                            requested
-                        };
-                        if let Err(e) = inner_size_writer.request_inner_size(size) {
-                            tracing::warn!("DPI physical client-size request failed: {e}");
-                        }
-                        // Where the size limits are held here, they are held in the old scale's
-                        // units; hold them again at the same physical size in the new one.
-                        if pins_size_limits && !full_screen {
-                            window.set_size_limits(Some((requested.width, requested.height)));
-                        }
-                    }
-                    if let winit::event::WindowEvent::Resized(size) = &event {
-                        tracing::debug!("window resized to {}x{}", size.width, size.height);
-                        // The size the window has once the resize is settled, which is what the
-                        // back buffer must follow: after a second ask it is the one asked for.
-                        let (width, height) = settle_resized(
-                            window,
-                            held,
-                            (size.width, size.height),
-                            pins_size_limits,
-                        );
-                        events.push(HostEvent::Resized { width, height });
-                        return;
-                    }
-                    events.extend(host_event(&event));
-                }
-            });
+            .borrow_mut()
+            .pump_app_events(Some(std::time::Duration::ZERO), &mut drain);
         // PumpStatus::Exit is winit's WM_QUIT. "WM_QUIT stops the drain but does not by itself
         // set the done flag" -- but by the time winit reports Exit its window is gone, so the only
         // honest response is to end the loop.
@@ -1264,6 +1520,17 @@ mod tests {
         assert_eq!(window.pending_limits.get(), None, "limits untouched");
     }
 
+    /// A cursor's hotspot is carried into its picture, and one past the 32x32 image is held to
+    /// its last row or column.
+    #[test]
+    fn a_cursor_hotspot_is_carried_and_held_inside_the_picture() {
+        assert_eq!(picture_hotspot(0), 0);
+        assert_eq!(picture_hotspot(14), 14);
+        assert_eq!(picture_hotspot(31), 31);
+        assert_eq!(picture_hotspot(32), 31);
+        assert_eq!(picture_hotspot(u32::MAX), 31);
+    }
+
     /// The named keys are what the host table answers.
     #[test]
     fn the_named_keys_are_what_the_host_table_answers() {
@@ -1284,14 +1551,32 @@ mod tests {
     #[cfg(all(windows, any(feature = "vulkan", feature = "d3d12")))]
     #[test]
     fn monitor_metrics_carries_the_selected_monitors_real_work_area() {
+        use winit::platform::pump_events::EventLoopExtPumpEvents as _;
         use winit::platform::windows::{
             EventLoopBuilderExtWindows as _, MonitorHandleExtWindows as _,
         };
 
-        let mut builder = winit::event_loop::EventLoopBuilder::<()>::new();
+        /// Reads the primary monitor off the running loop, and makes no window.
+        struct Primary(Option<winit::monitor::MonitorHandle>);
+        impl winit::application::ApplicationHandler for Primary {
+            fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+                self.0 = event_loop.primary_monitor();
+            }
+            fn window_event(
+                &mut self,
+                _: &winit::event_loop::ActiveEventLoop,
+                _: winit::window::WindowId,
+                _: winit::event::WindowEvent,
+            ) {
+            }
+        }
+
+        let mut builder = winit::event_loop::EventLoop::builder();
         builder.with_any_thread(true);
-        let event_loop = builder.build().expect("read-only event loop");
-        let monitor = event_loop.primary_monitor().expect("primary monitor");
+        let mut event_loop = builder.build().expect("read-only event loop");
+        let mut primary = Primary(None);
+        event_loop.pump_app_events(Some(std::time::Duration::ZERO), &mut primary);
+        let monitor = primary.0.expect("primary monitor");
         let expected = dereth_render::window_proc::monitor_work_area(monitor.hmonitor())
             .expect("the primary monitor has a work area");
         let actual = monitor_metrics(Some(&monitor), (3, 23, 3));

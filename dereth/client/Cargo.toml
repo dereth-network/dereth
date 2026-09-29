@@ -115,11 +115,12 @@ tracing-subscriber.workspace = true
 # glam in the tree and the Mat4 that crosses the boundary is the same type.
 glam = "0.30"
 
-# The window and the message pump, keeping the retail window-procedure-to-message mapping.
-# Default features off; `rwh_06` is what yields the raw window and display handles that
-# `dereth_render::device::Gpu::new` turns into a surface. The X11 and Wayland backends are added for
-# Linux only, below, so the Windows and macOS builds carry neither.
-winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
+# The window and the message pump, keeping the retail window-procedure-to-message mapping, and
+# the dat cursors as the window system's own on every platform. Default features off; `rwh_06` is
+# what yields the raw window and display handles that `dereth_render::device::Gpu::new` turns into
+# a surface. The X11 and Wayland backends are added for Linux only, below, so the Windows and
+# macOS builds carry neither.
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 # `--capture out.png` writes a PNG. dereth-render's own smoke example writes a PPM to avoid adding
 # an encoder to the renderer; the application is the right place for the encoder. The decoder is
 # the other half of the same dependency: off Windows and macOS the window's icon is a picture the
@@ -153,7 +154,7 @@ open = "5"
 # The Linux window backends. winit's defaults are off above so that Windows and macOS do not carry
 # them; Linux needs both, because which one a session runs is the user's compositor's choice.
 [target.'cfg(target_os = "linux")'.dependencies]
-winit = { version = "0.29", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
 # The desktop entry that gives the window its icon on Linux, shared with the launcher so the two
 # write the same file the same way.
 dereth-launch = { path = "../launcher/crates/launch" }

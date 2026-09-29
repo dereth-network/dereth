@@ -437,17 +437,17 @@ fn the_cursor_state_machine_runs_once_per_frame_and_settles_on_the_default_curso
         st.device_pushes, 1,
         "and one push past the last-cursor cache"
     );
-    // `CreateIconIndirect` really succeeded on a real dat surface: this counts only when
-    // `WinCursor::new` returned a live handle, and it runs headless too because building the icon
-    // needs no window -- only installing it does.
+    // The window system took the real dat surface's picture: this counts only when the 32x32
+    // image and its hotspot were accepted, and it runs headless too because building the picture
+    // needs no window -- only making and installing the cursor does.
     assert_eq!(
         st.icons_built, 1,
-        "which built exactly one HCURSOR from the dat"
+        "which built exactly one cursor picture from the dat"
     );
     assert_eq!(st.failures, 0, "nothing failed to resolve or decode");
     // The third state: headless has no window, so the icon was built and deliberately not
     // installed. A windowed run logs
-    // `GetCursor() agrees: true` at this point instead.
+    // `set on the window: true` at this point instead.
     assert_eq!(
         st.device_installs, 0,
         "a headless run has no window to install it on"

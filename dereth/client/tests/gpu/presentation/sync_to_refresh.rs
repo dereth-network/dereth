@@ -133,19 +133,40 @@ fn a_saved_sync_preference_reaches_the_presentation_record() {
 #[test]
 fn a_real_hidden_swap_chain_presents_with_the_configured_interval() {
     use winit::dpi::PhysicalSize;
+    use winit::platform::pump_events::EventLoopExtPumpEvents as _;
 
-    let mut builder = winit::event_loop::EventLoopBuilder::new();
+    /// Makes one invisible window when the loop is running.
+    struct Invisible(Option<winit::window::Window>);
+    impl winit::application::ApplicationHandler for Invisible {
+        fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+            let attributes = winit::window::Window::default_attributes()
+                .with_visible(false)
+                .with_inner_size(PhysicalSize::new(800, 600));
+            self.0 = Some(
+                event_loop
+                    .create_window(attributes)
+                    .expect("an invisible native window"),
+            );
+        }
+        fn window_event(
+            &mut self,
+            _: &winit::event_loop::ActiveEventLoop,
+            _: winit::window::WindowId,
+            _: winit::event::WindowEvent,
+        ) {
+        }
+    }
+
+    let mut builder = winit::event_loop::EventLoop::builder();
     #[cfg(windows)]
     {
         use winit::platform::windows::EventLoopBuilderExtWindows;
         builder.with_any_thread(true);
     }
-    let event_loop = builder.build().expect("an event loop");
-    let window = winit::window::WindowBuilder::new()
-        .with_visible(false)
-        .with_inner_size(PhysicalSize::new(800, 600))
-        .build(&event_loop)
-        .expect("an invisible native window");
+    let mut event_loop = builder.build().expect("an event loop");
+    let mut invisible = Invisible(None);
+    event_loop.pump_app_events(Some(std::time::Duration::ZERO), &mut invisible);
+    let window = invisible.0.expect("the running loop made the window");
     let handles = dereth_client::platform::window::window_handles(&window).expect("window handles");
     let mut renderer = dereth_client::gpu::Renderer::new(Some(handles), 800, 600)
         .expect("a real swap-chain renderer");

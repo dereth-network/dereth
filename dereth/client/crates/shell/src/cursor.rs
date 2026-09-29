@@ -311,7 +311,7 @@ pub fn is_target_compatible_with_targeting_object(
 }
 
 // ---------------------------------------------------------------------------------------------
-// The runtime half: enum -> DataID -> RenderSurface -> HCURSOR -> SetCursor
+// The runtime half: enum -> DataID -> RenderSurface -> the window system's cursor
 // ---------------------------------------------------------------------------------------------
 
 /// What the cursor path did, for the log line and for the tests.
@@ -324,12 +324,11 @@ pub struct CursorStats {
     pub state_changes: u64,
     /// Pushes that got past the manager's last-cursor did and reached the device path.
     pub device_pushes: u64,
-    /// `HCURSOR`s actually built from a dat surface (the cache misses).
+    /// Cursor images actually built from a dat surface (the cache misses).
     pub icons_built: u64,
     /// Enum keys that did not resolve to a `DataID`, or whose surface would not decode.
     pub failures: u64,
-    /// Pushes where `SetCursor` was followed by a `GetCursor()` that agreed -- i.e. the dat-built
-    /// `HCURSOR` really is the process's current cursor. Windowed runs only.
+    /// Pushes that put the dat-built cursor on the window as its pointer. Windowed runs only.
     pub device_installs: u64,
 }
 
@@ -343,15 +342,15 @@ pub struct CursorInstall {
     pub window: bool,
     /// The host holds a cursor built for the key.
     pub icon: bool,
-    /// The host reports the cursor current after putting it there.
+    /// The host put the cursor on the window as its pointer.
     pub took: bool,
 }
 
 /// The host's cursor images: built from a cursor's icon bits and put on the window.
 ///
-/// The desktop builds a system cursor from the bits and installs it as the window's; a host that
-/// cannot set the pointer's image (a window system without a custom-cursor call) builds nothing
-/// and installs nothing, and [`PortableCursors`] is that host.
+/// The desktop builds the window system's own cursor from the bits and installs it as the
+/// window's pointer; a host that cannot set the pointer's image builds nothing and installs
+/// nothing, and [`PortableCursors`] is that host.
 pub trait CursorImages {
     /// Build the cursor for `key` from its icon bits, keeping it for [`Self::install`]; `false`
     /// when the host could not.
@@ -529,7 +528,7 @@ impl CursorSystem {
             if !(took && window && icon) || self.report_gate.ready() {
                 tracing::debug!(
                     "({hx}, {hy}, {did:#010X}) -- \
-                     window: {window}, icon: {icon}, GetCursor() agrees: {took}",
+                     window: {window}, icon: {icon}, set on the window: {took}",
                     did = did.0
                 );
             }

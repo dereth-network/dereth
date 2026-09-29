@@ -1,4 +1,5 @@
-//! The mouse cursor: a dat `RenderSurface` turned into a Win32 `HCURSOR`.
+//! The mouse cursor: a dat `RenderSurface` turned into the image a window system installs as the
+//! pointer.
 //!
 //! The client builds a cursor from an RGBA surface with one monochrome mask bitmap and one
 //! screen-compatible colour bitmap, installs it as the window class cursor, and shows or hides
@@ -10,15 +11,13 @@
 //! routine receives no image. A client drawing that fallback arrow is therefore not
 //! a client with the feature switched off, it is a client permanently on the error path.
 //!
-//! # Two halves
+//! # What is here
 //!
-//! [`IconBits`] and [`build`] are the **pure** half: pixels in, a 32x32 colour image and a 1-bit AND
-//! mask out. They are the part that can be wrong invisibly (a mask polarity, an off-by-one row, a
-//! clamp), so they are testable with no window, no device and no dat.
-//!
-//! The `windows` half below is the three Win32 calls that turn those bits into an `HCURSOR` and put
-//! it on the window. It is behind `cfg(windows)`, which is what gates the `windows` dependency in this
-//! crate's manifest.
+//! [`IconBits`] and [`build`] are pixels in, a 32x32 colour image and a 1-bit AND mask out, and
+//! [`IconBits::rgba`] is the same picture as straight RGBA with the mask folded into the alpha.
+//! They are the part that can be wrong invisibly (a mask polarity, an off-by-one row, a clamp), so
+//! they are testable with no window, no device and no dat. Turning the picture into a system
+//! cursor and putting it on the window is the host's (`dereth_client::cursor`).
 
 /// The fixed size of a Windows cursor, and what the icon is rendered into regardless of how
 /// small the source surface is.
@@ -56,6 +55,33 @@ pub struct IconBits {
     pub hot_x: u32,
     /// `ICONINFO::yHotspot`.
     pub hot_y: u32,
+}
+
+impl IconBits {
+    /// The cursor as 32x32 straight (not premultiplied) RGBA, top-down: the form a window system
+    /// that takes a cursor as one colour image reads.
+    ///
+    /// The AND mask becomes the alpha and nothing else does: a pixel the mask shows is opaque
+    /// (`0xFF`) in its colour, and a pixel the mask leaves transparent is `[0, 0, 0, 0]`. So every
+    /// pixel is either drawn or not, exactly as the mask-and-colour pair draws it, and no pixel is
+    /// blended, whatever alpha the dat surface stored between [`ALPHA_OPAQUE_MIN`] and `0xFF`.
+    #[must_use]
+    pub fn rgba(&self) -> Vec<u8> {
+        let e = CURSOR_EXTENT as usize;
+        let mut rgba = vec![0u8; e * e * 4];
+        for y in 0..e {
+            for x in 0..e {
+                let transparent = self.and_mask[y * (e / 8) + x / 8] & (0x80 >> (x % 8)) != 0;
+                if transparent {
+                    continue;
+                }
+                let o = (y * e + x) * 4;
+                let bgra = &self.color_bgra[o..o + 4];
+                rgba[o..o + 4].copy_from_slice(&[bgra[2], bgra[1], bgra[0], 0xFF]);
+            }
+        }
+        rgba
+    }
 }
 
 /// Why a surface could not become a cursor.
@@ -134,195 +160,6 @@ pub fn build(
         hot_x,
         hot_y,
     })
-}
-
-#[cfg(windows)]
-pub use win32::{set_cursor, take_over_wm_setcursor, WinCursor};
-
-/// The Win32 third of the path: `CreateIconIndirect`, `SetCursor`, and the one piece of glue this
-/// rebuild needs that the client did not.
-#[cfg(windows)]
-mod win32 {
-    use std::sync::atomic::{AtomicIsize, Ordering};
-
-    use windows::core::Result as WinResult;
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-    use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject, HBITMAP};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, CreateIconIndirect, DestroyIcon, GetCursor, SetCursor, SetWindowLongPtrW,
-        HCURSOR, HICON, HTCLIENT, ICONINFO, WNDPROC,
-    };
-
-    use super::{IconBits, CURSOR_EXTENT};
-
-    /// An owned `HCURSOR` built from a dat surface. Dropping it calls `DestroyIcon`.
-    ///
-    /// Installing a cursor destroys the *previous* class cursor rather than the one being
-    /// installed, which is the same lifetime discipline expressed through the window
-    /// class instead of through ownership.
-    #[derive(Debug)]
-    pub struct WinCursor(HCURSOR);
-
-    // SAFETY: an HCURSOR is a process-wide handle, not thread-affine; the only operations here are
-    // SetCursor and DestroyIcon, both of which accept a handle from any thread.
-    unsafe impl Send for WinCursor {}
-
-    impl WinCursor {
-        /// The tail of cursor creation: two bitmaps into an `ICONINFO` with
-        /// `fIcon = 0` — which is what makes it a **cursor** rather than an icon, and is the only
-        /// place the hotspot is used.
-        ///
-        /// # Errors
-        /// Any failure from `CreateBitmap` or `CreateIconIndirect`.
-        pub fn new(bits: &IconBits) -> WinResult<Self> {
-            let e = i32::try_from(CURSOR_EXTENT).unwrap_or(32);
-            // SAFETY: both buffers are sized by `super::build` for a 32x32 bitmap of the stated
-            // depth — 128 bytes at 1bpp and 4096 at 32bpp — and are read, not retained, by GDI.
-            let mask: HBITMAP =
-                unsafe { CreateBitmap(e, e, 1, 1, Some(bits.and_mask.as_ptr().cast())) };
-            // SAFETY: as above.
-            let color: HBITMAP =
-                unsafe { CreateBitmap(e, e, 1, 32, Some(bits.color_bgra.as_ptr().cast())) };
-            let info = ICONINFO {
-                fIcon: false.into(),
-                xHotspot: bits.hot_x,
-                yHotspot: bits.hot_y,
-                hbmMask: mask,
-                hbmColor: color,
-            };
-            // SAFETY: `info` is fully initialised and both bitmaps outlive the call;
-            // `CreateIconIndirect` copies them.
-            let icon: WinResult<HICON> = unsafe { CreateIconIndirect(&info) };
-            // SAFETY: the client deletes both bitmaps immediately after the same call.
-            unsafe {
-                let _ = DeleteObject(color.into());
-                let _ = DeleteObject(mask.into());
-            }
-            Ok(Self(HCURSOR(icon?.0)))
-        }
-
-        /// The raw handle, for [`set_cursor`].
-        #[must_use]
-        pub fn handle(&self) -> HCURSOR {
-            self.0
-        }
-    }
-
-    impl Drop for WinCursor {
-        fn drop(&mut self) {
-            if !self.0.is_invalid() {
-                // SAFETY: this type owns the handle and is the only thing that can free it.
-                unsafe {
-                    let _ = DestroyIcon(HICON(self.0 .0));
-                }
-            }
-        }
-    }
-
-    /// The last line of installing a cursor, `SetCursor(hCursor)`.
-    ///
-    /// The client also does `SetClassLongA(hwnd, GCL_HCURSOR, h)` so that `DefWindowProc`'s
-    /// `WM_SETCURSOR` handling re-installs it on every mouse move. See
-    /// [`take_over_wm_setcursor`] for why that is not enough here.
-    ///
-    /// Returns whether `GetCursor()` afterwards **is** the handle that was just installed. The
-    /// immediate check is necessary because `SetCursor` returns the *previous* cursor, which says
-    /// nothing about whether the new one took, and a session whose pointer is hidden reports
-    /// nothing to an outside observer.
-    #[must_use]
-    pub fn set_cursor(c: &WinCursor) -> bool {
-        // SAFETY: `SetCursor` takes a handle and returns the previous one; `GetCursor` reads the
-        // calling thread's current cursor. Neither has an ownership effect.
-        unsafe {
-            let _ = SetCursor(Some(c.handle()));
-            GetCursor() == c.handle()
-        }
-    }
-
-    /// The cursor this rebuild's window procedure re-installs on `WM_SETCURSOR`, and the previous
-    /// window procedure to chain to. Zero means "not installed".
-    static CURRENT: AtomicIsize = AtomicIsize::new(0);
-    static PREV_PROC: AtomicIsize = AtomicIsize::new(0);
-
-    /// `WM_SETCURSOR`, the message the client never had to handle.
-    const WM_SETCURSOR: u32 = 0x0020;
-
-    /// Install a window procedure that answers `WM_SETCURSOR` with the dat cursor, and record which
-    /// cursor that is.
-    ///
-    /// **Why this exists, and why it is not in the client.** Retail owns its window class, so
-    /// `SetClassLongA(GCL_HCURSOR)` plus `DefWindowProc` is the whole mechanism: Windows re-installs
-    /// the class cursor on every `WM_SETCURSOR` for free. This rebuild's window belongs to `winit`,
-    /// whose own procedure handles `WM_SETCURSOR` by calling
-    /// `SetCursor(LoadCursorW(0, IDC_ARROW))` — unconditionally, for any position inside the client
-    /// area. A bare `SetCursor` from the frame loop therefore survives only until the next pointer
-    /// movement, which is precisely when a player is looking at the cursor.
-    ///
-    /// So the one message is intercepted ahead of `winit` and everything else is chained through
-    /// `CallWindowProcW`. Passing a cursor of `None` leaves the subclass in place and hands the
-    /// message back to `winit`, which is how the arrow comes back.
-    ///
-    /// This is a **display** decision only: `ShowCursor`, which mouse-look drives, is a separate
-    /// counter and is untouched here.
-    pub fn take_over_wm_setcursor(hwnd: isize, cursor: Option<&WinCursor>) {
-        CURRENT.store(
-            cursor.map_or(0, |c| c.handle().0 as isize),
-            Ordering::Relaxed,
-        );
-        if PREV_PROC.load(Ordering::Relaxed) != 0 {
-            return;
-        }
-        let h = HWND(hwnd as *mut core::ffi::c_void);
-        // SAFETY: `hwnd` is the client's own window, alive for the whole run; `subclass_proc` has
-        // the `WNDPROC` signature and forwards every message it does not answer to the procedure
-        // it replaced.
-        let prev = unsafe {
-            SetWindowLongPtrW(
-                h,
-                windows::Win32::UI::WindowsAndMessaging::GWLP_WNDPROC,
-                subclass_proc as *const () as isize,
-            )
-        };
-        if prev != 0 {
-            PREV_PROC.store(prev, Ordering::Relaxed);
-        }
-    }
-
-    /// Answer `WM_SETCURSOR` in the client area with the dat cursor; chain everything else.
-    unsafe extern "system" fn subclass_proc(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        let cur = CURRENT.load(Ordering::Relaxed);
-        // The hit-test code `WM_NCHITTEST` returned is in the low word of `lParam`; only the
-        // client area is ours. On the frame and the border Windows must keep the sizing cursors.
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        // LINT-OK: the hit-test code Windows packs into the low word of an LPARAM. The mask is the
-        // truncation, and it is what `LOWORD` means.
-        let in_client = ((lparam.0 as usize as u32) & 0xFFFF) == HTCLIENT;
-        if msg == WM_SETCURSOR && cur != 0 && in_client {
-            // SAFETY: `cur` is a live HCURSOR held by a `WinCursor` for as long as it is stored.
-            unsafe {
-                let _ = SetCursor(Some(HCURSOR(cur as *mut core::ffi::c_void)));
-            }
-            return LRESULT(1);
-        }
-        let prev = PREV_PROC.load(Ordering::Relaxed);
-        // SAFETY: `prev` is the window procedure this one replaced, or 0 before installation.
-        unsafe {
-            let p: WNDPROC = if prev == 0 {
-                None
-            } else {
-                Some(core::mem::transmute::<
-                    isize,
-                    unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
-                >(prev))
-            };
-            CallWindowProcW(p, hwnd, msg, wparam, lparam)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -409,6 +246,34 @@ mod tests {
             Err(CursorError::Truncated(8, 8, 56))
         );
         assert!(build(8, 8, &checker(8, 8), 0, 0).is_ok());
+    }
+
+    // The one-image form carries the mask as the alpha and nothing else: shown pixels are opaque in
+    // their own colour whatever alpha the surface stored, and every other pixel -- masked out, or
+    // outside the source -- is fully transparent black.
+    #[test]
+    fn the_rgba_form_is_the_mask_as_alpha_with_every_pixel_shown_or_transparent() {
+        let px = vec![
+            [0x11, 0x22, 0x33, 0x3F], // under the threshold: transparent
+            [0x44, 0x55, 0x66, 0x40], // at it: shown, and opaque
+            [0x77, 0x88, 0x99, 0xFF],
+        ];
+        let rgba = build(3, 1, &px, 0, 0).expect("3x1 fits").rgba();
+        assert_eq!(rgba.len(), 32 * 32 * 4);
+        assert_eq!(&rgba[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&rgba[4..8], &[0x66, 0x55, 0x44, 0xFF], "BGRA read as RGBA");
+        assert_eq!(&rgba[8..12], &[0x99, 0x88, 0x77, 0xFF]);
+        assert!(
+            rgba[12..].iter().all(|b| *b == 0),
+            "outside the source is transparent"
+        );
+        assert!(
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| p[3] == 0 || p[3] == 0xFF),
+            "no pixel is blended"
+        );
     }
 
     // Oracle: the `ICONINFO` the client's cursor builder fills — the hotspot is carried, not clamped or scaled.

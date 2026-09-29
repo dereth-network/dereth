@@ -13,14 +13,14 @@
 //! would become noise.
 //!
 //! This crate is the device: [`device`], one enum over the three backends (`vulkan`, the default,
-//! `d3d12`, Windows only, and `wgpu`), the shader sources, and the Win32 window surface ([`window_proc`],
-//! [`cursor`], [`debug`]). The codecs, pipeline descriptions, font atlas, UI quad path and camera
-//! are [`dereth_render_cpu`], re-exported here so callers need not know about the split.
+//! `d3d12`, Windows only, and `wgpu`), the shader sources, the Win32 window surface
+//! ([`window_proc`], [`debug`]) and the dat cursor's image ([`cursor`]). The codecs, pipeline
+//! descriptions, font atlas, UI quad path and camera are [`dereth_render_cpu`], re-exported here so
+//! callers need not know about the split.
 //!
 //! It is one of the crates permitted `unsafe`, because Vulkan and Win32 are C ABIs: it lives in
-//! [`vulkan`], in [`cursor`]'s window subclass, in [`debug`]'s top-level exception filter and in
-//! [`window_proc`]'s monitor-work-area and caret-blink queries, each block with a `SAFETY:`
-//! comment.
+//! [`vulkan`], in [`debug`]'s top-level exception filter and in [`window_proc`]'s
+//! monitor-work-area and caret-blink queries, each block with a `SAFETY:` comment.
 
 #![doc(html_no_source)]
 

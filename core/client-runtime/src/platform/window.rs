@@ -61,7 +61,8 @@ pub trait WindowHost {
         false
     }
 
-    /// a Win32 notion, for the cursor subclass (`crate::cursor`).
+    /// The native window's identity, which the host's cursor images find the window by; `None`
+    /// without a window.
     fn raw_handle(&self) -> Option<isize> {
         None
     }
@@ -146,7 +147,7 @@ pub trait WindowHost {
     /// drain the queue completely.
     ///
     /// `requested` and `full_screen` are inputs because the DPI negotiation happens *inside* the
-    /// window system's live callback: winit 0.29's `WM_DPICHANGED` default preserves the
+    /// window system's live callback: winit's `WM_DPICHANGED` default preserves the
     /// **logical** size, and the override that keeps the selected physical pixels has to be made
     /// while the size writer is alive.
     fn pump_events(&mut self, _requested: (u32, u32), _full_screen: bool) -> PumpedEvents {
