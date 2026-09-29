@@ -15,6 +15,17 @@ Everything builds on Windows, Linux and macOS; the client is tested on Windows a
 **No retail data files ship with this repository.** The client and the server read the original
 game's data files; obtain your own copy to run them.
 
+## Download
+
+The repository's [latest release](https://github.com/dereth-network/dereth/releases/latest) is
+Dereth, the launcher, with the client inside it: a zip for Windows (unzip anywhere and run
+`dereth.exe`; no installer), `Dereth.app` for macOS and an AppImage for Linux. The launcher keeps
+itself and the client up to date from that release. The client alone is there too. The builds are
+not code-signed yet: Windows SmartScreen asks once (**More info**, **Run anyway**), and macOS once
+(**System Settings**, **Privacy & Security**, **Open Anyway**). How a release is made:
+[`dereth/launcher/RELEASING.md`](dereth/launcher/RELEASING.md). Empyrean's releases are in the same
+list, never marked latest.
+
 ## Build and run
 
 Rust 1.98 or newer. The default renderer is Vulkan, so one source tree serves all three platforms;
@@ -54,7 +65,7 @@ without the `dereth-` or `empyrean-` prefix: `core/physics` is `dereth-physics`,
 | Folder | What it holds | Licence |
 |---|---|---|
 | `core/` | The shared crates: the data files, the engines, the wire and the game rules any AC client, server or tool shares, and the client SDK (`client-net`, `client-model`, `client-contract`, `client-runtime`, `audio`), with `dereth-client-sdk` its front door. | MIT |
-| `dereth/` | The products: the 3D client (`dereth/client`, with its own crates under `dereth/client/crates/`, among them `scene`, the drawn world, and `shell`, the retail front end both clients share), the web client (`dereth/web`), the headless client and the client's test kit, with [`DIVERGENCES.md`](dereth/DIVERGENCES.md), the places the Dereth client deliberately differs from the retail client. | MIT |
+| `dereth/` | The products: the 3D client (`dereth/client`, with its own crates under `dereth/client/crates/`, among them `scene`, the drawn world, and `shell`, the retail front end both clients share), the web client (`dereth/web`), the launcher (`dereth/launcher`: its Tauri app, a workspace of its own, and `dereth-launch`, what it knows), the headless client and the client's test kit, with [`DIVERGENCES.md`](dereth/DIVERGENCES.md), the places the Dereth client deliberately differs from the retail client. | MIT |
 | `empyrean/` | Empyrean, the server: the ACE port under `empyrean/crates/`, the `empyrean-server` and `empyrean-import` binaries and the server's test kit, with its own [`LICENSE`](empyrean/LICENSE), [`README.md`](empyrean/README.md), [`SETUP.md`](empyrean/SETUP.md) and [`DIVERGENCES.md`](empyrean/DIVERGENCES.md). | AGPL-3.0-only |
 | `tools/` | Research and build tools: the capture index, the corpus tool, the web client's local relay (`web-relay`) and developer runner (`web-dev`), and the `xtask` task runner; [`tools/README.md`](tools/README.md) says what each is for and how to run it. | MIT |
 
@@ -106,7 +117,8 @@ The tests' and tools' own variables are `DERETH_*`, and those only tests read ar
 | native build inputs | MSVC, `rc.exe` (for the icon) | `libasound2-dev` (cpal), `pkg-config`; X11 and Wayland come through winit's pure-Rust bindings | Xcode command-line tools (cpal's CoreAudio bindings run bindgen against the SDK) |
 | shaders | compiled from `legacy.wgsl` by `naga` at device creation; no toolchain | same | same |
 
-On macOS `dereth_render::vulkan` finds the loader itself (`$VULKAN_SDK/lib`, then
+On macOS `dereth_render::vulkan` finds the loader itself (a MoltenVK bundled in the app,
+`Contents/Frameworks/libMoltenVK.dylib`, as a release carries it, then `$VULKAN_SDK/lib`,
 `/opt/homebrew/lib` and `/usr/local/lib`), so nothing needs `DYLD_LIBRARY_PATH`. Device tests use the
 machine's GPU, and a software rasteriser (`lavapipe`, SwiftShader, WARP) only where there is no GPU or
 `DERETH_TEST_GPU=software` asks for one. Cross-checking from Windows (`cargo check -p dereth-render --target
@@ -135,13 +147,14 @@ there, so a capture or a test run never changes the player's settings. Otherwise
 
 | platform | directory |
 |---|---|
-| Windows | `%USERPROFILE%\Documents\Dereth` |
-| macOS | `~/Library/Application Support/dereth` |
-| Linux and other Unix | `$XDG_CONFIG_HOME/dereth`, or `~/.config/dereth` |
+| Windows | `%APPDATA%\Dereth\client` |
+| macOS | `~/Library/Application Support/Dereth/client` |
+| Linux and other Unix | `$XDG_CONFIG_HOME/dereth/client`, or `~/.config/dereth/client` |
 
-On Windows the first run **copies** (never moves) the original game's `Documents\Asheron's Call`
-folder into it, once. `Display.FullScreen` applies when the player enters the world; login and
-character select are always windowed. Each run's crash log is `crash-logs/dereth-client-<pid>.log`
+The launcher keeps its own settings beside it, in `launcher`. On Windows the first run **copies**
+(never moves) the original game's `Documents\Asheron's Call` folder into it, once.
+`Display.FullScreen` applies when the player enters the world; login and character select are
+always windowed. Each run's crash log is `crash-logs/dereth-client-<pid>.log`
 in the directory of the table above, whatever `-prefs` says.
 
 ## The specification

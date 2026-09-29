@@ -3,6 +3,35 @@ use super::*;
 include!("mipgen_tests.rs");
 include!("sampler_tests.rs");
 
+/// A MoltenVK shipped with the program is looked for in the application bundle's `Frameworks`
+/// folder first, then beside the executable, before anything installed on the machine.
+#[test]
+fn a_bundled_moltenvk_is_looked_for_in_the_bundle_then_beside_the_executable() {
+    let exe = std::path::Path::new("Dereth.app")
+        .join("Contents")
+        .join("MacOS")
+        .join("dereth-client");
+    assert_eq!(
+        bundled_moltenvk_candidates(&exe),
+        vec![
+            std::path::Path::new("Dereth.app")
+                .join("Contents")
+                .join("Frameworks")
+                .join("libMoltenVK.dylib"),
+            std::path::Path::new("Dereth.app")
+                .join("Contents")
+                .join("MacOS")
+                .join("libMoltenVK.dylib"),
+        ]
+    );
+    // An executable at the root of the file system has no bundle around it, only its own folder.
+    let bare = std::path::Path::new("dereth-client");
+    assert_eq!(
+        bundled_moltenvk_candidates(bare),
+        vec![std::path::Path::new("libMoltenVK.dylib").to_path_buf()]
+    );
+}
+
 /// Create a device, preferring a CPU rasteriser, or return `None` when Vulkan is unavailable.
 /// Every test here skips rather than fails in that case: the pure-logic half of each unit is
 /// tested elsewhere and does not need a device.

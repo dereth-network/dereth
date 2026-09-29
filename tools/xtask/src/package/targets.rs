@@ -72,6 +72,87 @@ pub const TARGETS: &[Target] = &[
     },
 ];
 
+/// The targets Dereth (the launcher, with the client) is released for. Each builds natively on
+/// its own operating system: the launcher's web view links against the system's own (WebView2,
+/// WebKit, WebKitGTK), so no cross-linker can build it.
+pub const DERETH_TRIPLES: &[&str] = &[
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+];
+
+/// The oldest glibc a Dereth Linux release runs on: the release is built on Ubuntu 22.04, whose
+/// glibc it is linked against, and the header check holds the binaries to it.
+pub const DERETH_GLIBC_FLOOR: (u32, u32) = (2, 35);
+
+/// The Dereth release target named `triple`.
+pub fn find_dereth(triple: &str) -> Result<Target, String> {
+    if !DERETH_TRIPLES.contains(&triple) {
+        return Err(format!(
+            "`{triple}` is not a Dereth release target; the targets are {}",
+            DERETH_TRIPLES.join(", ")
+        ));
+    }
+    find(triple)
+}
+
+/// How this host builds Dereth for `target`, or why it cannot: natively, on the target's own
+/// operating system.
+pub fn plan_dereth(target: Target, host: &Host) -> Result<(), String> {
+    if host.os != Some(target.os) {
+        let os = match target.os {
+            Os::Windows => "Windows",
+            Os::Linux => "Linux",
+            Os::Mac => "macOS",
+        };
+        return Err(format!(
+            "{} builds on a {os} host only: the launcher links against that system's web view",
+            target.triple
+        ));
+    }
+    if let Some(installed) = &host.installed {
+        if !installed.iter().any(|t| t == target.triple) {
+            return Err(format!(
+                "the Rust standard library for {0} is not installed: `rustup target add {0}`",
+                target.triple
+            ));
+        }
+    }
+    Ok(())
+}
+
+impl Target {
+    /// The launcher updater's name for the target's platform, the key of its `latest.json`
+    /// entry: `windows-x86_64`, `darwin-aarch64`, `linux-x86_64`.
+    pub fn updater_platform(self) -> String {
+        let os = match self.os {
+            Os::Windows => "windows",
+            Os::Linux => "linux",
+            Os::Mac => "darwin",
+        };
+        format!("{os}-{}", self.arch_name())
+    }
+
+    /// The platform as a release file names it: `windows-x86_64`, `macos-aarch64`,
+    /// `linux-x86_64`.
+    pub fn platform_name(self) -> String {
+        let os = match self.os {
+            Os::Windows => "windows",
+            Os::Linux => "linux",
+            Os::Mac => "macos",
+        };
+        format!("{os}-{}", self.arch_name())
+    }
+
+    fn arch_name(self) -> &'static str {
+        match self.arch {
+            Arch::X86_64 => "x86_64",
+            Arch::Aarch64 => "aarch64",
+        }
+    }
+}
+
 /// The release target named `triple`.
 pub fn find(triple: &str) -> Result<Target, String> {
     TARGETS

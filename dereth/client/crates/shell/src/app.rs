@@ -462,7 +462,7 @@ impl<H: Host> App<H> {
     /// Run startup steps 8 through 12 in order, with absent subsystems named, on the device
     /// presentation.
     ///
-    /// Preferences (step 8) were loaded by [`Config::from_args_and_prefs`]; database
+    /// Preferences (step 8) were loaded by [`Config::from_args_and_prefs_at`]; database
     /// initialization (step 10) and UI initialization (step 12) run in the documented order,
     /// because the database must precede the UI (the UI layouts are dat objects).
     ///

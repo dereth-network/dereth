@@ -1,0 +1,435 @@
+/* The Dereth launcher, drawn in CSS and SVG.
+ *
+ * Two registers. The controls you press (the rail, the buttons, PLAY) are soft pixel art: every
+ * ornament sits on a pixel grid (`--px` is one art pixel), frames are pixel-grid SVGs used as border
+ * images with crisp edges, and plates are banded rather than smoothly graded. Everything that holds
+ * or shows something (panels, text boxes, drop-downs, status) is quiet: a thin line, a rounded
+ * corner, a dark glass over the painting, a plain coloured dot. Text stays type: Cinzel for display,
+ * EB Garamond to read. */
+
+@font-face { font-family: "Cinzel"; src: url("assets/fonts/Cinzel-var.ttf") format("truetype"); font-weight: 400 900; }
+@font-face { font-family: "EB Garamond"; src: url("assets/fonts/EBGaramond-var.ttf") format("truetype"); font-weight: 400 800; }
+
+:root {
+  --px: 3px;
+
+  /* The palette: stone, ink, three golds, and the status colours. Few colours, on purpose. */
+  --ink: #0c0a10;
+  --stone: #17141d;
+  --stone-2: #211c29;
+  --stone-3: #2d2636;
+  --gold-dark: #6b4e22;
+  --gold: #b58a3c;
+  --gold-bright: #e9c77a;
+  --text: #efe6d2;
+  --muted: #a99f8b;
+  --faint: #6f6757;
+  --green-dark: #1d4a25;
+  --green: #2f7a36;
+  --green-bright: #58b04c;
+  --online: #5fcf55;
+  --high: #e3b344;
+  --offline: #d8584a;
+  --unknown: #8e8a82;
+
+  /* The quiet register: lines, glass and rounding for panels and fields. */
+  --line: rgba(233, 199, 122, 0.22);
+  --line-strong: rgba(233, 199, 122, 0.5);
+  --glass: rgba(20, 17, 25, 0.86);
+  --well: rgba(10, 8, 13, 0.72);
+  --radius: 10px;
+  --radius-small: 6px;
+
+  --display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --body: "EB Garamond", Garamond, Georgia, serif;
+
+  /* Frames, drawn on a pixel grid. Each is a 12x12 tile: a dark outer line, a gold line lit on the
+   * top and left and shaded on the bottom and right, and a stud in each corner. Sliced 4 in and
+   * stretched along the edges, which repeat nothing, so the result is crisp at any size. */
+  --frame: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%230c0a10'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%23b58a3c'/%3E%3Crect x='1' y='1' width='10' height='1' fill='%23e9c77a'/%3E%3Crect x='1' y='1' width='1' height='10' fill='%23e9c77a'/%3E%3Crect x='1' y='10' width='10' height='1' fill='%236b4e22'/%3E%3Crect x='10' y='1' width='1' height='10' fill='%236b4e22'/%3E%3Crect x='2' y='2' width='8' height='8' fill='%230c0a10'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%2317141d'/%3E%3Crect x='0' y='0' width='3' height='3' fill='%23e9c77a'/%3E%3Crect x='9' y='0' width='3' height='3' fill='%23e9c77a'/%3E%3Crect x='0' y='9' width='3' height='3' fill='%23b58a3c'/%3E%3Crect x='9' y='9' width='3' height='3' fill='%23b58a3c'/%3E%3Crect x='1' y='1' width='1' height='1' fill='%230c0a10'/%3E%3Crect x='10' y='1' width='1' height='1' fill='%230c0a10'/%3E%3Crect x='1' y='10' width='1' height='1' fill='%230c0a10'/%3E%3Crect x='10' y='10' width='1' height='1' fill='%230c0a10'/%3E%3C/svg%3E");
+  /* A quieter frame for buttons and fields: one gold line, lit and shaded, no studs. */
+  --frame-quiet: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%230c0a10'/%3E%3Crect x='1' y='1' width='6' height='6' fill='%236b4e22'/%3E%3Crect x='1' y='1' width='6' height='1' fill='%23b58a3c'/%3E%3Crect x='1' y='1' width='1' height='6' fill='%23b58a3c'/%3E%3Crect x='2' y='2' width='4' height='4' fill='%23211c29'/%3E%3Crect x='0' y='0' width='1' height='1' fill='none'/%3E%3C/svg%3E");
+  /* The same, lit, for a control that is on or hovered. */
+  --frame-lit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%230c0a10'/%3E%3Crect x='1' y='1' width='6' height='6' fill='%23b58a3c'/%3E%3Crect x='1' y='1' width='6' height='1' fill='%23e9c77a'/%3E%3Crect x='1' y='1' width='1' height='6' fill='%23e9c77a'/%3E%3Crect x='2' y='2' width='4' height='4' fill='%232d2636'/%3E%3C/svg%3E");
+
+  /* A 2x2 dither: the soft-pixel texture on every panel. */
+  --dither: repeating-conic-gradient(rgba(255, 240, 210, 0.022) 0% 25%, transparent 0% 50%) 0 0 / calc(var(--px) * 2) calc(var(--px) * 2);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  background: var(--ink);
+  color: var(--text);
+  font: 18px/1.35 var(--body);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, select, textarea { user-select: text; -webkit-user-select: text; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: var(--px) solid var(--gold-bright); outline-offset: var(--px); }
+
+/* ----- the painting ----------------------------------------------------------------------------- */
+
+.vista { position: fixed; inset: 0; z-index: 0; }
+.vista img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover;
+  /* The paintings are pixel art; they are scaled as pixel art. */
+  image-rendering: pixelated;
+  opacity: 0;
+  transition: opacity 1.4s ease-in-out;
+}
+.vista img.on { opacity: 1; }
+.vista::after {
+  /* The two washes that let text sit on a painted sky, top and bottom, and a curtain on the left
+   * under the lockup and rail. */
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(12, 10, 16, 0.72), rgba(12, 10, 16, 0) 34%),
+    linear-gradient(to top, rgba(12, 10, 16, 0.82), rgba(12, 10, 16, 0) 42%),
+    linear-gradient(to right, rgba(12, 10, 16, 0.66), rgba(12, 10, 16, 0) 30%);
+}
+
+.drag { position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 5; }
+
+.shell {
+  position: relative; z-index: 1;
+  display: grid;
+  grid-template-columns: 206px minmax(0, 1fr);
+  gap: 26px;
+  height: 100%;
+  padding: 40px 28px 22px 28px;
+}
+
+/* ----- the lockup and the rail ------------------------------------------------------------------ */
+
+.side { display: flex; flex-direction: column; gap: 22px; min-height: 0; }
+.lockup { display: flex; align-items: center; gap: 10px; }
+/* The client's emblem: painted, not pixel art, so scaled smoothly. */
+.lockup .emblem { width: 54px; height: 54px; flex: none; filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.6)); }
+.lockup .word {
+  font: 600 22px/0.98 var(--display);
+  letter-spacing: 0.045em;
+  color: var(--gold-bright);
+  text-shadow: 1px 1px 0 rgba(12, 10, 16, 0.55), 2px 3px 0 rgba(12, 10, 16, 0.7);
+}
+
+.rail { display: flex; flex-direction: column; gap: 8px; width: 176px; }
+.rail button {
+  height: 38px;
+  border: calc(var(--px) * 2) solid transparent;
+  border-image: var(--frame-quiet) 2 / calc(var(--px) * 2) stretch;
+  background: var(--stone-2) var(--dither);
+  font: 600 12px var(--display);
+  letter-spacing: 0.12em;
+  color: var(--gold-bright);
+  cursor: pointer;
+  image-rendering: pixelated;
+}
+/* The footnote: the launcher's version, the website, and the desktop-shortcut button, as a line of
+ * small print rather than a destination. */
+.foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 13px var(--body);
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.foot a { color: inherit; text-decoration: none; }
+.foot a:hover { color: var(--gold-bright); text-decoration: underline; }
+.foot .sep { opacity: 0.6; }
+.foot .iconbtn {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  line-height: 0;
+}
+.foot .iconbtn svg { width: 15px; height: 15px; shape-rendering: crispEdges; }
+.foot .iconbtn:hover { color: var(--gold-bright); }
+.rail button:hover { border-image-source: var(--frame-lit); color: #fff; }
+.rail button.lit { border-image-source: var(--frame-lit); background-color: var(--stone-3); color: #fff; }
+
+/* ----- the content column ----------------------------------------------------------------------- */
+
+.main { display: flex; flex-direction: column; justify-content: flex-end; min-height: 0; align-items: flex-end; }
+.column { display: flex; flex-direction: column; gap: 16px; width: 100%; max-height: 100%; min-height: 0; }
+.column.narrow { max-width: 560px; }
+.column.wide { max-width: 980px; }
+
+.panel {
+  position: relative;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--glass);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 6px 22px 18px;
+}
+.panel.grow { flex: 1 1 auto; }
+.panel > header {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 58px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.panel > header h1 {
+  flex: 1; margin: 0;
+  font: 600 22px var(--display);
+  letter-spacing: 0.1em;
+  color: var(--gold-bright);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.scroll { overflow-y: auto; min-height: 0; flex: 1 1 auto; padding-right: 6px; }
+.scroll::-webkit-scrollbar { width: 8px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.scroll::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+
+h2 {
+  margin: 18px 0 8px;
+  font: 600 14px var(--display);
+  letter-spacing: 0.14em;
+  color: var(--gold-bright);
+}
+p { margin: 6px 0; }
+.muted { color: var(--muted); }
+.small { font-size: 15px; }
+.warn { color: var(--high); }
+.bad { color: #ef8a7c; }
+.good { color: var(--online); }
+
+/* ----- controls --------------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 30px; padding: 0 10px;
+  border: calc(var(--px) * 2) solid transparent;
+  border-image: var(--frame-quiet) 2 / calc(var(--px) * 2) stretch;
+  background: var(--stone-2) var(--dither);
+  font: 600 11px var(--display);
+  letter-spacing: 0.06em;
+  color: var(--gold-bright);
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { border-image-source: var(--frame-lit); color: #fff; }
+.btn:active:not(:disabled) { transform: translateY(var(--px)); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.icon-btn { min-width: 30px; padding: 0; font-size: 15px; }
+/* Two buttons that are one choice: the lit one is chosen. */
+.btn.seg { min-width: 108px; min-height: 36px; font-size: 12px; letter-spacing: 0.12em; }
+.btn.seg:not(.on) { color: var(--muted); }
+.btn.seg.on {
+  border-image-source: var(--frame-lit);
+  background: linear-gradient(to bottom, #8a6a30 0, #8a6a30 calc(var(--px) * 1), #6b4e22 calc(var(--px) * 1), #5a4120 100%);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(12, 10, 16, 0.6);
+}
+.btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btns.end { justify-content: flex-end; }
+
+/* The plate. Banded green rather than a smooth gradient, with a lit top edge and a gold frame. */
+.play {
+  width: 100%; height: 76px;
+  border: calc(var(--px) * 4) solid transparent;
+  border-image: var(--frame) 4 / calc(var(--px) * 4) stretch;
+  background:
+    linear-gradient(to bottom,
+      #78c865 0, #78c865 calc(var(--px) * 1),
+      #4f9f44 calc(var(--px) * 1), #4f9f44 18%,
+      #3f8a39 18%, #3f8a39 40%,
+      #33772f 40%, #33772f 62%,
+      #2a6628 62%, #2a6628 84%,
+      #214f21 84%);
+  font: 700 36px var(--display);
+  letter-spacing: 0.16em;
+  color: #f7f0dc;
+  text-shadow: 0 3px 0 rgba(12, 10, 16, 0.55);
+  cursor: pointer;
+}
+.play:hover:not(:disabled) { color: #fff; filter: brightness(1.07); }
+.play:active:not(:disabled) { transform: translateY(var(--px)); }
+.play:disabled {
+  cursor: default;
+  color: rgba(239, 230, 210, 0.45);
+  background: repeating-linear-gradient(to bottom, #2b3a2b 0 6px, #263426 6px 12px);
+}
+
+.field, select.field {
+  height: 36px; width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--well);
+  font: 17px var(--body);
+  color: var(--text);
+  outline: none;
+  appearance: none; -webkit-appearance: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.field:hover { border-color: var(--line-strong); }
+.field:focus { border-color: var(--gold-bright); box-shadow: 0 0 0 3px rgba(233, 199, 122, 0.18); }
+.field::placeholder { color: var(--faint); }
+select.field {
+  padding-right: 34px;
+  background: var(--well) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23e9c77a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 12px 8px;
+  cursor: pointer;
+}
+select.field option { background: #17141d; color: var(--text); }
+select.field:disabled { color: var(--faint); cursor: default; }
+.plain { font-size: 17px; }
+
+.check { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; color: var(--muted); font-size: 16px; }
+.check:hover { color: var(--text); }
+.check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--gold); cursor: pointer; }
+
+.chip {
+  height: 28px; padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--well);
+  font: 14px var(--body); color: var(--muted);
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--line-strong); color: var(--text); }
+.chip.on { border-color: var(--gold-bright); background: rgba(181, 138, 60, 0.22); color: #fff; }
+
+/* A status dot: a plain disc, with the state said in words beside it. */
+.dot {
+  display: inline-block; flex: none;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--unknown);
+}
+.dot.online, .dot.pass { background: var(--online); box-shadow: 0 0 6px rgba(95, 207, 85, 0.55); }
+.dot.high, .dot.starting, .dot.warn { background: var(--high); }
+.dot.offline, .dot.block { background: var(--offline); }
+.dot.unknown { background: var(--unknown); }
+
+/* ----- lists ------------------------------------------------------------------------------------ */
+
+.list { display: flex; flex-direction: column; }
+.row {
+  display: flex; align-items: center; gap: 14px;
+  min-height: 58px; padding: 6px 14px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--line);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+}
+.row:hover { background: rgba(233, 199, 122, 0.06); }
+.row.static { cursor: default; }
+.row.static:hover { background: none; }
+.row.sel {
+  border-color: var(--gold-bright);
+  background: rgba(181, 138, 60, 0.16);
+}
+.row .grow { flex: 1; min-width: 0; }
+.row .name { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .end { color: var(--muted); font-size: 15px; white-space: nowrap; }
+/* Home's pin: a favourite shows its star, and on hover the button that takes it off; any other row
+ * shows, on hover, the button that makes it a favourite. */
+.row .pin { width: 30px; display: flex; justify-content: center; }
+.row .pin .mini { display: none; min-height: 24px; min-width: 24px; font-size: 13px; padding: 0; }
+.row .pin .star { color: var(--gold-bright); font-size: 18px; line-height: 1; }
+.row:hover .pin .mini { display: inline-flex; }
+.row:hover .pin .star { display: none; }
+
+
+.tag {
+  font: 600 11px var(--display); letter-spacing: 0.12em;
+  color: var(--gold-bright);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-small);
+  padding: 4px 8px;
+}
+
+/* A panel that must keep its full height above a growing one, as the Library's pending add does. */
+.panel.pending { flex: none; }
+
+table.worlds { width: 100%; border-collapse: collapse; font-size: 16px; }
+table.worlds td, table.worlds th { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.worlds th { font: 600 12px var(--display); letter-spacing: 0.12em; color: var(--gold); position: sticky; top: 0; background: #17141d; }
+table.worlds tbody tr { cursor: pointer; }
+table.worlds tbody tr:hover { background: rgba(233, 199, 122, 0.07); }
+table.worlds td.name { font-size: 19px; color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+table.worlds td { color: var(--muted); }
+table.worlds td.dim { opacity: 0.55; }
+
+/* ----- the world page --------------------------------------------------------------------------- */
+
+.form { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
+.form label.lab { font: 600 12px var(--display); letter-spacing: 0.14em; color: var(--gold-bright); }
+.form .pair { display: flex; gap: 12px; align-items: center; }
+.form .pair > .field { flex: 1; }
+.form .note { grid-column: 2; margin-top: -4px; font-size: 15px; }
+.facts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 16px; }
+.strip { display: flex; gap: 18px; flex-wrap: wrap; font-size: 16px; }
+.strip span { display: inline-flex; align-items: center; gap: 7px; }
+
+/* ----- the check -------------------------------------------------------------------------------- */
+
+.finding { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.finding .dot { margin-top: 8px; justify-self: center; }
+.finding .title { font-size: 19px; }
+.finding.block .title { color: #ef8a7c; }
+.finding.warn .title { color: var(--high); }
+.finding .detail { grid-column: 2; color: var(--muted); font-size: 16px; }
+.finding .btns { grid-column: 2; margin-top: 6px; }
+
+/* ----- the notice ------------------------------------------------------------------------------ */
+
+/* Floats over the top right, clear of the window's drag strip, and takes no room from any screen. */
+.notice {
+  position: fixed; top: 40px; right: 28px; z-index: 30;
+  width: min(380px, 40vw);
+  pointer-events: none;
+}
+.notice .status {
+  pointer-events: auto;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+  animation: notice-in 0.18s ease-out;
+}
+@keyframes notice-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--well);
+  overflow: hidden;
+}
+.bar > i {
+  display: block; height: 100%;
+  border-radius: 4px;
+  background: var(--gold);
+  transition: width 0.3s;
+}
+.bar.sweep > i { width: 33%; animation: sweep 2s linear infinite alternate; }
+@keyframes sweep { from { transform: translateX(0); } to { transform: translateX(200%); } }
+.status .line { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
+.status .line span { flex: 1; }
+.status .line.error { color: #ef8a7c; }
+.status .line button:not(.btn) { background: none; border: 0; padding: 0 2px; color: var(--gold); cursor: pointer; font-size: 14px; }
+
+.demo-flag {
+  position: fixed; right: 14px; bottom: 8px; z-index: 20;
+  font: 600 11px var(--display); letter-spacing: 0.12em; color: var(--high);
+}
+
+@media (max-height: 760px) {
+  .play { height: 64px; font-size: 32px; }
+  .row { min-height: 50px; }
+  .panel > header { min-height: 46px; margin-bottom: 10px; }
+  .panel > header h1 { font-size: 19px; }
+}

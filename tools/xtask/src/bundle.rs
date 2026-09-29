@@ -48,12 +48,12 @@ use crate::util::{run, workspace_root};
 const APP_NAME: &str = "Dereth";
 
 /// The binary that becomes `Contents/MacOS/<this>`, named in `Info.plist` as `CFBundleExecutable`.
-const BINARY: &str = "dereth-client";
+pub const BINARY: &str = "dereth-client";
 
 /// Launch Services' identity for the application: what it remembers a permission grant, a window
 /// position or a default-application choice under. Stable across builds on purpose -- changing it
 /// makes the system treat the result as a different application -- and reverse-DNS by convention.
-const BUNDLE_ID: &str = "network.dereth.dereth-client";
+pub const BUNDLE_ID: &str = "network.dereth.dereth-client";
 
 /// The oldest macOS this is claimed to run on. The client's own floor, not the toolchain's.
 const MINIMUM_MACOS: &str = "11.0";
@@ -125,24 +125,19 @@ fn assemble(debug: bool, dat_dir: Option<&Path>) -> Result<PathBuf, String> {
         return Err(format!("{} is not where cargo left it", binary.display()));
     }
 
-    // Replaced whole rather than written over: a bundle left from an earlier build can hold a
-    // file this one does not write, and a half-old application is the kind of thing that is
-    // debugged for an hour.
     let app = target.join(format!("{APP_NAME}.app"));
-    if app.exists() {
-        std::fs::remove_dir_all(&app).map_err(|e| format!("{}: {e}", app.display()))?;
-    }
+    lay_out(
+        &root,
+        &target,
+        &binary,
+        &app,
+        &Identity {
+            name: APP_NAME,
+            bundle_id: BUNDLE_ID,
+            version: env!("CARGO_PKG_VERSION"),
+        },
+    )?;
     let macos = app.join("Contents/MacOS");
-    let resources = app.join("Contents/Resources");
-    for dir in [&macos, &resources] {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-
-    let form = install_icon(&root, &target, &resources)?;
-    write(&app.join("Contents/Info.plist"), &info_plist(form))?;
-    // Four bytes of classic Mac OS that the Finder still reads before the plist.
-    write(&app.join("Contents/PkgInfo"), "APPL????")?;
-    copy(&binary, &macos.join(BINARY))?;
 
     if let Some(dats) = dat_dir {
         let dats = std::fs::canonicalize(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
@@ -157,6 +152,49 @@ fn assemble(debug: bool, dat_dir: Option<&Path>) -> Result<PathBuf, String> {
         }
     }
     Ok(app)
+}
+
+/// What names a bundle: the name under its icon, Launch Services' identifier for it, and its
+/// version.
+#[derive(Debug, Clone, Copy)]
+pub struct Identity<'a> {
+    pub name: &'a str,
+    pub bundle_id: &'a str,
+    pub version: &'a str,
+}
+
+/// Lay the client's bundle out at `app` around `binary`: `Info.plist` naming it `identity`, the
+/// icon (built in `work`), and the binary as `Contents/MacOS/dereth-client`.
+///
+/// # Errors
+/// A folder or file could not be written, or the icon could not be built.
+pub fn lay_out(
+    root: &Path,
+    work: &Path,
+    binary: &Path,
+    app: &Path,
+    identity: &Identity,
+) -> Result<(), String> {
+    // Replaced whole rather than written over: a bundle left from an earlier build can hold a
+    // file this one does not write, and a half-old application is the kind of thing that is
+    // debugged for an hour.
+    if app.exists() {
+        std::fs::remove_dir_all(app).map_err(|e| format!("{}: {e}", app.display()))?;
+    }
+    let macos = app.join("Contents/MacOS");
+    let resources = app.join("Contents/Resources");
+    for dir in [&macos, &resources] {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+
+    let form = install_icon(root, work, &resources)?;
+    write(
+        &app.join("Contents/Info.plist"),
+        &info_plist(form, identity),
+    )?;
+    // Four bytes of classic Mac OS that the Finder still reads before the plist.
+    write(&app.join("Contents/PkgInfo"), "APPL????")?;
+    copy(binary, &macos.join(BINARY))
 }
 
 /// Which of the two icon forms a bundle ended up with. The plist's icon keys differ, so the
@@ -322,8 +360,12 @@ fn actool_is_installed() -> bool {
 /// `CFBundleIconFile` names the file in `Contents/Resources`, `CFBundleExecutable` the one in
 /// `Contents/MacOS`, and `NSHighResolutionCapable` is what stops a Retina display from scaling
 /// the window up by two instead of handing the client the pixels it asked for.
-fn info_plist(icon: IconForm) -> String {
-    let version = env!("CARGO_PKG_VERSION");
+fn info_plist(icon: IconForm, identity: &Identity) -> String {
+    let Identity {
+        name,
+        bundle_id,
+        version,
+    } = *identity;
     // `CFBundleIconFile` names a file in `Contents/Resources` and is read by every macOS;
     // `CFBundleIconName` names an icon inside `Assets.car` and is what macOS 26 looks for first.
     // A composed bundle carries both, because it holds both.
@@ -342,11 +384,11 @@ fn info_plist(icon: IconForm) -> String {
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>{APP_NAME}</string>
+	<string>{name}</string>
 	<key>CFBundleDisplayName</key>
-	<string>{APP_NAME}</string>
+	<string>{name}</string>
 	<key>CFBundleIdentifier</key>
-	<string>{BUNDLE_ID}</string>
+	<string>{bundle_id}</string>
 	<key>CFBundleExecutable</key>
 	<string>{BINARY}</string>
 {icon_keys}
@@ -420,6 +462,12 @@ fn link(_target: &Path, _at: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    const DEV: Identity = Identity {
+        name: APP_NAME,
+        bundle_id: BUNDLE_ID,
+        version: "0.0.0",
+    };
+
     /// The plist is the bundle's whole identity, and three of its keys are cross-references that
     /// a typo breaks silently: an application whose `CFBundleExecutable` names no file will not
     /// start, and one whose `CFBundleIconFile` names no file shows the generic icon -- which is
@@ -427,7 +475,7 @@ mod tests {
     #[test]
     fn info_plist_names_the_executable_and_the_icon_file_the_bundle_actually_holds() {
         for form in [IconForm::Composed, IconForm::Fallback] {
-            let plist = info_plist(form);
+            let plist = info_plist(form, &DEV);
             assert!(
                 plist.contains(&format!("<string>{BINARY}</string>")),
                 "{plist}"
@@ -445,7 +493,7 @@ mod tests {
     /// generic icon and says nothing about why.
     #[test]
     fn each_icon_form_names_the_file_its_own_branch_installs() {
-        let composed = info_plist(IconForm::Composed);
+        let composed = info_plist(IconForm::Composed, &DEV);
         assert!(
             composed.contains("<key>CFBundleIconName</key>"),
             "{composed}"
@@ -454,11 +502,35 @@ mod tests {
             composed.contains(&format!("<string>{APP_NAME}</string>")),
             "{composed}"
         );
-        let fallback = info_plist(IconForm::Fallback);
+        let fallback = info_plist(IconForm::Fallback, &DEV);
         assert!(!fallback.contains("CFBundleIconName"), "{fallback}");
         assert!(
             fallback.contains("<key>CFBundleIconFile</key>"),
             "{fallback}"
+        );
+    }
+
+    /// The released client is its own application beside the launcher's `Dereth.app`: its plist
+    /// carries the name and version it is given, and still names the one icon the bundle holds.
+    #[test]
+    fn a_bundle_named_otherwise_keeps_the_client_executable_and_the_dereth_icon() {
+        let plist = info_plist(
+            IconForm::Composed,
+            &Identity {
+                name: "Dereth Client",
+                bundle_id: BUNDLE_ID,
+                version: "0.1.0",
+            },
+        );
+        assert!(plist.contains("<string>Dereth Client</string>"), "{plist}");
+        assert!(plist.contains("<string>0.1.0</string>"), "{plist}");
+        assert!(
+            plist.contains(&format!("<string>{BINARY}</string>")),
+            "{plist}"
+        );
+        assert!(
+            plist.contains("<key>CFBundleIconFile</key>\n\t<string>Dereth</string>"),
+            "{plist}"
         );
     }
 

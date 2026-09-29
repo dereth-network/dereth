@@ -1,0 +1,64 @@
+# Dereth, the launcher: a Tauri web app over `dereth-launch`, the launcher's knowledge.
+#
+# A workspace of its own, apart from the main workspace: Tauri brings a web view (WebKitGTK on
+# Linux) and a long dependency list, and neither the main workspace's builds and checks nor the
+# logic crate's tests should need them. Built from this folder with `cargo tauri build`.
+[workspace]
+# `crates/launch` belongs to the main workspace (it names it); here it is only a path dependency.
+exclude = ["crates"]
+
+[package]
+name = "dereth-launcher"
+description = "Dereth, the launcher: worlds, accounts, data files, and the Dereth client."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98"
+license = "MIT"
+publish = false
+
+# The executable is `dereth` (`dereth.exe`): the program a player opens is Dereth.
+[[bin]]
+name = "dereth"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+serde_json = "1"
+
+[dependencies]
+dereth-launch = { path = "crates/launch" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+# The launcher updates itself (and the client beside it) from the signed `latest.json` of the
+# repository's latest GitHub release.
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# One small JSON document at a time over TLS; no async runtime needed for that.
+ureq = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Passwords in the login Keychain.
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(windows)'.dependencies]
+# Passwords in Credential Manager.
+keyring = { version = "3", features = ["windows-native"] }
+# A Windows update is the release zip, unpacked beside the launcher and swapped in.
+zip = { version = "4", default-features = false, features = ["deflate"] }
+# The message when the WebView2 runtime is missing, shown before any web view exists. The same
+# crate the dialog plugin draws its dialogs with.
+rfd = { version = "0.16", default-features = false }
+# The desktop shortcut, a `.lnk` file.
+mslnk = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Passwords in the desktop's keyring over the Secret Service (GNOME Keyring, KWallet). Pure-Rust
+# crypto, and libdbus built in, so neither OpenSSL nor the D-Bus development files are needed.
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+# The program name, from which the window's Wayland app id and X11 class come; the same GLib the
+# web view already links.
+glib = "0.18"
+
+[dev-dependencies]
+dereth-launch = { path = "crates/launch", features = ["testing"] }

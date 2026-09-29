@@ -192,8 +192,8 @@ pub struct Config {
     pub frames: Option<u64>,
     /// `--capture <path>`: write the last frame as a PNG.
     pub capture: Option<PathBuf>,
-    /// `--no-console`: do not borrow or create a console, so the run is silent and shows no
-    /// window but the client's own.
+    /// `--no-console`: do not borrow the console of the terminal the client was started from, so
+    /// the run is silent even there. (A console is never created, with or without it.)
     ///
     /// **The parser is not what acts on this.** The binary is linked for the windows subsystem, so
     /// the console is something `main` asks `dereth_console::attach` for before anything is
@@ -537,8 +537,7 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
-    // The launcher spawns the client from a windowed process, and a
-    // console-subsystem child of one gets a console window of its own.
+    // Silence even for a run started from a terminal, whose console the client otherwise borrows.
     Switch {
         long: "no-console",
         short: None,
@@ -727,7 +726,7 @@ fn find<'a>(table: &'a [Switch], name: &str) -> Option<&'a Switch> {
 
 /// **`--no-console`, answered from `argv` alone.**
 ///
-/// `main` needs this before [`Config::from_args_and_prefs`] runs, because the console is what the
+/// `main` needs this before [`Config::from_args_and_prefs_at`] runs, because the console is what the
 /// answer is *about*: the binary is linked for the windows subsystem, nothing is printed until
 /// `dereth_console::attach` is called, and a parse that fails reports itself on stderr. Deciding
 /// the console after the parse would mean the one run that most needs a console -- the one whose
@@ -832,21 +831,13 @@ impl Config {
         }
     }
 
-    /// The process command line and the preferences file selected by it.
+    /// The command line `argv` (without the program name) and the preferences file selected by
+    /// it, `default_preferences_file` being the one used when no `-prefs` is given.
     ///
-    /// # Errors
-    /// [`ConfigError`] for any parse failure. The retail client shows corestrings 205 and exits;
-    /// so does `crate::run`.
-    pub fn from_args_and_prefs() -> Result<Self, ConfigError> {
-        let argv: Vec<String> = std::env::args().skip(1).collect();
-        Self::from_args_and_prefs_at(&argv, &default_preferences_file())
-    }
-
-    /// [`Self::from_args_and_prefs`] with an explicit default-profile path.
-    ///
-    /// This is the actual startup algorithm with only `std::env::args` and the machine-specific
-    /// default path supplied by the caller, so an offline test can exercise `-prefs` without
-    /// reading or writing the user's profile.
+    /// This is the actual startup algorithm; the host supplies the command line and the
+    /// machine-specific default path, so an offline test can exercise `-prefs` without reading or
+    /// writing the user's profile. An empty default means no file: nothing is read, and the
+    /// empty path is what every writer takes as "no file".
     ///
     /// # Errors
     /// [`ConfigError`] for any parse failure.
@@ -1392,221 +1383,13 @@ fn strtoul_base0(v: &str) -> Option<u32> {
     Some(if neg { parsed.wrapping_neg() } else { parsed })
 }
 
-/// The name of the preferences file itself, in the directory [`default_settings_dir`] answers.
+/// The name of the preferences file itself, in the client's settings directory. The desktop host
+/// decides where that directory is; every other file the client saves is placed beside this one.
 ///
 /// Keep the basename in one constant because
 /// the cwd probe and the settings-directory branch must agree on it or a portable install would
 /// write one file and read another.
 pub const PREFERENCES_FILE_NAME: &str = "UserPreferences.ini";
-
-/// **The one directory every setting this client writes lives in.**
-///
-/// The original client stores the preferences-file path and derives other paths from it.
-/// That relationship is reproduced here — the callers
-/// below all take the *parent of the preferences file*, not this function -- but the default that
-/// seeds it is a platform question, and this is where the platform answer lives.
-///
-/// Six things land here, all of them through that parent:
-///
-/// | file | built by |
-/// |---|---|
-/// | `UserPreferences.ini` | [`default_preferences_file`] |
-/// | `dereth.keymap` and any saved-as keymap | the front end's `keymap_path_for` |
-/// | `UI-Default.txt`, `UI-<char>-<world>-<h>-<w>.txt` | `dereth_client::persist::layout_path` |
-/// | `ScreenShot%05d.png` | `dereth_client::app::App::screenshot_path` |
-/// | `Journal-<world>-<char>.txt` | `dereth_client_contract::journal::JournalIdentity::client_path` |
-///
-/// Two writes deliberately do **not** land here and keep retail's own rule: `@log`'s chat log is
-/// resolved against the working directory (the chat-log copy opens the name the
-/// player typed). The crash log is here too, under [`crash_log_dir`], though it is written before
-/// anything else starts: the directory is computed from the environment alone, so a log about a
-/// start-up that failed does not depend on start-up having succeeded.
-///
-/// # The per-platform default
-///
-/// | platform | directory |
-/// |---|---|
-/// | Windows | `%USERPROFILE%\Documents\Dereth` |
-/// | macOS | `$HOME/Library/Application Support/dereth` |
-/// | other Unix | `$XDG_CONFIG_HOME/dereth`, or `$HOME/.config/dereth` |
-///
-/// The leaf is `Dereth` and **not** retail's `Asheron's Call`, which is a deliberate break (client
-/// divergence CD-007): this
-/// client's files are not the retail client's, and sharing a directory with a live retail install was only
-/// ever safe because every file carried a prefix to keep it out of the way. Naming the directory
-/// instead of every file in it is the cheaper half of the same guarantee, and it is what lets the
-/// keymap and the journal go back to plain names. On Windows the first run copies the old
-/// directory's contents across; see [`migrate_settings_dir`].
-///
-/// Windows still resolves `CSIDL_PERSONAL` the way retail does -- `SHGetSpecialFolderPathA` is
-/// `USERPROFILE\Documents` on every Windows this rebuild targets. The other two are not retail's
-/// path at all, because retail has no opinion about them: `CSIDL_PERSONAL` does not exist off
-/// Windows, and transcribing `~/Documents/...` would be inventing a convention rather than
-/// preserving one. Each platform's own convention is used instead. On Linux that is the XDG base
-/// directory specification, whose rule for a relative or unset `XDG_CONFIG_HOME` is to ignore it
-/// and fall back -- which is what the `is_absolute` test below is.
-///
-/// Both return an empty path when the home variable is unset, which is the same empty path the
-/// Windows branch has always produced from an unset `USERPROFILE`; the caller's own empty-path
-/// guard already prevents writing settings in that state.
-#[must_use]
-pub fn default_settings_dir() -> PathBuf {
-    #[cfg(windows)]
-    {
-        windows_documents_dir().join(SETTINGS_DIR_NAME)
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        home.join("Library")
-            .join("Application Support")
-            .join(UNIX_SETTINGS_DIR_NAME)
-    }
-    #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        // XDG: a relative `XDG_CONFIG_HOME` is invalid and must be treated as unset.
-        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
-            if xdg.is_absolute() {
-                return xdg.join(UNIX_SETTINGS_DIR_NAME);
-            }
-        }
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        home.join(".config").join(UNIX_SETTINGS_DIR_NAME)
-    }
-}
-
-/// The settings directory's name under `Documents` on Windows, where a capitalised folder sits
-/// beside `Asheron's Call` without looking out of place.
-#[cfg(windows)]
-pub const SETTINGS_DIR_NAME: &str = "Dereth";
-
-/// The folder inside [`default_settings_dir`] that holds the crash logs, one
-/// `dereth-client-<pid>.log` per run.
-pub const CRASH_LOG_DIR_NAME: &str = "crash-logs";
-
-/// Where the client binary writes its crash logs: [`CRASH_LOG_DIR_NAME`] in
-/// [`default_settings_dir`], whatever `-prefs` says, because the log is opened before the command
-/// line is read.
-#[must_use]
-pub fn crash_log_dir() -> PathBuf {
-    default_settings_dir().join(CRASH_LOG_DIR_NAME)
-}
-
-/// The same name where the convention is lower case.
-#[cfg(not(windows))]
-pub const UNIX_SETTINGS_DIR_NAME: &str = "dereth";
-
-/// The directory this client used before the rename, and the directory **retail** uses. Windows
-/// only: it is the only platform where the two were ever the same place.
-#[cfg(windows)]
-pub const LEGACY_SETTINGS_DIR_NAME: &str = "Asheron's Call";
-
-/// `SHGetSpecialFolderPathA(CSIDL_PERSONAL)`, as this rebuild spells it.
-#[cfg(windows)]
-fn windows_documents_dir() -> PathBuf {
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .unwrap_or_default();
-    home.join("Documents")
-}
-
-/// `%USERPROFILE%\Documents\Asheron's Call` -- what [`default_settings_dir`] answered before the
-/// rename, and what a retail install writes. Windows only; `None` everywhere else, because
-/// nowhere else did this client ever keep its files there.
-#[must_use]
-pub fn legacy_settings_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        Some(windows_documents_dir().join(LEGACY_SETTINGS_DIR_NAME))
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
-}
-
-/// **The one-time first-run carry-over**, `from` being [`legacy_settings_dir`] and `to`
-/// [`default_settings_dir`]. Returns how many files were copied.
-///
-/// It **copies and does not move**, which is the whole design and not timidity: `from` is
-/// `Documents\Asheron's Call`, which a live retail install is also using. Moving it would take
-/// the retail client's own preferences, keymap, journals and screenshots away from it. So the old
-/// directory is left exactly as it was found and this client starts from a copy of it.
-///
-/// "One time" is expressed by the state on disk rather than by a stamp file, because there is a
-/// state that already means it: **`to` must hold no settings.** The caller creates the settings
-/// directory at start-up, so the first run with this directory layout is the only run in which `to` is
-/// missing, and a second one cannot re-enter. The crash log is written into `to` before this runs,
-/// so a `to` holding only [`CRASH_LOG_DIR_NAME`] still counts as new. Deleting `to` wholesale asks
-/// for the copy again, which is the right answer to that gesture. Nothing is ever written into
-/// `from`.
-///
-/// `Ok(0)` covers every reason not to act -- `to` already holding settings, `from` not there,
-/// `from` not a directory -- because none of them is a failure. A copy that fails part-way leaves what it
-/// managed and reports the error; the caller tolerates it like a preferences-initialization
-/// failure, because a client that could not carry settings over must still run.
-///
-/// # Errors
-/// The first `std::fs` error from creating `to` or walking and copying `from`.
-pub fn migrate_settings_dir(from: &Path, to: &Path) -> std::io::Result<u32> {
-    let holds_settings = std::fs::read_dir(to).map_or(to.exists(), |entries| {
-        entries
-            .flatten()
-            .any(|e| e.file_name() != CRASH_LOG_DIR_NAME)
-    });
-    if holds_settings || !from.is_dir() {
-        return Ok(0);
-    }
-    std::fs::create_dir_all(to)?;
-    copy_dir_contents(from, to)
-}
-
-/// [`migrate_settings_dir`]'s recursive half. Subdirectories are carried too: a player who keeps
-/// screenshots in a folder of their own has not stopped keeping settings there.
-///
-/// An entry already present at the destination is left alone rather than overwritten. That cannot
-/// happen on the first run, which is the only run this reaches, but it makes the function safe to
-/// call twice -- and "never overwrite what is already in the new directory" is the rule to fail
-/// towards if it ever is.
-fn copy_dir_contents(from: &Path, to: &Path) -> std::io::Result<u32> {
-    let mut copied = 0;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            if !target.exists() {
-                std::fs::create_dir_all(&target)?;
-            }
-            copied += copy_dir_contents(&entry.path(), &target)?;
-        } else if !target.exists() {
-            std::fs::copy(entry.path(), &target)?;
-            copied += 1;
-        }
-    }
-    Ok(copied)
-}
-
-/// Choose `<cwd>/UserPreferences.ini` when it exists, otherwise
-/// the one in [`default_settings_dir`].
-///
-/// The cwd probe is retail's first branch and is kept on every platform: it is what makes a
-/// portable install -- drop a `UserPreferences.ini` beside the binary and the whole settings
-/// directory moves with it -- and it is the override that needs no new flag. `-prefs <file>`
-/// replaces the answer outright.
-#[must_use]
-pub fn default_preferences_file() -> PathBuf {
-    let cwd = std::env::current_dir()
-        .unwrap_or_default()
-        .join(PREFERENCES_FILE_NAME);
-    if cwd.exists() {
-        return cwd;
-    }
-    default_settings_dir().join(PREFERENCES_FILE_NAME)
-}
 
 /// The directories the retail dats are looked for in when `--dat-dir` is not given: the working
 /// directory, then the directory holding the executable.
@@ -2270,84 +2053,6 @@ Renderer=glide
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The settings directory is a platform default, and each platform's answer is asserted on
-    /// the platform that has it -- an absolute path, ending in the directory that platform's
-    /// convention names.
-    ///
-    /// The environment is read rather than set: these tests run inside the same process as every
-    /// other test in this binary, and `set_var` is a process-wide write that another test reading
-    /// `USERPROFILE`, `HOME` or `XDG_CONFIG_HOME` concurrently would see. The tail is what is
-    /// being pinned, and the tail does not depend on the variable's value.
-    ///
-    /// Client divergence CD-007.
-    ///
-    /// Behaviour: presentation.settings.the-client-keeps-its-files-in-a-folder-of-its-own
-    #[test]
-    fn the_settings_directory_follows_the_platform_convention() {
-        let dir = default_settings_dir();
-        let tail: Vec<_> = dir
-            .components()
-            .rev()
-            .take(3)
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect();
-
-        #[cfg(windows)]
-        {
-            // `CSIDL_PERSONAL` is retail's; the leaf deliberately is not.
-            assert_eq!(tail[0], SETTINGS_DIR_NAME, "in {}", dir.display());
-            assert_eq!(
-                tail[1],
-                "Documents",
-                "under Documents, in {}",
-                dir.display()
-            );
-            assert_ne!(
-                tail[0], LEGACY_SETTINGS_DIR_NAME,
-                "the whole point is not to share a directory with the retail client"
-            );
-        }
-        #[cfg(target_os = "macos")]
-        {
-            assert_eq!(tail[0], UNIX_SETTINGS_DIR_NAME, "in {}", dir.display());
-            assert_eq!(tail[1], "Application Support", "in {}", dir.display());
-            assert_eq!(tail[2], "Library", "in {}", dir.display());
-        }
-        #[cfg(not(any(windows, target_os = "macos")))]
-        {
-            // XDG: `$XDG_CONFIG_HOME/dereth` when set and absolute, else `~/.config/dereth`.
-            assert_eq!(tail[0], UNIX_SETTINGS_DIR_NAME, "in {}", dir.display());
-            let xdg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
-            match xdg.filter(|p| p.is_absolute()) {
-                Some(base) => assert_eq!(dir, base.join(UNIX_SETTINGS_DIR_NAME)),
-                None => assert_eq!(tail[1], ".config", "in {}", dir.display()),
-            }
-        }
-
-        // Whatever the platform, the home variable was found and the path is usable as a root.
-        assert!(dir.is_absolute(), "{} is not absolute", dir.display());
-    }
-
-    /// The preferences file is the settings directory's `UserPreferences.ini` -- unless the
-    /// working directory has one, which is retail's first branch and the portable-install
-    /// override. Both arms are asserted against the constant, because a cwd probe that spelled the
-    /// name differently from the default branch would read one file and write another.
-    #[test]
-    fn the_preferences_file_is_the_settings_directorys_unless_the_cwd_has_one() {
-        let expected = default_settings_dir().join(PREFERENCES_FILE_NAME);
-        let cwd_file = std::env::current_dir()
-            .unwrap_or_default()
-            .join(PREFERENCES_FILE_NAME);
-
-        let actual = default_preferences_file();
-        if cwd_file.exists() {
-            assert_eq!(actual, cwd_file, "a cwd UserPreferences.ini wins");
-        } else {
-            assert_eq!(actual, expected, "otherwise the settings directory's");
-        }
-        assert_eq!(actual.file_name().unwrap(), PREFERENCES_FILE_NAME);
-    }
-
     /// The files that hang off the settings directory all take it from the *parent of the
     /// preferences file*, which is the settings directory. (The keymap file is the front end's;
     /// its own test asserts the same join.)
@@ -2375,99 +2080,5 @@ Renderer=glide
         let layout =
             dereth_client_contract::persist::ScreenLayout::default_path(&dir.to_string_lossy());
         assert!(layout.starts_with("root/dir"), "{layout}");
-    }
-
-    /// The first-run carry-over copies everything, including subdirectories, and **leaves the
-    /// source exactly as it found it** -- the source is a live retail install's own directory.
-    ///
-    /// Platform-free on purpose: the two paths are arguments, so the copy is tested everywhere
-    /// even though only Windows ever supplies a legacy directory to it.
-    #[test]
-    fn the_first_run_carry_over_copies_everything_and_takes_nothing() {
-        let root = std::env::temp_dir().join(format!("dere-migrate-{}", std::process::id()));
-        let (from, to) = (root.join("Asheron's Call"), root.join("Dereth"));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(from.join("shots")).expect("a scratch directory");
-        std::fs::write(
-            from.join("UserPreferences.ini"),
-            b"[Net]\r\nUserName=keep-me\r\n",
-        )
-        .expect("writable");
-        std::fs::write(from.join("acclient.keymap"), b"keymap").expect("writable");
-        std::fs::write(from.join("shots").join("ScreenShot00000.png"), b"png").expect("writable");
-
-        assert_eq!(migrate_settings_dir(&from, &to).expect("the copy runs"), 3);
-        assert_eq!(
-            std::fs::read(to.join("UserPreferences.ini")).expect("copied"),
-            b"[Net]\r\nUserName=keep-me\r\n"
-        );
-        assert!(to.join("acclient.keymap").is_file());
-        assert!(
-            to.join("shots").join("ScreenShot00000.png").is_file(),
-            "subdirectories too"
-        );
-        // Nothing left, nothing added.
-        assert!(
-            from.join("UserPreferences.ini").is_file(),
-            "the source keeps its files"
-        );
-        assert!(from.join("acclient.keymap").is_file());
-        assert_eq!(std::fs::read_dir(&from).unwrap().count(), 3);
-
-        // **One time.** The destination now exists, so a second run is refused outright -- which
-        // is why no stamp file is needed and why nothing is ever overwritten on a later start.
-        std::fs::write(
-            to.join("UserPreferences.ini"),
-            b"[Net]\r\nUserName=mine\r\n",
-        )
-        .expect("writable");
-        assert_eq!(
-            migrate_settings_dir(&from, &to).expect("refused, not failed"),
-            0
-        );
-        assert_eq!(
-            std::fs::read(to.join("UserPreferences.ini")).expect("still there"),
-            b"[Net]\r\nUserName=mine\r\n",
-            "the player's own file was not replaced by the old one"
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// The two "nothing to do" shapes are `Ok(0)` and not errors: a machine with no legacy
-    /// directory is the ordinary case on a fresh install, and it must not print anything.
-    #[test]
-    fn a_carry_over_with_nothing_to_carry_is_not_a_failure() {
-        let root = std::env::temp_dir().join(format!("dere-migrate-none-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        assert_eq!(
-            migrate_settings_dir(&root.join("absent"), &root.join("Dereth")).expect("not an error"),
-            0
-        );
-        assert!(
-            !root.join("Dereth").exists(),
-            "and it did not create the destination"
-        );
-    }
-
-    /// Off Windows there is no legacy directory at all, because nowhere else did this client
-    /// ever write into a retail install's folder.
-    #[test]
-    fn only_windows_has_a_legacy_settings_directory() {
-        #[cfg(windows)]
-        {
-            let legacy = legacy_settings_dir().expect("Windows has one");
-            assert_eq!(
-                legacy.file_name().and_then(|n| n.to_str()),
-                Some(LEGACY_SETTINGS_DIR_NAME)
-            );
-            assert_ne!(
-                legacy,
-                default_settings_dir(),
-                "and it is not where we write"
-            );
-        }
-        #[cfg(not(windows))]
-        assert_eq!(legacy_settings_dir(), None);
     }
 }

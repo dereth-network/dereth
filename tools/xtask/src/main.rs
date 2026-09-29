@@ -103,12 +103,19 @@ Release and packaging:
                             the allowlist, runs the deny scan and the header checks, and writes
                             the archives, the source tarball, MANIFEST.txt, release.json and
                             SHA256SUMS (empyrean/RELEASING.md)
-  release empyrean <version> [--push] [--remote <name>]
+  package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+                 | --gather <dir>
+                            Dereth's release files: builds the client and the launcher (Tauri) for
+                            this host, and writes the launcher (Windows zip, macOS Dereth.app,
+                            Linux AppImage) and the client alone, checked and scanned, with the
+                            launcher's update signature and latest.json when TAURI_SIGNING_PRIVATE_KEY
+                            is set (dereth/launcher/RELEASING.md)
+  release empyrean|dereth <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
-                            tier 0 and a host package, tag empyrean-v<version>; pushes only with
-                            --push
-  version empyrean [--tag <tag>]
-                            print Empyrean's version; with --tag, fail unless the tag names it
+                            tier 0 and a host package, tag empyrean-v<version> or
+                            dereth-v<version>; pushes only with --push
+  version empyrean|dereth [--tag <tag>]
+                            print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
                             dats in; --debug bundles the dev profile)
   web [args]                the web client's developer runner (`dereth-web-dev`): builds the browser

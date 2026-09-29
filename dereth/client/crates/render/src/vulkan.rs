@@ -408,6 +408,29 @@ unsafe extern "system" fn debug_callback(
     vk::FALSE
 }
 
+/// The MoltenVK library's file name, in a bundle and in an install alike.
+#[cfg(any(target_os = "macos", test))]
+const MOLTENVK_LIBRARY: &str = "libMoltenVK.dylib";
+
+/// Where a MoltenVK shipped with the program is, given the executable's path `exe`, in the order
+/// they are tried: the application bundle's `Contents/Frameworks` (the executable being in
+/// `Contents/MacOS`), then beside the executable itself, for a program unpacked from an archive.
+///
+/// MoltenVK exports the Vulkan entry points itself, so it is loaded directly as the loader; it
+/// has no layers and no driver discovery in front of it, and needs neither to draw.
+#[cfg(any(target_os = "macos", test))]
+fn bundled_moltenvk_candidates(exe: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Some(dir) = exe.parent() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if let Some(contents) = dir.parent() {
+        out.push(contents.join("Frameworks").join(MOLTENVK_LIBRARY));
+    }
+    out.push(dir.join(MOLTENVK_LIBRARY));
+    out
+}
+
 /// The install locations a macOS Vulkan can be at, tried in turn after the plain `dlopen`.
 ///
 /// The ICD-aware loader comes first; MoltenVK on its own is the last resort, because it exports
@@ -426,7 +449,7 @@ fn loader_candidates() -> Vec<std::path::PathBuf> {
         out.push(std::path::Path::new(dir).join("libvulkan.dylib"));
     }
     for dir in ["/opt/homebrew/lib", "/usr/local/lib"] {
-        out.push(std::path::Path::new(dir).join("libMoltenVK.dylib"));
+        out.push(std::path::Path::new(dir).join(MOLTENVK_LIBRARY));
     }
     out
 }
@@ -435,34 +458,60 @@ fn loader_candidates() -> Vec<std::path::PathBuf> {
 ///
 /// Windows and Linux ship the loader where the dynamic linker already looks -- `vulkan-1.dll`
 /// beside the GPU driver, `libvulkan.so.1` in the system library path -- so `Entry::load`'s bare
-/// library name finds it. macOS has no system Vulkan at all, and both ways of installing one (the
-/// LunarG SDK under `$VULKAN_SDK`, Homebrew under its prefix) land outside
-/// `DYLD_FALLBACK_LIBRARY_PATH`, which is `$HOME/lib:/usr/local/lib:/usr/lib`. Without this the
-/// bare name misses a perfectly good installation and every run needs `DYLD_LIBRARY_PATH` set.
+/// library name finds it. macOS has no system Vulkan at all. A released program carries its own
+/// MoltenVK, so that is looked for first ([`bundled_moltenvk_candidates`]), and a player needs to
+/// install nothing. Without one, both ways of installing a Vulkan (the LunarG SDK under
+/// `$VULKAN_SDK`, Homebrew under its prefix) land outside `DYLD_FALLBACK_LIBRARY_PATH`, which is
+/// `$HOME/lib:/usr/local/lib:/usr/lib`, so the bare name would miss a perfectly good installation
+/// and every run would need `DYLD_LIBRARY_PATH` set; [`loader_candidates`] names them.
 ///
 /// # Errors
-/// [`RenderError::Device`] when no loader is installed, naming where it looked.
+/// [`RenderError::Device`] when no loader is found, naming where it looked and what to install.
 #[cfg(target_os = "macos")]
 fn load_entry() -> Result<ash::Entry, RenderError> {
+    let bundled = std::env::current_exe()
+        .map(|exe| bundled_moltenvk_candidates(&exe))
+        .unwrap_or_default();
+    // A library that is there but will not load says why; one that is absent is only listed.
+    let mut refused = Vec::new();
+    let mut try_load = |path: &std::path::Path| -> Option<ash::Entry> {
+        if !path.exists() {
+            return None;
+        }
+        // SAFETY: loading a Vulkan loader or implementation library has no preconditions; the
+        // `Entry` owns it.
+        match unsafe { ash::Entry::load_from(path) } {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                refused.push(format!("{} ({e})", path.display()));
+                None
+            }
+        }
+    };
+    if let Some(entry) = bundled.iter().find_map(|p| try_load(p)) {
+        return Ok(entry);
+    }
     // SAFETY: loading the Vulkan loader library has no preconditions; the `Entry` owns it.
     let plain = match unsafe { ash::Entry::load() } {
         Ok(entry) => return Ok(entry),
         Err(e) => e,
     };
     let candidates = loader_candidates();
-    for path in &candidates {
-        if !path.exists() {
-            continue;
-        }
-        // SAFETY: as above.
-        if let Ok(entry) = unsafe { ash::Entry::load_from(path) } {
-            return Ok(entry);
-        }
+    if let Some(entry) = candidates.iter().find_map(|p| try_load(p)) {
+        return Ok(entry);
     }
-    let looked: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
+    let looked: Vec<String> = bundled
+        .iter()
+        .chain(&candidates)
+        .map(|p| p.display().to_string())
+        .collect();
+    let refused = if refused.is_empty() {
+        String::new()
+    } else {
+        format!(" Present but not loaded: {}.", refused.join("; "))
+    };
     Err(RenderError::Device(format!(
-        "no Vulkan loader: {plain}; nor at {}. macOS ships no Vulkan: install the LunarG Vulkan \
-         SDK, or `brew install molten-vk vulkan-loader`.",
+        "no Vulkan loader: {plain}; nor at {}.{refused} macOS ships no Vulkan: install the LunarG          Vulkan SDK, or `brew install molten-vk vulkan-loader`.",
         looked.join(", ")
     )))
 }

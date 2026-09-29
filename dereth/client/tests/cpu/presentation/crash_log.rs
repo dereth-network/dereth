@@ -11,17 +11,18 @@ use std::path::{Path, PathBuf};
 /// Where the client puts its crash logs under a home folder of `home`, per platform: the
 /// settings folder's own rule, spelled out independently so a change to it breaks this test.
 fn crash_log_dir_under(home: &Path) -> PathBuf {
-    if cfg!(windows) {
-        home.join("Documents").join("Dereth").join("crash-logs")
+    let root = if cfg!(windows) {
+        // `APPDATA` is set to the home folder below.
+        home.join("Dereth")
     } else if cfg!(target_os = "macos") {
         home.join("Library")
             .join("Application Support")
-            .join("dereth")
-            .join("crash-logs")
+            .join("Dereth")
     } else {
         // `XDG_CONFIG_HOME` is set to the same absolute folder below, and wins over `HOME`.
-        home.join("dereth").join("crash-logs")
-    }
+        home.join("dereth")
+    };
+    root.join("client").join("crash-logs")
 }
 
 /// Behaviour: presentation.crash.every-run-keeps-a-log-that-records-a-panic
@@ -37,6 +38,7 @@ fn a_run_that_panics_leaves_the_panic_in_its_crash_log() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_dereth-client"))
         .args(["--no-console", "--crash-test"])
         .env("USERPROFILE", &home)
+        .env("APPDATA", &home)
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", &home)
         .stdout(std::process::Stdio::null())

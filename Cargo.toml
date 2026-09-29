@@ -39,6 +39,10 @@ members = [
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
     "dereth/web",
+    # The launcher's knowledge: worlds, clients, data sets, accounts, its folders and its update.
+    # The launcher's window, the Tauri app in dereth/launcher, is a workspace of its own (it is no
+    # member here), so that nothing here ever builds a web view or needs WebKitGTK.
+    "dereth/launcher/crates/launch",
     # Test support only: the behaviour scenarios. Nothing in any crate's `src/` or in `tools/`
     # depends on it, and it is a member so that `cargo check --workspace --all-targets` covers it.
     "dereth/testkit",

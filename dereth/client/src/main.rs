@@ -12,10 +12,10 @@
 //! the screen beside the game.
 //!
 //! The attribute below fixes the subsystem to the one the original had, and [`dereth_console`]
-//! provides what the console subsystem would give for free: a terminal-started run borrows that
-//! terminal, and a run started from Explorer or the launcher gets a console window.
-//! `--no-console` skips both, and no console is ever created, rather than one being created,
-//! shown and closed again.
+//! gives back the one part of the console subsystem a developer wants: a run started from a
+//! terminal borrows that terminal for its output. A run started from Explorer or the launcher has
+//! no console to borrow and is shown none -- just the game's window. `--no-console` does not even
+//! borrow one. A console is never created.
 //!
 //! One behaviour does change for a run started **by hand from a shell**: cmd and PowerShell do not
 //! wait for a windows-subsystem process, so the prompt returns immediately and the client's output
@@ -25,6 +25,7 @@
 
 use dereth_client::config::Config;
 use dereth_client::corestrings;
+use dereth_client::folders;
 
 /// A crash report on disk, because an intermittent exit otherwise leaves no reason behind.
 ///
@@ -50,12 +51,13 @@ mod crashlog {
     use std::path::PathBuf;
 
     /// `dereth-client-<pid>.log` in the settings directory's `crash-logs` folder
-    /// (`dereth_client::config::crash_log_dir`): beside the player's other files, and per-pid so
-    /// that concurrent clients cannot interleave into one file.
+    /// (`dereth_client::folders::crash_log_dir`): beside the player's other files, and per-pid so
+    /// that concurrent clients cannot interleave into one file. `None` when the environment names
+    /// no home, and then no log is kept.
     #[must_use]
-    pub fn path() -> PathBuf {
-        dereth_client::config::crash_log_dir()
-            .join(format!("dereth-client-{}.log", std::process::id()))
+    pub fn path() -> Option<PathBuf> {
+        dereth_client::folders::crash_log_dir()
+            .map(|dir| dir.join(format!("dereth-client-{}.log", std::process::id())))
     }
 
     /// Seconds since the Unix epoch, so a record can be lined up against a harness transcript.
@@ -68,7 +70,9 @@ mod crashlog {
     /// Append one record. This never fails the run and never panics: a diagnostic that can kill
     /// the process it is diagnosing is worse than no diagnostic at all.
     pub fn append(kind: &str, body: &str) {
-        let p = path();
+        let Some(p) = path() else {
+            return;
+        };
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
@@ -93,7 +97,10 @@ mod crashlog {
         // channel a determinism test reads.
         append(
             "START",
-            &format!("log = {}\nargv = {argv:?}", path().display()),
+            &format!(
+                "log = {}\nargv = {argv:?}",
+                path().unwrap_or_default().display()
+            ),
         );
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
@@ -134,10 +141,15 @@ fn main() -> std::process::ExitCode {
     // stderr this call is what provides. See `dereth_client::config::no_console_in_argv`.
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if dereth_client::config::no_console_in_argv(&argv) {
-        // Nothing to do, and that is the whole feature: no console is attached, none is created,
-        // and the process's streams stay as the windows subsystem left them.
+        // Nothing to do, and that is the whole feature: no console is borrowed, and the process's
+        // streams stay as the windows subsystem left them.
     } else {
         let _ = dereth_console::attach();
+    }
+    // `--version` alone: what this build is, and nothing started, written or read.
+    if argv == ["--version"] {
+        print!("{}", dereth_client::version_text());
+        return std::process::ExitCode::SUCCESS;
     }
     // Before anything else, so that a failure inside argument parsing is recorded too.
     crashlog::install();
@@ -161,7 +173,21 @@ fn main() -> std::process::ExitCode {
 /// `WinMain` steps 9 to 12: parse, initialize the client, run it, and clean up.
 fn run() -> Result<(), String> {
     // Step 9: parse the command line. On failure -> corestrings 205 -> exit.
-    let mut cfg = Config::from_args_and_prefs().map_err(|e| e.to_string())?;
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let default_preferences = folders::default_preferences_file().unwrap_or_default();
+    // Parse, make the first-run copy, and load the preferences after it (`folders::load_config`),
+    // before the directory is created: "the new directory holds nothing yet" is exactly what makes
+    // this the first run. On Windows the original game's settings are copied (never moved) into it.
+    // The outcome is logged below, once the log (which may write into that directory) is installed.
+    let settings_dir = folders::default_settings_dir();
+    let original_settings_dir = folders::retail_settings_dir();
+    let (cfg, copied) = folders::load_config(
+        &argv,
+        &default_preferences,
+        settings_dir.as_deref(),
+        original_settings_dir.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     // The retail dats, before anything else is started: `--dat-dir`, else the working directory,
     // else the executable's directory. A run that has none says where it looked and how to say
     // where they are. The install is then read-only for the run: a data-patch message that would
@@ -180,45 +206,14 @@ fn run() -> Result<(), String> {
         ));
     }
     dereth_dat::protect_install(&cfg.dat_dir);
-    // `Config::from_args_and_prefs` records either the parsed
-    // `-prefs` path or the default it actually loaded, so Rust startup reaches this guard with one
-    // coherent load/save destination. Keep the guard for a future alternate configuration source
-    // that may deliberately leave the path empty; hand-built `Config`s used by embedded callers
-    // still default to empty and therefore do not acquire a write target. So does a `--headless`
-    // run that named no file (`Config::preferences_named`): it keeps out of the player's settings
-    // folder, so it also skips the carry-over and the folder's creation below.
-    if cfg.preferences_file.as_os_str().is_empty() && !cfg.headless {
-        cfg.preferences_file = dereth_client::config::default_preferences_file();
-    }
-    // **The one-time carry-over, before the directory is created**, because "the new directory
-    // does not exist yet" is exactly what makes this the first run. Copies, never moves -- the
-    // source is the retail client's own directory. See `config::migrate_settings_dir`. Its
-    // outcome is logged below, once the log (which may write into that directory) is installed.
-    #[cfg(windows)]
-    let migrated = {
-        let to = dereth_client::config::default_settings_dir();
-        // **One equality covers all three conditions**, because `default_preferences_file()` is
-        // the whole default rule: it answers the *cwd* file when there is one, so a path equal to
-        // the settings directory's means `-prefs` was not given, there is no `UserPreferences.ini`
-        // beside the binary, and this run is about to load from the settings directory. Compare
-        // against the cwd-probing function instead and a portable install would migrate too.
-        let from_settings_dir =
-            cfg.preferences_file == to.join(dereth_client::config::PREFERENCES_FILE_NAME);
-        dereth_client::config::legacy_settings_dir()
-            .filter(|_| from_settings_dir)
-            .map(|legacy| {
-                let outcome = dereth_client::config::migrate_settings_dir(&legacy, &to);
-                (legacy, to, outcome)
-            })
-    };
     // The settings directory is the installer's job in retail and there is no installer here, so
     // the binary makes it. This is the *only* place it is made: `App` must not, and
     // `physical_window_resize_reaches_the_backbuffer_and_ui_without_changing_preferences` names a
     // directory that does not exist precisely to prove that nothing along that path creates one.
     //
-    // It matters on every platform. `%USERPROFILE%\Documents` always exists and only the leaf was
-    // ever missing, and the leaf is `Dereth`, which no install has yet; `~/.config/dereth` and
-    // `~/Library/Application Support/dereth` do not exist at all until something makes them.
+    // It matters on every platform: `%APPDATA%\Dereth\client`,
+    // `~/Library/Application Support/Dereth/client` and `~/.config/dereth/client` do not exist
+    // until something makes them.
     // Without this, every preference, keymap and screen layout the player saved would fail to
     // write with `NotFound` and say nothing -- the same silent-save failure as the original.
     //
@@ -233,21 +228,17 @@ fn run() -> Result<(), String> {
     // The crash log's path is not logged: it holds the pid, and stderr stays byte-identical
     // across runs. The pid is on every line of the file itself, which makes each run's record
     // independently identifiable.
-    #[cfg(windows)]
-    if let Some((legacy, to, outcome)) = migrated {
+    if let Some((from, to, outcome)) = copied {
         match outcome {
             Ok(0) => {}
             Ok(n) => tracing::info!(
                 "first run -- copied {n} file(s) from {} to {}",
-                legacy.display(),
+                from.display(),
                 to.display()
             ),
             // Ignored for the same reason the create above is: a client that could not carry
             // the old settings over must still start, with the defaults it would have had.
-            Err(e) => tracing::warn!(
-                "could not carry settings over from {}: {e}",
-                legacy.display()
-            ),
+            Err(e) => tracing::warn!("could not carry settings over from {}: {e}", from.display()),
         }
     }
     run_with(cfg)

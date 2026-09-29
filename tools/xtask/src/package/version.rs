@@ -1,5 +1,6 @@
-//! Empyrean's version: the one `version` every `empyrean-*` crate carries, the release tag that
-//! names it, and the edit that moves it.
+//! The release versions: Empyrean's, the one `version` every `empyrean-*` crate carries, and
+//! Dereth's, the one the client and the launcher share; the release tags that name them, and the
+//! edit that moves them.
 
 use std::path::{Path, PathBuf};
 
@@ -41,8 +42,20 @@ pub fn package_version(manifest: &str) -> Option<String> {
 
 /// The version every manifest shares. Each `(name, version)` pair is a manifest's path and its
 /// literal version; a missing or differing one is an error naming it.
+#[cfg(test)]
 pub fn shared_version(versions: &[(String, Option<String>)]) -> Result<String, String> {
-    let first = versions.first().ok_or("no empyrean manifests were read")?;
+    shared_version_of("empyrean-* crate", versions)
+}
+
+/// The one version every manifest in `versions` carries, with `what` naming the manifests in the
+/// error.
+pub fn shared_version_of(
+    what: &str,
+    versions: &[(String, Option<String>)],
+) -> Result<String, String> {
+    let first = versions
+        .first()
+        .ok_or_else(|| format!("no {what} manifests were read"))?;
     let Some(want) = &first.1 else {
         return Err(format!("{} has no literal [package] version", first.0));
     };
@@ -55,7 +68,7 @@ pub fn shared_version(versions: &[(String, Option<String>)]) -> Result<String, S
         Ok(want.clone())
     } else {
         Err(format!(
-            "every empyrean-* crate must carry the same version ({want} in {}); these differ: {}",
+            "every {what} must carry the same version ({want} in {}); these differ: {}",
             first.0,
             differing.join(", ")
         ))
@@ -64,19 +77,51 @@ pub fn shared_version(versions: &[(String, Option<String>)]) -> Result<String, S
 
 /// Empyrean's version, read from every `empyrean-*` manifest and required to agree.
 pub fn empyrean_version(ws: &Path) -> Result<String, String> {
+    manifests_version(ws, &empyrean_manifests(ws)?, "empyrean-* crate")
+}
+
+/// The version every manifest in `manifests` carries, required to agree.
+fn manifests_version(ws: &Path, manifests: &[PathBuf], what: &str) -> Result<String, String> {
     let mut versions = Vec::new();
-    for manifest in empyrean_manifests(ws)? {
-        let text = std::fs::read_to_string(&manifest)
+    for manifest in manifests {
+        let text = std::fs::read_to_string(manifest)
             .map_err(|e| format!("reading {}: {e}", manifest.display()))?;
         let name = manifest
             .strip_prefix(ws)
-            .unwrap_or(&manifest)
+            .unwrap_or(manifest)
             .display()
             .to_string()
             .replace('\\', "/");
         versions.push((name, package_version(&text)));
     }
-    shared_version(&versions)
+    shared_version_of(what, &versions)
+}
+
+/// The prefix of a Dereth release tag: `dereth-v<version>`.
+pub const DERETH_TAG_PREFIX: &str = "dereth-v";
+
+/// The crates that carry Dereth's version: the client and the launcher, released together.
+pub const DERETH_MANIFESTS: &[&str] = &["dereth/client/Cargo.toml", "dereth/launcher/Cargo.toml"];
+
+/// The lock files a Dereth version change touches: the workspace's and the launcher app's own,
+/// as (the folder cargo runs in, the lock file), relative to the workspace root.
+pub const DERETH_LOCKS: &[(&str, &str)] = &[
+    ("", "Cargo.lock"),
+    ("dereth/launcher", "dereth/launcher/Cargo.lock"),
+];
+
+/// The manifests of the crates that carry Dereth's version.
+pub fn dereth_manifests(ws: &Path) -> Vec<PathBuf> {
+    DERETH_MANIFESTS.iter().map(|m| ws.join(m)).collect()
+}
+
+/// Dereth's version, read from the client's and the launcher's manifests and required to agree.
+pub fn dereth_version(ws: &Path) -> Result<String, String> {
+    manifests_version(
+        ws,
+        &dereth_manifests(ws),
+        "Dereth crate (the client and the launcher)",
+    )
 }
 
 /// A release version: `MAJOR.MINOR.PATCH`, optionally followed by a pre-release suffix
@@ -130,11 +175,95 @@ pub fn tag_for(version: &str) -> String {
 }
 
 /// A pushed tag must name exactly the version the tree carries.
+#[cfg(test)]
 pub fn check_tag(tag: &str, version: &str) -> Result<(), String> {
+    check_product_tag(Product::Empyrean, tag, version)
+}
+
+/// A product with releases of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Product {
+    Empyrean,
+    Dereth,
+}
+
+impl Product {
+    /// The product named on a command line: `empyrean` or `dereth`.
+    pub fn from_command_name(name: &str) -> Option<Self> {
+        match name {
+            "empyrean" => Some(Self::Empyrean),
+            "dereth" => Some(Self::Dereth),
+            _ => None,
+        }
+    }
+
+    /// The name the commands take.
+    pub fn command_name(self) -> &'static str {
+        match self {
+            Self::Empyrean => "empyrean",
+            Self::Dereth => "dereth",
+        }
+    }
+
+    /// The name a person reads.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Empyrean => "Empyrean",
+            Self::Dereth => "Dereth",
+        }
+    }
+
+    /// The prefix of the product's release tags.
+    pub fn tag_prefix(self) -> &'static str {
+        match self {
+            Self::Empyrean => TAG_PREFIX,
+            Self::Dereth => DERETH_TAG_PREFIX,
+        }
+    }
+
+    /// The product's release tag for `version`.
+    pub fn tag_for(self, version: &str) -> String {
+        format!("{}{version}", self.tag_prefix())
+    }
+
+    /// The crates that carry the version, in words.
+    fn carriers(self) -> &'static str {
+        match self {
+            Self::Empyrean => "the empyrean-* crates carry",
+            Self::Dereth => "the client and the launcher carry",
+        }
+    }
+
+    /// The manifests that carry the version.
+    pub fn manifests(self, ws: &Path) -> Result<Vec<PathBuf>, String> {
+        match self {
+            Self::Empyrean => empyrean_manifests(ws),
+            Self::Dereth => Ok(dereth_manifests(ws)),
+        }
+    }
+
+    /// The product's version in the tree at `ws`.
+    pub fn version(self, ws: &Path) -> Result<String, String> {
+        match self {
+            Self::Empyrean => empyrean_version(ws),
+            Self::Dereth => dereth_version(ws),
+        }
+    }
+}
+
+/// A pushed tag must name exactly the version the tree carries for `product`.
+pub fn check_product_tag(product: Product, tag: &str, version: &str) -> Result<(), String> {
     let tag = tag.strip_prefix("refs/tags/").unwrap_or(tag);
-    let Some(tagged) = tag.strip_prefix(TAG_PREFIX) else {
+    let prefix = product.tag_prefix();
+    let Some(tagged) = tag.strip_prefix(prefix) else {
+        let article = if product == Product::Empyrean {
+            "an"
+        } else {
+            "a"
+        };
         return Err(format!(
-            "tag `{tag}` is not an Empyrean release tag ({TAG_PREFIX}<version>)"
+            "tag `{tag}` is not {article} {} release tag ({prefix}<version>)",
+            product.display_name()
         ));
     };
     parse_release_version(tagged)?;
@@ -142,8 +271,10 @@ pub fn check_tag(tag: &str, version: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "tag `{tag}` names {tagged}, but the empyrean-* crates carry {version}: tag the commit \
-             that carries the version (`cargo xtask release empyrean {tagged}` makes both)"
+            "tag `{tag}` names {tagged}, but {} {version}: tag the commit that carries the \
+             version (`cargo xtask release {} {tagged}` makes both)",
+            product.carriers(),
+            product.command_name()
         ))
     }
 }

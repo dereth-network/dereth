@@ -142,6 +142,66 @@ pub fn scan(entries: &[Entry], allowlist: &[String], total_cap: u64) -> Vec<Stri
     findings
 }
 
+/// The deny scan of a package laid out as a tree (an application bundle): every file must be one
+/// of `required` or `optional` (paths below the top-level folder), each `required` one present,
+/// and a folder may only lie on the way to one of them. The name rules, the data-file header, the
+/// per-file cap `file_cap` and the total `total_cap` apply as in [`scan`].
+pub fn scan_tree(
+    entries: &[Entry],
+    required: &[String],
+    optional: &[String],
+    file_cap: u64,
+    total_cap: u64,
+) -> Vec<String> {
+    let mut findings = Vec::new();
+    let mut total = 0u64;
+    let allowed = |p: &str| required.iter().chain(optional).any(|a| a == p);
+    let on_the_way = |p: &str| {
+        let prefix = format!("{p}/");
+        required
+            .iter()
+            .chain(optional)
+            .any(|a| a.starts_with(&prefix))
+    };
+    for e in entries {
+        let shown = if e.path.is_empty() { "." } else { &e.path };
+        if let Some(why) = name_finding(&e.path) {
+            findings.push(format!("{shown}: {why}"));
+        }
+        match &e.kind {
+            Kind::Link(what) => findings.push(format!("{shown}: {what}; a package holds no links")),
+            Kind::Dir if e.path.is_empty() || on_the_way(&e.path) => {}
+            Kind::Dir => findings.push(format!("{shown}: a folder no allowed file is in")),
+            Kind::File => {
+                total = total.saturating_add(e.size);
+                if !allowed(&e.path) {
+                    findings.push(format!("{shown}: not on the allowlist"));
+                }
+                if has_dat_magic(&e.head) {
+                    findings.push(format!("{shown}: carries the game's data-file header"));
+                }
+                if e.size > file_cap {
+                    findings.push(format!(
+                        "{shown}: {} bytes, over the {file_cap} byte cap for one file",
+                        e.size
+                    ));
+                }
+            }
+        }
+    }
+    for a in required {
+        if !entries.iter().any(|e| e.kind == Kind::File && e.path == *a) {
+            findings.push(format!("{a}: on the allowlist but missing"));
+        }
+    }
+    if total > total_cap {
+        findings.push(format!(
+            "{total} bytes in all, over the {total_cap} byte cap for one package"
+        ));
+    }
+    findings
+}
+
 /// The entries of a staging folder, recursively; links are reported as links, never followed.
 pub fn staged_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
     let mut out = vec![Entry {

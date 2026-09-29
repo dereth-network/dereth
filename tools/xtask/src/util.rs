@@ -163,12 +163,14 @@ pub fn target_dir() -> PathBuf {
 
 /// The workspace's crate directories, each `<group>/<short>`: `core/` holds the shared crates,
 /// `dereth/` the products (the client, whose own crates are under `dereth/client/crates/`, the
-/// headless client and the test kit), `tools/` the research and build tools, and `empyrean/` the
+/// launcher, whose logic crate is under `dereth/launcher/crates/`, the headless client and the
+/// test kit), `tools/` the research and build tools, and `empyrean/` the
 /// server (its ported crates under `empyrean/crates/`). A crate's directory is its package name
 /// without the `dereth-` or `empyrean-` prefix. Nested groups come first, so the longest group
 /// that prefixes a path is the one it is read against.
 pub const CRATE_GROUPS: &[&str] = &[
     "dereth/client/crates",
+    "dereth/launcher/crates",
     "empyrean/crates",
     "core",
     "dereth",
@@ -182,7 +184,7 @@ pub(crate) const NAMED_OTHERWISE: &[(&str, &str)] =
 
 /// The directory of the workspace crate `krate` (a package name). An `empyrean-*` crate is looked
 /// for under `empyrean/crates/` and `empyrean/`, any other under `core/`, `dereth/`,
-/// `dereth/client/crates/` and `tools/`; a name found in none gives its would-be `core/` path,
+/// `dereth/client/crates/`, `dereth/launcher/crates/` and `tools/`; a name found in none gives its would-be `core/` path,
 /// which the caller's read then reports as missing.
 pub fn crate_dir(ws: &Path, krate: &str) -> PathBuf {
     if let Some((dir, _)) = NAMED_OTHERWISE.iter().find(|(_, name)| *name == krate) {
@@ -192,7 +194,13 @@ pub fn crate_dir(ws: &Path, krate: &str) -> PathBuf {
         Some(short) => (short, &["empyrean/crates", "empyrean"]),
         None => (
             krate.strip_prefix("dereth-").unwrap_or(krate),
-            &["core", "dereth", "dereth/client/crates", "tools"],
+            &[
+                "core",
+                "dereth",
+                "dereth/client/crates",
+                "dereth/launcher/crates",
+                "tools",
+            ],
         ),
     };
     groups

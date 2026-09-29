@@ -163,9 +163,46 @@ fn window_icon() -> Option<winit::window::Icon> {
 }
 
 /// Put the icon on the window: X11 and the other window systems that take one.
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window::WindowBuilder {
     builder.with_window_icon(window_icon())
+}
+
+/// On Linux the icon is also found by name: the window carries the client's application id (its
+/// Wayland app id and its X11 class), and the desktop takes the icon from the `.desktop` entry of
+/// that name. A Wayland window has no other way to show one. The entry is written here, before the
+/// window exists, when it is missing or differs ([`register_desktop_entry`]).
+#[cfg(target_os = "linux")]
+fn with_application_icon(builder: winit::window::WindowBuilder) -> winit::window::WindowBuilder {
+    use winit::platform::wayland::WindowBuilderExtWayland as _;
+
+    register_desktop_entry();
+    let id = dereth_launch::desktop::CLIENT_APP_ID;
+    builder.with_window_icon(window_icon()).with_name(id, id)
+}
+
+/// The client window's hidden `.desktop` entry and the icon it names, under the user's data
+/// folder, each written only when it is missing or its content differs. A client the launcher
+/// started finds both as the launcher wrote them and writes nothing; a client started on its own
+/// writes them itself. A failure is logged: the client runs with a generic icon rather than not at
+/// all.
+#[cfg(target_os = "linux")]
+fn register_desktop_entry() {
+    use dereth_launch::desktop;
+
+    let var = |v: &str| std::env::var_os(v);
+    let (Some(home), Ok(me)) = (desktop::data_home(&var), std::env::current_exe()) else {
+        return;
+    };
+    let exec = desktop::entry_target(&var, me);
+    match desktop::write_changed(&desktop::client_files(&home, &exec, ICON_PNG)) {
+        Ok(written) => {
+            for path in written {
+                tracing::debug!("desktop entry written: {}", path.display());
+            }
+        }
+        Err(e) => tracing::warn!("desktop entry: {e}"),
+    }
 }
 
 /// macOS puts no icon on a window at all -- a Cocoa window shows one only for a document, and
@@ -227,6 +264,178 @@ pub struct WinitWindow {
     window: winit::window::Window,
     /// Where the drain puts its events. See the module documentation.
     events: WindowEvents,
+    /// Whether this module, rather than the window system's backend, keeps the fixed window's
+    /// size and size limits: true on Wayland. See [`resize_fixed_window`].
+    pins_size_limits: bool,
+    /// The windowed size last asked for, and what is left of its second ask.
+    held: HeldSize,
+}
+
+/// What a size change of the fixed-size window touches: its size limits, its size, in physical
+/// pixels, and its full-screen state. `WinitWindow` is the real one; the tests model a compositor.
+trait FixedSizeWindow {
+    /// Hold the window's smallest and largest client size at `size`, or release them (`None`).
+    fn set_size_limits(&self, size: Option<(u32, u32)>);
+    /// Ask for a client size; answers the size the window has after asking.
+    fn request_client_size(&self, size: (u32, u32)) -> (u32, u32);
+    /// Whether the window system last configured the window full screen.
+    fn is_full_screen(&self) -> bool;
+    /// Ask the window system to make the window full screen, or to stop making it so.
+    fn set_full_screen(&self, full_screen: bool);
+}
+
+/// What this module remembers about the fixed window's size from one frame to the next.
+#[derive(Debug, Default)]
+struct HeldSize {
+    /// The windowed client size last asked for; `None` while the window is full screen.
+    requested: std::cell::Cell<Option<(u32, u32)>>,
+    /// How many more times a resize to another size is answered by asking for `requested` again.
+    asks_left: std::cell::Cell<u8>,
+    /// Whether full screen was asked for and not yet left. The window system may not have
+    /// answered that request yet, so its own state is not enough to decide there is nothing to
+    /// leave.
+    full_screen_asked: std::cell::Cell<bool>,
+}
+
+/// Give the window the player cannot resize a new client size.
+///
+/// On Wayland a window that is not resizable is one whose smallest and largest size are both held
+/// at its size, and the backend sets them once, when the window is created. A size request there
+/// commits the new size with the limits still saying the old one, and the compositor answers by
+/// configuring the window back to it. So there (`pin_limits`) the limits move to the new size
+/// first, in the same commit as the size, and one answer at a different size is met by asking
+/// again ([`settle_resized`]). On X11 the backend moves the limits itself with each request, and
+/// Windows and macOS keep no such limits for a fixed window, so elsewhere the request alone is
+/// enough.
+fn resize_fixed_window(
+    window: &impl FixedSizeWindow,
+    held: &HeldSize,
+    size: (u32, u32),
+    pin_limits: bool,
+) -> (u32, u32) {
+    held.requested.set(Some(size));
+    held.asks_left.set(u8::from(pin_limits));
+    if pin_limits {
+        window.set_size_limits(Some(size));
+    }
+    window.request_client_size(size)
+}
+
+/// Enter or leave full screen.
+///
+/// Entering releases the size limits this module holds (`pin_limits`), so the monitor's size is
+/// not refused as larger than the windowed one; leaving puts them back, through
+/// [`resize_fixed_window`].
+///
+/// **On Wayland a window that is not full screen is not asked to leave it.** Every windowed
+/// presentation change passes through here, and a compositor may answer a request to leave full
+/// screen with a configure event whatever the window's state; KWin does. While that configure is
+/// outstanding the compositor disregards the size the window commits, and the configure then
+/// carries the size the compositor last knew, which the backend applies as it arrives: the size
+/// asked for in the same frame is undone. Elsewhere the request is made as it always was.
+fn set_fixed_window_full_screen(
+    window: &impl FixedSizeWindow,
+    held: &HeldSize,
+    full_screen: bool,
+    pin_limits: bool,
+) {
+    if full_screen {
+        if pin_limits {
+            window.set_size_limits(None);
+        }
+        held.requested.set(None);
+        held.full_screen_asked.set(true);
+        window.set_full_screen(true);
+        return;
+    }
+    if pin_limits && !held.full_screen_asked.get() && !window.is_full_screen() {
+        tracing::debug!("windowed already; not asked to leave full screen");
+        return;
+    }
+    held.full_screen_asked.set(false);
+    window.set_full_screen(false);
+}
+
+/// The window system resized the window to `size`; answers the size the window has now.
+///
+/// Where this module holds the window's size (`pin_limits`), a windowed resize to a size other
+/// than the one last asked for is met by asking for that size again, once per request. That is the
+/// compositor's answer to the window leaving full screen: it restores the windowed size it knew,
+/// and the size asked for in the same change could not be applied while the window was still full
+/// screen. The single ask bounds it: a compositor that answers again with its own size is
+/// believed. A zero size (a minimised window) is not a resize.
+fn settle_resized(
+    window: &impl FixedSizeWindow,
+    held: &HeldSize,
+    size: (u32, u32),
+    pin_limits: bool,
+) -> (u32, u32) {
+    let Some(requested) = held.requested.get() else {
+        return size;
+    };
+    if size == requested || size.0 == 0 || size.1 == 0 {
+        return size;
+    }
+    if pin_limits && held.asks_left.get() > 0 {
+        held.asks_left.set(held.asks_left.get() - 1);
+        window.set_size_limits(Some(requested));
+        let applied = window.request_client_size(requested);
+        tracing::debug!(
+            "window resized to {}x{}, not the {}x{} requested; asked again, {}x{} answered",
+            size.0,
+            size.1,
+            requested.0,
+            requested.1,
+            applied.0,
+            applied.1
+        );
+        return applied;
+    }
+    tracing::debug!(
+        "window resized to {}x{}, not the {}x{} requested; kept",
+        size.0,
+        size.1,
+        requested.0,
+        requested.1
+    );
+    size
+}
+
+impl FixedSizeWindow for winit::window::Window {
+    fn set_size_limits(&self, size: Option<(u32, u32)>) {
+        let size = size.map(|(w, h)| winit::dpi::PhysicalSize::new(w, h));
+        self.set_min_inner_size(size);
+        self.set_max_inner_size(size);
+    }
+
+    fn request_client_size(&self, size: (u32, u32)) -> (u32, u32) {
+        let applied = self
+            .request_inner_size(winit::dpi::PhysicalSize::new(size.0, size.1))
+            .unwrap_or_else(|| self.inner_size());
+        (applied.width, applied.height)
+    }
+
+    fn is_full_screen(&self) -> bool {
+        self.fullscreen().is_some()
+    }
+
+    /// `Fullscreen::Borderless(None)` is "the monitor this window is on", which is the one thing
+    /// the three backends agree on and the one thing the style-and-rectangle route could not
+    /// express. `None` for the monitor rather than a handle: on Wayland the window does not know
+    /// which output it is on, and letting the compositor decide is the correct answer there.
+    fn set_full_screen(&self, full_screen: bool) {
+        self.set_fullscreen(full_screen.then_some(winit::window::Fullscreen::Borderless(None)));
+    }
+}
+
+/// Whether `window` is a Wayland surface: the one backend whose size requests leave a fixed
+/// window's size limits where they were, and whose compositor may undo a size asked for in the
+/// same frame as a request to leave full screen.
+fn is_wayland(window: &winit::window::Window) -> bool {
+    use winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+    window
+        .window_handle()
+        .is_ok_and(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_)))
 }
 
 impl std::fmt::Debug for WinitWindow {
@@ -342,10 +551,13 @@ pub fn open_window(
     // measure are read back through the trait, by `App::bring_up`: [`WinitWindow::client_size`],
     // [`WinitWindow::frame_metrics`] and [`WinitWindow::window_rect`], which are those same three
     // expressions and are also what a later frame re-reads.
+    let pins_size_limits = is_wayland(&window);
     Ok(WinitWindow {
         event_loop,
         window,
         events,
+        pins_size_limits,
+        held: HeldSize::default(),
     })
 }
 
@@ -456,13 +668,24 @@ impl WindowHost for WinitWindow {
         });
     }
 
+    /// The window is not resizable, so this is [`resize_fixed_window`]: on Wayland its size limits
+    /// move with it.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
-        let want = winit::dpi::PhysicalSize::new(width, height);
-        let applied = self
-            .window
-            .request_inner_size(want)
-            .unwrap_or_else(|| self.window.inner_size());
-        (applied.width, applied.height)
+        let applied = resize_fixed_window(
+            &self.window,
+            &self.held,
+            (width, height),
+            self.pins_size_limits,
+        );
+        tracing::debug!(
+            "client size {width}x{height} requested, {}x{} answered (limits held here: {}, \
+             scale factor {})",
+            applied.0,
+            applied.1,
+            self.pins_size_limits,
+            self.window.scale_factor()
+        );
+        applied
     }
 
     fn set_outer_position(&self, x: i32, y: i32) {
@@ -470,13 +693,10 @@ impl WindowHost for WinitWindow {
             .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
     }
 
-    /// `Fullscreen::Borderless(None)` is "the monitor this window is on", which is the one thing
-    /// the three backends agree on and the one thing the style-and-rectangle route could not
-    /// express. `None` for the monitor rather than a handle: on Wayland the window does not know
-    /// which output it is on, and letting the compositor decide is the correct answer there.
+    /// [`set_fixed_window_full_screen`]: on Wayland the size limits are released on the way in,
+    /// and a window that is not full screen is not asked to leave it.
     fn set_borderless_fullscreen(&self, full_screen: bool) {
-        self.window
-            .set_fullscreen(full_screen.then_some(winit::window::Fullscreen::Borderless(None)));
+        set_fixed_window_full_screen(&self.window, &self.held, full_screen, self.pins_size_limits);
     }
 
     /// Drain the event queue completely.
@@ -489,6 +709,8 @@ impl WindowHost for WinitWindow {
         let mut events = self.events.borrow_mut();
         let requested = winit::dpi::PhysicalSize::new(requested.0, requested.1);
         let window = &self.window;
+        let pins_size_limits = self.pins_size_limits;
+        let held = &self.held;
         let status = self
             .event_loop
             .pump_events(Some(std::time::Duration::ZERO), |event, elwt| {
@@ -511,6 +733,24 @@ impl WindowHost for WinitWindow {
                         if let Err(e) = inner_size_writer.request_inner_size(size) {
                             tracing::warn!("DPI physical client-size request failed: {e}");
                         }
+                        // Where the size limits are held here, they are held in the old scale's
+                        // units; hold them again at the same physical size in the new one.
+                        if pins_size_limits && !full_screen {
+                            window.set_size_limits(Some((requested.width, requested.height)));
+                        }
+                    }
+                    if let winit::event::WindowEvent::Resized(size) = &event {
+                        tracing::debug!("window resized to {}x{}", size.width, size.height);
+                        // The size the window has once the resize is settled, which is what the
+                        // back buffer must follow: after a second ask it is the one asked for.
+                        let (width, height) = settle_resized(
+                            window,
+                            held,
+                            (size.width, size.height),
+                            pins_size_limits,
+                        );
+                        events.push(HostEvent::Resized { width, height });
+                        return;
                     }
                     events.extend(host_event(&event));
                 }
@@ -794,6 +1034,235 @@ pub fn mouse_button(button: winit::event::MouseButton) -> MouseButton {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    const MONITOR: (u32, u32) = (2560, 1440);
+
+    /// A fixed-size window under a Wayland compositor that behaves as KWin does, and the backend
+    /// in front of it as winit's does.
+    ///
+    /// * The window's size and size limits reach the compositor with the next commit (a frame).
+    /// * The compositor keeps its own record of the window's size. A commit replaces the record
+    ///   with the committed size, unless a configure is scheduled, in which case the commit's size
+    ///   is disregarded. A record outside the limits schedules a configure back within them.
+    /// * A request to leave full screen schedules a configure whatever the window's state; one
+    ///   that does leave full screen carries the windowed size the compositor saved on the way in.
+    /// * The backend applies a configure's size as it arrives, and that is a resize. A size
+    ///   request while the window is configured full screen is not applied.
+    struct Compositor {
+        /// The limits the next commit carries, when they changed.
+        pending_limits: Cell<Option<Option<(u32, u32)>>>,
+        limits: Cell<Option<(u32, u32)>>,
+        /// The compositor's record of the window's size.
+        record: Cell<(u32, u32)>,
+        /// The backend's size for the window, which the next commit carries.
+        client: Cell<(u32, u32)>,
+        /// Whether the last configure was full screen.
+        client_full_screen: Cell<bool>,
+        full_screen: Cell<bool>,
+        restore: Cell<(u32, u32)>,
+        /// The size of the scheduled configure.
+        scheduled: Cell<Option<(u32, u32)>>,
+        /// A size the compositor configures the window to after every commit of another size.
+        insists_on: Cell<Option<(u32, u32)>>,
+        leave_requests: Cell<u32>,
+        size_requests: Cell<u32>,
+    }
+
+    impl Compositor {
+        /// A window created not resizable: both limits hold its first size.
+        fn fixed(size: (u32, u32)) -> Self {
+            Self {
+                pending_limits: Cell::new(None),
+                limits: Cell::new(Some(size)),
+                record: Cell::new(size),
+                client: Cell::new(size),
+                client_full_screen: Cell::new(false),
+                full_screen: Cell::new(false),
+                restore: Cell::new(size),
+                scheduled: Cell::new(None),
+                insists_on: Cell::new(None),
+                leave_requests: Cell::new(0),
+                size_requests: Cell::new(0),
+            }
+        }
+
+        fn commit(&self) {
+            if let Some(limits) = self.pending_limits.take() {
+                self.limits.set(limits);
+            }
+            if self.scheduled.get().is_some() {
+                return;
+            }
+            self.record.set(self.client.get());
+            let wanted = self.insists_on.get().or(self.limits.get());
+            if let Some(wanted) = wanted.filter(|&w| w != self.record.get()) {
+                self.scheduled.set(Some(wanted));
+            }
+        }
+
+        /// Deliver the scheduled configure; answers the resize it causes.
+        fn configure(&self) -> Option<(u32, u32)> {
+            let size = self.scheduled.take()?;
+            self.client_full_screen.set(self.full_screen.get());
+            self.record.set(size);
+            (size != self.client.replace(size)).then_some(size)
+        }
+
+        /// Run frames until the compositor has nothing more to say, handing each resize to
+        /// [`settle_resized`] as the event pump does; answers the resizes the client was given.
+        fn settle(&self, held: &HeldSize, pin_limits: bool) -> Vec<(u32, u32)> {
+            let mut resizes = Vec::new();
+            for _ in 0..8 {
+                self.commit();
+                let Some(size) = self.configure() else {
+                    break;
+                };
+                resizes.push(settle_resized(self, held, size, pin_limits));
+            }
+            resizes
+        }
+
+        /// The windowed size the compositor and the backend agree on.
+        fn agreed(&self) -> (u32, u32) {
+            assert_eq!(
+                self.record.get(),
+                self.client.get(),
+                "compositor and backend"
+            );
+            self.record.get()
+        }
+    }
+
+    impl FixedSizeWindow for Compositor {
+        fn set_size_limits(&self, size: Option<(u32, u32)>) {
+            self.pending_limits.set(Some(size));
+        }
+
+        fn request_client_size(&self, size: (u32, u32)) -> (u32, u32) {
+            self.size_requests.set(self.size_requests.get() + 1);
+            if !self.client_full_screen.get() {
+                self.client.set(size);
+            }
+            self.client.get()
+        }
+
+        fn is_full_screen(&self) -> bool {
+            self.client_full_screen.get()
+        }
+
+        fn set_full_screen(&self, full_screen: bool) {
+            if full_screen {
+                if !self.full_screen.replace(true) {
+                    self.restore.set(self.record.get());
+                }
+                self.scheduled.set(Some(MONITOR));
+                return;
+            }
+            self.leave_requests.set(self.leave_requests.get() + 1);
+            let size = if self.full_screen.replace(false) {
+                self.restore.get()
+            } else {
+                self.record.get()
+            };
+            self.scheduled.set(Some(size));
+        }
+    }
+
+    /// A windowed presentation change, in the order the runtime makes it: leave full screen, then
+    /// ask for the size.
+    fn present_windowed(
+        window: &Compositor,
+        held: &HeldSize,
+        size: (u32, u32),
+        pin_limits: bool,
+    ) -> (u32, u32) {
+        set_fixed_window_full_screen(window, held, false, pin_limits);
+        resize_fixed_window(window, held, size, pin_limits)
+    }
+
+    /// In windowed mode, choosing a resolution resizes the window to it and it stays that size.
+    #[test]
+    fn a_resolution_change_resizes_the_fixed_window_and_the_compositor_keeps_it() {
+        let window = Compositor::fixed((800, 600));
+        let held = HeldSize::default();
+        for size in [(1920, 1080), (800, 600), (1920, 1080), (1024, 768)] {
+            assert_eq!(present_windowed(&window, &held, size, true), size);
+            assert_eq!(window.settle(&held, true), [], "no resize back");
+            assert_eq!(window.agreed(), size);
+        }
+        assert_eq!(window.leave_requests.get(), 0, "never full screen");
+        assert_eq!(window.size_requests.get(), 4, "each size asked for once");
+    }
+
+    /// Full screen fills the monitor, and leaving it at a new resolution ends at that resolution:
+    /// the compositor restores the old windowed size first, and the size is asked for once more.
+    #[test]
+    fn leaving_full_screen_at_a_new_resolution_ends_at_that_resolution() {
+        let window = Compositor::fixed((800, 600));
+        let held = HeldSize::default();
+        set_fixed_window_full_screen(&window, &held, true, true);
+        assert_eq!(window.settle(&held, true), [MONITOR]);
+        assert_eq!(window.agreed(), MONITOR, "not held to the windowed size");
+
+        // Still full screen when asked: the backend answers the monitor's size.
+        assert_eq!(present_windowed(&window, &held, (1024, 768), true), MONITOR);
+        assert_eq!(window.leave_requests.get(), 1);
+        assert_eq!(
+            window.settle(&held, true),
+            [(1024, 768)],
+            "800x600 asked past"
+        );
+        assert_eq!(window.agreed(), (1024, 768));
+        assert_eq!(window.size_requests.get(), 2);
+    }
+
+    /// Full screen asked for and left before the compositor answered is still left.
+    #[test]
+    fn full_screen_asked_for_and_not_yet_answered_is_still_left() {
+        let window = Compositor::fixed((800, 600));
+        let held = HeldSize::default();
+        set_fixed_window_full_screen(&window, &held, true, true);
+        present_windowed(&window, &held, (800, 600), true);
+        assert_eq!(window.leave_requests.get(), 1);
+        window.settle(&held, true);
+        assert_eq!(window.agreed(), (800, 600));
+    }
+
+    /// A compositor that keeps answering with its own size is believed after the one second ask.
+    #[test]
+    fn a_compositor_that_insists_on_its_own_size_is_asked_again_only_once() {
+        let window = Compositor::fixed((800, 600));
+        let held = HeldSize::default();
+        window.insists_on.set(Some((1600, 900)));
+        present_windowed(&window, &held, (1920, 1080), true);
+        assert_eq!(
+            window.settle(&held, true),
+            [(1920, 1080), (1600, 900)],
+            "asked again, then kept"
+        );
+        assert_eq!(window.agreed(), (1600, 900));
+        assert_eq!(window.size_requests.get(), 2);
+    }
+
+    /// Elsewhere this module holds no limits, asks to leave full screen on every windowed change
+    /// as it always did, and passes a differing resize through without asking again.
+    #[test]
+    fn a_backend_that_moves_the_limits_itself_is_only_asked_for_the_size() {
+        let window = Compositor::fixed((800, 600));
+        window.limits.set(None);
+        let held = HeldSize::default();
+        assert_eq!(
+            present_windowed(&window, &held, (1024, 768), false),
+            (1024, 768)
+        );
+        assert_eq!(window.pending_limits.get(), None, "limits untouched");
+        assert_eq!(window.leave_requests.get(), 1, "leave asked for");
+        assert_eq!(window.settle(&held, false), [(800, 600)], "not asked again");
+        assert_eq!(window.size_requests.get(), 1);
+        set_fixed_window_full_screen(&window, &held, true, false);
+        assert_eq!(window.pending_limits.get(), None, "limits untouched");
+    }
 
     /// The named keys are what the host table answers.
     #[test]

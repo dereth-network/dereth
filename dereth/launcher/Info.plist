@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the bundle's Info.plist by Tauri. The icon inside Assets.car, compiled from the
+	     client's Dereth.icon by build.rs: what macOS 26 looks for first. -->
+	<key>CFBundleIconName</key>
+	<string>Dereth</string>
+</dict>
+</plist>

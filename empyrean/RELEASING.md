@@ -152,7 +152,7 @@ tier-2 modules the release touches on a hardware GPU.
    (a current distribution); Intel macOS under Rosetta when the runner has it.
 3. **gather the release:** downloads every archive, runs `cargo xtask package empyrean --gather`,
    and keeps the release files as a workflow artifact.
-4. **draft the GitHub release** (tags only): `gh release create --draft` with the archives, the
+4. **draft the GitHub release** (tags only): `gh release create --draft --latest=false` with the archives, the
    source tarball, `SHA256SUMS`, `MANIFEST.txt` and `release.json`. It is the only job that can write, and it runs
    in the `release` environment.
 
@@ -174,7 +174,10 @@ Then, on the draft release:
    run the server against your own data.
 3. Edit the notes: what changed, and the ACE-World release this build was tested against
    (the usage `empyrean-import` prints with no arguments names it).
-4. Publish.
+4. Publish, with **Set as the latest release** unticked. The repository's latest release is
+   Dereth's: its launchers update from the latest release's `latest.json`, so an Empyrean
+   release marked latest would leave them with nothing to read. The workflow creates the draft
+   with `--latest=false`; the box on the publish page is the last word, so check it.
 
 Anyone can verify a download with `sha256sum -c SHA256SUMS --ignore-missing`. Releases are not
 signed: the checksums catch a damaged or altered download, not a release published by someone

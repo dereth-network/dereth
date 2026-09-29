@@ -75,6 +75,12 @@ runs the checks and tags the release, and pushing the tag starts the release wor
 the GitHub release. `cargo xtask package empyrean` builds the same archives locally.
 [empyrean/RELEASING.md](empyrean/RELEASING.md) describes the whole flow.
 
+Dereth (the launcher, with the client inside it) is released the same way:
+`cargo xtask release dereth <version>` and a pushed `dereth-v<version>` tag, whose workflow drafts
+the release that becomes the repository's latest, the one launchers update from.
+`cargo xtask package dereth` builds this host's release files locally.
+[dereth/launcher/RELEASING.md](dereth/launcher/RELEASING.md) describes the whole flow.
+
 ## Documentation
 
 The crates are not published to crates.io, so there is no docs.rs. Build the API documentation

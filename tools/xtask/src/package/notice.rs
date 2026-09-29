@@ -194,3 +194,120 @@ pub fn splice_licence_pages(pages: &[(&str, String)]) -> Result<String, String> 
     out.push_str(&first[end + SECTION_END.len()..]);
     Ok(out)
 }
+
+/// Everything a Dereth package's `NOTICE.txt` states.
+#[derive(Debug, Clone)]
+pub struct DerethFacts<'a> {
+    pub version: &'a str,
+    pub target: &'a str,
+    pub commit: &'a str,
+    /// The public repository, without a trailing slash.
+    pub source_url: &'a str,
+    /// The launcher package (the launcher and the client) rather than the client alone.
+    pub launcher: bool,
+    pub crates: &'a [Crate],
+    /// The project's MIT licence (the repository's top-level `LICENSE`).
+    pub mit_licence: &'a str,
+    /// The typefaces' licences, as (typeface, licence text): the launcher's page embeds them.
+    pub fonts: &'a [(&'a str, String)],
+    /// MoltenVK's licence, when the package carries MoltenVK (macOS).
+    pub moltenvk_licence: Option<&'a str>,
+}
+
+/// A Dereth package's `NOTICE.txt`.
+pub fn dereth_notice(f: &DerethFacts) -> String {
+    let tag = super::version::Product::Dereth.tag_for(f.version);
+    let url = f.source_url.trim_end_matches('/');
+    let what = if f.launcher {
+        "Dereth, the launcher, with the Dereth client"
+    } else {
+        "the Dereth client"
+    };
+    let title = format!("Dereth {} ({})", f.version, f.target);
+    let mut own = Vec::new();
+    let mut third = Vec::new();
+    for c in f.crates {
+        let line = format!("  {} {} ({})", c.name, c.version, c.licence);
+        if is_own(c) {
+            own.push(line);
+        } else {
+            third.push(line);
+        }
+    }
+    let mut out = format!(
+        "{title}
+{rule}
+
+This package is {what}.
+Dereth is an Asheron's Call client and the launcher that starts it, made by the Dereth project
+(https://dereth.network). It is free software under the MIT licence, which is in LICENSE beside
+this file and below.
+
+
+SOURCE CODE
+
+This build was made from commit {commit} of
+  {url}
+The source of exactly that commit:
+  {url}/tree/{commit}
+The release this package belongs to:
+  {url}/releases/tag/{tag}
+
+
+NO GAME DATA
+
+This package contains no Asheron's Call files. The client reads the game's data files from an
+install of your own.
+
+
+DERETH
+
+{mit}",
+        rule = "=".repeat(title.len()),
+        commit = f.commit,
+        mit = indent(f.mit_licence.trim_end()),
+    );
+    for (name, text) in f.fonts {
+        out.push_str(&format!(
+            "
+
+THE {upper} TYPEFACE
+
+The launcher's page is set in {name}, which the launcher carries, under the SIL Open Font
+License, version 1.1:
+
+{text}",
+            upper = name.to_ascii_uppercase(),
+            text = indent(text.trim_end()),
+        ));
+    }
+    if let Some(licence) = f.moltenvk_licence {
+        out.push_str(&format!(
+            "
+
+MOLTENVK
+
+On macOS the client draws through MoltenVK (https://github.com/KhronosGroup/MoltenVK), which
+the package carries as Contents/Frameworks/libMoltenVK.dylib. MoltenVK is copyright The
+Brenwill Workshop Ltd. and licensed under the Apache License, version 2.0:
+
+{}",
+            indent(licence.trim_end())
+        ));
+    }
+    out.push_str(&format!(
+        "
+
+WHAT THE BINARIES ARE BUILT FROM
+
+This project's own crates:
+{}
+
+Third-party crates (their licence texts are in THIRD-PARTY-LICENSES.html):
+{}
+",
+        own.join("\n"),
+        third.join("\n")
+    ));
+    out
+}

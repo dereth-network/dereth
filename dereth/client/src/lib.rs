@@ -7,7 +7,8 @@
 //! `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-transport`, `dereth-protocol`) and its own crates under `dereth/client/crates/`: drawing
 //! (`dereth-render`, `dereth-world-render`), the UI (`dereth-ui`, `dereth-ui-screens`), the device
-//! input (`dereth-input`), the clipboard (`dereth-clipboard`) and the console (`dereth-console`).
+//! input (`dereth-input`), the clipboard (`dereth-clipboard`) and the console (`dereth-console`); on
+//! Linux, the launcher's desktop-entry registration (`dereth-launch`).
 //! **Used by** nothing but the client's test kit (`dereth-testkit`).
 //!
 //! **Must never** do another crate's work: if something here starts decoding an asset, transforming
@@ -36,6 +37,9 @@ pub mod audio;
 pub mod clipboard;
 // The cursor state over the system cursors.
 pub mod cursor;
+// Where the client keeps its files on this platform, and the one-time move from where it kept
+// them before.
+pub mod folders;
 mod host;
 // The HUD, with the desktop's platform answers.
 pub mod hud;
@@ -46,3 +50,30 @@ pub mod platform;
 pub mod pump;
 
 pub use host::Desktop;
+
+/// What `dereth-client --version` prints: the version, and the commit and target a release build
+/// was made from (`unknown` in a build that did not say).
+#[must_use]
+pub fn version_text() -> String {
+    format!(
+        "dereth-client {}\ncommit: {}\ntarget: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("DERETH_BUILD_COMMIT").unwrap_or("unknown"),
+        option_env!("DERETH_BUILD_TARGET").unwrap_or("unknown"),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    /// Behaviour: none (the release build's identification, read by the release smoke run).
+    #[test]
+    fn the_version_text_names_the_client_and_its_version_first() {
+        let text = super::version_text();
+        let first = text.lines().next().unwrap();
+        assert_eq!(
+            first,
+            format!("dereth-client {}", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(text.lines().any(|l| l.starts_with("target: ")), "{text}");
+    }
+}

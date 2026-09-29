@@ -679,7 +679,7 @@ fn the_calendar_conversion_is_right_at_the_edges() {
 // ---------------------------------------------------------------- header checks
 
 /// A PE32+ image with one section holding the import and delay-import tables.
-fn pe(
+pub(super) fn pe(
     machine: u16,
     subsystem: u16,
     imports: &[&str],
@@ -822,7 +822,7 @@ fn a_real_windows_binary_parses() {
 
 /// A 64-bit little-endian ELF: one load segment mapping the file, the loader, and a dynamic
 /// section with `DT_NEEDED` entries and one version-needs record.
-fn elf(machine: u16, interp: &str, needed: &[&str], glibc: &[&str]) -> Vec<u8> {
+pub(super) fn elf(machine: u16, interp: &str, needed: &[&str], glibc: &[&str]) -> Vec<u8> {
     let mut b = vec![0u8; 0x800];
     let p16 = |b: &mut Vec<u8>, at: usize, v: u16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
     let p32 = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());

@@ -25,6 +25,7 @@ fn run_once(out: &Path, dat_dir: &Path, extra: &[&str]) -> Result<(Vec<u8>, Stri
         .arg(dat_dir)
         .args(extra)
         .env("USERPROFILE", &home)
+        .env("APPDATA", &home)
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", &home)
         .output()

@@ -1,0 +1,41 @@
+[package]
+name = "dereth-launch"
+description = "What the Dereth launcher knows, with no window, no renderer and no operating system in it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# The main workspace, named, because the launcher app's own workspace (`dereth/launcher`) is the
+# nearer one on disk.
+workspace = "../../../.."
+
+# The world record, reading a dat's iterations, identifying a client install, the pre-launch check,
+# the command lines, the state file, the launcher's folders, its own update's file swap and the
+# signed registry. The launcher window (`dereth/launcher`, a workspace of its own) is one
+# front end over it; a web or phone world picker, or the game client's own, would be another.
+[dependencies]
+# The state file and the registry are JSON documents with a dozen record types between them. Deriving
+# their readers is less code, and less wrong, than walking `serde_json::Value` by hand for each.
+serde.workspace = true
+serde_json.workspace = true
+# Identifying a client install is hashing its files, and a hash the launcher computed itself is the
+# only kind worth comparing against a published manifest.
+sha2.workspace = true
+# The registry snapshot is signed. Verification only: the launcher never holds a signing key, so
+# the crate's key-generation half (and its random-number dependency) is left out.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# The server-tracker login that asks a server whether it is up is an ordinary first packet; the
+# transport crate builds and parses it.
+dereth-transport.workspace = true
+
+[dev-dependencies]
+# Where the tests find the retail dats, when a run has them: one test reads their iterations.
+dereth-dat = { workspace = true, features = ["test-support"] }
+
+[features]
+# Builders for synthetic dats and installs, for other crates' tests. Never in a release build.
+testing = []
+
+[lints]
+workspace = true

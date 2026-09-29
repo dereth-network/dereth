@@ -30,12 +30,16 @@
 
 mod archive;
 pub mod declaration;
+pub mod dereth;
 mod guard;
 mod headers;
 mod notice;
+mod sign;
 mod targets;
 pub mod version;
 
+#[cfg(test)]
+mod dereth_tests;
 #[cfg(test)]
 mod tests;
 
@@ -337,13 +341,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
     let mut it = args.iter();
     match it.next().map(String::as_str) {
         Some("empyrean") => {}
-        Some("dereth") => {
-            return Err(
-                "the client is not packaged yet; `cargo xtask package empyrean` is the server"
-                    .to_owned(),
-            )
-        }
-        _ => return Err(USAGE.to_owned()),
+        _ => return Err(format!("{USAGE}\n{}", dereth::USAGE)),
     }
     let mut o = Options::default();
     while let Some(a) = it.next() {
@@ -370,6 +368,9 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
 
 /// `cargo xtask package ...`.
 pub fn package(args: &[String]) -> i32 {
+    if args.first().map(String::as_str) == Some("dereth") {
+        return dereth::package(&args[1..]);
+    }
     let options = match parse_options(args) {
         Ok(o) => o,
         Err(e) => {
@@ -433,7 +434,7 @@ pub fn build_packages(
     }
     if !succeeds("cargo", &["about", "--version"]) {
         refusals.push(
-            "  cargo-about is not installed; it writes THIRD-PARTY-LICENSES.html: \
+            "  cargo-about is not installed, or does not run on this host; it writes THIRD-PARTY-LICENSES.html: \
              `cargo install --locked cargo-about --features cli`"
                 .to_owned(),
         );
@@ -867,14 +868,17 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
     Ok(())
 }
 
-/// `cargo xtask version empyrean [--tag <tag>]`: print Empyrean's version; with `--tag`, fail
-/// unless the tag names exactly that version.
+/// `cargo xtask version empyrean|dereth [--tag <tag>]`: print the product's version; with
+/// `--tag`, fail unless the tag names exactly that version.
 pub fn version_command(args: &[String]) -> i32 {
-    let usage = "usage: cargo xtask version empyrean [--tag <tag>]";
-    if args.first().map(String::as_str) != Some("empyrean") {
+    let usage = "usage: cargo xtask version empyrean|dereth [--tag <tag>]";
+    let Some(product) = args
+        .first()
+        .and_then(|a| version::Product::from_command_name(a))
+    else {
         eprintln!("{usage}");
         return 2;
-    }
+    };
     let tag = match &args[1..] {
         [] => None,
         [flag, tag] if flag == "--tag" => Some(tag.as_str()),
@@ -884,10 +888,10 @@ pub fn version_command(args: &[String]) -> i32 {
         }
     };
     let ws = workspace_root();
-    let checked = version::empyrean_version(&ws).and_then(|v| {
+    let checked = product.version(&ws).and_then(|v| {
         version::parse_release_version(&v)?;
         if let Some(tag) = tag {
-            version::check_tag(tag, &v)?;
+            version::check_product_tag(product, tag, &v)?;
         }
         Ok(v)
     });

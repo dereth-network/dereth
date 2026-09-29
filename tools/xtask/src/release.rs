@@ -1,13 +1,17 @@
-//! `cargo xtask release empyrean <version> [--push] [--remote <name>]`: cut an Empyrean release.
+//! `cargo xtask release empyrean|dereth <version> [--push] [--remote <name>]`: cut a release of
+//! Empyrean or of Dereth (the launcher and the client, one version).
 //!
-//! On a clean `main` it sets every `empyrean-*` crate's version to `<version>` and commits that
-//! (skipped when the tree already carries it), runs `cargo xtask ci tier0` and packages the host's
-//! own target as a smoke test, then makes the annotated tag `empyrean-v<version>`. It prints the
-//! two push commands and runs them only with `--push`: the release workflow starts when the tag
-//! reaches the public repository, and builds, checks and drafts the release from there.
+//! On a clean `main` it sets the version of every crate that carries the product's version
+//! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher) to `<version>` and
+//! commits that with the lock files (skipped when the tree already carries it), runs
+//! `cargo xtask ci tier0` and packages the host's own target as a smoke test, then makes the
+//! annotated tag `empyrean-v<version>` or `dereth-v<version>`. It prints the two push commands and
+//! runs them only with `--push`: the product's release workflow starts when the tag reaches the
+//! public repository, and builds, checks and drafts the release from there.
 
 use std::path::Path;
 
+use crate::package::version::Product;
 use crate::package::{self, git, version};
 use crate::util::{workspace_root, Profile};
 
@@ -34,8 +38,19 @@ pub struct Plan {
     pub tag: String,
 }
 
-/// Whether `requested` may be released from `state`, and how; every reason it may not.
+/// Whether Empyrean `requested` may be released from `state`, and how; every reason it may not.
+#[cfg(test)]
 pub fn preconditions(requested: &str, state: &RepoState) -> Result<Plan, Vec<String>> {
+    preconditions_for(Product::Empyrean, requested, state)
+}
+
+/// Whether `product`'s `requested` may be released from `state`, and how; every reason it may
+/// not.
+pub fn preconditions_for(
+    product: Product,
+    requested: &str,
+    state: &RepoState,
+) -> Result<Plan, Vec<String>> {
     let mut problems = Vec::new();
     let wanted = version::parse_release_version(requested).map_err(|e| vec![e])?;
     if state.branch != "main" {
@@ -50,7 +65,7 @@ pub fn preconditions(requested: &str, state: &RepoState) -> Result<Plan, Vec<Str
             state.uncommitted.join("; ")
         ));
     }
-    let tag = version::tag_for(requested);
+    let tag = product.tag_for(requested);
     if state.local_tags.contains(&tag) {
         problems.push(format!("the tag {tag} already exists here"));
     }
@@ -101,18 +116,18 @@ pub fn push_commands(remote: &str, tag: &str) -> [Vec<String>; 2] {
 }
 
 const USAGE: &str =
-    "usage: cargo xtask release empyrean <MAJOR.MINOR.PATCH> [--push] [--remote <name>]";
+    "usage: cargo xtask release empyrean|dereth <MAJOR.MINOR.PATCH> [--push] [--remote <name>]";
 
 /// `cargo xtask release ...`.
 pub fn release(args: &[String]) -> i32 {
-    let (requested, push, remote) = match parse(args) {
+    let (product, requested, push, remote) = match parse(args) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{e}");
             return 2;
         }
     };
-    match run(&requested, push, &remote) {
+    match run(product, &requested, push, &remote) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("\nrelease: STOPPED\n{e}");
@@ -121,11 +136,12 @@ pub fn release(args: &[String]) -> i32 {
     }
 }
 
-fn parse(args: &[String]) -> Result<(String, bool, String), String> {
+fn parse(args: &[String]) -> Result<(Product, String, bool, String), String> {
     let mut it = args.iter();
-    if it.next().map(String::as_str) != Some("empyrean") {
-        return Err(USAGE.to_owned());
-    }
+    let product = it
+        .next()
+        .and_then(|a| Product::from_command_name(a))
+        .ok_or(USAGE)?;
     let mut requested = None;
     let mut push = false;
     let mut remote = "origin".to_owned();
@@ -137,14 +153,13 @@ fn parse(args: &[String]) -> Result<(String, bool, String), String> {
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
         }
     }
-    Ok((requested.ok_or(USAGE)?, push, remote))
+    Ok((product, requested.ok_or(USAGE)?, push, remote))
 }
 
-fn state(ws: &Path, remote: &str) -> Result<RepoState, String> {
-    let remote_tags = match git(
-        ws,
-        &["ls-remote", "--tags", remote, "refs/tags/empyrean-v*"],
-    ) {
+fn state(ws: &Path, product: Product, remote: &str) -> Result<RepoState, String> {
+    let pattern = format!("{}*", product.tag_prefix());
+    let remote_pattern = format!("refs/tags/{pattern}");
+    let remote_tags = match git(ws, &["ls-remote", "--tags", remote, &remote_pattern]) {
         Ok(out) => Some(tag_names(&out)),
         Err(e) => {
             println!("note: the remote `{remote}` could not be asked for its tags ({e}); only local tags are checked");
@@ -154,27 +169,39 @@ fn state(ws: &Path, remote: &str) -> Result<RepoState, String> {
     Ok(RepoState {
         branch: git(ws, &["rev-parse", "--abbrev-ref", "HEAD"])?,
         uncommitted: package::uncommitted(ws)?,
-        current: version::empyrean_version(ws)?,
-        local_tags: tag_names(&git(ws, &["tag", "--list", "empyrean-v*"])?),
+        current: product.version(ws)?,
+        local_tags: tag_names(&git(ws, &["tag", "--list", &pattern])?),
         remote_tags,
     })
 }
 
-fn run(requested: &str, push: bool, remote: &str) -> Result<(), String> {
+/// The lock files a version change updates, as (the folder cargo runs in, the lock file),
+/// relative to the workspace root.
+fn locks(product: Product) -> &'static [(&'static str, &'static str)] {
+    match product {
+        Product::Empyrean => &[("", "Cargo.lock")],
+        Product::Dereth => version::DERETH_LOCKS,
+    }
+}
+
+fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<(), String> {
     let ws = workspace_root();
-    let state = state(&ws, remote)?;
-    let plan = preconditions(requested, &state).map_err(|p| p.join("\n"))?;
+    let name = product.display_name();
+    let state = state(&ws, product, remote)?;
+    let plan = preconditions_for(product, requested, &state).map_err(|p| p.join("\n"))?;
     // The upgrade declaration (`empyrean/releases.toml` and the code) is checked before anything
     // changes: a patch release that declares anything is refused here.
-    package::declaration::for_release(&ws, requested)?;
+    if product == Product::Empyrean {
+        package::declaration::for_release(&ws, requested)?;
+    }
 
     if plan.bump {
         println!(
-            "=== setting every empyrean-* crate to {requested} (from {})",
+            "=== setting {name}'s crates to {requested} (from {})",
             state.current
         );
         let mut paths = Vec::new();
-        for manifest in version::empyrean_manifests(&ws)? {
+        for manifest in product.manifests(&ws)? {
             let text = std::fs::read_to_string(&manifest)
                 .map_err(|e| format!("reading {}: {e}", manifest.display()))?;
             let edited = version::set_package_version(&text, requested)
@@ -190,18 +217,27 @@ fn run(requested: &str, push: bool, remote: &str) -> Result<(), String> {
                     .replace('\\', "/"),
             );
         }
-        // The lock file's entries for the workspace's own packages, and nothing else.
-        if !crate::util::run(&ws, "cargo", &["update", "--workspace", "--offline"]) {
-            return Err("`cargo update --workspace` failed; the manifests are edited but nothing is committed".to_owned());
+        // Each lock file's entries for its workspace's own packages, and nothing else.
+        for (dir, lock) in locks(product) {
+            if !crate::util::run(
+                &ws.join(dir),
+                "cargo",
+                &["update", "--workspace", "--offline"],
+            ) {
+                return Err(format!(
+                    "`cargo update --workspace` failed for {lock}; the manifests are edited but \
+                     nothing is committed"
+                ));
+            }
+            paths.push((*lock).to_owned());
         }
-        let now = version::empyrean_version(&ws)?;
+        let now = product.version(&ws)?;
         if now != requested {
             return Err(format!(
                 "after the edit the crates carry {now}, not {requested}"
             ));
         }
-        paths.push("Cargo.lock".to_owned());
-        let message = format!("Empyrean {requested}");
+        let message = format!("{name} {requested}");
         let mut args = vec!["commit", "-m", &message, "--"];
         args.extend(paths.iter().map(String::as_str));
         git(&ws, &args)?;
@@ -232,10 +268,14 @@ fn run(requested: &str, push: bool, remote: &str) -> Result<(), String> {
     .lines()
     .find_map(|l| l.strip_prefix("host: ").map(str::to_owned))
     .ok_or("rustc -vV named no host")?;
-    package::build_packages(&ws, &[host], None, false)
-        .map_err(|e| format!("packaging failed; no tag was made.{undo}\n{e}"))?;
+    match product {
+        Product::Empyrean => package::build_packages(&ws, &[host], None, false),
+        // A macOS host needs MoltenVK for this, named as the package command takes it.
+        Product::Dereth => package::dereth::build_packages(&ws, &[host], None, false, None),
+    }
+    .map_err(|e| format!("packaging failed; no tag was made.{undo}\n{e}"))?;
 
-    let message = format!("Empyrean {requested}");
+    let message = format!("{name} {requested}");
     git(&ws, &["tag", "-a", &plan.tag, "-m", &message, &head])?;
     println!("\ntagged {} at {head}", plan.tag);
 

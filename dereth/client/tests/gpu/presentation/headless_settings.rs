@@ -44,16 +44,18 @@ impl Drop for Scratch {
 /// The settings folder under a home folder of `home`, per platform, spelled out independently of
 /// the client's own rule so that a change to that rule breaks this test rather than moving it.
 fn settings_dir_under(home: &Path) -> PathBuf {
-    if cfg!(windows) {
-        home.join("Documents").join("Dereth")
+    let root = if cfg!(windows) {
+        // `APPDATA` is set to the home folder below.
+        home.join("Dereth")
     } else if cfg!(target_os = "macos") {
         home.join("Library")
             .join("Application Support")
-            .join("dereth")
+            .join("Dereth")
     } else {
         // `XDG_CONFIG_HOME` is set to the same absolute folder below, and wins over `HOME`.
         home.join("dereth")
-    }
+    };
+    root.join("client")
 }
 
 /// A player's preferences, shaped like a file the client wrote: a renderer choice and two
@@ -80,6 +82,7 @@ fn run_headless(home: &Path, dat_dir: &Path, extra: &[&str]) {
         .arg(dat_dir)
         .args(extra)
         .env("USERPROFILE", home)
+        .env("APPDATA", home)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home)
         .output()

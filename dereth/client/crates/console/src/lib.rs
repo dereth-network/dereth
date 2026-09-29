@@ -4,23 +4,23 @@
 //! **Depends on** no other workspace crate (`windows-sys`, on Windows). **Used by** the client
 //! (`dereth-client`).
 //!
-//! **Must never** hold, dereference or close a handle, or pass a buffer: its unsafe is exactly two
-//! kernel32 calls (`AttachConsole`, `AllocConsole`) plus `GetLastError`, and everything else about
-//! the console is what `std` already does. It never reaches the client runtime (`cargo xtask
+//! **Must never** hold, dereference or close a handle, or pass a buffer: its unsafe is exactly one
+//! kernel32 call (`AttachConsole`) plus `GetLastError`, and everything else about the console is
+//! what `std` already does. It never reaches the client runtime (`cargo xtask
 //! seams`, `seam: client crates`).
 //!
-//! Under the windows subsystem Windows creates no console, which is what lets `--no-console` avoid
-//! even a flash of one; the cost is that output goes nowhere by default, and [`attach`] buys it
-//! back:
+//! Under the windows subsystem Windows creates no console, and this crate never makes one: a player
+//! who starts the client from Explorer or from the launcher sees the game's window and nothing
+//! else. [`attach`] only borrows a console that already exists:
 //!
 //! | how the client was started | what [`attach`] does | what the user sees |
 //! |---|---|---|
 //! | from a terminal | `AttachConsole(ATTACH_PARENT_PROCESS)` | output in that terminal |
-//! | from Explorer, or from the launcher | `AllocConsole` | a console window |
+//! | from Explorer, or from the launcher | `AttachConsole` fails; nothing else is called | no console |
 //! | with `--no-console` | nothing is called | no console |
 //!
-//! The middle row keeps a plain start unchanged: the client's stderr is the only place several
-//! acceptance measurements are printed.
+//! So a developer who wants the client's stderr starts it from a terminal (or passes `--log-file`
+//! for the same lines in a file); nobody else is shown a console window.
 
 #![deny(unsafe_code)]
 
@@ -60,14 +60,12 @@ pub enum Console {
     /// something the client can change from this side; a launcher that waits on the process
     /// (`Start-Process -PassThru` + `WaitForExit`) rather than on a pipe sees all of it.
     Parent,
-    /// There was no parent console -- the Explorer and launcher case -- and `AllocConsole` made
-    /// one. This is the row that preserves what a console-subsystem binary does.
-    Allocated,
     /// The process already had a console, so neither call was needed. Unreachable while the binary
     /// is linked for the windows subsystem, and correct if it ever is not.
     Existing,
-    /// Both calls failed, or this is not Windows. Output goes nowhere; the run is otherwise
-    /// unaffected, which is why this is a value and not an error.
+    /// There was no console to borrow -- the Explorer and launcher case -- or this is not
+    /// Windows. Output goes nowhere; the run is otherwise unaffected, which is why this is a value
+    /// and not an error. No console is created in its place.
     None,
 }
 
@@ -79,7 +77,7 @@ impl Console {
     }
 }
 
-/// Borrow the console of whatever started us, or make one.
+/// Borrow the console of whatever started us, if it has one. A console is never created.
 ///
 /// Call this **first thing in `main`**, before anything writes to stdout or stderr: `std` resolves
 /// the standard handles when it writes, and a write that happens first goes nowhere.

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dereth</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="vista" id="vista"></div>
+  <div class="drag" data-tauri-drag-region></div>
+  <div class="shell">
+    <aside class="side">
+      <div class="lockup" data-tauri-drag-region>
+        <img class="emblem" src="assets/emblem.png" alt="">
+        <div class="word">DERETH<br>NETWORK</div>
+      </div>
+      <nav class="rail" id="rail"></nav>
+      <div class="foot" id="foot"></div>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+  <div class="notice" id="notice" aria-live="polite"></div>
+  <script src="demo.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

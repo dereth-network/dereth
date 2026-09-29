@@ -503,6 +503,90 @@ pub fn check_macho(m: &MachO, target: Target) -> Vec<String> {
     problems
 }
 
+/// The windowed subsystem: a program that makes its own window and no console.
+pub const IMAGE_SUBSYSTEM_WINDOWS_GUI: u16 = 2;
+
+/// Check one of Dereth's binaries (the launcher or the client) for `target`: a one-line
+/// description for the manifest, or every problem found.
+///
+/// - **Windows:** x86-64 PE32+, the windowed subsystem, the icon resource, and no import of the
+///   Visual C++ runtime.
+/// - **Linux:** the target's machine and dynamic loader, and no glibc symbol newer than
+///   `glibc_floor`. The shared objects are not limited: the launcher links the desktop's web view
+///   and the client loads its graphics and window libraries, which every desktop has.
+/// - **macOS:** as the server's binaries: the CPU, only system libraries, the minimum macOS, and
+///   a code signature on Apple silicon.
+pub fn check_app_binary(
+    bytes: &[u8],
+    target: Target,
+    glibc_floor: (u32, u32),
+) -> Result<String, Vec<String>> {
+    match target.os {
+        Os::Windows => {
+            let pe = parse_pe(bytes).map_err(|e| vec![e])?;
+            let mut problems: Vec<String> = check_pe(&pe, target, Role::Import)
+                .into_iter()
+                .filter(|p| !p.starts_with("subsystem"))
+                .collect();
+            if pe.subsystem != IMAGE_SUBSYSTEM_WINDOWS_GUI {
+                problems.push(format!(
+                    "subsystem {}, expected the windowed one ({IMAGE_SUBSYSTEM_WINDOWS_GUI})",
+                    pe.subsystem
+                ));
+            }
+            if !pe.resources {
+                problems.push("no resources: the icon is missing".to_owned());
+            }
+            if !problems.is_empty() {
+                return Err(problems);
+            }
+            Ok(format!(
+                "PE32+ machine {:#06x}, windowed; imports {}; resources",
+                pe.machine,
+                pe.imports.join(", ")
+            ))
+        }
+        Os::Linux => {
+            let elf = parse_elf(bytes).map_err(|e| vec![e])?;
+            let mut problems = Vec::new();
+            let want = match target.arch {
+                Arch::X86_64 => EM_X86_64,
+                Arch::Aarch64 => EM_AARCH64,
+            };
+            if elf.machine != want {
+                problems.push(format!("machine {}, expected {want}", elf.machine));
+            }
+            let interp = linux_interp(target.arch);
+            if elf.interp.as_deref() != Some(interp) {
+                problems.push(format!(
+                    "dynamic loader {}, expected {interp}",
+                    elf.interp.as_deref().unwrap_or("(none)")
+                ));
+            }
+            let newest = elf.glibc.iter().max().copied();
+            if let Some(n) = newest.filter(|n| (n.0, n.1) > glibc_floor) {
+                problems.push(format!(
+                    "requires GLIBC_{} (newest), above the {}.{} floor",
+                    version_text(n),
+                    glibc_floor.0,
+                    glibc_floor.1
+                ));
+            }
+            if !problems.is_empty() {
+                return Err(problems);
+            }
+            Ok(format!(
+                "ELF64 machine {}; loader {}; needs {}; newest GLIBC_{}",
+                elf.machine,
+                elf.interp.as_deref().unwrap_or("(none)"),
+                elf.needed.join(", "),
+                version_text(newest.unwrap_or_default())
+            ))
+        }
+        Os::Mac => check_binary(bytes, target, Role::Import),
+    }
+}
+
 /// Parse and check one binary for `target`: a one-line description for the manifest, or every
 /// problem found.
 pub fn check_binary(bytes: &[u8], target: Target, role: Role) -> Result<String, Vec<String>> {

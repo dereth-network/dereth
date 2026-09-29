@@ -30,6 +30,11 @@ dereth-dat = { path = "../../core/dat", features = ["test-support"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 sha2 = "0.10"
+# `package dereth`: the launcher's update signatures, in minisign's format, and the check of each
+# one made the way the launcher's updater makes it (the same verifier crate, base64 around both).
+minisign = { version = "0.10", default-features = false }
+minisign-verify = "0.2"
+base64 = "0.22"
 
 [lints]
 workspace = true

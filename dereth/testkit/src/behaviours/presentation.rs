@@ -170,12 +170,13 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "presentation.settings.the-client-keeps-its-files-in-a-folder-of-its-own",
         says: "The client keeps its preferences, key maps and other files in a folder named for \
-               this client rather than for the original game: under Documents on Windows, and \
-               in each other platform's own place for settings.",
+               this client rather than for the original game: Dereth's client folder in the \
+               roaming application data on Windows, and in each other platform's own place for \
+               settings.",
         since: THIS_CLIENT,
         divergence: "CD-007",
         evidence: Evidence::Private("AC-EVID-CONFIG-SETTINGS-DIR"),
-        station: "dereth-client-runtime::lib::config::tests::the_settings_directory_follows_the_platform_convention",
+        station: "dereth-client::lib::folders::tests::the_settings_directory_follows_the_platform_convention",
         tier: Tier::Cpu,
     },
     behaviour! {

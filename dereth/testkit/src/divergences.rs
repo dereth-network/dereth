@@ -120,10 +120,11 @@ pub static DIVERGENCES: &[Divergence] = &[
         retail: "Preferences, key maps and the other files go in the game's own folder under \
                  Documents, the one a retail installation uses, and the key map a player has \
                  not named is called after the running program, acclient.keymap.",
-        dereth: "They go in a folder named for this client: under Documents on Windows, in the \
-                 platform's own settings place on macOS and other Unix systems. On Windows the \
-                 first run copies the old folder's contents across. The key map a player has not \
-                 named is always dereth.keymap, whatever the program file is called.",
+        dereth: "They go in a folder named for this client: Dereth's client folder in the \
+                 roaming application data on Windows, and in the platform's own settings place \
+                 on macOS and other Unix systems. On Windows the first run copies the original \
+                 game's folder's contents across. The key map a player has not named is always \
+                 dereth.keymap, whatever the program file is called.",
         why: "This client's files are not the original's, and a folder of its own keeps them \
               from sharing a directory with a retail installation. A key map named after the \
               program would be lost whenever the program is renamed or copied under another \

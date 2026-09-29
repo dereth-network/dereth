@@ -1,7 +1,9 @@
 [package]
 name = "dereth-client"
 description = "The Dereth 3D client: the window, the graphics device, the renderer, the retail UI and the sound device, plugged into the runtime's frame loop."
-version.workspace = true
+# Dereth's release version, which the launcher (dereth/launcher) carries too: they are released
+# together (`cargo xtask release dereth`).
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -96,9 +98,9 @@ dereth-ui         = { path = "crates/ui" }
 dereth-clipboard  = { path = "crates/clipboard" }
 # The console, under the windows subsystem. `main.rs` is linked with
 # `#![windows_subsystem = "windows"]` so that `--no-console` can mean "no console" rather than
-# "a console window that closes again"; that makes borrowing or creating one an explicit act, and
-# `AttachConsole`/`AllocConsole` are unsafe, so the hop lives in its own crate under `deny` for the
-# same reason `dereth-clipboard` does. `dereth-client` itself keeps `forbid`.
+# "a console window that closes again"; that makes borrowing one an explicit act, and
+# `AttachConsole` is unsafe, so the hop lives in its own crate under `deny` for the same reason
+# `dereth-clipboard` does. `dereth-client` itself keeps `forbid`.
 dereth-console    = { path = "crates/console" }
 dereth-ui-screens = { path = "crates/ui-screens" }
 dereth-input      = { path = "crates/input" }
@@ -152,6 +154,9 @@ open = "5"
 # them; Linux needs both, because which one a session runs is the user's compositor's choice.
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { version = "0.29", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+# The desktop entry that gives the window its icon on Linux, shared with the launcher so the two
+# write the same file the same way.
+dereth-launch = { path = "../launcher/crates/launch" }
 
 # The physics trace recorder and its comparison. `dereth-physics` is already a dependency; the
 # feature only adds `dereth_physics::trace`, which the embodied-movement test uses to show a script

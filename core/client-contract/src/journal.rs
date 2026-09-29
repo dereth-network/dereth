@@ -12,7 +12,7 @@
 ///
 /// A separate prefix is not needed to keep a retail journal from being clobbered. **That
 /// separation is the directory's job**: this client keeps its files in its own settings directory
-/// (`Dereth`, `~/.config/dereth`, ...) and retail keeps writing to
+/// (`Dereth\client` under the roaming application data on Windows, ...) and retail keeps writing to
 /// `Documents\Asheron's Call`, so the two never name the same file and a prefix would buy nothing
 /// but an ugly name. A journal copied in by the first-run migration is read *and* written in
 /// place, which is what carrying it over is for; the copy retail still owns is a different file

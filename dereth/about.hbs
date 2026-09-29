@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dereth: third-party licences</title>
+<style>
+  body { font-family: sans-serif; max-width: 60em; margin: 2em auto; padding: 0 1em; color: #222; background: #fff; }
+  h1 { font-size: 1.6em; }
+  h2 { font-size: 1.3em; margin-top: 2.5em; border-bottom: 1px solid #ccc; }
+  h3 { font-size: 1.05em; margin-bottom: 0.3em; }
+  ul.used-by { margin-top: 0; }
+  pre.licence-text { white-space: pre-wrap; background: #f6f6f6; padding: 1em; border: 1px solid #ddd; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #ddd; background: #161616; }
+    pre.licence-text { background: #222; border-color: #333; }
+  }
+</style>
+</head>
+<body>
+<h1>Dereth: third-party licences</h1>
+<p>Dereth's programs, the launcher and the client, contain these third-party Rust crates. Each
+licence's text follows, with the crates it covers. Dereth itself is licensed under the MIT
+licence (<code>LICENSE</code>); <code>NOTICE.txt</code> names its source and its other
+attributions.</p>
+<!-- licences -->
+<h3>Overview</h3>
+<ul class="overview">
+{{#each overview}}
+  <li>{{name}} ({{count}})</li>
+{{/each}}
+</ul>
+{{#each licenses}}
+<div class="licence">
+  <h3 id="{{id}}">{{name}}</h3>
+  <p>Used by:</p>
+  <ul class="used-by">
+  {{#each used_by}}
+    <li>{{crate.name}} {{crate.version}}{{#if crate.repository}} (<a href="{{crate.repository}}">{{crate.repository}}</a>){{/if}}</li>
+  {{/each}}
+  </ul>
+  <pre class="licence-text">{{text}}</pre>
+</div>
+{{/each}}
+<!-- /licences -->
+</body>
+</html>
