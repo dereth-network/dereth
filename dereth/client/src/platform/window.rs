@@ -24,8 +24,8 @@
 //!
 //! **The window is made inside its event loop.** The loop is started first, and the window is
 //! made when the loop reports itself running, which every desktop backend does on its first
-//! drain; [`open_window`] drains until it has. The window and the loop are then shared with the
-//! cursor images ([`DesktopWindow`]), which make cursors on the loop between drains.
+//! drain; [`open_window`](crate::platform::window::open_window) drains until it has. The window and the loop are then shared with the
+//! cursor images ([`DesktopWindow`](crate::platform::window::DesktopWindow)), which make cursors on the loop between drains.
 //!
 //! **The window keeps its events.** `WinitWindow` hands the runtime no events from its drain;
 //! it queues every one, lifecycle and device alike and in arrival order, on the `WindowEvents`
