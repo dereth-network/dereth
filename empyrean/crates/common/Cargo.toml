@@ -1,7 +1,7 @@
 [package]
 name = "empyrean-common"
 description = "The port of ACE's Source/ACE.Common, with the .NET-semantics shims, clocks, configuration and the not-ported instrument every server crate uses."
-version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+version = "0.1.1" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license = "AGPL-3.0-only"

@@ -1,7 +1,7 @@
 [package]
 name = "empyrean-net"
 description = "The port of Source/ACE.Server/Network's transport: sans-IO server sessions over the shared wire layer, with UDP and in-memory drivers."
-version = "0.1.0" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+version = "0.1.1" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license = "AGPL-3.0-only"
