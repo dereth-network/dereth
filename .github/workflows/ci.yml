@@ -1,12 +1,20 @@
 name: CI
 
 on:
+  # Branches only: a pushed tag names a commit CI has already run on, and the release workflow
+  # checks the tagged commit itself.
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to the same branch or pull request replaces a run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   tier0:
