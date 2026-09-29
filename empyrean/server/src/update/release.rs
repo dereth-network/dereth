@@ -165,7 +165,7 @@ impl Declaration {
     }
 }
 
-/// One archive (or the source) a `release.json` lists.
+/// One archive a `release.json` lists.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct IndexAsset {
     pub target: String,

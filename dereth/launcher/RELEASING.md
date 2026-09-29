@@ -1,7 +1,7 @@
 # Releasing Dereth
 
 A Dereth release is the launcher, with the Dereth client inside it, for Windows, macOS and Linux,
-plus the client on its own, published as a GitHub release of this repository. Every installed
+published as a GitHub release of this repository. Every installed
 launcher lists the repository's releases, picks the newest published `dereth-v<version>` release
 and reads its `latest.json` to update itself and the client ("Updates" below). There are two
 commands and one review:
@@ -28,21 +28,24 @@ and the target they were built from.
 
 ## What a release holds
 
-| system | the launcher | the client alone |
+| system | the release file | its label |
 |---|---|---|
-| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | `dereth-client-<v>-windows-x86_64.zip` |
-| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | `Dereth-Client-<v>-macos-<arch>.app.tar.gz`: `Dereth Client.app`, named so it cannot collide with `Dereth.app` |
-| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it | `dereth-client-<v>-linux-x86_64.tar.gz` |
+| Windows (x86-64) | `dereth-<v>-windows-x86_64.zip`: one folder, `dereth-<v>/`, holding `dereth.exe`, `dereth-client.exe`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer: unzip anywhere | Dereth · Windows x64 (zip, no installer) |
+| macOS (Apple silicon, Intel) | `Dereth-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, with the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` and the notices in `Contents/Resources` | Dereth · macOS Apple silicon, Dereth · macOS Intel |
+| Linux (x86-64) | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it | Dereth · Linux x86-64 AppImage (glibc 2.35+) |
 
-Beside them:
+Every download holds the client, so the client is not published on its own. Beside them:
 
-- `<launcher file>.sig`: each launcher file's update signature;
-- `latest.json`: what launchers read, one entry per platform (`windows-x86_64`, `darwin-aarch64`,
-  `darwin-x86_64`, `linux-x86_64`), each the download address and its signature;
-- `MANIFEST.txt`: every file in every package, with its size, SHA-256 and what the header checks
-  read from each program;
-- `release.json`: the same, machine-readable;
-- `SHA256SUMS`.
+- `latest.json` (Updater manifest): what launchers read, one entry per platform
+  (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`), each the download
+  address and its update signature. The signatures are published there only, not as separate
+  `.sig` files: the updater reads nothing else;
+- `MANIFEST.txt` (Release manifest): every file in every package, with its size, SHA-256 and what
+  the header checks read from each program;
+- `release.json` (Release facts (JSON)): the same, machine-readable;
+- `SHA256SUMS` (Checksums (SHA-256)).
+
+The labels are what GitHub shows on the release page; the file names are unchanged.
 
 | Target | Built on | Runs on |
 |---|---|---|
@@ -93,9 +96,9 @@ another version than the one `latest.json` announces.
 (the key file's base64, as `cargo tauri signer generate` writes it, or a path to it) with
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and checks the signature at once the way the updater checks
 it, against the launcher's public key: a key that is not the launcher's fails the package. It
-writes `<file>.sig` and `latest-<platform>.json`, that platform's entry. Without a key the package
-is built **unsigned** and says so, and no `latest.json` is written; a tag's workflow run refuses
-that. The Windows entry is the zip itself: the launcher's own update unpacks it and swaps the files
+writes `latest-<platform>.json`, that platform's entry, which carries the signature. Without a
+key the package is built **unsigned** and says so, and no `latest.json` is written; a tag's
+workflow run refuses that. The Windows entry is the zip itself: the launcher's own update unpacks it and swaps the files
 in (README.md, "Updates"); macOS's is the `.app.tar.gz` and Linux's the AppImage, which the updater
 installs itself.
 
@@ -117,9 +120,9 @@ cargo xtask package dereth --gather <dir>
 
 Builds the client (`cargo build --release -p dereth-client`) and the launcher (`cargo tauri build`
 in `dereth/launcher`, with the client, the notices and on macOS MoltenVK added to the bundle)
-for each `--target` (default: this host's), stages, scans, checks, archives and signs them, and
-writes the index (`MANIFEST.txt`, `release.json`, `latest.json` when signed, `SHA256SUMS`) in
-`target/package/dereth-<version>/` unless `--out` names another folder. It refuses a tree with
+for each `--target` (default: this host's), stages, scans, checks, archives and signs the
+launcher's file, and writes the index (`MANIFEST.txt`, `release.json`, `latest.json` when
+signed, `SHA256SUMS`) in `target/package/dereth-<version>/` unless `--out` names another folder. It refuses a tree with
 uncommitted changes (the programs would not be the commit they name) unless `--allow-dirty`, and a
 shallow clone. `--gather <dir>` builds nothing: it scans the files already in `<dir>`, verifies
 every signature again, and writes the index over them; the workflow's last job runs it on every
@@ -180,16 +183,17 @@ tier-2 modules the release touches on a hardware GPU.
    both Apple silicon and Intel): installs the build dependencies, cargo-about and the Tauri CLI
    (pinned), fetches MoltenVK on macOS (pinned by SHA-256, never from Homebrew), runs
    `cargo xtask package dereth --target <target>` with the signing secrets, and smoke-runs the
-   packaged programs' `--version` (the AppImage unpacked; the macOS bundles' signatures verified;
+   packaged programs' `--version` (the AppImage unpacked; the macOS bundle's signature verified;
    Intel macOS under Rosetta when the runner has it). The launcher has no headless mode, so its
    window is not opened there. A tag's run fails if the launcher file is not signed.
 3. **gather the release:** downloads every runner's files, runs `cargo xtask package dereth --gather`
    (every file scanned and every signature verified again; `latest.json` merged), and keeps the
    release files as a workflow artifact.
 4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a
-   pre-release version) with every
-   release file, `SHA256SUMS`, `MANIFEST.txt`, `release.json` and `latest.json`. It is the only job
-   that can write, and it runs in the `release` environment.
+   pre-release version) with every release file, `SHA256SUMS`, `MANIFEST.txt`, `release.json` and
+   `latest.json`, each with its display label (the table above). The job computes each label from
+   the file's name and fails if any file has none. It is the only job that can write, and it runs
+   in the `release` environment.
 
 Running the workflow by hand (**Run workflow**) is a dry run: the same builds and checks, the
 release files kept as an artifact for 7 days, and nothing published.
@@ -201,9 +205,9 @@ reaches GitHub with the mirror's next sync; push the mirror at once if it does n
 
 Then, on the draft release:
 
-1. Check the workflow run is green, and the draft has eight release files (the launcher and the
-   client alone for each of the four targets), four `.sig` files, `latest.json`, `SHA256SUMS`,
-   `MANIFEST.txt` and `release.json`.
+1. Check the workflow run is green, and the draft has four release files (the launcher for each
+   of the four targets), `latest.json`, `SHA256SUMS`, `MANIFEST.txt` and `release.json`, each
+   labelled.
 2. Download the launcher for each system you can, run it, and play with it against a world.
 3. Edit the notes: what changed.
 4. Publish. Launchers see the release from their next start once it is published (a draft is

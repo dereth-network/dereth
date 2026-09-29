@@ -101,15 +101,15 @@ Release and packaging:
   package empyrean [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>
                             Empyrean's release archives: builds both binaries per target, stages
                             the allowlist, runs the deny scan and the header checks, and writes
-                            the archives, the source tarball, MANIFEST.txt, release.json and
-                            SHA256SUMS (empyrean/RELEASING.md)
+                            the archives, MANIFEST.txt, release.json and SHA256SUMS
+                            (empyrean/RELEASING.md)
   package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
                  | --gather <dir>
                             Dereth's release files: builds the client and the launcher (Tauri) for
                             this host, and writes the launcher (Windows zip, macOS Dereth.app,
-                            Linux AppImage) and the client alone, checked and scanned, with the
-                            launcher's update signature and latest.json when TAURI_SIGNING_PRIVATE_KEY
-                            is set (dereth/launcher/RELEASING.md)
+                            Linux AppImage), with the client inside it, checked and scanned, and
+                            signed for the launcher's updater (latest.json) when
+                            TAURI_SIGNING_PRIVATE_KEY is set (dereth/launcher/RELEASING.md)
   release empyrean|dereth <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 and a host package, tag empyrean-v<version> or

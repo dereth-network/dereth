@@ -3,10 +3,11 @@
 //!
 //! For each target it builds `empyrean-server` and `empyrean-import` in the `server-release`
 //! profile, stages an allowlist of files, checks every file and every binary, and writes one
-//! archive; then it writes the release's index beside the archives: the source tarball,
-//! `MANIFEST.txt`, `release.json` and `SHA256SUMS`. `release.json` carries the release's upgrade
-//! declaration ([`declaration`]), and a release whose declaration breaks its rules (a patch
-//! release that declares anything) is refused before anything is built.
+//! archive; then it writes the release's index beside the archives: `MANIFEST.txt`,
+//! `release.json` and `SHA256SUMS`. The source is the tagged commit, whose archives GitHub
+//! attaches to the release itself; `NOTICE.txt` names both. `release.json` carries the release's
+//! upgrade declaration ([`declaration`]), and a release whose declaration breaks its rules (a
+//! patch release that declares anything) is refused before anything is built.
 //!
 //! ```text
 //! cargo xtask package empyrean [--target <triple>]... [--out <dir>] [--allow-dirty]
@@ -722,7 +723,6 @@ fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), Strin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Asset {
     Archive(Target),
-    Source,
     /// One target's lines of `MANIFEST.txt`.
     ManifestPart,
     /// A file the index writes, replaced on every run.
@@ -732,19 +732,11 @@ pub enum Asset {
 /// The index files.
 const INDEX_FILES: &[&str] = &["SHA256SUMS", "release.json", "MANIFEST.txt"];
 
-/// The source tarball's name.
-pub fn source_name(version: &str) -> String {
-    format!("empyrean-{version}-source.tar.gz")
-}
-
 /// Classify a file of the release folder, or refuse it: the folder holds this version's archives,
-/// its source, the manifest parts and the index, and nothing else.
+/// the manifest parts and the index, and nothing else.
 pub fn classify(name: &str, version: &str) -> Result<Asset, String> {
     if INDEX_FILES.contains(&name) {
         return Ok(Asset::Index);
-    }
-    if name == source_name(version) {
-        return Ok(Asset::Source);
     }
     let archive = name.strip_suffix(".manifest").unwrap_or(name);
     for t in targets::TARGETS {
@@ -758,27 +750,13 @@ pub fn classify(name: &str, version: &str) -> Result<Asset, String> {
     }
     Err(format!(
         "`{name}` is not a file of the empyrean {version} release (an archive \
-         empyrean-{version}-<target>.zip|.tar.gz, its .manifest, the source tarball or the index)"
+         empyrean-{version}-<target>.zip|.tar.gz, its .manifest or the index)"
     ))
 }
 
-/// The index over a release folder: the source tarball (made here if absent), `MANIFEST.txt`,
-/// `release.json` and `SHA256SUMS`. Every archive is scanned again first.
+/// The index over a release folder: `MANIFEST.txt`, `release.json` and `SHA256SUMS`. Every
+/// archive is scanned again first.
 fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Result<(), String> {
-    let source = dir.join(source_name(version));
-    let source_arg = source.display().to_string();
-    let prefix = format!("--prefix=empyrean-{version}-source/");
-    git(
-        ws,
-        &[
-            "archive",
-            "--format=tar.gz",
-            &prefix,
-            "-o",
-            &source_arg,
-            &facts.commit,
-        ],
-    )?;
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)
@@ -792,7 +770,7 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
         match classify(name, version) {
             Ok(Asset::Archive(t)) => archives.push((name.clone(), t)),
             Ok(Asset::ManifestPart) => parts.push(name.clone()),
-            Ok(Asset::Source | Asset::Index) => {}
+            Ok(Asset::Index) => {}
             Err(e) => refused.push(e),
         }
     }
@@ -829,10 +807,6 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
             "target": t.triple, "file": name, "size": bytes.len(), "sha256": sha256_hex(&bytes),
         }));
     }
-    let src = read(&source)?;
-    assets.push(serde_json::json!({
-        "target": "source", "file": source_name(version), "size": src.len(), "sha256": sha256_hex(&src),
-    }));
     let release = serde_json::json!({
         "schema": 2,
         "product": "empyrean",
@@ -851,11 +825,7 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
 
     let mut sums = String::new();
     let mut summed: Vec<String> = archives.iter().map(|(n, _)| n.clone()).collect();
-    summed.extend([
-        source_name(version),
-        "MANIFEST.txt".to_owned(),
-        "release.json".to_owned(),
-    ]);
+    summed.extend(["MANIFEST.txt".to_owned(), "release.json".to_owned()]);
     summed.sort();
     for name in &summed {
         sums.push_str(&format!(

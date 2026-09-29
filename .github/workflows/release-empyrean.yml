@@ -188,8 +188,8 @@ jobs:
           pattern: empyrean-*
           path: dist
           merge-multiple: true
-      # Scans every archive again and writes the source tarball, MANIFEST.txt, release.json and
-      # SHA256SUMS over them.
+      # Scans every archive again and writes MANIFEST.txt, release.json and SHA256SUMS over them.
+      # The source is the tagged commit: GitHub attaches the tag's source archives itself.
       - name: cargo xtask package empyrean --gather
         run: cargo xtask package empyrean --gather dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -231,12 +231,43 @@ jobs:
 
           **No game data is included**: the server reads the client's data files from your own install, and \`empyrean-import fetch --pack\` builds the world from ACE-World's database release. SETUP.md in each archive is the guide.
 
-          The source of this release is \`empyrean-$VERSION-source.tar.gz\` and https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA.
+          The source of this release is https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA, and GitHub's source archives of the tag, **Source code (zip)** and **Source code (tar.gz)**, below.
 
           Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
           EOF
+          # Every file gets a display label, computed from its target; the file names stay as
+          # they are. A file with no label fails the job, so a new target cannot go unlabelled.
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              MANIFEST.txt) label="Release manifest" ;;
+              release.json) label="Release facts (JSON)" ;;
+              "empyrean-$VERSION-"*)
+                case "${f#"empyrean-$VERSION-"}" in
+                  x86_64-pc-windows-msvc.zip) label="Empyrean server · Windows x64" ;;
+                  x86_64-unknown-linux-gnu.tar.gz) label="Empyrean server · Linux x86-64 (glibc 2.28+)" ;;
+                  aarch64-unknown-linux-gnu.tar.gz) label="Empyrean server · Linux arm64 (glibc 2.28+)" ;;
+                  aarch64-apple-darwin.tar.gz) label="Empyrean server · macOS Apple silicon" ;;
+                  x86_64-apple-darwin.tar.gz) label="Empyrean server · macOS Intel" ;;
+                esac ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
           PRE=""
-          case "$TAG" in *-*) PRE="--prerelease" ;; esac
+          # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
             --title "Empyrean $VERSION" --notes-file ../notes.md \
-            *.zip *.tar.gz SHA256SUMS MANIFEST.txt release.json
+            "${assets[@]}"

@@ -1,5 +1,5 @@
 //! Checking a download before anything is installed from it: the release's `SHA256SUMS` names
-//! every archive, `release.json` and the source, and a download whose SHA-256 is not the one
+//! every archive, `MANIFEST.txt` and `release.json`, and a download whose SHA-256 is not the one
 //! listed (or is not listed) is refused, as is an archive whose SHA-256 differs from the one
 //! `release.json` gives. Nothing is signed: the checksums come from the same place as the files, so
 //! they catch a damaged or altered download, not a release published by someone else.

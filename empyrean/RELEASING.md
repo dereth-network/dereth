@@ -36,9 +36,11 @@ elsewhere, each with one folder of the same name holding exactly:
 | `NOTICE.txt` | The exact source commit and where it is (the AGPL source offer), the ACE attribution, the Lifestoned data model's MIT notice, SQLite's public-domain statement, the shared crates' MIT licence and every crate the binaries are built from. |
 | `THIRD-PARTY-LICENSES.html` | Every third-party crate's licence text, from cargo-about (`empyrean/about.toml`, `empyrean/about.hbs`). |
 
-Beside the archives: `empyrean-<version>-source.tar.gz` (`git archive` of the tagged commit),
-`MANIFEST.txt` (each file's size and SHA-256, and what the header checks read from each binary),
-`release.json` (the same, machine-readable, with the upgrade declaration below) and `SHA256SUMS`.
+Beside the archives: `MANIFEST.txt` (each file's size and SHA-256, and what the header checks read
+from each binary), `release.json` (the same, machine-readable, with the upgrade declaration below)
+and `SHA256SUMS`. The release carries no source archive of its own: GitHub attaches the tag's
+source archives (**Source code**, zip and tar.gz) to every release, and `NOTICE.txt` and the release
+notes name them and the repository's tree at the release commit (the AGPL source offer).
 
 ## What upgrading involves: the upgrade declaration
 
@@ -98,8 +100,8 @@ cargo xtask package empyrean --gather <dir>
 ```
 
 Builds both binaries in the `server-release` profile for each `--target` (default: this host's),
-stages, scans, checks and archives them, then writes the source tarball, `MANIFEST.txt`,
-`release.json` and `SHA256SUMS` beside the archives, in `target/package/empyrean-<version>/` unless
+stages, scans, checks and archives them, then writes `MANIFEST.txt`, `release.json` and
+`SHA256SUMS` beside the archives, in `target/package/empyrean-<version>/` unless
 `--out` names another folder. It refuses a tree with uncommitted changes (the binaries would not be
 the commit they name) unless `--allow-dirty`, and a shallow clone (the build number is the commit
 count). `--gather <dir>` builds nothing: it scans the archives already in `<dir>` and writes the
@@ -152,9 +154,11 @@ tier-2 modules the release touches on a hardware GPU.
    (a current distribution); Intel macOS under Rosetta when the runner has it.
 3. **gather the release:** downloads every archive, runs `cargo xtask package empyrean --gather`,
    and keeps the release files as a workflow artifact.
-4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a pre-release version) with the archives, the
-   source tarball, `SHA256SUMS`, `MANIFEST.txt` and `release.json`. It is the only job that can write, and it runs
-   in the `release` environment.
+4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a
+   pre-release version) with the archives, `SHA256SUMS`, `MANIFEST.txt` and `release.json`, each
+   with a display label (`Empyrean server · Windows x64`, `Checksums (SHA-256)` and so on; the file
+   names are unchanged). The job computes each label from the file's name and fails if any file
+   has none. It is the only job that can write, and it runs in the `release` environment.
 
 The CI workflow runs tier 0 on the tagged commit as it does on every push. Running the release
 workflow by hand (**Run workflow**) is a dry run: the same builds and checks, the release files
@@ -168,8 +172,8 @@ mirror's next sync; push the mirror at once if it does not sync on push.
 
 Then, on the draft release:
 
-1. Check the workflow run is green, and the draft has five archives, the source tarball,
-   `SHA256SUMS`, `MANIFEST.txt` and `release.json`.
+1. Check the workflow run is green, and the draft has five archives, `SHA256SUMS`, `MANIFEST.txt`
+   and `release.json`, each labelled.
 2. Download one archive per operating system, look inside (the ten files and nothing else), and
    run the server against your own data.
 3. Edit the notes: what changed, and the ACE-World release this build was tested against

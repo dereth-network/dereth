@@ -4,7 +4,7 @@
 use base64::Engine as _;
 
 use super::archive::{self, Member};
-use super::dereth::{self, Artifact, Asset};
+use super::dereth::{self, Asset};
 use super::guard::{self, Entry, Kind};
 use super::headers;
 use super::sign::{self, Signer};
@@ -181,42 +181,32 @@ fn platforms_are_keyed_as_the_updater_names_them_and_files_come_from_the_tag() {
 // ---------------------------------------------------------------- names and contents
 
 /// Each release file is named for the version and the platform, and the folder's classification
-/// reads every name back; anything else is refused.
+/// reads every name back; anything else is refused, among it a client without the launcher and a
+/// loose signature file (the signature is in `latest.json`).
 #[test]
 fn release_files_are_named_for_version_and_platform_and_read_back() {
-    let w = target(WINDOWS);
     assert_eq!(
-        dereth::artifact_name(Artifact::Launcher, w, V),
+        dereth::release_file_name(target(WINDOWS), V),
         "dereth-0.2.0-windows-x86_64.zip"
     );
     assert_eq!(
-        dereth::artifact_name(Artifact::Launcher, target(MAC_ARM), V),
+        dereth::release_file_name(target(MAC_ARM), V),
         "Dereth-0.2.0-macos-aarch64.app.tar.gz"
     );
     assert_eq!(
-        dereth::artifact_name(Artifact::Launcher, target(LINUX), V),
+        dereth::release_file_name(target(LINUX), V),
         "Dereth-0.2.0-linux-x86_64.AppImage"
-    );
-    assert_eq!(
-        dereth::artifact_name(Artifact::Client, target(MAC_ARM), V),
-        "Dereth-Client-0.2.0-macos-aarch64.app.tar.gz"
     );
     for triple in targets::DERETH_TRIPLES {
         let t = target(triple);
-        for a in [Artifact::Launcher, Artifact::Client] {
-            let name = dereth::artifact_name(a, t, V);
-            assert_eq!(dereth::classify(&name, V), Ok(Asset::Artifact(a, t)));
-            assert_eq!(
-                dereth::classify(&format!("{name}.manifest"), V),
-                Ok(Asset::ManifestPart)
-            );
-            assert_eq!(guard::name_finding(&name), None, "{name}");
-        }
-        let launcher = dereth::artifact_name(Artifact::Launcher, t, V);
+        let name = dereth::release_file_name(t, V);
+        assert_eq!(dereth::classify(&name, V), Ok(Asset::Launcher(t)));
         assert_eq!(
-            dereth::classify(&format!("{launcher}.sig"), V),
-            Ok(Asset::Signature(t))
+            dereth::classify(&format!("{name}.manifest"), V),
+            Ok(Asset::ManifestPart)
         );
+        assert_eq!(guard::name_finding(&name), None, "{name}");
+        assert!(dereth::classify(&format!("{name}.sig"), V).is_err());
         assert_eq!(
             dereth::classify(&dereth::piece_name(t), V),
             Ok(Asset::Piece(t))
@@ -228,7 +218,9 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
     for stray in [
         "dereth-0.1.0-windows-x86_64.zip",
         "client_portal.dat",
-        "dereth-client-0.2.0-windows-x86_64.zip.sig",
+        "dereth-client-0.2.0-windows-x86_64.zip",
+        "dereth-client-0.2.0-linux-x86_64.tar.gz",
+        "Dereth-Client-0.2.0-macos-aarch64.app.tar.gz",
         "notes.txt",
     ] {
         assert!(dereth::classify(stray, V).is_err(), "{stray}");
@@ -240,11 +232,8 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 #[test]
 fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
     let w = target(WINDOWS);
-    assert_eq!(
-        dereth::archive_root(Artifact::Launcher, w, V).as_deref(),
-        Some("dereth-0.2.0")
-    );
-    let (required, optional) = dereth::contents(Artifact::Launcher, w);
+    assert_eq!(dereth::archive_root(w, V).as_deref(), Some("dereth-0.2.0"));
+    let (required, optional) = dereth::contents(w);
     assert_eq!(
         required,
         [
@@ -256,41 +245,32 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
         ]
     );
     assert!(optional.is_empty());
-    let (client, _) = dereth::contents(Artifact::Client, w);
-    assert!(!client.contains(&"dereth.exe".to_owned()));
-    assert!(client.contains(&"dereth-client.exe".to_owned()));
 }
 
-/// A macOS bundle carries the client in `Contents/MacOS` and MoltenVK in `Contents/Frameworks`,
-/// the places the client and the launcher look; the AppImage is no archive.
+/// The macOS bundle carries the launcher and the client in `Contents/MacOS` and MoltenVK in
+/// `Contents/Frameworks`, the places the client and the launcher look; the AppImage is no archive.
 #[test]
-fn the_macos_bundles_carry_the_client_and_moltenvk_where_they_are_looked_for() {
-    for a in [Artifact::Launcher, Artifact::Client] {
-        let (required, optional) = dereth::contents(a, target(MAC_ARM));
-        for need in [
-            "Contents/MacOS/dereth-client",
-            "Contents/Frameworks/libMoltenVK.dylib",
-            "Contents/Info.plist",
-            "Contents/Resources/NOTICE.txt",
-        ] {
-            assert!(required.contains(&need.to_owned()), "{a:?}: {need}");
-        }
-        for name in required.iter().chain(&optional) {
-            assert_eq!(guard::name_finding(name), None, "{name}");
-        }
+fn the_macos_bundle_carries_the_client_and_moltenvk_where_they_are_looked_for() {
+    let (required, optional) = dereth::contents(target(MAC_ARM));
+    for need in [
+        "Contents/MacOS/dereth",
+        "Contents/MacOS/dereth-client",
+        "Contents/Frameworks/libMoltenVK.dylib",
+        "Contents/Info.plist",
+        "Contents/Resources/NOTICE.txt",
+    ] {
+        assert!(required.contains(&need.to_owned()), "{need}");
     }
-    let (launcher, _) = dereth::contents(Artifact::Launcher, target(MAC_ARM));
-    assert!(launcher.contains(&"Contents/MacOS/dereth".to_owned()));
+    for name in required.iter().chain(&optional) {
+        assert_eq!(guard::name_finding(name), None, "{name}");
+    }
     assert_eq!(
-        dereth::archive_root(Artifact::Client, target(MAC_ARM), V).as_deref(),
-        Some("Dereth Client.app")
+        dereth::archive_root(target(MAC_ARM), V).as_deref(),
+        Some("Dereth.app")
     );
+    assert_eq!(dereth::archive_root(target(LINUX), V), None);
     assert_eq!(
-        dereth::archive_root(Artifact::Launcher, target(LINUX), V),
-        None
-    );
-    assert_eq!(
-        dereth::programs(Artifact::Launcher, target(MAC_ARM)),
+        dereth::programs(target(MAC_ARM)),
         ["Contents/MacOS/dereth", "Contents/MacOS/dereth-client"]
     );
 }
@@ -309,7 +289,7 @@ fn dir(path: &str) -> Entry {
 }
 
 fn mac_bundle_entries() -> Vec<Entry> {
-    let (required, _) = dereth::contents(Artifact::Launcher, target(MAC_ARM));
+    let (required, _) = dereth::contents(target(MAC_ARM));
     let mut entries = vec![
         dir(""),
         dir("Contents"),
@@ -325,7 +305,7 @@ fn mac_bundle_entries() -> Vec<Entry> {
 /// header, an oversized file or a missing file is each refused.
 #[test]
 fn a_bundle_scan_passes_its_own_files_and_refuses_everything_else() {
-    let (required, optional) = dereth::contents(Artifact::Launcher, target(MAC_ARM));
+    let (required, optional) = dereth::contents(target(MAC_ARM));
     let scan = |entries: &[Entry]| {
         guard::scan_tree(
             entries,
@@ -383,7 +363,7 @@ fn a_bundle_scan_passes_its_own_files_and_refuses_everything_else() {
 #[test]
 fn a_written_windows_launcher_zip_reads_back_and_passes_the_scan() {
     let w = target(WINDOWS);
-    let (required, optional) = dereth::contents(Artifact::Launcher, w);
+    let (required, optional) = dereth::contents(w);
     let members: Vec<Member> = required
         .iter()
         .map(|n| Member {
@@ -392,7 +372,7 @@ fn a_written_windows_launcher_zip_reads_back_and_passes_the_scan() {
             executable: n.ends_with(".exe"),
         })
         .collect();
-    let root = dereth::archive_root(Artifact::Launcher, w, V).expect("a zip");
+    let root = dereth::archive_root(w, V).expect("a zip");
     let bytes = archive::zip_bytes(&root, &members, 1_700_000_000).expect("zip");
     let entries = archive::relative_to_root(archive::zip_entries(&bytes).expect("reads"), &root);
     assert_eq!(
@@ -543,8 +523,8 @@ fn every_file_the_dereth_package_reads_from_the_tree_is_there() {
     assert!(hbs.contains(super::notice::SECTION_END));
 }
 
-/// The notice names the source, says there is no game data, and carries MoltenVK's licence only
-/// where the package carries MoltenVK and the typefaces' only in the launcher's.
+/// The notice names the source, says there is no game data, carries the typefaces' licences, and
+/// carries MoltenVK's only where the package carries MoltenVK.
 #[test]
 fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
     let crates = [super::notice::Crate {
@@ -553,27 +533,27 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
         licence: "MIT OR Apache-2.0".to_owned(),
     }];
     let fonts = [("Cinzel", "OFL text".to_owned())];
-    let facts = |launcher, moltenvk| super::notice::DerethFacts {
+    let facts = |moltenvk| super::notice::DerethFacts {
         version: V,
         target: MAC_ARM,
         commit: "abc123",
         source_url: "https://github.com/dereth-network/dereth",
-        launcher,
         crates: &crates,
         mit_licence: "MIT License",
-        fonts: if launcher { &fonts } else { &[] },
+        fonts: &fonts,
         moltenvk_licence: moltenvk,
     };
-    let text = super::notice::dereth_notice(&facts(true, Some("Apache License")));
+    let text = super::notice::dereth_notice(&facts(Some("Apache License")));
     assert!(text.contains("https://github.com/dereth-network/dereth/tree/abc123"));
     assert!(text.contains("releases/tag/dereth-v0.2.0"));
     assert!(text.contains("NO GAME DATA"));
     assert!(text.contains("MOLTENVK") && text.contains("Apache License"));
     assert!(text.contains("CINZEL") && text.contains("OFL text"));
     assert!(text.contains("serde 1.0.0"));
-    let client = super::notice::dereth_notice(&facts(false, None));
-    assert!(!client.contains("MOLTENVK"));
-    assert!(!client.contains("CINZEL"));
+    assert!(text.contains("the launcher, with the Dereth client"));
+    let windows = super::notice::dereth_notice(&facts(None));
+    assert!(!windows.contains("MOLTENVK"));
+    assert!(windows.contains("CINZEL"));
 }
 
 /// A Developer ID signs the macOS bundle under the hardened runtime; an ad-hoc signature leaves it

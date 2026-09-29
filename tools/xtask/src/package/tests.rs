@@ -403,8 +403,7 @@ fn the_archive_scan_refuses_strays_links_and_escapes_in_the_written_archive() {
 }
 
 /// Archives are named `empyrean-<version>-<target>`, a `.zip` for Windows and a `.tar.gz`
-/// elsewhere, and the release folder holds nothing else but the source, the manifest parts and
-/// the index.
+/// elsewhere, and the release folder holds nothing else but the manifest parts and the index.
 #[test]
 fn archives_are_named_for_version_and_target_and_the_release_folder_holds_nothing_else() {
     assert_eq!(
@@ -430,10 +429,6 @@ fn archives_are_named_for_version_and_target_and_the_release_folder_holds_nothin
         ),
         Ok(Asset::ManifestPart)
     );
-    assert_eq!(
-        classify("empyrean-0.1.0-source.tar.gz", "0.1.0"),
-        Ok(Asset::Source)
-    );
     assert_eq!(classify("SHA256SUMS", "0.1.0"), Ok(Asset::Index));
     for stray in [
         "empyrean-0.2.0-x86_64-pc-windows-msvc.zip",
@@ -441,6 +436,8 @@ fn archives_are_named_for_version_and_target_and_the_release_folder_holds_nothin
         "empyrean-0.1.0-x86_64-unknown-linux-gnu.zip",
         "client_portal.dat",
         "world.pack",
+        // GitHub attaches the tag's source archives itself; the release folder carries none.
+        "empyrean-0.1.0-source.tar.gz",
     ] {
         assert!(classify(stray, "0.1.0").is_err(), "{stray} was accepted");
     }
@@ -1091,7 +1088,8 @@ fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
     for needle in [
         &format!("https://github.com/dereth-network/dereth/tree/{commit}") as &str,
         "https://github.com/dereth-network/dereth/releases/tag/empyrean-v0.1.0",
-        "empyrean-0.1.0-source.tar.gz",
+        "https://github.com/dereth-network/dereth/archive/refs/tags/empyrean-v0.1.0.tar.gz",
+        "https://github.com/dereth-network/dereth/archive/refs/tags/empyrean-v0.1.0.zip",
         "no Asheron's Call client files",
         "https://github.com/ACEmulator/ACE",
         "Copyright (c) 2018 Scribble",

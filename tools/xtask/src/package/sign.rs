@@ -86,7 +86,7 @@ impl Signer {
     }
 
     /// The signature of `data`, published as `file`, for release `version`: the base64 of the
-    /// whole signature box, which is what `latest.json` and a `.sig` file carry.
+    /// whole signature box, which is what `latest.json` carries.
     pub fn sign(
         &self,
         data: &[u8],

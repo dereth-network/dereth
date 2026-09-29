@@ -21,9 +21,9 @@ The repository's [releases](https://github.com/dereth-network/dereth/releases) t
 `dereth-v<version>` are Dereth, the launcher, with the client inside it: a zip for Windows (unzip
 anywhere and run `dereth.exe`; no installer), `Dereth.app` for macOS and an AppImage for Linux.
 Take the newest. The launcher keeps itself and the client up to date from the newest published
-one. The client alone is there too. The builds are
-not code-signed yet: Windows SmartScreen asks once (**More info**, **Run anyway**), and macOS once
-(**System Settings**, **Privacy & Security**, **Open Anyway**). How a release is made:
+one. The builds are not code-signed yet: Windows SmartScreen asks once (**More info**, **Run
+anyway**), and macOS once (**System Settings**, **Privacy & Security**, **Open Anyway**). How a
+release is made:
 [`dereth/launcher/RELEASING.md`](dereth/launcher/RELEASING.md). Empyrean's releases, tagged
 `empyrean-v<version>`, are in the same list.
 

@@ -1,6 +1,5 @@
-//! `cargo xtask package dereth`: Dereth's release files (the launcher, with the client inside it,
-//! and the client on its own), built the same way on a contributor's machine and in the release
-//! workflow.
+//! `cargo xtask package dereth`: Dereth's release files (the launcher, with the client inside it),
+//! built the same way on a contributor's machine and in the release workflow.
 //!
 //! ```text
 //! cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
@@ -11,17 +10,18 @@
 //! the client with cargo and the launcher with the Tauri CLI, then writes into
 //! `<target dir>/package/dereth-<version>/` (or `--out`):
 //!
-//! | system | the launcher | the client alone |
-//! |---|---|---|
-//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe` and the notices, under `dereth-<v>/` | `dereth-client-<v>-windows-x86_64.zip` |
-//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` | `Dereth-Client-<v>-macos-<arch>.app.tar.gz`: `Dereth Client.app` |
-//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it | `dereth-client-<v>-linux-x86_64.tar.gz` |
+//! | system | the release file |
+//! |---|---|
+//! | Windows | `dereth-<v>-windows-x86_64.zip`: `dereth.exe`, `dereth-client.exe` and the notices, under `dereth-<v>/` |
+//! | macOS | `Dereth-<v>-macos-<arch>.app.tar.gz`: `Dereth.app`, the client in `Contents/MacOS`, MoltenVK in `Contents/Frameworks` |
+//! | Linux | `Dereth-<v>-linux-x86_64.AppImage`, the client inside it |
 //!
-//! With an update-signing key in the environment ([`sign`]) the launcher's file gets
-//! its signature, `<file>.sig`, and its platform's piece of `latest.json`,
-//! `latest-<platform>.json`. Each target's lines of `MANIFEST.txt` go in `<file>.manifest`. Then
-//! the index is written over the folder: `MANIFEST.txt`, `release.json`, `latest.json` (only when
-//! every launcher file is signed) and `SHA256SUMS`. `--gather <dir>` builds nothing: it checks the
+//! With an update-signing key in the environment ([`sign`]) the launcher's file is signed, and
+//! the signature goes into its platform's piece of `latest.json`, `latest-<platform>.json`: the
+//! updater reads the signature there, so no separate signature file is written. Each target's
+//! lines of `MANIFEST.txt` go in `<file>.manifest`. Then the index is written over the folder:
+//! `MANIFEST.txt`, `release.json`, `latest.json` (only when every launcher file is signed) and
+//! `SHA256SUMS`. `--gather <dir>` builds nothing: it checks the
 //! files already in `<dir>` (every runner's, in the release workflow) and writes the index over
 //! them.
 //!
@@ -31,8 +31,8 @@
 //! file whose inside only the launcher's own build fills; its binaries are checked as built.
 //!
 //! **macOS** needs MoltenVK's macOS release unpacked (`--moltenvk <dir>` or `DERETH_MOLTENVK_DIR`):
-//! its `libMoltenVK.dylib` goes into both bundles, and its licence into the notices. Both bundles
-//! are signed ad hoc (no Apple identity yet).
+//! its `libMoltenVK.dylib` goes into the bundle, and its licence into the notices. The bundle is
+//! signed ad hoc unless an Apple identity is given ([`mac_signing`]).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -79,83 +79,61 @@ pub const MOLTENVK_ENV: &str = "DERETH_MOLTENVK_DIR";
 /// The public repository the release files are downloaded from, when the default is not it.
 pub const SOURCE_URL_ENV: &str = "DERETH_BUILD_SOURCE_URL";
 
-/// The macOS bundles' names.
+/// The macOS bundle's name.
 pub const LAUNCHER_APP: &str = "Dereth.app";
-pub const CLIENT_APP: &str = "Dereth Client.app";
 
-/// Which program a release file carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Artifact {
-    /// The launcher, with the client.
-    Launcher,
-    /// The client alone.
-    Client,
-}
-
-/// The file name of `artifact` for `target`.
-pub fn artifact_name(artifact: Artifact, target: Target, version: &str) -> String {
+/// The release file for `target`: the launcher, with the client inside it.
+pub fn release_file_name(target: Target, version: &str) -> String {
     let p = target.platform_name();
-    match (artifact, target.os) {
-        (Artifact::Launcher, Os::Windows) => format!("dereth-{version}-{p}.zip"),
-        (Artifact::Launcher, Os::Mac) => format!("Dereth-{version}-{p}.app.tar.gz"),
-        (Artifact::Launcher, Os::Linux) => format!("Dereth-{version}-{p}.AppImage"),
-        (Artifact::Client, Os::Mac) => format!("Dereth-Client-{version}-{p}.app.tar.gz"),
-        (Artifact::Client, Os::Windows) => format!("dereth-client-{version}-{p}.zip"),
-        (Artifact::Client, Os::Linux) => format!("dereth-client-{version}-{p}.tar.gz"),
+    match target.os {
+        Os::Windows => format!("dereth-{version}-{p}.zip"),
+        Os::Mac => format!("Dereth-{version}-{p}.app.tar.gz"),
+        Os::Linux => format!("Dereth-{version}-{p}.AppImage"),
     }
 }
 
-/// The one top-level folder of `artifact`'s archive; `None` for the AppImage, which is no archive.
-pub fn archive_root(artifact: Artifact, target: Target, version: &str) -> Option<String> {
-    match (artifact, target.os) {
-        (Artifact::Launcher, Os::Windows) => Some(format!("dereth-{version}")),
-        (Artifact::Launcher, Os::Mac) => Some(LAUNCHER_APP.to_owned()),
-        (Artifact::Launcher, Os::Linux) => None,
-        (Artifact::Client, Os::Mac) => Some(CLIENT_APP.to_owned()),
-        (Artifact::Client, _) => Some(format!("dereth-client-{version}")),
+/// The one top-level folder of the release file's archive; `None` for the AppImage, which is no
+/// archive.
+pub fn archive_root(target: Target, version: &str) -> Option<String> {
+    match target.os {
+        Os::Windows => Some(format!("dereth-{version}")),
+        Os::Mac => Some(LAUNCHER_APP.to_owned()),
+        Os::Linux => None,
     }
 }
 
-/// The files `artifact`'s archive holds below its top-level folder: those it must hold, and those
-/// it may (what the bundler writes on some machines and not others). Empty for the AppImage.
-pub fn contents(artifact: Artifact, target: Target) -> (Vec<String>, Vec<String>) {
+/// The files the release file's archive holds below its top-level folder: those it must hold, and
+/// those it may (what the bundler writes on some machines and not others). Empty for the AppImage.
+pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
     let exe = target.exe_suffix();
     let own = |names: &[&str]| -> Vec<String> { names.iter().map(|n| (*n).to_owned()).collect() };
     let notices_in =
         |dir: &str| -> Vec<String> { NOTICES.iter().map(|n| format!("{dir}{n}")).collect() };
     let mut required = Vec::new();
     let mut optional = Vec::new();
-    match (artifact, target.os) {
-        (Artifact::Launcher, Os::Linux) => {}
-        (Artifact::Launcher, Os::Windows) | (Artifact::Client, Os::Windows | Os::Linux) => {
-            if artifact == Artifact::Launcher {
-                required.push(format!("dereth{exe}"));
-            }
+    match target.os {
+        Os::Linux => {}
+        Os::Windows => {
+            required.push(format!("dereth{exe}"));
             required.push(format!("dereth-client{exe}"));
             required.extend(notices_in(""));
         }
-        (_, Os::Mac) => {
+        Os::Mac => {
             required.extend(own(&[
                 "Contents/Info.plist",
+                "Contents/MacOS/dereth",
                 "Contents/MacOS/dereth-client",
                 "Contents/Frameworks/libMoltenVK.dylib",
             ]));
             required.extend(notices_in("Contents/Resources/"));
+            // The bundler names the icon after the product, or `icon`, by version.
             optional.extend(own(&[
+                "Contents/PkgInfo",
                 "Contents/Resources/Assets.car",
+                "Contents/Resources/Dereth.icns",
+                "Contents/Resources/icon.icns",
                 "Contents/_CodeSignature/CodeResources",
             ]));
-            if artifact == Artifact::Launcher {
-                required.push("Contents/MacOS/dereth".to_owned());
-                // The bundler names the icon after the product, or `icon`, by version.
-                optional.extend(own(&[
-                    "Contents/PkgInfo",
-                    "Contents/Resources/Dereth.icns",
-                    "Contents/Resources/icon.icns",
-                ]));
-            } else {
-                required.extend(own(&["Contents/PkgInfo", "Contents/Resources/Dereth.icns"]));
-            }
         }
     }
     required.sort();
@@ -163,19 +141,18 @@ pub fn contents(artifact: Artifact, target: Target) -> (Vec<String>, Vec<String>
     (required, optional)
 }
 
-/// The programs in `artifact`'s archive, which the header checks read.
-pub fn programs(artifact: Artifact, target: Target) -> Vec<String> {
+/// The programs in the release file's archive, which the header checks read.
+pub fn programs(target: Target) -> Vec<String> {
     let exe = target.exe_suffix();
     let dir = if target.os == Os::Mac {
         "Contents/MacOS/"
     } else {
         ""
     };
-    let mut out = vec![format!("{dir}dereth-client{exe}")];
-    if artifact == Artifact::Launcher {
-        out.insert(0, format!("{dir}dereth{exe}"));
-    }
-    out
+    vec![
+        format!("{dir}dereth{exe}"),
+        format!("{dir}dereth-client{exe}"),
+    ]
 }
 
 /// The name of a target's piece of `latest.json`.
@@ -186,9 +163,8 @@ pub fn piece_name(target: Target) -> String {
 /// What a file of a Dereth release folder is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Asset {
-    Artifact(Artifact, Target),
-    /// The launcher file's update signature.
-    Signature(Target),
+    /// The release file: the launcher, with the client inside it.
+    Launcher(Target),
     /// One file's lines of `MANIFEST.txt`.
     ManifestPart,
     /// One platform's entry of `latest.json`.
@@ -201,7 +177,7 @@ pub enum Asset {
 const INDEX_FILES: &[&str] = &["SHA256SUMS", "release.json", "MANIFEST.txt", "latest.json"];
 
 /// Classify a file of the release folder, or refuse it: the folder holds this version's release
-/// files, their signatures, manifest parts and `latest.json` pieces, and the index.
+/// files, their manifest parts and `latest.json` pieces, and the index.
 pub fn classify(name: &str, version: &str) -> Result<Asset, String> {
     if INDEX_FILES.contains(&name) {
         return Ok(Asset::Index);
@@ -211,22 +187,17 @@ pub fn classify(name: &str, version: &str) -> Result<Asset, String> {
         if name == piece_name(t) {
             return Ok(Asset::Piece(t));
         }
-        for a in [Artifact::Launcher, Artifact::Client] {
-            let file = artifact_name(a, t, version);
-            if name == file {
-                return Ok(Asset::Artifact(a, t));
-            }
-            if name == format!("{file}.manifest") {
-                return Ok(Asset::ManifestPart);
-            }
-            if a == Artifact::Launcher && name == format!("{file}.sig") {
-                return Ok(Asset::Signature(t));
-            }
+        let file = release_file_name(t, version);
+        if name == file {
+            return Ok(Asset::Launcher(t));
+        }
+        if name == format!("{file}.manifest") {
+            return Ok(Asset::ManifestPart);
         }
     }
     Err(format!(
-        "`{name}` is not a file of the Dereth {version} release (a launcher or client file, its \
-         .sig or .manifest, a latest-<platform>.json piece or the index)"
+        "`{name}` is not a file of the Dereth {version} release (a launcher file, its .manifest, a \
+         latest-<platform>.json piece or the index)"
     ))
 }
 
@@ -598,55 +569,24 @@ struct Job<'a> {
     moltenvk: Option<&'a (PathBuf, PathBuf)>,
 }
 
-/// The two sets of notices: the launcher package's and the client's.
-struct Notices {
-    launcher: PathBuf,
-    client: PathBuf,
-}
-
 impl Job<'_> {
     fn run(&self) -> Result<(), String> {
         fresh_dir(self.stage)?;
         let client = self.build_client()?;
         let notices = self.notices()?;
+        let launcher = self.build_launcher(&client, &notices)?;
         match self.target.os {
             Os::Windows => {
-                let launcher = self.build_launcher(&client, &notices.launcher)?;
-                let files = |notices: &Path| -> Vec<(String, PathBuf)> {
-                    NOTICES
-                        .iter()
-                        .map(|n| ((*n).to_owned(), notices.join(n)))
-                        .collect()
-                };
                 let mut members = vec![
                     ("dereth.exe".to_owned(), launcher),
-                    ("dereth-client.exe".to_owned(), client.clone()),
+                    ("dereth-client.exe".to_owned(), client),
                 ];
-                members.extend(files(&notices.launcher));
-                self.write_archive(Artifact::Launcher, &members)?;
-                let mut members = vec![("dereth-client.exe".to_owned(), client)];
-                members.extend(files(&notices.client));
-                self.write_archive(Artifact::Client, &members)?;
+                members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
+                self.write_archive(&members)
             }
-            Os::Linux => {
-                let appimage = self.build_launcher(&client, &notices.launcher)?;
-                self.write_appimage(&appimage, &client)?;
-                let mut members = vec![("dereth-client".to_owned(), client)];
-                members.extend(
-                    NOTICES
-                        .iter()
-                        .map(|n| ((*n).to_owned(), notices.client.join(n))),
-                );
-                self.write_archive(Artifact::Client, &members)?;
-            }
-            Os::Mac => {
-                let app = self.build_launcher(&client, &notices.launcher)?;
-                self.write_bundle(Artifact::Launcher, &app)?;
-                let app = self.client_bundle(&client, &notices.client)?;
-                self.write_bundle(Artifact::Client, &app)?;
-            }
+            Os::Linux => self.write_appimage(&launcher, &client),
+            Os::Mac => self.write_bundle(&launcher),
         }
-        Ok(())
     }
 
     /// The client, built with cargo in the workspace.
@@ -682,13 +622,12 @@ impl Job<'_> {
         Ok(staged)
     }
 
-    /// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html` for each package.
-    fn notices(&self) -> Result<Notices, String> {
+    /// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`: the folder they are written in.
+    fn notices(&self) -> Result<PathBuf, String> {
         let t = self.target;
         let launcher_manifest = format!("{LAUNCHER_DIR}/Cargo.toml");
-        let client_crates = crates_of(self.ws, "Cargo.toml", "dereth-client", t)?;
         let mut all_crates = crates_of(self.ws, &launcher_manifest, "dereth-launcher", t)?;
-        all_crates.extend(client_crates.iter().cloned());
+        all_crates.extend(crates_of(self.ws, "Cargo.toml", "dereth-client", t)?);
         all_crates.sort();
         all_crates.dedup();
         let mit = String::from_utf8_lossy(&read(&self.ws.join("LICENSE"))?).into_owned();
@@ -736,51 +675,31 @@ impl Job<'_> {
         let launcher_page = page(&launcher_manifest, "dereth")?;
         let client_page = page("dereth/client/Cargo.toml", "dereth-client")?;
 
-        let mut dirs = Vec::new();
-        for launcher in [true, false] {
-            let dir = self.stage.join(if launcher {
-                "notices-launcher"
-            } else {
-                "notices-client"
-            });
-            mkdir(&dir)?;
-            let crates = if launcher {
-                &all_crates
-            } else {
-                &client_crates
-            };
-            let text = notice::dereth_notice(&notice::DerethFacts {
-                version: self.version,
-                target: t.triple,
-                commit: &self.facts.commit,
-                source_url: &self.facts.source_url,
-                launcher,
-                crates,
-                mit_licence: &mit,
-                fonts: if launcher { &fonts } else { &[] },
-                moltenvk_licence: moltenvk.as_deref(),
-            });
-            write(&dir.join("NOTICE.txt"), text.as_bytes())?;
-            write(&dir.join("LICENSE"), mit.as_bytes())?;
-            let client_name = format!("dereth-client{exe}");
-            let launcher_name = format!("dereth{exe}");
-            let pages: Vec<(&str, String)> = if launcher {
-                vec![
-                    (launcher_name.as_str(), launcher_page.clone()),
-                    (client_name.as_str(), client_page.clone()),
-                ]
-            } else {
-                vec![(client_name.as_str(), client_page.clone())]
-            };
-            write(
-                &dir.join("THIRD-PARTY-LICENSES.html"),
-                notice::splice_licence_pages(&pages)?.as_bytes(),
-            )?;
-            dirs.push(dir);
-        }
-        let client = dirs.pop().unwrap_or_default();
-        let launcher = dirs.pop().unwrap_or_default();
-        Ok(Notices { launcher, client })
+        let dir = self.stage.join("notices");
+        mkdir(&dir)?;
+        let text = notice::dereth_notice(&notice::DerethFacts {
+            version: self.version,
+            target: t.triple,
+            commit: &self.facts.commit,
+            source_url: &self.facts.source_url,
+            crates: &all_crates,
+            mit_licence: &mit,
+            fonts: &fonts,
+            moltenvk_licence: moltenvk.as_deref(),
+        });
+        write(&dir.join("NOTICE.txt"), text.as_bytes())?;
+        write(&dir.join("LICENSE"), mit.as_bytes())?;
+        let client_name = format!("dereth-client{exe}");
+        let launcher_name = format!("dereth{exe}");
+        let pages = [
+            (launcher_name.as_str(), launcher_page),
+            (client_name.as_str(), client_page),
+        ];
+        write(
+            &dir.join("THIRD-PARTY-LICENSES.html"),
+            notice::splice_licence_pages(&pages)?.as_bytes(),
+        )?;
+        Ok(dir)
     }
 
     /// The launcher, built with the Tauri CLI: `dereth.exe` on Windows, `Dereth.app` on macOS
@@ -884,40 +803,6 @@ impl Job<'_> {
         }
     }
 
-    /// `Dereth Client.app`: the client's own bundle, with MoltenVK and the notices, signed ad hoc.
-    fn client_bundle(&self, client: &Path, notices: &Path) -> Result<PathBuf, String> {
-        let (dylib, _) = self.moltenvk.ok_or("a macOS client needs MoltenVK")?;
-        let app = self.stage.join(CLIENT_APP);
-        crate::bundle::lay_out(
-            self.ws,
-            &self.stage.join("icon"),
-            client,
-            &app,
-            &crate::bundle::Identity {
-                name: "Dereth Client",
-                bundle_id: crate::bundle::BUNDLE_ID,
-                version: self.version,
-            },
-        )?;
-        let framework = app.join("Contents/Frameworks/libMoltenVK.dylib");
-        copy(dylib, &framework)?;
-        for n in NOTICES {
-            copy(&notices.join(n), &app.join("Contents/Resources").join(n))?;
-        }
-        // The library first, then the bundle that seals it.
-        for path in [&framework, &app] {
-            let arg = path.display().to_string();
-            run_in(
-                self.ws,
-                "codesign",
-                &["--force", "--sign", "-", &arg],
-                &[],
-                &[],
-            )?;
-        }
-        Ok(app)
-    }
-
     /// Check a program for the target, by its name in a package.
     fn check_program(&self, name: &str, bytes: &[u8]) -> Result<String, String> {
         headers::check_app_binary(bytes, self.target, targets::DERETH_GLIBC_FLOOR).map_err(
@@ -933,32 +818,27 @@ impl Job<'_> {
 
     /// A flat archive of `members` (name in the package, file on disk), scanned, checked,
     /// written and scanned again.
-    fn write_archive(
-        &self,
-        artifact: Artifact,
-        members: &[(String, PathBuf)],
-    ) -> Result<(), String> {
-        let t = self.target;
-        let root = archive_root(artifact, t, self.version).ok_or("not an archive")?;
+    fn write_archive(&self, members: &[(String, PathBuf)]) -> Result<(), String> {
+        let root = archive_root(self.target, self.version).ok_or("not an archive")?;
         let stage = self.stage.join(&root);
         fresh_dir(&stage)?;
         for (name, from) in members {
             copy(from, &stage.join(name))?;
         }
-        self.finish_tree(artifact, &stage, &root)
+        self.finish_tree(&stage, &root)
     }
 
     /// A bundle on disk, archived as it is.
-    fn write_bundle(&self, artifact: Artifact, app: &Path) -> Result<(), String> {
-        let root = archive_root(artifact, self.target, self.version).ok_or("not an archive")?;
-        self.finish_tree(artifact, app, &root)
+    fn write_bundle(&self, app: &Path) -> Result<(), String> {
+        let root = archive_root(self.target, self.version).ok_or("not an archive")?;
+        self.finish_tree(app, &root)
     }
 
     /// Scan the folder `dir`, check its programs, archive it under `root`, scan the archive, sign
-    /// it when it is the launcher, and write its manifest lines.
-    fn finish_tree(&self, artifact: Artifact, dir: &Path, root: &str) -> Result<(), String> {
+    /// it, and write its manifest lines.
+    fn finish_tree(&self, dir: &Path, root: &str) -> Result<(), String> {
         let t = self.target;
-        let (required, optional) = contents(artifact, t);
+        let (required, optional) = contents(t);
         let staged = guard::staged_entries(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let findings = guard::scan_tree(&staged, &required, &optional, FILE_CAP, TOTAL_CAP);
         if !findings.is_empty() {
@@ -969,7 +849,7 @@ impl Job<'_> {
             ));
         }
         let mut described = Vec::new();
-        for name in programs(artifact, t) {
+        for name in programs(t) {
             let d = self.check_program(&name, &read(&dir.join(&name))?)?;
             println!("  {name}: {d}");
             described.push((name, d));
@@ -987,7 +867,7 @@ impl Job<'_> {
                 members.push(Member {
                     name: e.path.clone(),
                     bytes: read(&path)?,
-                    executable: executable(&path) || programs(artifact, t).contains(&e.path),
+                    executable: executable(&path) || programs(t).contains(&e.path),
                 });
             }
         }
@@ -996,10 +876,10 @@ impl Job<'_> {
         } else {
             archive::tar_gz_bytes(root, &members, self.facts.epoch)?
         };
-        let file = artifact_name(artifact, t, self.version);
+        let file = release_file_name(t, self.version);
         let path = self.out_dir.join(&file);
         write(&path, &bytes)?;
-        check_archive(&path, artifact, t, self.version)?;
+        check_archive(&path, t, self.version)?;
         println!(
             "  {}: {} bytes, sha256 {}",
             path.display(),
@@ -1017,10 +897,7 @@ impl Job<'_> {
             })
             .collect();
         self.write_manifest(&file, &lines)?;
-        if artifact == Artifact::Launcher {
-            self.sign_launcher(&file, &bytes)?;
-        }
-        Ok(())
+        self.sign_launcher(&file, &bytes)
     }
 
     /// The AppImage, as the bundler wrote it, with the programs that went into it checked.
@@ -1039,7 +916,7 @@ impl Job<'_> {
             lines.push((name.to_owned(), bytes, d));
         }
         let bytes = read(appimage)?;
-        let file = artifact_name(Artifact::Launcher, t, self.version);
+        let file = release_file_name(t, self.version);
         let findings = check_appimage(&file, &bytes);
         if !findings.is_empty() {
             return Err(format!(
@@ -1094,14 +971,12 @@ impl Job<'_> {
     }
 
     /// With a key: the launcher file's signature, verified as the launcher's updater verifies it,
-    /// `<file>.sig`, and this platform's piece of `latest.json`. Without one, neither, and any
-    /// left from an earlier run are removed.
+    /// in this platform's piece of `latest.json`. Without one, no piece, and one left from an
+    /// earlier run is removed.
     fn sign_launcher(&self, file: &str, bytes: &[u8]) -> Result<(), String> {
         let t = self.target;
-        let sig_path = self.out_dir.join(format!("{file}.sig"));
         let piece_path = self.out_dir.join(piece_name(t));
         let Some(signer) = self.signer else {
-            let _ = std::fs::remove_file(&sig_path);
             let _ = std::fs::remove_file(&piece_path);
             return Ok(());
         };
@@ -1114,7 +989,6 @@ impl Job<'_> {
                 sign::KEY_VAR
             )
         })?;
-        write(&sig_path, signature.as_bytes())?;
         let url = download_url(&self.facts.source_url, self.version, file);
         let piece = sign::platform_piece(&t.updater_platform(), &url, &signature);
         write(
@@ -1166,21 +1040,16 @@ pub fn check_appimage(name: &str, bytes: &[u8]) -> Vec<String> {
 }
 
 /// The deny scan of a written release file.
-fn check_archive(
-    path: &Path,
-    artifact: Artifact,
-    target: Target,
-    version: &str,
-) -> Result<(), String> {
+fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let findings = match archive_root(artifact, target, version) {
+    let findings = match archive_root(target, version) {
         None => check_appimage(&name, &read(path)?),
         Some(root) => {
             let entries: Vec<Entry> = archive::archive_entries(path, &root)?;
-            let (required, optional) = contents(artifact, target);
+            let (required, optional) = contents(target);
             guard::scan_tree(&entries, &required, &optional, FILE_CAP, TOTAL_CAP)
         }
     };
@@ -1205,16 +1074,14 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    let mut artifacts = Vec::new();
+    let mut launchers = Vec::new();
     let mut parts = Vec::new();
-    let mut signatures = Vec::new();
     let mut pieces = Vec::new();
     let mut refused = Vec::new();
     for name in &names {
         match classify(name, version) {
-            Ok(Asset::Artifact(a, t)) => artifacts.push((name.clone(), a, t)),
+            Ok(Asset::Launcher(t)) => launchers.push((name.clone(), t)),
             Ok(Asset::ManifestPart) => parts.push(name.clone()),
-            Ok(Asset::Signature(t)) => signatures.push((name.clone(), t)),
             Ok(Asset::Piece(t)) => pieces.push((name.clone(), t)),
             Ok(Asset::Index) => {}
             Err(e) => refused.push(e),
@@ -1227,25 +1094,21 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
             refused.join("\n  ")
         ));
     }
-    if artifacts.is_empty() {
+    if launchers.is_empty() {
         return Err(format!(
             "no Dereth {version} release files in {}",
             dir.display()
         ));
     }
-    for (name, a, t) in &artifacts {
-        check_archive(&dir.join(name), *a, *t, version)?;
+    for (name, t) in &launchers {
+        check_archive(&dir.join(name), *t, version)?;
     }
 
     // latest.json: every launcher file signed, each signature good, one piece per platform.
     let public_key = launcher_public_key(ws)?;
-    let launchers: Vec<&(String, Artifact, Target)> = artifacts
-        .iter()
-        .filter(|(_, a, _)| *a == Artifact::Launcher)
-        .collect();
     let mut piece_values = Vec::new();
     let mut unsigned = Vec::new();
-    for (name, _, t) in &launchers {
+    for (name, t) in &launchers {
         let piece = pieces.iter().find(|(_, pt)| pt == t);
         let Some((piece_file, _)) = piece else {
             unsigned.push(name.clone());
@@ -1266,14 +1129,10 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
         }
         sign::verify(&read(&dir.join(name))?, signature, &public_key, version)
             .map_err(|e| format!("{name}: {e}"))?;
-        let sig_file = dir.join(format!("{name}.sig"));
-        if String::from_utf8_lossy(&read(&sig_file)?).trim() != signature {
-            return Err(format!("{name}.sig differs from {piece_file}'s signature"));
-        }
         piece_values.push(value);
     }
     for (piece_file, t) in &pieces {
-        if !launchers.iter().any(|(_, _, lt)| lt == t) {
+        if !launchers.iter().any(|(_, lt)| lt == t) {
             return Err(format!("{piece_file} has no launcher file beside it"));
         }
     }
@@ -1309,16 +1168,16 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
     write(&dir.join("MANIFEST.txt"), manifest.as_bytes())?;
 
     let mut assets = Vec::new();
-    for (name, a, t) in &artifacts {
+    for (name, t) in &launchers {
         let bytes = read(&dir.join(name))?;
         assets.push(serde_json::json!({
-            "program": match a { Artifact::Launcher => "launcher", Artifact::Client => "client" },
+            "program": "launcher",
             "target": t.triple,
             "platform": t.updater_platform(),
             "file": name,
             "size": bytes.len(),
             "sha256": sha256_hex(&bytes),
-            "signed": *a == Artifact::Launcher && signatures.iter().any(|(s, _)| *s == format!("{name}.sig")),
+            "signed": !unsigned.contains(name),
         }));
     }
     let release = serde_json::json!({
@@ -1337,8 +1196,7 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
     json.push('\n');
     write(&dir.join("release.json"), json.as_bytes())?;
 
-    let mut summed: Vec<String> = artifacts.iter().map(|(n, _, _)| n.clone()).collect();
-    summed.extend(signatures.iter().map(|(n, _)| n.clone()));
+    let mut summed: Vec<String> = launchers.iter().map(|(n, _)| n.clone()).collect();
     summed.extend(["MANIFEST.txt".to_owned(), "release.json".to_owned()]);
     if signed {
         summed.push("latest.json".to_owned());

@@ -1,7 +1,7 @@
 name: Release Dereth
 
-# Builds, checks and drafts a Dereth release: the launcher (with the client inside it) and the
-# client on its own, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
+# Builds, checks and drafts a Dereth release: the launcher, with the client inside it, for
+# Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
 # target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. The
 # launcher updates itself from the latest.json of the repository's newest published
 # `dereth-v<version>` release (a pre-release excepted), which it finds by listing the releases.
@@ -153,33 +153,27 @@ jobs:
           esac
           case "$TARGET" in
             *windows*)
-              (cd smoke && 7z x "../dist/dereth-$VERSION-windows-x86_64.zip" > /dev/null \
-                && 7z x "../dist/dereth-client-$VERSION-windows-x86_64.zip" > /dev/null)
+              (cd smoke && 7z x "../dist/dereth-$VERSION-windows-x86_64.zip" > /dev/null)
               launcher="smoke/dereth-$VERSION/dereth.exe"
-              clients=("smoke/dereth-$VERSION/dereth-client.exe" "smoke/dereth-client-$VERSION/dereth-client.exe") ;;
+              client="smoke/dereth-$VERSION/dereth-client.exe" ;;
             *linux*)
               appimage="$PWD/dist/Dereth-$VERSION-linux-x86_64.AppImage"
               (cd smoke && "$appimage" --appimage-extract > /dev/null)
-              tar -xzf "dist/dereth-client-$VERSION-linux-x86_64.tar.gz" -C smoke
               launcher="smoke/squashfs-root/usr/bin/dereth"
-              clients=("smoke/squashfs-root/usr/bin/dereth-client" "smoke/dereth-client-$VERSION/dereth-client") ;;
+              client="smoke/squashfs-root/usr/bin/dereth-client" ;;
             *apple*)
               arch=${TARGET%%-*}
               tar -xzf "dist/Dereth-$VERSION-macos-$arch.app.tar.gz" -C smoke
-              tar -xzf "dist/Dereth-Client-$VERSION-macos-$arch.app.tar.gz" -C smoke
               codesign --verify --deep --strict smoke/Dereth.app
-              codesign --verify --deep --strict "smoke/Dereth Client.app"
               launcher="smoke/Dereth.app/Contents/MacOS/dereth"
-              clients=("smoke/Dereth.app/Contents/MacOS/dereth-client" "smoke/Dereth Client.app/Contents/MacOS/dereth-client") ;;
+              client="smoke/Dereth.app/Contents/MacOS/dereth-client" ;;
           esac
           run "$launcher" --version | tee version-launcher.txt
           grep -qx "dereth $VERSION" version-launcher.txt
           grep -qx "target: $TARGET" version-launcher.txt
-          for client in "${clients[@]}"; do
-            run "$client" --version | tee version-client.txt
-            grep -qx "dereth-client $VERSION" version-client.txt
-            grep -qx "target: $TARGET" version-client.txt
-          done
+          run "$client" --version | tee version-client.txt
+          grep -qx "dereth-client $VERSION" version-client.txt
+          grep -qx "target: $TARGET" version-client.txt
           echo "::notice::the launcher has no headless mode, so its window is not opened here"
       - name: Keep this target's files (the index is written by the gather job)
         run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json
@@ -225,7 +219,6 @@ jobs:
             dist/*.zip
             dist/*.tar.gz
             dist/*.AppImage
-            dist/*.sig
             dist/SHA256SUMS
             dist/MANIFEST.txt
             dist/release.json
@@ -264,7 +257,7 @@ jobs:
           | macOS | \`Dereth-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Dereth.app\` to Applications |
           | Linux | \`Dereth-$VERSION-linux-x86_64.AppImage\` | mark it executable and run it |
 
-          The launcher keeps itself and the client up to date from this repository's newest Dereth release. The client alone, without the launcher, is \`dereth-client-*\` (Windows, Linux) and \`Dereth-Client-*.app.tar.gz\` (macOS).
+          The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
@@ -272,8 +265,42 @@ jobs:
 
           Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
           EOF
+          # Every file gets a display label, computed from its platform; the file names stay as
+          # they are. A file with no label fails the job, so a new target cannot go unlabelled.
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              MANIFEST.txt) label="Release manifest" ;;
+              release.json) label="Release facts (JSON)" ;;
+              latest.json) label="Updater manifest" ;;
+              "dereth-$VERSION-"*)
+                case "${f#"dereth-$VERSION-"}" in
+                  windows-x86_64.zip) label="Dereth · Windows x64 (zip, no installer)" ;;
+                esac ;;
+              "Dereth-$VERSION-"*)
+                case "${f#"Dereth-$VERSION-"}" in
+                  macos-aarch64.app.tar.gz) label="Dereth · macOS Apple silicon" ;;
+                  macos-x86_64.app.tar.gz) label="Dereth · macOS Intel" ;;
+                  linux-x86_64.AppImage) label="Dereth · Linux x86-64 AppImage (glibc 2.35+)" ;;
+                esac ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
           PRE=""
-          case "$TAG" in *-*) PRE="--prerelease" ;; esac
+          # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
             --title "Dereth $VERSION" --notes-file ../notes.md \
-            *.zip *.tar.gz *.AppImage *.sig SHA256SUMS MANIFEST.txt release.json latest.json
+            "${assets[@]}"

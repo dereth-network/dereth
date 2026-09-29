@@ -86,8 +86,10 @@ This build was made from commit {commit} of
   {url}
 The source of exactly that commit:
   {url}/tree/{commit}
-The release this package belongs to also carries it, as empyrean-{version}-source.tar.gz:
+The release this package belongs to, with GitHub's source archives of its tag:
   {url}/releases/tag/{tag}
+  {url}/archive/refs/tags/{tag}.tar.gz
+  {url}/archive/refs/tags/{tag}.zip
 
 If you run a modified version of this server for players over a network, its licence asks you to
 offer those players your modified source; set `[server] source_url` in empyrean.toml to where it
@@ -203,8 +205,6 @@ pub struct DerethFacts<'a> {
     pub commit: &'a str,
     /// The public repository, without a trailing slash.
     pub source_url: &'a str,
-    /// The launcher package (the launcher and the client) rather than the client alone.
-    pub launcher: bool,
     pub crates: &'a [Crate],
     /// The project's MIT licence (the repository's top-level `LICENSE`).
     pub mit_licence: &'a str,
@@ -218,11 +218,6 @@ pub struct DerethFacts<'a> {
 pub fn dereth_notice(f: &DerethFacts) -> String {
     let tag = super::version::Product::Dereth.tag_for(f.version);
     let url = f.source_url.trim_end_matches('/');
-    let what = if f.launcher {
-        "Dereth, the launcher, with the Dereth client"
-    } else {
-        "the Dereth client"
-    };
     let title = format!("Dereth {} ({})", f.version, f.target);
     let mut own = Vec::new();
     let mut third = Vec::new();
@@ -238,7 +233,7 @@ pub fn dereth_notice(f: &DerethFacts) -> String {
         "{title}
 {rule}
 
-This package is {what}.
+This package is Dereth, the launcher, with the Dereth client.
 Dereth is an Asheron's Call client and the launcher that starts it, made by the Dereth project
 (https://dereth.network). It is free software under the MIT licence, which is in LICENSE beside
 this file and below.
