@@ -156,6 +156,15 @@ fn flags(bytes: &[u8], from_client: bool) -> u32 {
 /// One datagram of an exchange: its direction (true for client to server) and its header flags.
 type Step = (bool, u32);
 
+/// A read that found nothing before the socket's read timeout. Windows sometimes reports that
+/// timeout on its overlapped sockets as `ERROR_IO_PENDING` (997) rather than as a timeout.
+fn timed_out(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    ) || (cfg!(windows) && e.raw_os_error() == Some(997))
+}
+
 /// A WebSocket client of the endpoint at `url` with page origin `origin`.
 fn open(
     url: &str,
@@ -206,11 +215,7 @@ fn log_in_over_websocket<S: std::io::Read + std::io::Write>(
                 );
             }
             Ok(_) => {}
-            Err(tungstenite::Error::Io(e))
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
+            Err(tungstenite::Error::Io(e)) if timed_out(&e) => {}
             Err(e) => panic!("the connection failed: {e}"),
         }
     }
@@ -353,11 +358,7 @@ fn closed(
             | Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
                 return true
             }
-            Err(tungstenite::Error::Io(e))
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
+            Err(tungstenite::Error::Io(e)) if timed_out(&e) => {}
             Err(_) => return true,
             Ok(_) => {}
         }
