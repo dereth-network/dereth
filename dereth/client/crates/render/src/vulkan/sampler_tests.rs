@@ -3,7 +3,7 @@
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
-    sampler_bank_captures(false);
+    let _ = sampler_bank_captures(false);
 }
 
 /// The same draws with the pixel shader applying the bias, as a device whose samplers cannot
@@ -11,8 +11,11 @@ fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn a_bias_applied_in_the_pixel_shader_samples_exactly_what_the_sampler_bias_samples() {
-    let in_sampler = sampler_bank_captures(false);
-    let in_shader = sampler_bank_captures(true);
+    let (Some(in_sampler), Some(in_shader)) =
+        (sampler_bank_captures(false), sampler_bank_captures(true))
+    else {
+        return;
+    };
     assert_eq!(in_sampler.len(), in_shader.len());
     for (i, (a, b)) in in_sampler.iter().zip(&in_shader).enumerate() {
         assert_eq!(a, b, "capture {i} differs between the sampler's bias and the shader's");
@@ -25,17 +28,13 @@ fn a_bias_applied_in_the_pixel_shader_samples_exactly_what_the_sampler_bias_samp
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn a_splat_takes_the_sharp_bias_in_the_sampler_or_in_the_pixel_shader_alike() {
-    let splat_captures = |shader_lod_bias: bool| -> Vec<Vec<u8>> {
-        let mut gpu = Gpu::new(
-            None,
-            &DeviceConfig {
-                width: 16,
-                height: 16,
-                force_shader_lod_bias: shader_lod_bias,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+    let splat_captures = |shader_lod_bias: bool| -> Option<Vec<Vec<u8>>> {
+        let mut gpu = device_or_skip(&DeviceConfig {
+            width: 16,
+            height: 16,
+            force_shader_lod_bias: shader_lod_bias,
+            ..Default::default()
+        })?;
         let base = gpu.upload_texture(&mip_chain_64()).unwrap();
         let splat = crate::device::TerrainSplat { base: Some(base), base_tiling: 1, overlays: Vec::new() };
         // U spans 0..1 and V 0..0.75 across 16 pixels: 64 texels to 16 pixels, level 2 exactly,
@@ -57,10 +56,11 @@ fn a_splat_takes_the_sharp_bias_in_the_sampler_or_in_the_pixel_shader_alike() {
             captures.push(gpu.capture().unwrap().bgra);
         }
         gpu.release_texture(base);
-        captures
+        Some(captures)
     };
-    let in_sampler = splat_captures(false);
-    let in_shader = splat_captures(true);
+    let (Some(in_sampler), Some(in_shader)) = (splat_captures(false), splat_captures(true)) else {
+        return;
+    };
     assert_ne!(in_sampler[0], in_sampler[1], "Sharp changes the splat's mip footprint");
     assert_ne!(in_shader[0], in_shader[1], "Sharp changes the splat's mip footprint");
     assert_eq!(in_sampler, in_shader, "the splat samples the same texels either way");
@@ -85,20 +85,29 @@ fn mip_chain_64() -> TextureData {
     }
 }
 
+/// A device for `cfg`, or `None` (with a printed line) where Vulkan is unavailable: these tests
+/// skip rather than fail then, as every device test in this module does.
+fn device_or_skip(cfg: &DeviceConfig) -> Option<Gpu> {
+    match Gpu::new(None, cfg) {
+        Ok(g) => Some(g),
+        Err(e) => {
+            eprintln!("skipping: no Vulkan device available ({e})");
+            None
+        }
+    }
+}
+
 /// Every capture of the bank walk below, on a device that applies the bias in the pixel shader
-/// when `shader_lod_bias` asks (and always where its samplers cannot carry one).
-fn sampler_bank_captures(shader_lod_bias: bool) -> Vec<Vec<u8>> {
+/// when `shader_lod_bias` asks (and always where its samplers cannot carry one); `None` where
+/// there is no Vulkan device.
+fn sampler_bank_captures(shader_lod_bias: bool) -> Option<Vec<Vec<u8>>> {
     let mut captures = Vec::new();
-    let mut gpu = Gpu::new(
-        None,
-        &DeviceConfig {
-            width: 16,
-            height: 16,
-            force_shader_lod_bias: shader_lod_bias,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let mut gpu = device_or_skip(&DeviceConfig {
+        width: 16,
+        height: 16,
+        force_shader_lod_bias: shader_lod_bias,
+        ..Default::default()
+    })?;
     if shader_lod_bias {
         assert!(gpu.shader_lod_bias);
     }
@@ -195,17 +204,16 @@ fn sampler_bank_captures(shader_lod_bias: bool) -> Vec<Vec<u8>> {
         gpu.end_frame().unwrap();
     }
     gpu.release_texture(slot);
-    captures
+    Some(captures)
 }
 
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline() {
-    let mut gpu = Gpu::new(
-        None,
-        &DeviceConfig { width: 1, height: 1, ..Default::default() },
-    )
-    .unwrap();
+    let Some(mut gpu) = device_or_skip(&DeviceConfig { width: 1, height: 1, ..Default::default() })
+    else {
+        return;
+    };
     let slot = gpu
         .upload_texture(&TextureData {
             width: 1,

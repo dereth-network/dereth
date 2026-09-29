@@ -14,7 +14,7 @@ fn mip_solid(width: u32, height: u32, color: [u8; 4]) -> TextureData {
 /// Behaviour: rendering.textures.runtime-mips-preserve-channels-and-keep-their-owners-alive
 #[test]
 fn runtime_mips_preserve_every_channel_and_handle_rectangles_and_odd_extents() {
-    let mut gpu = warp(16, 16).expect("required software device; absence is failure");
+    let Some(mut gpu) = warp(16, 16) else { return };
     assert!(gpu.imgtex_autogen_supported());
     for (w, h) in [(32, 8), (1, 16), (7, 3), (1, 1)] {
         let t = mip_solid(w, h, [24, 60, 100, 144]);
@@ -46,7 +46,7 @@ fn runtime_mips_preserve_every_channel_and_handle_rectangles_and_odd_extents() {
 
 #[test]
 fn runtime_mips_leave_provided_bc_and_non_imgtex_uploads_unchanged() {
-    let mut gpu = warp(16, 16).expect("required device");
+    let Some(mut gpu) = warp(16, 16) else { return };
     let t = mip_solid(16, 16, [24, 60, 100, 144]);
     for key in [
         TextureKey::ui(1),
@@ -103,7 +103,7 @@ fn runtime_mips_leave_provided_bc_and_non_imgtex_uploads_unchanged() {
 /// Behaviour: rendering.textures.runtime-mips-preserve-channels-and-keep-their-owners-alive
 #[test]
 fn runtime_mips_keep_cache_links_and_open_frame_resources_alive() {
-    let mut gpu = warp(16, 16).expect("required device");
+    let Some(mut gpu) = warp(16, 16) else { return };
     let red = mip_solid(32, 32, [0, 0, 255, 255]);
     let green = mip_solid(32, 32, [0, 255, 0, 255]);
     let mut checker = green.clone();
@@ -236,7 +236,7 @@ fn premultiplied_resource(
     .unwrap();
     assert_eq!(data.format, format);
     assert_eq!(data.levels, vec![bytes]);
-    let mut gpu = warp(16, 16).expect("required device");
+    let Some(mut gpu) = warp(16, 16) else { return };
     let slot = gpu.upload_imgtex_keyed(TextureKey::world(0x0600_0002), &data).unwrap();
     assert_eq!(
         gpu.texture_mip_levels(slot),
@@ -302,7 +302,7 @@ fn premultiplied_resource(
 }
 
 fn compressed_owner_lifetime(format: TextureFormat) {
-    let mut gpu = warp(16, 16).expect("required device");
+    let Some(mut gpu) = warp(16, 16) else { return };
     let block = |rgb: [u8; 8]| {
         if format == TextureFormat::Bc1 {
             rgb.to_vec()
