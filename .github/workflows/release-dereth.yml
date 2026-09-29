@@ -2,9 +2,10 @@ name: Release Dereth
 
 # Builds, checks and drafts a Dereth release: the launcher (with the client inside it) and the
 # client on its own, for Windows, macOS and Linux. A pushed `dereth-v<version>` tag builds every
-# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand, as
-# the repository's latest release: the launcher updates itself from the latest release's
-# latest.json. Running it by hand (workflow_dispatch) is a dry run: the same builds and checks,
+# target and creates a DRAFT GitHub release, which a maintainer reviews and publishes by hand. The
+# launcher updates itself from the latest.json of the repository's newest published
+# `dereth-v<version>` release (a pre-release excepted), which it finds by listing the releases.
+# Running it by hand (workflow_dispatch) is a dry run: the same builds and checks,
 # the release files kept as a workflow artifact for 7 days, nothing published.
 #
 # Every job runs `cargo xtask package dereth`, the same command a contributor runs locally
@@ -30,7 +31,8 @@ env:
   # MoltenVK for the macOS bundles: KhronosGroup's macOS release, pinned by its checksum.
   MOLTENVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
   MOLTENVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
-  # Where the release files are downloaded from, and the source the notices name: this repository.
+  # Where the release files are downloaded from, the source the notices name, and the repository
+  # whose releases the launcher updates from: this repository.
   DERETH_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
 
 jobs:
@@ -262,7 +264,7 @@ jobs:
           | macOS | \`Dereth-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Dereth.app\` to Applications |
           | Linux | \`Dereth-$VERSION-linux-x86_64.AppImage\` | mark it executable and run it |
 
-          The launcher keeps itself and the client up to date from this repository's latest release. The client alone, without the launcher, is \`dereth-client-*\` (Windows, Linux) and \`Dereth-Client-*.app.tar.gz\` (macOS).
+          The launcher keeps itself and the client up to date from this repository's newest Dereth release. The client alone, without the launcher, is \`dereth-client-*\` (Windows, Linux) and \`Dereth-Client-*.app.tar.gz\` (macOS).
 
           **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
@@ -272,6 +274,6 @@ jobs:
           EOF
           PRE=""
           case "$TAG" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest $PRE \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
             --title "Dereth $VERSION" --notes-file ../notes.md \
             *.zip *.tar.gz *.AppImage *.sig SHA256SUMS MANIFEST.txt release.json latest.json

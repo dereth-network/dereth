@@ -26,6 +26,7 @@
 //! | [`copy`] | a private dat set, copied from the shared one |
 //! | [`state`] | `launcher-state.json`: the retail client, sets, accounts, favourites, per-world choices |
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
+//! | [`releases`] | which of the repository's GitHub releases the launcher updates from |
 //! | [`swap`] | putting a downloaded release in place of the running one, where no installer does |
 //! | [`desktop`] | the Linux desktop entries that give the launcher's window and the client's their icon |
 //! | [`vault`] | the seam to the operating system's secret store; passwords live nowhere else |
@@ -50,6 +51,7 @@ pub mod launch;
 pub mod library;
 pub mod probe;
 pub mod registry;
+pub mod releases;
 pub mod state;
 pub mod status;
 pub mod swap;

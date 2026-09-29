@@ -463,10 +463,11 @@ fn gather(ws: &Path, dir: &Path, allow_dirty: bool) -> Result<PathBuf, String> {
     Ok(dir.to_path_buf())
 }
 
-/// The environment a release build runs with: the build stamp, and the flags that keep local
-/// paths out of the binaries. On Windows the C runtime is linked in, so neither program needs a
+/// The environment a release build runs with: the build stamp, the repository the launcher looks
+/// for its updates in (the one the release files are downloaded from), and the flags that keep
+/// local paths out of the binaries. On Windows the C runtime is linked in, so neither program needs a
 /// Visual C++ redistributable, and the linker writes no time.
-fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, String)> {
+pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, String)> {
     let mut flags: Vec<String> = super::local_remaps(ws)
         .iter()
         .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
@@ -480,6 +481,7 @@ fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, Stri
         ("SOURCE_DATE_EPOCH".to_owned(), facts.epoch.to_string()),
         ("DERETH_BUILD_COMMIT".to_owned(), facts.commit.clone()),
         ("DERETH_BUILD_TARGET".to_owned(), target.triple.to_owned()),
+        (SOURCE_URL_ENV.to_owned(), facts.source_url.clone()),
     ];
     if target.os == Os::Mac {
         env.push((

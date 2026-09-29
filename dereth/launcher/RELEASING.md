@@ -1,15 +1,16 @@
 # Releasing Dereth
 
 A Dereth release is the launcher, with the Dereth client inside it, for Windows, macOS and Linux,
-plus the client on its own, published as a GitHub release of this repository and marked as the
-repository's **latest** release: every installed launcher reads `latest.json` from the latest
-release to update itself and the client. There are two commands and one review:
+plus the client on its own, published as a GitHub release of this repository. Every installed
+launcher lists the repository's releases, picks the newest published `dereth-v<version>` release
+and reads its `latest.json` to update itself and the client ("Updates" below). There are two
+commands and one review:
 
 1. **`cargo xtask release dereth <version>`** on a clean `main`: sets the version, runs the checks,
    packages the host's target as a smoke test and tags `dereth-v<version>`.
 2. **Pushing the tag** starts the release workflow on GitHub, which builds every target, checks and
    signs everything, and creates a **draft** release.
-3. **A maintainer reviews the draft and publishes it as the latest release.**
+3. **A maintainer reviews the draft and publishes it.**
 
 `cargo xtask package dereth` is the build itself: the same command locally and in the workflow.
 
@@ -20,7 +21,7 @@ The launcher and the client are released together, with one version: the `versio
 version is `MAJOR.MINOR.PATCH`, optionally with a pre-release suffix such as `-rc.1`. The tag is
 `dereth-v<version>`, and it must name exactly the version the tagged commit carries; the workflow
 fails otherwise, and when the tagged commit is not on `main`. A pre-release is published as a
-GitHub pre-release, which is never the latest release, so launchers do not update to it.
+GitHub pre-release, and launchers do not update to it.
 
 Both programs answer `--version`: `dereth <version>` (or `dereth-client <version>`), the commit
 and the target they were built from.
@@ -69,7 +70,18 @@ subsystem, the icon, and no import of the Visual C++ runtime (it is linked in); 
 target's machine and dynamic loader and no glibc symbol newer than 2.35; on macOS only system
 libraries, a minimum of macOS 11 and a code signature. MoltenVK must be a Mach-O library.
 
-## Updates: signing and `latest.json`
+## Updates: which release, signing and `latest.json`
+
+At start a launcher lists its repository's releases through GitHub's REST API and takes the newest
+**published** release tagged `dereth-v<MAJOR>.<MINOR>.<PATCH>`: drafts, pre-releases (by GitHub's
+flag or by a `-pre` suffix), Empyrean's releases and other tags are passed over, and versions are
+compared as semver, never by date or by their order in the list. It reads that release's
+`latest.json`. Which release GitHub marks "latest" plays no part, so the box of that name on the
+publish page can be left as GitHub sets it, for Dereth's releases and Empyrean's alike. The API
+answers the 100 most recently created releases, which is where the newest Dereth release is. The
+repository is the one the build names (`DERETH_BUILD_SOURCE_URL`, below). When the list cannot be
+fetched (no network, GitHub's unauthenticated rate limit) or holds no such release, the launcher
+skips the check quietly and tries again at its next start.
 
 The launcher accepts an update only with a signature from the update-signing key whose public
 half is `plugins.updater.pubkey` in `dereth/launcher/tauri.conf.json`. The signature is
@@ -128,8 +140,10 @@ What it needs, and says when missing, before building anything:
   libasound2-dev build-essential pkg-config curl wget file patchelf`. The glibc of the build host
   is the oldest a release runs on, so a release is built on Ubuntu 22.04.
 
-`DERETH_BUILD_SOURCE_URL` names the repository the release files are downloaded from and the
-notices name as the source (default `https://github.com/dereth-network/dereth`).
+`DERETH_BUILD_SOURCE_URL` names the repository the release files are downloaded from, the
+notices name as the source, and the launcher looks for its updates in (default
+`https://github.com/dereth-network/dereth`). The package passes it to the build, where the
+launcher compiles it in; a fork's release names its own repository and updates from it.
 
 ## `cargo xtask release dereth <version>`
 
@@ -172,7 +186,8 @@ tier-2 modules the release touches on a hardware GPU.
 3. **gather the release:** downloads every runner's files, runs `cargo xtask package dereth --gather`
    (every file scanned and every signature verified again; `latest.json` merged), and keeps the
    release files as a workflow artifact.
-4. **draft the GitHub release** (tags only): `gh release create --draft --latest` with every
+4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a
+   pre-release version) with every
    release file, `SHA256SUMS`, `MANIFEST.txt`, `release.json` and `latest.json`. It is the only job
    that can write, and it runs in the `release` environment.
 
@@ -191,10 +206,8 @@ Then, on the draft release:
    `MANIFEST.txt` and `release.json`.
 2. Download the launcher for each system you can, run it, and play with it against a world.
 3. Edit the notes: what changed.
-4. Publish, with **Set as the latest release** ticked. Launchers read the latest release's
-   `latest.json`: they see this release only once it is the latest. Empyrean's releases are
-   created as not-latest (`--latest=false`) and published with the box unticked, so they never take
-   that place.
+4. Publish. Launchers see the release from their next start once it is published (a draft is
+   never read), whether or not GitHub shows it as the latest release.
 
 Anyone can verify a download with `sha256sum -c SHA256SUMS --ignore-missing`.
 

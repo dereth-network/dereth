@@ -1,8 +1,11 @@
 //! The launcher updating itself, and with it the Dereth client that ships beside it.
 //!
-//! At start the launcher reads `latest.json` from the repository's latest GitHub release (the
-//! endpoint in `tauri.conf.json`, or `DERETH_UPDATE_URL`), and when it names a newer version for
-//! this platform, downloads that release in the background. The download is checked against the
+//! At start the launcher lists its repository's GitHub releases through GitHub's REST API, picks
+//! the newest published Dereth release ([`dereth_launch::releases`]) and reads that release's
+//! `latest.json` (or the `latest.json` that `DERETH_UPDATE_URL` names). When it names a newer
+//! version for this platform, the launcher downloads that release in the background. When the
+//! list cannot be had, or holds no Dereth release, there is no update this time: the player is not
+//! told, and the next start tries again. The download is checked against the
 //! update-signing public key in `tauri.conf.json`: an unsigned or wrongly signed file is refused.
 //! Once it is in, the page offers a restart.
 //!
@@ -62,15 +65,23 @@ fn set(app: &AppHandle, view: UpdateView) {
 /// Check for a newer launcher and download it, in the background. `is_release` says whether this
 /// launcher is a release (the Dereth client ships beside it).
 pub fn check(app: &AppHandle, is_release: bool) {
-    let url = std::env::var("DERETH_UPDATE_URL")
+    let override_url = std::env::var("DERETH_UPDATE_URL")
         .ok()
         .filter(|u| !u.is_empty());
-    if !is_release && url.is_none() {
+    if !is_release && override_url.is_none() {
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(reason) = check_and_download(&app, url).await {
+        let found =
+            tauri::async_runtime::spawn_blocking(move || manifest_url(override_url, list_releases))
+                .await
+                .ok()
+                .flatten();
+        let Some(url) = found else {
+            return;
+        };
+        if let Err(reason) = check_and_download(&app, &url).await {
             eprintln!("dereth: the update failed: {reason}");
             if let Some(b) = app.try_state::<crate::backend::Shared>() {
                 crate::backend::lock(&b).notify_error(format!("Dereth could not update: {reason}"));
@@ -80,15 +91,70 @@ pub fn check(app: &AppHandle, is_release: bool) {
     });
 }
 
-async fn check_and_download(app: &AppHandle, url: Option<String>) -> Result<(), String> {
-    let mut builder = app.updater_builder();
-    if let Some(url) = url {
-        let url = url.parse().map_err(|e| format!("DERETH_UPDATE_URL: {e}"))?;
-        builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
+/// Where the `latest.json` to update from is: the one `DERETH_UPDATE_URL` names when it is set,
+/// else the newest Dereth release's, found in the source repository's releases as `list` fetches
+/// them. `None`, logged and not shown, when the list cannot be fetched or read, or holds no
+/// Dereth release to update from: not reaching GitHub is no reason to bother the player.
+fn manifest_url(
+    override_url: Option<String>,
+    list: impl FnOnce(&str) -> Result<Vec<u8>, String>,
+) -> Option<String> {
+    if override_url.is_some() {
+        return override_url;
     }
-    let updater = builder.build().map_err(|e| e.to_string())?;
-    // Not reaching GitHub, or a repository with no release yet, is no reason to bother the
-    // player: the check is tried again on the next start.
+    let source = dereth_launch::releases::SOURCE_URL;
+    let Some(api) = dereth_launch::releases::releases_api_url(source) else {
+        eprintln!("dereth: no update check: {source} is not a GitHub repository");
+        return None;
+    };
+    match list(&api).and_then(|json| dereth_launch::releases::newest_update_release(&json)) {
+        Ok(Some(release)) => Some(release.manifest_url),
+        Ok(None) => {
+            eprintln!(
+                "dereth: no update check: {source} has no published Dereth release to update from"
+            );
+            None
+        }
+        Err(e) => {
+            eprintln!("dereth: no update information: {e}");
+            None
+        }
+    }
+}
+
+/// The releases API's answer at `url`. GitHub asks every caller for a User-Agent.
+fn list_releases(url: &str) -> Result<Vec<u8>, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(15)))
+        .build()
+        .into();
+    let mut resp = agent
+        .get(url)
+        .header(
+            "User-Agent",
+            concat!("dereth-launcher/", env!("CARGO_PKG_VERSION")),
+        )
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("{url}: {e}"))?;
+    // A page of 100 releases, each listing its files, runs to a few megabytes.
+    resp.body_mut()
+        .with_config()
+        .limit(32 << 20)
+        .read_to_vec()
+        .map_err(|e| format!("{url}: {e}"))
+}
+
+async fn check_and_download(app: &AppHandle, url: &str) -> Result<(), String> {
+    let endpoint = url.parse().map_err(|e| format!("{url}: {e}"))?;
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Not reaching the release, or a release without this platform, is no reason to bother the
+    // player either: the check is tried again on the next start.
     let update = match updater.check().await {
         Ok(Some(update)) => update,
         Ok(None) => return Ok(()),
@@ -290,19 +356,70 @@ mod tests {
         );
     }
 
+    /// The configuration names no endpoint: the launcher gives the updater the one it found at
+    /// start, so no fixed address in it can go stale. The signing key is there.
     #[test]
-    fn the_configured_endpoint_is_the_repository_latest_release() {
+    fn the_configuration_names_the_signing_key_and_no_endpoint() {
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert_eq!(
-            conf["plugins"]["updater"]["endpoints"],
-            serde_json::json!([
-                "https://github.com/dereth-network/dereth/releases/latest/download/latest.json"
-            ])
-        );
+        assert!(conf["plugins"]["updater"]["endpoints"].is_null());
         assert!(conf["plugins"]["updater"]["pubkey"]
             .as_str()
             .is_some_and(|k| !k.is_empty()));
+    }
+
+    #[test]
+    fn dereth_update_url_wins_and_no_release_list_is_fetched() {
+        let url = super::manifest_url(Some("https://example.test/latest.json".into()), |_| {
+            panic!("the release list is not fetched when DERETH_UPDATE_URL is set")
+        });
+        assert_eq!(url.as_deref(), Some("https://example.test/latest.json"));
+    }
+
+    #[test]
+    fn the_newest_dereth_releases_latest_json_is_read_from_the_source_repositorys_list() {
+        let mut asked = None;
+        let url = super::manifest_url(None, |api| {
+            asked = Some(api.to_owned());
+            Ok(br#"[
+                {"tag_name":"empyrean-v0.3.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"release.json","browser_download_url":"https://example.test/e/release.json"}]},
+                {"tag_name":"dereth-v0.3.0","draft":true,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/draft/latest.json"}]},
+                {"tag_name":"dereth-v0.2.0","draft":false,"prerelease":false,"assets":[
+                    {"name":"latest.json","browser_download_url":"https://example.test/d020/latest.json"}]}
+            ]"#
+            .to_vec())
+        });
+        assert_eq!(
+            url.as_deref(),
+            Some("https://example.test/d020/latest.json")
+        );
+        assert_eq!(
+            asked,
+            dereth_launch::releases::releases_api_url(dereth_launch::releases::SOURCE_URL)
+        );
+    }
+
+    #[test]
+    fn an_unreachable_or_unreadable_release_list_skips_the_check_quietly() {
+        assert_eq!(
+            super::manifest_url(None, |_| Err("connection refused".into())),
+            None
+        );
+        assert_eq!(
+            super::manifest_url(None, |_| Ok(
+                br#"{"message":"API rate limit exceeded"}"#.to_vec()
+            )),
+            None
+        );
+        assert_eq!(
+            super::manifest_url(
+                None,
+                |_| Ok(br#"[{"tag_name":"empyrean-v1.0.0"}]"#.to_vec())
+            ),
+            None
+        );
     }
 
     /// The layered icon's files exist only where Xcode compiled them, on macOS: the shared

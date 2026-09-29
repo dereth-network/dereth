@@ -590,3 +590,24 @@ fn only_a_developer_id_turns_on_the_hardened_runtime() {
         assert_eq!(adhoc["frameworks"][0], "MoltenVK");
     }
 }
+
+/// The launcher is built knowing the repository the release is downloaded from, and looks for its
+/// updates among that repository's releases.
+#[test]
+fn a_release_build_is_told_the_repository_it_updates_from() {
+    let facts = super::BuildFacts {
+        commit: "a".repeat(40),
+        branch: "dereth-v0.2.0".to_owned(),
+        number: "1".to_owned(),
+        epoch: 1_700_000_000,
+        source_url: "https://github.com/someone/fork".to_owned(),
+    };
+    for triple in [WINDOWS, LINUX, MAC_ARM] {
+        let env = dereth::build_env(&workspace_root(), &facts, target(triple));
+        assert!(
+            env.iter().any(|(k, v)| k == dereth::SOURCE_URL_ENV
+                && v == "https://github.com/someone/fork"),
+            "{triple}: {env:?}"
+        );
+    }
+}

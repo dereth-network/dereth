@@ -40,10 +40,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1RUYyQTQ3MkQxN0ZDRjMKUldUei9CY3RSeXJ2TlgxaGZXd2diU2ZxR1JSNEs2RE9TbmtrL1dTMCs0VUtTaWtEMDIwcElKQmgK",
-      "endpoints": [
-        "https://github.com/dereth-network/dereth/releases/latest/download/latest.json"
-      ]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1RUYyQTQ3MkQxN0ZDRjMKUldUei9CY3RSeXJ2TlgxaGZXd2diU2ZxR1JSNEs2RE9TbmtrL1dTMCs0VUtTaWtEMDIwcElKQmgK"
     }
   }
 }

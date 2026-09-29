@@ -237,8 +237,6 @@ jobs:
           EOF
           PRE=""
           case "$TAG" in *-*) PRE="--prerelease" ;; esac
-          # Never the repository's latest release: that is Dereth's, whose launchers update from
-          # the latest release's latest.json.
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
             --title "Empyrean $VERSION" --notes-file ../notes.md \
             *.zip *.tar.gz SHA256SUMS MANIFEST.txt release.json

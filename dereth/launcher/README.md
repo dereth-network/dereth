@@ -73,10 +73,21 @@ Wayland app id and X11 class are `network.dereth.dereth`, the entry's `StartupWM
 
 ## Updates
 
-At start a release reads `latest.json` from the repository's latest GitHub release,
-`https://github.com/dereth-network/dereth/releases/latest/download/latest.json`
-(`plugins.updater.endpoints` in `tauri.conf.json`; `DERETH_UPDATE_URL` overrides). When it
-names a newer version, the launcher downloads that platform's file in the background and checks it
+At start a release lists its repository's GitHub releases through GitHub's REST API
+(`https://api.github.com/repos/<owner>/<name>/releases?per_page=100`, unauthenticated) and picks
+the newest published Dereth release: tagged `dereth-v<MAJOR>.<MINOR>.<PATCH>`, not a draft, not a
+pre-release, and newest by version compared as semver, never by date or by its place in the list.
+Empyrean's releases, in the same repository, are passed over, and which release GitHub shows as
+"latest" does not matter. The launcher then reads that release's `latest.json`. The repository is
+the one the build names (`DERETH_BUILD_SOURCE_URL` at compile time, which `cargo xtask package
+dereth` passes; a fork's build names its own), else `https://github.com/dereth-network/dereth`.
+`DERETH_UPDATE_URL` overrides all of this and names a `latest.json` directly. When the list cannot
+be fetched or read, or holds no such release, there is no update this time: the launcher logs it,
+tells the player nothing, and tries again at the next start. `tauri.conf.json` names no updater
+endpoint (`plugins.updater` holds only the signing key); the launcher hands the updater the address
+it found.
+
+When `latest.json` names a newer version, the launcher downloads that platform's file in the background and checks it
 against the update-signing public key (`plugins.updater.pubkey`) before the page offers a restart.
 A launcher built from the repository (no client beside it) never checks.
 

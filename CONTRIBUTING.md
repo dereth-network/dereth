@@ -77,7 +77,7 @@ the GitHub release. `cargo xtask package empyrean` builds the same archives loca
 
 Dereth (the launcher, with the client inside it) is released the same way:
 `cargo xtask release dereth <version>` and a pushed `dereth-v<version>` tag, whose workflow drafts
-the release that becomes the repository's latest, the one launchers update from.
+the release; once published, it is the one launchers update from.
 `cargo xtask package dereth` builds this host's release files locally.
 [dereth/launcher/RELEASING.md](dereth/launcher/RELEASING.md) describes the whole flow.
 
