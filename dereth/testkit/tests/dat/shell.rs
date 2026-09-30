@@ -15697,12 +15697,12 @@ fn scenario_a_press_on_a_toolbar_button_opens_the_panel_it_owns() {
 // folded in below as the arm that says why the edge has to be made up.
 // =============================================================================================
 
-/// The two actions the pre-game screens listen for, and the one the movement map gives to a key
+/// The two actions the pre-game screens listen for, and the one the camera map gives to a key
 /// none of them own.
 const PREGAME_ACCEPT: u32 = 0x25;
 const PREGAME_ESCAPE: u32 = 0x27;
-const MOVEMENT_FORWARD: u32 = 0x29;
-const MOVEMENT_MAP: dereth_input::InputMapId = dereth_input::InputMapId(4);
+const CAMERA_TO_DEFAULT: u32 = 0x39;
+const CAMERA_MAP: dereth_input::InputMapId = dereth_input::InputMapId(5);
 
 /// How many times each pre-game screen has been asked about an action.
 fn times_asked(c: &HeadlessClient) -> (u64, u64, u64) {
@@ -15744,14 +15744,14 @@ fn a_key_coming_back_up(c: &mut HeadlessClient, action: u32) {
 pub fn a_key_the_roll_does_not_own_leaves_it_running() {
     let mut c = a_client_on_the_credits();
 
-    // The key is a real one and it is bound: the movement map gives it an action of its own, and
-    // that map is in front of the client on this screen too.
-    let forward = dereth_testkit::input_steps::bound_scan_code(
+    // The key is a real one and it is bound: the camera map gives it an action of its own, and
+    // that map is registered for the whole run, the credits included.
+    let to_default = dereth_testkit::input_steps::bound_scan_code(
         &mut c,
-        dereth_input::ActionId(MOVEMENT_FORWARD),
-        MOVEMENT_MAP,
+        dereth_input::ActionId(CAMERA_TO_DEFAULT),
+        CAMERA_MAP,
     );
-    let it_is_bound = forward != 0;
+    let it_is_bound = to_default != 0;
 
     let broadcasts = c
         .view()
@@ -15762,7 +15762,7 @@ pub fn a_key_the_roll_does_not_own_leaves_it_running() {
         .key_presses_broadcast;
     let (_, asked_before, _) = times_asked(&c);
 
-    dereth_testkit::input_steps::tap(&mut c, key(KeyCode::KeyW));
+    dereth_testkit::input_steps::tap(&mut c, key(KeyCode::Numpad0));
     c.tick(1);
 
     let it_was_delivered = c

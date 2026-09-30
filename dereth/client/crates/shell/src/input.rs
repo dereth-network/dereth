@@ -118,6 +118,17 @@ pub struct InputShell {
     /// id beside the already-public [`Self::manager`] widens nothing.
     pub target_callback: CallbackId,
     target_input_map_active: bool,
+    /// The callback the character-session maps other than combat's are registered under — every
+    /// row of [`BASE_MAP_REGISTRATIONS`] outside [`WHOLE_RUN_INPUT_MAPS`] whose owner is not the
+    /// combat subsystem. See [`InputShell::set_character_session_input_maps`].
+    ///
+    /// Its own id rather than [`Self::client`] because ending the session drops the whole
+    /// callback, and `unregister_callback` is what also releases the callback's held actions: a
+    /// movement key held through a log-off must not stay held on the character screen.
+    session_callback: CallbackId,
+    /// Whether the character-session maps are registered. See
+    /// [`InputShell::set_character_session_input_maps`].
+    character_session_input_maps: bool,
     /// The combat mode reflected in the **registrations** — the mode
     /// [`InputShell::register_combat_input_maps`] was last given as its `new`.
     ///
@@ -346,6 +357,19 @@ pub const FOCUSED_TEXT_MAP_REGISTRATIONS: [(u32, i32); 4] = [
     ),
 ];
 
+/// **The rows of [`BASE_MAP_REGISTRATIONS`] that are live for the whole run.** The system-key
+/// swallow, the UI's own mouse map and the camera are registered when their owners are built at
+/// start-up, and stay until shutdown.
+///
+/// **Every other row is a character-session map.** The player, UI, combat and chat systems register
+/// their maps when a character session begins — the player description arriving, which is also
+/// when the gameplay screen comes up — and drop them when it ends. So on the intro, the character
+/// screens, character creation and the disconnected screen, no key reaches movement, examine, use,
+/// the panel toggles, the quickbar, emotes, combat or chat: `E` and `R` resolve to nothing there,
+/// and the only keys a pre-game screen answers are its own map 9's Enter and Escape, plus whatever a
+/// focused text box registers. See [`InputShell::set_character_session_input_maps`].
+pub const WHOLE_RUN_INPUT_MAPS: [u32; 3] = [0x10, 3, 5];
+
 pub const BASE_MAP_REGISTRATIONS: &[(&str, u32, i32)] = &[
     (
         "Client",
@@ -565,11 +589,17 @@ impl InputShell {
         // because session startup re-registers `0x10000002` under the *same* callback it already
         // used, which is what makes that step inert.
         let combat_callback = manager.new_callback();
+        let session_callback = manager.new_callback();
+        // A bare shell starts with the character session's maps up, so a client with no UI — and
+        // therefore no screen to say it is not in the world — keeps every gameplay key. The UI
+        // takes them away on its first frame on a pre-game screen.
         for (owner, map, prio) in BASE_MAP_REGISTRATIONS {
-            let cb = if *owner == "combat" {
+            let cb = if WHOLE_RUN_INPUT_MAPS.contains(map) {
+                client
+            } else if *owner == "combat" {
                 combat_callback
             } else {
-                client
+                session_callback
             };
             manager.register_input_map(InputMapId(*map), *prio, cb);
         }
@@ -591,6 +621,8 @@ impl InputShell {
             combat_callback,
             target_callback,
             target_input_map_active: false,
+            session_callback,
+            character_session_input_maps: true,
             combat_input_mode: dereth_input::combat::mode::NONCOMBAT,
             stats: InputStats::default(),
             events: Vec::new(),
@@ -602,7 +634,8 @@ impl InputShell {
         })
     }
 
-    /// The callback id the base maps are registered under, so a caller can unregister them.
+    /// The callback id the [`WHOLE_RUN_INPUT_MAPS`] are registered under, so a caller can
+    /// unregister them.
     #[must_use]
     pub const fn client_callback(&self) -> CallbackId {
         self.client
@@ -610,8 +643,13 @@ impl InputShell {
 
     /// Entering a target mode registers map 0x1000000B under the UI's target-mode callback at
     /// priority 2000. Leaving it unregisters only this pair; do not clear another owner's held actions.
+    ///
+    /// Target mode is character-session state: outside a session there is none to enter, so a
+    /// request to enter one then registers nothing, and the map cannot sit above the UI's own mouse
+    /// map on a pre-game screen.
     pub fn set_target_input_map(&mut self, active: bool) {
-        if self.target_input_map_active == active {
+        if self.target_input_map_active == active || (active && !self.character_session_input_maps)
+        {
             return;
         }
         self.target_input_map_active = active;
@@ -1043,8 +1081,11 @@ impl InputShell {
     ///
     /// The production caller is
     /// `dereth_client::interaction::Interaction::update_combat_input_map`, which polls once per frame.
+    ///
+    /// Outside a character session there is no combat mode to follow: the combat maps are down
+    /// (see [`Self::set_character_session_input_maps`]) and this changes nothing.
     pub fn set_combat_input_maps(&mut self, mode: u32) -> bool {
-        if mode == self.combat_input_mode {
+        if !self.character_session_input_maps || mode == self.combat_input_mode {
             return false;
         }
         let old = std::mem::replace(&mut self.combat_input_mode, mode);
@@ -1056,6 +1097,56 @@ impl InputShell {
     #[must_use]
     pub const fn combat_input_mode(&self) -> u32 {
         self.combat_input_mode
+    }
+
+    /// **Begin or end the character session's input maps.** Returns whether anything moved.
+    ///
+    /// Beginning a session registers every row of [`BASE_MAP_REGISTRATIONS`] outside
+    /// [`WHOLE_RUN_INPUT_MAPS`] — movement and emotes, item selection and the target cycle, the UI
+    /// commands (`E` examine, `R` use, the panel toggles), the quickbar, `Combat` and the chat keys — in the table's
+    /// own order, so the walk comes back exactly as the constructor built it: every one of them is
+    /// at or above `priority::GAMEPLAY`, and an equal-priority newcomer goes in front of the camera
+    /// map that stayed.
+    ///
+    /// Ending it drops the session's callbacks whole, which also releases any action they held,
+    /// takes the live combat-mode map with them, and leaves target mode. Until the next session
+    /// begins, combat-mode and target-mode changes register nothing.
+    ///
+    /// The production caller is `dereth_client::ui::UiShell`, which mirrors "the gameplay screen
+    /// is up" into this on the edge, as it mirrors a pre-game screen's own maps.
+    pub fn set_character_session_input_maps(&mut self, live: bool) -> bool {
+        if self.character_session_input_maps == live {
+            return false;
+        }
+        if live {
+            self.character_session_input_maps = true;
+            self.combat_input_mode = dereth_input::combat::mode::NONCOMBAT;
+            for (owner, map, prio) in BASE_MAP_REGISTRATIONS {
+                if WHOLE_RUN_INPUT_MAPS.contains(map) {
+                    continue;
+                }
+                let cb = if *owner == "combat" {
+                    self.combat_callback
+                } else {
+                    self.session_callback
+                };
+                self.manager.register_input_map(InputMapId(*map), *prio, cb);
+            }
+        } else {
+            self.set_target_input_map(false);
+            self.manager.unregister_callback(self.session_callback);
+            self.manager.unregister_callback(self.combat_callback);
+            self.combat_input_mode = dereth_input::combat::mode::NONCOMBAT;
+            self.character_session_input_maps = false;
+        }
+        true
+    }
+
+    /// Whether the character-session maps are registered. See
+    /// [`Self::set_character_session_input_maps`].
+    #[must_use]
+    pub const fn character_session_input_maps(&self) -> bool {
+        self.character_session_input_maps
     }
 
     /// Register an input handler with
@@ -1483,6 +1574,55 @@ mod tests {
         shell.set_target_input_map(false);
         assert_eq!(shell.manager.maps.entries(), before);
         assert!(!shell.target_input_map_active());
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn ending_and_beginning_a_session_restores_the_constructors_walk_and_drops_held_keys() {
+        let mut shell = InputShell::new(&store(), None).expect("the input tables load");
+        shell.set_combat_input_maps(dereth_input::combat::mode::MELEE);
+        let in_melee = shell.manager.maps.entries().to_vec();
+        let mut pump = crate::pump::Pump::new();
+        shell.on_message(pump.key_message_for_key(Key::KEY_W, true, 1_000));
+        assert!(shell.is_action_in_progress(action::MOVE_FORWARD));
+
+        assert!(shell.set_character_session_input_maps(false));
+        assert!(
+            !shell.set_character_session_input_maps(false),
+            "an edge, not a level"
+        );
+        let maps: Vec<u32> = shell
+            .manager
+            .maps
+            .entries()
+            .iter()
+            .map(|e| e.map.0)
+            .collect();
+        assert_eq!(
+            maps,
+            [5, 3, 0x10],
+            "only the whole-run maps stay, in their walk order"
+        );
+        assert!(
+            !shell.is_action_in_progress(action::MOVE_FORWARD),
+            "a key held through the end of the session is not held on the character screen"
+        );
+        // No combat or target map can come up outside a session.
+        assert!(!shell.set_combat_input_maps(dereth_input::combat::mode::MAGIC));
+        shell.set_target_input_map(true);
+        assert!(!shell.target_input_map_active());
+        assert_eq!(shell.manager.maps.len(), 3);
+
+        assert!(shell.set_character_session_input_maps(true));
+        shell.set_combat_input_maps(dereth_input::combat::mode::MELEE);
+        assert_eq!(
+            shell.manager.maps.entries(),
+            in_melee,
+            "the session's maps come back walked exactly as the constructor and the mode swap left them"
+        );
     }
 
     fn store() -> dereth_dat::RetailDatStore {

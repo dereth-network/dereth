@@ -1036,6 +1036,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "ui.keyboard.in-world-keys-do-nothing-before-the-player-is-in-the-world",
+        says: "On the intro, the character screens, character creation and the disconnected \
+               screen, keys for things done in the world do nothing: E does not start an examine \
+               and R does not start a use, so the cursor does not change, and movement, panel, \
+               quickbar, emote, combat and chat keys are dead too, while Escape still answers the \
+               screen. In the world they all work again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PREGAME-KEYS"),
+        station: "dereth-client::dat::ui::pregame_keys::e_and_r_start_no_examine_or_use_on_the_character_screen_and_do_in_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.layout.a-saved-layout-is-reloaded-at-the-next-login",
         says: "A window layout saved with the save-layout chat command is loaded again \
                automatically at the next login, after entering the world has restored the player's \

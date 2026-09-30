@@ -115,6 +115,11 @@ pub trait UiInput: dereth_ui::InputPump {
     /// [`crate::input::InputShell::set_mode_input_maps`] and the set is
     /// [`PREGAME_MODE_INPUT_MAPS`].
     fn set_mode_input_maps(&mut self, _maps: &[u32]) {}
+    /// Begin (`true`) or end the character session's input maps — movement, item selection,
+    /// the panel toggles, the quickbar, emotes, combat and chat. See
+    /// [`crate::input::InputShell::set_character_session_input_maps`]; the UI mirrors "the gameplay
+    /// screen is up" into it.
+    fn set_character_session_input_maps(&mut self, _live: bool) {}
     /// Enable or disable target mode's priority-2000 mouse callback.
     fn set_target_input_map(&mut self, _active: bool) {}
     /// The action-dispatch wrapper's head, which is the only thing that can arm the
@@ -253,6 +258,9 @@ impl UiInput for crate::input::InputShell {
     }
     fn set_mode_input_maps(&mut self, maps: &[u32]) {
         crate::input::InputShell::set_mode_input_maps(self, maps);
+    }
+    fn set_character_session_input_maps(&mut self, live: bool) {
+        crate::input::InputShell::set_character_session_input_maps(self, live);
     }
     fn set_target_input_map(&mut self, active: bool) {
         crate::input::InputShell::set_target_input_map(self, active);
@@ -597,6 +605,11 @@ pub struct UiShell {
     /// [`PREGAME_MODE_INPUT_MAPS`], mirrored on the mode edge for the same reason as
     /// [`Self::focused_maps`].
     mode_maps: Vec<u32>,
+    /// Whether the character session's input maps were last mirrored up (the gameplay screen is
+    /// the current mode) or down. `None` until the first mirror, so the first frame always writes:
+    /// the input shell starts with them up, and a UI that comes up on a pre-game screen must take
+    /// them away before any key reaches them.
+    session_maps: Option<bool>,
     /// Did this frame's [`Self::route_input`] dispatch an event that
     /// the input-event dispatcher produced inside a `WM_KEYDOWN`?
     ///
@@ -756,6 +769,7 @@ impl UiShell {
             focused_maps: Vec::new(),
             active_maps: Vec::new(),
             mode_maps: Vec::new(),
+            session_maps: None,
             key_down_dispatch: false,
         })
     }
@@ -1227,6 +1241,18 @@ impl UiShell {
             input.set_mode_input_maps(&mode_maps);
             self.mode_maps = mode_maps;
             self.stats.mode_map_edges += 1;
+        }
+        // **The character session's maps, which only the gameplay screen has.** Movement,
+        // examine and use, the panel toggles, the quickbar, emotes, combat and chat are registered
+        // when a character session begins and dropped when it ends; this build enters the
+        // gameplay screen on that same edge and leaves it on the log-off or disconnect edge, so
+        // "the gameplay screen is up" is the session. Mirrored beside the pre-game screen's own
+        // band because the two are the two halves of one change: leaving character selection
+        // for the world takes map 9 away and brings these up.
+        let session = self.flow.current_mode() == Some(mode::GAME_PLAY);
+        if self.session_maps != Some(session) {
+            input.set_character_session_input_maps(session);
+            self.session_maps = Some(session);
         }
         let active = self.active_input_maps();
         if active != self.active_maps {

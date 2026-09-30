@@ -1592,6 +1592,12 @@ impl<H: Host> Ui<'_, H> {
                 shell.flow.queued_mode()
             );
             self.shell.ui = Some(shell);
+            // The UI comes up on a pre-game screen, where no character session exists yet, so the
+            // session's maps go now rather than on the UI's first frame: a key pressed before that
+            // frame must not reach them either.
+            if let Some(input) = self.shell.input.as_mut() {
+                input.set_character_session_input_maps(false);
+            }
         }
         Ok(())
     }
