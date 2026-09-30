@@ -129,6 +129,9 @@ pub struct MotionDriver {
     pub rng: Ran2,
     /// Current server time for the script timeline.
     pub cur_time: ServerTime,
+    /// The frame [`Self::update_parts`] last placed the parts from; see
+    /// [`Self::particle_parent_frame`].
+    placed_frame: Option<Frame>,
     events: Vec<AnimEvent>,
     effects: Vec<MotionEffect>,
 }
@@ -177,6 +180,7 @@ impl MotionDriver {
             script_table: None,
             rng: Ran2::new(1),
             cur_time: ServerTime(0.0),
+            placed_frame: None,
             events: Vec::new(),
             effects: Vec::new(),
         }
@@ -449,7 +453,7 @@ impl MotionDriver {
 
     /// The particle-manager update.
     pub fn update_particles(&mut self, should_draw: bool) {
-        let base = self.env.position.frame;
+        let base = self.particle_parent_frame();
         let ctx = EmitterContext {
             parent_frame: base,
             part_frame: None,
@@ -863,7 +867,7 @@ impl MotionDriver {
         let Some(i) = self.assets.emitter_info(info) else {
             return;
         };
-        let base = self.env.position.frame;
+        let base = self.particle_parent_frame();
         let ctx = EmitterContext {
             parent_frame: base,
             part_frame: if part_index == NO_PART {
@@ -973,8 +977,28 @@ impl MotionDriver {
     }
 
     /// Place every part from the current animation frame.
+    ///
+    /// `world` is also remembered as the frame the object-level particle emitters hang off (see
+    /// [`Self::particle_parent_frame`]), so the object's particles and its parts are always in the
+    /// one space the caller places parts in.
     pub fn update_parts(&mut self, world: &Frame) {
+        self.placed_frame = Some(*world);
         self.part_array.update_parts(world, &self.sequence);
+    }
+
+    /// The frame an emitter that hangs off the object itself, rather than one of its parts,
+    /// follows: the frame the parts were last placed with.
+    ///
+    /// A part emitter reads its part's placed frame, so an object emitter must read the frame the
+    /// parts were placed *from*, or the two kinds of emitter on one object end up in different
+    /// spaces. [`MotionEnv::position`] is not that frame when the caller places parts somewhere
+    /// other than the object's own landblock (a renderer that draws relative to the viewer's
+    /// landblock does): its origin is relative to the object's landblock, and particles born there
+    /// would draw at the same landblock-local spot in whichever landblock the space is centred
+    /// on. Before the first placement there is nothing else to follow, so it falls back to it.
+    #[must_use]
+    pub fn particle_parent_frame(&self) -> Frame {
+        self.placed_frame.unwrap_or(self.env.position.frame)
     }
 
     /// The received-movement handler's `MovementType::Invalid` arm — the whole of
@@ -1368,6 +1392,62 @@ mod tests {
 
         d.process_hooks();
         assert_eq!(d.take_events(), vec![AnimEvent::SetEthereal(true)]);
+    }
+
+    /// An emitter hung on the object itself is born at, and keeps emitting from, the frame the
+    /// parts were placed from, not the object's landblock-local position. The two differ whenever
+    /// the host places parts relative to another landblock, and then a landblock-local birth
+    /// frame draws the particles at the same local spot in the host's landblock, away from the
+    /// object.
+    #[test]
+    fn an_object_emitter_follows_the_frame_the_parts_were_placed_from() {
+        use dereth_primitives::{CellId, Position, Quat};
+        const EMITTER: u32 = 0x3200_0001;
+        let mut info = crate::data::ParticleEmitterInfo {
+            particle_type: crate::data::ParticleType::Still,
+            hw_gfxobj_id: DataId(0x0100_0001),
+            emitter_type: crate::data::BIRTHRATE_PER_SEC,
+            birthrate: 0.1,
+            max_particles: 8,
+            initial_particles: 1,
+            lifespan: 10.0,
+            is_parent_local: 0,
+            ..crate::data::ParticleEmitterInfo::default()
+        };
+        info.init_end();
+        let mut assets = MapAssets::default();
+        assets.emitters.insert(EMITTER, Arc::new(info));
+        let mut d = MotionDriver::new(Arc::new(assets));
+        // The object stands at (10, 20, 30) in its own landblock; the host draws relative to the
+        // landblock one to the east, so it places the parts 192 m west of that.
+        d.env.position = Position::new(
+            CellId(0xA9B4_0001),
+            Frame::new(Vec3::new(10.0, 20.0, 30.0), Quat::IDENTITY),
+        );
+        let placed = Frame::new(Vec3::new(10.0 - 192.0, 20.0, 30.0), Quat::IDENTITY);
+        d.update_parts(&placed);
+
+        d.create_emitter(DataId(EMITTER), NO_PART, Frame::default(), 0, false);
+        d.cur_time = ServerTime(1.0);
+        d.update_particles(true);
+
+        let origins: Vec<Vec3> = d
+            .particles
+            .iter()
+            .flat_map(|e| e.live().map(|p| p.frame.origin))
+            .collect();
+        assert!(
+            origins.len() >= 2,
+            "the initial particle and at least one emitted after it: {origins:?}"
+        );
+        for o in &origins {
+            assert_eq!(
+                *o, placed.origin,
+                "every particle is at the placed object, not at its landblock-local position"
+            );
+        }
+        let e = d.particles.iter().next().expect("the emitter");
+        assert_eq!(e.object_origin, placed.origin);
     }
 
     /// The driver satisfies the shared motion source trait.

@@ -558,6 +558,22 @@ impl ParticleEmitter {
     pub fn live(&self) -> impl Iterator<Item = &Particle> {
         self.particles.iter().flatten()
     }
+
+    /// Move the space this emitter was simulated in by `by`: every live particle's birth frame
+    /// and drawn frame, the last emission point and the particle object's origin.
+    ///
+    /// For a host whose coordinates move under a fixed world (a renderer that re-centres on the
+    /// viewer's landblock). A particle keeps its birth frame for its whole life, and a
+    /// degraded-out infinite emitter's particles are frozen, so without this they would stay at
+    /// their old coordinates and appear moved by the whole shift in the world.
+    pub fn translate(&mut self, by: Vec3) {
+        for p in self.particles.iter_mut().flatten() {
+            p.start_frame.origin = p.start_frame.origin.add(by);
+            p.frame.origin = p.frame.origin.add(by);
+        }
+        self.last_emit_offset = self.last_emit_offset.add(by);
+        self.object_origin = self.object_origin.add(by);
+    }
 }
 
 #[cfg(test)]
@@ -637,6 +653,102 @@ mod tests {
             (o.x - 18.0).abs() < 1e-4 && o.y.abs() < 1e-4 && (o.z - 1.0).abs() < 1e-4,
             "{o:?}"
         );
+    }
+
+    /// Moving the emitter's space moves every particle with it: an emitter simulated in a space
+    /// that shifts part-way through its life, and translated at the shift, draws every particle
+    /// exactly where an emitter simulated in the unshifted space draws it, less the shift. That
+    /// holds for particles frozen in their birth frame and for a degraded-out emitter's frozen
+    /// ones, which nothing else would ever move.
+    #[test]
+    fn translating_the_space_keeps_every_particle_where_it_is_in_the_world() {
+        let mut i = *info(ParticleType::LocalVelocity);
+        i.is_parent_local = 0;
+        i.lifespan = 20.0;
+        i.lifespan_rand = 0.0;
+        i.max_particles = 16;
+        i.emitter_type = crate::data::BIRTHRATE_PER_METER;
+        i.birthrate = 3.5;
+        let i = Arc::new(i);
+        let shift = Vec3::new(-192.0, 192.0, 0.0);
+        let at = |t: f64, moved: bool, x: f32| EmitterContext {
+            parent_frame: Frame::new(
+                Vec3::new(x, 0.0, 0.0).add(if moved { shift } else { Vec3::ZERO }),
+                Quat::IDENTITY,
+            ),
+            emitter_origin: Vec3::new(x, 0.0, 0.0).add(if moved { shift } else { Vec3::ZERO }),
+            ..ctx(t)
+        };
+        let (mut ra, mut rb) = (Ran2::new(7), Ran2::new(7));
+        let mut a = ParticleEmitter::new(
+            1,
+            Arc::clone(&i),
+            NO_PART,
+            Frame::default(),
+            &at(0.0, false, 0.0),
+            &mut ra,
+        )
+        .expect("a");
+        let mut b = ParticleEmitter::new(
+            1,
+            Arc::clone(&i),
+            NO_PART,
+            Frame::default(),
+            &at(0.0, false, 0.0),
+            &mut rb,
+        )
+        .expect("b");
+        // The parent walks, so particles are born along the way.
+        for step in 1u8..=10 {
+            let t = f64::from(step) * 0.1;
+            let x = f32::from(step);
+            a.update_particles(&at(t, false, x), &mut ra);
+            b.update_particles(&at(t, false, x), &mut rb);
+        }
+        assert!(b.live().count() >= 2, "particles were born along the walk");
+        let compare = |a: &ParticleEmitter, b: &ParticleEmitter, when: &str| {
+            let (pa, pb): (Vec<Vec3>, Vec<Vec3>) = (
+                a.live().map(|p| p.frame.origin).collect(),
+                b.live().map(|p| p.frame.origin).collect(),
+            );
+            assert_eq!(pa.len(), pb.len(), "{when}: the same particles live");
+            for (x, y) in pa.iter().zip(&pb) {
+                let d = y.sub(x.add(shift));
+                assert!(
+                    d.mag2() < 1e-6,
+                    "{when}: {y:?} is not {x:?} moved by the shift"
+                );
+            }
+        };
+        let step_both = |a: &mut ParticleEmitter,
+                         b: &mut ParticleEmitter,
+                         ra: &mut Ran2,
+                         rb: &mut Ran2,
+                         step: u8,
+                         draw: bool,
+                         moved: bool| {
+            let (t, x) = (f64::from(step) * 0.1, f32::from(step));
+            let c = |m| EmitterContext {
+                should_draw: draw,
+                ..at(t, m, x)
+            };
+            a.update_particles(&c(false), ra);
+            b.update_particles(&c(moved), rb);
+        };
+        // Degraded out: the particles are frozen where they are.
+        for step in 11u8..=13 {
+            step_both(&mut a, &mut b, &mut ra, &mut rb, step, false, false);
+        }
+        // The space moves under the frozen emitter.
+        b.translate(shift);
+        compare(&a, &b, "frozen, straight after the shift");
+        // Drawn again: every particle is re-evaluated from its birth frame, and the emitter
+        // measures its travel since the last emission from the moved emission point.
+        for step in 14u8..=20 {
+            step_both(&mut a, &mut b, &mut ra, &mut rb, step, true, true);
+        }
+        compare(&a, &b, "drawn again");
+        assert!(b.object_origin.sub(a.object_origin.add(shift)).mag2() < 1e-6);
     }
 
     /// ORACLE: the recovered particle behavior, "Emission" —

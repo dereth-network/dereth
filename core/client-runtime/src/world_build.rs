@@ -791,8 +791,15 @@ impl BlockResidency {
         self.blocks.clear();
         let released = release_block_interiors(ws, cfg, &departed);
         let radius = ws.streamer.window.mid_radius();
+        let was = ws.streamer.window.viewer_block();
         ws.streamer.window = dereth_landscape::LandblockWindow::new(radius);
         let viewer = (i32::from(destination.x()), i32::from(destination.y()));
+        if let Some(was) = was {
+            crate::world_step::rebase_render_space_particles(
+                ws,
+                (viewer.0 - was.0, viewer.1 - was.1),
+            );
+        }
         let actions = ws.streamer.window.update_block(viewer);
         self.queue(ws, cfg, &actions);
         released

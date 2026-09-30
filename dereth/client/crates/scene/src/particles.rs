@@ -308,8 +308,10 @@ pub(crate) struct ParticlePart {
 /// viewer-block-relative space. The simulation runs in absolute coordinates on purpose: a
 /// particle born with `is_parent_local == 0` keeps the frame it was born in for its whole life
 /// (particle updating chooses each particle's `start_frame`), and that frame is inside
-/// `dereth_animation`'s `Particle`, which nothing can rewrite. Simulating in the viewer-relative space would therefore
-/// leave every live particle 192 metres behind the moment the landblock window scrolls.
+/// `dereth_animation`'s `Particle`. Simulating in the viewer-relative space leaves every live
+/// particle 192 metres behind the moment the landblock window scrolls unless the scroll moves it
+/// too, which the re-centre does for the server objects and the body (they are simulated in the
+/// renderer's space and passed a zero `shift`).
 pub(crate) fn collect(
     mgr: &ParticleManager,
     shift: Vec3,

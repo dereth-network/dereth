@@ -226,9 +226,31 @@ pub fn recenter(
         camera,
         ..
     } = ws;
-    let (_, space, actions) =
+    let (shift, space, actions) =
         streamer.recenter(character, camera, cfg.indoor_viewpoint_gate, cfg.landblock);
+    if shift != (0, 0) {
+        rebase_render_space_particles(ws, shift);
+    }
     (space, actions)
+}
+
+/// The window moved `(dx, dy)` landblocks, so every point fixed in the world now has render
+/// coordinates `192 * (dx, dy)` smaller. The server objects' and the body's particles are
+/// simulated in that space (their emitters follow the placed parts), and a particle keeps its
+/// birth frame for life, so they are moved with it; otherwise every live particle, and every
+/// particle a far emitter holds frozen, would be drawn a whole landblock shift away from where
+/// it is in the world. The landblock statics' particles are simulated in absolute coordinates and
+/// need nothing.
+pub fn rebase_render_space_particles(ws: &mut WorldState, (dx, dy): (i32, i32)) {
+    let length = dereth_terrain::consts::BLOCK_LENGTH;
+    #[allow(clippy::cast_precision_loss)] // a block shift, at most 255
+    let by = dereth_primitives::Vec3::new(-(dx as f32) * length, -(dy as f32) * length, 0.0);
+    for o in ws.objects.values() {
+        o.sim.driver.borrow_mut().particles.translate(by);
+    }
+    if let Some(c) = ws.character.as_ref() {
+        c.driver_mut().particles.translate(by);
+    }
 }
 
 /// Everything after the re-centre that places a body or an object: the local body in `space`,

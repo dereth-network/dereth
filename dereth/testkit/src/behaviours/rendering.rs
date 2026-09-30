@@ -257,6 +257,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.effects.an-objects-own-emitters-burn-where-it-stands-in-any-landblock",
+        says: "A campfire standing in the landblock next to the player's draws its flames and \
+               smoke on the campfire, not floating at the same spot in the player's own landblock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-OBJECT-PARTICLE-SPACE"),
+        station: "dereth-client::dat::rendering::object_particle_space::a_campfire_in_the_next_landblock_burns_where_it_stands",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.effects.an-objects-particles-stay-put-when-the-viewer-changes-landblock",
+        says: "When the player walks into another landblock, the flames and smoke already in the \
+               air above a campfire stay above the campfire, including those of a campfire too far \
+               away to be animating.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-OBJECT-PARTICLE-SPACE-SCROLL"),
+        station: "dereth-client::dat::rendering::object_particle_space::a_campfires_particles_stay_at_the_campfire_when_the_viewer_walks_into_its_landblock",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.indoor.a-sealed-room-sees-no-outdoors-and-a-windowed-house-does",
         says: "Standing in a sealed dungeon room the client finds no view out to the outdoors, so \
                it draws no land, scenery or sky there, while standing in a Holtburg house it finds \

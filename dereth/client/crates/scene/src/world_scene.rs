@@ -7367,8 +7367,9 @@ mod imp {
                 }
             }
             // The server's objects and the body are simulated in the renderer's own space, because
-            // that is the space placed their parts in, so they need no
-            // shift. See [`crate::particles::collect`] for the consequence.
+            // that is the space their parts are placed in and their emitters follow the placed
+            // frames, so they need no shift. A window scroll moves that space, and the re-centre
+            // moves their live particles with it (`world_step::rebase_render_space_particles`).
             for o in ws.objects.values() {
                 if let Some(cell) = ws.object_draw_cell(o).filter(|c| visible(*c)) {
                     let outdoors = dereth_physics::landdefs::is_outdoors(cell);
@@ -8398,8 +8399,12 @@ mod imp {
             self.static_pool_key = None;
 
             let radius = ws.streamer.window.mid_radius();
+            let was = ws.streamer.window.viewer_block();
             ws.streamer.window = LandblockWindow::new(radius);
             let viewer = (i32::from(destination.x()), i32::from(destination.y()));
+            if let Some(was) = was {
+                world_step::rebase_render_space_particles(ws, (viewer.0 - was.0, viewer.1 - was.1));
+            }
             let actions = ws.streamer.window.update_block(viewer);
             self.queue(ws, &actions);
         }

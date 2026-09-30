@@ -112,6 +112,13 @@ impl ParticleManager {
         }
     }
 
+    /// Move every emitter's particles by `by`. See [`ParticleEmitter::translate`].
+    pub fn translate(&mut self, by: dereth_primitives::Vec3) {
+        for e in self.emitters.values_mut() {
+            e.translate(by);
+        }
+    }
+
     /// Update every emitter and delete the ones
     /// that report they are finished.
     pub fn update_particles(&mut self, ctx: &EmitterContext, rng: &mut Ran2) {
