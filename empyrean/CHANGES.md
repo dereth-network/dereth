@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.1.2 (2026-10-01)
+
 - Swapping weapons in combat leaves you in the new weapon's combat mode: knuckles swapped for a
   wand leave magic mode, and a wand swapped for a bow leaves missile mode with the arrows in hand,
   instead of dropping to peace.
