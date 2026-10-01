@@ -37,6 +37,7 @@ use crate::entity::damage_event::DamageEvent;
 use crate::entity::damage_history_info::DamageHistoryInfo;
 use crate::entity::spell::Spell;
 use crate::entity::stamina_table;
+use crate::entity::timers;
 use crate::entity::{damage_history, landblock};
 use crate::managers::property_manager;
 use crate::network::game_event::events::game_event_attacker_notification::game_event_attacker_notification;
@@ -81,6 +82,9 @@ pub struct PlayerCombatFields {
     /// SHIM storage for `Player.NextUseTime` (`Player_Use.cs`, an auto-property) as the combat code
     /// sees it; read and written only through [`next_use_time`] / [`set_next_use_time`].
     pub shim_next_use_time: DotNetDateTime,
+    /// Not ACE (V417): when the latest combat-mode change waiting for the previous one's
+    /// animation runs, in `Timers.PortalYearTicks`, so a later request never runs before it.
+    pub deferred_combat_mode_end: f64,
 }
 
 // ============================================================================== helpers
@@ -1257,6 +1261,10 @@ pub fn is_pk_lite_death(w: &World, this: ObjectGuid, killer_guid: Option<u32>) -
 // ACE: Player.UseTimeEpsilon
 pub const USE_TIME_EPSILON: f32 = 0.05;
 
+/// Not ACE (V417): how long after an earlier waiting combat-mode change a later one runs at the
+/// soonest (one microsecond: an order, not a delay anyone sees).
+const DEFERRED_COMBAT_MODE_GAP: f64 = 1e-6;
+
 /// The client asks to change combat mode (game action 0x0053): an invalid weapon setup is
 /// refused back to peace; otherwise the change runs now, or once the previous one's animation
 /// (`NextUseTime`) is over. ACE's defaults: `force_hand_combat = false`, `callback = null`.
@@ -1307,6 +1315,16 @@ pub fn handle_action_change_combat_mode(
         let mut action_chain = ActionChain::new();
         let delay =
             (next_use_time(w, this) - w.now.utc).total_seconds() + f64::from(USE_TIME_EPSILON);
+        // Not ACE (V417): a change that waits runs after any change that began waiting before
+        // it. Two requests waiting on the same animation (a weapon swap's unwield and wield) aim
+        // at the same moment; ACE reads the live clock, so the one asked first comes out earlier
+        // and the last request is the one that sticks. This server's clock is one reading per
+        // tick, so the two ends tie up to rounding and could run in either order.
+        let now = timers::portal_year_ticks(w);
+        let fields = fields_mut(w, this);
+        let end = (now + delay).max(fields.deferred_combat_mode_end + DEFERRED_COMBAT_MODE_GAP);
+        fields.deferred_combat_mode_end = end;
+        let delay = end - now;
         action_chain.add_delay_seconds(w, delay);
         action_chain.add_action(Actor::Object(this), move |w: &mut World| {
             handle_action_change_combat_mode_inner(

@@ -1,3 +1,4 @@
+pub(crate) mod combat_mode_swap;
 pub(crate) mod logged_off_targets;
 pub(crate) mod missiles_on_real_content;
 pub(crate) mod monster_ai;
