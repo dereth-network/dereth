@@ -118,26 +118,42 @@ fn the_upgrade_fixture_folder_is_named_by_the_numeric_version() {
     );
 }
 
-/// A pre-release leaves the highlights file's Unreleased section as it is, for the final release
-/// to take; a final release stamps it. Empyrean's releases never touch it.
+/// A pre-release leaves the product's highlights file's Unreleased section as it is, for the final
+/// release to take; a final release stamps its own product's file and not the other's.
 #[test]
-fn only_a_final_dereth_release_stamps_the_highlights() {
+fn a_final_release_stamps_its_own_highlights() {
     let ws = std::env::temp_dir().join(format!("xtask-stamp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&ws);
     std::fs::create_dir_all(ws.join("dereth")).expect("scratch dir");
-    let text = "# Dereth changes\n\n## Unreleased\n\n- A thing\n";
-    std::fs::write(changes_path(&ws), text).expect("write");
-    let read = || std::fs::read_to_string(changes_path(&ws)).expect("read");
+    std::fs::create_dir_all(ws.join("empyrean")).expect("scratch dir");
+    let text = "# Changes\n\n## Unreleased\n\n- A thing\n";
+    for product in [Product::Dereth, Product::Empyrean] {
+        std::fs::write(changes_path(&ws, product), text).expect("write");
+    }
+    let read = |product| std::fs::read_to_string(changes_path(&ws, product)).expect("read");
 
     assert_eq!(stamp_changes(&ws, Product::Dereth, "0.2.0-rc.1"), Ok(None));
-    assert_eq!(stamp_changes(&ws, Product::Empyrean, "0.2.0"), Ok(None));
-    assert_eq!(read(), text);
+    assert_eq!(
+        stamp_changes(&ws, Product::Empyrean, "0.2.0-rc.1"),
+        Ok(None)
+    );
+    assert_eq!(read(Product::Dereth), text);
+    assert_eq!(read(Product::Empyrean), text);
+    assert_eq!(
+        stamp_changes(&ws, Product::Empyrean, "0.2.0"),
+        Ok(Some(notes::EMPYREAN_CHANGES.to_owned()))
+    );
+    assert_eq!(
+        notes::section(&read(Product::Empyrean), "0.2.0").as_deref(),
+        Some("- A thing")
+    );
+    assert_eq!(read(Product::Dereth), text);
     assert_eq!(
         stamp_changes(&ws, Product::Dereth, "0.2.0"),
         Ok(Some(notes::CHANGES.to_owned()))
     );
     assert_eq!(
-        notes::section(&read(), "0.2.0").as_deref(),
+        notes::section(&read(Product::Dereth), "0.2.0").as_deref(),
         Some("- A thing")
     );
     let _ = std::fs::remove_dir_all(&ws);

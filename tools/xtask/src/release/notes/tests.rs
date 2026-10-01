@@ -1,4 +1,4 @@
-//! Behaviour: none (tooling: which commits a Dereth release's notes keep, under which heading, and
+//! Behaviour: none (tooling: which commits a release's notes keep, under which heading, and
 //! how the highlights file is read and stamped).
 
 use super::*;
@@ -49,7 +49,7 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
         ),
     ];
     for c in &left_out {
-        assert_eq!(group(c), None, "{c:?}");
+        assert_eq!(group(Product::Dereth, c), None, "{c:?}");
     }
     let kept = [
         commit("Walking uphill is slower", &["core/physics/src/walk.rs"]),
@@ -70,7 +70,7 @@ fn only_commits_that_change_what_the_client_ships_are_kept() {
         ),
     ];
     for c in &kept {
-        assert!(group(c).is_some(), "{c:?}");
+        assert!(group(Product::Dereth, c).is_some(), "{c:?}");
     }
 }
 
@@ -114,7 +114,11 @@ fn a_commit_is_grouped_by_the_launcher_then_a_fix_then_its_words() {
         ),
     ];
     for (subject, paths, want) in cases {
-        assert_eq!(group(&commit(subject, paths)), Some(want), "{subject}");
+        assert_eq!(
+            group(Product::Dereth, &commit(subject, paths)),
+            Some(want),
+            "{subject}"
+        );
     }
 }
 
@@ -128,25 +132,166 @@ fn folders_settle_what_the_words_leave_open_and_the_rest_is_other() {
         "A double-click on a shopkeeper's stock row buys it",
         &["dereth/client/crates/ui-screens/src/panels/vendor.rs"],
     );
-    assert_eq!(group(&both), Some(Group::Interface));
+    assert_eq!(group(Product::Dereth, &both), Some(Group::Interface));
     // No heading by words; the renderer's folder.
     let folder = commit(
         "The frame is presented once per refresh",
         &["dereth/client/crates/render/src/present.rs"],
     );
-    assert_eq!(group(&folder), Some(Group::GraphicsSound));
+    assert_eq!(group(Product::Dereth, &folder), Some(Group::GraphicsSound));
     // No heading by words, and folders that imply none.
     let neither = commit(
         "The session keeps its sequence numbers across a reconnect",
         &["core/client-net/src/session.rs"],
     );
-    assert_eq!(group(&neither), Some(Group::Other));
+    assert_eq!(group(Product::Dereth, &neither), Some(Group::Other));
     // Words name two headings and the folders imply neither of them.
     let split = commit(
         "Sounds of the chat window",
         &["core/client-runtime/src/world_objects.rs"],
     );
-    assert_eq!(group(&split), Some(Group::Other));
+    assert_eq!(group(Product::Dereth, &split), Some(Group::Other));
+}
+
+/// Empyrean's notes keep a commit that changes the server, or a shared crate the server is built
+/// from when nothing only the client ships changes with it; they leave out the client's commits
+/// (shared-crate changes made for the client among them), the server's tests and documents, the
+/// tools, the client-only crates and the version commits.
+#[test]
+fn only_commits_that_change_what_the_server_ships_are_kept() {
+    let left_out = [
+        commit(
+            "An object's particles are drawn at the object in every landblock",
+            &[
+                "core/animation/src/particles/emitter.rs",
+                "core/client-runtime/src/world_step.rs",
+                "dereth/client/crates/scene/src/particles.rs",
+            ],
+        ),
+        commit("Keys work", &["dereth/client/crates/input/src/a.rs"]),
+        commit(
+            "The session keeps its sequence numbers",
+            &["core/client-net/src/session.rs"],
+        ),
+        commit(
+            "The swap test covers a bow",
+            &[
+                "empyrean/testkit/tests/all/combat/combat_mode_swap.rs",
+                "empyrean/crates/store/tests/fixtures/upgrade/0.1.1/shard.db",
+                "empyrean/DIVERGENCES.md",
+            ],
+        ),
+        commit(
+            "xtask release empyrean makes the fixture",
+            &["tools/xtask/src/release.rs", "empyrean/RELEASING.md"],
+        ),
+        commit(
+            "Empyrean 0.1.2",
+            &["empyrean/server/Cargo.toml", "Cargo.lock"],
+        ),
+    ];
+    for c in &left_out {
+        assert_eq!(group(Product::Empyrean, c), None, "{c:?}");
+    }
+    let kept = [
+        commit(
+            "Swapping weapons in combat leaves the new weapon's combat mode",
+            &[
+                "empyrean/crates/world/src/world_objects/player_combat.rs",
+                "empyrean/testkit/tests/all/combat/combat_mode_swap.rs",
+            ],
+        ),
+        commit(
+            "A protocol field is read as the server writes it",
+            &["core/protocol/src/messages.rs"],
+        ),
+        commit(
+            "Both sides agree on the message",
+            &[
+                "core/protocol/src/messages.rs",
+                "core/client-net/src/session.rs",
+                "empyrean/crates/net/src/send.rs",
+            ],
+        ),
+    ];
+    for c in &kept {
+        assert!(group(Product::Empyrean, c).is_some(), "{c:?}");
+    }
+    // The client's notes keep the client's side and leave out the server-only commit.
+    assert!(group(Product::Dereth, &left_out[0]).is_some());
+    assert_eq!(group(Product::Dereth, &kept[0]), None);
+}
+
+/// A server commit goes under Gameplay, World and content, Operations, Fixes or Other changes:
+/// a fix by its words first, then the one heading its words name, then its folders.
+#[test]
+fn a_server_commit_is_grouped_by_a_fix_then_its_words_then_its_folders() {
+    let cases = [
+        (
+            "Swapping weapons in combat leaves the new weapon's combat mode, not peace",
+            &["empyrean/crates/world/src/world_objects/player_combat.rs"][..],
+            Group::Gameplay,
+        ),
+        (
+            "A generator spawns its creatures when the landblock wakes",
+            &["empyrean/crates/world/src/managers/landblock.rs"][..],
+            Group::World,
+        ),
+        (
+            "The server updates itself from the newest release",
+            &["empyrean/server/src/update/release.rs"][..],
+            Group::Operations,
+        ),
+        (
+            "The shard database no longer locks during a save",
+            &["empyrean/crates/store/src/shard.rs"][..],
+            Group::Fixes,
+        ),
+        // No heading by words: the folders choose.
+        (
+            "A pack built by an older version is read as before",
+            &["empyrean/crates/content/src/pack/read.rs"][..],
+            Group::World,
+        ),
+        (
+            "Values written as before",
+            &["empyrean/server/src/config_file.rs"][..],
+            Group::Operations,
+        ),
+        // No heading by words, and folders that imply none.
+        (
+            "Sequence numbers wrap as before",
+            &["empyrean/crates/net/src/sequence.rs"][..],
+            Group::Other,
+        ),
+    ];
+    for (subject, paths, want) in cases {
+        assert_eq!(
+            group(Product::Empyrean, &commit(subject, paths)),
+            Some(want),
+            "{subject}"
+        );
+    }
+    let groups = grouped(
+        Product::Empyrean,
+        &[
+            commit("Config keys", &["empyrean/server/src/config_file.rs"]),
+            commit("Combat swaps", &["empyrean/crates/world/src/a.rs"]),
+            commit("Keys work", &["dereth/client/crates/input/src/a.rs"]),
+        ],
+    );
+    assert_eq!(
+        groups,
+        [
+            (Group::Gameplay, vec!["Combat swaps".to_owned()]),
+            (Group::Operations, vec!["Config keys".to_owned()]),
+        ]
+    );
+    assert_eq!(
+        render(Product::Empyrean, None, &[], "empyrean-v0.1.1", None),
+        "## All changes\n\nNo change to the server since empyrean-v0.1.1.\n\n"
+    );
+    assert_eq!(changes_file(Product::Empyrean), "empyrean/CHANGES.md");
 }
 
 /// A subject's area label is dropped and its first letter capitalised; a subject without one is
@@ -183,8 +328,9 @@ fn the_notes_are_highlights_then_grouped_changes_then_one_compare_link() {
             &["dereth/client/crates/render/src/b.rs"],
         ),
     ];
-    let groups = grouped(&commits);
+    let groups = grouped(Product::Dereth, &commits);
     let text = render(
+        Product::Dereth,
         Some("- Fire stays at its campfire\n"),
         &groups,
         "dereth-v0.1.1",
@@ -197,7 +343,7 @@ fn the_notes_are_highlights_then_grouped_changes_then_one_compare_link() {
          ### Interface\n\n- Keys work\n\n\
          **Full changes:** https://example.invalid/compare/dereth-v0.1.1...dereth-v0.2.0\n"
     );
-    let bare = render(Some("  \n"), &[], "dereth-v0.1.1", None);
+    let bare = render(Product::Dereth, Some("  \n"), &[], "dereth-v0.1.1", None);
     assert_eq!(
         bare,
         "## All changes\n\nNo change to the client or the launcher since dereth-v0.1.1.\n\n"
@@ -262,9 +408,9 @@ fn a_day_count_is_its_civil_date() {
     assert_eq!(date_of_day(20_726), "2026-09-30");
 }
 
-/// The command takes Dereth and its three options, and refuses Empyrean and anything else.
+/// The command takes either product and its three options, and refuses anything else.
 #[test]
-fn the_command_takes_dereth_and_its_options() {
+fn the_command_takes_a_product_and_its_options() {
     let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     assert_eq!(
         parse(&args(&[
@@ -276,14 +422,31 @@ fn the_command_takes_dereth_and_its_options() {
             "--out",
             "n.md"
         ])),
-        Ok(Request {
-            since: Some("dereth-v0.1.0".to_owned()),
-            version: Some("0.2.0".to_owned()),
-            out: Some(PathBuf::from("n.md")),
-        })
+        Ok((
+            Product::Dereth,
+            Request {
+                since: Some("dereth-v0.1.0".to_owned()),
+                version: Some("0.2.0".to_owned()),
+                out: Some(PathBuf::from("n.md")),
+            }
+        ))
     );
-    assert_eq!(parse(&args(&["dereth"])), Ok(Request::default()));
-    assert!(parse(&args(&["empyrean"])).is_err());
+    assert_eq!(
+        parse(&args(&["dereth"])),
+        Ok((Product::Dereth, Request::default()))
+    );
+    assert_eq!(
+        parse(&args(&["empyrean", "--version", "0.1.2"])),
+        Ok((
+            Product::Empyrean,
+            Request {
+                version: Some("0.1.2".to_owned()),
+                ..Request::default()
+            }
+        ))
+    );
+    assert!(parse(&args(&["server"])).is_err());
+    assert!(parse(&args(&[])).is_err());
     assert!(parse(&args(&["dereth", "--bogus"])).is_err());
     assert!(parse(&args(&["dereth", "--since"])).is_err());
 }
@@ -316,9 +479,9 @@ fn a_comment_only_commit_is_left_out() {
         "client: the window module's doc links name their items by full path",
         &["dereth/client/src/platform/window.rs"],
     );
-    assert!(group(&c).is_some());
+    assert!(group(Product::Dereth, &c).is_some());
     c.comment_only = true;
-    assert_eq!(group(&c), None);
+    assert_eq!(group(Product::Dereth, &c), None);
 }
 
 /// A scratch git repository in the temporary directory, removed when dropped.
@@ -398,7 +561,7 @@ fn a_final_release_covers_everything_since_the_previous_final_one() {
         version: Some(v.to_owned()),
         ..Request::default()
     };
-    let final_notes = notes(&repo.0, &request("0.2.0")).expect("final notes");
+    let final_notes = notes(&repo.0, Product::Dereth, &request("0.2.0")).expect("final notes");
     assert!(final_notes.starts_with("## Highlights\n\n- Fire stays at its campfire\n"));
     assert!(
         final_notes.contains("- Particles are drawn\n"),
@@ -412,7 +575,7 @@ fn a_final_release_covers_everything_since_the_previous_final_one() {
         "{final_notes}"
     );
 
-    let rc_notes = notes(&repo.0, &request("0.2.0-rc.1")).expect("rc notes");
+    let rc_notes = notes(&repo.0, Product::Dereth, &request("0.2.0-rc.1")).expect("rc notes");
     assert!(rc_notes.starts_with("## Highlights\n\n- Fire stays at its campfire\n"));
     assert!(rc_notes.contains("- Particles are drawn\n"), "{rc_notes}");
     assert!(!rc_notes.contains("Keys work"), "{rc_notes}");

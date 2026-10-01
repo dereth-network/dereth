@@ -113,12 +113,14 @@ Release and packaging:
   release empyrean|dereth <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 and a host package, tag empyrean-v<version> or
-                            dereth-v<version>; pushes only with --push. Dereth's also turns the
-                            Unreleased section of dereth/CHANGES.md into the release's
-  release-notes dereth [--since <tag>] [--version <v>] [--out <file>]
-                            print a Dereth release's notes without releasing: the highlights of
-                            dereth/CHANGES.md, then the client's commits since the previous
-                            dereth-v tag, grouped (the release workflow writes them the same way)
+                            dereth-v<version>; pushes only with --push. A final release also
+                            turns the Unreleased section of the product's CHANGES.md
+                            (empyrean/ or dereth/) into the release's own, dated
+  release-notes dereth|empyrean [--since <tag>] [--version <v>] [--out <file>]
+                            print a release's notes without releasing: the highlights of the
+                            product's CHANGES.md, then its commits since the previous final
+                            dereth-v or empyrean-v tag, grouped (the release workflow writes
+                            them the same way)
   version empyrean|dereth [--tag <tag>]
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail

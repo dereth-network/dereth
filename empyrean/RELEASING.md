@@ -4,13 +4,46 @@ An Empyrean release is the two binaries, `empyrean-server` and `empyrean-import`
 guides and notices, for five targets, published as a GitHub release of this repository. There are
 two commands and one review:
 
-1. **`cargo xtask release empyrean <version>`** on a clean `main`: sets the version, runs the
-   checks, packages the host's target as a smoke test and tags `empyrean-v<version>`.
+1. **`cargo xtask release empyrean <version>`** on a clean `main`: sets the version, dates the
+   release's highlights in [`CHANGES.md`](CHANGES.md), runs the checks, packages the host's target as a smoke test and tags `empyrean-v<version>`.
 2. **Pushing the tag** starts the release workflow on GitHub, which builds every target, checks
    everything again and creates a **draft** release.
 3. **A maintainer reviews the draft and publishes it.**
 
 `cargo xtask package empyrean` is the build itself: the same command locally and in the workflow.
+
+## Release notes
+
+A release's description on GitHub starts with its notes, in two parts:
+
+- **Highlights:** the release's section of [`CHANGES.md`](CHANGES.md), a few lines for operators
+  and players written by hand. Add a line under `## Unreleased` when a change lands that an
+  operator or a player would notice. The release command turns that section into the release's
+  own, `## <version> (<date>)`, and opens a new empty Unreleased section, in the version commit.
+  A pre-release (`-rc.1`) leaves the section alone: its notes show the Unreleased highlights, and
+  the final release takes them.
+- **All changes:** the subject of every commit since the previous final `empyrean-v*` tag
+  (pre-release tags are passed over) that changed what a release ships: a file under `empyrean/`,
+  or under a shared `core/` crate the server is built from (`primitives`, `protocol`, `transport`,
+  `dat`, `world-data`, `rules`, `physics`, `animation`, `assets`), that is not a test, a fixture or
+  a document. A commit that also changes something only the client ships counts only when it
+  changes a file under `empyrean/`. The client's other commits, CI's, the tools', the version
+  commits, and commits that change only comments and blank lines are left out. Each subject goes
+  under one heading (Gameplay, World and content, Operations, Fixes), chosen from its words and
+  then from where its files are; a subject the rules cannot place goes under "Other changes".
+  Subjects only, without hashes, and one compare link at the end.
+
+To see the notes before releasing:
+
+```
+cargo xtask release-notes empyrean [--since <tag>] [--version <version>] [--out <file>]
+```
+
+It prints the notes for the commits since the newest final `empyrean-v*` tag (or `--since`) up to
+`HEAD`, with the Unreleased section as the highlights. With `--version` of a release that is
+tagged, the range ends at its tag and the highlights are its own section. `--out` writes the notes
+to a file instead. The release workflow runs the same command on the tag and puts the notes ahead
+of the release's own description, so the preview is what the release gets.
 
 ## Versions and tags
 
@@ -128,11 +161,14 @@ cargo xtask release empyrean <MAJOR.MINOR.PATCH[-pre]> [--push] [--remote <name>
    here nor on the remote (default `origin`); its upgrade declaration keeps the rules above.
 2. Sets every `empyrean-*` crate's `version` to `<version>`, updates `Cargo.lock`'s entries for the
    workspace's own packages, makes the release's database upgrade fixture when it has none
-   (`empyrean/crates/store/UPGRADES.md`), and commits exactly those files as `Empyrean <version>`.
-   When the crates already carry `<version>`, there is no version to commit; a missing fixture is
-   still made and committed on its own.
+   (`empyrean/crates/store/UPGRADES.md`), turns the Unreleased section of `empyrean/CHANGES.md`
+   into the release's own (a final release only; "Release notes" above), and commits exactly
+   those files as `Empyrean <version>`. When the crates already carry `<version>`, there is no
+   version to commit; a missing fixture or an unstamped `CHANGES.md` is still made and committed
+   on its own.
 3. Runs `cargo xtask ci tier0`, then `cargo xtask package empyrean` for the host's target.
-4. Tags that commit `empyrean-v<version>` (annotated).
+4. Tags that commit `empyrean-v<version>` (annotated), and prints the release notes the workflow
+   will write from the tag.
 5. Prints the two push commands, `git push <remote> main` and `git push <remote> empyrean-v<version>`,
    and runs them only with `--push`.
 
@@ -147,7 +183,8 @@ tier-2 modules the release touches on a hardware GPU.
 `.github/workflows/release-empyrean.yml` runs when an `empyrean-v*` tag reaches GitHub. Its jobs:
 
 1. **version and tag:** the tag names the version the crates carry, and the tagged commit is on
-   `main`.
+   `main`; then writes the release notes (`cargo xtask release-notes empyrean --version
+   <version>`) and keeps them as an artifact and in the run's summary.
 2. **package**, one job per target, each on a runner of its own operating system and
    architecture (Windows; macOS; Linux x86-64 and arm64 on Ubuntu, built with zigbuild): runs the server's tests natively once per operating system, runs
    `cargo xtask package empyrean --target <target>`, unpacks the archive and smoke-runs both
@@ -157,7 +194,8 @@ tier-2 modules the release touches on a hardware GPU.
 3. **gather the release:** downloads every archive, runs `cargo xtask package empyrean --gather`,
    and keeps the release files as a workflow artifact.
 4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a
-   pre-release version) with the archives, `SHA256SUMS`, `MANIFEST.txt` and `release.json`, each
+   pre-release version), its description the release notes followed by what the release is,
+   with the archives, `SHA256SUMS`, `MANIFEST.txt` and `release.json`, each
    with a display label (`Empyrean server · Windows x64`, `Checksums (SHA-256)` and so on; the file
    names are unchanged). The job computes each label from the file's name and fails if any file
    has none. It is the only job that can write, and it runs in the `release` environment.

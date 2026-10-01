@@ -7,9 +7,10 @@
 //! `cargo xtask ci tier0` and packages the host's own target as a smoke test, then makes the
 //! annotated tag `empyrean-v<version>` or `dereth-v<version>`. An Empyrean release also makes its
 //! database upgrade fixture (`empyrean/crates/store/UPGRADES.md`) when the tree has none for that
-//! release, and commits it with the version. A final Dereth release turns the Unreleased section of
-//! `dereth/CHANGES.md` into the release's own, dated, under a new empty Unreleased section, and
-//! commits that with the version: the section is the release notes' highlights ([`notes`]). It
+//! release, and commits it with the version. A final release turns the Unreleased section of the
+//! product's `CHANGES.md` (`empyrean/CHANGES.md`, `dereth/CHANGES.md`) into the release's own,
+//! dated, under a new empty Unreleased section, and commits that with the version: the section is
+//! the release notes' highlights ([`notes`]). It
 //! prints the two push commands and runs them only with `--push`: the product's release workflow
 //! starts when the tag reaches the public repository, and builds, checks and drafts the release
 //! from there.
@@ -240,47 +241,38 @@ fn make_upgrade_fixture(
     Ok(Some(dir))
 }
 
-/// The highlights file, as the release command reads and writes it.
-fn changes_path(ws: &Path) -> std::path::PathBuf {
-    ws.join(notes::CHANGES)
+/// `product`'s highlights file, as the release command reads and writes it.
+fn changes_path(ws: &Path, product: Product) -> std::path::PathBuf {
+    ws.join(notes::changes_file(product))
 }
 
-/// For a final Dereth release whose highlights file has no section for `requested` yet: stamp
-/// the Unreleased section with it and today's date, and return the file to commit. `None` for
-/// Empyrean, for a pre-release (its notes show the Unreleased section, which stays for the final
-/// release), and when the section is already there.
+/// For a final release whose highlights file has no section for `requested` yet: stamp the
+/// Unreleased section with it and today's date, and return the file to commit. `None` for a
+/// pre-release (its notes show the Unreleased section, which stays for the final release), and
+/// when the section is already there.
 fn stamp_changes(ws: &Path, product: Product, requested: &str) -> Result<Option<String>, String> {
-    if product != Product::Dereth {
-        return Ok(None);
-    }
+    let file = notes::changes_file(product);
     if version::is_prerelease(requested) {
-        println!(
-            "=== {requested} is a pre-release: {} keeps its Unreleased section",
-            notes::CHANGES
-        );
+        println!("=== {requested} is a pre-release: {file} keeps its Unreleased section");
         return Ok(None);
     }
-    let path = changes_path(ws);
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", notes::CHANGES))?;
+    let path = changes_path(ws, product);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("reading {file}: {e}"))?;
     if notes::section(&text, requested).is_some() {
-        println!(
-            "=== {} already has a section for {requested}",
-            notes::CHANGES
-        );
+        println!("=== {file} already has a section for {requested}");
         return Ok(None);
     }
     if notes::section(&text, notes::UNRELEASED).is_some_and(|s| s.is_empty()) {
         println!(
-            "note: the Unreleased section of {} is empty; the release's notes will have no \
-             highlights",
-            notes::CHANGES
+            "note: the Unreleased section of {file} is empty; the release's notes will have no \
+             highlights"
         );
     }
-    let stamped = notes::stamp(&text, requested, &notes::today())?;
-    std::fs::write(&path, stamped).map_err(|e| format!("writing {}: {e}", notes::CHANGES))?;
-    println!("=== {}: Unreleased is now {requested}", notes::CHANGES);
-    Ok(Some(notes::CHANGES.to_owned()))
+    let stamped =
+        notes::stamp(&text, requested, &notes::today()).map_err(|e| format!("{file}: {e}"))?;
+    std::fs::write(&path, stamped).map_err(|e| format!("writing {file}: {e}"))?;
+    println!("=== {file}: Unreleased is now {requested}");
+    Ok(Some(file.to_owned()))
 }
 
 fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<(), String> {
@@ -393,17 +385,15 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
     let message = format!("{name} {requested}");
     git(&ws, &["tag", "-a", &plan.tag, "-m", &message, &head])?;
     println!("\ntagged {} at {head}", plan.tag);
-    if product == Product::Dereth {
-        let request = notes::Request {
-            version: Some(requested.to_owned()),
-            ..notes::Request::default()
-        };
-        match notes::notes(&ws, &request) {
-            Ok(text) => {
-                println!("\n=== the release notes the workflow will write from this tag\n\n{text}")
-            }
-            Err(e) => println!("note: the release notes could not be previewed: {e}"),
+    let request = notes::Request {
+        version: Some(requested.to_owned()),
+        ..notes::Request::default()
+    };
+    match notes::notes(&ws, product, &request) {
+        Ok(text) => {
+            println!("\n=== the release notes the workflow will write from this tag\n\n{text}")
         }
+        Err(e) => println!("note: the release notes could not be previewed: {e}"),
     }
 
     let commands = push_commands(remote, &plan.tag);
