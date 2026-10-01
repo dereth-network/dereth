@@ -25,6 +25,8 @@ use dereth_client_shell::platform::window::WindowEvents;
 pub struct WebHost;
 
 impl Host for WebHost {
+    const BUILD_ID: &'static str = concat!("dereth-web ", env!("CARGO_PKG_VERSION"));
+
     type Clipboard = clipboard::PageClipboard;
 
     /// The canvas at the configured size, the runtime's clock, a pacer that leaves the pacing to

@@ -14,6 +14,10 @@ use crate::cursor::{CursorImages, PortableCursors};
 
 /// What the shell needs from the platform under it.
 pub trait Host: 'static {
+    /// The program's name and version, as `@version` prints them after "Client version" (for
+    /// example `dereth-client 0.1.3`).
+    const BUILD_ID: &'static str;
+
     /// The host clipboard the shell mirrors each frame.
     type Clipboard: HostClipboard;
 
@@ -49,6 +53,8 @@ pub trait Host: 'static {
 pub struct NullHost;
 
 impl Host for NullHost {
+    const BUILD_ID: &'static str = concat!("dereth-client ", env!("CARGO_PKG_VERSION"));
+
     type Clipboard = crate::clipboard::NoClipboard;
 
     fn open_platform(_cfg: &Config, _events: WindowEvents) -> Result<Platform, StartupError> {

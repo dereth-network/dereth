@@ -13,6 +13,8 @@ use crate::Config;
 pub struct Desktop;
 
 impl Host for Desktop {
+    const BUILD_ID: &'static str = concat!("dereth-client ", env!("CARGO_PKG_VERSION"));
+
     type Clipboard = crate::clipboard::Win32Clipboard;
 
     fn open_platform(

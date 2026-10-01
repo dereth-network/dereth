@@ -85,9 +85,9 @@ pub const CHANNEL_COMMAND_NEEDS_TEXT: &str = "You must specify the text you wish
 /// metadata is this executable's corresponding source of truth; including the package name keeps
 /// a development `0.0.0` build from presenting itself as the September 2013 retail client.
 ///
-/// The executable is the `dereth-client` package. This code lives in the library crate, whose own
-/// package name is not the executable's, so the name is spelled here; the version is the
-/// workspace's, shared by every crate.
+/// This is only the fallback: the version that matters is the running program's, which this library
+/// crate cannot see (its own package version is the workspace's, not the client's). The program
+/// names itself at start-up through [`Interaction::client_build_id`].
 const CLIENT_BUILD_ID: &str = concat!("dereth-client", " ", env!("CARGO_PKG_VERSION"));
 
 /// The drop-release handler accepts element `0x100001D6`, the one element of the panel
@@ -1260,6 +1260,9 @@ pub use crate::flags::StartsTrue;
 /// Viewport selection, combat input and shared UI targeting state used by this router.
 #[derive(Debug, Default)]
 pub struct Interaction {
+    /// The running program's name and version, as `@version` prints them after "Client version".
+    /// The program sets it at start-up; until then it is this library's own fallback.
+    pub client_build_id: &'static str,
     /// `WorldObjects`'s pick state and the geometry it sweeps.
     pub pick: WorldPicker,
     /// Search reason, reset at the end of every object-found notice.
@@ -2203,6 +2206,7 @@ impl Interaction {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            client_build_id: CLIENT_BUILD_ID,
             pick: WorldPicker::new(),
             ..Self::default()
         }
@@ -7139,7 +7143,7 @@ impl Interaction {
                 self.stats.chat_command_lines += 1;
             }
             game.scroll.add_text_to_scroll(
-                &format!("Client version {CLIENT_BUILD_ID}\n"),
+                &format!("Client version {}\n", self.client_build_id),
                 dereth_client_model::chat::text_type::DEFAULT,
                 true,
                 source,

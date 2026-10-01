@@ -567,7 +567,8 @@ impl<H: Host> App<H> {
             &Config,
         ) -> Result<Box<dyn ClientPresentation>, StartupError>,
     ) -> Result<Self, StartupError> {
-        let core = CoreApp::<H>::bring_up_with_store(cfg, store, platform, present)?;
+        let mut core = CoreApp::<H>::bring_up_with_store(cfg, store, platform, present)?;
+        core.interaction.client_build_id = H::BUILD_ID;
         let shell = ClientShell::with_window_events(core.window.raw_handle(), window_events);
         Ok(Self { core, shell })
     }
