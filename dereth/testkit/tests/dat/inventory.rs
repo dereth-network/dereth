@@ -547,6 +547,16 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         a_number_key_pressed_with_a_cursor_armed_finishes_that_gesture,
     ),
     (
+        "a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player",
+        &["inventory.shortcut-bar.a-kit-key-then-the-main-pack-key-uses-the-kit-on-the-player"],
+        a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player,
+    ),
+    (
+        "something_carried_over_the_window_turns_it_to_the_selling_tab",
+        &["vendor.tabs.something-carried-over-the-window-turns-it-to-the-selling-tab"],
+        something_carried_over_the_window_turns_it_to_the_selling_tab,
+    ),
+    (
         "letting_go_takes_the_shop_hint_down_whichever_answer_it_was_showing",
         &["vendor.sell.letting-go-takes-the-hint-down-whichever-answer-it-was-showing"],
         letting_go_takes_the_shop_hint_down_whichever_answer_it_was_showing,
@@ -812,9 +822,9 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         shop::what_is_on_the_shops_shelf_is_bought_and_never_used,
     ),
     (
-        "part_of_a_stack_is_refused_at_the_sell_window",
-        &["vendor.sell.part-of-a-stack-is-refused-at-the-sell-window"],
-        shop::part_of_a_stack_is_refused_at_the_sell_window,
+        "part_of_a_stack_let_go_on_the_sell_window_is_split_off_and_offered",
+        &["vendor.sell.part-of-a-stack-let-go-on-the-sell-window-is-split-off-and-offered"],
+        shop::part_of_a_stack_let_go_on_the_sell_window_is_split_off_and_offered,
     ),
     (
         "taking_a_row_back_out_of_the_window_is_a_withdrawal_and_not_a_sale",
@@ -12500,6 +12510,80 @@ pub fn the_shop_says_whether_it_would_buy_what_is_carried_over_it() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// vendor.tabs.something-carried-over-the-window-turns-it-to-the-selling-tab
+// ---------------------------------------------------------------------------------------------
+
+/// Carrying something over the shop window turns it to the Selling tab by itself -- over any
+/// part of the window, here the stock list on the Items page -- and the pointer over the same
+/// spot with nothing carried leaves the page alone.
+pub fn something_carried_over_the_window_turns_it_to_the_selling_tab() {
+    use dereth_ui_screens::panels::vendor::{PAGE_ITEMS, PAGE_SELL, STOCK_LIST};
+    let page = |c: &HeadlessClient| {
+        c.view()
+            .expect_app()
+            .hud()
+            .panels
+            .vendor
+            .open_page(&c.view().expect_app().ui().expect("the UI shell").ui)
+    };
+    let mut c = a_client_at_the_shop();
+    let starts_on_items = page(&c) == Some(PAGE_ITEMS);
+    let (from, _item) = sellable(&c);
+    let stock = element_of(&c, STOCK_LIST);
+    let (sx, sy) = {
+        let (ui, _root) = gameplay_root(c.app_mut());
+        centre(ui, stock)
+    };
+
+    // The pointer over the stock list with nothing in hand.
+    {
+        let (ui, _root) = gameplay_root(c.app_mut());
+        ui.mouse_move(LocalTime(1.0), sx, sy);
+    }
+    c.tick(3);
+    let empty_handed_stays = page(&c) == Some(PAGE_ITEMS);
+
+    // The same spot with the stack in hand.
+    let (fx, fy) = {
+        let (ui, _root) = gameplay_root(c.app_mut());
+        centre(ui, from)
+    };
+    {
+        let app = c.app_mut();
+        let shell = app.ui_mut().expect("the UI shell");
+        let any: &mut dyn std::any::Any = &mut **shell.flow.current_mut().expect("a screen");
+        let screen = any
+            .downcast_mut::<GamePlayScreen>()
+            .expect("the gameplay screen");
+        screen
+            .begin_item_drag(&mut shell.ui, from, fx, fy)
+            .expect("the tile starts a drag");
+    }
+    c.tick(1);
+    let carrying = {
+        let (ui, _root) = gameplay_root(c.app_mut());
+        ui.is_dragging()
+    };
+    {
+        let (ui, _root) = gameplay_root(c.app_mut());
+        ui.mouse_move(LocalTime(2.0), sx, sy);
+    }
+    c.tick(3);
+    let turned_to_selling = page(&c) == Some(PAGE_SELL);
+
+    c.assert_behaviour(
+        "vendor.tabs.something-carried-over-the-window-turns-it-to-the-selling-tab",
+        move |_| starts_on_items && empty_handed_stays && carrying && turned_to_selling,
+    );
+    c.shutdown();
+}
+
+#[test]
+fn scenario_something_carried_over_the_window_turns_it_to_the_selling_tab() {
+    scenario("something_carried_over_the_window_turns_it_to_the_selling_tab");
+}
+
+// ---------------------------------------------------------------------------------------------
 // vendor.sell.something-offered-wears-the-mark-in-the-pack-as-well-as-in-the-window
 // ---------------------------------------------------------------------------------------------
 
@@ -13958,6 +14042,94 @@ pub fn a_number_key_pressed_with_a_cursor_armed_finishes_that_gesture() {
         },
     );
     c.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------
+// inventory.shortcut-bar.a-kit-key-then-the-main-pack-key-uses-the-kit-on-the-player
+// ---------------------------------------------------------------------------------------------
+
+/// A healing kit on tile 8 and the player's own main pack on tile 9: pressing 8 asks for a
+/// target and leaves the pointer armed, and pressing 9 then uses the kit on the player.
+///
+/// **The client is brought into the game from the character wizard**, which is the path a new
+/// character takes and the one that broke it: a screen that has gone must not go on hearing the
+/// keys, or the gameplay screen hears each press twice and the second hearing of 8 finishes the
+/// gesture 8 itself started, on the kit.
+pub fn a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
+    use dereth_client_model::weenie::item_type;
+    let mut c = HeadlessClient::new(ClientSpec::screen(dereth_ui::framework::mode::CHAR_GEN, 8));
+    c.app_mut()
+        .queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
+    c.tick(8);
+    let came_from_the_wizard = c.app_mut().ui_mut().and_then(|s| s.flow.current_mode())
+        == Some(dereth_ui::framework::mode::GAME_PLAY);
+    seed_three_things_and_a_pack(&mut c.app_mut().objects_mut().world);
+    let kit = HINT_DRAG_ITEMS[0];
+    {
+        let w = &mut c.app_mut().objects_mut().world;
+        // The shipped healing kit: carried, and used on a creature, the player included.
+        let k = w.weenie_mut(kit).expect("seeded");
+        k.pwd.name = "Healing Kit".into();
+        k.pwd.useability = Some(0x0022_0008);
+        k.pwd.target_type = Some(item_type::CREATURE);
+        k.pwd.obj_type = item_type::MISC;
+        let me = w.weenie_mut(HINT_DRAG_PLAYER).expect("seeded");
+        me.pwd.obj_type = item_type::CREATURE;
+    }
+    open_pack(&mut c);
+    c.tick(2);
+
+    let from = grid_cell(&mut c, 0);
+    drop_on_tile(&mut c, from, KIT_TILE);
+    let main_pack = {
+        let (_ui, screen) = gameplay_screen(c.app_mut());
+        screen
+            .inventory
+            .top_container
+            .as_ref()
+            .expect("the main pack's own row")
+            .slots[0]
+            .handle
+    };
+    drop_on_tile(&mut c, main_pack, PACK_TILE);
+    let tiles = (tile_holds(&mut c, KIT_TILE), tile_holds(&mut c, PACK_TILE))
+        == (Some(kit), Some(HINT_DRAG_PLAYER));
+    c.app_mut().objects_mut().world.set_selected_object(
+        None,
+        false,
+        &mut dereth_client_model::RecordingSink::default(),
+    );
+    c.tick(1);
+
+    let mark = c.outbound().len();
+    press_tile_key(&mut c, KIT_TILE, winit::keyboard::KeyCode::Digit8);
+    let armed =
+        c.view().interaction().target_mode() == dereth_client::interaction::TargetMode::UseTarget;
+    let eight_sent_nothing = c.outbound().len() == mark;
+
+    let mark = c.outbound().len();
+    press_tile_key(&mut c, PACK_TILE, winit::keyboard::KeyCode::Digit9);
+    let after: Vec<Request> = c.outbound()[mark..].to_vec();
+    let used_on_me = after.iter().any(|r| {
+        matches!(r, Request::UseWithTargetEvent(m)
+            if m.object == kit && m.target == HINT_DRAG_PLAYER)
+    });
+    let disarmed =
+        c.view().interaction().target_mode() == dereth_client::interaction::TargetMode::None;
+    clear_requests(c.ui_outbox());
+
+    c.assert_behaviour(
+        "inventory.shortcut-bar.a-kit-key-then-the-main-pack-key-uses-the-kit-on-the-player",
+        move |_| {
+            came_from_the_wizard && tiles && armed && eight_sent_nothing && used_on_me && disarmed
+        },
+    );
+    c.shutdown();
+}
+
+#[test]
+fn scenario_a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
+    scenario("a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player");
 }
 
 #[test]
@@ -16141,24 +16313,25 @@ mod shop {
         c.shutdown();
     }
 
-    /// Only the whole of a stack can go on the counter.
+    /// Part of a stack let go on the counter is split off and that part is what is offered.
     ///
     /// The dial is driven the way a player drives it: the stack is picked with a real press on
     /// its own pack slot, which is what seeds the dial's top, and the amount is moved with a real
-    /// message on the toolbar's own slider.
-    pub fn part_of_a_stack_is_refused_at_the_sell_window() {
+    /// message on the toolbar's own slider. The drop asks the shard for the split, beside the
+    /// stack in its own container, and holds the row with the stack until the shard's new object
+    /// arrives; the object arriving here is the one the shard would make.
+    pub fn part_of_a_stack_let_go_on_the_sell_window_is_split_off_and_offered() {
         let mut c = a_client_at_the_shop();
         let (owner, item) = sellable(&c);
         let target = element_of(&c, SELL_LIST);
-        let it_is_a_stack = c
-            .view()
-            .world()
-            .weenie(item)
-            .expect("the pack item")
-            .pwd
-            .stack_size
-            .unwrap_or(0)
-            > 1;
+        let (it_is_a_stack, container, wcid) = {
+            let w = c.view().world().weenie(item).expect("the pack item");
+            (
+                w.pwd.stack_size.unwrap_or(0) > 1,
+                w.pwd.container_id.expect("carried"),
+                w.pwd.wcid,
+            )
+        };
 
         press(&mut c, owner);
         let the_stack_is_picked = c.view().world().selected == Some(item);
@@ -16168,25 +16341,64 @@ mod shop {
         let split = splitter(&mut c);
         let the_dial_is_off_the_whole = split.split_size < split.max_split_size;
 
-        let_go_over(&mut c, target, owner);
-        let nothing_is_on_the_counter = c.view().world().shop.sell_list.is_empty();
-        let nothing_is_marked = c
-            .view()
-            .world()
-            .weenie(item)
-            .expect("the thing dragged")
-            .sell_state
-            == 0;
+        c.app_mut()
+            .ui_mut()
+            .expect("the UI shell")
+            .ui
+            .broadcast_element_message(
+                target,
+                dereth_ui::msg::element::id::DROP_FAILED,
+                0,
+                owner.raw(),
+            );
+        let sent = pump(&mut c);
+        let the_split_was_asked_for = sent.iter().any(|r| {
+            matches!(r, Request::StackableSplitToContainer(m)
+                if m.stack == item && m.container == container && m.amount == 1)
+        });
+        let the_stack_holds_the_row = c.view().world().shop.sell_list == vec![(item, 1)];
+
+        // The shard's answer: a new object of the same class, one in the stack, beside it.
+        let part = ObjectId(0x8000_7777);
+        {
+            let core = &mut **c.app_mut();
+            let w = &mut core.objects.world;
+            let mut new = dereth_client_model::Weenie::new(part);
+            new.pwd = w.weenie(item).expect("the source").pwd.clone();
+            new.pwd.stack_size = Some(1);
+            new.valid = true;
+            w.tables.weenies.insert(part, new);
+            if let Some(inv) = w.tables.inventories.get_mut(container) {
+                inv.items.push(part);
+            }
+            core.interaction.apply_object_notices(
+                w,
+                vec![dereth_client_model::Notice::ItemAttributesChanged {
+                    object: part,
+                    kind: 1,
+                }],
+            );
+        }
+        let _ = pump(&mut c);
+        let w = c.view().world();
+        let the_part_took_the_row = w.shop.sell_list == vec![(part, 1)];
+        let the_part_is_marked = w.weenie(part).is_some_and(|x| x.sell_state == 1);
+        let the_stack_is_not = w.weenie(item).is_some_and(|x| x.sell_state == 0);
+        let same_class = w.weenie(part).map(|x| x.pwd.wcid) == Some(wcid);
 
         c.assert_behaviour(
-            "vendor.sell.part-of-a-stack-is-refused-at-the-sell-window",
+            "vendor.sell.part-of-a-stack-let-go-on-the-sell-window-is-split-off-and-offered",
             move |_| {
                 it_is_a_stack
                     && the_stack_is_picked
                     && the_dial_took_the_stack
                     && the_dial_is_off_the_whole
-                    && nothing_is_on_the_counter
-                    && nothing_is_marked
+                    && the_split_was_asked_for
+                    && the_stack_holds_the_row
+                    && the_part_took_the_row
+                    && the_part_is_marked
+                    && the_stack_is_not
+                    && same_class
             },
         );
         c.shutdown();
@@ -17733,8 +17945,8 @@ mod shop {
     }
 
     #[test]
-    fn scenario_part_of_a_stack_is_refused_at_the_sell_window() {
-        super::scenario("part_of_a_stack_is_refused_at_the_sell_window");
+    fn scenario_part_of_a_stack_let_go_on_the_sell_window_is_split_off_and_offered() {
+        super::scenario("part_of_a_stack_let_go_on_the_sell_window_is_split_off_and_offered");
     }
 
     #[test]

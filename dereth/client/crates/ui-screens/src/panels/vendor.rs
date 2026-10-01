@@ -1574,38 +1574,33 @@ impl VendorPanel {
         false
     }
 
-    /// The vendor panel's drop handling → the vendor sell page's drag-accept test's
-    /// whole-stack arm.
+    /// The vendor panel's drop handling → the vendor sell page's drag-accept test.
     ///
-    /// Refused when the vendor does not accept the item or the object is unknown. A whole stack
-    /// clears the object's waiting state (to zero, not one); a partial split first tries to place
-    /// the split into the player's container, or refuses with "Cannot split the stack to sell it".
-    /// Then the item is added to the sell basket.
+    /// It forks on the splitter: with the whole stack dialled in (`split == max`) the item is
+    /// offered as it is; with part of it, the split is asked for first and the part the server
+    /// makes is what lands in the list. Both refusals -- the vendor not taking the item, or the
+    /// split not being possible (*"Cannot split the stack to sell it"*) -- belong to the host,
+    /// which holds the object table.
     ///
     /// **Waiting state 0 and not 1** — the same polarity the secure-trade panel's drag-accept has
-    /// and the opposite of a pack move's. Nothing is on the wire yet, so there is nothing to wait
-    /// for: the row goes into the basket at once and "Sell All" is what asks the shard. On this
-    /// host that is the ghost `GamePlayScreen::handle_drop_release` already clears on the drop, so
-    /// there is no write here.
+    /// and the opposite of a pack move's. Nothing is on the wire yet for a whole stack, so there is
+    /// nothing to wait for: the row goes into the basket at once and "Sell All" is what asks the
+    /// shard. On this host that is the ghost `GamePlayScreen::handle_drop_release` already clears
+    /// on the drop, so there is no write here.
     ///
-    /// **The split arm is a declared gap.** A split size below the max split size makes retail
-    /// split the stack into the player's own container first — a real container placement with a
-    /// wire message behind it — and refuse with `L"Cannot split the stack to sell it"` when that
-    /// fails. The caller passes the split state so that a partial split is **refused here rather
-    /// than silently sold whole**, which is the failure mode that matters: selling more than the
-    /// player asked for.
-    ///
-    /// Returns whether the request was emitted; `false` is a refusal the caller may count.
+    /// Returns whether a request was emitted.
     pub fn drop_item(
         &mut self,
         requests_out: &mut crate::requests::Outbox,
         item: dereth_primitives::ObjectId,
-        whole_stack: bool,
+        split: u32,
+        max: u32,
     ) -> bool {
-        if !whole_stack {
-            return false;
+        if split < max {
+            requests_out.emit(UiRequest::VendorSplitToSell { item, split, max });
+        } else {
+            requests_out.emit(UiRequest::VendorAddToSell { item });
         }
-        requests_out.emit(UiRequest::VendorAddToSell { item });
         true
     }
 
@@ -1720,6 +1715,38 @@ impl VendorPanel {
         // same tab-open the client calls directly.
         ui.broadcast_element_message(tab, dereth_ui::msg::element::id::ACTIVATED, 0, 0);
         self.open_page(ui) == Some(PAGE_BUY)
+    }
+
+    /// The open of the Selling tab (`0x100000BB`), by the same route as [`Self::open_buying`].
+    pub fn open_selling(&mut self, ui: &mut UiSystem) -> bool {
+        let Some(tabs) = self.tabs else { return false };
+        let Some(tab) = ui.get_child_recursive(tabs, TAB_SELLING) else {
+            return false;
+        };
+        ui.broadcast_element_message(tab, dereth_ui::msg::element::id::ACTIVATED, 0, 0);
+        self.open_page(ui) == Some(PAGE_SELL)
+    }
+
+    /// Something carried over the shop window turns it to the Selling tab, on every frame, by
+    /// itself: while the window is up and not already on the selling page, a drag whose pointer
+    /// is strictly inside the window's own box opens the Selling tab. Anywhere inside the window
+    /// does it, not only the tab, so whatever the player is carrying arrives at the sell list.
+    ///
+    /// Returns whether it opened the tab this frame.
+    pub fn update_drag_over(&mut self, ui: &mut UiSystem) -> bool {
+        let Some(root) = self.root else { return false };
+        if !ui.is_visible(root) || !ui.is_dragging() {
+            return false;
+        }
+        if self.tabs.is_none() || self.open_page(ui) == Some(PAGE_SELL) {
+            return false;
+        }
+        let (x, y) = ui.mouse_pos();
+        let b = ui.screen_box(root);
+        if !(b.x0 < x && x < b.x1 && b.y0 < y && y < b.y1) {
+            return false;
+        }
+        self.open_selling(ui)
     }
 
     /// The vendor panel's open page — which of the three pages `0x100000B8` is showing.

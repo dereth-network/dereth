@@ -184,6 +184,21 @@ pub struct Shop {
     /// reset to 0 by every sell. Both recorded vendors are pyreal shops, so the corpus cannot
     /// witness it.
     pub last_sale: i32,
+    /// A part of a stack dropped on the sell list, waiting for the server to make it.
+    ///
+    /// The drop asks for the split and puts the **source** stack on the list as the row's
+    /// placeholder; when an object of the same class and exactly the split size is declared, it
+    /// takes the placeholder's row. Closing the shop drops the wait with the rest of the state.
+    pub pending_sell_split: Option<PendingSellSplit>,
+}
+
+/// The three things the sell list remembers about a split it asked for: the row standing in for
+/// it, and the class and stack size that identify the object the server makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingSellSplit {
+    pub placeholder: ObjectId,
+    pub wcid: u32,
+    pub stack_size: u32,
 }
 
 impl Shop {
@@ -500,6 +515,16 @@ pub const BUYING_ABORTED: &str = "Buying aborted; max price reached.
 ";
 /// The client's prefix. The trailing space is the client's.
 pub const NOT_ENOUGH_COMPONENTS: &str = "There was not enough: ";
+/// The sell list's refusal when the split it asked for cannot be placed.
+pub const CANNOT_SPLIT_TO_SELL: &str = "Cannot split the stack to sell it";
+
+/// The sell list's announcement of a split it asked for, formatted with the stack's appropriate
+/// name.
+#[must_use]
+pub fn splitting_before_selling(name: &str) -> String {
+    format!("Splitting the {name} before selling them")
+}
+
 /// The client's container announcement — a wide literal, formatted with the object's
 /// appropriate name (`NameType` 2).
 pub const SELLING_CONTENTS_OF: &str = "Selling contents of ";
@@ -567,6 +592,8 @@ impl crate::world::World {
             attempt_sale_object: None,
             total_value: self.shop.total_value,
             last_sale: 0,
+            // The rows a pending split would land in are gone with the old sell list.
+            pending_sell_split: None,
         };
         // **The client's purse refresh.**
         // The purse has to be filled *before* the panel is told the window opened, because the
@@ -1305,6 +1332,100 @@ impl crate::world::World {
         // `recurse` is **1** and whose `check_acceptable` is **0**: `drag_item_acceptable` above has
         // already spoken for the thing the player dragged, and the children get their own gate.
         self.vendor_add_item(item, true, false, out)
+    }
+
+    /// The sell list's drop with only part of a stack dialled in.
+    ///
+    /// The same acceptability test as a whole stack comes first. Then the split is asked for:
+    /// the dialled amount is placed beside the source, in the source's own container. If that
+    /// cannot be asked, the drop is refused with [`CANNOT_SPLIT_TO_SELL`]. Otherwise the player is
+    /// told the stack is being split, the source stack goes on the list as the row's placeholder,
+    /// and the class and size of the part are remembered so that
+    /// [`Self::vendor_split_item_attributes_changed`] can put the new object in that row.
+    ///
+    /// Returns whether the split was asked for.
+    #[allow(clippy::too_many_arguments)]
+    pub fn split_item_to_sell(
+        &mut self,
+        item: ObjectId,
+        split: crate::inventory::SplitState,
+        now: dereth_primitives::ServerTime,
+        out: &mut dyn crate::NoticeSink,
+        req: &mut dyn crate::RequestSink,
+    ) -> bool {
+        if let Some(text) = self.drag_item_acceptable(item) {
+            self.refuse_shop(out, text);
+            return false;
+        }
+        let Some((container, wcid, name)) = self.weenie(item).map(|w| {
+            (
+                w.pwd.container_id.unwrap_or_default(),
+                w.pwd.wcid,
+                w.object_name(crate::weenie::NameType::Appropriate),
+            )
+        }) else {
+            return false;
+        };
+        let Some(player) = self.player else {
+            return false;
+        };
+        if !self
+            .attempt_to_place_in_container(req, out, item, player, container, false, 0, split, now)
+        {
+            self.refuse_shop(out, CANNOT_SPLIT_TO_SELL);
+            return false;
+        }
+        let stack_size = self.object_split_size(item, split);
+        self.refuse_shop_owned(out, splitting_before_selling(&name));
+        self.vendor_add_item(item, true, false, out);
+        self.shop.pending_sell_split = Some(PendingSellSplit {
+            placeholder: item,
+            wcid,
+            stack_size,
+        });
+        true
+    }
+
+    /// Match an attribute-change notice against the sell list's pending split.
+    ///
+    /// Only a declared object (`kind` bit 0) of the remembered class whose stack size, counting no
+    /// stack as one, is exactly the split size answers it. The new object then takes the
+    /// placeholder's row -- marked for sale when it holds nothing -- and the placeholder leaves the
+    /// list with its mark taken off. The wait ends with the match. Returns whether it matched.
+    pub fn vendor_split_item_attributes_changed(&mut self, item: ObjectId, kind: u32) -> bool {
+        let Some(pending) = self.shop.pending_sell_split else {
+            return false;
+        };
+        if kind & 1 == 0 {
+            return false;
+        }
+        let Some(w) = self.weenie(item) else {
+            return false;
+        };
+        if w.pwd.wcid != pending.wcid
+            || u32::from(w.pwd.stack_size.unwrap_or(0).max(1)) != pending.stack_size
+        {
+            return false;
+        }
+        self.shop.pending_sell_split = None;
+        let empty = self
+            .inventory(item)
+            .is_none_or(|i| i.items.is_empty() && i.containers.is_empty());
+        if let Some(at) = self
+            .shop
+            .sell_list
+            .iter()
+            .position(|(id, _)| *id == pending.placeholder)
+        {
+            if empty {
+                self.shop.sell_list.insert(at, (item, 1));
+                if let Some(w) = self.weenie_mut(item) {
+                    w.sell_state = 1;
+                }
+            }
+            self.remove_from_sell_list(pending.placeholder);
+        }
+        true
     }
 
     /// Insert into the sell list, including one level of container contents: *"drag your whole

@@ -1603,6 +1603,14 @@ pub enum UiRequest {
     VendorAddToSell {
         item: ObjectId,
     },
+    /// The sell list's drop with only part of a stack dialled in. The host asks for the split
+    /// and puts the source on the list as the row's placeholder; the object the server makes
+    /// takes that row when it arrives. `split` and `max` are the splitter as the drop left it.
+    VendorSplitToSell {
+        item: ObjectId,
+        split: u32,
+        max: u32,
+    },
 
     /// The client's message `0x2F` arm — the player
     /// committed a new number in a component row's edit field `0x1000046B`.

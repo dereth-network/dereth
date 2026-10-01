@@ -1702,8 +1702,8 @@ struct Notices {
     /// this sink is: `absorb` is the one place all of them arrive, and the handler needs the
     /// frame's selection geometry.
     selection_changes: u32,
-    /// The two notices that resolve the trade panel's pending stack split,
-    /// in the exact order raised by the batch.
+    /// The two notices that resolve the trade panel's pending stack split (the first also
+    /// resolves the vendor sell list's), in the exact order raised by the batch.
     trade_split: Vec<TradeSplitNotice>,
     /// The show-pending and end-pending in-player notices, in arrival order —
     /// placing an item in the backpack raises
@@ -4608,6 +4608,25 @@ impl Interaction {
                 // Local only: nothing goes on the wire until "Sell Item" or "Sell All".
                 UiRequest::VendorAddToSell { item } => {
                     if game.add_item_to_sell(item, &mut out) {
+                        self.stats.vendor_basket_rows += 1;
+                    } else {
+                        self.stats.requests_refused += 1;
+                    }
+                }
+                // Part of a stack: the split is asked for here, which is a real request, and the
+                // row the split will take is held by the source until the new object arrives
+                // (`absorb`'s attribute-change arm).
+                UiRequest::VendorSplitToSell { item, split, max } => {
+                    if game.split_item_to_sell(
+                        item,
+                        SplitState {
+                            split_size: split,
+                            max_split_size: max,
+                        },
+                        now,
+                        &mut out,
+                        &mut req,
+                    ) {
                         self.stats.vendor_basket_rows += 1;
                     } else {
                         self.stats.requests_refused += 1;
@@ -8450,6 +8469,8 @@ impl Interaction {
                     if game.trade_split_item_attributes_changed(item, kind) {
                         self.pending_trade_for_dummies.push(item);
                     }
+                    // The vendor's sell list listens to the same notice for its own split.
+                    game.vendor_split_item_attributes_changed(item, kind);
                 }
                 TradeSplitNotice::AttemptFailed => game.clear_pending_trade_split(),
             }

@@ -2167,6 +2167,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "inventory.shortcut-bar.a-kit-key-then-the-main-pack-key-uses-the-kit-on-the-player",
+        says: "With a healing kit on one tile and the player's own main pack on another, the kit's \
+               key asks for a target and leaves the pointer armed without sending anything, and \
+               the main pack's key then uses the kit on the player and disarms the pointer. It \
+               holds however the player reached the game, including straight from making a new \
+               character: each key press is heard once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SHORTCUT-KIT-SELF"),
+        station: "dereth-testkit::dat::inventory::scenario_a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "inventory.shortcut-bar.a-number-key-pressed-with-a-cursor-armed-finishes-that-gesture",
         says: "A tile's number key pressed while the pointer is already armed for something \
                finishes that gesture with the thing in the tile instead of starting a new one, \
@@ -4059,13 +4071,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "vendor.sell.part-of-a-stack-is-refused-at-the-sell-window",
-        says: "Only the whole of a stack can be put on a shop's counter. With the quantity dial moved \
-               off the whole stack the drop is refused outright -- nothing joins the list of what is \
-               being sold and nothing is marked -- rather than quietly selling the lot.",
+        id: "vendor.sell.part-of-a-stack-let-go-on-the-sell-window-is-split-off-and-offered",
+        says: "Part of a stack let go on a shop's selling window is split off and that part is \
+               what is offered. With the quantity dial off the whole stack, the drop asks the \
+               shard to split the dialled amount off beside the stack, says it is splitting, and \
+               holds a row in the list with the stack; when the new object of that kind and size \
+               arrives it takes the row and wears the offered mark, and the rest of the stack is \
+               no longer offered.",
         since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-F33-SPLIT-REFUSED"),
-        station: "dereth-testkit::dat::inventory::shop::scenario_part_of_a_stack_is_refused_at_the_sell_window",
+        evidence: Evidence::Private("AC-EVID-SELL-SPLIT"),
+        station: "dereth-testkit::dat::inventory::shop::scenario_part_of_a_stack_let_go_on_the_sell_window_is_split_off_and_offered",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -4340,6 +4355,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-F33-NOT-USED"),
         station: "dereth-testkit::dat::inventory::shop::scenario_what_is_on_the_shops_shelf_is_bought_and_never_used",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "vendor.tabs.something-carried-over-the-window-turns-it-to-the-selling-tab",
+        says: "Carrying something over a shop's window turns it to the Selling tab by itself, \
+               whichever page it was on and wherever in the window the pointer is, so the thing \
+               arrives at the sell list. The pointer over the window with nothing carried leaves \
+               the page alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SELL-TAB-DRAG"),
+        station: "dereth-testkit::dat::inventory::scenario_something_carried_over_the_window_turns_it_to_the_selling_tab",
         tier: Tier::Dat,
     },
     behaviour! {

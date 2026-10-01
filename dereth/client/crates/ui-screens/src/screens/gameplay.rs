@@ -885,10 +885,10 @@ pub struct GamePlayScreen {
     /// lives on `dereth_client::hud::Hud` with the rest of `RemainingPanels`, so the drop
     /// is recorded here and delivered there.
     ///
-    /// The `bool` is "split size equals maximum split size", which
-    /// `accept_drag_object` forks on. It travels with the drop rather than being read
-    /// again on the far side because it is a property of *this* gesture.
-    vendor_sell_drops: Vec<(ObjectId, bool)>,
+    /// The two numbers are the splitter's split and maximum, whose equality is the whole-stack
+    /// test `accept_drag_object` forks on. They travel with the drop rather than being read
+    /// again on the far side because they are a property of *this* gesture.
+    vendor_sell_drops: Vec<(ObjectId, u32, u32)>,
 
     /// The items released over `SalvagePanel`'s list `0x10000074` this frame.
     ///
@@ -1002,7 +1002,7 @@ impl GamePlayScreen {
 
     /// The items dropped on the vendor's sell list this frame; see
     /// [`Self::vendor_sell_drops`]. Drained by whoever holds `RemainingPanels`.
-    pub fn take_vendor_sell_drops(&mut self) -> Vec<(ObjectId, bool)> {
+    pub fn take_vendor_sell_drops(&mut self) -> Vec<(ObjectId, u32, u32)> {
         std::mem::take(&mut self.vendor_sell_drops)
     }
 
@@ -1713,14 +1713,16 @@ impl GamePlayScreen {
         // (**0**) before adding the item to the sell basket, the same polarity secure trade uses --
         // the row enters the basket at once and nothing has been asked of the shard yet.
         if is_under_element(ui, target, crate::panels::vendor::SELL_LIST) {
-            // "split size equals maximum split size" -- the fork
-            // `accept_drag_object` makes, read from the splitter this gesture used.
-            let whole = self.splitter.split_size >= self.splitter.max_split_size;
             // The vendor sell page's drag-accept test's waiting-state clear (0). The sell list is
             // also an alias list (the vendor-item list), so the client's alias-list route reaches
-            // the same clear.
+            // the same clear. The splitter this gesture used goes with the drop: the whole-stack
+            // fork `accept_drag_object` makes is read from it.
             self.release_item_ghost(ui, item);
-            self.vendor_sell_drops.push((item, whole));
+            self.vendor_sell_drops.push((
+                item,
+                self.splitter.split_size,
+                self.splitter.max_split_size,
+            ));
             return None;
         }
         // The same three lines again

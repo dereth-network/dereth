@@ -4597,6 +4597,15 @@ impl Screen for CharGenScreen {
     fn roots(&self) -> &[ElemHandle] {
         &self.roots
     }
+
+    /// The wizard stops listening for unconsumed keys when it goes. The flow hands every queued
+    /// external delivery to whichever screen is current, so a registration left behind here would
+    /// give the next screen each key press twice: the game screen would fire a shortcut on the
+    /// press and again on its echo.
+    fn destroy(&mut self, cx: &mut ScreenCx<'_>) {
+        cx.ui
+            .unregister_for_global_message(dereth_ui::msg::global::KEY_DOWN_UNCONSUMED, ME);
+    }
 }
 
 #[cfg(test)]

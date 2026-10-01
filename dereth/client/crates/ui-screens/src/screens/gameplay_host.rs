@@ -723,11 +723,13 @@ fn frame(
         }
     }
     // Deliver accepted vendor-sell drags to the vendor's add-item-to-sell, the same hop.
-    for (item, whole_stack) in screen.take_vendor_sell_drops() {
-        if panels.vendor.drop_item(&mut ui.requests, item, whole_stack) {
+    for (item, split, max) in screen.take_vendor_sell_drops() {
+        if panels.vendor.drop_item(&mut ui.requests, item, split, max) {
             out.vendor_sell_drops += 1;
         }
     }
+    // A drag carried over the shop window turns it to the Selling tab, once a frame.
+    let _ = panels.vendor.update_drag_over(ui);
     // Deliver accepted salvage drags to `add_new_item`, the same hop.
     for item in screen.take_salvage_drops() {
         if panels.salvage.accept_drag_object(ui, item, view) {
