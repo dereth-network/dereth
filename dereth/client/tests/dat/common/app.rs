@@ -18,7 +18,20 @@ use super::client_dir;
 /// same state, so the row is adopted through `set_player`, which allocates the qualities and
 /// installs any parked description. A bare `Weenie::new` has no qualities record, and an update
 /// arriving at one is refused as unstorable rather than creating it.
+///
+/// The app answers for the server it does not have (`dereth_client::server_stub`), as every
+/// headless app with no connection does; [`app_in_gameplay_unanswered`] is the one that does not.
 pub fn app_in_gameplay(frames: u32, player: Option<ObjectId>) -> App {
+    build(frames, player, true)
+}
+
+/// [`app_in_gameplay`] with no stand-in server: nothing the client asks for is answered unless
+/// the test answers it, so whatever waits on an answer waits until the test gives one.
+pub fn app_in_gameplay_unanswered(frames: u32, player: Option<ObjectId>) -> App {
+    build(frames, player, false)
+}
+
+fn build(frames: u32, player: Option<ObjectId>, answered: bool) -> App {
     let cfg = Config {
         ui: true,
         headless: true,
@@ -28,6 +41,13 @@ pub fn app_in_gameplay(frames: u32, player: Option<ObjectId>) -> App {
     };
     let mut app = App::with_presentation(cfg, Box::new(NullPresentation::new(800, 600)))
         .expect("the headless app starts");
+    assert!(
+        app.server_stub.is_some(),
+        "a headless app with no connection answers for its server"
+    );
+    if !answered {
+        app.server_stub = None;
+    }
     app.start_shell().expect("the shell comes up");
     if let Some(player) = player {
         let w = &mut app.objects_mut().world;

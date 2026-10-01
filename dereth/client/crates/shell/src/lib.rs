@@ -90,6 +90,8 @@ pub mod pump;
 /// The `Render.*` preference owners, over the scene's.
 pub mod render_prefs;
 pub use dereth_client_runtime::selection_geometry;
+/// The answers a headless client with no server gives itself.
+pub use dereth_client_runtime::server_stub;
 pub use dereth_client_runtime::shutdown;
 /// The sky: the scene's.
 pub use dereth_scene::sky;

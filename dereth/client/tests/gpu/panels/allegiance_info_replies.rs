@@ -236,6 +236,9 @@ fn an_allegiance_info_response_for_a_stranger_prints_nothing() {
 fn an_aborted_allegiance_update_clears_the_panels_busy_latch() {
     let _gpu = gpu_lock();
     let (mut app, mut peer) = setup("alleg-abort");
+    // The abort is the only answer this test gives, so the app's stand-in server is turned off
+    // before the panel asks.
+    app.server_stub = None;
 
     // The panel's show path sets the latch. The panel has to be **up**, because the receiver
     // (`poll_update_aborted`) keeps the visibility guard. Open it the

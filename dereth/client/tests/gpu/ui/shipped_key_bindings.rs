@@ -74,12 +74,6 @@ fn screen_only() -> App {
     app.start_shell().expect("the UI shell");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
     frames(&mut app, 4);
-    // The game screen's allegiance panel asks for the allegiance as it comes up, and the pointer
-    // is the hourglass until the answer arrives; answer it as a server does.
-    app.objects_mut()
-        .world
-        .handle_allegiance_update(&dereth_protocol::social::AllegianceProfile::default());
-    frames(&mut app, 2);
     app
 }
 

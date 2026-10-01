@@ -716,6 +716,11 @@ pub struct App<S: Shell> {
     pub environment_override: crate::environment::EnvironmentOverrideState,
     /// The network link, present only with `--connect`.
     pub link: Option<NetLink>,
+    /// The server's stand-in, which answers what a server always answers. Present on a headless
+    /// client built with no connection, and taken away when a relay links it to a real server.
+    /// A run that is about waiting for an answer turns it, or one of its answers, off. See
+    /// [`crate::server_stub`].
+    pub server_stub: Option<crate::server_stub::ServerStub>,
     /// `--enter-world`'s script: which step it is on.
     pub script: EnterWorldScript,
     /// The last reported, so a transition is logged once.
@@ -1041,6 +1046,9 @@ impl<S: Shell> App<S> {
         } else {
             None
         };
+        // A headless client with no server answers for the server: see `crate::server_stub`.
+        let server_stub =
+            (link.is_none() && cfg.headless).then(crate::server_stub::ServerStub::default);
 
         // Step 10: open the data files.
         let store = match store {
@@ -1158,6 +1166,7 @@ impl<S: Shell> App<S> {
             last_option_environment: None,
             environment_override: crate::environment::EnvironmentOverrideState::default(),
             link,
+            server_stub,
             script: EnterWorldScript::default(),
             last_link_status: None,
             last_rejected: 0,
@@ -3283,6 +3292,11 @@ impl<S: Shell> App<S> {
         // *this* frame's camera and raises the smart-box object-found notice before the UI overlay
         // draws, so the pick runs after the camera update and before the frame bracket.
         self.interaction_use_time(shell);
+        // This frame's requests have gone out; a headless client with no server has its stand-in
+        // answer them, and the answers are read from the next frame on.
+        if let Some(stub) = self.server_stub.as_mut() {
+            stub.answer(&self.interaction.last_sent, &mut self.objects.world);
+        }
 
         // Apply the object-found notice's tooltip flag
         // and the UI manager's `clear_tooltip` on the wrapper element, one statement after the
@@ -4669,6 +4683,8 @@ impl<S: Shell> App<S> {
             return Err(net);
         }
         self.link = Some(NetLink::replay(net));
+        // A real server is behind the relay, and it answers for itself.
+        self.server_stub = None;
         Ok(())
     }
 

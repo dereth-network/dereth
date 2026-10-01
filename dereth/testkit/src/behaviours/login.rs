@@ -14,6 +14,18 @@ use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "headless.a-client-with-no-server-answers-for-it",
+        says: "A client with no window and no server answers for the server what a server always \
+               answers, as one with nothing to tell: the allegiance panel's request gets an empty \
+               allegiance, so the client enters the game with the ordinary pointer rather than \
+               waiting on the hourglass. A run can turn the stand-in off and give the answers \
+               itself.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-HEADLESS-SERVER-STUB"),
+        station: "dereth-client::dat::ui::busy_cursor::a_client_with_no_server_enters_the_game_with_the_pointer_unless_its_stand_in_is_off",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "headless.a-whole-client-with-no-device-or-window",
         says: "The client is a complete running client with no graphics device and no window: it \
                runs every per-frame job in order, hands its draw and present work to whatever it \

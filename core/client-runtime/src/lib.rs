@@ -193,6 +193,9 @@ pub mod pump;
 /// over the world.
 pub mod shell;
 
+/// The answers a headless client with no server gives itself, in the server's place.
+pub mod server_stub;
+
 /// The action seam: the actions the frame's handlers take, and the queue that carries them from
 /// one stage of the frame to the next.
 pub mod actions;

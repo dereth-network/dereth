@@ -2004,13 +2004,6 @@ mod cast {
             // components-required quality into the game model.
             peer.event(&mut c, &a_caster());
             c.tick(8);
-            // The game screen asked for the allegiance as it came up, and the busy count holds
-            // that question until the shard answers it, as a shard always does.
-            peer.event(
-                &mut c,
-                &dereth_protocol::social::AllegianceUpdate::default(),
-            );
-            c.tick(2);
             assert!(
                 c.view().expect_app().hud().player_desc_received,
                 "the description reached the player-description arm"

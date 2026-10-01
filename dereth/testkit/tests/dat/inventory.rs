@@ -15239,13 +15239,6 @@ fn a_client_standing_at_the_altar() -> (HeadlessClient, dereth_testkit::Peer) {
     c.app_mut().objects_mut().world.player = Some(ALTAR_PLAYER);
     peer.send(&mut c, 10, bytes_of(RECORDED_ALTAR));
     c.tick(3);
-    // The game screen asked for the allegiance as it came up, and the busy count holds that
-    // question until the shard answers it, as a shard always does.
-    peer.event(
-        &mut c,
-        &dereth_protocol::social::AllegianceUpdate::default(),
-    );
-    c.tick(2);
 
     {
         let w = c.view().world();
@@ -22375,17 +22368,16 @@ mod confirm {
         // The screen is thrown away and built again, which is what a mode change does.
         c.app_mut()
             .queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
-        c.tick(1);
+        // Two frames: the rebuilt screen's allegiance panel asks on the first and the answer is
+        // taken on the second.
+        c.tick(2);
         let died = {
             let shell = c.app_mut().ui().expect("the shell");
             shell.flow.switches > switches
                 && shell.ui.node(root).is_none()
                 && !shell.ui.dialogs.has_callback(old_context)
         } && !any_box(&mut c)
-            // Nothing the use would have done is left waiting. The rebuilt screen's allegiance
-            // panel has asked its own question, which is all the busy count may hold.
-            && c.view().world().magic.busy_count
-                == u32::from(c.view().expect_app().hud().panels.allegiance.awaiting_update)
+            && c.view().world().magic.busy_count == 0
             && targeted(&c).is_empty();
 
         // The replacement screen has new tiles, so the gesture is made afresh on them.
