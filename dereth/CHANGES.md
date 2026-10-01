@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.1.2 (2026-10-01)
+
 - Campfires, braziers and torches keep their flames and smoke on the object in every landblock,
   instead of drawing them hanging in the air near the player.
 - Doors, footsteps and the other sounds of the world's objects play.

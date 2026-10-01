@@ -3,7 +3,7 @@ name = "dereth-client"
 description = "The Dereth 3D client: the window, the graphics device, the renderer, the retail UI and the sound device, plugged into the runtime's frame loop."
 # Dereth's release version, which the launcher (dereth/launcher) carries too: they are released
 # together (`cargo xtask release dereth`).
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
