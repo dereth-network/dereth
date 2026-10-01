@@ -74,6 +74,12 @@ fn screen_only() -> App {
     app.start_shell().expect("the UI shell");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
     frames(&mut app, 4);
+    // The game screen's allegiance panel asks for the allegiance as it comes up, and the pointer
+    // is the hourglass until the answer arrives; answer it as a server does.
+    app.objects_mut()
+        .world
+        .handle_allegiance_update(&dereth_protocol::social::AllegianceProfile::default());
+    frames(&mut app, 2);
     app
 }
 
@@ -260,10 +266,12 @@ fn e_with_a_selection_appraises_and_arms_nothing() {
         Some(target),
         "the non-zero arm examines the selected id and records what it asked about"
     );
+    // No identify cursor: the pointer is the hourglass, because the examine now waits on the
+    // shard's description, and nothing here answers it.
     assert_eq!(
         app.current_cursor_did(),
-        Some(cursor_did(dereth_client::cursor::cursor_enum::DEFAULT)),
-        "and the pointer is still the default one"
+        Some(cursor_did(dereth_client::cursor::cursor_enum::WAIT)),
+        "and the pointer waits on the description rather than arming anything"
     );
 }
 

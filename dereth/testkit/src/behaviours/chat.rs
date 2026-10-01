@@ -1012,6 +1012,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.talk-to-menu.a-tell-goes-to-the-chat-target-and-not-to-the-selection",
+        says: "A line typed with the talk-to menu on Tell to <name> goes to the one the menu names \
+               -- the chat target, which is taken up from what the player picked out and then kept \
+               while it stays near -- and not to whatever the player has picked out since. With no \
+               chat target the line goes nowhere. The menu's squelch row asks about the same one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-TARGET-TELL"),
+        station: "dereth-testkit::cpu::chat::scenario_a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.talk-to-menu.the-button-caption-follows-the-menu-and-a-row-that-is-shut-refuses",
         says: "The caption on the talk-to button follows what the player picked from the menu. A row \
                for a channel he is not in refuses to be picked and leaves the caption alone, and a \

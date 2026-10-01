@@ -885,6 +885,11 @@ pub struct App<S: Shell> {
     /// The world-object system's three teleport flags and the world-controller UI's animation. Driven at the
     /// `WorldViewStep` step and read by the teleport overlay. See [`crate::teleport`].
     pub teleport: crate::teleport::Teleport,
+    /// Whether this frame's teleport step ([`Self::teleport_use_time`]) has run. A front end runs
+    /// it inside its own UI step, where the teleport overlay ticks; the frame runs it itself when
+    /// no front end did, so a client with no UI, or one that never calls it, still tells the
+    /// server it has finished loading. Cleared at the top of every frame.
+    teleport_ticked: bool,
 
     /// The `AnimAssets` a preview space builds its objects through. One per process, because it
     /// memoises every setup record and animation record it decodes.
@@ -1195,6 +1200,7 @@ impl<S: Shell> App<S> {
             ui_sound_table: None,
             hud: S::Hud::default(),
             teleport: crate::teleport::Teleport::new(),
+            teleport_ticked: false,
             anim_assets,
         })
     }
@@ -1467,9 +1473,22 @@ impl<S: Shell> App<S> {
     /// the two portal sounds are played. Everything is a function of the teleport state; nothing
     /// accumulates per frame.
     pub fn teleport_use_time(&mut self, shell: &S) {
+        self.teleport_ticked = true;
         let now = self.timer.cur_time;
         let before = (self.teleport.tunnels_played, self.teleport.anim.state);
+        let was_teleporting = self.teleport.anim.teleport_in_progress;
         self.teleport.anim_use_time(now, self.game_view_distance());
+        // The player's teleport-in-progress flag holds the busy cursor up from the moment a
+        // portal (or the log-in, or a log-off's fade) starts until the world has faded back in.
+        let teleporting = self.teleport.anim.teleport_in_progress;
+        if teleporting != was_teleporting {
+            let busy = &mut self.objects.world.magic.busy_count;
+            *busy = if teleporting {
+                busy.saturating_add(1)
+            } else {
+                busy.saturating_sub(1)
+            };
+        }
         // A report line per state change: an animation that is *absent* on a live run must be
         // visible in the log, and a run that plays it must be able to say so.
         let after = self.teleport.anim.state;
@@ -1536,6 +1555,7 @@ impl<S: Shell> App<S> {
                 {
                     Ok(stamp) => {
                         tracing::debug!("0x00A1 login complete (stamp {stamp})");
+                        self.teleport.login_completes_sent += 1;
                         self.teleport.login_complete_sent();
                     }
                     Err(e) => tracing::warn!("0x00A1 would not encode: {e}"),
@@ -1907,6 +1927,9 @@ impl<S: Shell> App<S> {
             // per-frame step is step 6 of the frame, and the repeat sweep is what makes a held key
             // repeat at all.
             shell.input_use_time(self, now);
+            // No UI, so nothing else runs the teleport step: without it the login-complete
+            // notification never goes out and the server never finishes the player's log-in.
+            self.teleport_use_time(shell);
             shell.hand_on_actions(&mut self.actions);
             return;
         }
@@ -1922,6 +1945,12 @@ impl<S: Shell> App<S> {
                 trade_for_dummies,
             },
         );
+        // The teleport step belongs to the frame, not to a front end: a UI that did not run it
+        // inside its own step has it run here, once, so the login-complete notification and the
+        // world's hide and reveal never depend on a front end remembering to call it.
+        if !self.teleport_ticked {
+            self.teleport_use_time(shell);
+        }
         shell.hand_on_actions(&mut self.actions);
     }
 
@@ -2907,12 +2936,13 @@ impl<S: Shell> App<S> {
                     msg.checksum_value = msg.checksum();
                     tracing::info!(
                         "0xF656 creating {:?} -- heritage {}, gender {}, town {}, \
-                         {} skill entries",
+                         {} skill entries, slot {}",
                         msg.name,
                         msg.heritage_group,
                         msg.gender,
                         msg.start_area,
-                        msg.skill_advancement_classes.len()
+                        msg.skill_advancement_classes.len(),
+                        msg.slot
                     );
                     link.net.session.create_character(msg);
                 }
@@ -2956,6 +2986,7 @@ impl<S: Shell> App<S> {
         // `crate::frame::FrameSpans`.
         let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
         self.events.drain_frame();
+        self.teleport_ticked = false;
 
         // Explicit component adapter: ObjectStream::apply_event may have already accepted
         // local calls before App began. Complete that old journal before simulation or a
@@ -3432,6 +3463,9 @@ impl<S: Shell> App<S> {
                 // See [`crate::interaction::Interaction::on_end_character_session`] for the field
                 // list, which is read off rather than chosen here.
                 self.interaction.on_end_character_session();
+                // The same sweep empties the busy count: nothing the last character asked for is
+                // still owed an answer.
+                self.objects.world.magic.busy_count = 0;
                 self.command_interpreter_disable();
                 self.log_on_character_communication_clears();
             }

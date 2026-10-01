@@ -652,6 +652,7 @@ impl crate::world::World {
         &mut self,
         p: &dereth_protocol::social::AllegianceProfile,
     ) -> u32 {
+        self.allegiance_updates += 1;
         let h = &p.hierarchy;
         self.allegiance.clear();
         self.allegiance.old_version = h.version;

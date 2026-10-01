@@ -117,6 +117,10 @@ pub struct World {
     /// This counter preserves the panel's notice edge in a UI that pulls state once per frame. See
     /// [`Self::allegiance_update_aborted`].
     pub allegiance_aborts: u64,
+    /// How many `0x0020 Allegiance_AllegianceUpdate` have arrived: the allegiance panel's
+    /// notice edge, which an unchanged roster would otherwise hide. The panel's update request is
+    /// answered by one, and that answer is what takes its busy cursor down.
+    pub allegiance_updates: u64,
     /// The `u32` the last one carried — ACE's `WeenieError`. **A measurement, not an input**:
     /// retail's receiver ignores its parameter entirely, and this exists so that a shard sending
     /// something other than the usual code is visible rather than silently taking the same arm.
@@ -268,6 +272,7 @@ impl World {
             magic: crate::magic::MagicState::default(),
             allegiance: crate::allegiance::AllegianceHierarchy::default(),
             allegiance_aborts: 0,
+            allegiance_updates: 0,
             allegiance_abort_last_reason: 0,
             portal_storm_level: 0.0,
             portal_storms_struck: 0,

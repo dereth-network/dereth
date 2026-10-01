@@ -405,7 +405,7 @@ impl RemainingPanels {
         // reason the visibility handler does: in the client the notice *is* the call to the
         // update, so anything it clears is cleared by the time the frame's own
         // per-frame stand-in runs. See [`super::allegiance::AllegiancePanel::poll_update_aborted`].
-        let aborted = u32::from(self.allegiance.poll_update_aborted(view));
+        let aborted = u32::from(self.allegiance.poll_update_aborted(&mut ui.requests, view));
         let subscribe = u32::from(self.allegiance.poll_visibility(ui, view))
             + self.allegiance.poll_player_desc(&mut ui.requests, view)
             + aborted;

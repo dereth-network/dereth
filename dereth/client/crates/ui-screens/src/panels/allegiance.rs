@@ -260,6 +260,9 @@ pub struct AllegiancePanel {
     /// [`GameView::allegiance_update_aborts`] as of the last frame — the edge
     /// [`Self::poll_update_aborted`] takes.
     last_abort: u64,
+    /// [`GameView::allegiance_updates`] as of the last [`Self::update`]: the edge that says an
+    /// answer arrived. `None` until the first update after the panel is built.
+    last_updates: Option<u64>,
     /// How many aborts this panel has acted on: an abort updates only while the panel is visible.
     /// Deliberately **not** the number that arrived, because retail's receiver runs nothing when
     /// the panel is down and this build must not either.
@@ -343,10 +346,32 @@ impl AllegiancePanel {
         // `0xF745` object-create burst, before any tab is open, and it is why a retail player sees
         // a populated Allegiance tab the *first* time they open it rather than a frame later.
         // Retail asks twice before the tab first comes up.
-        self.awaiting_update = true;
+        //
+        // A new panel starts with the latch clear, so the first request always puts the busy
+        // cursor up until the answer arrives.
+        self.awaiting_update = false;
+        self.last_updates = None;
+        self.arm_busy_latch(&mut ui.requests);
         ui.requests
             .emit(UiRequest::AllegianceUpdateRequest { on: true });
         self.update_requests += 1;
+    }
+
+    /// Arm the busy latch when it is clear, which puts the busy cursor up: a request is
+    /// outstanding.
+    fn arm_busy_latch(&mut self, requests_out: &mut crate::requests::Outbox) {
+        if !self.awaiting_update {
+            self.awaiting_update = true;
+            requests_out.emit(UiRequest::Busy { raised: true });
+        }
+    }
+
+    /// Clear the busy latch when it is armed, which takes the busy cursor's raise back.
+    fn clear_busy_latch(&mut self, requests_out: &mut crate::requests::Outbox) {
+        if self.awaiting_update {
+            self.awaiting_update = false;
+            requests_out.emit(UiRequest::Busy { raised: false });
+        }
     }
 
     /// The allegiance panel's player-description and quality-change edges account for
@@ -395,7 +420,7 @@ impl AllegiancePanel {
 
     /// The three-statement body every non-visibility call site shares.
     fn emit_update_request(&mut self, requests_out: &mut crate::requests::Outbox) {
-        self.awaiting_update = true;
+        self.arm_busy_latch(requests_out);
         requests_out.emit(UiRequest::AllegianceUpdateRequest { on: true });
         self.update_requests += 1;
     }
@@ -434,9 +459,9 @@ impl AllegiancePanel {
             if !player_desc {
                 return false;
             }
-            self.awaiting_update = true;
+            self.arm_busy_latch(requests_out);
         } else {
-            self.awaiting_update = false;
+            self.clear_busy_latch(requests_out);
         }
         requests_out.emit(UiRequest::AllegianceUpdateRequest { on: visible });
         self.update_requests += 1;
@@ -501,7 +526,11 @@ impl AllegiancePanel {
     /// than taking its no-op arm.
     ///
     /// Returns whether an abort was acted on.
-    pub fn poll_update_aborted(&mut self, view: &dyn GameView) -> bool {
+    pub fn poll_update_aborted(
+        &mut self,
+        requests_out: &mut crate::requests::Outbox,
+        view: &dyn GameView,
+    ) -> bool {
         let now = view.allegiance_update_aborts();
         if now == self.last_abort {
             return false;
@@ -513,7 +542,7 @@ impl AllegiancePanel {
             return false;
         }
         self.aborts_handled += 1;
-        self.awaiting_update = false;
+        self.clear_busy_latch(requests_out);
         self.last = None;
         true
     }
@@ -525,6 +554,15 @@ impl AllegiancePanel {
     /// fields and counts a rebuild, because a character who leaves an allegiance must see the
     /// panel empty rather than see the previous allegiance's roster.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
+        // The client's update handler begins by clearing an armed busy latch, which takes the
+        // busy cursor down: an answer has arrived. It runs on every answer, including one that
+        // leaves the roster as it was, so it is keyed on the answers' count and not on the
+        // roster snapshot below.
+        let updates = view.allegiance_updates();
+        if self.last_updates.is_some_and(|n| n != updates) {
+            self.clear_busy_latch(&mut ui.requests);
+        }
+        self.last_updates = Some(updates);
         let r = view.allegiance_roster();
         if self.last.as_ref() == Some(&r) {
             return false;
@@ -549,14 +587,6 @@ impl AllegiancePanel {
         self.update_vassals_data(ui, &r);
         self.last = Some(r);
         self.rebuilds += 1;
-        // The client's update handler begins with this step, before the player-description query
-        // and before any data update: it clears an armed busy latch and decrements the busy count.
-        // It is placed at the tail here because retail's update handler is
-        // reached only from an allegiance-update notice, whose handler does nothing but invoke
-        // the update — while this one is per-frame, and the snapshot guard above stands in for
-        // "a notice arrived". Clearing before that guard would drop the latch on the first idle
-        // frame instead of on the answer.
-        self.awaiting_update = false;
         true
     }
 

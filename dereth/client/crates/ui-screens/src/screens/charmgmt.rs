@@ -146,6 +146,20 @@ pub fn update_buttons(
     }
 }
 
+/// The character set's slot for `gid`: the index of its entry in the set, in the order the server
+/// sent it, or `-1` when no entry carries that id (and for id 0, which names no character).
+#[must_use]
+pub fn character_set_slot(set: &CharacterSet, gid: ObjectId) -> i32 {
+    if gid.0 == 0 {
+        return -1;
+    }
+    set.set
+        .iter()
+        .position(|c| c.id == gid)
+        .and_then(|i| i32::try_from(i).ok())
+        .unwrap_or(-1)
+}
+
 /// The character set's "greyed out for" answer, including the slot-cap guard the name does not
 /// suggest: it returns the entry's grace period only when the slot is inside the live set, the
 /// entry's id is non-zero, and the slot is below the account's allowance (an allowance below 1
@@ -393,9 +407,12 @@ pub struct CharacterManagementScreen {
     /// The selected character's id, which [`Self::select_character`] also mirrors into
     /// the framework's persistent "selected avatar".
     pub selected_id: ObjectId,
-    /// The char-gen state's slot — the slot character generation was filling, which
-    /// takes priority when the list is rebuilt. `None` until a creation has happened.
-    pub chargen_slot: Option<usize>,
+    /// The char-gen state's slot, which the creation request carries: selecting a character
+    /// writes its index in the character set (server order, not the list's display order), and
+    /// resetting the selection writes `-1`. The list rebuild reads it to pick a row, after its
+    /// own reset has already written `-1`, so in practice that pick never fires. Mirrored into
+    /// the flow's persistent data every frame, as the selected id is.
+    pub chargen_slot: i32,
     /// The world name update / the world name notice.
     pub world_name: Option<String>,
     /// The error `set_error_msg` was handed.
@@ -418,6 +435,10 @@ pub struct CharacterManagementScreen {
     /// already happened. It is a **constructor** assignment, so it runs once per screen and never again;
     /// see the method that seeds it from the framework's persistent data.
     avatar_seeded: bool,
+    /// Whether [`Self::chargen_slot`] has been read from the flow's persistent data yet. The slot
+    /// lives in player-session state that outlives every screen, so a new screen starts from
+    /// whatever the last one left there.
+    slot_seeded: bool,
     /// `ID_CharacterManagement_DeleteCharacterResponse`, resolved by the host out of string table
     /// enum `0x10000002`. compares the typed text with it.
     pub delete_confirmation_phrase: Option<String>,
@@ -584,9 +605,10 @@ impl CharacterManagementScreen {
         }
         self.rows = rows;
 
-        // 7.
-        let pick = self
-            .chargen_slot
+        // 7. The char-gen slot is read after step 1's reset has set it to -1, so its row is never
+        //    the pick; the previously selected id is what restores the selection.
+        let pick = usize::try_from(self.chargen_slot)
+            .ok()
             .and_then(|s| set.set.get(s))
             .map(|c| c.id)
             .filter(|id| self.rows.iter().any(|r| r.id == *id))
@@ -639,11 +661,16 @@ impl CharacterManagementScreen {
             ui.set_state(h, STATE_ENABLED);
         }
         self.selected = None;
+        // The reset also clears the char-gen slot.
+        self.chargen_slot = -1;
     }
 
     /// Select a character — find the row carrying `gid` in attribute `0x10000009`,
     /// mark it, and store the id in [`Self::selected_id`] (and, in the client,
     /// the framework's persistent "selected avatar" and slot).
+    ///
+    /// The char-gen slot becomes the character's index in the character set as the server sent
+    /// it, which is not the row's index: the rows are sorted by name.
     pub fn select_character(&mut self, ui: &mut UiSystem, gid: ObjectId) -> ButtonStates {
         self.reset_previously_selected_character_slot(ui);
         let Some(slot) = self.rows.iter().position(|r| r.id == gid) else {
@@ -652,6 +679,7 @@ impl CharacterManagementScreen {
         };
         self.selected = Some(slot);
         self.selected_id = gid;
+        self.chargen_slot = character_set_slot(&self.char_set, gid);
         if let Some(h) = self.rows[slot].element {
             // Attribute `0xE` true — the list box's "this row is the
             // selected one" attribute, which the row's own states draw.
@@ -1490,6 +1518,14 @@ impl Screen for CharacterManagementScreen {
         cx.ui
             .requests
             .emit(crate::view::UiRequest::SelectedAvatar(self.selected_id));
+        // The char-gen slot is written in the same breath as the selected avatar. Not before
+        // the screen has read the persistent value: a screen that has selected nothing yet must
+        // not overwrite what the last one left.
+        if self.slot_seeded {
+            cx.ui
+                .requests
+                .emit(crate::view::UiRequest::CharGenSlot(self.chargen_slot));
+        }
     }
 
     fn on_pregame(
@@ -1523,6 +1559,10 @@ impl Screen for CharacterManagementScreen {
         // survives mode changes. The screen is constructed by a bare `fn() -> Box<dyn Screen>` with
         // no handle on the flow, so the assignment is made here — before the rebuild, in the same
         // order as the original constructor, and once per screen because construction runs once.
+        if !self.slot_seeded {
+            self.slot_seeded = true;
+            self.chargen_slot = p.chargen_slot;
+        }
         if p.received_set {
             self.take_selected_avatar_from_persistent_data(p.selected_avatar);
         }

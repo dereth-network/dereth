@@ -1559,6 +1559,8 @@ impl crate::world::World {
             crate::inventory::requests::InventoryRequest::ShopEvent,
             now,
         );
+        // The shop's answer ends with the use-done acknowledgement, which lowers it again.
+        self.magic.busy_count += 1;
     }
 
     fn refuse_shop(&mut self, out: &mut dyn crate::NoticeSink, text: &str) {

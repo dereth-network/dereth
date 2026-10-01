@@ -1185,6 +1185,14 @@ pub enum UiRequest {
     SetTalkFocus {
         focus: u32,
     },
+    /// The main chat window set its "Tell to &lt;name&gt;" target, the last speakable target:
+    /// the object a line typed with talk focus 2 is told to, and the one its squelch row toggles.
+    /// `ObjectId(0)` is none. The window's once-a-second sweep and its start-up reset are the only
+    /// writers; a new selection is adopted only by the sweep, so the target is not simply the
+    /// selection.
+    SetLastSpeakableTarget {
+        object: ObjectId,
+    },
     /// Enable or disable talk-focus row `n` — a panel on this side of
     /// the seam decided that talk-focus row `n` is (or is not) a destination the player can pick.
     ///
@@ -1439,6 +1447,11 @@ pub enum UiRequest {
     /// The character-management screen's selected character, mirrored into the UI flow's
     /// persistent selected avatar by the shell's drain before the frame's mode switch.
     SelectedAvatar(ObjectId),
+    /// The character-generation slot, mirrored into the UI flow's persistent data by the shell's
+    /// drain: the selected character's index in the character set (server order) when the
+    /// character screen selects a row, `-1` when its selection is reset, and `-1` when the server
+    /// refuses a creation. The creation request carries it.
+    CharGenSlot(i32),
     /// Train a skill with `(skill, xp)` — `0x0046 Train_TrainSkill`.
     ///
     /// Both the skill panel's "raise" and its "raise 10" send **this**
@@ -1737,6 +1750,12 @@ pub enum UiRequest {
     /// answered within milliseconds by `0x0020` and then `0x01C8`.
     AllegianceUpdateRequest {
         on: bool,
+    },
+    /// A window started (`raised`) or stopped waiting on the server's answer to something it
+    /// asked for: the busy count goes up or down by one, and the pointer is the hourglass while
+    /// it is not zero. The allegiance panel's busy latch is the one window that raises it.
+    Busy {
+        raised: bool,
     },
 
     /// The allegiance panel's three confirmation dialogs: the question, before any
@@ -2837,6 +2856,16 @@ pub trait GameView: std::fmt::Debug {
     /// latch, set on every allegiance update request, would stay set for ever on a request the server
     /// aborts — the panel stuck "busy" with no answer coming.
     fn allegiance_update_aborts(&self) -> u64 {
+        0
+    }
+
+    /// The game world's allegiance-update counter — how many `0x0020
+    /// Allegiance_AllegianceUpdate` have arrived.
+    ///
+    /// The panel's edge for an answer that leaves the roster as it was: every answer runs the
+    /// panel's update, whose first statement clears the busy latch, so an unchanged roster must
+    /// still be seen to have arrived.
+    fn allegiance_updates(&self) -> u64 {
         0
     }
 

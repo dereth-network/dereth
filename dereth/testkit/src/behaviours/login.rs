@@ -107,6 +107,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "login.enter-world.the-client-says-it-has-finished-loading-when-the-portal-fades-out",
+        says: "Once the log-in's portal-space animation has run and the world has faded back in, \
+               the client sends the server its login-complete notification, once; the server \
+               finishes the player's log-in on it. Every client sends it, including one running \
+               with no interface at all.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LOGIN-COMPLETE-NO-UI"),
+        station: "dereth-headless::dat::presentation::headless_replay_run::a_client_with_no_ui_sends_login_complete_once_the_portal_space_ends",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "login.enter-world.the-description-and-not-the-ready-message-puts-you-in-the-world",
         says: "Replaying a recorded login, the shard's word that the world is ready does not make the client \
                playable; the player's own description does. Before that the client sits at character select \

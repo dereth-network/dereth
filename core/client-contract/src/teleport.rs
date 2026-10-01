@@ -190,6 +190,9 @@ pub enum TeleportEffect {
     ClearPortalAnimation,
     /// Send the login-complete notification.
     SendLoginComplete,
+    /// Read and clear the smart box's teleport-occurred flag, discarding the value: the end of
+    /// the world fade-in has already reported the teleport it covered.
+    ConsumeTeleportOccurred,
     /// Mark logoff as started, clearing the logoff-requested flag.
     SetLogOffStarted,
     /// Display a random portal-space message on channel `0x1A`, once per
@@ -511,6 +514,10 @@ impl TeleportAnim {
             self.state = TeleportAnimState::Off;
             // Turn the field-of-view-distance override off (0.0).
             self.view_distance = None;
+            // Last, the teleport-occurred flag is read and its value thrown away: the teleport
+            // this animation covered has just been reported, so the idle state must not report it
+            // a second time on the next frame.
+            self.effects.push(TeleportEffect::ConsumeTeleportOccurred);
         }
     }
 }

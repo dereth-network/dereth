@@ -121,6 +121,9 @@ pub struct Summary {
     pub state: Option<SessionState>,
     /// The characters the replayed login's character set named.
     pub characters: Vec<String>,
+    /// How many login-complete notifications (`0x00A1`) the client sent: one when the log-in's
+    /// portal-space animation ends, and one after each teleport.
+    pub login_completes_sent: u64,
 }
 
 /// Build a headless client, run the script against it, and shut it down.
@@ -208,6 +211,7 @@ impl<'a> Run<'a> {
             commands: self.commands,
             state: self.state,
             characters: self.characters.clone(),
+            login_completes_sent: self.app.teleport.login_completes_sent,
         };
         self.app.shutdown(&mut self.shell);
         summary

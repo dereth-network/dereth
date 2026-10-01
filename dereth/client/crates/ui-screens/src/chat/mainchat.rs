@@ -794,7 +794,7 @@ impl MainChatPanel {
             // The client — row 2's own state `0x0D`.
             self.set_row_state(ui, 2, STATE_DISABLED);
             self.set_talk_focus_enabled(2, false);
-            self.last_speakable_target = id;
+            self.set_last_speakable_target(ui, id);
             if self.talk_focus == 2 {
                 self.handle_selection(ui, DEFAULT_TALK_FOCUS);
             }
@@ -814,7 +814,18 @@ impl MainChatPanel {
                 }
             }
         }
+        self.set_last_speakable_target(ui, id);
+    }
+
+    /// Write the last speakable target. It belongs to the communication system, not to this
+    /// window: the line typed with talk focus 2 is told to it, so the write goes to the session's
+    /// chat state as well as this copy.
+    fn set_last_speakable_target(&mut self, ui: &mut UiSystem, id: u32) {
         self.last_speakable_target = id;
+        ui.requests
+            .emit(crate::view::UiRequest::SetLastSpeakableTarget {
+                object: dereth_primitives::ObjectId(id),
+            });
     }
 
     /// Set one focus row's caption, with the string's `VALUE` variable

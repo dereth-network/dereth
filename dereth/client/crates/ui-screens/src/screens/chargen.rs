@@ -2076,6 +2076,9 @@ impl CharGenScreen {
             return;
         }
         self.state.verification = CgVerification::Undef;
+        // Every refusal also sets the slot to -1, so a second Finish after fixing the name sends
+        // slot -1.
+        self.state.set_slot(-1);
         self.error_string_id = v.error_string_id();
         self.open_dialog = Some(CharGenDialog::ErrorMessage);
     }
@@ -4554,7 +4557,7 @@ impl Screen for CharGenScreen {
 
     fn on_pregame(
         &mut self,
-        _cx: &mut ScreenCx<'_>,
+        cx: &mut ScreenCx<'_>,
         p: &dereth_ui::framework::PregameCx<'_>,
     ) -> Option<UiMode> {
         let host = p.view;
@@ -4581,9 +4584,18 @@ impl Screen for CharGenScreen {
                 self.set_tables(t);
             }
         }
+        // The slot the creation request carries is the char-gen state's, which lives with the
+        // player session and not with this screen: the character screen's selection wrote it.
+        self.state.set_slot(p.chargen_slot);
         // The char-gen verification response is a notice: applied on the edge.
         if let (Some(code), true) = (host.chargen_response, p.chargen_response_changed) {
             self.on_chargen_verification_response(code);
+            // A refusal clears the slot in the session's state as well as in this copy.
+            if self.state.slot != p.chargen_slot {
+                cx.ui
+                    .requests
+                    .emit(crate::view::UiRequest::CharGenSlot(self.state.slot));
+            }
         }
         // The persistent character-set notice followed by the UI-flow update reaches
         // the screen's awaiting-character-set-for-login branch, which logs

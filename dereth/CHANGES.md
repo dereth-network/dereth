@@ -14,6 +14,14 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- After making a character, shortcut keys act once: a healing kit on a shortcut asks for a target,
+  and the backpack's shortcut then uses it on you.
+- Part of a stack, split off with T, can be dragged straight into a shopkeeper's selling list; and
+  carrying an item over a shop's window turns it to the Selling page.
+- A tell to the chat target goes to that target, not to whatever happens to be selected.
+- The hourglass shows while the server is still answering something you did: a use, a spell, a
+  swing, an examine or a shop request.
+
 ## 0.1.2 (2026-10-01)
 
 - Campfires, braziers and torches keep their flames and smoke on the object in every landblock,

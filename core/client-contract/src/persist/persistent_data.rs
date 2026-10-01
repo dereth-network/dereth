@@ -61,6 +61,9 @@ pub struct UiPersistentData {
     pub received_set: bool,
     /// The selected avatar id.
     pub selected_avatar: ObjectId,
+    /// The character-generation slot the creation request carries: the selected character's index
+    /// in [`Self::char_set`], or `-1`. Zero until the character screen first writes it.
+    pub chargen_slot: i32,
 }
 
 impl UiPersistentData {

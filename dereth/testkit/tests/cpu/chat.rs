@@ -157,6 +157,11 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         the_chat_target_follows_what_is_selected_while_it_is_near,
     ),
     (
+        "a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection",
+        &["chat.talk-to-menu.a-tell-goes-to-the-chat-target-and-not-to-the-selection"],
+        a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection,
+    ),
+    (
         "the_channel_rows_follow_the_service_and_the_options",
         &["chat.talk-focus.the-channel-rows-follow-the-service-and-the-players-own-options"],
         the_channel_rows_follow_the_service_and_the_options,
@@ -2839,6 +2844,79 @@ pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
 #[test]
 fn scenario_the_chat_target_follows_what_is_selected_while_it_is_near() {
     scenario("the_chat_target_follows_what_is_selected_while_it_is_near");
+}
+
+/// A line typed to "Tell to <name>" goes to the chat target the talk-to menu names, not to what
+/// happens to be selected; with no chat target it goes nowhere. The squelch row asks about the
+/// same target.
+pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
+    use dereth_ui_screens::chat::mainchat::{MainChatPanel, SpeakableTarget};
+
+    let npc = ObjectId(0x5000_1111);
+    let door = ObjectId(0x7000_2222);
+
+    // The menu adopting a target tells the session who it is.
+    let mut ui = dereth_ui::UiSystem::new((800, 600));
+    let mut menu = MainChatPanel::default();
+    menu.set_selected(
+        &mut ui,
+        Some(&SpeakableTarget {
+            id: npc.0,
+            name: "Ulgrim".into(),
+            talkable: true,
+            squelched: false,
+        }),
+    );
+    let requests = ui.requests.take();
+    let told = requests
+        .iter()
+        .any(|r| matches!(r, UiRequest::SetLastSpeakableTarget { object } if *object == npc));
+
+    let mut c = a_client_with_a_named_player();
+    for r in requests {
+        c.when(Player::ui(r));
+    }
+    let recorded = c.view().world().chat.last_speakable_target == Some(npc);
+    // The player has since selected a door; the menu still says Ulgrim, so the line is his.
+    c.world_mut().selected = Some(door);
+    c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
+    let sent = type_line(&mut c, "well met");
+    let to_the_target = matches!(
+        sent.as_slice(),
+        [Request::TalkDirect(m)] if m.target == npc && m.message == "well met"
+    );
+    // The squelch row reads the same target: Ulgrim silenced, the host says so.
+    let mut everything = SquelchEntry::default();
+    everything.squelch_everything();
+    c.world_mut()
+        .chat
+        .squelch
+        .characters
+        .insert(npc, everything);
+    let squelched_seen = {
+        let w = c.view().world();
+        w.chat
+            .last_speakable_target
+            .is_some_and(|t| w.chat.is_squelched(t, "", 1))
+    };
+
+    // The menu letting go of its target leaves the tell with nowhere to go.
+    menu.set_selected(&mut ui, None);
+    for r in ui.requests.take() {
+        c.when(Player::ui(r));
+    }
+    let cleared = c.view().world().chat.last_speakable_target.is_none();
+    let nowhere = type_line(&mut c, "anyone?").is_empty();
+
+    c.assert_behaviour(
+        "chat.talk-to-menu.a-tell-goes-to-the-chat-target-and-not-to-the-selection",
+        move |_| told && recorded && to_the_target && squelched_seen && cleared && nowhere,
+    );
+}
+
+#[test]
+fn scenario_a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
+    scenario("a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection");
 }
 
 /// The channel rows of the talk-to menu follow the chat-room service and the player's own options,

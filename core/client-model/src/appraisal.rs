@@ -177,6 +177,10 @@ pub struct AppraisalCache {
     pub examine_serial: u64,
     /// When the combat poll last fired.
     last_poll: Option<LocalTime>,
+    /// The examined id whose answer has not arrived yet: set by the examine-object path, and
+    /// cleared by that object's `0x00C9` or by a cancel. Raising it from none puts the busy
+    /// cursor up and clearing it takes it down, so it is the busy cursor's half of an examine.
+    pub awaiting_answer: Option<ObjectId>,
 }
 
 impl AppraisalCache {
@@ -280,6 +284,12 @@ impl World {
         if id.0 == 0 {
             return;
         }
+        // The busy cursor goes up for the first outstanding examine only; a second look before
+        // the first is answered replaces the id it waits for.
+        if self.appraisal.awaiting_answer.is_none() {
+            self.magic.busy_count += 1;
+        }
+        self.appraisal.awaiting_answer = Some(id);
         self.appraisal.examining = Some(id);
         self.appraisal.examine_serial += 1;
         // `current_appraisal = 0` — the client's last line, and here it has to reach the cache
@@ -322,6 +332,10 @@ impl World {
         // `AppraisalCache::should_repoll` — the examination panel's 0.75 s combat re-poll —
         // from asking again about the object the player just walked away from.
         self.appraisal.examining = None;
+        // An outstanding examine is given up on, so its busy cursor comes down.
+        if self.appraisal.awaiting_answer.take().is_some() {
+            self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
+        }
         self.attempt_appraise(req, ObjectId(0));
     }
 
@@ -332,6 +346,12 @@ impl World {
         p: AppraisalProfile,
         out: &mut dyn NoticeSink,
     ) {
+        // The answer to the outstanding examine takes the busy cursor down; an answer about
+        // anything else leaves it.
+        if id.0 != 0 && self.appraisal.awaiting_answer == Some(id) {
+            self.appraisal.awaiting_answer = None;
+            self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
+        }
         self.appraisal.set(id, p);
         out.emit(Notice::AppraisalReady(id));
     }
@@ -462,5 +482,43 @@ mod tests {
         assert_eq!(hook_appraisal::LOCKPICK, 0x8);
         assert_eq!(creature_enchantment::MAX_MANA, 0x100);
         assert_eq!(long_desc_decoration::APPEND_GEM_INFO, 0x4);
+    }
+
+    /// Oracle: the examine-object notice raises the busy count only when no examine is waiting;
+    /// the set-appraise-info handler lowers it for the awaited id alone; the examine-spell cancel
+    /// lowers it when one is waiting.
+    ///
+    /// **The busy cursor is up while an examine waits for its answer**, once however many looks
+    /// pile up, and an answer about something else leaves it up.
+    #[test]
+    fn an_examine_holds_the_busy_count_until_its_own_answer_or_a_cancel() {
+        let mut w = World::new();
+        let mut req = crate::RecordingRequests::default();
+        let mut out = crate::RecordingSink::default();
+        let (a, b) = (ObjectId(0x8000_0001), ObjectId(0x8000_0002));
+        w.examine_object(&mut req, ObjectId(0));
+        assert_eq!(w.magic.busy_count, 0, "a look at nothing asks nothing");
+        w.examine_object(&mut req, a);
+        assert_eq!(w.magic.busy_count, 1);
+        w.examine_object(&mut req, b);
+        assert_eq!(
+            w.magic.busy_count, 1,
+            "a second look waits on the same raise"
+        );
+        w.set_appraise_info(a, AppraisalProfile::default(), &mut out);
+        assert_eq!(
+            w.magic.busy_count, 1,
+            "the answer about the first look is not awaited"
+        );
+        w.set_appraise_info(b, AppraisalProfile::default(), &mut out);
+        assert_eq!(w.magic.busy_count, 0, "the awaited answer takes it down");
+        w.examine_object(&mut req, a);
+        w.cancel_appraisal(&mut req);
+        assert_eq!(w.magic.busy_count, 0, "a cancel gives the wait up");
+        w.cancel_appraisal(&mut req);
+        assert_eq!(
+            w.magic.busy_count, 0,
+            "and a second cancel has nothing to give up"
+        );
     }
 }

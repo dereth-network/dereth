@@ -151,6 +151,36 @@ fn the_shipped_action_script_reaches_the_movement_jump_and_camera_routes() {
     }
 }
 
+/// Behaviour: login.enter-world.the-client-says-it-has-finished-loading-when-the-portal-fades-out
+/// A client with no UI at all still tells the server it has finished loading. After the replayed
+/// login reaches the world, the log-in's portal-space animation runs its course (about eight
+/// simulated seconds) and the login-complete notification goes out exactly once.
+///
+/// Falsified by a frame that runs the teleport step only from inside a UI's own step: this client
+/// has none, so the animation would never run and nothing would be sent.
+#[test]
+fn a_client_with_no_ui_sends_login_complete_once_the_portal_space_ends() {
+    // `--world`: the portal space lasts until the body stands in a loaded scene, so the run needs
+    // a world for the animation to end.
+    let commands = parse(
+        "login first-login-walk-jump +Aldis\n\
+         tick 900\n\
+         quit\n",
+    )
+    .expect("the script parses");
+    let mut out: Vec<u8> = Vec::new();
+    let opts = Options {
+        world: true,
+        ..options()
+    };
+    let summary = run(&commands, &opts, &mut out).expect("the run finishes");
+    assert_eq!(summary.state, Some(SessionState::Playable));
+    assert_eq!(
+        summary.login_completes_sent, 1,
+        "the 0x00A1 the end of the log-in's portal space owes the server"
+    );
+}
+
 /// A recording that is not there is an error, not an empty replay that passes.
 #[test]
 fn a_session_name_with_no_recording_stops_the_run() {

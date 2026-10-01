@@ -1949,6 +1949,8 @@ pub fn a_new_chat_window_reads_the_settings_now() {
     // shout.
     let selected = ObjectId(0x5000_0017);
     c.world_mut().selected = Some(selected);
+    // The chat window has taken him up as its chat target, which is who a tell goes to.
+    c.world_mut().chat.last_speakable_target = Some(selected);
     c.world_mut().chat.set_talk_focus(TalkFocus::Selected);
     c.ui_outbox()
         .emit(dereth_client_contract::UiRequest::ChatLine {

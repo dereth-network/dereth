@@ -151,6 +151,9 @@ enum PregameDrive {
     Idle,
     /// *Create Character* has been pressed; waiting for the wizard.
     OpeningWizard,
+    /// The heritage, town and summary page have been chosen; the name and *Finish* follow on the
+    /// next frame, once the summary page is up.
+    Naming,
     /// The wizard has been filled in and *Finish* pressed; waiting for the credit warning, which
     /// the wizard's finish step raises and which cannot be seen until the click has been
     /// delivered — the element messages are queued, so the answer is a second frame's work.
@@ -1681,9 +1684,7 @@ impl<H: Host> Ui<'_, H> {
                 pregame = PregameDrive::Entering;
             }
             Some(mode::CHAR_GEN) if pregame == PregameDrive::OpeningWizard => {
-                use dereth_ui_screens::screens::chargen::{
-                    HERITAGE_BUTTONS, NAME_FIELD, TOWN_BUTTONS,
-                };
+                use dereth_ui_screens::screens::chargen::{HERITAGE_BUTTONS, TOWN_BUTTONS};
                 let root = match shell.flow.current() {
                     Some(s) if !s.roots().is_empty() => s.roots()[0],
                     _ => return,
@@ -1691,11 +1692,28 @@ impl<H: Host> Ui<'_, H> {
                 // Aluvian and Holtburg: the wizard's first heritage and first town, and the two
                 // that need no expansion. The scripted path does not visit the appearance and
                 // profession pages, so the character takes the default template's six fifties.
-                for id in [HERITAGE_BUTTONS[0].0, TOWN_BUTTONS[0].0] {
+                // Then the summary tab: the finish button answers only on the summary page.
+                for id in [
+                    HERITAGE_BUTTONS[0].0,
+                    TOWN_BUTTONS[0].0,
+                    dereth_ui_screens::screens::chargen::EcgProgress::Summary
+                        .select_button()
+                        .expect("the summary tab"),
+                ] {
                     if let Some(h) = shell.ui.get_child_recursive(root, id) {
                         shell.ui.broadcast_element_message(h, BUTTON_CLICKED, 7, 0);
                     }
                 }
+                // The name and Finish are the next frame's: the summary page, once shown,
+                // writes its own text into the name field.
+                pregame = PregameDrive::Naming;
+            }
+            Some(mode::CHAR_GEN) if pregame == PregameDrive::Naming => {
+                use dereth_ui_screens::screens::chargen::NAME_FIELD;
+                let root = match shell.flow.current() {
+                    Some(s) if !s.roots().is_empty() => s.roots()[0],
+                    _ => return,
+                };
                 if let Some(h) = shell.ui.get_child_recursive(root, NAME_FIELD) {
                     if let Some(t) = shell.ui.text_element_mut(h) {
                         t.set_text(&create_char);
@@ -2831,25 +2849,22 @@ impl<H: Host> Ui<'_, H> {
     ///
     /// | input | source | has a writer? |
     /// |---|---|---|
-    /// | busy count | teleport animation state is not `TAS_OFF` | yes |
+    /// | busy count | the world's busy count (`dereth_client_model::magic::MagicState::busy_count`) | yes |
     /// | target mode | [`crate::interaction::Interaction::target_mode`] | yes, all four modes |
     /// | combat mode | `dereth_client_model::.combat_mode` | yes |
     /// | found object id | [`crate::pick::WorldPicker::click_object`] | live mouse move / global loop: synchronous exact item-slot identity, or completed world-draw geometry pick |
     /// | target compatibility | [`crate::cursor::is_target_compatible_with_targeting_object`] | yes, |
     ///
-    /// **The busy count is narrower than retail's.** The busy count is a shared counter that six
-    /// subsystems raise, including combat attacks,
-    /// magic casts, and the vendor panel; this cursor currently reads only teleport. Item-use
-    /// completion does decrement the magic busy count. Combining the other producers' ownership
-    /// is still open.
+    /// **The busy count** is one shared counter. A teleport (and the log-in's portal space, and a
+    /// log-off's fade) raises it until the world fades back in; a cast, a use, a targeted use and
+    /// a shop request raise it until the use-done acknowledgement; a swing the server commenced
+    /// raises it until the attack is done; an examine raises it until its answer; and the
+    /// allegiance panel's request raises it until the allegiance update answers it.
     fn update_cursor_state(&mut self) {
-        use dereth_ui_screens::screens::teleport::TeleportAnimState;
-
         let found = self.core.interaction.pick.click_object().0;
         let inputs = crate::cursor::CursorInputs {
-            // Current cursor busy input: the teleport-in-progress flag, which puts the hourglass up
-            // while a portal tunnel runs. Combining other busy producers is still open.
-            busy: u32::from(self.core.teleport.anim.state != TeleportAnimState::Off),
+            // The hourglass is up while anything the player asked for is still waiting.
+            busy: self.core.objects.world.magic.busy_count,
             target_mode: self.core.interaction.target_mode().into(),
             combat_mode: self.core.objects.world.combat.combat_mode,
             hovering: found.0 != 0,

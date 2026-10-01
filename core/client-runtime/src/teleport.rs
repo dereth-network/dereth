@@ -110,6 +110,8 @@ pub struct Teleport {
     pub tunnels_played: u64,
     /// Number of requested login-complete notifications.
     pub login_completes: u64,
+    /// How many login-complete notifications (`0x00A1`) the session actually sent.
+    pub login_completes_sent: u64,
     /// Whether the login-complete notification is owed and has not
     /// gone out. The client sets this whenever sending the login-complete notification cannot
     /// complete and
@@ -156,6 +158,7 @@ impl Teleport {
             anim: TeleportAnim::new(1),
             tunnels_played: 0,
             login_completes: 0,
+            login_completes_sent: 0,
             login_complete_pending: false,
             pending_sounds: Vec::new(),
             portal_anim_frame: None,
@@ -340,6 +343,7 @@ impl Teleport {
                     self.login_completes += 1;
                     self.login_complete_pending = true;
                 }
+                TeleportEffect::ConsumeTeleportOccurred => self.has_been_teleported = false,
                 TeleportEffect::SetLogOffStarted => self.log_off_requested = false,
                 // One fixed literal, sent as a display-string notice on
                 // chat type `0x1A`, raised on
@@ -459,6 +463,25 @@ mod tests {
             "the login-complete notification fired"
         );
         assert_eq!(t.tunnels_played, 1, "one tunnel, not one per frame");
+    }
+
+    /// Oracle: the end of the world fade-in sends the login-complete notification, then reads the
+    /// smart box's teleport-occurred flag and throws the value away.
+    ///
+    /// **A login reports itself once.** The player's position settles inside the tunnel, which sets
+    /// the teleport-occurred flag; the fade-in's end reports that teleport, so the idle state that
+    /// follows has nothing left to report.
+    #[test]
+    fn a_login_sends_one_login_complete_and_not_a_second_from_the_idle_state() {
+        let mut t = Teleport::new();
+        t.apply_events(&[player_created(0x5000_0001)]);
+        t.use_time(0.0, true, 1.354_264_5);
+        t.use_time(1.0, false, 1.354_264_5);
+        for i in 1..=400 {
+            t.use_time(1.0 + f64::from(i) * 0.05, false, 1.354_264_5);
+        }
+        assert_eq!(t.anim.state, TeleportAnimState::Off, "ends on the world");
+        assert_eq!(t.login_completes, 1, "one notification for one login");
     }
 
     /// Oracle: player-teleport handling and smart-box simulation's

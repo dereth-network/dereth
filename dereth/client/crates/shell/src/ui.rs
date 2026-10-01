@@ -2115,6 +2115,11 @@ impl UiShell {
             UiRequest::SelectedAvatar(id) => {
                 self.flow.data.selected_avatar = id;
             }
+            // The character-generation slot, which the character screen's selection and a
+            // refused creation write and the creation request reads.
+            UiRequest::CharGenSlot(slot) => {
+                self.flow.data.chargen_slot = slot;
+            }
             // The epilogue constructor logs off the character when player-session state exists
             // and the network is still up. The screen has no session; the host does.
             UiRequest::EndCharacterSession { .. } => {
@@ -2272,6 +2277,7 @@ impl UiShell {
             char_set: &char_set,
             char_set_changed,
             selected_avatar: self.flow.data.selected_avatar,
+            chargen_slot: self.flow.data.chargen_slot,
             chargen_response_changed,
             ui_strings: self.patch_strings,
             client_strings: self.client_strings,

@@ -284,6 +284,8 @@ pub struct PregameCx<'a> {
     pub char_set_changed: bool,
     /// The persistent data's selected avatar.
     pub selected_avatar: dereth_primitives::ObjectId,
+    /// The persistent data's character-generation slot.
+    pub chargen_slot: i32,
     /// Whether the char-gen verification response is a new notice this frame.
     pub chargen_response_changed: bool,
     /// String table enum `0x10000002` resolved to its table, where the pre-game screens' captions

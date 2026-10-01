@@ -788,6 +788,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.cursor.the-hourglass-is-up-while-anything-asked-for-waits-for-its-answer",
+        says: "The pointer is the hourglass while anything the player asked for is still waiting \
+               on the server: a spell, a use or a purchase until the server says it is done, a \
+               swing until it ends, an examine until its description arrives, the allegiance \
+               panel's question until the allegiance arrives, and a trip through portal space \
+               until the world has faded back in. When nothing is waiting it is the ordinary \
+               pointer again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-BUSY-CURSOR"),
+        station: "dereth-client::dat::ui::busy_cursor::the_hourglass_is_up_while_a_request_waits_and_down_once_it_is_answered",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.dialog.a-menu-dialog-answers-into-its-property",
         says: "A dialog that offers a menu records the chosen entry as its answer, and a menu with \
                nothing in it answers minus one.",

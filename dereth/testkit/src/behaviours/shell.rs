@@ -19,7 +19,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -484,6 +484,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.finish.a-scripted-creation-names-the-character-on-the-summary-page",
+        says: "A run started to create a character opens the wizard, picks the first people and \
+               home town, goes to the summary page, names the character there and presses Finish, \
+               so the creation is really asked for: Finish does nothing on any other page.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-SCRIPTED-CREATION-SUMMARY"),
+        station: "dereth-client::dat::login::character_creation_request::a_scripted_creation_reaches_the_summary_page_and_sends_the_request",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.finish.a-set-without-the-new-name-falls-back-to-character-select",
         says: "After Finish, when the character list the shard sends back does not hold the name \
                the wizard just created, the wizard logs nobody on and falls back to the character \
@@ -549,6 +559,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O267-FINISH-CREATED"),
         station: "dereth-client-net::cpu::login::new_character_joins_list::the_created_character_joins_the_list_without_a_second_character_set_message",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chargen.finish.the-request-carries-the-selected-characters-slot-in-server-order",
+        says: "The creation request carries a slot: the index, in the character list as the shard \
+               sent it, of the character selected on the character screen when Create Character \
+               was pressed -- not that character's place in the alphabetical list. With nothing \
+               selected, or after the shard has refused a creation, the slot is -1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHARGEN-SLOT"),
+        station: "dereth-client::dat::login::character_creation_request::the_creation_request_carries_the_selected_characters_index_in_the_servers_order",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "chargen.heritage.one-bullet-is-lit-and-the-page-behind-it-describes-that-people",

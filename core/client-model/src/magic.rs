@@ -1230,10 +1230,11 @@ impl World {
     /// (`dereth_ui_screens::chat::failure`); this returns the code so the caller can print it.
     ///
     /// **One deliberate difference.** The count is raised by the cast path
-    /// ([`Self::free_hands_and_cast`]), by using an object and by a targeted use. Retail's count is
-    /// signed, so an acknowledgement nobody asked for takes it below zero and the next raise only
-    /// brings it back to zero; this one floors at zero instead. Nothing player-visible reads the
-    /// count yet, so the difference cannot be seen.
+    /// ([`Self::free_hands_and_cast`]), by using an object, by a targeted use, by a shop request,
+    /// by a swing the server commenced, by an examine, by an allegiance request and by a teleport.
+    /// Retail's count wraps below zero, so an acknowledgement nobody asked for leaves the busy
+    /// cursor up until enough raises bring it back round to zero; this one floors at zero instead,
+    /// so a stray acknowledgement never leaves the cursor stuck.
     pub fn use_done(&mut self, error: u32) -> u32 {
         self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
         error
@@ -1495,8 +1496,9 @@ pub struct MagicState {
     /// runs once a frame coalesces a container's worth of bumps into one refresh, which is what
     /// the client's `notify = 0` walk plus one trailing notice does by hand.
     pub component_serial: u64,
-    /// The incremented/decremented busy cursor. This is the
-    /// **whole** of the client's casting state.
+    /// The busy count: how many actions the player asked for are still waiting on their answer.
+    /// While it is not zero the pointer is the hourglass. It is also the **whole** of the
+    /// client's casting state.
     pub busy_count: u32,
     /// The spell table the client lazily loads as `(6, 2, 0x10000005)` on the **first** cast or
     /// spell-compatibility test and then keeps.

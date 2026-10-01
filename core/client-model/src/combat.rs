@@ -1633,6 +1633,9 @@ impl World {
         }
         // The global the rest of the client reads, and which blocks every inventory request.
         self.attack_in_progress = true;
+        // The swing is outstanding until the attack-done answer: the busy cursor goes up. Every
+        // commence raises it, even one that arrives while a swing is already in progress.
+        self.magic.busy_count += 1;
     }
 
     /// The attack-done handler, given the result code.
@@ -1649,6 +1652,10 @@ impl World {
         ready_for_attack: bool,
         now: LocalTime,
     ) {
+        // Only a swing this client saw commence lowers the busy cursor.
+        if self.combat.attack_in_progress {
+            self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
+        }
         self.combat.attack_in_progress = false;
         self.combat.attack_server_response_pending = false;
         self.attack_in_progress = false;
@@ -2817,6 +2824,28 @@ mod tests {
         w.handle_attack_done(&mut req, 0, true, LocalTime(1.0));
         assert_eq!(w.ready_for_inventory_request(true), Ok(()));
         let _ = ServerTime(0.0);
+    }
+
+    /// Oracle: the commence-attack handler raises the busy count on every commence; the
+    /// attack-done handler lowers it only when a swing is in progress.
+    ///
+    /// **The busy cursor is up from the commenced swing to its end**, and an attack-done with no
+    /// swing in progress takes nothing down.
+    #[test]
+    fn a_commenced_swing_holds_the_busy_count_until_the_attack_is_done() {
+        let mut w = world();
+        let mut req = RecordingRequests::default();
+        w.handle_attack_done(&mut req, 0, true, LocalTime(0.5));
+        assert_eq!(w.magic.busy_count, 0, "no swing, nothing to take down");
+        w.handle_commence_attack();
+        assert_eq!(w.magic.busy_count, 1, "the swing is outstanding");
+        w.handle_attack_done(&mut req, 0, true, LocalTime(1.0));
+        assert_eq!(w.magic.busy_count, 0, "the swing is over");
+        w.handle_attack_done(&mut req, 0, true, LocalTime(1.5));
+        assert_eq!(
+            w.magic.busy_count, 0,
+            "a second attack-done is not a second swing"
+        );
     }
 
     /// Begin resets to the documented values.

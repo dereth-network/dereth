@@ -4087,6 +4087,14 @@ impl Interaction {
                     self.stats.ui_requests_handled += 1;
                     continue;
                 }
+                // The communication system's last speakable target, which the main chat window
+                // writes: the tell destination of talk focus 2, and the object the squelch row
+                // and the window's sweep ask about.
+                UiRequest::SetLastSpeakableTarget { object } => {
+                    game.chat.last_speakable_target = (object.0 != 0).then_some(object);
+                    self.stats.ui_requests_handled += 1;
+                    continue;
+                }
                 // The chat-focus enable notice carries `(n, on)` and is raised by the
                 // allegiance panel's three data-update tails. The write lands on the one
                 // `ChatState`; its `TalkFocusNotice` then reaches the menu row through
@@ -4977,6 +4985,15 @@ impl Interaction {
                 UiRequest::AllegianceUpdateRequest { on } => {
                     game.allegiance_update_request(&mut req, on);
                     self.stats.allegiance_update_requests += 1;
+                }
+                // A window's own busy latch: the count the busy cursor reads.
+                UiRequest::Busy { raised } => {
+                    let busy = &mut game.magic.busy_count;
+                    *busy = if raised {
+                        busy.saturating_add(1)
+                    } else {
+                        busy.saturating_sub(1)
+                    };
                 }
                 // ---- the allegiance panel's three buttons ---------------------------------
                 //
@@ -6976,11 +6993,14 @@ impl Interaction {
                 self.public_chat(&text, game, req);
             }
             // Tell focus with no current speakable target is silently dropped, not public speech.
+            // The destination is the last speakable target, the name "Tell to <name>" shows, and
+            // not the selection: once the main chat window has adopted a target it keeps it while
+            // it is in range, whatever is selected after.
             O::Chat {
                 destination: dereth_client_model::cmd::TalkFocus::Tell,
                 text,
             } => {
-                if let Some(target) = game.selected {
+                if let Some(target) = game.chat.last_speakable_target {
                     dereth_client_model::RequestSink::send(
                         req,
                         Request::TalkDirect(dereth_protocol::comms::CommunicationTalkDirect {

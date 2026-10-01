@@ -6994,6 +6994,12 @@ impl<P: HudPanels> GameView for HudView<'_, P> {
         self.world.allegiance_aborts
     }
 
+    /// `0x0020`'s count, straight off the world — see
+    /// [`dereth_client_contract::GameView::allegiance_updates`].
+    fn allegiance_updates(&self) -> u64 {
+        self.world.allegiance_updates
+    }
+
     /// **The Portal Storm indicator's one input.**
     ///
     /// `dereth_ui_screens::hud::indicators::portal_storm_state` and the lamp's row in
