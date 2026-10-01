@@ -367,6 +367,11 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         the_number_is_drawn_over_the_busy_mark_and_the_ring,
     ),
     (
+        "a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot",
+        &["shortcut.number.a-thing-pushed-off-its-tile-keeps-its-shortcut-in-the-next-free-slot"],
+        a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot,
+    ),
+    (
         "a_drag_that_ends_over_nothing_takes_the_mark_off",
         &["inventory.busy-mark.a-drag-that-ends-over-nothing-takes-it-off"],
         a_drag_that_ends_over_nothing_takes_the_mark_off,
@@ -8621,6 +8626,78 @@ pub fn the_number_is_drawn_over_the_busy_mark_and_the_ring() {
         move |_| topmost,
     );
     c.shutdown();
+}
+
+// ---------------------------------------------------------------------------------------------
+// shortcut.number.a-thing-pushed-off-its-tile-keeps-its-shortcut-in-the-next-free-slot
+// ---------------------------------------------------------------------------------------------
+
+/// The plate the numeral strip draws for the second row of nine: the frame with no figure in it.
+const SECOND_ROW_PLATE: DataId = DataId(0x0600_74D3);
+
+/// Dropping something on an occupied tile does not take the occupant's shortcut away: the
+/// occupant moves to the first empty slot to the right of the tile. When the visible row is full
+/// to the right that slot is in the hidden second row, and the occupant's picture keeps a plate
+/// with no figure on it.
+///
+/// Both halves are measured: a push into the visible row draws that slot's own number, and a
+/// push past it draws the second row's unnumbered plate rather than losing the plate.
+pub fn a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot() {
+    let mut c = a_client_with_shortcuts();
+    let slot_of = |c: &mut HeadlessClient, item: ObjectId| {
+        c.app_mut()
+            .objects_mut()
+            .world
+            .player_system
+            .shortcut_slot_of(item)
+    };
+    let rock_at_zero = numerals(&mut c, NUM_ROCK)
+        .first()
+        .and_then(|t| t.2)
+        .expect("the premise: the rock is numbered");
+
+    // Slot 1 is empty, so the rock moves one to the right and draws slot 1's number.
+    let stick = pack_slot(&mut c, STICK);
+    drop_on_tile(&mut c, stick, 0);
+    c.tick(2);
+    let stick_took_zero = slot_of(&mut c, STICK) == Some(0);
+    let rock_tiles = numerals(&mut c, NUM_ROCK);
+    let pushed_into_view = slot_of(&mut c, NUM_ROCK) == Some(1)
+        && !rock_tiles.is_empty()
+        && rock_tiles.iter().all(|(n, drawn, did)| {
+            *n == 1 && *drawn && did.is_some() && *did != Some(rock_at_zero)
+        });
+
+    // Fill the two slots right of the pack's, then drop on the pack's tile: the first empty slot
+    // to its right is the first of the hidden row.
+    {
+        let w = &mut c.app_mut().objects_mut().world;
+        assert!(w.player_system.remove_shortcut(1) && w.player_system.remove_shortcut(3));
+        assign_shortcut(w, 7, WORN_SHIRT);
+        assign_shortcut(w, 8, NUM_ROCK);
+    }
+    c.tick(2);
+    let stick = pack_slot(&mut c, STICK);
+    drop_on_tile(&mut c, stick, 6);
+    c.tick(2);
+    let pack_tiles = numerals(&mut c, NUM_PACK);
+    let pushed_past_view = slot_of(&mut c, STICK) == Some(6)
+        && slot_of(&mut c, NUM_PACK) == Some(9)
+        && !pack_tiles.is_empty()
+        && pack_tiles
+            .iter()
+            .all(|(n, drawn, did)| *n == 9 && *drawn && *did == Some(SECOND_ROW_PLATE));
+
+    c.assert_behaviour(
+        "shortcut.number.a-thing-pushed-off-its-tile-keeps-its-shortcut-in-the-next-free-slot",
+        move |_| stick_took_zero && pushed_into_view && pushed_past_view,
+    );
+    c.shutdown();
+}
+
+#[test]
+fn scenario_a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot() {
+    scenario("a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot");
 }
 
 #[test]

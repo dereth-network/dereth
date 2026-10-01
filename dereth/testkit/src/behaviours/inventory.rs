@@ -2954,6 +2954,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "shortcut.number.a-thing-pushed-off-its-tile-keeps-its-shortcut-in-the-next-free-slot",
+        says: "Dropping something on an occupied shortcut tile moves the occupant to the \
+               first empty slot to the right of that tile, searching to the end of all \
+               eighteen slots before wrapping round. When the visible row is full to the \
+               right, that slot is in the hidden second row, and the occupant's picture \
+               keeps a shortcut plate with no figure on it, the second row's plate.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SHORTCUT-PUSH-RIGHT"),
+        station: "dereth-testkit::dat::inventory::scenario_a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "shortcut.number.a-tile-naming-a-thing-the-client-has-not-seen-waits-for-it-before-drawing-the-number",
         says: "A shortcut tile naming a thing the client has not heard of yet draws no number on its \
                empty face, and takes the number up on the first pass after the thing arrives. A tile \

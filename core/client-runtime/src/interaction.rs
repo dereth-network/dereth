@@ -3227,6 +3227,10 @@ impl Interaction {
     /// The displacement is the reason [`Self::remove_shortcut_in_slot_num`] *returns* the id it
     /// removed rather than a bool: dropping onto an occupied slot pushes its occupant rightwards
     /// instead of destroying the shortcut.
+    ///
+    /// The search runs to the last of all eighteen slots before it wraps, so when the visible row
+    /// is full to the right of `n` the occupant lands in the hidden second row: it stays a
+    /// shortcut, and its picture keeps the second row's plate, which has no figure on it.
     fn shortcut_drop(
         &mut self,
         item: ObjectId,
