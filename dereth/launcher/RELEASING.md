@@ -6,13 +6,45 @@ launcher lists the repository's releases, picks the newest published `dereth-v<v
 and reads its `latest.json` to update itself and the client ("Updates" below). There are two
 commands and one review:
 
-1. **`cargo xtask release dereth <version>`** on a clean `main`: sets the version, runs the checks,
-   packages the host's target as a smoke test and tags `dereth-v<version>`.
+1. **`cargo xtask release dereth <version>`** on a clean `main`: sets the version, dates the
+   release's highlights in [`CHANGES.md`](../CHANGES.md), runs the checks, packages the host's
+   target as a smoke test and tags `dereth-v<version>`.
 2. **Pushing the tag** starts the release workflow on GitHub, which builds every target, checks and
    signs everything, and creates a **draft** release.
 3. **A maintainer reviews the draft and publishes it.**
 
 `cargo xtask package dereth` is the build itself: the same command locally and in the workflow.
+
+## Release notes
+
+A release's description on GitHub starts with its notes, in two parts:
+
+- **Highlights:** the release's section of [`dereth/CHANGES.md`](../CHANGES.md), a few
+  player-facing lines written by hand. Add a line under `## Unreleased` when a change lands that a
+  player would notice. The release command turns that section into the release's own,
+  `## <version> (<date>)`, and opens a new empty Unreleased section, in the version commit. A
+  pre-release (`-rc.1`) leaves the section alone: its notes show the Unreleased highlights, and
+  the final release takes them.
+- **All changes:** the subject of every commit since the previous final `dereth-v*` tag
+  (pre-release tags are passed over) that changed what a release ships: a file under `dereth/` or
+  `core/`, or the web client's relay, that is not a test, a fixture or a document. Empyrean's
+  commits, CI's, the tools', the version commits, and commits that change only comments and blank
+  lines in those files are left out. Each subject goes under one heading (Gameplay, Graphics & sound, Interface, Launcher,
+  Fixes), chosen from its words and then from where its files are; a subject the rules cannot
+  place goes under "Other changes". Subjects only, without hashes, and one compare link at the end.
+
+`main` gets one commit per finished piece of work, with a subject that says what the client now
+does, so the subjects are the changelog. To see the notes before releasing:
+
+```
+cargo xtask release-notes dereth [--since <tag>] [--version <version>] [--out <file>]
+```
+
+It prints the notes for the commits since the newest final `dereth-v*` tag (or `--since`) up to
+`HEAD`, with the Unreleased section as the highlights. With `--version` of a release that is
+tagged, the range ends at its tag and the highlights are its own section (a pre-release's are the
+Unreleased section as its tag has it). `--out` writes the notes to a file instead. The release workflow runs the same command on the tag (below), so the preview is what the
+release gets.
 
 ## Versions and tags
 
@@ -158,12 +190,15 @@ cargo xtask release dereth <MAJOR.MINOR.PATCH[-pre]> [--push] [--remote <name>]
    numbers, not older than the version the client and the launcher carry, and `dereth-v<version>`
    exists neither here nor on the remote (default `origin`).
 2. Sets the client's and the launcher's `version` to `<version>`, updates both lock files' entries
-   for their workspaces' own packages (`Cargo.lock`, `dereth/launcher/Cargo.lock`), and
-   commits exactly those files as `Dereth <version>`. When they already carry `<version>`, there
-   is nothing to commit.
+   for their workspaces' own packages (`Cargo.lock`, `dereth/launcher/Cargo.lock`), turns the
+   Unreleased section of `dereth/CHANGES.md` into `## <version> (<date>)` under a new empty one
+   (not for a pre-release), and commits exactly those files as `Dereth <version>`. When they already carry `<version>`,
+   there is nothing to commit, except the highlights when `CHANGES.md` has no section for
+   `<version>` yet (`Dereth <version>: its changes`).
 3. Runs `cargo xtask ci tier0`, then `cargo xtask package dereth` for the host's target (on macOS
    with `DERETH_MOLTENVK_DIR` set).
-4. Tags that commit `dereth-v<version>` (annotated).
+4. Tags that commit `dereth-v<version>` (annotated), and prints the release notes the workflow
+   will write from it.
 5. Prints the two push commands, `git push <remote> main` and `git push <remote> dereth-v<version>`,
    and runs them only with `--push`.
 
@@ -178,7 +213,10 @@ tier-2 modules the release touches on a hardware GPU.
 `.github/workflows/release-dereth.yml` runs when a `dereth-v*` tag reaches GitHub. Its jobs:
 
 1. **version and tag:** the tag names the version the client and the launcher carry, and the
-   tagged commit is on `main`.
+   tagged commit is on `main`. It then writes the release notes from the tagged tree
+   (`cargo xtask release-notes dereth --version <version>`; on a dry run, the notes the next
+   release would get) and keeps them as the `release-notes-dereth` artifact; they are on the run's
+   summary page too.
 2. **package**, one job per target on a runner of its own system (Windows; Ubuntu 22.04; macOS for
    both Apple silicon and Intel): installs the build dependencies, cargo-about and the Tauri CLI
    (pinned), fetches MoltenVK on macOS (pinned by SHA-256, never from Homebrew), runs
@@ -190,7 +228,8 @@ tier-2 modules the release touches on a hardware GPU.
    (every file scanned and every signature verified again; `latest.json` merged), and keeps the
    release files as a workflow artifact.
 4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a
-   pre-release version) with every release file, `SHA256SUMS`, `MANIFEST.txt`, `release.json` and
+   pre-release version) with the release notes, then the downloads, as its description, and every
+   release file, `SHA256SUMS`, `MANIFEST.txt`, `release.json` and
    `latest.json`, each with its display label (the table above). The job computes each label from
    the file's name and fails if any file has none. It is the only job that can write, and it runs
    in the `release` environment.
@@ -209,7 +248,8 @@ Then, on the draft release:
    of the four targets), `latest.json`, `SHA256SUMS`, `MANIFEST.txt` and `release.json`, each
    labelled.
 2. Download the launcher for each system you can, run it, and play with it against a world.
-3. Edit the notes: what changed.
+3. Read the notes (Highlights, then All changes) and edit them if a line needs it; a highlight
+   that was missing belongs in `CHANGES.md` too, under the release's section.
 4. Publish. Launchers see the release from their next start once it is published (a draft is
    never read), whether or not GitHub shows it as the latest release.
 

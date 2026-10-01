@@ -11,6 +11,10 @@ name: Release Dereth
 # Every job runs `cargo xtask package dereth`, the same command a contributor runs locally
 # (dereth/launcher/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every
 # push.
+#
+# The release's description starts with its notes, which `cargo xtask release-notes dereth` writes
+# from the tagged tree: the release's section of dereth/CHANGES.md, then the client's commits since
+# the previous dereth-v tag, grouped. A dry run writes the notes the next release would get.
 
 on:
   push:
@@ -69,6 +73,23 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Dereth $version"
+      - name: The release notes, from CHANGES.md and the commits since the previous release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask release-notes dereth --version "$VERSION" --out target/release-notes.md
+          else
+            cargo xtask release-notes dereth --out target/release-notes.md
+          fi
+          cat target/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-dereth
+          path: target/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
 
   package:
     name: package (${{ matrix.target }})
@@ -240,6 +261,10 @@ jobs:
         with:
           name: release-dereth-${{ needs.version.outputs.version }}
           path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes-dereth
+          path: notes
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -248,7 +273,12 @@ jobs:
         run: |
           cd dist
           sha256sum -c SHA256SUMS
-          cat > ../notes.md <<EOF
+          # The notes first (highlights, then all changes), then how to install.
+          cp ../notes/release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
           Dereth $VERSION: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
           | system | download | |

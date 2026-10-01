@@ -117,3 +117,28 @@ fn the_upgrade_fixture_folder_is_named_by_the_numeric_version() {
         "empyrean/crates/store/tests/fixtures/upgrade/0.2.0"
     );
 }
+
+/// A pre-release leaves the highlights file's Unreleased section as it is, for the final release
+/// to take; a final release stamps it. Empyrean's releases never touch it.
+#[test]
+fn only_a_final_dereth_release_stamps_the_highlights() {
+    let ws = std::env::temp_dir().join(format!("xtask-stamp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(ws.join("dereth")).expect("scratch dir");
+    let text = "# Dereth changes\n\n## Unreleased\n\n- A thing\n";
+    std::fs::write(changes_path(&ws), text).expect("write");
+    let read = || std::fs::read_to_string(changes_path(&ws)).expect("read");
+
+    assert_eq!(stamp_changes(&ws, Product::Dereth, "0.2.0-rc.1"), Ok(None));
+    assert_eq!(stamp_changes(&ws, Product::Empyrean, "0.2.0"), Ok(None));
+    assert_eq!(read(), text);
+    assert_eq!(
+        stamp_changes(&ws, Product::Dereth, "0.2.0"),
+        Ok(Some(notes::CHANGES.to_owned()))
+    );
+    assert_eq!(
+        notes::section(&read(), "0.2.0").as_deref(),
+        Some("- A thing")
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}

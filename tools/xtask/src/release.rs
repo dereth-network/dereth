@@ -7,15 +7,20 @@
 //! `cargo xtask ci tier0` and packages the host's own target as a smoke test, then makes the
 //! annotated tag `empyrean-v<version>` or `dereth-v<version>`. An Empyrean release also makes its
 //! database upgrade fixture (`empyrean/crates/store/UPGRADES.md`) when the tree has none for that
-//! release, and commits it with the version. It prints the two push commands and
-//! runs them only with `--push`: the product's release workflow starts when the tag reaches the
-//! public repository, and builds, checks and drafts the release from there.
+//! release, and commits it with the version. A final Dereth release turns the Unreleased section of
+//! `dereth/CHANGES.md` into the release's own, dated, under a new empty Unreleased section, and
+//! commits that with the version: the section is the release notes' highlights ([`notes`]). It
+//! prints the two push commands and runs them only with `--push`: the product's release workflow
+//! starts when the tag reaches the public repository, and builds, checks and drafts the release
+//! from there.
 
 use std::path::Path;
 
 use crate::package::version::Product;
 use crate::package::{self, git, version};
 use crate::util::{workspace_root, Profile};
+
+pub mod notes;
 
 /// What the release command reads from the repository before it changes anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,6 +240,49 @@ fn make_upgrade_fixture(
     Ok(Some(dir))
 }
 
+/// The highlights file, as the release command reads and writes it.
+fn changes_path(ws: &Path) -> std::path::PathBuf {
+    ws.join(notes::CHANGES)
+}
+
+/// For a final Dereth release whose highlights file has no section for `requested` yet: stamp
+/// the Unreleased section with it and today's date, and return the file to commit. `None` for
+/// Empyrean, for a pre-release (its notes show the Unreleased section, which stays for the final
+/// release), and when the section is already there.
+fn stamp_changes(ws: &Path, product: Product, requested: &str) -> Result<Option<String>, String> {
+    if product != Product::Dereth {
+        return Ok(None);
+    }
+    if version::is_prerelease(requested) {
+        println!(
+            "=== {requested} is a pre-release: {} keeps its Unreleased section",
+            notes::CHANGES
+        );
+        return Ok(None);
+    }
+    let path = changes_path(ws);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", notes::CHANGES))?;
+    if notes::section(&text, requested).is_some() {
+        println!(
+            "=== {} already has a section for {requested}",
+            notes::CHANGES
+        );
+        return Ok(None);
+    }
+    if notes::section(&text, notes::UNRELEASED).is_some_and(|s| s.is_empty()) {
+        println!(
+            "note: the Unreleased section of {} is empty; the release's notes will have no \
+             highlights",
+            notes::CHANGES
+        );
+    }
+    let stamped = notes::stamp(&text, requested, &notes::today())?;
+    std::fs::write(&path, stamped).map_err(|e| format!("writing {}: {e}", notes::CHANGES))?;
+    println!("=== {}: Unreleased is now {requested}", notes::CHANGES);
+    Ok(Some(notes::CHANGES.to_owned()))
+}
+
 fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<(), String> {
     let ws = workspace_root();
     let name = product.display_name();
@@ -291,6 +339,9 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
         if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
             paths.push(dir);
         }
+        if let Some(file) = stamp_changes(&ws, product, requested)? {
+            paths.push(file);
+        }
         let message = format!("{name} {requested}");
         let mut args = vec!["commit", "-m", &message, "--"];
         args.extend(paths.iter().map(String::as_str));
@@ -301,6 +352,11 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
         if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
             let message = format!("{name} {requested}: its upgrade fixture");
             git(&ws, &["commit", "-m", &message, "--", &dir])?;
+            println!("committed: {message}");
+        }
+        if let Some(file) = stamp_changes(&ws, product, requested)? {
+            let message = format!("{name} {requested}: its changes");
+            git(&ws, &["commit", "-m", &message, "--", &file])?;
             println!("committed: {message}");
         }
     }
@@ -337,6 +393,18 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
     let message = format!("{name} {requested}");
     git(&ws, &["tag", "-a", &plan.tag, "-m", &message, &head])?;
     println!("\ntagged {} at {head}", plan.tag);
+    if product == Product::Dereth {
+        let request = notes::Request {
+            version: Some(requested.to_owned()),
+            ..notes::Request::default()
+        };
+        match notes::notes(&ws, &request) {
+            Ok(text) => {
+                println!("\n=== the release notes the workflow will write from this tag\n\n{text}")
+            }
+            Err(e) => println!("note: the release notes could not be previewed: {e}"),
+        }
+    }
 
     let commands = push_commands(remote, &plan.tag);
     if push {
