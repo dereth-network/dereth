@@ -5,4 +5,5 @@ mod item_cell_presentation;
 mod item_list_scroll;
 mod paperdoll_drag;
 mod vendor_selling_page;
+mod vendor_stock_double_click;
 mod vendor_stock_scrollbar;

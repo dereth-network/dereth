@@ -1501,7 +1501,7 @@ impl VendorPanel {
         // **The item list element's element-message handler's `0x1C` arm, on this window's own
         // three lists.** See [`Self::on_item_list_press`] for why it is here and
         // not on the screen.
-        if m.id == id::MOUSE_PRESS && self.on_item_list_press(ui, m.source, m.p1) {
+        if m.id == id::MOUSE_PRESS && self.on_item_list_press(ui, m.source, m.p1, split) {
             return true;
         }
         if m.id == id::BUTTON_CLICKED {
@@ -1645,9 +1645,25 @@ impl VendorPanel {
     /// tree — `0x100000C5`, this window's buy basket — so this is the only caller in the build for
     /// which [`ItemListWidget::handle_single_selection`] does anything at all.
     ///
+    /// **The window's own double-click on the stock list buys.** Beside the list's arm, the vendor
+    /// window answers the same press itself: a double-click on a stock row buys that item at once,
+    /// exactly as "Buy" does with the row selected — one item, or the split amount for a stack,
+    /// sent on its own and not added to the basket. `split` is the current split size, which the
+    /// first click of the pair has just made the row's.
+    ///
     /// Returns whether the press landed in one of this window's lists.
-    fn on_item_list_press(&mut self, ui: &mut UiSystem, source: ElemHandle, action: u32) -> bool {
+    fn on_item_list_press(
+        &mut self,
+        ui: &mut UiSystem,
+        source: ElemHandle,
+        action: u32,
+        split: i32,
+    ) -> bool {
         use dereth_ui::focus::action as act;
+        let in_stock = self
+            .stock
+            .as_ref()
+            .is_some_and(|w| w.slot_of(source).is_some());
         let Some(w) = [self.stock.as_mut(), self.buy.as_mut(), self.sell.as_mut()]
             .into_iter()
             .flatten()
@@ -1682,6 +1698,11 @@ impl VendorPanel {
             // Action 10 — `0x0A` is the left **double**-click.
             0x0A if !vendor_list && !salvage_list => {
                 ui.requests.emit(UiRequest::Use(item));
+            }
+            // The window's arm: the stock list carries the vendor-list flag, so the list's own
+            // use above never runs on it, and the double-click is the buy.
+            0x0A if in_stock => {
+                ui.requests.emit(UiRequest::VendorBuySingle { item, split });
             }
             _ => {}
         }

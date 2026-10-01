@@ -3764,6 +3764,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "vendor.buy.a-double-click-on-a-stock-row-buys-it",
+        says: "Double-clicking a row of a shopkeeper's stock buys it straight away, just as                pressing Buy with that row chosen does: one purchase of that row, in the number                the quantity slider says, sent at once rather than added to the basket. The                first click of the pair only chooses the row, and the item is never used.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-VENDOR-DBLCLICK-BUY"),
+        station: "dereth-ui-screens::dat::inventory::vendor_stock_double_click::a_double_click_on_a_stock_row_buys_that_row_at_the_slider_amount",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "vendor.buy.a-player-with-no-money-or-no-room-is-refused-and-sends-nothing",
         says: "The shop refuses a purchase the player cannot make before it ever reaches the \
                shard: with too little money, and with no free slot for what is being bought, the \
