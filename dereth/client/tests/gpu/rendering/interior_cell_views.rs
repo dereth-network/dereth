@@ -3,7 +3,8 @@
 //! stamping clips each opening against its owning cell's views; cell meshes draw once per view
 //! polygon; and the object pass classifies each part's drawing sphere against the cell's views, so
 //! a part outside them is neither drawn nor offered to the selection ray even though its cell is
-//! reached. Fixture: a headless App over the retail dats at a Holtburg house cell, with the body
+//! reached; a part of an object that reaches into several cells is drawn when any of those
+//! cells' views holds it. Fixture: a headless App over the retail dats at a Holtburg house cell, with the body
 //! and a chest taken from the `early-inventory-and-casting` recording; the stations read the
 //! published view polygons, object submission and pick results, and the stamp counters, not pixels.
 
@@ -946,4 +947,88 @@ fn the_indoor_stamps_are_clipped_to_their_own_cells_views() {
         issued_total + clipped_total,
         unclipped_issued + unclipped_clipped
     );
+}
+
+/// The local body's drawn parts this frame, by part index.
+fn body_parts_drawn(app: &App) -> BTreeSet<usize> {
+    app.world_scene()
+        .expect("a world scene")
+        .drawn_part_order()
+        .iter()
+        .filter(|q| q.object.is_none())
+        .map(|q| q.part)
+        .collect()
+}
+
+/// A body is drawn by every reached cell it overlaps, each under its own view: standing on the
+/// cellar stairs with the camera in the room above, the body's own cell is seen only through the
+/// stairwell, which leaves the upper body outside it, but the room the camera is in sees the
+/// whole screen, so every part on screen is drawn. Testing the parts against the body's own cell
+/// alone draws the legs and drops the rest.
+///
+/// The station is a placement on the ground floor over the stairwell that settles onto the stairs
+/// in the cellar's top cell, facing north-east, which puts the production chase camera in the
+/// room above. The oracle is the same station with portal clipping off, where every cell is
+/// seen through the whole screen: the clipped frame must draw exactly the body parts it draws.
+/// Behaviour: rendering.interior.a-body-in-several-cells-is-drawn-by-each-of-them
+#[test]
+fn a_body_on_the_cellar_stairs_is_drawn_whole_from_the_room_above() {
+    let clipped = cellar_stairs_station(true);
+    let unclipped = cellar_stairs_station(false);
+    assert!(
+        unclipped.len() > 10,
+        "the unclipped frame draws the body: {} parts",
+        unclipped.len()
+    );
+    let missing: Vec<usize> = unclipped.difference(&clipped).copied().collect();
+    assert!(
+        missing.is_empty(),
+        "every part of the body on screen is drawn from the room above; {} of {} drawn, missing {missing:?}",
+        clipped.len(),
+        unclipped.len()
+    );
+}
+
+/// The body's drawn parts at the cellar-stairs station, with portal clipping on or off.
+fn cellar_stairs_station(portal_clip: bool) -> BTreeSet<usize> {
+    const GROUND_FLOOR: u32 = 0xA9B4_0143;
+    const CELLAR_TOP: u32 = 0xA9B4_0147;
+    let mut app = setup_in(HOLTBURG, HOUSE_CELL, portal_clip).expect("the station app");
+    {
+        let mut scene = app.world_scene_mut().expect("a world scene");
+        let c = scene.character.as_mut().expect("a body");
+        c.teleport(Position::new(
+            CellId(GROUND_FLOOR),
+            Frame::new(
+                Vec3::new(141.5, 7.5, 94.5),
+                yaw_quat(std::f32::consts::FRAC_PI_4),
+            ),
+        ));
+    }
+    frames(&mut app, SWEEP_SETTLE);
+    let (body_cell, camera_cell, shadows) = {
+        let scene = app.world_scene().expect("a world scene");
+        let c = scene.character.as_ref().expect("a body");
+        let shadows: Vec<CellId> = c
+            .world
+            .get(c.handle)
+            .map(|b| b.shadow_objects.iter().map(|s| s.cell_id).collect())
+            .unwrap_or_default();
+        (c.position().cell, c.camera.viewer_cell, shadows)
+    };
+    assert_eq!(
+        body_cell,
+        CellId(CELLAR_TOP),
+        "the body settles on the stairs in the cellar's top cell"
+    );
+    assert_eq!(
+        camera_cell,
+        Some(CellId(GROUND_FLOOR)),
+        "the camera is in the room above"
+    );
+    assert!(
+        shadows.contains(&CellId(GROUND_FLOOR)),
+        "the body reaches up into the room above: {shadows:?}"
+    );
+    body_parts_drawn(&app)
 }

@@ -9861,7 +9861,54 @@ mod imp {
                 // interior loop ran for; both fall back to the full-screen cone, which is the same
                 // superset the unclipped traversal draws. `outside_views` wins where it applies, because
                 // that pass runs under `&outside_view` rather than under any cell's.
+                //
+                // **An object that overlaps several cells is drawn by each of them.** It is
+                // registered in every cell its body overlaps, and each reached cell draws its
+                // registered parts under its own `portal_view`; the frame stamp lets a part go
+                // down once however many cells draw it. So a part is in view when any reached
+                // cell it is registered in sees it. A body standing just past an opening, with
+                // the camera in the cell behind, is seen whole through the camera's own cell even
+                // where the opening's polygon would cut its upper parts off.
                 let here = s.cell.and_then(|c| cell_views.and_then(|m| m.get(&c.0)));
+                let shadow_views: Vec<dereth_world_render::cells::clip::ViewPoly> =
+                    match (outside_views, cell_views) {
+                        (None, Some(m)) => {
+                            let handle = match s.object {
+                                Some(id) => ws.objects.get(&id).and_then(|o| o.sim.physics_handle),
+                                None => ws.character.as_ref().map(|c| c.handle),
+                            };
+                            handle
+                                .and_then(|h| ws.character.as_ref().and_then(|c| c.world.get(h)))
+                                .map(|body| {
+                                    let mut cells: Vec<u32> = body
+                                        .shadow_objects
+                                        .iter()
+                                        .filter(|sh| sh.cell_present)
+                                        .map(|sh| sh.cell_id.0)
+                                        .filter(|c| Some(*c) != s.cell.map(|o| o.0))
+                                        .collect();
+                                    cells.sort_unstable();
+                                    cells.dedup();
+                                    cells
+                                        .iter()
+                                        .filter_map(|c| m.get(c))
+                                        .flatten()
+                                        .cloned()
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        }
+                        _ => Vec::new(),
+                    };
+                let joined: Vec<dereth_world_render::cells::clip::ViewPoly>;
+                // A part whose own cell has no views keeps the full-screen cone below.
+                let here = match here {
+                    Some(own) if !shadow_views.is_empty() => {
+                        joined = own.iter().cloned().chain(shadow_views).collect();
+                        Some(joined.as_slice())
+                    }
+                    other => other.map(Vec::as_slice),
+                };
                 let status = match (outside_views, here) {
                     (Some(views), _) => self.part_cone_views(s, &near, views, &mut cone),
                     (None, Some(views)) if !views.is_empty() => {

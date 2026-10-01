@@ -296,6 +296,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.interior.a-body-in-several-cells-is-drawn-by-each-of-them",
+        says: "A body that reaches into more than one room is drawn by every room it is in, each                seen through its own view: standing on cellar stairs with the camera in the room                above, the whole body is drawn, not only the legs the stairwell's opening shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-BODY-SHADOW-CELLS"),
+        station: "dereth-client::gpu::rendering::interior_cell_views::a_body_on_the_cellar_stairs_is_drawn_whole_from_the_room_above",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.interior.a-visible-door-survives-depth-testing-at-the-recorded-pose",
         says: "A villa's gate door that reaches into the courtyard is drawn and seen by a player \
                whose camera has settled at the front gate, painting well over a hundred pixels \
