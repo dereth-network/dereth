@@ -31,6 +31,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "audio.hooks.a-server-objects-sound-type-hooks-play-from-its-described-table",
+        says: "An animation's sound-type hook on an object the server created (a door opening or \
+               closing, a person's footsteps) plays from the sound table the object's description \
+               names, else from its setup's default.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SERVER-OBJECT-HOOK-TABLE"),
+        station: "dereth-client::gpu::audio::server_sound_event::a_server_objects_hooks_take_the_sound_table_its_description_names",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "audio.listener.follows-the-camera",
         says: "Sounds are heard from where the camera is, updated every frame as the player runs, \
                not from where the player's body stands.",

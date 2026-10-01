@@ -507,3 +507,23 @@ fn a_sound_event_for_an_undrawn_object_is_counted_as_a_miss() {
     assert_eq!(w.server_sound_misses, 1, "and could not be placed");
     assert_eq!(r.audio.active_voices(), 0);
 }
+
+/// A server object's animation sound hooks (a door's open and close, a person's footsteps) play
+/// a sound type from the object's own table, and that table is the one its description names
+/// before its setup's default: this object's setup names none, so without the description's table
+/// every such hook on it is silent.
+/// Behaviour: audio.hooks.a-server-objects-sound-type-hooks-play-from-its-described-table
+#[test]
+fn a_server_objects_hooks_take_the_sound_table_its_description_names() {
+    let r = rig();
+    let o = r
+        .scene
+        .objects
+        .get(&ObjectId(OBJ))
+        .expect("the object is in the world");
+    assert_eq!(
+        o.sound_table,
+        Some(DataId(STABLE)),
+        "the description's table, not the setup's (absent) default"
+    );
+}

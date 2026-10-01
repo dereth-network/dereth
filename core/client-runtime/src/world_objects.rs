@@ -226,6 +226,9 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
         // Read here, applied after the insert below through the one path.
         let wire_state = stream.physics_state(id).unwrap_or(0);
         let (scale, mtable) = (p.scale, p.mtable_id);
+        // The description's sound table overrides the setup's default, as its script table does
+        // below; a zero names none.
+        let described_sound_table = p.sound_table.map(|t| (t != DataId(0)).then_some(t));
         let objdesc = to_anim_objdesc(&p.objdesc);
         let Some(setup) = dereth_animation::data::AnimAssets::setup(assets.as_ref(), setup_id)
         else {
@@ -307,7 +310,7 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
                 drawn: parent.is_none(),
                 frame,
                 placement,
-                sound_table: setup.default_sound_table,
+                sound_table: described_sound_table.unwrap_or(setup.default_sound_table),
             },
         );
         // The create path sets the description's state word on the object it just built, then
