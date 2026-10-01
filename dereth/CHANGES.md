@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.1.3 (2026-10-01)
+
 - After making a character, shortcut keys act once: a healing kit on a shortcut asks for a target,
   and the backpack's shortcut then uses it on you.
 - Part of a stack, split off with T, can be dragged straight into a shopkeeper's selling list; and
