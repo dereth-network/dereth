@@ -281,7 +281,8 @@ fn an_object_mode_switch_rebuilds_the_town_and_the_body_and_switching_back_resto
 /// The February 2005 world loaded with the end-of-retail look draws its town and its body with the
 /// later files' records: the frame differs from the world's own, and the body keeps the world's
 /// 17-part setup (the later setup has 34), its first sixteen parts drawn as the later files draw
-/// them, through their degrade records' finer meshes.
+/// them, through their degrade records' finer meshes. Those records are placed by the later
+/// rule, with the degrade distance taken off first; the world's own look uses the raw distance.
 #[test]
 fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups() {
     let store = older_world();
@@ -298,6 +299,8 @@ fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups
     );
     assert_eq!(own_body[16], FEBRUARY_2005_BODY[16]);
     assert!(!own.draw.objects_from_other_files());
+    // Its own look chooses detail from the raw distance.
+    assert_eq!(own.degrade_globals().degrade_distance, 0.0);
     drop(own);
 
     let mut later = load(&store, &mut gpu, cfg(Some(RegionStyle::Modern)));
@@ -312,6 +315,9 @@ fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups
     assert_eq!(later_body[16], own_body[16]);
     assert!(later.draw.stats.object_appearances_from_look > 0);
     assert_eq!(later.draw.stats.object_appearances_from_world, 0);
+    // The later records are placed by the later rule: the degrade distance, 50 m by default,
+    // comes off first, so the furniture beside the camera keeps its nearest level.
+    assert_eq!(later.degrade_globals().degrade_distance, 50.0);
     let n = moved(&own_px, &later_px);
     assert!(n > 10_000, "the later look draws like the world's own: {n}");
     eprintln!(

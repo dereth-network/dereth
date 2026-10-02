@@ -123,7 +123,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "rendering.degrade.an-older-world-chooses-detail-from-the-raw-distance",
-        says: "On a world from before Throne of Destiny another character's parts change detail at                their own distances, within a few metres of the camera, while the end-of-retail                world keeps every part at its nearest detail for the first 50 m.",
+        says: "On a world from before Throne of Destiny drawing its own objects, another character's parts change detail at                their own distances, within a few metres of the camera, while the end-of-retail                world keeps every part at its nearest detail for the first 50 m.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-PRETOD-DEGRADE-DISTANCE"),
         station: "dereth-client::dat::rendering::pre_tod_degrade::an_older_world_changes_the_torsos_level_at_the_raw_distance_and_the_later_world_50_m_out",

@@ -1031,8 +1031,8 @@ mod imp {
         fog: dereth_render::camera::FogParams,
         /// Frame-rate estimate and degrade multiplier.
         pub degrade: DegradeState,
-        /// The layout of the world's own files, which decides how far away a detail level is
-        /// chosen ([`world_degrade_distance`]) whichever era's look the objects draw.
+        /// The layout of the world's own files, which with the objects' look decides how far away
+        /// a detail level is chosen ([`SceneDraw::degrade_era`]).
         world_era: dereth_dat::ContainerEra,
         /// Draw the landscape by splatting its layers rather than with its composites. See
         /// [`SceneConfig::terrain_splat`] and [`Self::toggle_terrain_splat`].
@@ -9656,6 +9656,23 @@ mod imp {
             switches
         }
 
+        /// The era whose rule places the detail levels ([`world_degrade_distance`]): the later
+        /// files' whenever the world or the look its objects are drawn with is from Throne of
+        /// Destiny on. The later files' detail records are made for the later rule, so an older
+        /// world drawing the later look keeps the degrade distance, and only an older world
+        /// drawing its own look chooses from the raw distance. The end-of-retail world keeps
+        /// its own rule whichever era's look it draws.
+        fn degrade_era(&self) -> dereth_dat::ContainerEra {
+            let look = self.land.objects.as_ref().map(|l| l.files.era());
+            if self.world_era == dereth_dat::ContainerEra::Tod
+                || look == Some(dereth_dat::ContainerEra::Tod)
+            {
+                dereth_dat::ContainerEra::Tod
+            } else {
+                dereth_dat::ContainerEra::PreTod
+            }
+        }
+
         /// The current degrade inputs read this frame.
         ///
         /// The bias is `deg_mul` when automatic degrades are on and the user-supplied degrade bias otherwise, so a **pinned**
@@ -9691,10 +9708,10 @@ mod imp {
                     g.deg_mul
                 },
                 // The degrade-distance preference -- `Render.DegradeDistance`, whose
-                // initial value is the 50.0 `DegradeGlobals::default()` carried -- by the
-                // world's own rule.
+                // initial value is the 50.0 `DegradeGlobals::default()` carried -- by the rule
+                // of the files the objects are drawn with ([`Self::degrade_era`]).
                 degrade_distance: world_degrade_distance(
-                    self.world_era,
+                    self.degrade_era(),
                     self.cfg.render.degrade_distance,
                 ),
             }
