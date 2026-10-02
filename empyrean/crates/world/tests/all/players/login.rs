@@ -539,6 +539,41 @@ fn send_connect_response_lists_the_last_played_first() {
     assert_eq!(ids, vec![3, 4, 5, 1, 2]);
 }
 
+/// Not ACE: a configured `server.character_screen_message` follows the character list at log-in
+/// as message 0xF65A, the text then an empty string; with none configured nothing is sent.
+#[test]
+fn the_character_screen_message_follows_the_character_list_when_configured() {
+    use empyrean_common::config_manager::ConfigManager;
+    use empyrean_common::master_configuration::MasterConfiguration;
+    use empyrean_world::network::game_messages::game_message;
+    let sent_after_login = |message: &str| {
+        let mut config = MasterConfiguration::default();
+        config.server.character_screen_message = message.into();
+        let _config = ConfigManager::override_for_thread(config);
+        let (mut w, _) = world();
+        w.sessions.insert(S, SessionData::default());
+        game_message::start_capture();
+        authentication_handler::send_connect_response(&mut w, S, vec![]);
+        game_message::take_sent()
+            .into_iter()
+            .map(|(_, _, bytes)| bytes)
+            .collect::<Vec<_>>()
+    };
+    let opcode = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+    let sent = sent_after_login("Welcome\nto Dereth");
+    let order: Vec<u32> = sent.iter().map(|b| opcode(b)).collect();
+    assert_eq!(&order[..2], &[0xF658, 0xF65A]);
+    // The text (17 bytes after its 2-byte length) padded to four, then an empty string padded
+    // to four.
+    let mut expected = 0xF65Au32.to_le_bytes().to_vec();
+    expected.extend(17u16.to_le_bytes());
+    expected.extend(b"Welcome\nto Dereth");
+    expected.extend([0]);
+    expected.extend([0, 0, 0, 0]);
+    assert_eq!(sent[1], expected);
+    assert!(sent_after_login("").iter().all(|b| opcode(b) != 0xF65A));
+}
+
 fn login_request(account: &str, password: &str) -> PacketInboundLoginRequest {
     PacketInboundLoginRequest {
         net_auth_type: NetAuthType::AccountPassword,

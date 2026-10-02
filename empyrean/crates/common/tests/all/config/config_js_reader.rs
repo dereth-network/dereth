@@ -313,6 +313,28 @@ fn a_thread_override_is_seen_only_on_its_thread() {
     );
 }
 
+/// Not ACE: `server.character_screen_message` (empty by default) is read from the TOML file,
+/// with its escapes.
+#[test]
+fn the_character_screen_message_is_read_from_the_toml_file() {
+    use empyrean_common::toml_config;
+    assert_eq!(
+        MasterConfiguration::default()
+            .server
+            .character_screen_message,
+        ""
+    );
+    let parsed = toml_config::from_toml_str(
+        "[server]\ncharacter_screen_message = \"Welcome to Dereth.\\nPatch notes follow.\"\n",
+    )
+    .expect("valid");
+    assert_eq!(parsed.unknown_keys, Vec::<String>::new());
+    assert_eq!(
+        parsed.config.server.character_screen_message,
+        "Welcome to Dereth.\nPatch notes follow."
+    );
+}
+
 /// Not ACE: `server.source_url` (empty by default) replaces the build's source address wherever
 /// the server offers its source; blank means the build's.
 #[test]

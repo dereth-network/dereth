@@ -120,6 +120,12 @@ pub struct GameConfiguration {
     #[serde(rename = "InteractiveConsole")]
     pub interactive_console: bool,
 
+    /// Not ACE: the text the character screen's message box shows, sent with the character list
+    /// at log-in. Empty (the default) sends nothing. Only clients of the 2005 era show it.
+    /// DIVERGE: V431 an extra key and message; ACE sends no character-screen message.
+    #[serde(rename = "CharacterScreenMessage")]
+    pub character_screen_message: String,
+
     /// Not ACE: where this server's source is offered to its players (the login welcome, `@source`,
     /// the version report and the status endpoint). Empty means the build's own repository
     /// (`brand::SOURCE_URL`). An operator running modified code sets it to where that code is.
@@ -194,6 +200,7 @@ impl Default for GameConfiguration {
                 preload("0007FFFF", "Town Network", false, false),
                 preload("00000000", "Apartment Landblocks", false, false),
             ],
+            character_screen_message: String::new(),
             world_pack_path: DEFAULT_WORLD_PACK_PATH.to_owned(),
             world_overlay_path: String::new(),
             world_base_sql: String::new(),

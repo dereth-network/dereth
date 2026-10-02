@@ -116,6 +116,13 @@ pub const SECTIONS: &[Section] = &[
                  environment variable.",
             ),
             e(
+                "character_screen_message",
+                "CharacterScreenMessage",
+                "Text for the character screen's message box, sent with the character list at\n\
+                 log-in. Only clients of the 2005 era show it. Empty sends nothing. Use \\n for a new\n\
+                 line.",
+            ),
+            e(
                 "world_pack_path",
                 "WorldPackPath",
                 "The world database, built from ACE's world-database SQL dump with\n\

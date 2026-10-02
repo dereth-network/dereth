@@ -34,6 +34,12 @@ world_name = "Empyrean"
 # environment variable.
 dat_files_directory = ""
 
+# default: "" (Empyrean only)
+# Text for the character screen's message box, sent with the character list at
+# log-in. Only clients of the 2005 era show it. Empty sends nothing. Use \n for a new
+# line.
+character_screen_message = ""
+
 # default: "./world.pack" (Empyrean only)
 # The world database, built from ACE's world-database SQL dump with
 # `empyrean-import --sql <dump.sql> --out world.pack`. It replaces ACE's MySql.World connection.

@@ -24,7 +24,8 @@ use empyrean_store::models::auth::Account;
 
 use crate::managers::player_manager::{self, property_manager_get_bool};
 use crate::managers::world_manager::WorldStatusState;
-use crate::network::game_messages::game_message::{enqueue_send, GameMessage};
+use crate::network::game_messages::game_message::{enqueue_send, BinaryWriter, GameMessage};
+use crate::network::game_messages::game_message_opcode::GameMessageOpcode;
 use crate::network::game_messages::messages::game_message_account_banned::game_message_account_banned;
 use crate::network::game_messages::messages::game_message_boot_account::game_message_boot_account;
 use crate::network::game_messages::messages::game_message_character_error::game_message_character_error;
@@ -376,8 +377,31 @@ pub fn send_connect_response(
     let ddd_interrogation = game_message_ddd_interrogation(w);
 
     enqueue_send(w, session, character_list_message);
+    // Not ACE: the character screen's message, when one is configured.
+    let text = empyrean_common::config_manager::ConfigManager::config()
+        .server
+        .character_screen_message
+        .clone();
+    if !text.is_empty() {
+        enqueue_send(w, session, character_screen_message(&text));
+    }
     enqueue_send(w, session, server_name_message);
     enqueue_send(w, session, ddd_interrogation);
+}
+
+/// Not ACE: the character screen's message (`0xF65A`), which clients of the 2005 era show in
+/// the character screen's box in place of their waiting line: two strings, which the client
+/// shows one after the other. The configured text is the first; the second is empty.
+/// DIVERGE: V431 ACE sends no such message.
+#[must_use]
+pub fn character_screen_message(text: &str) -> GameMessage {
+    let mut msg = GameMessage::new(
+        GameMessageOpcode(0xF65A),
+        empyrean_net::GameMessageGroup::UIQueue,
+    );
+    msg.data.write_string16l(text);
+    msg.data.write_string16l("");
+    msg
 }
 
 /// `OrderByDescending(o => o.LastLoginTimestamp)`: a stable sort, with .NET's double ordering
