@@ -15,16 +15,36 @@ use crate::{ActionId, InputMapId};
 /// The input map this client's own actions are bound in.
 pub const INPUT_MAP: InputMapId = InputMapId(0x2000_0000);
 
-/// One of this client's actions: its id, its toggle type, its action class and the key it has
-/// by default, as a keyboard scan code. The class is 0: the shipped string table has no name for
-/// the action, and the retail key page lists only the actions it can name (class and name both
-/// set, as every shipped entry has them).
+/// One of this client's actions: its id, its toggle type, its action class (the key page's tab:
+/// 1 movement, 3 interface, 7 character settings), the name the key page shows for it, and the
+/// key it has by default, as a keyboard scan code. The shipped string table has no name for it,
+/// so the name is this client's own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DerethAction {
     pub action: u32,
     pub toggle: ToggleType,
     pub class: u32,
+    pub name: &'static str,
     pub default_key: Option<u16>,
+}
+
+/// The action-class tabs of the key page these actions are listed on.
+pub mod class {
+    pub const MOVEMENT: u32 = 1;
+    pub const INTERFACE: u32 = 3;
+    pub const CHARACTER_SETTINGS: u32 = 7;
+}
+
+/// The key page's heading over this client's actions on each tab.
+pub const SECTION_NAME: &str = "Dereth";
+
+/// The name the key page shows for one of this client's actions.
+#[must_use]
+pub fn name(action: ActionId) -> Option<&'static str> {
+    ACTIONS
+        .iter()
+        .find(|a| a.action == action.0)
+        .map(|a| a.name)
 }
 
 /// `DIK_F7`, the performance panel's key: no shipped key map binds it.
@@ -33,36 +53,66 @@ pub const DIK_F7: u16 = 0x41;
 /// This client's actions.
 pub const ACTIONS: &[DerethAction] = {
     use dereth_client_contract::actions::dereth as a;
-    const fn one_shot(action: u32) -> DerethAction {
+    const fn one_shot(action: u32, class: u32, name: &'static str) -> DerethAction {
         DerethAction {
             action,
             toggle: ToggleType::OneShot,
-            class: 0,
+            class,
+            name,
             default_key: None,
         }
     }
     &[
         DerethAction {
             default_key: Some(DIK_F7),
-            ..one_shot(a::TOGGLE_PERFORMANCE_PANEL)
+            ..one_shot(
+                a::TOGGLE_PERFORMANCE_PANEL,
+                class::INTERFACE,
+                "Performance Panel",
+            )
         },
         DerethAction {
             toggle: ToggleType::Hold,
-            ..one_shot(a::MOVEMENT_HOLD_SIDESTEP)
+            ..one_shot(a::MOVEMENT_HOLD_SIDESTEP, class::MOVEMENT, "Hold Sidestep")
         },
-        one_shot(a::TOGGLE_TRADE_PANEL),
-        one_shot(a::TOGGLE_SPELL_RESEARCH_PANEL),
-        one_shot(a::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS),
-        one_shot(a::TOGGLE_INVERT_MOUSE_LOOK),
-        one_shot(a::TOGGLE_RIGHT_CLICK_MOUSE_LOOK),
-        one_shot(a::TOGGLE_STRETCH_UI),
-        one_shot(a::TOGGLE_MUTE_ON_LOSING_FOCUS),
+        one_shot(a::TOGGLE_TRADE_PANEL, class::INTERFACE, "Trade Panel"),
+        one_shot(
+            a::TOGGLE_SPELL_RESEARCH_PANEL,
+            class::INTERFACE,
+            "Spell Research Panel",
+        ),
+        one_shot(
+            a::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS,
+            class::CHARACTER_SETTINGS,
+            "Automatically Create Shortcuts",
+        ),
+        one_shot(
+            a::TOGGLE_INVERT_MOUSE_LOOK,
+            class::CHARACTER_SETTINGS,
+            "Invert Mouse Look",
+        ),
+        one_shot(
+            a::TOGGLE_RIGHT_CLICK_MOUSE_LOOK,
+            class::CHARACTER_SETTINGS,
+            "Right-Click Mouse Look (classic interface)",
+        ),
+        one_shot(
+            a::TOGGLE_STRETCH_UI,
+            class::CHARACTER_SETTINGS,
+            "Stretch UI (classic interface)",
+        ),
+        one_shot(
+            a::TOGGLE_MUTE_ON_LOSING_FOCUS,
+            class::CHARACTER_SETTINGS,
+            "Mute When Inactive",
+        ),
     ]
 };
 
 impl ActionMap {
     /// Add this client's actions in [`INPUT_MAP`]. They carry no name in the shipped string
-    /// table, so the retail key page does not list them.
+    /// table: their name and description ids are their own action ids, which no string table
+    /// answers, and the key page shows [`name`] for them.
     pub fn add_dereth_actions(&mut self) {
         for a in ACTIONS {
             self.insert(
@@ -71,8 +121,8 @@ impl ActionMap {
                 ActionMapValue {
                     toggle_type: a.toggle,
                     action_class: a.class,
-                    action_name: 0,
-                    description: 0,
+                    action_name: a.action,
+                    description: a.action,
                 },
             );
         }
@@ -131,6 +181,18 @@ mod tests {
         let perf = ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL);
         assert!(m.is_action_allowed_in_input_map(INPUT_MAP, perf));
         assert_eq!(m.toggle_type(INPUT_MAP, perf), ToggleType::OneShot);
-        assert!(!m.is_user_bindable(INPUT_MAP, perf), "no shipped name");
+        assert!(
+            m.is_user_bindable(INPUT_MAP, perf),
+            "listed on the key page"
+        );
+        assert_eq!(m.action_class(INPUT_MAP, perf), class::INTERFACE);
+        assert_eq!(name(perf), Some("Performance Panel"));
+        for a in ACTIONS {
+            assert!(
+                m.is_user_bindable(INPUT_MAP, ActionId(a.action)),
+                "{}",
+                a.name
+            );
+        }
     }
 }

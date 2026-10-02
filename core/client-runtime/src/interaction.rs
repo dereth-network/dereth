@@ -6105,6 +6105,106 @@ impl Interaction {
                     );
                     self.absorb(game, out, RecordingRequests::default());
                 }
+                // ---- the player-action handler's four item cases --------------------------
+                //
+                // Case 0, *Select Self*: with the use-on-target cursor up it puts the cursor away
+                // and uses the held item on the player; with the examine cursor up it selects the
+                // player, puts the cursor away and examines the player; otherwise it selects the
+                // player.
+                action::SELECTION_SELF => {
+                    if let Some(player) = game.player {
+                        let mut out = Notices::default();
+                        match self.target_mode {
+                            TargetMode::UseTarget => {
+                                self.set_target_mode(TargetMode::None);
+                                let _ = game.target_acquired(
+                                    &mut req,
+                                    &mut out,
+                                    player,
+                                    self.split,
+                                    ServerTime(now.0),
+                                );
+                            }
+                            TargetMode::Examine => {
+                                game.set_selected_object(Some(player), false, &mut out);
+                                self.set_target_mode(TargetMode::None);
+                                self.examine_object(game, &mut req, player);
+                            }
+                            _ => game.set_selected_object(Some(player), false, &mut out),
+                        }
+                        self.absorb(game, out, RecordingRequests::default());
+                    }
+                }
+                // *Give*: the selected item to the selection before it, which must be a creature
+                // or a character; the creature is selected again. Anything else is refused out
+                // loud.
+                action::SELECTION_GIVE => {
+                    let (item, to) = (game.selected.unwrap_or_default(), game.prev_selected);
+                    if let Some(to) = to.filter(|t| item.0 != 0 && t.0 != 0 && *t != item) {
+                        let mut out = Notices::default();
+                        if game.weenie(to).is_some_and(|w| w.is_creature()) {
+                            let player_on_ground = self.player_on_ground == Some(true);
+                            let _ = game.attempt_place_in_3d(
+                                &mut req,
+                                &mut out,
+                                item,
+                                Some(to),
+                                false,
+                                player_on_ground,
+                                self.split,
+                                ServerTime(now.0),
+                            );
+                            game.set_selected_object(Some(to), false, &mut out);
+                        } else {
+                            out.emit(dereth_client_model::Notice::DisplayString {
+                                channel: dereth_client_model::chat::REFUSAL_CHANNEL,
+                                text: "You must select a creature or a character to give that \
+                                       to.\n"
+                                    .into(),
+                            });
+                        }
+                        self.absorb(game, out, RecordingRequests::default());
+                    }
+                }
+                // *Drop*: the selected item on the ground, when the player owns it.
+                action::SELECTION_DROP => {
+                    if let Some(item) = game.selected.filter(|s| s.0 != 0) {
+                        let mut out = Notices::default();
+                        if game.is_owned_by_player(item) {
+                            self.place_in_3d(
+                                item,
+                                None,
+                                game,
+                                &mut req,
+                                &mut out,
+                                ServerTime(now.0),
+                            );
+                        } else {
+                            out.emit(dereth_client_model::Notice::DisplayString {
+                                channel: dereth_client_model::chat::REFUSAL_CHANNEL,
+                                text: "You must pick that up first".into(),
+                            });
+                        }
+                        self.absorb(game, out, RecordingRequests::default());
+                    }
+                }
+                // *Move to Main Pack*: the pick-up arm with the main pack forced.
+                action::SELECTION_MOVE_TO_MAIN_PACK => {
+                    if let Some(sel) = game.selected.filter(|s| s.0 != 0) {
+                        let mut out = Notices::default();
+                        if game.place_in_backpack(
+                            &mut req,
+                            &mut out,
+                            sel,
+                            true,
+                            self.split,
+                            ServerTime(now.0),
+                        ) {
+                            self.stats.pick_ups += 1;
+                        }
+                        self.absorb(game, out, RecordingRequests::default());
+                    }
+                }
 
                 // ---- the other six UI action arms ---
                 //
@@ -6508,8 +6608,8 @@ impl Interaction {
                 //
                 // A key bound to one of these reads the option and writes its opposite through
                 // the same setter the Character Options page uses, so the change hook, the
-                // fellowship exclusions and the save-at-once split all apply. Show-cloak and
-                // lock-UI have action names but no arm, and fall through unhandled.
+                // fellowship exclusions and the save-at-once split all apply. Lock-UI has an
+                // action name but no arm, and falls through unhandled.
                 id if player_option_action(id).is_some() => {
                     if let Some(ordinal) = player_option_action(id) {
                         self.toggle_player_option(game, &mut req, ordinal, srv);
@@ -10107,6 +10207,15 @@ pub mod action {
     // The player-action handler numbers its cases from `0x1000002A`, and the case number each
     // id lands on is given so the arm can be checked against retail's case order.
 
+    /// `SelectionSelf` — `case 0`.
+    pub const SELECTION_SELF: u32 = 0x1000_002A;
+    /// `SelectionGive`.
+    pub const SELECTION_GIVE: u32 = 0x1000_0040;
+    /// `SelectionDrop`.
+    pub const SELECTION_DROP: u32 = 0x1000_0041;
+    /// `SelectionMoveToMainPack`.
+    pub const SELECTION_MOVE_TO_MAIN_PACK: u32 = 0x1000_011C;
+
     /// `SelectionLastAttacker` — `case 0xD`, and the **only** action that reaches
     /// the last-attacker range check rather than `select_next`.
     pub const SELECTION_LAST_ATTACKER: u32 = 0x1000_0038;
@@ -10167,10 +10276,10 @@ pub mod action {
 /// The `PlayerOption_*` input actions the player system handles, each with the `PlayerOption`
 /// ordinal it flips.
 ///
-/// Fifty of the fifty-three options: `AppearOffline` (39), `ShowCloak` (50) and `LockUI` (51)
-/// have no such action handled (show-cloak's `0x1000012F` is named but falls through). The last
-/// row, hear-PK-deaths, is the newest.
-pub const PLAYER_OPTION_ACTIONS: [(u32, usize); 50] = [
+/// Fifty-one of the fifty-three options: `AppearOffline` (39) and `LockUI` (51) have no such
+/// action handled. Hear-PK-deaths is the newest retail row; the show-cloak row is this client's
+/// (the end-of-retail client names the action and does nothing with it).
+pub const PLAYER_OPTION_ACTIONS: [(u32, usize); 51] = [
     (0x1000_0071, 0),  // AutoRepeatAttack
     (0x1000_0072, 1),  // IgnoreAllegianceRequests
     (0x1000_0073, 2),  // IgnoreFellowshipRequests
@@ -10221,6 +10330,9 @@ pub const PLAYER_OPTION_ACTIONS: [(u32, usize); 50] = [
     (0x1000_012D, 49), // UseMouseTurning
     (0x1000_013E, 19), // SideBySideVitals
     (0x1000_013F, 52), // HearPKDeaths
+    // Not the end-of-retail client's: its show-cloak action does nothing. Here it flips the
+    // option as the others do.
+    (0x1000_012F, 50), // ShowCloak
 ];
 
 /// The option a `PlayerOption_*` input action flips, or `None` for any other action.
@@ -11102,8 +11214,8 @@ mod tests {
         assert_eq!(player_option_action(0x1000_0125), Some(46));
         assert_eq!(
             player_option_action(0x1000_012F),
-            None,
-            "show-cloak has no arm"
+            Some(50),
+            "show-cloak flips its option"
         );
     }
 
@@ -11154,8 +11266,98 @@ mod tests {
         assert_eq!(inter.stats.option_actions_toggled, 3);
 
         // An action with no arm is handed back.
-        let left = press(&mut inter, &mut game, 0x1000_012F);
+        let left = press(&mut inter, &mut game, 0x1000_0400);
         assert_eq!(left.len(), 1);
+    }
+
+    /// The four item keys of the selection map: Select Self selects the player; Give hands the
+    /// selected item to the creature selected before it, and refuses out loud when that is no
+    /// creature; Drop refuses an item the player does not carry; Move to Main Pack asks for the
+    /// main pack. Each is taken, whatever it then does.
+    #[test]
+    fn the_select_self_give_drop_and_main_pack_keys_act_on_the_selection() {
+        use dereth_client_contract::actions::{Action, ActionId};
+        use dereth_client_model::weenie::{item_type, Weenie};
+        const PLAYER: ObjectId = ObjectId(0x5000_0001);
+        const COAT: ObjectId = ObjectId(0x8000_0010);
+        const GUARD: ObjectId = ObjectId(0x8000_0020);
+        const ROCK: ObjectId = ObjectId(0x8000_0030);
+        let mut game = dereth_client_model::World::new();
+        game.player = Some(PLAYER);
+        game.tables.weenies.insert(PLAYER, Weenie::new(PLAYER));
+        let mut coat = Weenie::new(COAT);
+        coat.pwd.name = "Academy Coat".to_owned();
+        coat.pwd.container_id = Some(PLAYER);
+        game.tables.weenies.insert(COAT, coat);
+        let mut guard = Weenie::new(GUARD);
+        guard.pwd.name = "Town Guard".to_owned();
+        guard.pwd.obj_type = item_type::CREATURE;
+        game.tables.weenies.insert(GUARD, guard);
+        let mut rock = Weenie::new(ROCK);
+        rock.pwd.name = "Rock".to_owned();
+        game.tables.weenies.insert(ROCK, rock);
+        let phys = crate::selection_geometry::SceneSelectionPhysics::default();
+        let mut inter = Interaction::new();
+        let mut press = |game: &mut dereth_client_model::World, id: u32| {
+            let left = inter.on_actions(
+                vec![Action::begin(ActionId(id))],
+                game,
+                &phys,
+                0.0,
+                false,
+                dereth_primitives::LocalTime(1.0),
+                None,
+            );
+            assert!(left.is_empty(), "{id:#x} is taken");
+            inter.take_pending_requests()
+        };
+        let said = |game: &dereth_client_model::World, text: &str| {
+            game.scroll
+                .pending()
+                .iter()
+                .any(|f| f.chat_type == 0x1A && f.body.contains(text))
+        };
+
+        game.selected = Some(ROCK);
+        press(&mut game, action::SELECTION_SELF);
+        assert_eq!(
+            game.selected,
+            Some(PLAYER),
+            "Select Self selects the player"
+        );
+
+        // The main pack: the player has no room in it, and says so.
+        game.selected = Some(ROCK);
+        assert!(press(&mut game, action::SELECTION_MOVE_TO_MAIN_PACK).is_empty());
+        assert!(said(&game, "is completely full!"));
+
+        game.selected = Some(COAT);
+        game.prev_selected = Some(GUARD);
+        let sent = press(&mut game, action::SELECTION_GIVE);
+        assert!(
+            sent.iter().any(
+                |r| matches!(r, Request::GiveObjectRequest(g) if g.item == COAT
+                    && g.target == GUARD)
+            ),
+            "the coat goes to the guard: {sent:?}"
+        );
+        assert_eq!(
+            game.selected,
+            Some(GUARD),
+            "and the guard is selected again"
+        );
+
+        game.selected = Some(COAT);
+        game.prev_selected = Some(ROCK);
+        assert!(press(&mut game, action::SELECTION_GIVE).is_empty());
+        assert!(said(
+            &game,
+            "You must select a creature or a character to give that to."
+        ));
+
+        game.selected = Some(ROCK);
+        assert!(press(&mut game, action::SELECTION_DROP).is_empty());
+        assert!(said(&game, "You must pick that up first"));
     }
 
     /// Event `0x0318` queues its one string for a message box, exactly as `0x0004` does.
