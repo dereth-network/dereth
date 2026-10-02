@@ -2,6 +2,7 @@
 //! Player melee/missile, creature missile, ratings and body parts follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -479,6 +480,325 @@ fn rating_getters_match_ace() {
         ]
     });
     assert_eq!(n, 240);
+}
+
+/// Divergence: V393
+/// ACE's rating vectors, whose combatants carry ratings at the end of retail, have none in an era
+/// without ratings: every resistance, critical, healing, life, damage-over-time and nether rating
+/// is 0 and each modifier 1.
+#[test]
+fn an_era_without_ratings_reads_every_rating_as_none() {
+    let file = vectors::load_named("weapons_player", "ratings");
+    let mut had_ratings = 0;
+    for case in &file.cases {
+        let mut w = world();
+        let g = combatant_in(&mut w, &case.input);
+        let eor: i32 = creature_rating::get_crit_rating(&mut w, g)
+            .abs()
+            .max(creature_rating::get_damage_resist_rating(&mut w, g, None, true).abs())
+            .max(creature_rating::get_healing_boost_rating(&mut w, g).abs());
+        had_ratings += usize::from(eor != 0);
+        w.era = empyrean_common::era::EraId::Infiltration.rules();
+        for c in [None, Some(CombatType::Melee), Some(CombatType::Magic)] {
+            assert_eq!(
+                creature_rating::get_damage_resist_rating(&mut w, g, c, true),
+                0
+            );
+            assert_eq!(
+                creature_rating::get_damage_resist_rating_mod(&mut w, g, c, true),
+                1.0
+            );
+        }
+        for r in [
+            creature_rating::get_crit_rating(&mut w, g),
+            creature_rating::get_crit_damage_rating(&mut w, g),
+            creature_rating::get_crit_resist_rating(&mut w, g),
+            creature_rating::get_crit_damage_resist_rating(&mut w, g),
+            creature_rating::get_healing_boost_rating(&mut w, g),
+            creature_rating::get_healing_resist_rating(&mut w, g),
+            creature_rating::get_life_resist_rating(&mut w, g),
+            creature_rating::get_dot_resistance_rating(&mut w, g),
+            creature_rating::get_nether_resist_rating(&mut w, g),
+        ] {
+            assert_eq!(r, 0);
+        }
+        assert_eq!(creature_rating::get_healing_rating_mod(&mut w, g), 1.0);
+    }
+    assert!(had_ratings > 0, "the vectors exercise ratings");
+}
+
+/// Divergence: V394
+/// Assessing an unattackable creature shows its armour levels at the end of retail and none (nor
+/// ratings) in an era before assessment showed them.
+#[test]
+fn an_era_before_assessed_armor_levels_shows_none() {
+    use empyrean_world::network::structure::appraise_info::appraise_info_new;
+    let file = vectors::load_named("weapons_player", "ratings");
+    let mut shown = 0;
+    for case in file
+        .cases
+        .iter()
+        .filter(|c| c.input["class"].as_str() == Some("Creature"))
+    {
+        let mut w = world();
+        let g = combatant_in(&mut w, &case.input);
+        w.objects
+            .get_mut(g)
+            .expect("built")
+            .set_property(empyrean_entity::enums::PropertyBool::Attackable, false);
+        let examiner = ObjectGuid::new(0x5000_0FFF);
+        if appraise_info_new(&mut w, g, examiner, true)
+            .armor_levels
+            .is_none()
+        {
+            continue;
+        }
+        shown += 1;
+        w.era = empyrean_common::era::EraId::Infiltration.rules();
+        let old = appraise_info_new(&mut w, g, examiner, true);
+        assert!(old.armor_levels.is_none());
+        assert!(old.creature_profile.is_some(), "the rest is still shown");
+    }
+    assert!(shown > 0, "some assessed creature shows armour levels");
+}
+
+/// Divergence: V395
+/// A player's old weapon skill converts to a consolidated one at the end of retail (a bow to
+/// Missile Weapons) and stays itself before the 2012 consolidation.
+#[test]
+fn a_players_old_weapon_skill_is_its_own_before_the_consolidation() {
+    use empyrean_world::world_objects::world_object::convert_to_mo_a_skill;
+    let file = vectors::load_named("weapons_player", "ratings");
+    let case = file
+        .cases
+        .iter()
+        .find(|c| c.input["class"].as_str() == Some("Player"))
+        .expect("a player case");
+    let mut w = world();
+    let g = combatant_in(&mut w, &case.input);
+    assert_eq!(
+        convert_to_mo_a_skill(&mut w, g, Skill::Bow),
+        Skill::MissileWeapons
+    );
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    for s in [Skill::Axe, Skill::Sword, Skill::Bow, Skill::ThrownWeapon] {
+        assert_eq!(convert_to_mo_a_skill(&mut w, g, s), s);
+    }
+}
+
+/// A player of `player_mods`' first case (a melee weapon wielded) with Strength 100 and
+/// Coordination 150, a trained Unarmed Combat of 200 ranks, and `edit` applied to its spec.
+fn era_player(w: &mut World, edit: impl FnOnce(&mut Value)) -> ObjectGuid {
+    let file = vectors::load_named("weapons_player", "player_mods");
+    let mut spec = file.cases[0].input.clone();
+    spec["attributes"][0] = serde_json::json!([100, 0]);
+    spec["attributes"][3] = serde_json::json!([150, 0]);
+    spec["skills"]
+        .as_array_mut()
+        .expect("skills")
+        .push(serde_json::json!([13, 2, 200, 0]));
+    edit(&mut spec);
+    combatant_in(w, &spec)
+}
+
+/// The spec's wielded weapon.
+fn wielded(spec: &Value) -> ObjectGuid {
+    ObjectGuid::new(u(&spec["equipped"][0]["id"]))
+}
+
+/// Divergence: V395, V402
+/// Before the weapon-skill consolidation a dagger's damage scales with Coordination (at the end
+/// of retail with Strength, only Finesse Weapons taking Coordination); an empty-handed player
+/// fights with Unarmed Combat, scales with Strength at 0.004 a point rather than 0.011, adds a
+/// twentieth of the skill to its maximum damage, and a bare kick does 1 rather than 2.
+#[test]
+fn an_era_before_the_consolidation_uses_the_older_melee_damage() {
+    use empyrean_world::world_objects::skill_formula;
+    let dagger = |spec: &mut Value| {
+        for p in spec["equipped"][0]["ints"].as_array_mut().expect("ints") {
+            if p[0] == 48 {
+                p[1] = serde_json::json!(4);
+            }
+        }
+    };
+    let mut w = world();
+    let mut weapon = None;
+    let g = era_player(&mut w, |s| {
+        dagger(s);
+        weapon = Some(wielded(s));
+    });
+    let weapon = weapon.expect("a weapon");
+    assert_eq!(
+        creature_combat::get_attribute_mod(&mut w, g, Some(weapon)),
+        skill_formula::get_attribute_mod(100, false),
+        "Strength at the end of retail"
+    );
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    assert_eq!(
+        creature_combat::get_attribute_mod(&mut w, g, Some(weapon)),
+        skill_formula::get_attribute_mod(150, false),
+        "Coordination for a dagger"
+    );
+    assert_eq!(
+        creature_combat::get_unarmed_skill_damage_bonus(&mut w, g),
+        0
+    );
+
+    let mut w = world();
+    let g = era_player(&mut w, |s| s["equipped"] = serde_json::json!([]));
+    let eor_skill = player_combat::get_current_weapon_skill(&mut w, g);
+    assert_ne!(eor_skill, Skill::UnarmedCombat, "the highest melee skill");
+    let eor_mod = creature_combat::get_attribute_mod(&mut w, g, None);
+    assert_eq!(eor_mod, skill_formula::get_attribute_mod(100, false));
+    assert_eq!(
+        creature_combat::get_unarmed_skill_damage_bonus(&mut w, g),
+        0
+    );
+    let eor_kick = player_combat::get_base_damage_mod(&mut w, g, g);
+    assert_eq!(eor_kick.base_damage.max_damage, 2);
+
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    assert_eq!(
+        player_combat::get_current_weapon_skill(&mut w, g),
+        Skill::UnarmedCombat
+    );
+    let older = creature_combat::get_attribute_mod(&mut w, g, None);
+    assert_eq!(older, 1.0 + 45.0 * 0.004);
+    assert!(older < eor_mod);
+    let unarmed = empyrean_world::world_objects::world_object_weapon::SkillOf::get(
+        &mut w,
+        g,
+        Skill::UnarmedCombat,
+    )
+    .current(&mut w);
+    assert!(unarmed >= 200);
+    assert_eq!(
+        creature_combat::get_unarmed_skill_damage_bonus(&mut w, g),
+        i32::try_from(unarmed / 20).expect("small"),
+        "a twentieth of the skill"
+    );
+    let kick = player_combat::get_base_damage_mod(&mut w, g, g);
+    assert_eq!(kick.base_damage.max_damage, 1, "a bare kick");
+}
+
+/// Divergence: V401
+/// A multiplicative weapon-speed enchantment (Rockslide, half the time) changes nothing at the
+/// end of retail, which reads only the additive ones, and halves the weapon's speed value before
+/// Throne of Destiny, both in the attack and in the profile an assessment shows.
+#[test]
+fn an_era_with_multiplicative_weapon_speed_scales_the_weapon_by_it() {
+    use empyrean_world::network::structure::weapon_profile::weapon_profile_new;
+    use empyrean_world::world_objects::world_object_weapon;
+    let mut w = world();
+    let mut weapon = None;
+    let g = era_player(&mut w, |s| {
+        let item = &mut s["equipped"][0];
+        item["ints"]
+            .as_array_mut()
+            .expect("ints")
+            .push(serde_json::json!([49, 40]));
+        item["enchantments"]
+            .as_array_mut()
+            .expect("enchantments")
+            .push(serde_json::json!([2439, 0, 1, 0x5004, 49, 0.5]));
+        weapon = Some(wielded(s));
+    });
+    let weapon = weapon.expect("a weapon");
+    assert_eq!(world_object_weapon::get_weapon_speed(&mut w, Some(g)), 40);
+    assert_eq!(weapon_profile_new(&w, weapon).weapon_time, 40);
+
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    assert_eq!(world_object_weapon::get_weapon_speed(&mut w, Some(g)), 20);
+    assert_eq!(weapon_profile_new(&w, weapon).weapon_time, 20);
+}
+
+/// Divergence: V408
+/// An era without the heritage masteries gives no mastery bonus, where the end of
+/// retail (with universal masteries) gives it for any masterable weapon.
+#[test]
+fn an_era_without_masteries_gives_no_heritage_bonus() {
+    use empyrean_world::world_objects::player_skills;
+    let mut w = world();
+    let mut weapon = None;
+    let g = era_player(&mut w, |s| weapon = Some(wielded(s)));
+    let weapon = weapon.expect("a weapon");
+    let eor = player_skills::player_get_heritage_bonus(&w, g, weapon);
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    assert!(!player_skills::player_get_heritage_bonus(&w, g, weapon));
+    assert!(eor, "the end of retail's universal masteries");
+}
+
+/// Divergence: V404
+/// A player without the Shield skill, a 200-level shield (absorbing a quarter of magic) on its
+/// arm and a creature in front: at the end of retail the skill caps the shield to nothing in
+/// melee stance and a peaceful stance drops it altogether; before the Shield skill it counts in
+/// full in any stance, and absorbs magic as a missile launcher does, by Magic Defense.
+#[test]
+fn an_era_before_the_shield_skill_counts_a_shield_in_full_in_any_stance() {
+    use empyrean_entity::Position;
+    use empyrean_world::world_objects::{skill_formula, spell_projectile};
+    const SHIELD: u32 = 0x5000_1F00;
+    let mut w = world();
+    let g = era_player(&mut w, |s| {
+        s["equipped"]
+            .as_array_mut()
+            .expect("equipped")
+            .push(serde_json::json!({
+                "class": "GenericObject", "id": SHIELD, "wcid": 44, "weenie_type": 1,
+                "ints": [[10, 0x0020_0000], [51, 4], [28, 200]],
+                "floats": [[13, 1.0], [159, 0.25]], "enchantments": [],
+            }));
+        s["skills"]
+            .as_array_mut()
+            .expect("skills")
+            .push(serde_json::json!([15, 3, 400, 0]));
+    });
+    let file = vectors::load_named("weapons_player", "ratings");
+    let foe = combatant_in(
+        &mut w,
+        &file
+            .cases
+            .iter()
+            .find(|c| c.input["class"].as_str() == Some("Creature"))
+            .expect("a creature")
+            .input,
+    );
+    let at = Position::from_components(0xA9B4_0001, 10.0, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, false);
+    for o in [g, foe] {
+        w.objects.get_mut(o).expect("placed").set_location(Some(at));
+    }
+    let shield = ObjectGuid::new(SHIELD);
+    let set_mode = |w: &mut World, m: CombatMode| {
+        creature_combat::fields_mut(w.objects.get_mut(g).expect("the player")).combat_mode = m;
+    };
+    let full = skill_formula::calc_armor_mod(200.0);
+
+    set_mode(&mut w, CombatMode::Melee);
+    assert_eq!(
+        creature_combat::get_shield_mod(&mut w, g, foe, DamageType::Slash, None),
+        1.0,
+        "no Shield skill, no shield"
+    );
+    set_mode(&mut w, CombatMode::NonCombat);
+    assert_eq!(
+        creature_combat::get_shield_mod(&mut w, g, foe, DamageType::Slash, None),
+        1.0
+    );
+
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    assert_eq!(
+        creature_combat::get_shield_mod(&mut w, g, foe, DamageType::Slash, None),
+        full,
+        "in a peaceful stance too"
+    );
+    set_mode(&mut w, CombatMode::Melee);
+    assert_eq!(
+        creature_combat::get_shield_mod(&mut w, g, foe, DamageType::Slash, None),
+        full
+    );
+    let absorb = spell_projectile::get_absorb_mod(&mut w, foe, g);
+    assert_eq!(absorb, spell_projectile::absorb_magic(&mut w, g, shield));
+    assert!(absorb < 1.0, "a quarter of the magic, by Magic Defense");
 }
 
 #[test]

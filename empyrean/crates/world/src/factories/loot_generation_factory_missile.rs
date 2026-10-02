@@ -64,7 +64,21 @@ pub(crate) fn mutate_missile_weapon(
     // new method / mutation scripts
     let is_elemental = wo.w_damage_type() != DamageType::Undef;
 
-    let script_name = get_missile_script(roll.weapon_type, is_elemental);
+    // DIVERGE: a weapon from an earlier era's tables (`LootRules::Infiltration`) takes that era's
+    // script for its kind (`bow_short`, `crossbow_light`, `atlatl_regular`, ...), ClassicACE's
+    // `GetMissileScript` at its Infiltration ruleset.
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory_Missile.cs
+    let script_name = match roll.era_script {
+        Some(script) => format!(
+            "MissileWeapons.Infiltration.{script}_{}.txt",
+            if is_elemental {
+                "elemental"
+            } else {
+                "non_elemental"
+            }
+        ),
+        None => get_missile_script(roll.weapon_type, is_elemental),
+    };
 
     // mutate DamageMod / ElementalDamageBonus / WieldRequirements
     let mutation_filter = mutation_cache::get_mutation(w, &script_name)
@@ -110,8 +124,11 @@ pub(crate) fn mutate_missile_weapon(
     mutate_burden(wo, profile, true);
 
     // missile / magic defense
-    wo.set_weapon_missile_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
-    wo.set_weapon_magic_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+    // DIVERGE: an earlier era's weapon rolls neither (ClassicACE at its Infiltration ruleset).
+    if roll.era_script.is_none() {
+        wo.set_weapon_missile_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+        wo.set_weapon_magic_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+    }
 
     // spells
     if is_magical {

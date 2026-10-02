@@ -2,6 +2,7 @@
 //! GameMessage/GameEvent builders write ACE's bytes; SequenceManager; EnqueueSend.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::collections::HashMap;
 use std::time::Duration;
 

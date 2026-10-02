@@ -2244,7 +2244,74 @@ impl Default for MiniGameView {
     }
 }
 
+/// What the world's era means for what a front end can show: which state exists. Every front end
+/// reads the same answer, whatever it looks like.
+///
+/// It is read from what the client has: the data files the world is drawn from, their tables, and
+/// the account's Throne of Destiny flag from the character list. A system the era lacks leaves
+/// its state absent (no rating arrives, no skill outside [`Self::skills`] is ever trained), so a
+/// front end hides what has nothing behind it rather than drawing it empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EraView {
+    /// The data files the world is drawn from: those from before Throne of Destiny
+    /// (`portal.dat` and `cell.dat`, February 2005) or the later ones. The older files have no
+    /// later interface records of their own.
+    pub world_dats: dereth_primitives::ContainerEra,
+    /// The account's Throne of Destiny flag (`Login_LoginCharacterSet`, `0xF658`). Without it
+    /// the level shown stops at 126 and only the original heritages are offered.
+    pub account_has_throne_of_destiny: bool,
+    /// The highest level the world's experience table lists: 126 in February 2005, 275 at the
+    /// end of retail. 0 before the table is read.
+    pub level_cap: u32,
+    /// The skills the world's skill table has, ascending: the pre-2013 weapon skills (Axe through
+    /// Unarmed Combat) in February 2005, the consolidated ones (Heavy, Light, Finesse, Missile
+    /// Weapons, ...) at the end of retail. Empty before the table is read.
+    pub skills: Vec<u32>,
+    /// The era the world plays. The server's announcement wins (the launcher passes the era its
+    /// world's status names); without one it is read from the data files: those from before
+    /// Throne of Destiny are February 2005's, the later ones the end of retail's.
+    pub era: dereth_primitives::EraId,
+    /// Whether [`Self::era`] is the server's announcement rather than read from the data files.
+    pub era_announced: bool,
+}
+
+impl EraView {
+    /// The later systems the world's era has: a front end hides the panels of those it lacks
+    /// (ratings, aetheria, luminance, dual wield, ...) before any state arrives.
+    #[must_use]
+    pub fn features(&self) -> dereth_primitives::EraFeatures {
+        self.era.features()
+    }
+
+    /// The era a world drawn from `world_dats` plays when the server names none.
+    #[must_use]
+    pub fn era_of_dats(world_dats: dereth_primitives::ContainerEra) -> dereth_primitives::EraId {
+        match world_dats {
+            dereth_primitives::ContainerEra::PreTod => dereth_primitives::EraId::Infiltration,
+            dereth_primitives::ContainerEra::Tod => dereth_primitives::EraId::Eor,
+        }
+    }
+
+    /// Whether the world is the one from before Throne of Destiny.
+    #[must_use]
+    pub fn before_throne_of_destiny(&self) -> bool {
+        self.world_dats == dereth_primitives::ContainerEra::PreTod
+    }
+
+    /// Whether the world has skill `id`.
+    #[must_use]
+    pub fn has_skill(&self, id: u32) -> bool {
+        self.skills.binary_search(&id).is_ok()
+    }
+}
+
 pub trait GameView: std::fmt::Debug {
+    /// What the world's era means for what can be shown ([`EraView`]); `None` from a view that
+    /// has no world.
+    fn era(&self) -> Option<&EraView> {
+        None
+    }
+
     /// The player object, once `LOGIN_COMPLETE` (global message `0x0B`) has fired.
     fn player(&self) -> Option<ObjectId> {
         None

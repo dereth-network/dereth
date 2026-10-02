@@ -570,7 +570,23 @@ pub fn do_player_enter_world(
         .get(player_guid)
         .and_then(crate::world_objects::world_object_networking::shims::player_character)
         .map_or(total_logins, |c| c.total_logins);
-    if total_logins <= 1 {
+    // DIVERGE: an era whose first login opens the Welcome Letter (`EraRules::welcome_letter`)
+    // uses the letter from the starter gear, so it lies open for the new player to read, rather
+    // than showing the training halls' welcome (ClassicACE's `PlayerEnterWorld` at its older
+    // rulesets).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Managers/WorldManager.cs
+    if let Some(letter_wcid) = w.era.welcome_letter.filter(|_| total_logins <= 1) {
+        let letter = crate::world_objects::container::inventory_values(w, player_guid)
+            .into_iter()
+            .find(|&g| {
+                w.objects
+                    .get(g)
+                    .is_some_and(|o| o.biota.weenie_class_id == letter_wcid)
+            });
+        if let Some(letter) = letter {
+            crate::dispatch::act_on_use::act_on_use(w, letter, player_guid);
+        }
+    } else if total_logins <= 1 {
         let text = if is_olthoi_player {
             append_lines(&[&popup_welcome, &popup_motd])
         } else {

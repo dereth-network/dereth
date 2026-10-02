@@ -605,6 +605,7 @@ fn read_script(filename: &str) -> Option<Vec<String>> {
 
     let stream = SCRIPTS
         .iter()
+        .chain(ERA_SCRIPTS.iter())
         .find(|(name, _)| *name == resource_name)
         .map(|(_, text)| *text)?;
 
@@ -873,4 +874,41 @@ static SCRIPTS: &[(&str, &str)] = &[
     ("ACE.Server.Entity.Mutations.Recipes.3800004E - Sandstone.txt", include_str!("scripts/Recipes/3800004E - Sandstone.txt")),
     ("ACE.Server.Entity.Mutations.Recipes.39000000 - Paragon Weapons.txt", include_str!("scripts/Recipes/39000000 - Paragon Weapons.txt")),
     ("ACE.Server.Entity.Mutations.Recipes.39000001 - Lucky White Rabbit's Foot.txt", include_str!("scripts/Recipes/39000001 - Lucky White Rabbit's Foot.txt")),
+];
+
+/// Not ACE: ClassicACE's Infiltration scripts (the era's loot, `LootRules::Infiltration`), found by
+/// name after ACE's own; they are not among ACE's manifest resources.
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Entity/Mutations/*/Infiltration/*.txt
+static ERA_SCRIPTS: &[(&str, &str)] = &[
+    ("ACE.Server.Entity.Mutations.ArmorLevel.Infiltration.armor_level.txt", include_str!("scripts/ArmorLevel/Infiltration/armor_level.txt")),
+    ("ACE.Server.Entity.Mutations.ArmorLevel.Infiltration.covenant_armor_level.txt", include_str!("scripts/ArmorLevel/Infiltration/covenant_armor_level.txt")),
+    ("ACE.Server.Entity.Mutations.ArmorLevel.Infiltration.covenant_shield_level.txt", include_str!("scripts/ArmorLevel/Infiltration/covenant_shield_level.txt")),
+    ("ACE.Server.Entity.Mutations.ArmorLevel.Infiltration.shield_level.txt", include_str!("scripts/ArmorLevel/Infiltration/shield_level.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.axe.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/axe.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.dagger.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/dagger.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.dagger_ms.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/dagger_ms.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.mace.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/mace.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.spear.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/spear.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.staff.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/staff.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.sword.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/sword.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.sword_ms.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/sword_ms.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.unarmed.txt", include_str!("scripts/MeleeWeapons/Damage_WieldDifficulty_DamageVariance/Infiltration/unarmed.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.axe_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/axe_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.dagger_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/dagger_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.mace_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/mace_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.spear_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/spear_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.staff_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/staff_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.sword_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/sword_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.unarmed_offense_defense.txt", include_str!("scripts/MeleeWeapons/WeaponOffense_WeaponDefense/Infiltration/unarmed_offense_defense.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.atlatl_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/atlatl_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.atlatl_non_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/atlatl_non_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.atlatl_regular_non_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/atlatl_regular_non_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.bow_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/bow_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.bow_non_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/bow_non_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.bow_short_non_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/bow_short_non_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.crossbow_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/crossbow_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.crossbow_light_non_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/crossbow_light_non_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.MissileWeapons.Infiltration.crossbow_non_elemental.txt", include_str!("scripts/MissileWeapons/Infiltration/crossbow_non_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.Casters.Infiltration.caster_elemental.txt", include_str!("scripts/Casters/Infiltration/caster_elemental.txt")),
+    ("ACE.Server.Entity.Mutations.Casters.Infiltration.caster_non_elemental.txt", include_str!("scripts/Casters/Infiltration/caster_non_elemental.txt")),
 ];

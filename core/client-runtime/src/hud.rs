@@ -1255,6 +1255,9 @@ pub struct Hud<P: HudPanels> {
     pub spell_table: Option<SpellTable>,
     /// Experience table `0x0E000018`, loaded once — every raise cost the footer shows.
     pub xp_table: Option<dereth_assets::tables::XpTable>,
+    /// What the world's era means for what the front ends can show, filled as the tables load
+    /// and when the character list names the account's Throne of Destiny flag.
+    pub era: dereth_client_contract::EraView,
     /// Contract table `0x0E00001D`, loaded once — the 322 contract descriptions.
     ///
     /// The Contracts panel walks the **tracker** table and looks each id up in **this**, so without it
@@ -1651,6 +1654,16 @@ impl<P: HudPanels> Hud<P> {
                 Ok(t) => self.xp_table = Some(t),
                 Err(e) => tracing::warn!("XpTable {XP_TABLE:?}: {e}"),
             }
+        }
+        self.era.world_dats = store.era();
+        if !self.era.era_announced {
+            self.era.era = dereth_client_contract::EraView::era_of_dats(self.era.world_dats);
+        }
+        if let Some(t) = &self.xp_table {
+            self.era.level_cap = u32::try_from(t.level_xp.len().saturating_sub(1)).unwrap_or(0);
+        }
+        if let Some(t) = &self.skill_table {
+            self.era.skills = t.skills.keys().copied().collect();
         }
         // Four more of the same shape, for the header's heritage line. A miss leaves
         // that one field empty and is reported, exactly as the four above.
@@ -5478,6 +5491,10 @@ impl<P: HudPanels> HudView<'_, P> {
 }
 
 impl<P: HudPanels> GameView for HudView<'_, P> {
+    fn era(&self) -> Option<&dereth_client_contract::EraView> {
+        Some(&self.hud.era)
+    }
+
     /// The object table's copy first, because that is the one every other
     /// accessor keys on; otherwise it uses `0xF746`'s id when the object has not been created yet,
     /// because this reads the local player description and not the table.
@@ -5892,7 +5909,9 @@ impl<P: HudPanels> GameView for HudView<'_, P> {
             n => n,
         };
         // The client treats the level as an unsigned 32-bit value when converting it.
-        let threshold = dereth_client_model::advancement::vitae_cp_pool_threshold(
+        // The world's era decides the curve (the older one before Throne of Destiny).
+        let threshold = dereth_client_model::advancement::vitae_cp_pool_threshold_in(
+            self.hud.era.era.vitae_recovery(),
             f64::from(multiplier),
             f64::from(level.unsigned_abs()),
         );
@@ -8152,6 +8171,55 @@ fn int_opt(q: &dereth_client_model::qualities::Qualities, property: u32) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The era every front end reads comes from the world's own tables: February 2005's 126
+    /// levels and 36 skills (the old weapon skills), the end of retail's 275 levels and its
+    /// consolidated skills. The era itself is the server's when it announced one, else the dats'.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn the_era_view_reads_the_worlds_level_cap_and_skills() {
+        let world = dereth_client_model::World::default();
+        let old = dereth_dat::testing::open_pre_tod_store_or_fail();
+        let mut h = Hud::<NoPanels>::new();
+        h.load_tables(&old, &world);
+        let v = HudView {
+            hud: &h,
+            world: &world,
+        };
+        let era = GameView::era(&v).expect("a world");
+        assert!(era.before_throne_of_destiny());
+        assert_eq!(era.level_cap, 126);
+        assert_eq!(era.skills.len(), 36);
+        assert!(
+            era.has_skill(11) && !era.has_skill(44),
+            "Sword, not Heavy Weapons"
+        );
+        assert_eq!(
+            era.era,
+            dereth_primitives::EraId::Infiltration,
+            "read from the dats"
+        );
+        assert!(!era.features().ratings && !era.features().luminance);
+
+        // The server's announcement wins over the files.
+        let mut h = Hud::<NoPanels>::new();
+        h.era.era = dereth_primitives::EraId::Eor;
+        h.era.era_announced = true;
+        h.load_tables(&old, &world);
+        assert_eq!(h.era.era, dereth_primitives::EraId::Eor);
+        assert!(h.era.features().ratings);
+
+        let later = dereth_dat::testing::open_store_or_fail();
+        let mut h = Hud::<NoPanels>::new();
+        h.load_tables(&later, &world);
+        assert!(!h.era.before_throne_of_destiny());
+        assert_eq!(h.era.level_cap, 275);
+        assert!(h.era.has_skill(44), "Heavy Weapons");
+        assert_eq!(h.era.era, dereth_primitives::EraId::Eor);
+    }
 
     /// Oracle: the coordinate conversion checked against the live retail read-out —
     /// **42.2N, 33.8E** while standing in Holtburg, which is

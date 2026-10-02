@@ -68,7 +68,21 @@ pub(crate) fn mutate_caster(
 
     // mutate ElementalDamageMod / WieldRequirements
     let is_elemental = wo.w_damage_type() != DamageType::Undef;
-    let script_name = get_caster_script(is_elemental);
+    // DIVERGE: a caster from an earlier era's tables (`LootRules::Infiltration`) takes that era's
+    // elemental script (ClassicACE's `GetCasterScript` at its Infiltration ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory_Caster.cs
+    let script_name = if roll.era_script.is_some() {
+        format!(
+            "Casters.Infiltration.caster_{}.txt",
+            if is_elemental {
+                "elemental"
+            } else {
+                "non_elemental"
+            }
+        )
+    } else {
+        get_caster_script(is_elemental)
+    };
 
     let mutation_filter = mutation_cache::get_mutation(w, &script_name)
         .expect("NullReferenceException: no mutation script");
@@ -112,8 +126,11 @@ pub(crate) fn mutate_caster(
     // burden?
 
     // missile defense / magic defense
-    wo.set_weapon_missile_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
-    wo.set_weapon_magic_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+    // DIVERGE: an earlier era's caster rolls neither (ClassicACE at its Infiltration ruleset).
+    if roll.era_script.is_none() {
+        wo.set_weapon_missile_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+        wo.set_weapon_magic_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+    }
 
     // spells
     if is_magical {

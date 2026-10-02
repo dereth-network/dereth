@@ -1,4 +1,5 @@
 // Ported from ACE (ACEmulator), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Rating.cs
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Rating.cs
 //! Port of `Source/ACE.Server/WorldObjects/Creature_Rating.cs`.
 //!
 //! The rating arithmetic (`GetPositiveRatingMod`, `GetNegativeRatingMod`, `ModToRating`, ...) is
@@ -306,6 +307,10 @@ pub fn get_damage_resist_rating(
     combat_type: Option<CombatType>,
     direct_damage: bool,
 ) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // get from base properties (monsters)?
     let damage_resist_rating = object(w, this).damage_resist_rating().unwrap_or(0);
 
@@ -352,6 +357,10 @@ pub fn get_damage_resist_rating_mod(
     combat_type: Option<CombatType>,
     direct_damage: bool,
 ) -> f32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`): no modifier (ClassicACE).
+    if !w.era.features.ratings {
+        return 1.0;
+    }
     let damage_resist_rating = get_damage_resist_rating(w, this, combat_type, direct_damage);
 
     let allow_bug =
@@ -403,6 +412,10 @@ pub fn get_spec_defense_bonus(
 // ACE: Creature.GetCritRating
 /// Crit chance rating: its own, enchantments, equipment and a player's Critical Expertise aug.
 pub fn get_crit_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // crit chance
 
     // get from base properties (monsters)?
@@ -429,6 +442,10 @@ pub fn get_crit_rating(w: &mut World, this: ObjectGuid) -> i32 {
 
 // ACE: Creature.GetCritDamageRating
 pub fn get_crit_damage_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // get from base properties (monsters)?
     let crit_damage_rating = object(w, this).crit_damage_rating().unwrap_or(0);
 
@@ -457,6 +474,10 @@ pub fn get_crit_damage_rating(w: &mut World, this: ObjectGuid) -> i32 {
 
 // ACE: Creature.GetCritResistRating
 pub fn get_crit_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // crit resist chance
 
     // get from base properties (monsters)?
@@ -476,6 +497,10 @@ pub fn get_crit_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
 
 // ACE: Creature.GetCritDamageResistRating
 pub fn get_crit_damage_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // get from base properties (monsters)?
     let crit_damage_resist_rating = object(w, this).crit_damage_resist_rating().unwrap_or(0);
 
@@ -498,6 +523,10 @@ pub fn get_crit_damage_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
 
 // ACE: Creature.GetHealingBoostRating
 pub fn get_healing_boost_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // get from base properties (monsters)?
     let heal_boost_rating = object(w, this).healing_boost_rating().unwrap_or(0);
 
@@ -520,6 +549,10 @@ pub fn get_healing_boost_rating(w: &mut World, this: ObjectGuid) -> i32 {
 
 // ACE: Creature.GetHealingResistRating
 pub fn get_healing_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // debuff?
     let heal_resist_rating = object(w, this).healing_resist_rating().unwrap_or(0);
 
@@ -532,6 +565,10 @@ pub fn get_healing_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
 // ACE: Creature.GetHealingRatingMod
 /// The healing boost modifier times the healing resist modifier.
 pub fn get_healing_rating_mod(w: &mut World, this: ObjectGuid) -> f32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`): no modifier (ClassicACE).
+    if !w.era.features.ratings {
+        return 1.0;
+    }
     let boost_mod = get_positive_rating_mod(get_healing_boost_rating(w, this));
     let resist_mod = get_negative_rating_mod(get_healing_resist_rating(w, this), false);
 
@@ -540,6 +577,10 @@ pub fn get_healing_rating_mod(w: &mut World, this: ObjectGuid) -> f32 {
 
 // ACE: Creature.GetLifeResistRating
 pub fn get_life_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // only affects health drain?
     // only cast by Sigil of Perserverance (Aetheria)?
 
@@ -559,6 +600,10 @@ pub fn get_life_resist_rating_mod(w: &mut World, this: ObjectGuid) -> f32 {
 
 // ACE: Creature.GetDotResistanceRating
 pub fn get_dot_resistance_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // get from base properties (monsters)?
     let dot_resist_rating = object(w, this).dot_resist_rating().unwrap_or(0);
 
@@ -570,6 +615,10 @@ pub fn get_dot_resistance_rating(w: &mut World, this: ObjectGuid) -> i32 {
 
 // ACE: Creature.GetNetherResistRating
 pub fn get_nether_resist_rating(w: &mut World, this: ObjectGuid) -> i32 {
+    // DIVERGE: an era without ratings (`EraFeatures::ratings`) has none (ClassicACE).
+    if !w.era.features.ratings {
+        return 0;
+    }
     // there is a property defined for this,
     // but does anything use this?
 

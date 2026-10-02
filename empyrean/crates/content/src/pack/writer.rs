@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use empyrean_common::era::EraId;
+use empyrean_common::era::{EraExt, EraId};
 
 use crate::error::ImportError;
 use crate::pack::cursor::Codec;

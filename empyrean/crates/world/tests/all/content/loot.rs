@@ -3,6 +3,7 @@
 //! loot/lootgen vectors.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state, retail dats or world.pack in the real-content tier.
 
+use empyrean_common::era::EraExt as _;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1324,6 +1325,300 @@ fn loot_parser_reads_chance_table_literals() {
     assert_eq!(loot_parser::read_all_lines("a\r\nb\rc\n"), ["a", "b", "c"]);
 }
 
+// ---------------------------------------------------------------------- the Infiltration era's loot
+
+/// The Infiltration era's scripts: each compiles into mutations over that era's six tiers (the
+/// non-elemental casters' into none).
+/// Divergence: V412
+#[test]
+fn the_infiltration_loot_scripts_compile_over_six_tiers() {
+    let w = world();
+    let melee = [
+        "axe",
+        "dagger",
+        "dagger_ms",
+        "mace",
+        "spear",
+        "staff",
+        "sword",
+        "sword_ms",
+        "unarmed",
+    ];
+    let mut names: Vec<String> = melee
+        .iter()
+        .map(|m| format!("MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.{m}.txt"))
+        .collect();
+    for m in [
+        "axe", "dagger", "mace", "spear", "staff", "sword", "unarmed",
+    ] {
+        names.push(format!(
+            "MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.{m}_offense_defense.txt"
+        ));
+    }
+    for m in [
+        "atlatl_elemental",
+        "atlatl_non_elemental",
+        "atlatl_regular_non_elemental",
+        "bow_elemental",
+        "bow_non_elemental",
+        "bow_short_non_elemental",
+        "crossbow_elemental",
+        "crossbow_light_non_elemental",
+        "crossbow_non_elemental",
+    ] {
+        names.push(format!("MissileWeapons.Infiltration.{m}.txt"));
+    }
+    for m in ["caster_elemental", "caster_non_elemental"] {
+        names.push(format!("Casters.Infiltration.{m}.txt"));
+    }
+    for m in [
+        "armor_level",
+        "covenant_armor_level",
+        "covenant_shield_level",
+        "shield_level",
+    ] {
+        names.push(format!("ArmorLevel.Infiltration.{m}.txt"));
+    }
+    for name in &names {
+        let filter = mutation_cache::get_mutation(&w, name)
+            .unwrap_or_else(|| panic!("{name} is embedded and compiles"));
+        // The era's non-elemental casters carry no wield requirement: an empty script.
+        assert_eq!(
+            filter.mutations.is_empty(),
+            name.ends_with("caster_non_elemental.txt"),
+            "{name}"
+        );
+        for m in &filter.mutations {
+            assert_eq!(m.chances.len(), 6, "{name}: six tiers");
+        }
+    }
+    assert!(
+        mutation_cache::manifest_resource_names().all(|n| !n.contains("Infiltration")),
+        "ACE's own manifest stays ACE's"
+    );
+}
+
+/// A weapon rolled for an Infiltration treasure comes from that era's tables: an old weapon
+/// skill's weapon, a bow, crossbow or atlatl, or a caster, never a two-handed weapon, and it names
+/// the era script its mutation takes; the same roll at the end of retail names none.
+/// Divergence: V412
+#[test]
+fn an_infiltration_weapon_roll_names_its_eras_script_and_is_never_two_handed() {
+    use empyrean_common::era::LootRules;
+    let w = world();
+    let mut kinds = std::collections::BTreeSet::new();
+    seed(7);
+    for tier in 1..=6 {
+        for heritage in [1, 2, 3, 21] {
+            for _ in 0..60 {
+                let roll = lgf::roll_wcid_in(
+                    LootRules::Infiltration,
+                    &profile(tier, 0.0, heritage),
+                    TreasureItemCategory::Item,
+                    TreasureItemType::Weapon,
+                )
+                .expect("a weapon");
+                assert_ne!(roll.wcid, WeenieClassName::undef, "tier {tier}");
+                assert!(
+                    !matches!(
+                        roll.weapon_type,
+                        TreasureWeaponType::TwoHandedWeapon
+                            | TreasureWeaponType::TwoHandedAxe
+                            | TreasureWeaponType::TwoHandedMace
+                            | TreasureWeaponType::TwoHandedSpear
+                            | TreasureWeaponType::TwoHandedSword
+                    ),
+                    "{:?}",
+                    roll.weapon_type
+                );
+                let script = roll.era_script.expect("an era script");
+                kinds.insert(script);
+                let name = match roll.weapon_type {
+                    TreasureWeaponType::Bow
+                    | TreasureWeaponType::Crossbow
+                    | TreasureWeaponType::Atlatl => {
+                        format!("MissileWeapons.Infiltration.{script}_non_elemental.txt")
+                    }
+                    TreasureWeaponType::Caster => {
+                        "Casters.Infiltration.caster_non_elemental.txt".to_owned()
+                    }
+                    _ => format!(
+                        "MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.{script}.txt"
+                    ),
+                };
+                assert!(mutation_cache::get_mutation(&w, &name).is_some(), "{name}");
+            }
+        }
+    }
+    for kind in [
+        "axe", "mace", "spear", "staff", "sword", "unarmed", "bow", "crossbow", "atlatl", "caster",
+    ] {
+        assert!(kinds.contains(kind), "{kind} never rolled: {kinds:?}");
+    }
+    let roll = lgf::roll_wcid_in(
+        LootRules::EndOfRetail,
+        &profile(3, 0.0, 1),
+        TreasureItemCategory::Item,
+        TreasureItemType::Weapon,
+    )
+    .expect("a weapon");
+    assert_eq!(roll.era_script, None);
+}
+
+/// Armour rolled for an Infiltration treasure is one of that era's kinds (leather, studded leather,
+/// chainmail, the heritages' platemail and their low and high armours, covenant), never the later
+/// sets; jewelry, clothing and food come from the era's tables too.
+/// Divergence: V412
+#[test]
+fn an_infiltration_armor_roll_is_one_of_its_eras_kinds() {
+    use empyrean_common::era::LootRules;
+    let kinds = [
+        TreasureArmorType::Leather,
+        TreasureArmorType::StuddedLeather,
+        TreasureArmorType::Chainmail,
+        TreasureArmorType::Platemail,
+        TreasureArmorType::Scalemail,
+        TreasureArmorType::Yoroi,
+        TreasureArmorType::Celdon,
+        TreasureArmorType::Amuli,
+        TreasureArmorType::Koujia,
+        TreasureArmorType::Covenant,
+        TreasureArmorType::Lorica,
+        TreasureArmorType::Nariyid,
+        TreasureArmorType::Chiran,
+    ];
+    seed(5);
+    for tier in 1..=6 {
+        for heritage in [1, 2, 3, 22] {
+            for _ in 0..40 {
+                let roll = lgf::roll_wcid_in(
+                    LootRules::Infiltration,
+                    &profile(tier, 0.0, heritage),
+                    TreasureItemCategory::Item,
+                    TreasureItemType::Armor,
+                )
+                .expect("armour");
+                assert_ne!(roll.wcid, WeenieClassName::undef);
+                assert!(kinds.contains(&roll.armor_type), "{:?}", roll.armor_type);
+                for item_type in [
+                    TreasureItemType::Jewelry,
+                    TreasureItemType::Clothing,
+                    TreasureItemType::Consumable,
+                ] {
+                    let roll = lgf::roll_wcid_in(
+                        LootRules::Infiltration,
+                        &profile(tier, 0.0, heritage),
+                        TreasureItemCategory::Item,
+                        item_type,
+                    )
+                    .expect("an item");
+                    assert_ne!(roll.wcid, WeenieClassName::undef, "{item_type:?}");
+                }
+            }
+        }
+    }
+}
+
+/// The Infiltration era's treasure profiles: a creature's chances scaled by its tier (tier 1: 30%
+/// of items, 20% of magic items, 90% of mundane items); a chest's profile moved off one too rich
+/// for where it stands (4 to 6), with no mundane items, at least 3 and half again as many items
+/// and magic items, at loot quality 0.2 or better; steel chests (338) left alone. At the end of
+/// retail every profile is the table's.
+/// Divergence: V413
+#[test]
+fn an_infiltration_creature_and_chest_drop_by_their_eras_profiles() {
+    use empyrean_world::dispatch::Class;
+    let row = |treasure_type: u32, tier: i32| TreasureDeath {
+        id: treasure_type,
+        treasure_type,
+        tier,
+        item_chance: 100,
+        item_min_amount: 1,
+        item_max_amount: 1,
+        magic_item_chance: 100,
+        magic_item_min_amount: 1,
+        magic_item_max_amount: 2,
+        mundane_item_chance: 100,
+        ..TreasureDeath::default()
+    };
+    let mut w = world();
+    w.content = Arc::new(
+        MemContent::new()
+            .treasure_death(row(4, 1))
+            .treasure_death(row(6, 2))
+            .treasure_death(row(338, 3)),
+    );
+    let place = |w: &mut World, class: Class, id: u32| {
+        let mut o = WorldObject::allocate(class);
+        o.guid = ObjectGuid::new(id);
+        o.biota.id = id;
+        w.objects.insert(o).expect("fresh");
+        ObjectGuid::new(id)
+    };
+    let creature = place(&mut w, Class::Creature, 0x8000_0001);
+    let chest = place(&mut w, Class::Chest, 0x8000_0002);
+
+    assert_eq!(
+        *lgf::era_death_treasure(&w, 4, creature).expect("a profile"),
+        row(4, 1),
+        "the end of retail: the table's"
+    );
+
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    let p = lgf::era_death_treasure(&w, 4, creature).expect("a profile");
+    assert_eq!(
+        (p.item_chance, p.magic_item_chance, p.mundane_item_chance),
+        (30, 20, 90)
+    );
+    let p = lgf::era_death_treasure(&w, 4, chest).expect("a profile");
+    assert_eq!(p.treasure_type, 6, "moved to the richer profile");
+    assert_eq!(
+        (
+            p.mundane_item_chance,
+            p.item_max_amount,
+            p.magic_item_max_amount,
+            p.loot_quality_mod
+        ),
+        (0, 5, 3, 0.2)
+    );
+    assert_eq!(
+        *lgf::era_death_treasure(&w, 338, chest).expect("a profile"),
+        row(338, 3),
+        "steel chests are left alone"
+    );
+}
+
+/// Pyreals at the Infiltration era: that era's amount per tier (50-100 at tier 1, ...), after the
+/// coinstack's constructor draw.
+/// Divergence: V412
+#[test]
+fn an_infiltration_pyreal_drop_is_its_eras_tier_range() {
+    for (tier, (min, max)) in [
+        (1, (50, 100)),
+        (2, (400, 1000)),
+        (4, (1200, 4000)),
+        (6, (2000, 5000)),
+    ] {
+        let mut w = coin_world();
+        w.era = empyrean_common::era::EraId::Infiltration.rules();
+        seed(99);
+        let wo = lgf::create_random_loot_objects_of_category(
+            &mut w,
+            &profile(tier, 0.0, 0),
+            TreasureItemCategory::Item,
+            TreasureItemType::Pyreal,
+        )
+        .expect("a coinstack");
+        let mut r = empyrean_common::random::DotNetRandom::new(99);
+        let _heartbeat = r.next_double();
+        assert_eq!(
+            wo.stack_size(),
+            Some(r.next_range(min, max + 1)),
+            "tier {tier}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------- real content (lootgen/)
 
 /// The real-content tier: `lootgen/` replayed over `world.pack` (`EMPYREAN_TEST_WORLD_PACK`, default
@@ -1357,6 +1652,118 @@ mod real_content {
         w.content = Arc::new(pack);
         empyrean_world::managers::guid_manager::initialize(&mut w, &mut EmptyShard);
         w
+    }
+
+    /// Every weapon an Infiltration treasure of tiers 1 to 6 rolls, on the Infiltration world
+    /// (`EMPYREAN_TEST_INFILTRATION_PACK`), is a weenie that world has, mutated by the era's
+    /// scripts: a melee or thrown weapon of an old weapon skill whose wield requirement (when it has
+    /// one) is that skill, a bow, crossbow or atlatl, or a caster; none carries a later skill, and
+    /// the first tier's melee weapons are the plain ones (ACE's tables drop elemental ones there).
+    /// Divergence: V412
+    #[test]
+    fn every_infiltration_weapon_drop_is_an_old_skill_weapon_the_world_has() {
+        use empyrean_entity::enums::Skill;
+        let mut w = real_world();
+        let path = empyrean_common::test_paths::infiltration_pack();
+        w.content = Arc::new(PackContent::open(&path).unwrap_or_else(|e| {
+            panic!(
+                "the real-content tier needs the Infiltration world.pack at {} (set EMPYREAN_TEST_INFILTRATION_PACK): {e}",
+                path.display()
+            )
+        }));
+        w.era = empyrean_common::era::EraId::Infiltration.rules();
+        let later = [
+            Skill::HeavyWeapons,
+            Skill::LightWeapons,
+            Skill::FinesseWeapons,
+            Skill::MissileWeapons,
+            Skill::TwoHandedCombat,
+        ];
+        seed(11);
+        let mut made = 0;
+        for tier in 1..=6 {
+            for category in [TreasureItemCategory::Item, TreasureItemCategory::MagicItem] {
+                for _ in 0..40 {
+                    let wo = lgf::create_random_loot_objects_of_category(
+                        &mut w,
+                        &profile(tier, 0.0, 1),
+                        category,
+                        TreasureItemType::Weapon,
+                    )
+                    .unwrap_or_else(|| panic!("tier {tier}: a weapon"));
+                    made += 1;
+                    let skill = wo.weapon_skill();
+                    // The era's first tier drops only the plain weapons of each kind.
+                    if tier == 1 && wo.biota.weenie_type == WeenieType::MeleeWeapon {
+                        let name = wo.get_property(PropertyString::Name).unwrap_or_default();
+                        assert!(
+                            !["Acid", "Flaming", "Frost", "Lightning"]
+                                .iter()
+                                .any(|e| name.starts_with(e)),
+                            "tier 1: {name}"
+                        );
+                    }
+                    assert!(
+                        !later.contains(&skill),
+                        "{}: {skill:?}",
+                        wo.weenie_class_id()
+                    );
+                    if let Some(wield) = wo.wield_skill_type() {
+                        assert!(
+                            !later.contains(&Skill(wield)),
+                            "{}: wields with {wield}",
+                            wo.weenie_class_id()
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(made, 6 * 2 * 40);
+
+        // The era's item counts: a group whose one roll passes drops its minimum, then rolls for
+        // each further item; at loot quality 1 every roll passes, so a 10% group of one to three
+        // items drops three (at the end of retail it would usually drop none).
+        let group = TreasureDeath {
+            tier: 2,
+            loot_quality_mod: 1.0,
+            item_chance: 10,
+            item_min_amount: 1,
+            item_max_amount: 3,
+            item_treasure_type_selection_chances: 1,
+            unknown_chances: 1,
+            ..TreasureDeath::default()
+        };
+        for _ in 0..20 {
+            assert_eq!(lgf::create_random_loot_objects(&mut w, &group).len(), 3);
+        }
+
+        // Armour, clothing, jewelry and food: every roll is a weenie the world has.
+        for tier in 1..=6 {
+            for item_type in [
+                TreasureItemType::Armor,
+                TreasureItemType::Clothing,
+                TreasureItemType::Jewelry,
+                TreasureItemType::Consumable,
+            ] {
+                for _ in 0..20 {
+                    let rules = w.era.loot_rules;
+                    let roll = lgf::roll_wcid_in(
+                        rules,
+                        &profile(tier, 0.0, 1),
+                        TreasureItemCategory::Item,
+                        item_type,
+                    )
+                    .expect("a roll");
+                    assert!(
+                        w.content
+                            .get_cached_weenie(roll.wcid.0.cast_unsigned())
+                            .is_some(),
+                        "tier {tier} {item_type:?}: {} is in the Infiltration world",
+                        roll.wcid.0
+                    );
+                }
+            }
+        }
     }
 
     /// The `treasure_death` row with primary key `id` (the harness names profiles by id).

@@ -301,7 +301,10 @@ pub fn create_item_spell(w: &mut World, this: ObjectGuid, item: ObjectGuid, spel
             true,
         );
     } else if school == MagicSchool::ItemEnchantment {
-        if spell.has_item_category() || spell.is_portal_spell() {
+        // DIVERGE: before the item spells became auras (`EraFeatures::item_spell_auras`) none
+        // targets the wielder (ClassicACE's `Spell.HasItemCategory`).
+        if (w.era.features.item_spell_auras && spell.has_item_category()) || spell.is_portal_spell()
+        {
             handle_cast_spell(
                 w,
                 this,
@@ -366,7 +369,9 @@ pub fn remove_item_spell(
         return;
     }
 
-    let target = if spell.school() == MagicSchool::ItemEnchantment && !spell.has_item_category() {
+    let target = if spell.school() == MagicSchool::ItemEnchantment
+        && !(w.era.features.item_spell_auras && spell.has_item_category())
+    {
         item
     } else {
         this

@@ -8,6 +8,12 @@ SQLite files the server creates on first start.
 
 The port is unfinished. Anything it cannot do yet is logged once as `not ported: ACE: <member>`.
 
+A world can also play an earlier era than the end of retail (`[era] profile` in `empyrean.toml`;
+February 2005, Infiltration, is the first). The rules of that era are ported from
+[ClassicACE](https://github.com/bDekaru/ClassicACE) (bDekaru's fork of ACE, AGPL-3.0): the era's
+character creation, combat and death formulas, starter gear and first login. Each such rule names
+ClassicACE's source file beside it, and `DIVERGENCES.md` lists them as the era rows.
+
 - **Setting up a server**, running it, keeping it up to date or moving over from ACE:
   [SETUP.md](SETUP.md).
 - **Where Empyrean deliberately behaves differently from ACE**, and why:
@@ -175,7 +181,8 @@ iterations of the server's dats, which it compares a client's against, and wheth
 
 ## Licence
 
-AGPL-3.0-only (see `LICENSE`); the server is derived from ACE, which is AGPL-3.0 too. `NOTICE.txt`
+AGPL-3.0-only (see `LICENSE`); the server is derived from ACE, which is AGPL-3.0 too, and its era
+rules from ClassicACE, AGPL-3.0 as well. `NOTICE.txt`
 in a release package names the release's source (the repository at the exact commit it was built
 from), carries the MIT notice of the Lifestoned data model names the server uses, and lists the
 crates it is built from; `THIRD-PARTY-LICENSES.html` holds each third-party crate's licence text.

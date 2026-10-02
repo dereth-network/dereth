@@ -168,6 +168,7 @@ pub fn update_xp_and_level(w: &mut World, this: ObjectGuid, amount: i64, xp_type
     let level = obj(w, this).level();
     if level.is_none_or(|l| i64::from(l) != i64::from(max_level)) {
         let mut add_amount = amount;
+        let era_xp_cap = w.era.formulas.unassigned_xp_cap;
 
         // ACE-BUG: `(long)maxLevelXp - TotalExperience ?? 0` parses as `((long)maxLevelXp -
         // TotalExperience) ?? 0`, so a player with no TotalExperience gets 0 XP left to the end
@@ -182,7 +183,13 @@ pub fn update_xp_and_level(w: &mut World, this: ObjectGuid, amount: i64, xp_type
 
         {
             let o = obj_mut(w, this);
-            let available = o.available_experience().map(|v| v.wrapping_add(add_amount));
+            let mut available = o.available_experience().map(|v| v.wrapping_add(add_amount));
+            // DIVERGE: the era's cap on unassigned experience (`EraFormulas::unassigned_xp_cap`:
+            // a 32-bit count before Throne of Destiny, ClassicACE's `availableXpCap`).
+            // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Xp.cs
+            if let Some(cap) = era_xp_cap {
+                available = available.map(|v| v.min(cap));
+            }
             o.set_available_experience(available);
             let total = o.total_experience().map(|v| v.wrapping_add(add_amount));
             o.set_total_experience(total);
@@ -245,7 +252,10 @@ pub fn update_xp_vitae(w: &mut World, this: ObjectGuid, amount: i64) {
     let death_level = obj(w, this)
         .death_level()
         .expect("InvalidOperationException: DeathLevel.Value");
-    let mut max_pool: i32 = vitae_cp_pool_threshold(vitae_penalty, death_level).cs_cast();
+    // DIVERGE: the era's curve (`EraFormulas::vitae`).
+    let recovery = w.era.formulas.vitae;
+    let mut max_pool: i32 =
+        vitae_cp_pool_threshold_in(recovery, vitae_penalty, death_level).cs_cast();
     let mut cur_pool = obj(w, this)
         .vitae_cp_pool()
         .map(|p| i64::from(p).wrapping_add(amount));
@@ -255,7 +265,7 @@ pub fn update_xp_vitae(w: &mut World, this: ObjectGuid, amount: i64) {
         if vitae_penalty == 1.0 {
             break;
         }
-        max_pool = vitae_cp_pool_threshold(vitae_penalty, death_level).cs_cast();
+        max_pool = vitae_cp_pool_threshold_in(recovery, vitae_penalty, death_level).cs_cast();
     }
     let cur_pool: i32 = cur_pool
         .expect("InvalidOperationException: Nullable object must have a value.")
@@ -680,6 +690,27 @@ pub fn vitae_cp_pool_threshold(vitae: f32, level: i32) -> f64 {
     (empyrean_common::math::pow(f64::from(level), 2.5) * 2.5 + 20.0)
         * empyrean_common::math::pow(f64::from(vitae), 5.0)
         + 0.5
+}
+
+/// Not ACE: the threshold in the era's curve. End of retail: [`vitae_cp_pool_threshold`]. Before
+/// Throne of Destiny: `(level^2 * 5 + 20) * vitae^5 + 0.5`, at most 12,500 (ClassicACE's
+/// `VitaeCPPoolThreshold` outside its end-of-retail ruleset).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Xp.cs
+#[must_use]
+pub fn vitae_cp_pool_threshold_in(
+    recovery: empyrean_common::era::VitaeRecovery,
+    vitae: f32,
+    level: i32,
+) -> f64 {
+    match recovery {
+        empyrean_common::era::VitaeRecovery::EndOfRetail => vitae_cp_pool_threshold(vitae, level),
+        empyrean_common::era::VitaeRecovery::BeforeThroneOfDestiny => {
+            ((empyrean_common::math::pow(f64::from(level), 2.0) * 5.0 + 20.0)
+                * empyrean_common::math::pow(f64::from(vitae), 5.0)
+                + 0.5)
+                .min(12_500.0)
+        }
+    }
 }
 
 // ACE: Player.GrantLevelProportionalXp

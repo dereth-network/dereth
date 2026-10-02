@@ -530,7 +530,7 @@ pub(crate) mod real {
             w.content = Arc::new(content);
             // The server refuses a pack built for another era than its own, so the world plays
             // the pack's.
-            w.era = w.content.era().rules();
+            w.era = empyrean_common::era::EraExt::rules(w.content.era());
             guid_manager::initialize(w, &mut EmptyShard);
             w.auth
                 .lock()

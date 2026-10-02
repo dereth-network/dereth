@@ -1665,6 +1665,12 @@ pub fn is_link_spot(env: &CtorEnv<'_>, o: &WorldObject) -> bool {
 pub fn convert_to_mo_a_skill(w: &mut World, this: ObjectGuid, skill: Skill) -> Skill {
     use empyrean_entity::enums::ext::skill_extensions::{RETIRED_MELEE, RETIRED_MISSILE};
 
+    // DIVERGE: before the 2012 weapon-skill consolidation (`EraFeatures::
+    // consolidated_weapon_skills`) the old weapon skills are the players' own; nothing converts.
+    if !w.era.features.consolidated_weapon_skills {
+        return skill;
+    }
+
     if w.objects.get(this).is_some_and(WorldObject::is_player) {
         if RETIRED_MELEE.contains(&skill) {
             return crate::world_objects::player_combat::get_highest_melee_skill(w, this);

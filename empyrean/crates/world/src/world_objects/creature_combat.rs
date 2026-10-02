@@ -624,6 +624,31 @@ pub fn get_combat_type(w: &World, this: ObjectGuid) -> CombatType {
 pub fn get_attribute_mod(w: &mut World, this: ObjectGuid, weapon: Option<ObjectGuid>) -> f32 {
     let is_bow = weapon.is_some_and(|g| object(w, g).is_bow());
 
+    // DIVERGE: melee damage before the weapon-skill consolidation
+    // (`EraFormulas::older_melee_damage`): daggers take Coordination, and the factor follows the
+    // attack's skill, an unarmed humanoid's being the lower one (ClassicACE's `GetAttributeMod` at
+    // its Infiltration ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Combat.cs
+    if w.era.formulas.older_melee_damage {
+        let attribute =
+            if is_bow || weapon.map(|g| object(w, g).weapon_skill()) == Some(Skill::Dagger) {
+                PropertyAttribute::Coordination
+            } else {
+                PropertyAttribute::Strength
+            };
+        let mut skill =
+            crate::dispatch::get_current_weapon_skill::get_current_weapon_skill(w, this);
+        if is_bow {
+            // bows and crossbows together, thrown weapons apart
+            skill = Skill::Bow;
+        } else if skill == Skill::UnarmedCombat && !is_humanoid(w, this) {
+            // a creature that cannot wield weapons keeps the usual factor
+            skill = Skill::None;
+        }
+        let current: i32 = attribute_current(w, this, attribute).cs_cast();
+        return skill_formula::get_attribute_mod_for_skill(current, skill);
+    }
+
     //var attribute = isBow || GetCurrentWeaponSkill() == Skill.FinesseWeapons ? Coordination : Strength;
     let attribute =
         if is_bow || weapon.map(|g| object(w, g).weapon_skill()) == Some(Skill::FinesseWeapons) {
@@ -636,6 +661,31 @@ pub fn get_attribute_mod(w: &mut World, this: ObjectGuid, weapon: Option<ObjectG
     skill_formula::get_attribute_mod(current, is_bow)
 }
 
+/// Not ACE: whether the creature can wield weapons: a player, or a creature allowed a combat
+/// style (ClassicACE's `IsHumanoid`).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature.cs
+#[must_use]
+pub fn is_humanoid(w: &World, this: ObjectGuid) -> bool {
+    is_player(w, this) || object(w, this).ai_allowed_combat_style().0 != 0
+}
+
+/// Not ACE: the damage an unarmed humanoid adds to its maximum from its Unarmed Combat skill, a
+/// twentieth of it, before the weapon-skill consolidation (`EraFormulas::older_melee_damage`);
+/// 0 otherwise (ClassicACE's `GetUnarmedSkillDamageBonus` at its Infiltration ruleset).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Combat.cs
+pub fn get_unarmed_skill_damage_bonus(w: &mut World, this: ObjectGuid) -> i32 {
+    if !w.era.formulas.older_melee_damage || !is_humanoid(w, this) {
+        return 0;
+    }
+    if crate::dispatch::get_current_weapon_skill::get_current_weapon_skill(w, this)
+        != Skill::UnarmedCombat
+    {
+        return 0;
+    }
+    let skill = skill_of(w, this, Skill::UnarmedCombat).current(w);
+    (skill / 20).cs_cast()
+}
+
 /// Returns the current weapon skill for non-player creatures (converted to the post-MoA skill
 /// when the creature has none of the weapon's own).
 // ACE: Creature.GetCurrentWeaponSkill
@@ -643,6 +693,36 @@ pub fn get_current_weapon_skill(w: &mut World, this: ObjectGuid) -> Skill {
     let weapon = creature_equipment::get_equipped_weapon(w, this, false);
 
     let mut skill = weapon.map_or(Skill::UnarmedCombat, |g| object(w, g).weapon_skill());
+
+    // DIVERGE: an era before the 2012 weapon-skill consolidation (`EraFeatures::
+    // consolidated_weapon_skills`) attacks with the creature's highest old skill of the weapon's
+    // kind, missile or melee (ClassicACE's `GetCurrentWeaponSkill` for its older rulesets).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Combat.cs
+    if !w.era.features.consolidated_weapon_skills {
+        let candidates: &[Skill] = if weapon.is_some_and(|g| object(w, g).is_ranged()) {
+            &[Skill::Bow, Skill::Crossbow, Skill::ThrownWeapon]
+        } else {
+            &[
+                Skill::Axe,
+                Skill::Dagger,
+                Skill::Mace,
+                Skill::Spear,
+                Skill::Staff,
+                Skill::Sword,
+                Skill::UnarmedCombat,
+            ]
+        };
+        let mut best = candidates[0];
+        let mut best_current = skill_of(w, this, best).current(w);
+        for &s in &candidates[1..] {
+            let current = skill_of(w, this, s).current(w);
+            if current > best_current {
+                best = s;
+                best_current = current;
+            }
+        }
+        return best;
+    }
 
     let creature_skill = skill_of(w, this, skill);
 
@@ -855,7 +935,11 @@ pub fn get_shield_mod(
     weapon: Option<ObjectGuid>,
 ) -> f32 {
     // ensure combat stance
-    if combat_mode(w, this) == CombatMode::NonCombat {
+    // DIVERGE: before the Shield skill (`EraFormulas::shields_without_skill`) a shield guards in
+    // any stance (ClassicACE's `GetShieldMod` outside its end-of-retail ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Combat.cs
+    let without_skill = w.era.formulas.shields_without_skill;
+    if !without_skill && combat_mode(w, this) == CombatMode::NonCombat {
         return 1.0;
     }
 
@@ -936,13 +1020,18 @@ pub fn get_shield_mod(
     // Trained / untrained: 1/2 shield skill
     // Spec: shield skill
     // SL cap is applied *after* item enchantments
-    let shield_skill = skill_of(w, this, Skill::Shield);
-    let mut shield_cap = shield_skill.current(w);
-    if shield_skill.advancement_class(w) != SkillAdvancementClass::Specialized {
-        shield_cap = round_to_uint(shield_cap as f32 / 2.0f32);
-    }
+    // DIVERGE: before the Shield skill (`EraFormulas::shields_without_skill`) nothing caps it
+    // (ClassicACE's `GetSkillModifiedShieldLevel` at its Infiltration ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Monster_Melee.cs
+    if !without_skill {
+        let shield_skill = skill_of(w, this, Skill::Shield);
+        let mut shield_cap = shield_skill.current(w);
+        if shield_skill.advancement_class(w) != SkillAdvancementClass::Specialized {
+            shield_cap = round_to_uint(shield_cap as f32 / 2.0f32);
+        }
 
-    effective_level = math::min_f32(effective_level, shield_cap as f32);
+        effective_level = math::min_f32(effective_level, shield_cap as f32);
+    }
 
     let ignore_shield_mod = weapon_mod::get_ignore_shield_mod(w, attacker, weapon);
     //Console.WriteLine($"IgnoreShieldMod: {ignoreShieldMod}");

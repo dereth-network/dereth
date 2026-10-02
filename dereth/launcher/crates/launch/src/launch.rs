@@ -9,12 +9,13 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir>` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--era <era>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
 //! A retail client runs from its own folder and reads the dats beside it. The Dereth client runs
-//! from its own folder too, and reads the dat set it is given.
+//! from its own folder too, and reads the dat set it is given. When the world names the era it
+//! plays, the Dereth client is told it, so its screens show that era's systems from the start.
 
 use std::path::PathBuf;
 
@@ -97,6 +98,9 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                 plain("--dat-dir"),
                 plain(dats.display().to_string()),
             ]);
+            if let Some(era) = req.world.era.as_deref().filter(|e| !e.is_empty()) {
+                args.extend([plain("--era"), plain(era)]);
+            }
         }
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
             args.extend([
@@ -236,6 +240,21 @@ mod tests {
         let mut r = req(&w, &i);
         r.dat_dir = None;
         assert_eq!(plan(&r), Err(PlanError::NoDats));
+    }
+
+    #[test]
+    fn the_dereth_client_is_told_the_era_the_world_plays() {
+        let (mut w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+        w.era = Some("infiltration".into());
+        let argv = plan(&req(&w, &i)).unwrap().argv("pw");
+        assert_eq!(argv[argv.len() - 2..], ["--era", "infiltration"]);
+
+        // A retail client has no such switch.
+        let i = inst(ClientKind::Retail);
+        assert!(!plan(&req(&w, &i))
+            .unwrap()
+            .argv("pw")
+            .contains(&"--era".to_owned()));
     }
 
     #[test]

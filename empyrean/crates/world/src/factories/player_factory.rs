@@ -651,16 +651,24 @@ pub fn create(
             }
         }
 
-        // Set Heritage based Melee and Ranged Masteries
-        let (melee_mastery, ranged_mastery) = get_masteries(p.player.heritage_group());
+        // DIVERGE: an era without the heritage weapon masteries (`EraFeatures::weapon_masteries`)
+        // or the innate augmentations (`EraFeatures::innate_augmentations`) sets neither
+        // (ClassicACE's `Create` outside its end-of-retail ruleset).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/PlayerFactory.cs
+        if w.era.features.weapon_masteries {
+            // Set Heritage based Melee and Ranged Masteries
+            let (melee_mastery, ranged_mastery) = get_masteries(p.player.heritage_group());
 
-        p.player
-            .set_property(PropertyInt::MeleeMastery, melee_mastery.0);
-        p.player
-            .set_property(PropertyInt::RangedMastery, ranged_mastery.0);
+            p.player
+                .set_property(PropertyInt::MeleeMastery, melee_mastery.0);
+            p.player
+                .set_property(PropertyInt::RangedMastery, ranged_mastery.0);
+        }
 
-        // Set innate augs
-        set_innate_augmentations(&mut p.player);
+        if w.era.features.innate_augmentations {
+            // Set innate augs
+            set_innate_augmentations(&mut p.player);
+        }
 
         let is_dual_wield_trained_or_specialized = p
             .player
@@ -669,9 +677,10 @@ pub fn create(
             .is_some_and(|s| s.sac > SkillAdvancementClass::Untrained);
 
         // grant starter items based on skills
-        // (`GetStarterGearConfiguration()` is null when the file failed to load: NullReferenceException.)
-        let starter_gear_config = starter_gear_factory::get_starter_gear_configuration()
-            .expect("NullReferenceException: starterGearConfig");
+        // DIVERGE: the era's starter-gear table (`EraRules::starter_gear`; ClassicACE's
+        // Infiltration table in February 2005). ACE's own is compiled in and cannot fail to load.
+        let starter_gear_config =
+            starter_gear_factory::get_starter_gear_configuration_for(w.era.starter_gear);
         let mut granted_weenies: Vec<u32> = Vec::new();
 
         for skill_gear in starter_gear_config.skills {

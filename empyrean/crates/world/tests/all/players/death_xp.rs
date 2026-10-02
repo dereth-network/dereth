@@ -1,8 +1,9 @@
 //! Vectors: fixtures/vectors/death/
-//! Divergence: V390
+//! Divergence: V390, V398, V400, V405, V406
 //! XP/levelling, death, corpses, damage history, death string tables and DeathItems follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1138,6 +1139,34 @@ fn a_monster_dies_leaves_a_corpse_and_is_destroyed() {
     assert!(corpse::fields(&h.w, corpse).is_monster);
 }
 
+/// Divergence: V398
+/// A kill of a higher-level creature rolls for a rare at the end of retail (with real-time rares
+/// the roll starts the killer's rare timer) and not at all in an era without rares.
+#[test]
+fn an_era_without_rares_rolls_none_on_a_kill() {
+    for (era, rolled) in [
+        (empyrean_common::era::EraId::Eor, true),
+        (empyrean_common::era::EraId::Infiltration, false),
+    ] {
+        let mut h = H::new();
+        h.w.era = era.rules();
+        h.player(P1, S1, "Tester", 10, 0);
+        h.creature(Class::Creature, MONSTER, "Drudge", 100);
+        h.o_mut(MONSTER).set_level(Some(12));
+        lm::get_landblock(&mut h.w, lb_id(), false, false);
+        h.place(MONSTER);
+        damage_history::add(&mut h.w, MONSTER, P1, DamageType::Slash, 100);
+        creature_death::die(&mut h.w, MONSTER);
+        h.tick();
+        assert!(h.find_corpse().is_some(), "{era}: a corpse");
+        assert_eq!(
+            h.o(P1).rares_login_timestamp().is_some(),
+            rolled,
+            "{era}: the rare roll"
+        );
+    }
+}
+
 // ------------------------------------------------------------------------------------ messages
 
 /// Strings.GetDeathMessage and Creature.GetDeathMessage: no killer, a suicide or an unknown damage
@@ -1613,6 +1642,117 @@ fn rule3_vitae_cp_pool_threshold_agrees_with_dereth_rules() {
             .cloned()
             .collect::<Vec<_>>()
             .join("\n  ")
+    );
+}
+
+/// Divergence: V400
+/// Before Throne of Destiny a point of vitae costs `(level^2 * 5 + 20) * vitae^5 + 0.5`, at most
+/// 12,500, and the client's curve for the era agrees at every vitae and DeathLevel; a player
+/// dying at level 10 in that era wins back a point with 402 experience rather than 627.
+#[test]
+fn an_era_before_throne_of_destiny_prices_vitae_by_the_older_curve() {
+    use empyrean_common::era::VitaeRecovery;
+    let older = VitaeRecovery::BeforeThroneOfDestiny;
+    let at = |v: f32, level: i32| -> i32 {
+        empyrean_common::dotnet::CsCast::cs_cast(player_xp::vitae_cp_pool_threshold_in(
+            older, v, level,
+        ))
+    };
+    assert_eq!(at(0.95, 10), 402, "(10^2 * 5 + 20) * 0.95^5 + 0.5");
+    assert_eq!(at(1.0, 126), 12_500, "capped");
+    assert_eq!(
+        at(0.6, 126),
+        6_174,
+        "under the cap once the penalty is deep"
+    );
+    for step in 0..=60u8 {
+        let vitae = 1.0f32 - f32::from(step) * 0.01;
+        for level in 1..=275i32 {
+            assert_eq!(
+                at(vitae, level),
+                dereth_rules::advancement::vitae_cp_pool_threshold_in(
+                    older,
+                    f64::from(vitae),
+                    f64::from(level)
+                ),
+                "vitae {vitae} level {level}"
+            );
+            assert_eq!(
+                player_xp::vitae_cp_pool_threshold_in(VitaeRecovery::EndOfRetail, vitae, level)
+                    .to_bits(),
+                player_xp::vitae_cp_pool_threshold(vitae, level).to_bits(),
+                "the end of retail's is ACE's"
+            );
+        }
+    }
+
+    let mut h = H::new();
+    h.w.era = empyrean_common::era::EraId::Infiltration.rules();
+    h.player(P1, S1, "Tester", 10, 50_000);
+    h.creature(Class::Creature, MONSTER, "Drudge", 100);
+    lm::get_landblock(&mut h.w, lb_id(), false, false);
+    h.place(P1);
+    damage_history::add(&mut h.w, P1, MONSTER, DamageType::Bludgeon, 100);
+    h.set_health(P1, 0);
+    let history = damage_history::of(&h.w, P1);
+    let (last, top) = (history.last_damager(), history.top_damager());
+    dispatch::die::die(&mut h.w, P1, last, top);
+    player_xp::update_xp_vitae(&mut h.w, P1, 402 + 100);
+    assert_eq!(h.o(P1).vitae_cp_pool(), Some(100));
+    let vitae = empyrean_world::world_objects::managers::enchantment_manager::get_vitae(&h.w, P1)
+        .unwrap()
+        .stat_mod_value;
+    assert_eq!(vitae, 0.95 + 0.01, "one point back for 402");
+}
+
+/// Divergence: V405
+/// From level 21 a player drops `level / 10` plus 0 to 2 items before the later halving: 12 plus
+/// the draw at level 126, where the end of retail drops 6 plus it.
+#[test]
+fn an_era_before_the_halving_drops_a_tenth_of_the_level_in_items() {
+    let mut h = H::new();
+    h.w.era = empyrean_common::era::EraId::Infiltration.rules();
+    h.player(P1, S1, "Tester", 1, 0);
+    h.corpse(ObjectGuid::new(0x8000_0100));
+    let corpse = ObjectGuid::new(0x8000_0100);
+    let mut reference = DotNetRandom::new(SEED);
+    let mut count = |level: i32| {
+        h.o_mut(P1).set_level(Some(level));
+        player_death::get_num_items_dropped(&h.w, P1, corpse)
+    };
+    assert_eq!(count(10), 0);
+    assert_eq!(count(20), reference.next_range(0, 2));
+    assert_eq!(count(21), 2 + reference.next_range(0, 3));
+    assert_eq!(count(126), 12 + reference.next_range(0, 3));
+}
+
+/// Divergence: V406
+/// Unassigned experience stops at 4,294,967,295 before Throne of Destiny (a 32-bit count); the
+/// total goes on. The end of retail has no such cap.
+#[test]
+fn an_era_before_throne_of_destiny_caps_unassigned_experience_at_32_bits() {
+    let big = i64::from(u32::MAX) - 10;
+    let mut h = H::with_xp_table(XpTable {
+        level_xp: vec![0, 0, 1000, 2500, 20_000_000_000],
+        level_credits: vec![0, 0, 1, 1, 1],
+        ..xp_table()
+    });
+    h.player(P1, S1, "Tester", 3, 5_000_000_000);
+    h.o_mut(P1)
+        .set_property(PropertyInt64::AvailableExperience, big);
+    player_xp::update_xp_and_level(&mut h.w, P1, 1000, XpType::Kill);
+    assert_eq!(h.o(P1).available_experience(), Some(big + 1000), "no cap");
+
+    h.w.era = empyrean_common::era::EraId::Infiltration.rules();
+    h.o_mut(P1)
+        .set_property(PropertyInt64::AvailableExperience, big);
+    player_xp::update_xp_and_level(&mut h.w, P1, 1000, XpType::Kill);
+    let o = h.o(P1);
+    assert_eq!(o.available_experience(), Some(i64::from(u32::MAX)));
+    assert_eq!(
+        o.total_experience(),
+        Some(5_000_002_000),
+        "the total is not capped"
     );
 }
 

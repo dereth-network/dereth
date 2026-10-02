@@ -23,6 +23,9 @@ use crate::rng;
 pub struct ChanceTable<T: Clone + 'static> {
     entries: Cow<'static, [(T, f32)]>,
     verified: AtomicBool,
+    /// Not ACE: the chances are weights, divided by their sum when rolled (ClassicACE's
+    /// `ChanceTableType.Weight`, the earlier eras' tables).
+    weighted: bool,
 }
 
 impl<T: Clone + 'static> ChanceTable<T> {
@@ -31,6 +34,18 @@ impl<T: Clone + 'static> ChanceTable<T> {
         Self {
             entries: Cow::Borrowed(entries),
             verified: AtomicBool::new(false),
+            weighted: false,
+        }
+    }
+
+    /// Not ACE: a table of weights (ClassicACE's `ChanceTableType.Weight`): each entry's chance is
+    /// its weight over the sum of the weights, and the sum need not be 1.
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/Entity/ChanceTable.cs
+    pub const fn new_weighted(entries: &'static [(T, f32)]) -> Self {
+        Self {
+            entries: Cow::Borrowed(entries),
+            verified: AtomicBool::new(false),
+            weighted: true,
         }
     }
 
@@ -39,7 +54,13 @@ impl<T: Clone + 'static> ChanceTable<T> {
         Self {
             entries: Cow::Owned(entries),
             verified: AtomicBool::new(false),
+            weighted: false,
         }
+    }
+
+    /// Whether the chances are weights ([`Self::new_weighted`]).
+    pub fn is_weighted(&self) -> bool {
+        self.weighted
     }
 
     /// The `(result, chance)` entries in order.
@@ -63,6 +84,11 @@ impl<T: Clone + DotNetString + 'static> ChanceTable<T> {
     /// as ACE does. Runs once per table, on its first roll.
     // ACE: ChanceTable.VerifyTable
     fn verify_table(&self) {
+        if self.weighted {
+            // weights need not add up to anything
+            self.verified.store(true, Ordering::Relaxed);
+            return;
+        }
         let mut total = Decimal::ZERO;
 
         for entry in self.entries.iter() {
@@ -100,8 +126,19 @@ impl<T: Clone + DotNetString + 'static> ChanceTable<T> {
         // ThreadSafeRandom.Next(float, float) returns a double; the comparison below is in double.
         let rng = rng::next_double(0.0, 1.0);
 
+        // Not ACE: a weight table's running total is of each weight over their sum (ClassicACE).
+        let total_weight = if self.weighted {
+            self.entries.iter().map(|e| e.1).sum::<f32>()
+        } else {
+            1.0
+        };
+
         for entry in self.entries.iter() {
-            total += entry.1;
+            total += if self.weighted {
+                entry.1 / total_weight
+            } else {
+                entry.1
+            };
 
             if rng < f64::from(total) && total >= quality_mod {
                 return entry.0.clone();

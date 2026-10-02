@@ -4,6 +4,7 @@
 //! record carries times sworn.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1024,6 +1025,30 @@ fn cheleth_passes_through_per_event() {
         tithe_after(&mut w, a, V, &[4_384_998, 4_631_968], false),
         97_141
     );
+}
+
+/// Divergence: V396
+/// In an era whose patrons may not be of lower level, Vass (20) cannot swear to Cora (10) and is
+/// told so, while swearing to Mona (50) still works; at the end of retail the lower patron is
+/// ACE's success.
+#[test]
+fn an_era_refuses_an_oath_to_a_lower_level_patron() {
+    let mut w = world();
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    let sent = capture(&mut w, |w| {
+        pa::swear_allegiance(w, guid(V), C, true, false);
+    });
+    assert!(chats(&sent, SV)
+        .iter()
+        .any(|c| c.contains("You cannot swear to a lower level character.")));
+    assert_eq!(errors(&sent, SV), [we(WeenieError::AllegianceIllegalLevel)]);
+    assert_eq!(allegiance_of(&w, V), None);
+    swear(&mut w, V, M);
+    assert!(allegiance_of(&w, V).is_some(), "a higher patron is fine");
+
+    let mut w = world();
+    swear(&mut w, V, C);
+    assert!(allegiance_of(&w, V).is_some(), "ACE's rule: any level");
 }
 
 /// The hierarchy record carries the tracked times; swearing starts them at zero and a new oath

@@ -4,6 +4,7 @@
 //! database paths, files created/reopened.
 //! Fixture: isolated configuration paths and synthetic server state.
 
+use empyrean_common::era::EraExt as _;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::sync::Arc;

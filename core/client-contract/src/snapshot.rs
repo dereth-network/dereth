@@ -58,7 +58,7 @@ use crate::statmgmt::XpHeader;
 use crate::view::{
     AllegianceRoster, AppraisalView, AttributeAdvancement, BarberView, BookView, CharacterInfo,
     CharacterTitles, CombatBar, ComponentCategory, ContractEntry, EffectEntry, EmptyGameView,
-    FellowshipView, FriendEntry, GameView, HouseDataView, HousePurchaseView, MiniGameView,
+    EraView, FellowshipView, FriendEntry, GameView, HouseDataView, HousePurchaseView, MiniGameView,
     PkStatus, PlayerOption, RadarEntry, SelectionQueryFacts, ShopView, SkillAdvancement,
     SkillEntry, SlotDecoration, SlumlordView, SpellEntry, SpellExamineView, SquelchEntry,
     TradeView, VitaeDisplay, Vital,
@@ -165,6 +165,8 @@ pub struct GameSnapshot {
     // ---- the nullary reads, one field each --------------------------------------------------
     /// [`GameView::player`].
     pub player: Option<ObjectId>,
+    /// [`GameView::era`].
+    pub era: Option<EraView>,
     /// [`GameView::selection`].
     pub selection: Option<ObjectId>,
     /// [`GameView::selected_object`].
@@ -499,6 +501,7 @@ impl GameSnapshot {
         }
 
         Self {
+            era: view.era().cloned(),
             player: view.player(),
             selection: view.selection(),
             selected_object: view.selected_object(),
@@ -591,6 +594,9 @@ impl GameSnapshot {
 /// The ten open-keyed methods listed in the module header are not overridden and therefore answer
 /// with the trait's own default body.
 impl GameView for GameSnapshot {
+    fn era(&self) -> Option<&EraView> {
+        self.era.as_ref()
+    }
     fn player(&self) -> Option<ObjectId> {
         self.player
     }

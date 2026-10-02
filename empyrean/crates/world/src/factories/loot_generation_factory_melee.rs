@@ -74,8 +74,25 @@ pub(crate) fn mutate_melee_weapon(
         weapon_skill = melee_table_skill(WeenieClassName(wo.weenie_class_id().cast_signed()));
     }
 
+    // DIVERGE: a weapon from an earlier era's tables (`LootRules::Infiltration`) takes that era's
+    // scripts, named by its kind (ClassicACE's `GetDamageScript` and `GetOffenseDefenseScript` at
+    // its Infiltration ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory_Melee.cs
+    let era_scripts = roll.era_script.map(|script| {
+        (
+            format!("MeleeWeapons.Damage_WieldDifficulty_DamageVariance.Infiltration.{script}.txt"),
+            format!(
+                "MeleeWeapons.WeaponOffense_WeaponDefense.Infiltration.{}_offense_defense.txt",
+                empyrean_tables::logic::era::infiltration::script_short_name(script)
+            ),
+        )
+    });
+
     // mutate Damage / WieldDifficulty / Variance
-    let script_name = get_damage_script(weapon_skill, roll.weapon_type);
+    let script_name = era_scripts.as_ref().map_or_else(
+        || get_damage_script(weapon_skill, roll.weapon_type),
+        |s| s.0.clone(),
+    );
 
     let mutation_filter = mutation_cache::get_mutation(w, &script_name)
         .expect("NullReferenceException: no mutation script");
@@ -83,7 +100,10 @@ pub(crate) fn mutate_melee_weapon(
     mutation_filter.try_mutate(wo, profile.tier);
 
     // mutate WeaponOffense / WeaponDefense
-    let script_name = get_offense_defense_script(weapon_skill, roll.weapon_type);
+    let script_name = era_scripts.as_ref().map_or_else(
+        || get_offense_defense_script(weapon_skill, roll.weapon_type),
+        |s| s.1.clone(),
+    );
 
     let mutation_filter = mutation_cache::get_mutation(w, &script_name)
         .expect("NullReferenceException: no mutation script");
@@ -122,8 +142,12 @@ pub(crate) fn mutate_melee_weapon(
     mutate_burden(wo, profile, true);
 
     // missile / magic defense
-    wo.set_weapon_missile_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
-    wo.set_weapon_magic_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+    // DIVERGE: an earlier era's weapon rolls neither (ClassicACE: "Infiltration data has these in
+    // the offense_defense.txt files").
+    if roll.era_script.is_none() {
+        wo.set_weapon_missile_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+        wo.set_weapon_magic_defense(missile_magic_defense::roll(profile.tier).map(f64::from));
+    }
 
     // spells
     if is_magical {

@@ -56,7 +56,7 @@ pub trait AssetSource {
 /// Which of the two dat sets a file or record belongs to. The container layout, and the layout of
 /// a few record types, changed once, with the file renaming at Throne of Destiny (June 2005):
 /// `portal.dat` and `cell.dat` before it, the four `client_*.dat` files from it on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ContainerEra {
     /// `portal.dat` and `cell.dat`: a 44-byte header at `0x12C` holding the whole file's iteration,
     /// no transaction journal, no data set or version stamp, and 12-byte directory entries (id,
@@ -64,6 +64,7 @@ pub enum ContainerEra {
     PreTod,
     /// The `client_*.dat` files: the 80-byte header at `0x140`, the journal at `0x100`, 24-byte
     /// directory entries and the `0xFFFF0001` iteration list.
+    #[default]
     Tod,
 }
 

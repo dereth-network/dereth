@@ -727,6 +727,13 @@ impl DamageEvent {
             self.damage_source,
         );
 
+        // DIVERGE: the Unarmed Combat skill's damage (`EraFormulas::older_melee_damage`).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Entity/DamageEvent.cs
+        base_damage_mod.base_damage.max_damage = base_damage_mod
+            .base_damage
+            .max_damage
+            .wrapping_add(creature_combat::get_unarmed_skill_damage_bonus(w, attacker));
+
         // some quest bows can have built-in damage bonus
         if let Some(weapon) = self
             .weapon
@@ -766,7 +773,15 @@ impl DamageEvent {
             return;
         };
 
-        let base_damage_mod = monster_melee::get_base_damage(w, attacker, &part);
+        let mut base_damage_mod = monster_melee::get_base_damage(w, attacker, &part);
+
+        // DIVERGE: the Unarmed Combat skill's damage (`EraFormulas::older_melee_damage`).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Entity/DamageEvent.cs
+        base_damage_mod.base_damage.max_damage = base_damage_mod
+            .base_damage
+            .max_damage
+            .wrapping_add(creature_combat::get_unarmed_skill_damage_bonus(w, attacker));
+
         self.base_damage = ThreadSafeRandom::next_float(
             base_damage_mod.min_damage(),
             base_damage_mod.max_damage(),

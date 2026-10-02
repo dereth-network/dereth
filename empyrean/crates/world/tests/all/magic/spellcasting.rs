@@ -1,7 +1,9 @@
 //! Vectors: fixtures/vectors/spellcasting/
 //! Player cast flow (Player_Magic, Player_Spells, MagicState) and SpellProjectile follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
+//! Divergence: V403
 
+use empyrean_common::era::EraExt as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1902,4 +1904,72 @@ mod mana_and_cast_records {
         assert_eq!(chats_to(&msgs, sa), ["Your Ring is out of Mana."]);
         assert!(!h.w.objects.get(item).unwrap().is_affecting());
     }
+}
+
+/// Divergence: V403
+/// The same bolt, with the same draws, does half its base damage from a creature (not a player)
+/// in an era whose creature projectiles are halved, and the same from a player.
+#[test]
+fn an_era_halves_a_creatures_war_projectile() {
+    let mut h = H::new();
+    h.player(100.0, 100.0);
+    h.target(100.0, 110.0);
+    h.w.objects
+        .get_mut(PLAYER)
+        .unwrap()
+        .set_spell_components_required(false);
+    let _ = take_local();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        MONSTER.full(),
+        FLAME_BOLT,
+        None,
+    );
+    let projectile = |w: &World| {
+        let lb = w
+            .landblock_manager
+            .landblocks
+            .get(LandblockId::new(LB | 0xFFFF))
+            .expect("the landblock");
+        lb.get_all_world_objects_for_diagnostics()
+            .into_iter()
+            .find(|&g| {
+                w.objects
+                    .get(g)
+                    .is_some_and(WorldObject::is_spell_projectile)
+            })
+    };
+    assert!(h.run_until(1.0, |h| projectile(&h.w).is_some()));
+    let sp = projectile(&h.w).unwrap();
+
+    let hit = |w: &mut World, source: ObjectGuid, target: ObjectGuid, seed: u64| {
+        ThreadSafeRandom::seed(seed);
+        let (mut critical, mut defended, mut overpower) = (false, false, false);
+        spell_projectile::calculate_damage(
+            w,
+            sp,
+            Some(source),
+            target,
+            &mut critical,
+            &mut defended,
+            &mut overpower,
+        )
+        .map(|d| (d, critical))
+    };
+    let mut halved = 0;
+    for seed in 1..40u64 {
+        let eor_creature = hit(&mut h.w, MONSTER, PLAYER, seed);
+        let eor_player = hit(&mut h.w, PLAYER, MONSTER, seed);
+        h.w.era = empyrean_common::era::EraId::Infiltration.rules();
+        let old_creature = hit(&mut h.w, MONSTER, PLAYER, seed);
+        let old_player = hit(&mut h.w, PLAYER, MONSTER, seed);
+        h.w.era = empyrean_common::era::EraId::Eor.rules();
+        assert_eq!(old_player, eor_player, "a player's bolt is unchanged");
+        if let (Some((eor, false)), Some((old, false))) = (eor_creature, old_creature) {
+            assert!(old < eor && old >= eor * 0.4, "seed {seed}: {old} of {eor}");
+            halved += 1;
+        }
+    }
+    assert!(halved > 0, "some creature bolt landed without a critical");
 }

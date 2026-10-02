@@ -168,7 +168,8 @@ statement is meant to be falsifiable, and each page says where its claims come f
 ## License
 
 Everything outside `empyrean/` is MIT; see [`LICENSE`](LICENSE). `empyrean/`, the server, is a port
-of ACE and is therefore **AGPL-3.0-only**; see [`empyrean/LICENSE`](empyrean/LICENSE).
+of ACE (its earlier eras' rules of [ClassicACE](https://github.com/bDekaru/ClassicACE), bDekaru's
+fork of ACE) and is therefore **AGPL-3.0-only**; see [`empyrean/LICENSE`](empyrean/LICENSE).
 
 **Dereth is an independent project, not affiliated with or endorsed by Microsoft, Turbine or any current rights holder.**
 

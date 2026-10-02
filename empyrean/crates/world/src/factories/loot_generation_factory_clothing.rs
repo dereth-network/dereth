@@ -165,7 +165,7 @@ fn assign_armor_level(
         return false;
     }
 
-    let Some(script_name) = get_mutation_script_armor_level(wo, roll) else {
+    let Some(script_name) = get_mutation_script_armor_level(wo, roll, w.era.loot_rules) else {
         log::error!(
             "AssignArmorLevel({}, {}, {}) - unknown item type",
             wo_name(wo),
@@ -197,7 +197,27 @@ fn assign_armor_level(
 }
 
 // ACE: LootGenerationFactory.GetMutationScript_ArmorLevel
-fn get_mutation_script_armor_level(wo: &WorldObject, roll: &TreasureRoll) -> Option<&'static str> {
+fn get_mutation_script_armor_level(
+    wo: &WorldObject,
+    roll: &TreasureRoll,
+    loot_rules: empyrean_common::era::LootRules,
+) -> Option<&'static str> {
+    // DIVERGE: the Infiltration era's armour levels are its own scripts: covenant armour and
+    // shields, other shields, and one for every other piece (ClassicACE's
+    // `GetMutationScript_ArmorLevel` at its Infiltration ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory_Clothing.cs
+    if loot_rules == empyrean_common::era::LootRules::Infiltration {
+        return Some(match (roll.armor_type, wo.is_shield()) {
+            (TreasureArmorType::Covenant, true) => {
+                "ArmorLevel.Infiltration.covenant_shield_level.txt"
+            }
+            (TreasureArmorType::Covenant, false) => {
+                "ArmorLevel.Infiltration.covenant_armor_level.txt"
+            }
+            (_, true) => "ArmorLevel.Infiltration.shield_level.txt",
+            (_, false) => "ArmorLevel.Infiltration.armor_level.txt",
+        });
+    }
     match roll.armor_type {
         TreasureArmorType::Covenant => {
             return Some(if wo.is_shield() {
@@ -287,11 +307,24 @@ fn try_mutate_armor_mod_vs_type(
 
 /// Adds `AL^2 / 10 * rng(min(bulk, size), max(bulk, size))`.
 // ACE: LootGenerationFactory.MutateValue_Armor
-pub(crate) fn mutate_value_armor(wo: &mut WorldObject) {
+pub(crate) fn mutate_value_armor(
+    wo: &mut WorldObject,
+    loot_rules: empyrean_common::era::LootRules,
+) {
     let bulk_mod = wo.bulk_mod().unwrap_or(1.0);
     let size_mod = wo.size_mod().unwrap_or(1.0);
 
     let armor_level = wo.armor_level().unwrap_or(0);
+
+    // DIVERGE: the Infiltration era's armour adds its armour level times its bulk and size to its
+    // value, with no draw (ClassicACE's `MutateValue_Armor` outside its end-of-retail ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory_Clothing.cs
+    if loot_rules == empyrean_common::era::LootRules::Infiltration {
+        let add: i32 = (f64::from(armor_level) * bulk_mod * size_mod).cs_cast();
+        let value = wo.value().map(|v| v.wrapping_add(add));
+        wo.set_value(value);
+        return;
+    }
 
     // from the py16 mutation scripts
     //wo.Value += (int)(armorLevel * armorLevel / 10.0f * bulkMod * sizeMod);

@@ -4,6 +4,7 @@
 //! login gift once.
 //! Fixture: a virtual-time TestServer, isolated stores and synthetic dats.
 
+use empyrean_common::era::EraExt as _;
 use std::sync::Arc;
 
 use dereth_primitives::ObjectId;
@@ -717,6 +718,71 @@ fn a_first_login_receives_the_throne_of_destiny_gift_once() {
     // TryCreatePreOrderItem again (a later login): the property is set, nothing is added
     empyrean_world::world_objects::player_networking::handle_pre_order_items(&mut ts.world, player);
     assert_eq!(gifts(&ts).len(), 1);
+}
+
+/// Divergence: V398
+/// In an era before the Throne of Destiny gifts a first login receives none.
+#[test]
+fn a_first_login_in_an_era_without_the_gifts_receives_none() {
+    const GIFT: u32 = 31000; // W_GEMACTDPURCHASEREWARDARMOR_CLASS
+    let (mut ts, id, _) = server();
+    ts.world.era = empyrean_common::era::EraId::Infiltration.rules();
+    ts.world.content = Arc::new(
+        content().weenie(
+            Weenie::new(GIFT, "Gift", WeenieType::Generic)
+                .with_string(PropertyString::Name, "Gift")
+                .with_did(PropertyDataId::Setup, land::TEST_SETUP),
+        ),
+    );
+    enter_world(&mut ts, id);
+    let player = ObjectGuid::new(PLAYER);
+    assert!(
+        empyrean_world::world_objects::container::get_inventory_items_of_wcid(
+            &ts.world, player, GIFT,
+        )
+        .is_empty()
+    );
+    let p = ts.world.objects.get(player).expect("in the world");
+    assert_eq!(p.get_property(PropertyBool::ActdReceivedItems), None);
+}
+
+/// Divergence: V410
+/// A first login opens the Welcome Letter in the pack (`Writing_BookOpen`, `0x00B4`) and shows no
+/// training-hall popup (`Communication_PopUpString`, `0x0004`) in an era whose first login reads
+/// the letter (the era's starter gear gives it); at the end of retail the popup, and no book.
+#[test]
+fn a_first_login_in_an_era_with_the_welcome_letter_opens_it() {
+    const LETTER: u32 = 0x8000_0020;
+    for (era, opened) in [
+        (empyrean_common::era::EraId::Eor, false),
+        (empyrean_common::era::EraId::Infiltration, true),
+    ] {
+        let mut letter = item(LETTER, WeenieType::Book, Some(PLAYER), None);
+        letter.weenie_class_id = 1077;
+        letter.properties_book = Some(empyrean_entity::models::PropertiesBook {
+            max_num_pages: 1,
+            max_num_chars_per_page: 1000,
+        });
+        let (mut ts, id, _) = seeded_server(
+            Some(pos(0xA9B4_0019, 84.0, 7.1, 94.005)),
+            None,
+            vec![letter],
+            0,
+        );
+        ts.world.era = era.rules();
+        let from = enter_seeded(&mut ts, id);
+        let labels: Vec<String> = sent_order(&ts, id, from).iter().map(|m| label(m)).collect();
+        assert_eq!(
+            labels.iter().any(|l| l == "ev 00B4"),
+            opened,
+            "{era}: {labels:?}"
+        );
+        assert_eq!(
+            labels.iter().any(|l| l == "ev 0004"),
+            !opened,
+            "{era}: {labels:?}"
+        );
+    }
 }
 
 #[cfg(feature = "real-content")]

@@ -98,7 +98,8 @@ pub fn death_treasure(
     this: ObjectGuid,
 ) -> Option<Arc<empyrean_content::models::world::treasure_death::TreasureDeath>> {
     let death_treasure_type = obj(w, this).death_treasure_type()?;
-    w.content.get_cached_death_treasure(death_treasure_type)
+    // DIVERGE: the era's profile for a creature (the Infiltration era scales its chances by tier).
+    crate::factories::loot_generation_factory::era_death_treasure(w, death_treasure_type, this)
 }
 
 // ACE: Creature.OnDeath
@@ -870,7 +871,11 @@ pub fn create_corpse(
 
     obj_mut(w, corpse).remove_property(PropertyInt::Value);
 
-    if let Some(killer) = killer.filter(|_| obj(w, this).can_generate_rare()) {
+    // DIVERGE: an era without rares (`EraFeatures::pre_order_items_and_rares`) drops none
+    // (ClassicACE's `Die` outside its end-of-retail ruleset).
+    if let Some(killer) = killer
+        .filter(|_| w.era.features.pre_order_items_and_rares && obj(w, this).can_generate_rare())
+    {
         crate::world_objects::corpse::try_generate_rare(w, corpse, killer);
     }
 

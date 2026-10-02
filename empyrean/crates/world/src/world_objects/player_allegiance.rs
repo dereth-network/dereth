@@ -835,6 +835,19 @@ pub fn is_pledgable(w: &mut World, this: ObjectGuid, target: ObjectGuid) -> bool
         return false;
     }
 
+    // DIVERGE: an era in which a patron could not be of lower level
+    // (`EraFeatures::swear_to_lower_level` off) refuses, as the commented-out check below would
+    // (ClassicACE's `IsPledgable` outside its end-of-retail ruleset).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Allegiance.cs
+    if !w.era.features.swear_to_lower_level
+        && w.objects.get(target).and_then(|o| o.level()).unwrap_or(0)
+            < w.objects.get(this).and_then(|o| o.level()).unwrap_or(0)
+    {
+        send_chat(w, this, "You cannot swear to a lower level character.");
+        send_error(w, this, WeenieError::AllegianceIllegalLevel);
+        return false;
+    }
+
     // patron must currently be greater or equal level
     /*if (target.Level < Level)
     {

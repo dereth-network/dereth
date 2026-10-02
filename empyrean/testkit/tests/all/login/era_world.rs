@@ -10,16 +10,16 @@
 #[cfg(feature = "real-content")]
 mod era_real {
     //! Divergence: V386, V389, V391, V392
-    use empyrean_common::era::StartPositions;
+    use empyrean_common::era::{EraExt as _, StartPositions};
     use empyrean_content::WorldDatabase;
 
     use crate::support::real_content_bot::real::*;
 
     /// A melee skill, Melee Defense, Healing, Jump and Run: the melee skill is the era's (Heavy
-    /// Weapons at the end of retail, Sword before the 2012 consolidation).
+    /// Weapons at the end of retail, Unarmed Combat before the 2012 consolidation).
     fn skills(content: &PackContent) -> [usize; 5] {
         let melee = if content.era().rules().creation_skills.is_some() {
-            11
+            13
         } else {
             44
         };
@@ -59,13 +59,43 @@ mod era_real {
             None,
             "full size"
         );
-        let sword = p
+        let unarmed = p
             .skills()
-            .get(&empyrean_entity::enums::Skill::Sword)
+            .get(&empyrean_entity::enums::Skill::UnarmedCombat)
             .map(|s| s.advancement_class(p));
         assert_eq!(
-            sword,
+            unarmed,
             Some(empyrean_entity::enums::SkillAdvancementClass::Trained)
+        );
+
+        // A drudge skulker of the era's world, fought unarmed on the older cells until a blow
+        // lands: the attack resolves through the old Unarmed Combat skill.
+        let mut l = l;
+        let drudge = create_a_drudge(&mut l);
+        let full = l.health(drudge).expect("the drudge");
+        l.action(&CombatChangeCombatMode {
+            combat_mode: u32::try_from(CombatMode::Melee.0).expect("a mode"),
+        });
+        l.advance(1.0);
+        let mark = l.mark();
+        let start = l.ts.seconds();
+        while l.health(drudge).is_some_and(|h| h == full) {
+            assert!(
+                l.ts.seconds() - start < 60.0,
+                "a blow lands within a minute"
+            );
+            let at = l.location_of(drudge);
+            l.walk_toward(&at, 1.0);
+            l.action(&CombatTargetedMeleeAttack {
+                target: ObjectId(drudge.full()),
+                attack_height: 2,
+                power_level: 0.5,
+            });
+            l.advance(0.5);
+        }
+        assert!(
+            !l.since::<AttackerNotification>(mark).is_empty(),
+            "the character's hit lands (AttackerNotification)"
         );
     }
 

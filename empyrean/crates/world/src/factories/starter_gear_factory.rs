@@ -11,6 +11,7 @@
 //! The configuration types are ACE's `Source/ACE.Server/Entity/Starter*.cs` classes. The types
 //! are defined here, next to their only user, and can move to `entity/starter_*.rs` unchanged.
 
+mod starter_gear_infiltration_json;
 mod starter_gear_json;
 
 /// ACE's `StarterGearConfiguration` (`Source/ACE.Server/Entity/StarterGearConfiguration.cs`).
@@ -89,4 +90,24 @@ static CONFIG: StarterGearConfiguration = StarterGearConfiguration {
 #[must_use]
 pub fn get_starter_gear_configuration() -> Option<&'static StarterGearConfiguration> {
     Some(&CONFIG)
+}
+
+/// Not ACE: ClassicACE's `starterGear.infiltration.json`, compiled in the same way.
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/StarterGearFactory.cs
+static INFILTRATION_CONFIG: StarterGearConfiguration = StarterGearConfiguration {
+    skills: starter_gear_infiltration_json::SKILLS,
+};
+
+/// Not ACE: the configuration of the era's starter-gear table (`EraRules::starter_gear`):
+/// ACE's for the end of retail, ClassicACE's Infiltration table for February 2005 (the file
+/// ClassicACE's `LoadConfigFromResource` picks for its older rulesets).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/StarterGearFactory.cs
+#[must_use]
+pub fn get_starter_gear_configuration_for(
+    set: empyrean_common::era::StarterGearSet,
+) -> &'static StarterGearConfiguration {
+    match set {
+        empyrean_common::era::StarterGearSet::EndOfRetail => &CONFIG,
+        empyrean_common::era::StarterGearSet::Infiltration => &INFILTRATION_CONFIG,
+    }
 }

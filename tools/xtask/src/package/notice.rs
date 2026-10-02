@@ -111,6 +111,15 @@ ACE's behaviour and names ACE's source file above each ported file; where it del
 differently, DIVERGENCES.md says so, and ACE-BUGS.md lists the ACE defects it keeps on purpose.
 
 
+CLASSICACE
+
+The rules of the earlier eras a world can play (February 2005's character creation, combat and
+death formulas, starter gear and first login) are ported from ClassicACE, bDekaru's fork of ACE,
+https://github.com/bDekaru/ClassicACE, copyright its contributors, licensed under the GNU Affero
+General Public License v3.0. Each such rule names ClassicACE's source file beside it, and
+DIVERGENCES.md lists them as its era rows.
+
+
 LIFESTONED DATA MODEL
 
 The server reads and writes weenie JSON in the Lifestoned data model's format (Lifestoned.DataModel,

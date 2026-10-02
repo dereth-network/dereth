@@ -13,9 +13,12 @@
 //! - [`house_cell`]: `Entity/HouseCell.cs` (generated).
 //! - [`logic`]: the methods of the table classes, hand-ported.
 //! - [`entity`]: `ChanceTable` and `GemResult`, the element types the tables are made of.
+//! - [`era`]: the loot tables of the earlier eras, generated from ClassicACE's source, and
+//!   `logic::era` rolls them.
 
 pub mod entity;
 pub mod enums;
+pub mod era;
 #[rustfmt::skip]
 pub mod house_cell;
 pub mod logic;

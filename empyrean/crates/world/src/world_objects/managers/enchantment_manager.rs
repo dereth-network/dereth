@@ -1413,6 +1413,31 @@ pub fn get_weapon_speed_mod(w: &World, this: ObjectGuid) -> i32 {
     aura_speed_mod.wrapping_add(speed_mod)
 }
 
+/// Not ACE: the product of the multiplicative weapon-speed enchantments on this object
+/// (Rockslide and its kin), 1 when there are none. ACE's weapon speed reads only the additive
+/// ones, so a multiplicative one changes nothing there.
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Managers/EnchantmentManager.cs
+#[must_use]
+pub fn get_weapon_multiplicative_speed_mod(w: &World, this: ObjectGuid) -> f32 {
+    let enchantments = get_enchantments_top_layer_key(
+        w,
+        this,
+        EnchantmentTypeFlags::Multiplicative,
+        u32::from(PropertyInt::WeaponTime.0),
+        false,
+    );
+
+    let mut modifier = 1.0f32;
+    for enchantment in enchantments
+        .into_iter()
+        .filter(|e| (e.stat_mod_type & EnchantmentTypeFlags::Skill).0 == 0)
+    {
+        modifier *= enchantment.stat_mod_value;
+    }
+
+    modifier
+}
+
 /// Returns the defense skill modifier, ie. Defender.
 // ACE: EnchantmentManager.GetDefenseMod
 #[must_use]

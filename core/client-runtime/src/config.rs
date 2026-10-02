@@ -208,6 +208,10 @@ pub struct Config {
     /// interface and whatever else the older files do not have. `None`: the world is
     /// [`Self::dat_dir`]'s.
     pub world_dat_dir: Option<PathBuf>,
+    /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
+    /// launcher reads it from the world's status. It wins over the era read from the data files;
+    /// `None`: the data files decide.
+    pub era: Option<dereth_primitives::EraId>,
 
     // ---- the static scene ----
     /// `--landblock <hex>`: which landblock the camera starts over. Holtburg by default, the
@@ -414,6 +418,7 @@ impl Default for Config {
             console: true,
             dat_dir: default_dat_dir(),
             world_dat_dir: None,
+            era: None,
         }
     }
 }
@@ -563,6 +568,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "world-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "era",
         short: None,
         arity: Arity::Required,
     },
@@ -1189,6 +1199,12 @@ impl Config {
             "log-spans" => self.log_spans = true,
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "world-dat-dir" => self.world_dat_dir = Some(PathBuf::from(v)),
+            "era" => {
+                self.era = Some(
+                    dereth_primitives::EraId::parse(v)
+                        .ok_or_else(|| ConfigError::new(format!("unknown --era {v:?}")))?,
+                );
+            }
             "landblock" => {
                 self.landblock = u16::from_str_radix(v.trim_start_matches("0x"), 16)
                     .map_err(|_| ConfigError::new(format!("bad --landblock value {v:?}")))?;
@@ -1614,6 +1630,15 @@ mod tests {
         assert_eq!(c.dat_dir, PathBuf::from("eor"));
         assert_eq!(c.world_dat_dir, Some(PathBuf::from("feb2005")));
         assert_eq!(parse(&[]).expect("parses").world_dat_dir, None);
+    }
+
+    /// `--era` names the era the server's world plays; an unknown name is refused.
+    #[test]
+    fn the_era_switch_names_the_servers_era() {
+        let c = parse(&["--era", "Infiltration"]).expect("parses");
+        assert_eq!(c.era, Some(dereth_primitives::EraId::Infiltration));
+        assert_eq!(parse(&[]).expect("parses").era, None);
+        assert!(parse(&["--era", "tod"]).is_err());
     }
 
     // Oracle: the complete supported switch table and its per-switch behavior.

@@ -1092,6 +1092,7 @@ fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
         "https://github.com/dereth-network/dereth/archive/refs/tags/empyrean-v0.1.0.zip",
         "no Asheron's Call client files",
         "https://github.com/ACEmulator/ACE",
+        "https://github.com/bDekaru/ClassicACE",
         "Copyright (c) 2018 Scribble",
         "public domain",
         "  log 0.4.22 (MIT OR Apache-2.0)",

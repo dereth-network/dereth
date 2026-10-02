@@ -2,6 +2,7 @@
 //! PropertyManager default tables and ConfigurationEntry behaviour replay ACE properties vectors.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::time::Duration;
 
 use empyrean_common::clock::ClockSnapshot;
@@ -379,6 +380,27 @@ fn database_rows_override_defaults_and_bring_their_description() {
         (p.item, p.description.as_deref()),
         (7, Some("from the shard"))
     );
+}
+
+/// Divergence: V399
+/// An era's own defaults replace ACE's, and a value in the shard's configuration still wins.
+#[test]
+fn an_eras_property_defaults_replace_aces_and_the_database_still_wins() {
+    let config = shard_config_handle(Box::new(MemShard::new()));
+    db(&config).add_bool("allow_fast_chug", true, None);
+    let mut w = world_at(1000);
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    pm::install_shard_config(&mut w, config.clone());
+    pm::initialize(&mut w, true);
+    let b = |w: &World, k: &str| pm::get_bool(w, k, false, true).item;
+    assert!(b(&w, "item_dispel"));
+    assert!(!b(&w, "corpse_destroy_pyreals"));
+    assert!(b(&w, "vendor_shop_uses_generator"));
+    assert!(b(&w, "allow_fast_chug"), "the shard's own value");
+
+    let w = started(&shard_config_handle(Box::new(MemShard::new())));
+    assert!(!b(&w, "item_dispel"));
+    assert!(b(&w, "corpse_destroy_pyreals"));
 }
 
 #[test]

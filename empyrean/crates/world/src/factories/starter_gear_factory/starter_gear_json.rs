@@ -1,8 +1,8 @@
 // Ported from ACE (ACEmulator), AGPL-3.0: Source/ACE.Server/Factories/StarterGearFactory.cs
 // @generated from ACE's `Source/ACE.Server/starterGear.json`; do not edit by hand
-//! ACE's `Source/ACE.Server/starterGear.json` as `StarterGearFactory` deserializes it, with
-//! System.Text.Json's rules. Entries are in file order, which is the order
-//! `PlayerFactory.Create` walks them.
+//! ACE's `Source/ACE.Server/starterGear.json`,
+//! as `StarterGearFactory` deserializes it, with System.Text.Json's rules. Entries are in file
+//! order, which is the order `PlayerFactory.Create` walks them.
 
 use super::{StarterGearSkill, StarterHeritage, StarterItem, StarterSpell};
 

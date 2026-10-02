@@ -6,6 +6,7 @@
 //! Fixture: isolated configuration paths and synthetic server state.
 
 use empyrean_common::clock::{ClockSnapshot, VirtualClock};
+use empyrean_common::era::EraExt as _;
 use empyrean_dat::FakeDats;
 use empyrean_server::status_endpoint::{
     cors_header, respond, status_address, DatIterations, StatusSnapshot,

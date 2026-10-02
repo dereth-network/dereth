@@ -805,8 +805,8 @@ pub const MAX_ITEMS_DROPPED: i32 = 14;
 
 // ACE: Player.GetNumItemsDropped
 /// Rolls for the # of items to drop for a player death: none to level 10, 0 or 1 to level 20,
-/// then `level / 20` plus 0 to 2 (one `ThreadSafeRandom.Next` draw from level 11), capped at 14,
-/// less 5 per Clutch of the Miser unless a PK death.
+/// then `level / 20` (the era's divisor) plus 0 to 2 (one `ThreadSafeRandom.Next` draw from
+/// level 11), capped at 14, less 5 per Clutch of the Miser unless a PK death.
 pub fn get_num_items_dropped(w: &World, this: ObjectGuid, corpse: ObjectGuid) -> i32 {
     // take augments into consideration?
 
@@ -821,7 +821,11 @@ pub fn get_num_items_dropped(w: &World, this: ObjectGuid, corpse: ObjectGuid) ->
     }
 
     // level 21+
-    let mut num_items_dropped = level / 20 + ThreadSafeRandom::next(0, 2);
+    // DIVERGE: the era's divisor (`EraFormulas::death_items_level_divisor`): level / 10 before
+    // the later halving, ClassicACE's `GetNumItemsDropped` outside its end-of-retail ruleset.
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Death.cs
+    let divisor = w.era.formulas.death_items_level_divisor;
+    let mut num_items_dropped = level / divisor + ThreadSafeRandom::next(0, 2);
 
     num_items_dropped = num_items_dropped.min(MAX_ITEMS_DROPPED); // is this really a max cap?
 

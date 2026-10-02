@@ -667,7 +667,9 @@ pub fn treasure_generator(
     // it's a DeathTreasure or WieldedTreasure table DID
     // there is no overlap of DIDs between these 2 tables,
     // so they can be searched in any order..
-    let death_treasure = w.content.get_cached_death_treasure(data_id);
+    // DIVERGE: the era's profile for a chest or ground generator (`era_death_treasure`).
+    let death_treasure =
+        crate::factories::loot_generation_factory::era_death_treasure(w, data_id, generator);
     if let Some(death_treasure) = death_treasure {
         // TODO: get randomly generated death treasure from LootGenerationFactory
         //log.DebugFormat("{0}.TreasureGenerator(): found death treasure {1}", _generator.Name, Biota.WeenieClassId);

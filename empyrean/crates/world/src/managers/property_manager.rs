@@ -170,6 +170,11 @@ pub const WORKER_INTERVAL: Duration = Duration::from_millis(300_000);
 pub fn initialize(w: &mut World, load_default_values: bool) {
     if load_default_values {
         default_property_manager::load_default_properties(&w.property_manager);
+        // DIVERGE: the era's own defaults (`EraRules::property_defaults`, ClassicACE's
+        // per-ruleset overrides after the defaults); a value in the database still wins.
+        for (key, value) in w.era.property_defaults {
+            default_property_manager::modify_bool(&w.property_manager, key, *value);
+        }
     }
 
     load_properties_from_db(w);

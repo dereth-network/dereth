@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use empyrean_common::era::EraId;
+use empyrean_common::era::{EraExt, EraId};
 
 use crate::error::PackError;
 use crate::pack::cursor::{decode, Codec, Cursor};

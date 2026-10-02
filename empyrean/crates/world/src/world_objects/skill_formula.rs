@@ -13,6 +13,11 @@ pub const DEFAULT_MOD: f32 = 0.011;
 /// Bows and crossbows.
 pub const BOW_MOD: f32 = 0.008;
 
+/// Not ACE: an unarmed humanoid's Strength factor before the weapon-skill consolidation
+/// (ClassicACE's `UnarmedMod`).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/SkillFormula.cs
+pub const UNARMED_MOD: f32 = 0.004;
+
 // ACE: SkillFormula.ArmorMod
 /// `200.0f / 3.0f`, folded by the C# compiler in `float`.
 pub const ARMOR_MOD: f32 = 200.0 / 3.0;
@@ -24,6 +29,28 @@ pub fn get_attribute_mod(current_skill: i32, is_bow: bool) -> f32 {
     let factor = if is_bow { BOW_MOD } else { DEFAULT_MOD };
 
     math::max_f32(1.0 + current_skill.wrapping_sub(55) as f32 * factor, 1.0)
+}
+
+/// Not ACE: the attribute modifier by the attack's skill, before the weapon-skill consolidation:
+/// bows and crossbows [`BOW_MOD`], an unarmed humanoid [`UNARMED_MOD`], everything else
+/// [`DEFAULT_MOD`] (ClassicACE's `GetAttributeMod` at its Infiltration ruleset).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/SkillFormula.cs
+#[must_use]
+pub fn get_attribute_mod_for_skill(
+    current_attribute: i32,
+    skill: empyrean_entity::enums::Skill,
+) -> f32 {
+    use empyrean_entity::enums::Skill;
+    let factor = match skill {
+        Skill::Bow => BOW_MOD,
+        Skill::UnarmedCombat => UNARMED_MOD,
+        _ => DEFAULT_MOD,
+    };
+
+    math::max_f32(
+        1.0 + current_attribute.wrapping_sub(55) as f32 * factor,
+        1.0,
+    )
 }
 
 // ACE: SkillFormula.CalcArmorMod

@@ -1,8 +1,10 @@
 //! Vectors: fixtures/vectors/inventory/
 //! Burden arithmetic and CheckWieldRequirement replay ACE inventory vectors; move/stack/wield
 //! flows expected from Player_Inventory.cs.
+//! Divergence: V407
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1053,4 +1055,35 @@ fn consuming_part_then_all_of_a_stack() {
     assert_eq!(obj(&w, player()).coin_value(), Some(0));
     assert!(w.objects.get(coins).is_none());
     assert_eq!(obj(&w, player()).encumbrance_val(), Some(0));
+}
+
+/// Divergence: V407
+/// A one-handed sword that may go in the off hand is wielded there at the end of retail and
+/// refused in an era without dual wield.
+#[test]
+fn an_era_without_dual_wield_refuses_a_weapon_in_the_off_hand() {
+    for (era, wielded) in [
+        (empyrean_common::era::EraId::Eor, true),
+        (empyrean_common::era::EraId::Infiltration, false),
+    ] {
+        let mut w = world();
+        w.era = era.rules();
+        let sword = give(&mut w, SWORD);
+        w.objects.get_mut(sword).expect("the sword").set_property(
+            PropertyInt::ValidLocations,
+            i32::try_from((EquipMask::MeleeWeapon | EquipMask::Shield).0).expect("mask"),
+        );
+        start_capture();
+        pi::handle_action_get_and_wield_item(&mut w, player(), sword.full(), EquipMask::Shield);
+        let sent = kinds(&take_sent());
+        assert_eq!(sent.contains(&WIELD_ITEM), wielded, "{era}: {sent:?}");
+        assert_eq!(
+            obj(&w, sword).current_wielded_location() == Some(EquipMask::Shield),
+            wielded,
+            "{era}"
+        );
+        if !wielded {
+            assert_eq!(sent, [SAVE_FAILED]);
+        }
+    }
 }

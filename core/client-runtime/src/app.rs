@@ -1322,6 +1322,11 @@ impl<S: Shell> App<S> {
         }
         // `Attribute2ndTable 0x0E000003`, which the vitals bar needs
         // for every maximum it shows.
+        // The server's era, when the launcher passed it, wins over the one the data files suggest.
+        if let Some(era) = self.cfg.era {
+            self.hud.era.era = era;
+            self.hud.era.era_announced = true;
+        }
         self.hud.load_tables(&self.store, &self.objects.world);
         // The same table computes the maximum a received current vital is clamped to, which the
         // world's quality-update paths apply before storing.
@@ -3588,6 +3593,7 @@ impl<S: Shell> App<S> {
                     // The account's Throne of Destiny flag gates one heritage and one start area
                     // in the character-generation wizard.
                     self.host_state.account_has_tod = set.has_throne_of_destiny != 0;
+                    self.hud.era.account_has_throne_of_destiny = self.host_state.account_has_tod;
                     tracing::info!(
                         "account {:?}, {} character(s): {}",
                         set.account,

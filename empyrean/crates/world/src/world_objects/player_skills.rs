@@ -1010,6 +1010,12 @@ pub fn is_skill_specialized_via_augmentation(player: &WorldObject, skill: Skill)
 /// The Player override: a masterable weapon gets the heritage bonus always under
 /// `universal_masteries` (end of retail), else by heritage and weapon type.
 pub fn player_get_heritage_bonus(w: &World, this: ObjectGuid, weapon: ObjectGuid) -> bool {
+    // DIVERGE: an era without the heritage weapon masteries (`EraFeatures::weapon_masteries`)
+    // gives no heritage bonus (ClassicACE's `GetHeritageBonus` at its older rulesets).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Skills.cs
+    if !w.era.features.weapon_masteries {
+        return false;
+    }
     let Some(weapon_obj) = w.objects.get(weapon) else {
         return false;
     };

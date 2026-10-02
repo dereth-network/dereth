@@ -2527,6 +2527,13 @@ fn do_handle_action_get_and_wield_item(
 
     // Unwield wand/missile launcher/two-handed if dual wielding
     if wielded_location == EquipMask::Shield && !obj(w, item).is_shield() {
+        // DIVERGE: an era without dual wield (`EraFeatures::dual_wield`) refuses a weapon in the
+        // off hand (ClassicACE's `HandleActionGetAndWieldItem` at its Infiltration ruleset).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Inventory.cs
+        if !w.era.features.dual_wield {
+            save_failed(w, this, item.full(), WeenieError::None);
+            return false;
+        }
         let mut main_weapon = creature_equipment::get_equipped_melee_weapon(w, this, true);
 
         if main_weapon.is_some_and(|g| !obj(w, g).is_two_handed()) {

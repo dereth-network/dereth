@@ -21,6 +21,7 @@
 //! transcendental functions, each reproducing a behaviour observable in play.
 
 pub mod asset;
+pub mod era;
 pub mod frame;
 pub mod host;
 pub mod ids;
@@ -40,6 +41,7 @@ pub use asset::{
     AssetError, AssetSource, ContainerEra, MeshData, MeshHandle, TextureData, TextureFormat,
     TextureHandle,
 };
+pub use era::{EraFeatures, EraId, VitaeRecovery};
 pub use host::{HostEncoding, TextSink};
 pub use ids::{CellId, DataId, DataType, LandblockId, ObjectId, PropertyId};
 pub use motion::{MotionPhysicsState, MotionSource};

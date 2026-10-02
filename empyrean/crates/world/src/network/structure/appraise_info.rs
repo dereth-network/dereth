@@ -931,12 +931,17 @@ impl AppraiseInfo {
         self.resist_highlight = shims::resist_mask_helper_get_highlight_mask(w, creature);
         self.resist_color = shims::resist_mask_helper_get_color_mask(w, creature);
 
-        let c = obj(w, creature);
-        if self.success && (c.is_player() || !c.attackable()) {
-            self.armor_levels = Some(armor_level_new(w, creature));
-        }
+        // DIVERGE: an era before assessment showed armour levels and ratings
+        // (`EraFeatures::assessed_armor_and_ratings`) sends neither (ClassicACE's `BuildCreature`).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Network/Structure/AppraiseInfo.cs
+        if w.era.features.assessed_armor_and_ratings {
+            let c = obj(w, creature);
+            if self.success && (c.is_player() || !c.attackable()) {
+                self.armor_levels = Some(armor_level_new(w, creature));
+            }
 
-        self.add_ratings(w, creature);
+            self.add_ratings(w, creature);
+        }
 
         let c = obj(w, creature);
         if self.npc_looks_like_object {

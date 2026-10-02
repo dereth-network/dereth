@@ -7,6 +7,7 @@
 
 #![allow(clippy::cast_possible_truncation)] // `(float)` of a double, as C# writes it
 
+use empyrean_common::dotnet::CsCast;
 use empyrean_entity::enums::{DamageType, PropertyFloat, PropertyInt, Skill, WeenieType};
 use empyrean_entity::ObjectGuid;
 
@@ -132,10 +133,29 @@ impl WeaponProfile {
         let aura_speed_mod = wo.wielder.map_or(0, |wielder| {
             shims::enchantment_manager_get_weapon_speed_mod(w, wielder)
         });
-        self.enchantment_weapon_time = if shims::is_enchantable(w, weapon) {
-            speed_mod.wrapping_add(aura_speed_mod)
+        // DIVERGE: an era whose multiplicative speed enchantments count
+        // (`EraFormulas::multiplicative_weapon_speed`) adds their change to the base speed,
+        // rounded half to even (ClassicACE's `GetWeaponSpeed` at its older rulesets).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Network/Structure/WeaponProfile.cs
+        let mult_speed_bonus: i32 = if w.era.formulas.multiplicative_weapon_speed {
+            let mult_speed_mod =
+                crate::world_objects::managers::enchantment_manager::get_weapon_multiplicative_speed_mod(
+                    w, weapon,
+                );
+            let base = base_speed as f32;
+            let bonus: i32 =
+                empyrean_common::dotnet::math::round(f64::from(base - base * mult_speed_mod))
+                    .cs_cast();
+            bonus.wrapping_neg()
         } else {
+            0
+        };
+        self.enchantment_weapon_time = if shims::is_enchantable(w, weapon) {
             speed_mod
+                .wrapping_add(aura_speed_mod)
+                .wrapping_add(mult_speed_bonus)
+        } else {
+            speed_mod.wrapping_add(mult_speed_bonus)
         };
         base_speed
             .wrapping_add(self.enchantment_weapon_time)

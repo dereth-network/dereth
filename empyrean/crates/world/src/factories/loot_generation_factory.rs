@@ -24,7 +24,7 @@ use std::sync::LazyLock;
 
 use empyrean_common::dotnet::math::round;
 use empyrean_common::dotnet::CsCast;
-use empyrean_common::era::LootTables;
+use empyrean_common::era::{LootRules, LootTables};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::models::world::{TreasureDeath, TreasureMaterialColor};
 use empyrean_dat::file_types::ClothingTable;
@@ -35,6 +35,7 @@ use empyrean_tables::enums::{
     LootBias, TreasureArmorType, TreasureItemCategory, TreasureItemType, TreasureWeaponType,
     WeenieClassName,
 };
+use empyrean_tables::logic::era::infiltration as era_loot;
 use empyrean_tables::logic::tables::{
     armor_type_chance, gem_class_chance, gem_material_chance, material_table,
     spell_level_progression, treasure_profile_item, treasure_profile_magic_item,
@@ -101,6 +102,11 @@ fn loot_generation_factory() {
 // ACE: LootGenerationFactory.CreateRandomLootObjects
 pub fn create_random_loot_objects(w: &mut World, profile: &TreasureDeath) -> Vec<WorldObject> {
     //stopwatch.Value.Restart();
+
+    // DIVERGE: the Infiltration era rolls each group's items its own way (`LootRules`).
+    if w.era.loot_rules == LootRules::Infiltration {
+        return create_random_loot_objects_infiltration(w, profile);
+    }
 
     let mut loot = Vec::new();
 
@@ -176,6 +182,165 @@ pub fn create_random_loot_objects(w: &mut World, profile: &TreasureDeath) -> Vec
     //ServerPerformanceMonitor.AddToCumulativeEvent(ServerPerformanceMonitor.CumulativeEventHistoryType.LootGenerationFactory_CreateRandomLootObjects, stopwatch.Value.Elapsed.TotalSeconds);
 }
 
+/// Not ACE: the Infiltration era's drop: for each of the three groups (items, magic items,
+/// mundane items), a chance of 100 drops the count ACE's does; any other chance is one roll of
+/// `NextInterval(LootQualityMod)` under it, which drops the group's minimum and then rolls again
+/// for each item up to its maximum (ClassicACE's `CreateRandomLootObjects` outside its
+/// end-of-retail ruleset). The era has no mundane add-on.
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory.cs
+fn create_random_loot_objects_infiltration(
+    w: &mut World,
+    profile: &TreasureDeath,
+) -> Vec<WorldObject> {
+    let mut loot = Vec::new();
+    let groups = [
+        (
+            TreasureItemCategory::Item,
+            profile.item_chance,
+            profile.item_min_amount,
+            profile.item_max_amount,
+        ),
+        (
+            TreasureItemCategory::MagicItem,
+            profile.magic_item_chance,
+            profile.magic_item_min_amount,
+            profile.magic_item_max_amount,
+        ),
+        (
+            TreasureItemCategory::MundaneItem,
+            profile.mundane_item_chance,
+            profile.mundane_item_min_amount,
+            profile.mundane_item_max_amount,
+        ),
+    ];
+    for (category, chance, min, max) in groups {
+        let drop = |w: &mut World, loot: &mut Vec<WorldObject>| {
+            if let Some(o) = create_random_loot_objects_of_category(
+                w,
+                profile,
+                category,
+                TreasureItemType::Undef,
+            ) {
+                loot.push(o);
+            }
+        };
+        if chance == 100 {
+            let num_items = ThreadSafeRandom::next(min, max);
+            for _ in 0..num_items {
+                drop(w, &mut loot);
+            }
+        } else if chance > 0 {
+            let under = |draw: f64| draw < f64::from(chance) / 100.0;
+            if under(ThreadSafeRandom::next_interval(profile.loot_quality_mod)) {
+                // the group's minimum, then one more roll for each item up to its maximum
+                for _ in 0..min {
+                    drop(w, &mut loot);
+                }
+                for _ in 0..max.saturating_sub(min) {
+                    if under(ThreadSafeRandom::next_interval(profile.loot_quality_mod)) {
+                        drop(w, &mut loot);
+                    }
+                }
+            }
+        }
+    }
+    loot
+}
+
+/// Not ACE: the treasure profile `death_treasure_id` as the Infiltration era gives it to what drops
+/// it (ClassicACE's `GetTweakedDeathTreasureProfile` outside its end-of-retail ruleset); ACE's
+/// profile at the end of retail. A creature's chances of items, magic items and mundane items are
+/// scaled by its tier (tier 1: 30%, 20% and 90%, ...). A chest's or a treasure generator's profile
+/// is first moved off a few profiles too rich for where they stand; a chest's then drops no
+/// mundane items, at least 3 and half again as many of the others, at loot quality 0.2 or
+/// better; a ground generator's likewise at quality 0.2 or better, and no mundane items when it
+/// can drop others. Profile 338 (steel chests) and the custom profiles (type 1000 and up) are left
+/// alone.
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory.cs
+#[must_use]
+pub fn era_death_treasure(
+    w: &World,
+    death_treasure_id: u32,
+    dropped_by: empyrean_entity::ObjectGuid,
+) -> Option<std::sync::Arc<TreasureDeath>> {
+    use crate::dispatch::{class_of, Class};
+    if w.era.loot_rules != LootRules::Infiltration || death_treasure_id == 338 {
+        return w.content.get_cached_death_treasure(death_treasure_id);
+    }
+    let class = class_of(w, dropped_by);
+    if matches!(
+        class,
+        Class::Creature | Class::CombatPet | Class::Cow | Class::Pet | Class::Vendor
+    ) {
+        let mut tweaked = (*w.content.get_cached_death_treasure(death_treasure_id)?).clone();
+        let (item, magic, mundane) = match tweaked.tier {
+            1 => (0.3f32, 0.2f32, 0.9f32),
+            2 | 3 => (0.5, 0.6, 0.8),
+            4 => (0.7, 0.8, 0.8),
+            5 => (0.7, 0.8, 0.4),
+            6..=8 => (0.8, 0.9, 0.4),
+            _ => (1.0, 1.0, 1.0),
+        };
+        #[allow(clippy::cast_precision_loss)]
+        {
+            tweaked.item_chance = (tweaked.item_chance as f32 * item).cs_cast();
+            tweaked.magic_item_chance = (tweaked.magic_item_chance as f32 * magic).cs_cast();
+            tweaked.mundane_item_chance = (tweaked.mundane_item_chance as f32 * mundane).cs_cast();
+        }
+        return Some(std::sync::Arc::new(tweaked));
+    }
+
+    // mismatched high-tier chests and generators in low-level places
+    let death_treasure_id = match death_treasure_id {
+        4 => 6,
+        16 | 15 => 18,
+        313 => 453,
+        457 => 459,
+        463 | 462 => 465,
+        460 => 462,
+        3 => 4,
+        13 => 16,
+        454 | 456 => 457,
+        1 => 3,
+        other => other,
+    };
+    let profile = w.content.get_cached_death_treasure(death_treasure_id)?;
+    if profile.treasure_type >= 1000 {
+        return Some(profile);
+    }
+    let o = w.objects.get(dropped_by)?;
+    let mut tweaked = (*profile).clone();
+    if matches!(class, Class::Chest | Class::Container) {
+        tweaked.loot_quality_mod = tweaked.loot_quality_mod.max(0.2);
+        tweaked.mundane_item_chance = 0;
+        if tweaked.item_max_amount == 1 {
+            tweaked.item_max_amount = 3;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            tweaked.item_max_amount = (tweaked.item_max_amount as f32 * 1.5).ceil().cs_cast();
+        }
+        if tweaked.magic_item_max_amount == 1 {
+            tweaked.magic_item_max_amount = 3;
+        }
+        tweaked.magic_item_max_amount = (f64::from(tweaked.magic_item_max_amount) * 1.5)
+            .ceil()
+            .cs_cast();
+        return Some(std::sync::Arc::new(tweaked));
+    }
+    let has_generator = class == Class::GenericObject
+        && !o.wo.world_object_generators.generator_profiles.is_empty();
+    if has_generator {
+        tweaked.loot_quality_mod = tweaked.loot_quality_mod.max(0.2);
+        if tweaked.item_chance != 0 || tweaked.magic_item_chance != 0 {
+            // with anything besides mundane items to drop, no mundane items
+            tweaked.mundane_item_chance = 0;
+        }
+        return Some(std::sync::Arc::new(tweaked));
+    }
+    Some(profile)
+}
+
 /// Not ACE: how many times the era's `LootTables::PackOnly` rule rolls again for a weenie the world
 /// database lacks, before the roll is left to fail as ACE's does.
 const PACK_ONLY_REROLLS: usize = 64;
@@ -209,7 +374,8 @@ pub fn create_random_loot_objects_of_category(
     category: TreasureItemCategory,
     treasure_item_type: TreasureItemType,
 ) -> Option<WorldObject> {
-    let mut treasure_roll = roll_wcid(treasure_death, category, treasure_item_type)?;
+    let rules = w.era.loot_rules;
+    let mut treasure_roll = roll_wcid_in(rules, treasure_death, category, treasure_item_type)?;
 
     // DIVERGE: under the era's `LootTables::PackOnly` rule a rolled weenie the world database lacks
     // is rolled again, so a world older than the loot tables drops what it has. ACE (and the end
@@ -220,7 +386,7 @@ pub fn create_random_loot_objects_of_category(
             && rerolls < PACK_ONLY_REROLLS
             && !world_has_weenie(w, treasure_roll.wcid.0.cast_unsigned())
         {
-            treasure_roll = roll_wcid(treasure_death, category, treasure_item_type)?;
+            treasure_roll = roll_wcid_in(rules, treasure_death, category, treasure_item_type)?;
             rerolls += 1;
         }
     }
@@ -238,6 +404,23 @@ pub fn create_random_loot_objects_of_category(
 // ACE: LootGenerationFactory.RollWcid
 #[must_use]
 pub fn roll_wcid(
+    treasure_death: &TreasureDeath,
+    category: TreasureItemCategory,
+    treasure_item_type: TreasureItemType,
+) -> Option<TreasureRoll> {
+    roll_wcid_in(
+        LootRules::EndOfRetail,
+        treasure_death,
+        category,
+        treasure_item_type,
+    )
+}
+
+/// [`roll_wcid`] with the era's loot tables. Not ACE: an earlier era's weapons (and casters) are
+/// rolled from its own tables (`LootRules`).
+#[must_use]
+pub fn roll_wcid_in(
+    rules: LootRules,
     treasure_death: &TreasureDeath,
     category: TreasureItemCategory,
     mut treasure_item_type: TreasureItemType,
@@ -270,6 +453,13 @@ pub fn roll_wcid(
             treasure_roll.wcid = gem_result.class_name;
         }
 
+        // DIVERGE: the Infiltration era's jewelry, armour, clothing and food are its own tables'
+        // (ClassicACE's at its Infiltration ruleset).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory.cs
+        TreasureItemType::Jewelry if rules == LootRules::Infiltration => {
+            treasure_roll.wcid = era_loot::roll_jewelry(treasure_death.tier);
+        }
+
         TreasureItemType::Jewelry => {
             treasure_roll.wcid = jewelry_wcids::roll(treasure_death.tier);
         }
@@ -278,14 +468,41 @@ pub fn roll_wcid(
             treasure_roll.wcid = generic_wcids::roll(treasure_death.tier);
         }
 
+        // DIVERGE: the Infiltration era's weapons are the pre-2013 weapon tables' by skill,
+        // heritage and tier, with no two-handed weapons (ClassicACE's `RollWcid` and
+        // `WeaponWcids.Roll` at its Infiltration ruleset).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory.cs
+        TreasureItemType::Weapon if rules == LootRules::Infiltration => {
+            let weapon_type = era_loot::roll_weapon_type(TreasureWeaponType::Undef);
+            let weapon = era_loot::roll_weapon(
+                weapon_type,
+                treasure_death.tier,
+                treasure_death.unknown_chances,
+            );
+            treasure_roll.weapon_type = weapon.map_or(weapon_type, |w| w.weapon_type);
+            treasure_roll.wcid = weapon.map_or(WeenieClassName::undef, |w| w.wcid);
+            treasure_roll.era_script = weapon.map(|w| w.script);
+        }
+
         TreasureItemType::Weapon => {
             treasure_roll.weapon_type = weapon_type_chance::roll(treasure_death.tier);
             treasure_roll.wcid = weapon_wcids::roll(treasure_death, &mut treasure_roll.weapon_type);
         }
 
+        TreasureItemType::Armor if rules == LootRules::Infiltration => {
+            let armor_type = era_loot::roll_armor_type(treasure_death.tier);
+            let armor = era_loot::roll_armor(armor_type, treasure_death.unknown_chances);
+            treasure_roll.armor_type = armor.map_or(armor_type, |a| a.1);
+            treasure_roll.wcid = armor.map_or(WeenieClassName::undef, |a| a.0);
+        }
+
         TreasureItemType::Armor => {
             treasure_roll.armor_type = armor_type_chance::roll(treasure_death.tier);
             treasure_roll.wcid = armor_wcids::roll(treasure_death, &mut treasure_roll.armor_type);
+        }
+
+        TreasureItemType::Clothing if rules == LootRules::Infiltration => {
+            treasure_roll.wcid = era_loot::roll_clothing(treasure_death.unknown_chances);
         }
 
         TreasureItemType::Clothing => {
@@ -299,11 +516,27 @@ pub fn roll_wcid(
         TreasureItemType::Caster => {
             // only called if TreasureItemType.Caster was specified directly
             treasure_roll.weapon_type = TreasureWeaponType::Caster;
-            treasure_roll.wcid = caster_wcids::roll(treasure_death.tier);
+            // DIVERGE: the Infiltration era's casters are its own table's.
+            if rules == LootRules::Infiltration {
+                let weapon = era_loot::roll_weapon(
+                    TreasureWeaponType::Caster,
+                    treasure_death.tier,
+                    treasure_death.unknown_chances,
+                );
+                treasure_roll.wcid = weapon.map_or(WeenieClassName::undef, |w| w.wcid);
+                treasure_roll.era_script = weapon.map(|w| w.script);
+            } else {
+                treasure_roll.wcid = caster_wcids::roll(treasure_death.tier);
+            }
         }
 
         TreasureItemType::ManaStone => {
             treasure_roll.wcid = mana_stone_wcids::roll(treasure_death);
+        }
+
+        TreasureItemType::Consumable if rules == LootRules::Infiltration => {
+            treasure_roll.wcid =
+                era_loot::roll_consumable(treasure_death.tier, treasure_death.loot_quality_mod);
         }
 
         TreasureItemType::Consumable => {
@@ -408,7 +641,9 @@ fn create_and_mutate_wcid(
     }
 
     match treasure_roll.item_type {
-        TreasureItemType::Pyreal => mutate_coins(expect_wo(&mut wo), treasure_death),
+        TreasureItemType::Pyreal => {
+            mutate_coins(expect_wo(&mut wo), treasure_death, w.era.loot_rules);
+        }
         TreasureItemType::Gem => mutate_gem(
             w,
             expect_wo(&mut wo),
@@ -536,6 +771,12 @@ fn expect_wo(wo: &mut Option<WorldObject>) -> &mut WorldObject {
 
 // ACE: LootGenerationFactory.TryRollMundaneAddon
 fn try_roll_mundane_addon(w: &mut World, profile: &TreasureDeath) -> Option<WorldObject> {
+    // DIVERGE: the Infiltration era has no mundane add-on (no aetheria, no coalesced mana), so
+    // nothing is rolled (ClassicACE's `TryRollMundaneAddon` at its older rulesets).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory.cs
+    if w.era.loot_rules == LootRules::Infiltration {
+        return None;
+    }
     // coalesced mana only dropped in tiers 1-4
     if profile.tier <= 4 {
         try_roll_coalesced_mana(w, profile)
@@ -896,7 +1137,10 @@ pub(crate) fn mutate_value(
         mutate_value_gem(wo);
     } else {
         if wo.has_armor_level() {
-            crate::factories::loot_generation_factory_clothing::mutate_value_armor(wo);
+            crate::factories::loot_generation_factory_clothing::mutate_value_armor(
+                wo,
+                w.era.loot_rules,
+            );
         }
 
         mutate_value_generic(wo, tier);
@@ -990,6 +1234,19 @@ const ITEM_VALUE_TIER_MOD: [i32; 8] = [
     3000, // T8
 ];
 
+/// Not ACE: the Infiltration era's pyreal amounts per tier (ClassicACE's `coinRanges`).
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/LootGenerationFactory.cs
+const INFILTRATION_COIN_RANGES: [(i32, i32); 8] = [
+    (50, 100),    // T1
+    (400, 1000),  // T2
+    (800, 2000),  // T3
+    (1200, 4000), // T4
+    (2000, 5000), // T5
+    (2000, 5000), // T6
+    (2000, 5000), // T7
+    (2000, 5000), // T8
+];
+
 /// The min/max amount of pyreals that can be rolled per tier, from magloot corpse logs
 const COIN_RANGES: [(i32, i32); 8] = [
     (5, 50),     // T1
@@ -1003,8 +1260,15 @@ const COIN_RANGES: [(i32, i32); 8] = [
 ];
 
 // ACE: LootGenerationFactory.MutateCoins
-fn mutate_coins(wo: &mut WorldObject, profile: &TreasureDeath) {
-    let tier_range = tables_logic::at(&COIN_RANGES, profile.tier - 1);
+fn mutate_coins(wo: &mut WorldObject, profile: &TreasureDeath, loot_rules: LootRules) {
+    // DIVERGE: the era's pyreal amounts (`LootRules`; ClassicACE's `coinRanges` at its
+    // Infiltration ruleset).
+    let ranges = if loot_rules == LootRules::Infiltration {
+        &INFILTRATION_COIN_RANGES
+    } else {
+        &COIN_RANGES
+    };
+    let tier_range = tables_logic::at(ranges, profile.tier - 1);
 
     // flat rng range, according to magloot corpse logs
     let rng = ThreadSafeRandom::next(tier_range.0, tier_range.1);
@@ -1183,7 +1447,7 @@ pub fn mutate_item(
 
     if roll.wcid == WeenieClassName::coinstack {
         roll.item_type = TreasureItemType::Pyreal;
-        mutate_coins(item, profile);
+        mutate_coins(item, profile, w.era.loot_rules);
     } else if gem_material_chance::contains(roll.wcid) {
         roll.item_type = TreasureItemType::Gem;
         mutate_gem(w, item, profile, is_magical, &mut roll);

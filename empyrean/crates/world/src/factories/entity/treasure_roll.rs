@@ -22,6 +22,10 @@ pub struct TreasureRoll {
 
     /// A cumulative addon to the ItemDifficulty / Arcane Lore requirement
     pub item_difficulty: f32,
+
+    /// Not ACE: a weapon rolled from an earlier era's tables names the kind its mutation scripts
+    /// are written for (`sword_ms`, `bow_short`, ...); `None` for ACE's.
+    pub era_script: Option<&'static str>,
 }
 
 impl TreasureRoll {

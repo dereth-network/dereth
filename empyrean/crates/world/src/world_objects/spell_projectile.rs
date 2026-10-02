@@ -1001,6 +1001,14 @@ pub fn calculate_damage(
         }
         base_damage = ThreadSafeRandom::next(spell.min_damage(), spell.max_damage());
 
+        // DIVERGE: in an era whose creature projectiles do half damage
+        // (`EraFormulas::creature_projectiles_halved`), any source but a player (a creature or a
+        // trap) does half (ClassicACE's `CalculateDamage` at its Infiltration ruleset).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/SpellProjectile.cs
+        if w.era.formulas.creature_projectiles_halved && source_player.is_none() {
+            base_damage /= 2;
+        }
+
         weapon_resistance_mod = weapon::get_weapon_resistance_modifier(
             w,
             weapon,
@@ -1096,6 +1104,13 @@ pub fn get_absorb_mod(w: &mut World, this: ObjectGuid, target: ObjectGuid) -> f3
             if let Some(shield) =
                 shield.filter(|&s| world_object_magic::get_absorb_magic_damage(obj(w, s)).is_some())
             {
+                // DIVERGE: before the Shield skill (`EraFormulas::shields_without_skill`) a shield
+                // absorbs as a missile launcher does (ClassicACE's `GetAbsorbMod` at its
+                // Infiltration ruleset).
+                // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/SpellProjectile.cs
+                if w.era.formulas.shields_without_skill {
+                    return absorb_magic(w, target, shield);
+                }
                 return get_shield_mod(w, this, target, shield);
             }
         }

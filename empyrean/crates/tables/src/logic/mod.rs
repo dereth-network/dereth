@@ -11,6 +11,7 @@
 //! `factories::tables_logic`, against this data (every table item is `pub` for that reason).
 
 pub mod cantrips;
+pub mod era;
 pub mod legacy;
 pub mod spells;
 pub mod tables;

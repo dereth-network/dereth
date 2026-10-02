@@ -162,7 +162,11 @@ pub fn player_enter_world(w: &mut World, this: ObjectGuid) {
         action_chain.enqueue_chain(w);
     }
 
-    handle_pre_order_items(w, this);
+    // DIVERGE: an era without the pre-order gifts (`EraFeatures::pre_order_items_and_rares`)
+    // hands none out (ClassicACE's `PlayerEnterWorld` outside its end-of-retail ruleset).
+    if w.era.features.pre_order_items_and_rares {
+        handle_pre_order_items(w, this);
+    }
 
     // SendSelf will trigger the entrance into portal space
     send_self(w, this);

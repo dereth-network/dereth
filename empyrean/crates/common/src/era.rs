@@ -16,60 +16,32 @@
 
 use serde::{Deserialize, Serialize};
 
-/// An era, in the order of retail history, so "at or before" compares as the ordinal does.
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
-pub enum EraId {
-    /// February 2005: the Infiltration patch, before Throne of Destiny.
-    #[serde(rename = "infiltration")]
-    Infiltration,
-    /// The end of retail (ACE's world, and ACE's rules).
-    #[default]
-    #[serde(rename = "eor")]
-    Eor,
-}
+pub use dereth_primitives::era::{EraFeatures, EraId, VitaeRecovery};
 
-impl EraId {
-    /// Every era, in order.
-    pub const ALL: [Self; 2] = [Self::Infiltration, Self::Eor];
-
-    /// The name `empyrean.toml`, `empyrean-import --era` and the status document use.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Infiltration => "infiltration",
-            Self::Eor => "eor",
-        }
-    }
-
-    /// The era named `name` (as [`Self::name`] spells it, any case).
-    #[must_use]
-    pub fn parse(name: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|e| e.name().eq_ignore_ascii_case(name.trim()))
-    }
-
+/// The server's side of an era: its rules, and the code `world.pack` stores for it.
+pub trait EraExt: Sized {
     /// The code `world.pack` stores for the era. End of retail is 0, so a pack written before
     /// packs recorded an era reads as end of retail, which is what every such pack was.
-    #[must_use]
-    pub const fn pack_code(self) -> u32 {
+    fn pack_code(self) -> u32;
+    /// The era a `world.pack` code names; `None` for a code this build does not know.
+    fn from_pack_code(code: u32) -> Option<Self>;
+    /// The era's rules.
+    fn rules(self) -> &'static EraRules;
+}
+
+impl EraExt for EraId {
+    fn pack_code(self) -> u32 {
         match self {
             Self::Eor => 0,
             Self::Infiltration => 1,
         }
     }
 
-    /// The era a `world.pack` code names; `None` for a code this build does not know.
-    #[must_use]
-    pub fn from_pack_code(code: u32) -> Option<Self> {
+    fn from_pack_code(code: u32) -> Option<Self> {
         Self::ALL.into_iter().find(|e| e.pack_code() == code)
     }
 
-    /// The era's rules.
-    #[must_use]
-    pub const fn rules(self) -> &'static EraRules {
+    fn rules(self) -> &'static EraRules {
         match self {
             Self::Eor => &EOR,
             Self::Infiltration => &INFILTRATION,
@@ -77,9 +49,28 @@ impl EraId {
     }
 }
 
-impl std::fmt::Display for EraId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name())
+/// `serde` for an [`EraId`] by its name (`"eor"`, `"infiltration"`).
+pub mod era_name {
+    use super::EraId;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// # Errors
+    /// The serializer's.
+    pub fn serialize<S: Serializer>(era: &EraId, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(era.name())
+    }
+
+    /// # Errors
+    /// A name that is no era's.
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<EraId, D::Error> {
+        let name = String::deserialize(d)?;
+        EraId::parse(&name).ok_or_else(|| {
+            let names: Vec<&str> = EraId::ALL.iter().map(|e| e.name()).collect();
+            serde::de::Error::custom(format!(
+                "unknown variant `{name}`, expected one of {}",
+                names.join(", ")
+            ))
+        })
     }
 }
 
@@ -134,7 +125,101 @@ pub struct EraRules {
     pub creation_skills: Option<&'static [u32]>,
     /// The heritages a new character may be. `None`: any the dat character-generation table has.
     pub heritages: Option<&'static [u32]>,
+    /// The systems the era has, each a gate at ACE's sites.
+    pub features: EraFeatures,
+    /// Server properties whose default the era changes (ClassicACE's per-ruleset defaults); a
+    /// value the operator has set still wins.
+    pub property_defaults: &'static [(&'static str, bool)],
+    /// The combat, death and experience formulas of the era.
+    pub formulas: EraFormulas,
+    /// The items and spells a new character is given for its trained skills.
+    pub starter_gear: StarterGearSet,
+    /// A first login opens this letter (a weenie class id the starter gear gives) rather than
+    /// showing the training halls' welcome popup; `None`: the popup.
+    pub welcome_letter: Option<u32>,
+    /// Which loot tables and mutation scripts random loot is made with.
+    pub loot_rules: LootRules,
 }
+
+/// The loot tables and mutation scripts random loot is made with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LootRules {
+    /// ACE's.
+    EndOfRetail,
+    /// ClassicACE's for its Infiltration ruleset: weapons from the pre-2013 weapon tables by skill,
+    /// heritage and tier (no two-handed weapons) with that era's damage, speed and defense
+    /// scripts; that era's pyreal amounts and item values; no aetheria or coalesced mana.
+    Infiltration,
+}
+
+/// Which starter-gear table new characters are given from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StarterGearSet {
+    /// ACE's `starterGear.json`.
+    EndOfRetail,
+    /// ClassicACE's `starterGear.infiltration.json`: the old weapon skills' starter weapons (by
+    /// heritage), and a Welcome Letter, a Calling Stone and food for everyone.
+    Infiltration,
+}
+
+/// Formulas that changed during retail's life. [`EOR`]'s are ACE's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct EraFormulas {
+    /// The experience it takes to win back one point of vitae.
+    pub vitae: VitaeRecovery,
+    /// Weapon-speed enchantments that multiply (Rockslide and its kin) scale a weapon's speed.
+    /// Without it only the additive ones (Swift Killer, Leaden Weapon) count.
+    pub multiplicative_weapon_speed: bool,
+    /// Melee damage before the weapon-skill consolidation: daggers (rather than Finesse Weapons)
+    /// take Coordination; an unarmed humanoid scales with Strength at 0.004 per point rather than
+    /// 0.011 and adds a twentieth of its Unarmed Combat skill to its maximum damage; a bare
+    /// punch or kick does 1 (plus the hand or foot armour's own damage) rather than 2.
+    pub older_melee_damage: bool,
+    /// A creature's war-magic projectiles do half their damage.
+    pub creature_projectiles_halved: bool,
+    /// Shields before the Shield skill: a shield's armour level counts in full whatever the
+    /// skill, in any stance, and absorbs magic in melee stance as a missile launcher does.
+    pub shields_without_skill: bool,
+    /// From level 21 a player dropping items at death drops `level / this` plus 0 to 2.
+    pub death_items_level_divisor: i32,
+    /// The most unassigned experience a character can hold; `None`: no cap.
+    pub unassigned_xp_cap: Option<i64>,
+}
+
+impl EraFormulas {
+    /// ACE's.
+    pub const END_OF_RETAIL: Self = Self {
+        vitae: EraId::Eor.vitae_recovery(),
+        multiplicative_weapon_speed: false,
+        older_melee_damage: false,
+        creature_projectiles_halved: false,
+        shields_without_skill: false,
+        death_items_level_divisor: 20,
+        unassigned_xp_cap: None,
+    };
+
+    /// February 2005, as ClassicACE plays it.
+    pub const INFILTRATION: Self = Self {
+        vitae: EraId::Infiltration.vitae_recovery(),
+        multiplicative_weapon_speed: true,
+        older_melee_damage: true,
+        creature_projectiles_halved: true,
+        shields_without_skill: true,
+        death_items_level_divisor: 10,
+        // Unassigned experience was a 32-bit count.
+        unassigned_xp_cap: Some(u32::MAX as i64),
+    };
+}
+
+/// ClassicACE's Infiltration property defaults, without `max_level` (the era's cap) and the data
+/// file warning (the era's dats cannot be asked for over the end-of-retail wire).
+pub static INFILTRATION_PROPERTY_DEFAULTS: [(&str, bool); 4] = [
+    ("corpse_destroy_pyreals", false),
+    ("item_dispel", true),
+    ("vendor_shop_uses_generator", true),
+    ("allow_fast_chug", false),
+];
 
 /// The February 2005 skills: exactly the 36 of that era's skill table, which ClassicACE's
 /// Infiltration skill list also is: the weapon skills Axe (1) to Unarmed Combat (13) without Sling
@@ -168,6 +253,12 @@ pub static EOR: EraRules = EraRules {
     loot: LootTables::AsTables,
     creation_skills: None,
     heritages: None,
+    features: EraFeatures::ALL,
+    property_defaults: &[],
+    formulas: EraFormulas::END_OF_RETAIL,
+    starter_gear: StarterGearSet::EndOfRetail,
+    welcome_letter: None,
+    loot_rules: LootRules::EndOfRetail,
 };
 
 const fn at(area: &'static str, cell: u32, origin: [f32; 3], rotation: [f32; 4]) -> StartPosition {
@@ -243,6 +334,13 @@ pub static INFILTRATION: EraRules = EraRules {
     loot: LootTables::PackOnly,
     creation_skills: Some(&INFILTRATION_SKILLS),
     heritages: Some(&INFILTRATION_HERITAGES),
+    features: EraFeatures::NONE,
+    property_defaults: &INFILTRATION_PROPERTY_DEFAULTS,
+    formulas: EraFormulas::INFILTRATION,
+    starter_gear: StarterGearSet::Infiltration,
+    // The Welcome Letter.
+    welcome_letter: Some(1077),
+    loot_rules: LootRules::Infiltration,
 };
 
 impl StartPositions {
@@ -272,7 +370,7 @@ impl StartPositions {
 #[serde(default)]
 pub struct EraConfiguration {
     /// The era this world plays; its `world.pack` must have been built for the same era.
-    #[serde(rename = "Profile")]
+    #[serde(rename = "Profile", with = "era_name")]
     pub profile: EraId,
 }
 

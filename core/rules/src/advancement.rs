@@ -304,6 +304,22 @@ pub fn vitae_cp_pool_threshold(vitae: f64, level: f64) -> i32 {
     to_i32_f64((math::pow(level, 2.5) * 2.5 + 20.0) * math::pow(vitae, 5.0) + 0.5)
 }
 
+/// The threshold in the world's era: [`vitae_cp_pool_threshold`] from Throne of Destiny on;
+/// before it `(level^2 * 5 + 20) * vitae^5 + 0.5`, at most 12,500, truncated toward zero.
+#[must_use]
+pub fn vitae_cp_pool_threshold_in(
+    recovery: dereth_primitives::VitaeRecovery,
+    vitae: f64,
+    level: f64,
+) -> i32 {
+    match recovery {
+        dereth_primitives::VitaeRecovery::EndOfRetail => vitae_cp_pool_threshold(vitae, level),
+        dereth_primitives::VitaeRecovery::BeforeThroneOfDestiny => to_i32_f64(
+            ((math::pow(level, 2.0) * 5.0 + 20.0) * math::pow(vitae, 5.0) + 0.5).min(12_500.0),
+        ),
+    }
+}
+
 /// The experience header the character panel shows: total, experience into the current level,
 /// experience still owed for it, and whether the cap has replaced the number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

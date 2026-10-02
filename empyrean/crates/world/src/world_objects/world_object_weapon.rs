@@ -353,6 +353,20 @@ pub fn get_weapon_speed(w: &mut World, wielder: Option<ObjectGuid>) -> u32 {
         None => 0,
     };
 
+    // DIVERGE: an era whose multiplicative speed enchantments count
+    // (`EraFormulas::multiplicative_weapon_speed`) scales the base speed by them before the
+    // additive ones, rounded half to even (ClassicACE's `GetWeaponSpeed` at its older rulesets).
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/WorldObject_Weapon.cs
+    if w.era.formulas.multiplicative_weapon_speed {
+        let mult_speed_mod = weapon.map_or(1.0, |g| {
+            crate::world_objects::managers::enchantment_manager::get_weapon_multiplicative_speed_mod(
+                w, g,
+            )
+        });
+        let speed = base_speed as f32 * mult_speed_mod + speed_mod as f32 + aura_speed_mod as f32;
+        return math::round(f64::from(speed)).max(0.0).cs_cast();
+    }
+
     0i32.max(
         base_speed
             .wrapping_add(speed_mod)

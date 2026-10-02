@@ -3,6 +3,7 @@
 //! starter gear, positions) incl. retail deviations.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state, retail dats or world.pack in the real-content tier.
 
+use empyrean_common::era::EraExt as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1471,6 +1472,42 @@ fn an_infiltration_character_may_not_train_a_skill_from_after_the_2012_consolida
     let mut w = world();
     let m = request("Aldric", 1, ABILITIES, sacs(&[(49, TRAINED), (6, TRAINED)]));
     assert_eq!(create(&mut w, &m).0, CreateResult::Success);
+}
+
+/// Divergence: V408, V409, V411
+/// An Infiltration character is given ClassicACE's Infiltration starter gear (Jump's pyreals,
+/// Welcome Letter, sack, Calling Stone and the heritage's food; the heritage's starter weapon for
+/// an old weapon skill), and neither weapon masteries nor an innate augmentation.
+#[test]
+fn an_infiltration_character_gets_the_eras_starter_gear_and_no_innate_augmentation() {
+    let mut w = world();
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    w.content = Arc::new(
+        content()
+            .weenie(generic(535, WeenieType::MeleeWeapon))
+            .weenie(generic(1077, WeenieType::Book)),
+    );
+    let skills = sacs(&[
+        (21, TRAINED),
+        (22, TRAINED),
+        (24, TRAINED),
+        (6, SPECIALIZED),
+        (11, TRAINED),
+    ]);
+    let sent = send(&mut w, &request("Aldric", 1, ABILITIES, skills));
+    assert_eq!(sent.codes(), [Cgvr::Ok]);
+    let (inventory, _) = possessions(&w, FIRST_PLAYER);
+    let got: std::collections::BTreeSet<u32> =
+        inventory.iter().map(|b| b.weenie_class_id).collect();
+    // The kit, the pyreals, the letter, the sack, the Calling Stone, the Aluvian's bread and the
+    // Aluvian's Starter Sword; none of ACE's extras (33613, 30988).
+    assert_eq!(
+        got,
+        [628, 273, 1077, 166, 5084, 259, 535].into_iter().collect()
+    );
+    let b = saved_biota(&w, FIRST_PLAYER);
+    assert_eq!(int(&b, PropertyInt::AugmentationJackOfAllTrades), None);
+    assert_eq!(int(&b, PropertyInt::MeleeMastery), None);
 }
 
 /// Divergence: V391

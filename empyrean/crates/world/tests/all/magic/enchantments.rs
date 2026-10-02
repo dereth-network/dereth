@@ -3,6 +3,7 @@
 //! vectors with retail ordering.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
+use empyrean_common::era::EraExt as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1594,6 +1595,37 @@ fn create_item_spell_casts_the_items_spell_on_the_wielder() {
         )
     );
     assert_eq!(sent_kinds(), [(0xF7B0, 0x02EB)], "a transient string");
+}
+
+/// Divergence: V397
+/// An item spell of a category that later became an aura (Blood Drinker's, damage raising) is
+/// cast on the wielder at the end of retail and not in an era before the auras.
+#[test]
+fn an_era_before_the_auras_casts_no_item_spell_on_the_wielder() {
+    let mut aura = d(
+        20,
+        154,
+        10,
+        1800.0,
+        true,
+        ADD_ATTR,
+        u32::from(PropertyAttribute::Strength.0),
+        1.0,
+    );
+    aura.school = 3; // item enchantment
+    let mut defs = defs();
+    defs.push(aura);
+    let mut w = world_with(&defs, Vec::new(), BTreeMap::new());
+    empyrean_world::world_objects::creature_magic::create_item_spell(&mut w, MONSTER, ITEM, 20);
+    assert!(
+        registry(&w, MONSTER).iter().any(|e| e.spell_id == 20),
+        "the aura is on the wielder"
+    );
+
+    let mut w = world_with(&defs, Vec::new(), BTreeMap::new());
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    empyrean_world::world_objects::creature_magic::create_item_spell(&mut w, MONSTER, ITEM, 20);
+    assert!(!registry(&w, MONSTER).iter().any(|e| e.spell_id == 20));
 }
 
 /// `Creature.RemoveItemSpell`: the item's enchantment on the wielder (a creature-school spell) is

@@ -335,6 +335,13 @@ pub fn get_current_weapon_skill(w: &mut World, this: ObjectGuid) -> Skill {
     let weapon = creature_equipment::get_equipped_weapon(w, this, false);
 
     let Some(weapon) = weapon else {
+        // DIVERGE: before the weapon-skill consolidation (`EraFeatures::
+        // consolidated_weapon_skills`) an empty-handed player fights with Unarmed Combat
+        // (ClassicACE's `GetCurrentWeaponSkill` outside its end-of-retail ruleset).
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Combat.cs
+        if !w.era.features.consolidated_weapon_skills {
+            return Skill::UnarmedCombat;
+        }
         return get_highest_melee_skill(w, this);
     };
 
@@ -755,6 +762,34 @@ pub fn get_base_damage_mod(
     this: ObjectGuid,
     damage_source: ObjectGuid,
 ) -> BaseDamageMod {
+    if damage_source == this && w.era.formulas.older_melee_damage {
+        // DIVERGE: before the weapon-skill consolidation (`EraFormulas::older_melee_damage`) a
+        // bare punch or kick does 1, and hand or foot armour adds its own damage to that 1 (the
+        // strategy guide's `BaseDmg = 1 + ArmorDmg + Skill / 20`, the skill's part added by the
+        // damage event); ClassicACE's `GetBaseDamageMod` outside its end-of-retail ruleset.
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Combat.cs
+        let attack_type = creature_combat::attack_type(w, this);
+        let damage_source = if attack_type == AttackType::Punch {
+            hand_armor(w, this)
+        } else if attack_type == AttackType::Kick {
+            foot_armor(w, this)
+        } else {
+            Some(damage_source)
+        };
+        return match damage_source {
+            None => BaseDamageMod::new(BaseDamage::new(1, 0.75)),
+            Some(damage_source) => {
+                let mut m = crate::world_objects::world_object::get_damage_mod(
+                    w,
+                    damage_source,
+                    this,
+                    Some(damage_source),
+                );
+                m.base_damage.max_damage = m.base_damage.max_damage.wrapping_add(1);
+                m
+            }
+        };
+    }
     if damage_source == this {
         let attack_type = creature_combat::attack_type(w, this);
         let damage_source = if attack_type == AttackType::Punch {
