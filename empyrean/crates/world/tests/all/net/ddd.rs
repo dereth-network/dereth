@@ -847,6 +847,16 @@ mod real_content {
                 !admitted,
                 "{what}: booted {got:04X?}"
             );
+            if !admitted {
+                // The end-of-retail client is told which files the world plays.
+                let boot = ts
+                    .received_raw(id)
+                    .iter()
+                    .find(|m| m.opcode == 0xF7DC)
+                    .expect("the boot");
+                let text = String::from_utf8_lossy(&boot.body).into_owned();
+                assert!(text.contains("February 2005"), "{what}: {text:?}");
+            }
         }
     }
 }

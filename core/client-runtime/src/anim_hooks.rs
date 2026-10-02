@@ -332,6 +332,11 @@ fn execute_anim_hooks<S: HookObject, K: HookSounds>(
                 dereth_animation::AnimEvent::PlaySoundType { kind } => {
                     if let Some(table) = table {
                         sounds.table(table, kind.0, at);
+                    } else {
+                        tracing::debug!(
+                            "sound type {} on {id:?}, which has no sound table",
+                            kind.0
+                        );
                     }
                 }
                 other => deferred.push((h, other)),

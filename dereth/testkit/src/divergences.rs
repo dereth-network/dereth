@@ -161,8 +161,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                  and drew its own interface over that world.",
         dereth: "Given those two files beside the end-of-retail ones (--world-dat-dir), the \
                  client draws the February 2005 world from them and the end-of-retail screens \
-                 over it: the interface's layouts, strings, fonts and images come from the later \
-                 files, and a record the older files lack is read from them too. Asked which \
+                 over it: the interface's layouts, strings and fonts come from the later files, \
+                 and any image or other record the older files lack is read from them too. Asked \
+                 which \
                  iterations its data files hold (the DDD interrogation), it answers \
                  for the world it draws: the older portal and cell files, whose iteration is in \
                  their headers, as one run of it (2112 and 1593), and the later language file's \
@@ -171,8 +172,14 @@ pub static DIVERGENCES: &[Divergence] = &[
                  client plays by type, the materialize at login among them, find their rows; \
                  their clothing tables' dye ranges, which counted the colours of a 256-colour \
                  palette, are read in the later count of eight entries a colour; and their \
-                 images, which carry no alpha, are transparent where they are pure black, as the \
-                 later files' copies of the same icons are.",
+                 item icons, which carry no alpha, are transparent where they are pure black, as \
+                 the later files' copies of the same icons are (their other images keep black \
+                 opaque). The screens leave out what the \
+                 world's era lacks (the server's announced era, else the one the files imply): \
+                 with no journal there is no journal button and no quest page, with no contract \
+                 tracker no Contracts tab, with no titles no Titles tab, with no cloaks or \
+                 trinkets no cloak or trinket slot on the paper doll, and with no luminance no \
+                 luminance section on the character sheet.",
         why: "Dereth plays every era over one set of screens until the interface of the time is \
               rebuilt; the world itself is the older files' own.",
     },

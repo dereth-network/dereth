@@ -9,6 +9,7 @@ pub mod catalogue;
 pub mod characterinfo;
 pub mod contracts;
 pub mod effects;
+pub mod era;
 pub mod examination;
 pub mod external_container;
 pub mod fellowship;

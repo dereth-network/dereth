@@ -52,6 +52,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "presentation.era.the-screens-leave-out-what-the-worlds-era-lacks",
+        says: "On a world whose era has no contract tracker the quest page shows no Contracts \
+               tab, and on one with no titles the character page no Titles tab (a page left open \
+               on such a tab moves to its next tab); an era with no cloaks or trinkets has no \
+               cloak or trinket slot on the paper doll, and one with no luminance no luminance \
+               section on the character sheet; one with no journal has no journal button, and its \
+               quest page never opens; on an end-of-retail world all are there.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-ERA-2005-PANELS"),
+        station: "dereth-ui-screens::dat::panels::era_panels::an_infiltration_world_has_no_contracts_tab_and_the_quest_page_leaves_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.frame.a-frame-with-no-physics-tick-draws-what-the-last-drew",
         says: "A frame on which physics did not tick draws exactly what the frame before it drew: \
                the running player's body and the camera hold still between ticks at every frame \

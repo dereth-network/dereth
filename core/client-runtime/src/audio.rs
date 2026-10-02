@@ -1017,6 +1017,7 @@ impl WorldAudio {
                     if !audio.has_wave(id) {
                         audio.create_sound(store, id);
                         if !audio.has_wave(id) {
+                            tracing::debug!("hook sound: wave {id:?} will not load");
                             self.stats.trigger_misses += 1;
                             continue;
                         }
@@ -1031,12 +1032,14 @@ impl WorldAudio {
                         if audio.load_sound_table(store, table) {
                             audio.create_table_waves(store, table);
                         } else {
+                            tracing::debug!("hook sound: sound table {table:?} will not load");
                             self.stats.trigger_misses += 1;
                             continue;
                         }
                     }
                 }
             }
+            tracing::trace!("hook sound {t:?}");
             audio.play_trigger(t);
         }
 
@@ -1129,6 +1132,11 @@ impl WorldAudio {
             }
             .or_else(|| world.server_object_frame(m.id).map(|f| f.origin));
             let Some(at) = at else {
+                tracing::debug!(
+                    "server sound {} on {:?}: the object has no position",
+                    m.sound_type,
+                    m.id
+                );
                 self.stats.server_sound_misses += 1;
                 continue;
             };
@@ -1152,6 +1160,11 @@ impl WorldAudio {
                 });
             // The client's play-sound first check: no table, no sound, and no error either.
             let Some(table) = table else {
+                tracing::debug!(
+                    "server sound {} on {:?}: the object has no sound table",
+                    m.sound_type,
+                    m.id
+                );
                 self.stats.server_sound_misses += 1;
                 continue;
             };
@@ -1159,10 +1172,16 @@ impl WorldAudio {
                 if audio.load_sound_table(store, table) {
                     audio.create_table_waves(store, table);
                 } else {
+                    tracing::debug!(
+                        "server sound {} on {:?}: sound table {table:?} will not load",
+                        m.sound_type,
+                        m.id
+                    );
                     self.stats.server_sound_misses += 1;
                     continue;
                 }
             }
+            tracing::debug!("server sound {} on {:?} from {table:?}", m.sound_type, m.id);
             #[allow(clippy::cast_sign_loss)]
             // LINT-OK: `SoundType` is a `long` on the wire and an unsigned index into the
             // sound table's node keys. The invalid sound type is 0 and there are 205 sound types; a

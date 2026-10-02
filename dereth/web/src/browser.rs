@@ -116,7 +116,8 @@ pub struct WebPlay {
 #[wasm_bindgen]
 impl WebPlay {
     /// Bring the client up in `canvas` at `width` by `height` and start logging in as `account`,
-    /// on WebGL 2 when `webgl_only`. The data files must be open. The server is whatever the
+    /// on WebGL 2 when `webgl_only`, in the `era` the server's status names (empty when it names
+    /// none). The data files must be open. The server is whatever the
     /// worker's WebSocket reaches; the client addresses it at its nominal ports
     /// ([`crate::server_url::NOMINAL_SERVER`]).
     ///
@@ -132,6 +133,7 @@ impl WebPlay {
         password: String,
         sequence: u32,
         webgl_only: bool,
+        era: String,
     ) -> Result<WebPlay, JsError> {
         let store = store()?;
         let prepared = dereth_render::wgpu::prepare_canvas(canvas, width, height, webgl_only)
@@ -148,6 +150,7 @@ impl WebPlay {
             sequence,
             width,
             height,
+            crate::play::announced_era(&era),
         )
         .map_err(|e| JsError::new(&e))?;
         let backend = play.app().renderer().adapter_name();

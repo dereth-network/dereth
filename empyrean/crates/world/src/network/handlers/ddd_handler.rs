@@ -97,6 +97,11 @@ fn set_dat_warn(w: &mut World, session: SessionId, which: DatWarn) {
 }
 
 // ACE: DDDHandler.DDD_InterrogationResponse
+/// Not ACE: why a client whose data files are not those of a world on the February 2005 set is
+/// booted (the account-booted message puts it after "because").
+pub const PRE_TOD_OTHER_CLIENT_REASON: &str = " because this world plays the data files of     February 2005, and your client's are from another time.
+Play it with the Dereth client,     which draws that world, or with a client of that time";
+
 /// The client's iteration lists: boot it when its dats are newer than the server's; when they
 /// are older, start patching (or boot it when patching is off); otherwise end DDD at once.
 pub fn ddd_interrogation_response(
@@ -286,7 +291,18 @@ pub fn ddd_interrogation_response_with(
     }
     log::info!("{log_msg}");
 
-    if client_has_extra_iterations {
+    if pre_tod && (client_has_extra_iterations || client_is_missing_iterations) {
+        // DIVERGE: a client whose files are not the February 2005 set a world plays is told
+        // which files the world plays, rather than that its own are newer than expected or
+        // incomplete.
+        let boot = game_message_boot_account(Some(PRE_TOD_OTHER_CLIENT_REASON));
+        let reason = if client_has_extra_iterations {
+            SessionTerminationReason::DATsNewerThanServer
+        } else {
+            SessionTerminationReason::DATsPatchingDisabled
+        };
+        terminate(w, session, reason, boot);
+    } else if client_has_extra_iterations {
         let msg = property_manager::get_string(w, "dat_newer_warning_msg", "", true).item;
         // `msg[..^1]`: all but the last character (an empty message throws).
         let mut chars = msg.chars();

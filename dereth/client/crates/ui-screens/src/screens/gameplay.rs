@@ -602,6 +602,9 @@ pub struct GamePlayScreen {
     pub env_panel: PanelStack,
     /// `CombatPanelStack` inside `<COMB>` — its two pages.
     pub combat_panel: PanelStack,
+    /// The world's era's features as [`Self::apply_era`] last applied them; `None` until the
+    /// first frame, and again whenever the toolbar is rebuilt.
+    pub era_features: Option<dereth_primitives::EraFeatures>,
     /// The toolbar's panel-button array.
     pub toolbar: Toolbar,
     /// The toolbar panel's post-init's nine named children.
@@ -1205,6 +1208,7 @@ impl GamePlayScreen {
         // The seven panel buttons and the nine named children.
         if let Some(h) = ui.get_child_recursive(root, window::TOOLBAR) {
             self.toolbar.setup_buttons(ui, h);
+            self.era_features = None;
             if let Some(spec) = crate::panels::catalogue::spec("Toolbar") {
                 self.toolbar_children = bind_children(ui, h, spec.children);
             }
@@ -4034,6 +4038,13 @@ impl GamePlayScreen {
     /// the panel-visibility notice handler and they reach every registered handler, not only the
     /// server-side record. Without the second call the button of the *covered* page stays lit.
     pub fn recv_set_panel_visibility(&mut self, ui: &mut UiSystem, panel: u32, show: bool) {
+        // An era without the journal never shows the quest page, whichever key or button asks.
+        if show
+            && self.era_features.is_some_and(|f| !f.journal)
+            && self.quest_panel() == Some(panel)
+        {
+            return;
+        }
         let out = [
             self.panels.recv_set_panel_visibility(ui, panel, show),
             self.env_panel.recv_env_panel_visibility(ui, panel, show),
@@ -4048,6 +4059,42 @@ impl GamePlayScreen {
                 ui.requests.emit(r);
             }
         }
+    }
+
+    /// The quest page's panel id, read off the page at set-up; `None` when the layout has no
+    /// quest page or the page carries no id.
+    fn quest_panel(&self) -> Option<u32> {
+        self.panels
+            .pages
+            .iter()
+            .find(|p| p.element == crate::panels::journal::PAGE)
+            .map(|p| p.panel_id)
+            .filter(|&id| id != 0)
+    }
+
+    /// Take off the toolbar what the world's era lacks: without the journal the quest page is
+    /// closed, its toolbar button hidden, and [`Self::recv_set_panel_visibility`] refuses to show
+    /// it. The rest of what an era lacks is the panels' ([`crate::panels::era`]). Applied once each
+    /// time the features change; returns whether anything was applied.
+    pub fn apply_era(
+        &mut self,
+        ui: &mut UiSystem,
+        features: dereth_primitives::EraFeatures,
+    ) -> bool {
+        if self.era_features == Some(features) {
+            return false;
+        }
+        if let Some(panel) = self.quest_panel() {
+            if !features.journal {
+                self.recv_set_panel_visibility(ui, panel, false);
+            }
+            for b in self.toolbar.buttons.iter().filter(|b| b.panel_id == panel) {
+                ui.set_visible(b.handle, features.journal);
+                ui.set_mouse_visible(b.handle, features.journal);
+            }
+        }
+        self.era_features = Some(features);
+        true
     }
 
     /// The client's three calls, on the page the

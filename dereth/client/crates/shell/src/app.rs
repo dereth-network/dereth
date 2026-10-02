@@ -372,6 +372,10 @@ pub struct ClientShell<H: Host> {
     pregame: PregameDrive,
     /// How far `--cast` has driven the world screen. See `App::drive_world_script`.
     world_drive: WorldDrive,
+    /// When `--say` last sent a line or `--use` last acted (or may first), and whether the
+    /// closest item has been selected and waits to be used. See `App::drive_say`.
+    say_drive: Option<f64>,
+    say_selected: bool,
     /// The client UI cursor half: the current cursor id, the built
     /// `HCURSOR`s, and the window they are installed on. See [`crate::cursor`].
     cursor: crate::cursor::CursorSystem,
@@ -484,6 +488,8 @@ impl<H: Host> ClientShell<H> {
             window_events,
             pregame: PregameDrive::default(),
             world_drive: WorldDrive::default(),
+            say_drive: None,
+            say_selected: false,
             cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
             clipboard: crate::clipboard::ClipboardBridge::default(),
             host_clipboard: H::clipboard(),
@@ -1837,6 +1843,91 @@ impl<H: Host> Ui<'_, H> {
         self.shell.pregame = pregame;
     }
 
+    /// `--say`, submitted from the world screen: five seconds after arriving, then one line every
+    /// two seconds, each as the chat window's Send submits it. A line is taken off the list as it
+    /// goes, so it is sent once. Then each `--use` target, six seconds apart, used as a
+    /// double-click uses it; `closest` is first selected by the closest-compass-item key's action
+    /// and used a second later.
+    fn drive_say(&mut self, now: f64) {
+        use dereth_ui::framework::mode;
+
+        let last = self.shell.say_drive;
+        if self.core.cfg.say.is_empty() && self.core.cfg.use_targets.is_empty() {
+            return;
+        }
+        let in_world = self.core.host_state.in_world;
+        let Some(shell) = self.shell.ui.as_mut() else {
+            return;
+        };
+        if !in_world || shell.flow.current_mode() != Some(mode::GAME_PLAY) {
+            return;
+        }
+        let Some(last) = last else {
+            self.shell.say_drive = Some(now + 3.0);
+            return;
+        };
+        if self.core.cfg.say.is_empty() {
+            let target = self.core.cfg.use_targets[0].clone();
+            let id = target
+                .strip_prefix("0x")
+                .and_then(|h| u32::from_str_radix(h, 16).ok())
+                .map(dereth_primitives::ObjectId);
+            if let Some(id) = id {
+                if now - last < 6.0 {
+                    return;
+                }
+                self.core.cfg.use_targets.remove(0);
+                tracing::info!("using {id:?}");
+                shell
+                    .ui
+                    .requests
+                    .emit(dereth_ui_screens::view::UiRequest::Use(id));
+            } else if self.shell.say_selected {
+                if now - last < 1.0 {
+                    return;
+                }
+                self.shell.say_selected = false;
+                self.core.cfg.use_targets.remove(0);
+                if let Some(id) = self.core.objects.world.selected {
+                    let name =
+                        self.core.objects.world.weenie(id).map(|w| {
+                            w.object_name(dereth_client_model::weenie::NameType::Appropriate)
+                        });
+                    tracing::info!("using the closest compass item {id:?} {name:?}");
+                    shell
+                        .ui
+                        .requests
+                        .emit(dereth_ui_screens::view::UiRequest::Use(id));
+                }
+            } else if now - last >= 6.0 {
+                tracing::info!("selecting the closest compass item");
+                self.core
+                    .actions
+                    .inject(dereth_client_contract::actions::Action {
+                        id: dereth_client_contract::actions::ActionId(0x1000_002F),
+                        phase: dereth_client_contract::actions::ActionPhase::Begin,
+                        extent: 1.0,
+                        repeats: 0,
+                    });
+                self.shell.say_selected = true;
+            } else {
+                return;
+            }
+            self.shell.say_drive = Some(now);
+            return;
+        }
+        if now - last < 2.0 {
+            return;
+        }
+        let text = self.core.cfg.say.remove(0);
+        tracing::info!("saying {text:?} ({} more to say)", self.core.cfg.say.len());
+        shell
+            .ui
+            .requests
+            .emit(dereth_ui_screens::view::UiRequest::ChatLine { text, window: 0 });
+        self.shell.say_drive = Some(now);
+    }
+
     /// `--cast`, pressed into the world screen: the backpack button, the carried caster used
     /// (which wields it), the combat toggle (magic mode, with a caster in hand), a selection when
     /// the spell wants a target, the spell bar's cast, the toggle back to peace, and then a walk
@@ -1920,7 +2011,11 @@ impl<H: Host> Ui<'_, H> {
                     .emit(dereth_ui_screens::view::UiRequest::CastSpell { spell_id });
                 WorldDrive::Cast(now)
             }
-            WorldDrive::Cast(t) if now - t >= 4.0 => {
+            // Only once the cast is over (the server's use-done has come back): leaving magic
+            // mode earlier breaks the cast off.
+            WorldDrive::Cast(t)
+                if now - t >= 2.0 && self.core.objects.world.magic.busy_count == 0 =>
+            {
                 tracing::info!("leaving combat (peace) mode");
                 self.core
                     .actions
@@ -3379,6 +3474,11 @@ impl<H: Host> Shell for ClientShell<H> {
             shell: self,
         }
         .drive_world_script(now.0);
+        Ui {
+            core: app,
+            shell: self,
+        }
+        .drive_say(now.0);
     }
 
     fn ui_frame(

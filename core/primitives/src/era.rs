@@ -101,6 +101,16 @@ pub struct EraFeatures {
     pub aetheria: bool,
     /// Luminance and the luminance auras.
     pub luminance: bool,
+    /// The contract tracker: the quests a character has taken on, with their timers.
+    pub contracts: bool,
+    /// Character titles: the titles a character earns and the one it displays.
+    pub titles: bool,
+    /// Cloaks, and the cloak slot they are worn in.
+    pub cloaks: bool,
+    /// The trinket slot.
+    pub trinkets: bool,
+    /// The journal: the quest page, its notebook and the toolbar button that opens it.
+    pub journal: bool,
 }
 
 impl EraFeatures {
@@ -117,6 +127,11 @@ impl EraFeatures {
         innate_augmentations: true,
         aetheria: true,
         luminance: true,
+        contracts: true,
+        titles: true,
+        cloaks: true,
+        trinkets: true,
+        journal: true,
     };
 
     /// None of them: February 2005.
@@ -132,6 +147,11 @@ impl EraFeatures {
         innate_augmentations: false,
         aetheria: false,
         luminance: false,
+        contracts: false,
+        titles: false,
+        cloaks: false,
+        trinkets: false,
+        journal: false,
     };
 }
 

@@ -6,7 +6,8 @@
 // endpoint, and the WebSocket URL it reports is used.
 //
 // The query string may fill the form, so a server's operator can link to the page with the server
-// chosen: `?server=<url>&account=<name>`. `?dats=http` offers the dev runner's data files
+// chosen: `?server=<url>&account=<name>`; `?era=<name>` names the era of a server reached by its
+// WebSocket URL, whose status the page does not read. `?dats=http` offers the dev runner's data files
 // (`cargo xtask web --dat-dir`). `?log` (or `?log=debug`, ...) shows the client's log and its frame
 // rate over the canvas, for reporting a problem, and `?gpu=webgl` draws with WebGL 2 where a
 // browser's WebGPU misbehaves.
@@ -124,12 +125,18 @@ $('source').onchange = () => {
 };
 $('source').onchange();
 
-// The WebSocket URL a status address reports, filled into the server field.
+// The era the world plays: the one its status names, else `?era=<name>`, else none (the client
+// reads it from the data files).
+let era = params.get('era') || '';
+
+// The WebSocket URL a status address reports, filled into the server field; the era it names is
+// kept for the client.
 async function fromStatus(address) {
   const url = new URL(address);
   if (url.pathname === '/' || url.pathname === '') url.pathname = '/status';
   const status = await (await fetch(url, { cache: 'no-store' })).json();
   if (!status.websocket_url) throw new Error(`${url}: the server has no WebSocket endpoint`);
+  if (status.era) era = status.era;
   return status.websocket_url;
 }
 
@@ -169,6 +176,7 @@ async function launch(ev) {
     server: $('server').value.trim(),
     account: $('account').value.trim(),
     password: $('password').value,
+    era,
   });
   view.focus();
 }

@@ -110,6 +110,34 @@ impl<'a> TextureStore<'a> {
         self.texture_data_clipped(id, false)
     }
 
+    /// [`Self::texture_data`] for one layer of an item icon.
+    ///
+    /// The icon images of the dat set before Throne of Destiny carry no alpha: their pure black is
+    /// the transparent colour around the picture, where the later files store alpha instead. Only
+    /// an icon's layers are keyed so; every other image of those files, the interface art among
+    /// them, draws its black opaque.
+    ///
+    /// # Errors
+    /// [`TextureError`] when the chain is broken or the payload will not decode.
+    pub fn icon_data(&self, id: DataId) -> Result<TextureData, TextureError> {
+        let (rsid, rs, bytes) = self.resolve(id)?;
+        let payload = rs.payload(&bytes).ok_or(TextureError::NotATexture(rsid))?;
+        let mut data = self.decode_render_surface(rsid, &rs, payload, false, None)?;
+        if PixelFormatId::from_raw(rs.format) == PixelFormatId::CustomB8G8R8
+            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::PreTod
+            && data.format == TextureFormat::Bgra8
+        {
+            for level in &mut data.levels {
+                for px in level.as_chunks_mut::<4>().0 {
+                    if px[..3] == [0, 0, 0] {
+                        px[3] = 0;
+                    }
+                }
+            }
+        }
+        Ok(data)
+    }
+
     /// [`Self::texture_data`], with the outer surface record's `BASE1_CLIPMAP` bit.
     ///
     /// The flag reaches the palettised decoders and nothing else, and it cannot be recovered from
@@ -223,21 +251,7 @@ impl<'a> TextureStore<'a> {
                 .map_err(|e| TextureError::Decode(rsid, e));
         }
         let src = self.source_pixels(format, payload, palette, clip_map)?;
-        let mut data =
-            decode_surface(src, rs.width, rs.height).map_err(|e| TextureError::Decode(rsid, e))?;
-        // The images of the dat set before Throne of Destiny carry no alpha: pure black is their
-        // transparent colour (an icon's surround, a panel's cut-outs), which the later files store
-        // as alpha instead.
-        if format == PixelFormatId::CustomB8G8R8 && data.format == TextureFormat::Bgra8 {
-            for level in &mut data.levels {
-                for px in level.as_chunks_mut::<4>().0 {
-                    if px[..3] == [0, 0, 0] {
-                        px[3] = 0;
-                    }
-                }
-            }
-        }
-        Ok(data)
+        decode_surface(src, rs.width, rs.height).map_err(|e| TextureError::Decode(rsid, e))
     }
 
     /// The CPU-readable form the terrain compositor needs: always BGRA8.
@@ -338,9 +352,10 @@ impl<'a> TextureStore<'a> {
 mod tests {
     use super::*;
 
-    /// A February 2005 image carries no alpha, and its pure black is its transparent colour: an
-    /// item icon's surround is transparent where the end-of-retail file's copy of the same icon
-    /// is, and an item-type background tile, which has no black, stays opaque.
+    /// A February 2005 icon image carries no alpha, and its pure black is its transparent colour:
+    /// drawn as an icon, its surround is transparent where the end-of-retail file's copy of the
+    /// same icon is, and an item-type background tile, which has no black, stays opaque. The same
+    /// image drawn as plain interface art keeps its black opaque.
     #[test]
     #[cfg_attr(
         not(feature = "retail-dats"),
@@ -359,7 +374,7 @@ mod tests {
             RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).expect("the retail dats");
         let clear = |store: &RetailDatStore, id: u32| -> Vec<bool> {
             let d = TextureStore::new(store)
-                .texture_data(DataId(id))
+                .icon_data(DataId(id))
                 .expect("the image decodes");
             assert_eq!(d.format, TextureFormat::Bgra8);
             d.levels[0]
@@ -374,6 +389,14 @@ mod tests {
         assert!(old_clear.iter().filter(|&&c| c).count() > 100);
         assert_eq!(old_clear, clear(&later, icon));
         assert!(clear(&hybrid, 0x0600_11CB).iter().all(|&c| !c));
+        let plain = TextureStore::new(&hybrid)
+            .texture_data(DataId(icon))
+            .expect("the image decodes");
+        assert!(plain.levels[0]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[3] == 0xFF));
     }
 
     /// A 256-colour image of the February 2005 files takes colour `i` of its 256-entry palette

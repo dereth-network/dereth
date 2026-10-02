@@ -312,6 +312,15 @@ pub struct Config {
     /// request. It proves a login can play, not just arrive; like `--linger` it is this rebuild's
     /// switch and not one the retail client has.
     pub cast: Option<u32>,
+    /// `--say <text>`, any number of times: once `--enter-world` is in the world, submit each
+    /// line in turn as the chat window's Send does (so `@` and `/` commands are commands). Like
+    /// `--cast` it is this rebuild's switch and not one the retail client has.
+    pub say: Vec<String>,
+    /// `--use <object id | closest>`, any number of times: after any `--say` lines, use each in
+    /// turn, six seconds apart, as a double-click uses it (a door's id twice opens and closes
+    /// it); `closest` is the closest compass item, selected by its key's action. This rebuild's
+    /// switch.
+    pub use_targets: Vec<String>,
 
     // ---- the shell ----
     /// Bring up the UI element tree and flow controller, run the mode machine, and draw the current screen
@@ -405,6 +414,8 @@ impl Default for Config {
             enter_world: false,
             linger: 0.0,
             cast: None,
+            say: Vec::new(),
+            use_targets: Vec::new(),
             ui: true,
             sound: true,
             ui_mode: None,
@@ -673,6 +684,16 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "cast",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "say",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "use",
         short: None,
         arity: Arity::Required,
     },
@@ -1027,6 +1048,10 @@ impl Config {
     /// rather than returning on the spot.
     fn parse_args(&mut self, argv: &[String]) -> Result<(), ConfigError> {
         let mut first_error: Option<ConfigError> = None;
+        // The one switch that collects rather than stores: started afresh, so a second pass over
+        // the same command line leaves it as the first did.
+        self.say.clear();
+        self.use_targets.clear();
         let mut i = 0usize;
         let fail = |e: ConfigError, slot: &mut Option<ConfigError>| {
             if slot.is_none() {
@@ -1266,6 +1291,16 @@ impl Config {
                     v.parse::<u32>()
                         .map_err(|_| ConfigError::new(format!("bad --cast value {v:?}")))?,
                 );
+            }
+            "say" => self.say.push(v.to_owned()),
+            "use" => {
+                let id = v.strip_prefix("0x").map(|h| u32::from_str_radix(h, 16));
+                if v != "closest" && !matches!(id, Some(Ok(_))) {
+                    return Err(ConfigError::new(format!(
+                        "--use takes an object id (0x...) or closest, not {v:?}"
+                    )));
+                }
+                self.use_targets.push(v.to_owned());
             }
             "time-of-day" => {
                 let f = v
@@ -1664,6 +1699,29 @@ mod tests {
         assert_eq!(parse(&["--cast", "35"]).expect("parses").cast, Some(35));
         assert_eq!(parse(&[]).expect("parses").cast, None);
         assert!(parse(&["--cast", "blood"]).is_err());
+    }
+
+    /// `--say` lines and `--use` targets are kept in the order given.
+    #[test]
+    fn the_say_switch_keeps_each_line_in_order() {
+        let c = parse(&["--say", "@level 2", "--say", "hello there"]).expect("parses");
+        assert_eq!(c.say, ["@level 2", "hello there"]);
+        assert!(parse(&[]).expect("parses").say.is_empty());
+        let argv: Vec<String> = ["--headless", "--say", "@level 2"]
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let at = Config::from_args_and_prefs_at(&argv, Path::new(""))
+            .expect("parses")
+            .say;
+        assert_eq!(
+            at,
+            ["@level 2"],
+            "the command line is read twice, the line kept once"
+        );
+        let c = parse(&["--use", "0x7A9B0000", "--use", "closest"]).expect("parses");
+        assert_eq!(c.use_targets, ["0x7A9B0000", "closest"]);
+        assert!(parse(&["--use", "door"]).is_err());
     }
 
     // Oracle: the complete supported switch table and its per-switch behavior.

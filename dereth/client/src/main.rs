@@ -680,6 +680,14 @@ fn run_with(cfg: Config) -> Result<(), String> {
             audio.stats.movie_tracks_started,
             audio.peak_output()
         );
+        let w = audio.world_stats();
+        tracing::info!(
+            "world audio -- {} hook sound(s), {} unplayable; {} server sound(s), {} unplayable",
+            w.triggers,
+            w.trigger_misses,
+            w.server_sounds,
+            w.server_sound_misses
+        );
     }
 
     if let Some(path) = capture {

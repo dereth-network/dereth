@@ -384,6 +384,9 @@ pub struct CharacterInfoPanel {
     pub updates: u32,
     seen: Option<CharacterInfo>,
     was_visible: bool,
+    /// The world's era has no luminance, so the sheet leaves out its luminance section
+    /// ([`super::era`]).
+    pub era_lacks_luminance: bool,
 }
 
 impl CharacterInfoPanel {
@@ -434,6 +437,11 @@ impl CharacterInfoPanel {
             return false;
         }
         if shown_now {
+            self.seen = None;
+        }
+        let lacks_luminance = view.era().is_some_and(|e| !e.features().luminance);
+        if lacks_luminance != self.era_lacks_luminance {
+            self.era_lacks_luminance = lacks_luminance;
             self.seen = None;
         }
         let info = view.character_info();
@@ -572,9 +580,15 @@ impl CharacterInfoPanel {
             ));
         }
         // No gate and no variable. The header is on the sheet even for a character
-        // with no luminance at all, which is what a new character sees first.
-        s.push_str(&compose(ui, string::LUMINANCE_HEADER, &[]));
-        for (id, base, spec) in LUMINANCE {
+        // with no luminance at all, which is what a new character sees first -- in an era that
+        // has luminance.
+        let luminance: &[_] = if self.era_lacks_luminance {
+            &[]
+        } else {
+            s.push_str(&compose(ui, string::LUMINANCE_HEADER, &[]));
+            LUMINANCE
+        };
+        for (id, base, spec) in luminance {
             let v = c.aug_ints.get(id).copied().unwrap_or(0);
             match spec {
                 // The rated pairs: five splits the value, and **both** halves can show.

@@ -204,7 +204,7 @@ mod imp {
                 // is still the recipe's base and still part of the cache key.
                 let decoded =
                     if let Some(r) = op.and_then(dereth_ui::region::SurfaceOp::icon_recipe) {
-                        crate::ui_draw::composite(r, &|d| textures.texture_data(d).ok())
+                        crate::ui_draw::composite(r, &|d| textures.icon_data(d).ok())
                             .ok_or(crate::textures::TextureError::NotATexture(id))
                     } else {
                         textures.texture_data(id).map(|d| match op {

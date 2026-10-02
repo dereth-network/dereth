@@ -177,6 +177,8 @@ pub struct RemainingPanels {
     /// Its data is `0x0314` / `0x0315`, which never arrives in the recorded captures; this field
     /// is the reader for it.
     pub contracts: super::contracts::ContractsPanel,
+    /// What the world's era lacks, taken off the screens (the Contracts tab, ...).
+    pub era: super::era::EraPanels,
     /// The salvage panel. It binds off the screen **root** like every other `<ENVP>` window: its
     /// instance is `0x1000005E`, the second of the environment panel's five pages.
     ///
@@ -312,6 +314,7 @@ impl RemainingPanels {
         // a sub-panel of `<QUES>` and recursive lookup is recursive.
         self.contracts.post_init(ui, root);
         ok |= self.contracts.bound();
+        self.era.post_init(ui, root);
         // The salvage panel, off the root for the reason the four `<ENVP>` windows above are:
         // recursive lookup finds the unique `0x1000005E`.
         self.salvage.post_init(ui, root);
@@ -525,6 +528,9 @@ impl RemainingPanels {
         // visible -- which is every frame of every recorded session, because neither `0x0314` nor
         // `0x0315` appears in the corpus.
         let contracts = u32::from(self.contracts.update(ui, view));
+        // The era's features, applied once each time they change: before any of the era's
+        // panels could be opened, since the era is known by the time the world is entered.
+        let era = u32::from(self.era.update(ui, view));
         // The salvage update combines the client's hidden edge with the
         // window's fill, folded into one call. A no-op on every frame where the window holds the
         // same rows -- which is every frame until a tinkering tool is used, because nothing but
@@ -558,6 +564,7 @@ impl RemainingPanels {
             + link_status
             + journal
             + contracts
+            + era
             + salvage
             + slumlord
             + u32::from(skills)
