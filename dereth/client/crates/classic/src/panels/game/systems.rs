@@ -352,14 +352,270 @@ pub struct Journal {
     file: Option<std::path::PathBuf>,
     /// The three timer boxes as typed.
     boxes: [String; 3],
-    /// On a world with contracts as well, the page's other tab, and whether it is the one shown.
+    /// On a world with contracts as well, the window's Contracts tab.
     contracts: Contracts,
-    on_contracts: bool,
+    /// The tab shown, an index into [`quest_tabs`]: the first (Contracts, where the world has
+    /// them) until another is chosen.
+    tab: usize,
+    /// The Page List tab.
+    list: PageList,
 }
 
-/// Whether the journal page has a Contracts tab beside its own: on a world with both.
-fn quest_tabs(game: &dyn GameView) -> bool {
-    era_has(game, |e| e.journal) && era_has(game, |e| e.contracts)
+/// The journal window's tabs on a world with the journal: Contracts first where the world has
+/// them, then the journal's page and its page list.
+fn quest_tabs(game: &dyn GameView) -> Vec<(&'static str, &'static str, QuestTab)> {
+    let mut tabs = vec![];
+    if era_has(game, |e| e.contracts) {
+        tabs.push(("tab-contracts", "Contracts", QuestTab::Contracts));
+    }
+    tabs.push(("tab-journal", "Journal", QuestTab::Journal));
+    tabs.push(("tab-pages", "Page List", QuestTab::Pages));
+    tabs
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuestTab {
+    Contracts,
+    Journal,
+    Pages,
+}
+
+/// The journal's Page List tab: every page with its number, title, timer and label, sorted by
+/// the column header last pressed (pressed again, the order reverses), cut to the pages holding
+/// the search text when Search is pressed (Reset empties the search). A second press on the
+/// chosen row turns the journal to that page; Delete takes the chosen page out.
+#[derive(Debug, Default)]
+struct PageList {
+    /// The pages listed, filtered and sorted.
+    pages: Vec<JournalPage>,
+    sort: rules::JournalSortCriteria,
+    reverse: bool,
+    /// The search box as typed.
+    search: String,
+    /// The chosen row, and when it was last pressed.
+    selected: Option<usize>,
+    pressed: f64,
+    scroll: i32,
+}
+
+/// A Page List row's height.
+const LIST_ROW: i32 = 20;
+
+/// The Page List's columns: the header button, its caption, its left edge and width.
+const COLUMNS: [(&str, &str, i32, i32); 4] = [
+    ("sort-number", "#", 0, 34),
+    ("sort-title", "Title", 34, 104),
+    ("sort-timer", "Timer", 138, 70),
+    ("sort-label", "Label", 208, 72),
+];
+
+impl PageList {
+    /// List `pages` again, cut to the search text when `filter` is set, in the chosen order.
+    fn rebuild(&mut self, pages: &[JournalPage], filter: bool) {
+        let needle = if filter {
+            self.search.clone()
+        } else {
+            String::new()
+        };
+        self.pages = pages
+            .iter()
+            .filter(|p| rules::page_contains_string(p, &needle))
+            .cloned()
+            .collect();
+        let (by, reverse) = (self.sort, self.reverse);
+        self.pages.sort_by(|a, b| {
+            let o = rules::compare(a, b, by);
+            if reverse {
+                o.reverse()
+            } else {
+                o
+            }
+        });
+        self.selected = None;
+    }
+
+    fn body(&self, f: &mut PanelFrame, h: i32, now: f64) {
+        for (id, caption, x, w) in COLUMNS {
+            f.button(id, rect(x, TOP + 2, w, 22), caption, true).font = "15-6".into();
+        }
+        let top = TOP + 26;
+        let bottom = h - 72;
+        let clip = [0, top, 280, bottom];
+        let max = (i32_from(self.pages.len()) * LIST_ROW - (bottom - top)).max(0);
+        let scroll = self.scroll.clamp(0, max);
+        for (i, p) in self.pages.iter().enumerate() {
+            let y = top + i32_from(i) * LIST_ROW - scroll;
+            if y + LIST_ROW <= top || y >= bottom {
+                continue;
+            }
+            image(
+                f,
+                if self.selected == Some(i) {
+                    0x06001397
+                } else {
+                    0x06001396
+                },
+                rect(0, y, 280, LIST_ROW),
+                Some(clip),
+                false,
+                false,
+            );
+            let timer = rules::timer_text(p.timer_running, p.timer_stamp, now);
+            for ((_, _, x, w), cell) in COLUMNS.into_iter().zip([
+                p.page_number.to_string(),
+                p.title.clone(),
+                timer,
+                p.label.clone(),
+            ]) {
+                text(
+                    f,
+                    rect(x + 3, y + 2, w - 6, LIST_ROW - 4),
+                    cell,
+                    "15-6",
+                    CREAM,
+                    0,
+                    false,
+                    Some([x.max(clip[0]), clip[1], (x + w).min(clip[2]), clip[3]]),
+                );
+            }
+        }
+        f.control(
+            "page-rows",
+            rect(0, top, 280, bottom - top),
+            ControlKind::HitList {
+                row_count: self.pages.len(),
+                row_height: LIST_ROW,
+                selected: self.selected,
+                offset: scroll,
+            },
+            true,
+        );
+        f.control(
+            "page-scroll",
+            rect(280, top, 20, bottom - top),
+            ControlKind::ScrollBar {
+                min: 0,
+                max,
+                value: scroll,
+                page: bottom - top,
+                step: LIST_ROW,
+                vertical: true,
+                arrow_size: 16,
+                thumb_size: 16,
+            },
+            true,
+        );
+        f.button(
+            "delete-page",
+            rect(200, h - 68, 90, 28),
+            "Delete",
+            self.selected.is_some(),
+        );
+        f.button("search", rect(4, h - 36, 70, 28), "Search:", true);
+        f.edit(
+            "search-text",
+            rect(78, h - 33, 136, 22),
+            &self.search,
+            100,
+            false,
+            true,
+        );
+        f.button(
+            "reset-search",
+            rect(220, h - 36, 70, 28),
+            rules::RESET,
+            true,
+        );
+    }
+}
+
+impl Journal {
+    /// The tab shown on a world with the journal.
+    fn shown_tab(&self, game: &dyn GameView) -> QuestTab {
+        let tabs = quest_tabs(game);
+        tabs.get(self.tab)
+            .or(tabs.first())
+            .map_or(QuestTab::Journal, |t| t.2)
+    }
+
+    /// The Page List tab's events.
+    fn list_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        let out = self.load(c.game);
+        match e {
+            ControlEvent::Activate(id) => match id.as_str() {
+                "sort-number" | "sort-title" | "sort-timer" | "sort-label" => {
+                    let by = match id.as_str() {
+                        "sort-number" => rules::JournalSortCriteria::PageNumber,
+                        "sort-title" => rules::JournalSortCriteria::Title,
+                        "sort-timer" => rules::JournalSortCriteria::Timer,
+                        _ => rules::JournalSortCriteria::Label,
+                    };
+                    if self.list.sort == by {
+                        self.list.reverse = !self.list.reverse;
+                    } else {
+                        self.list.sort = by;
+                        self.list.reverse = false;
+                    }
+                    let filter = !self.list.search.is_empty();
+                    self.list.rebuild(&self.pages, filter);
+                }
+                "search" => self.list.rebuild(&self.pages, true),
+                "reset-search" => {
+                    self.list.search.clear();
+                    self.list.rebuild(&self.pages, false);
+                }
+                "delete-page" => {
+                    let number = self
+                        .list
+                        .selected
+                        .and_then(|i| self.list.pages.get(i))
+                        .map(|p| p.page_number);
+                    if let Some(i) =
+                        number.and_then(|n| self.pages.iter().position(|p| p.page_number == n))
+                    {
+                        if self.pages.len() < 2 {
+                            self.pages[i] = JournalPage {
+                                page_number: self.pages[i].page_number,
+                                ..JournalPage::default()
+                            };
+                        } else {
+                            self.pages.remove(i);
+                            rules::renumber(&mut self.pages);
+                        }
+                        self.show(1);
+                        self.save();
+                    }
+                    self.list.rebuild(&self.pages, false);
+                }
+                _ => {}
+            },
+            ControlEvent::Edit { id, text } if id == "search-text" => self.list.search = text,
+            ControlEvent::Submit { id } if id == "search-text" => {
+                self.list.rebuild(&self.pages, true);
+            }
+            ControlEvent::Scroll { id, value } if id == "page-rows" || id == "page-scroll" => {
+                self.list.scroll = value.max(0);
+            }
+            ControlEvent::Select { id, index } if id == "page-rows" => {
+                let now = c.game.now();
+                let again = self.list.selected == Some(index) && now - self.list.pressed <= 1.0;
+                self.list.selected = (index < self.list.pages.len()).then_some(index);
+                self.list.pressed = now;
+                if again {
+                    if let Some(n) = self.list.pages.get(index).map(|p| p.page_number) {
+                        self.show(n);
+                        self.tab = quest_tabs(c.game)
+                            .iter()
+                            .position(|t| t.2 == QuestTab::Journal)
+                            .unwrap_or(0);
+                        self.list.pressed = 0.0;
+                    }
+                }
+            }
+            _ => {}
+        }
+        out
+    }
 }
 
 use dereth_presentation::journal::{self as rules, JournalPage};
@@ -442,34 +698,53 @@ impl Panel for Journal {
         "journal"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        if !quest_tabs(c.game) {
+        if !era_has(c.game, |e| e.journal) {
             let (mut f, h) = page("Journal");
             self.body(&mut f, h, c);
             return f;
         }
         let (mut f, h) = bare_page();
+        let tabs = quest_tabs(c.game);
+        let shown = self.shown_tab(c.game);
+        let captions: Vec<_> = tabs.iter().map(|t| (t.0, t.1)).collect();
         page_tabs(
             &mut f,
-            &[("tab-contracts", "Contracts"), ("tab-journal", "Journal")],
-            usize::from(!self.on_contracts),
+            &captions,
+            tabs.iter().position(|t| t.2 == shown).unwrap_or(0),
         );
-        if self.on_contracts {
-            self.contracts.body(&mut f, h, c);
-        } else {
-            self.body(&mut f, h, c);
+        match shown {
+            QuestTab::Contracts => self.contracts.body(&mut f, h, c),
+            QuestTab::Journal => self.body(&mut f, h, c),
+            QuestTab::Pages => self.list.body(&mut f, h, c.game.now()),
         }
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
-        if quest_tabs(c.game) {
+        if era_has(c.game, |e| e.journal) {
+            let tabs = quest_tabs(c.game);
             match &e {
-                ControlEvent::Activate(id) if id == "tab-contracts" || id == "tab-journal" => {
-                    self.on_contracts = id == "tab-contracts";
+                ControlEvent::Activate(id) if tabs.iter().any(|t| t.0 == id) => {
+                    self.tab = tabs.iter().position(|t| t.0 == id).unwrap_or(0);
+                    if tabs[self.tab].2 == QuestTab::Pages {
+                        let out = self.load(c.game);
+                        let filter = !self.list.search.is_empty();
+                        self.list.rebuild(&self.pages, filter);
+                        return out;
+                    }
                     return vec![];
                 }
                 ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
-                _ if self.on_contracts => return self.contracts.body_event(e, c),
                 _ => {}
+            }
+            match self.shown_tab(c.game) {
+                QuestTab::Contracts => {
+                    // The journal is read while its window is up on any tab.
+                    let mut out = self.load(c.game);
+                    out.extend(self.contracts.body_event(e, c));
+                    return out;
+                }
+                QuestTab::Pages => return self.list_event(e, c),
+                QuestTab::Journal => {}
             }
         }
         self.body_event(e, c)
@@ -848,6 +1123,7 @@ mod tests {
         let mut j = Journal::default();
         with(&game, |c| {
             j.event(ControlEvent::Tick, c);
+            act(&mut j, "tab-journal", c);
             type_in(&mut j, "label", "Quest", c);
             type_in(&mut j, "title", "Rats in the cellar", c);
             type_in(&mut j, "notes", "Five rats.\nSee the innkeeper.", c);
@@ -881,6 +1157,7 @@ mod tests {
         };
         with(&later, |c| {
             fresh.event(ControlEvent::Tick, c);
+            act(&mut fresh, "tab-journal", c);
             let f = fresh.frame(c);
             let shown = format!("{f:?}");
             assert!(shown.contains("Rats in the cellar"));
@@ -903,6 +1180,7 @@ mod tests {
         let mut j = Journal::default();
         with(&game, |c| {
             j.event(ControlEvent::Tick, c);
+            act(&mut j, "tab-journal", c);
             type_in(&mut j, "title", "one", c);
             act(&mut j, "new", c);
             type_in(&mut j, "title", "two", c);
@@ -988,8 +1266,12 @@ mod tests {
         let has = |f: &PanelFrame, id: &str| f.controls.iter().any(|k| k.id == id);
         with(&game, |c| {
             j.event(ControlEvent::Tick, c);
+            // Contracts is the tab shown first.
             let f = j.frame(c);
-            assert!(has(&f, "tab-contracts") && has(&f, "tab-journal") && has(&f, "stamp"));
+            assert!(has(&f, "tab-contracts") && has(&f, "tab-journal") && has(&f, "tab-pages"));
+            assert!(has(&f, "abandon") && !has(&f, "stamp"));
+            act(&mut j, "tab-journal", c);
+            assert!(has(&j.frame(c), "stamp"));
             act(&mut j, "tab-contracts", c);
             let f = j.frame(c);
             assert!(has(&f, "abandon") && !has(&f, "stamp"));
@@ -1044,6 +1326,7 @@ mod tests {
         };
         with(&game, |c| {
             j.event(ControlEvent::Tick, c);
+            act(&mut j, "tab-journal", c);
             type_in(&mut j, "label", "Rats", c);
             act(&mut j, "new", c);
             act(&mut j, "new", c);
@@ -1061,6 +1344,108 @@ mod tests {
             assert_eq!(list(&j, c).1, 0);
             assert!(format!("{:?}", j.frame(c)).contains("Rats"));
         });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_page_list_tab_sorts_searches_deletes_and_turns_to_a_page_pressed_twice() {
+        let dir = journal_dir("pagelist");
+        let mut game = Game {
+            journal_dir: Some(dir.clone()),
+            now: 10.0,
+            ..Game::default()
+        };
+        let mut j = Journal::default();
+        let titles = |j: &Journal| {
+            j.list
+                .pages
+                .iter()
+                .map(|p| p.title.clone())
+                .collect::<Vec<_>>()
+        };
+        with(&game, |c| {
+            j.event(ControlEvent::Tick, c);
+            act(&mut j, "tab-journal", c);
+            type_in(&mut j, "title", "Bravo", c);
+            act(&mut j, "new", c);
+            type_in(&mut j, "title", "alpha", c);
+            act(&mut j, "new", c);
+            type_in(&mut j, "title", "Charlie", c);
+            type_in(&mut j, "notes", "the cellar", c);
+            act(&mut j, "tab-pages", c);
+            let f = j.frame(c);
+            for id in [
+                "sort-number",
+                "sort-title",
+                "sort-timer",
+                "sort-label",
+                "page-rows",
+            ] {
+                assert!(f.controls.iter().any(|k| k.id == id), "{id}");
+            }
+            assert_eq!(
+                titles(&j),
+                ["Bravo", "alpha", "Charlie"],
+                "by page number at first"
+            );
+            act(&mut j, "sort-title", c);
+            assert_eq!(
+                titles(&j),
+                ["alpha", "Bravo", "Charlie"],
+                "titles ignore case"
+            );
+            act(&mut j, "sort-title", c);
+            assert_eq!(
+                titles(&j),
+                ["Charlie", "Bravo", "alpha"],
+                "pressed again, reversed"
+            );
+            type_in(&mut j, "search-text", "CELLAR", c);
+            act(&mut j, "search", c);
+            assert_eq!(titles(&j), ["Charlie"], "the notes are searched too");
+            act(&mut j, "reset-search", c);
+            assert_eq!(titles(&j).len(), 3);
+            assert!(j.list.search.is_empty());
+        });
+        // Bravo is the middle row; pressed once it is chosen, pressed again it is opened.
+        let select = |j: &mut Journal, c: &Context<'_>| {
+            j.event(
+                ControlEvent::Select {
+                    id: "page-rows".into(),
+                    index: 1,
+                },
+                c,
+            )
+        };
+        with(&game, |c| {
+            select(&mut j, c);
+            assert!(j.frame(c).controls.iter().any(|k| k.id == "delete-page"));
+            assert!(!j.frame(c).controls.iter().any(|k| k.id == "stamp"));
+        });
+        game.now = 10.5;
+        with(&game, |c| {
+            select(&mut j, c);
+            assert!(
+                j.frame(c).controls.iter().any(|k| k.id == "stamp"),
+                "the journal tab"
+            );
+            assert_eq!(j.page().map(|p| p.title.as_str()), Some("Bravo"));
+            // Deleted from the list: the pages are numbered again.
+            act(&mut j, "tab-pages", c);
+            select(&mut j, c);
+            act(&mut j, "delete-page", c);
+        });
+        let pages = rules::parse_pages(
+            &std::fs::read_to_string(dir.join("Journal-Dereth-Scribe.txt")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            pages
+                .iter()
+                .map(|p| (p.page_number, p.title.as_str()))
+                .collect::<Vec<_>>(),
+            [(1, "alpha"), (2, "Charlie")]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

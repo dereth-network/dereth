@@ -164,62 +164,7 @@ pub const TICK_PERIOD: f64 = super::journal::TICK_PERIOD;
 /// The double-click check's window — one second after the last click.
 pub const DOUBLE_CLICK_WINDOW: f64 = 1.0;
 
-/// The page-list sort criterion. The values follow the sort's callers; see the module header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum JournalSortCriteria {
-    #[default]
-    PageNumber,
-    Title,
-    Label,
-    Timer,
-}
-
-/// The four page-list sorts — by page number, by title,
-/// by contract name and by timer — plus their four reverse
-/// twins, as one function.
-///
-/// * **page number** — ascending page number.
-/// * **title** — `wcscmp` of the two titles **lower-cased**, so the comparison is
-///   case-insensitive.
-/// * **label** — retail reuses the contract-name sort here; it reads the first field, which is
-///   the contract's name in one record and the page's label in the other. Same lower-cased
-///   `wcscmp`.
-/// * **timer** — a running timer sorts before a stopped one; two running ones by timer stamp
-///   ascending; two stopped ones by page number. (Retail's three arms.)
-#[must_use]
-pub fn compare(a: &JournalPage, b: &JournalPage, by: JournalSortCriteria) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    match by {
-        JournalSortCriteria::PageNumber => a.page_number.cmp(&b.page_number),
-        JournalSortCriteria::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-        JournalSortCriteria::Label => a.label.to_lowercase().cmp(&b.label.to_lowercase()),
-        JournalSortCriteria::Timer => match (a.timer_running, b.timer_running) {
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater,
-            (true, true) => a
-                .timer_stamp
-                .partial_cmp(&b.timer_stamp)
-                .unwrap_or(Ordering::Equal),
-            (false, false) => a.page_number.cmp(&b.page_number),
-        },
-    }
-}
-
-/// The page list panel's page contains string.
-///
-/// **An empty needle matches everything** — retail returns true first when the needle's length
-/// (which counts the terminator) is 1. Otherwise the needle and each of the label, title and notes
-/// are lower-cased and `wcsstr`'d, in that order.
-#[must_use]
-pub fn page_contains_string(page: &JournalPage, needle: &str) -> bool {
-    if needle.is_empty() {
-        return true;
-    }
-    let n = needle.to_lowercase();
-    page.label.to_lowercase().contains(&n)
-        || page.title.to_lowercase().contains(&n)
-        || page.notes.to_lowercase().contains(&n)
-}
+pub use dereth_presentation::journal::{compare, page_contains_string, JournalSortCriteria};
 
 /// `-1` When nothing is selected, and `-1` as
 /// well when the element carries no list-box behaviour or that behaviour is currently lifted out
