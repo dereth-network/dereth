@@ -1097,10 +1097,11 @@ impl UiTree {
                             {
                                 let index = usize::try_from(local_y / i64::from(*row_height))
                                     .unwrap_or(usize::MAX);
-                                if *selected != Some(index) {
-                                    *selected = Some(index);
-                                    actions.push(Action::Select { id, index });
-                                }
+                                // A press on the row already chosen is reported too: a
+                                // window may act on it (a pending break or dismissal) or
+                                // let it go.
+                                *selected = Some(index);
+                                actions.push(Action::Select { id, index });
                             }
                         }
                     }
@@ -1699,6 +1700,11 @@ mod tests {
             vec![Action::Select { id: list, index: 1 }]
         );
         assert!(click(&mut tree, 5, 80).is_empty());
+        assert_eq!(
+            click(&mut tree, 5, 25),
+            vec![Action::Select { id: list, index: 1 }],
+            "a press on the chosen row is reported again"
+        );
         let edit = tree.add(
             None,
             Node::new(
