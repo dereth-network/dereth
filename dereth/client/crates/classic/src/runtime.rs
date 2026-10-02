@@ -2222,9 +2222,12 @@ impl ClassicUi {
                 other => other,
             };
             // The interface choice is the option store's, as the retail Options page writes it;
-            // the shell follows it on the next frame.
+            // the shell follows it on the next frame. The classic interface's own options are
+            // the store's too.
             if let UiRequest::SetPreference(name, value) = &request {
-                if *name == dereth_client_contract::options::interface::INTERFACE {
+                if *name == dereth_client_contract::options::interface::INTERFACE
+                    || dereth_client_contract::options::classic::NAMES.contains(name)
+                {
                     let _ = dereth_client_contract::options::store::set_value(name, value.clone());
                 }
             }

@@ -1090,8 +1090,8 @@ mod tests {
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
         // ...beside this client's three presentation options from another era, its interface, its
-        // performance panel and the classic interface's three.
-        assert_eq!(len(), 42);
+        // performance panel and the classic interface's six.
+        assert_eq!(len(), 45);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

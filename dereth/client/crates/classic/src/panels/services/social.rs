@@ -50,12 +50,27 @@ struct Social {
     list_scroll: i32,
 }
 
-/// Whether the window has the Friends and Squelch pages: on a world after the classic
-/// interface's, whose clients had them. The classic interface's own world kept its friends and
-/// squelches in the @friends and @squelch commands.
-fn friends_and_squelch(game: &dyn GameView) -> bool {
-    game.era()
-        .is_none_or(|e| e.era > dereth_primitives::EraId::Infiltration)
+/// The window's pages as `(page, tab caption)`, in tab order: Allegiance and Fellowship always;
+/// Secure Trade on a world with trade when the player shows it (off at first); Friends and
+/// Squelch when the player shows them (on at first), on any world.
+fn pages(game: &dyn GameView) -> Vec<(usize, &'static str)> {
+    use dereth_client_contract::options::classic;
+    let mut pages = vec![(0, "Allegiance"), (1, "Fellowship")];
+    if game.era().is_none_or(|e| e.features().trade) && classic::shown(classic::SHOW_TRADE_TAB) {
+        pages.push((2, "Trade"));
+    }
+    if classic::shown(classic::SHOW_FRIENDS_TAB) {
+        pages.push((3, "Friends"));
+    }
+    if classic::shown(classic::SHOW_SQUELCH_TAB) {
+        pages.push((4, "Squelch"));
+    }
+    pages
+}
+
+/// Whether the window shows `page`.
+fn shows(game: &dyn GameView, page: usize) -> bool {
+    pages(game).iter().any(|(p, _)| *p == page)
 }
 
 /// The friends in the page's order: those logged in first, each group by name.
@@ -1011,39 +1026,37 @@ impl Panel for Social {
         "social"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let later = friends_and_squelch(c.game);
+        let pages = pages(c.game);
+        // A page the window does not show (opened by its key, or turned off) gives way to the
+        // allegiance page.
+        let shown = if shows(c.game, self.tab) { self.tab } else { 0 };
         let mut f = translated(
-            match self.tab {
+            match shown {
                 1 => self.fellowship(c),
                 2 => self.trade(c),
-                3 if later => self.friends(c),
-                4 if later => self.squelch(c),
+                3 => self.friends(c),
+                4 => self.squelch(c),
                 _ => self.allegiance(c),
             },
             25,
             self.height,
         );
-        let titles: &[&str] = if later {
-            &["Allegiance", "Fellowship", "Trade", "Friends", "Squelch"]
-        } else {
-            &["Allegiance", "Fellowship", "Trade"]
-        };
-        let width = 276 / i32_from(titles.len());
-        for (i, title) in titles.iter().enumerate() {
+        let width = 276 / i32_from(pages.len());
+        for (i, (page, title)) in pages.iter().enumerate() {
             // The tabs' art, drawn as it is: the tab of the page on show is held down, so it
-            // shows the pressed art. Five tabs share the row in a smaller hand.
+            // shows the pressed art. Four or five tabs share the row in a smaller hand.
             let tab = f.button(
-                format!("tab{i}"),
+                format!("tab{page}"),
                 rect(i32_from(i) * width, 0, width, 25),
                 *title,
                 true,
             );
-            if later {
+            if pages.len() > 3 {
                 tab.font = "14-5".into();
             }
             tab.images = Some(
                 [
-                    if i == self.tab {
+                    if *page == shown {
                         "06001454"
                     } else {
                         "06001455"
@@ -1065,6 +1078,9 @@ impl Panel for Social {
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        if !shows(c.game, self.tab) {
+            self.tab = 0;
+        }
         let targeting = self.mode != Mode::None;
         let mut out = (|| match e {
             ControlEvent::WorldTarget(target) => self.world_target(target, c),
@@ -1125,7 +1141,7 @@ impl Panel for Social {
             ControlEvent::Activate(id) => match id.as_str() {
                 "tab0" | "tab1" | "tab2" | "tab3" | "tab4" => {
                     let tab = id.as_bytes()[3] as usize - b'0' as usize;
-                    if tab > 2 && !friends_and_squelch(c.game) {
+                    if !shows(c.game, tab) {
                         return vec![];
                     }
                     self.tab = tab;
@@ -1134,11 +1150,9 @@ impl Panel for Social {
                     self.mode = Mode::None;
                     self.subscription()
                 }
-                // The Friends and Squelch pages' buttons, on the worlds that have the pages.
-                "add-friend" | "remove-friend" | "tell-friend" | "squelch-character"
-                | "squelch-account" | "unsquelch"
-                    if !friends_and_squelch(c.game) =>
-                {
+                // The Friends and Squelch pages' buttons, while the window shows the page.
+                "add-friend" | "remove-friend" | "tell-friend" if !shows(c.game, 3) => vec![],
+                "squelch-character" | "squelch-account" | "unsquelch" if !shows(c.game, 4) => {
                     vec![]
                 }
                 "add-friend" => {

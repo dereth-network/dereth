@@ -17,6 +17,33 @@ struct Settings {
     dirty: bool,
     character: super::super::character_options::CharacterOptions,
 }
+use dereth_client_contract::options::classic;
+
+/// The social window's page options on the Options page, `(id, caption, option, top)` each: the
+/// Secure Trade page's only on a world with trade.
+fn social_page_options(
+    game: &dyn GameView,
+) -> Vec<(&'static str, &'static str, &'static str, i32)> {
+    let mut rows = vec![];
+    if game.era().is_none_or(|e| e.features().trade) {
+        rows.push(("show-trade", "Show Trade tab", classic::SHOW_TRADE_TAB));
+    }
+    rows.push((
+        "show-friends",
+        "Show Friends tab",
+        classic::SHOW_FRIENDS_TAB,
+    ));
+    rows.push((
+        "show-squelch",
+        "Show Squelch tab",
+        classic::SHOW_SQUELCH_TAB,
+    ));
+    rows.into_iter()
+        .zip([260, 274, 288])
+        .map(|((id, caption, name), y)| (id, caption, name, y))
+        .collect()
+}
+
 /// The page's background, the side panel's height less the tabs.
 fn background() -> PanelFrame {
     let height = crate::panels::side_height() - 25;
@@ -29,25 +56,35 @@ fn separator(f: &mut PanelFrame, y: i32) {
     f.image("060012C4", rect(279, y, 17, 8), false, false);
 }
 impl Settings {
-    fn general(&self) -> PanelFrame {
+    fn general(&self, c: &Context<'_>) -> PanelFrame {
         let mut f = background();
-        separator(&mut f, 285);
+        separator(&mut f, 303);
         // The six buttons of the classic page, closed up to make room for the way back to the
-        // retail interface.
+        // retail interface and the social window's page options.
         for (id, title, y) in [
-            ("leave", "Leave World", 14),
-            ("acceleration", "Setup 3D Acceleration", 53),
-            ("keyboard", "Configure Keyboard", 92),
-            ("help", "In-Game Help", 131),
-            ("urgent", "Urgent Assistance", 170),
-            ("abuse", "Report Abuse", 209),
-            ("retail-interface", "Retail Interface", 248),
+            ("leave", "Leave World", 6),
+            ("acceleration", "Setup 3D Acceleration", 42),
+            ("keyboard", "Configure Keyboard", 78),
+            ("help", "In-Game Help", 114),
+            ("urgent", "Urgent Assistance", 150),
+            ("abuse", "Report Abuse", 186),
+            ("retail-interface", "Retail Interface", 222),
         ] {
             f.button(id, rect(30, y, 240, 34), title, true);
         }
+        for (id, caption, name, y) in social_page_options(c.game) {
+            f.check(
+                id,
+                rect(40, y, 230, 13),
+                caption,
+                classic::shown(name),
+                true,
+            )
+            .font = "15-6".into();
+        }
         centered(
             &mut f,
-            rect(0, 303, 300, 20),
+            rect(0, 314, 300, 18),
             concat!("Version ", env!("CARGO_PKG_VERSION")),
             "15-6",
         );
@@ -247,7 +284,7 @@ impl Panel for Settings {
             match self.tab {
                 2 => self.sound(c),
                 1 => self.character.frame(c),
-                _ => self.general(),
+                _ => self.general(c),
             },
             25,
             crate::panels::side_height(),
@@ -326,6 +363,19 @@ impl Panel for Settings {
                     if !s.detail_available{s.landscape_detail=false;s.environment_detail=false;}
                     self.dirty=true;vec![PanelAction::Host(HostAction::DefaultClassicSettings(s.clone()))]
                 },_=>vec![]},
+            // The social window's page options are kept at once, as the interface choice is.
+            ControlEvent::Check { id, checked } if id.starts_with("show-") => {
+                social_page_options(c.game)
+                    .into_iter()
+                    .find(|row| row.0 == id)
+                    .map(|row| {
+                        vec![PanelAction::Game(UiRequest::SetPreference(
+                            row.2,
+                            dereth_client_contract::PrefValue::Bool(checked),
+                        ))]
+                    })
+                    .unwrap_or_default()
+            }
             ControlEvent::Check{id,checked}=>{
                 let s=self.draft.as_mut().unwrap();match id.as_str(){"effects"=>s.effects=checked,"ambient"=>s.ambient=checked,"interface"=>s.interface=checked,"auto-degrade"=>s.auto_degrade=checked,"landscape-detail"=>s.landscape_detail=checked,"environment-detail"=>s.environment_detail=checked,"full-screen"=>s.full_screen=checked,_=>return vec![]};self.dirty=true;vec![]
             },

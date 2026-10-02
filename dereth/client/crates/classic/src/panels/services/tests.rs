@@ -1054,7 +1054,10 @@ fn a_raised_rank_shows_the_difference_and_show_xp_waits_for_someone_to_show() {
     assert!(f.controls.iter().any(|c| c.id == "show-xp" && !c.enabled));
 }
 #[test]
-fn friends_and_squelch_are_pages_of_the_social_window_after_the_classic_world() {
+fn the_social_windows_later_pages_follow_the_classic_page_options_on_any_world() {
+    use dereth_client_contract::options::{classic as options, store};
+    use dereth_client_contract::PrefValue;
+    store::init();
     let early = dereth_client_contract::EraView {
         era: dereth_primitives::era::EraId::Infiltration,
         era_announced: true,
@@ -1064,7 +1067,6 @@ fn friends_and_squelch_are_pages_of_the_social_window_after_the_classic_world() 
         era: Some(early),
         ..Default::default()
     };
-    let p = make("friends").unwrap();
     let ids = |v: &View, p: &dyn Panel| {
         with_context(v, |c| p.frame(c))
             .controls
@@ -1072,9 +1074,37 @@ fn friends_and_squelch_are_pages_of_the_social_window_after_the_classic_world() 
             .map(|c| c.id.clone())
             .collect::<Vec<_>>()
     };
-    assert!(!ids(&classic, &*p).contains(&"tab3".to_string()));
-    // Nor do their buttons do anything there.
+    let has = |v: &View, p: &dyn Panel, id: &str| ids(v, p).contains(&id.to_string());
+    // At first: Friends and Squelch on, on the classic world too; Secure Trade off.
+    let p = make("friends").unwrap();
+    assert!(has(&classic, &*p, "tab3") && has(&classic, &*p, "tab4"));
+    assert!(!has(&classic, &*p, "tab2"));
+    assert!(has(&classic, &*p, "add-friend"));
+    // Secure Trade shown where the world has trade; its tab is pressed to its page.
+    store::set_value(options::SHOW_TRADE_TAB, PrefValue::Bool(true));
+    let mut q = make("allegiance").unwrap();
+    assert!(has(&classic, &*q, "tab2"));
+    activate(&mut *q, "tab2", &classic);
+    assert!(has(&classic, &*q, "ignore-trade"));
+    let mut no_trade = dereth_client_contract::EraView {
+        era: dereth_primitives::era::EraId::Infiltration,
+        era_announced: true,
+        ..Default::default()
+    };
+    no_trade.announced_features.set("trade", false);
+    let tradeless = View {
+        era: Some(no_trade),
+        ..Default::default()
+    };
+    assert!(
+        !has(&tradeless, &*q, "tab2"),
+        "never on a world without trade"
+    );
+    store::set_value(options::SHOW_TRADE_TAB, PrefValue::Bool(false));
+    // Friends turned off: its tab goes, and its buttons do nothing.
+    store::set_value(options::SHOW_FRIENDS_TAB, PrefValue::Bool(false));
     let mut q = make("friends").unwrap();
+    assert!(!has(&classic, &*q, "tab3") && has(&classic, &*q, "tab4"));
     event(
         &mut *q,
         ControlEvent::Edit {
@@ -1085,6 +1115,7 @@ fn friends_and_squelch_are_pages_of_the_social_window_after_the_classic_world() 
     );
     assert!(activate(&mut *q, "add-friend", &classic).is_empty());
     assert!(activate(&mut *q, "tab3", &classic).is_empty());
+    store::set_value(options::SHOW_FRIENDS_TAB, PrefValue::Bool(true));
     let later = View {
         friends: vec![
             dereth_client_contract::view::FriendEntry {
