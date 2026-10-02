@@ -2200,6 +2200,43 @@ impl UiShell {
         None
     }
 
+    /// Bring this interface up to the game after frames in which another interface was shown and
+    /// this one was not framed: the game went on without it, so the edges it would have seen are
+    /// taken as the state they left rather than replayed.
+    ///
+    /// - The character set the other interface received is this flow's too.
+    /// - In the world, the flow goes to the gameplay screen; at character selection, to the
+    ///   character screen; disconnected, to the disconnected screen. Anything earlier (still
+    ///   connecting) is left to the flow's own steps.
+    /// - The host state is taken as seen, so no edge fires on the next frame: a character list
+    ///   that arrived meanwhile does not send a player in the world back to character select, and
+    ///   an entry into the world that happened meanwhile is not waited for.
+    pub fn catch_up(&mut self, host: &HostState) {
+        if let Some(set) = host.character_set.as_ref() {
+            if host.character_set_notices != self.last_host.character_set_notices
+                || host.character_set != self.last_host.character_set
+            {
+                self.flow.data.on_character_set(set.clone());
+            }
+        }
+        let current = self.flow.current_mode();
+        if let Some(text) = host.error.as_ref() {
+            if current != Some(mode::DISCONNECTED) {
+                self.flow.queue_with_error(mode::DISCONNECTED, text.clone());
+            }
+        } else if host.in_world {
+            if current != Some(mode::GAME_PLAY) {
+                self.queue(mode::GAME_PLAY);
+            }
+        } else if host.character_set.is_some()
+            && current != Some(mode::CHARACTER_MANAGEMENT)
+            && current != Some(mode::CHAR_GEN)
+        {
+            self.queue(mode::CHARACTER_MANAGEMENT);
+        }
+        self.last_host = host.clone();
+    }
+
     /// The two flow-level notice routes and the character set, which reach the flow from outside
     /// the UI entirely.
     fn apply_host_notices(&mut self, host: &HostState) {

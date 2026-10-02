@@ -2707,6 +2707,11 @@ impl<H: Host> ClientShell<H> {
                 }
                 self.classic.active = false;
                 cx.hud_mut().classic_active = false;
+                // This interface was not framed while the classic one was shown: it comes up on
+                // the screen the game is at, whatever it last showed.
+                if let Some(shell) = self.ui.as_mut() {
+                    shell.catch_up(cx.pregame());
+                }
                 // The classic interface wrote the journal as it went; the retail one reads it
                 // again rather than keep its older pages.
                 cx.hud_mut().panels.journal.forget();

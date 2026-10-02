@@ -266,6 +266,95 @@ fn an_unregistered_mode_is_refused_and_counted_rather_than_retried_for_ever() {
     let _ = before;
 }
 
+/// A character set with one character, as `0xF658` leaves it.
+fn one_character() -> dereth_ui::persist::CharacterSet {
+    dereth_ui::persist::CharacterSet {
+        set: vec![dereth_ui::persist::CharacterIdentity {
+            id: dereth_primitives::ObjectId(0x5000_0001),
+            name: "+Aldis".into(),
+            seconds_grace_period: 0,
+        }],
+        num_allowed_characters: 11,
+        account: "ac01".into(),
+        ..dereth_ui::persist::CharacterSet::default()
+    }
+}
+
+/// Behaviour: presentation.interface.a-switch-back-to-the-retail-interface-shows-the-screen-the-game-is-at
+///
+/// Oracle: the game state the other interface left. The retail interface is not framed while the
+/// classic one is shown, so it comes back either never having been framed at all (the classic
+/// interface was chosen before it started) or on the screen it last showed.
+#[test]
+fn a_retail_interface_shown_again_comes_up_on_the_screen_the_game_is_at() {
+    let store = store();
+    let mut pump = dereth_ui::NullInputPump;
+    let in_world = HostState {
+        connected: true,
+        patch_finished: true,
+        received_set: true,
+        character_set: Some(one_character()),
+        character_set_notices: 1,
+        in_world: true,
+        ..HostState::default()
+    };
+
+    // Never framed: the classic interface was shown from the start and the player went into the
+    // world with it. The retail flow goes straight to the gameplay screen, not through the
+    // data-patch screen, the intro and character selection.
+    let mut shell = UiShell::new(&store, (800, 600))
+        .unwrap_or_else(|e| panic!("the UI shell must come up over the retail dats: {e}"));
+    shell.catch_up(&in_world);
+    for f in 0..4 {
+        shell.frame(at(f), &in_world, &mut pump);
+    }
+    assert_eq!(shell.flow.current_mode(), Some(mode::GAME_PLAY));
+    assert_eq!(shell.transitions(), &[mode::GAME_PLAY], "nothing before it");
+
+    // The control: framed with no catch-up, the same shell state restarts the opening run.
+    let mut control = UiShell::new(&store, (800, 600))
+        .unwrap_or_else(|e| panic!("the UI shell must come up over the retail dats: {e}"));
+    for f in 0..4 {
+        control.frame(at(f), &in_world, &mut pump);
+    }
+    assert_ne!(control.flow.current_mode(), Some(mode::GAME_PLAY));
+
+    // Left in the world, shown again after a log-off and a new entry made with the classic
+    // interface: the character list it missed does not send it back to character selection.
+    let mut shell = UiShell::new(&store, (800, 600))
+        .unwrap_or_else(|e| panic!("the UI shell must come up over the retail dats: {e}"));
+    let at_select = HostState {
+        in_world: false,
+        ..in_world.clone()
+    };
+    let f = run_until(&mut shell, &at_select, 0, mode::CHARACTER_MANAGEMENT, 600);
+    shell.frame(at(f), &in_world, &mut pump);
+    assert_eq!(shell.flow.current_mode(), Some(mode::GAME_PLAY));
+    let again = HostState {
+        character_set_notices: 2,
+        ..in_world.clone()
+    };
+    shell.catch_up(&again);
+    for g in 1..4 {
+        shell.frame(at(f + g), &again, &mut pump);
+    }
+    assert_eq!(
+        shell.flow.current_mode(),
+        Some(mode::GAME_PLAY),
+        "still in the world"
+    );
+
+    // At character selection in the other interface: the character screen, without the intro.
+    let mut shell = UiShell::new(&store, (800, 600))
+        .unwrap_or_else(|e| panic!("the UI shell must come up over the retail dats: {e}"));
+    shell.catch_up(&at_select);
+    for f in 0..4 {
+        shell.frame(at(f), &at_select, &mut pump);
+    }
+    assert_eq!(shell.transitions(), &[mode::CHARACTER_MANAGEMENT]);
+    assert_eq!(shell.stats.screen_create_failures, 0);
+}
+
 // ---------------------------------------------------------------------------------------------
 // 2. A UI element draws over the world
 // ---------------------------------------------------------------------------------------------

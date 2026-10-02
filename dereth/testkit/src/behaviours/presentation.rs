@@ -177,6 +177,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "presentation.interface.a-switch-back-to-the-retail-interface-shows-the-screen-the-game-is-at",
+        says: "Switched back to from the classic interface, the retail interface comes up on the \
+               screen the game is at: the gameplay screen in the world, the character screen at \
+               character selection, the disconnected screen after a disconnect. It does not \
+               replay the opening screens, and a character list that arrived while the classic \
+               interface was shown does not send a player in the world back to character \
+               selection.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-R2-SWITCH-BACK"),
+        station: "dereth-client::gpu::presentation::shell::a_retail_interface_shown_again_comes_up_on_the_screen_the_game_is_at",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "presentation.interface.a-switch-follows-the-choice-and-a-refused-one-goes-back",
         says: "The interface follows the Interface option on the next frame; a choice of the \
                classic interface that cannot be shown goes back to the retail one, and the chat \
