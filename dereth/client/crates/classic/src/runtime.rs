@@ -108,6 +108,8 @@ pub struct ClassicUi {
     /// key map's files.
     legacy_schemes: Vec<(String, Vec<crate::keystore::SharedBinding>, bool)>,
     ui_actions: Vec<String>,
+    /// A tell to begin in the chat entry on the next refresh.
+    pending_tell: Option<String>,
     pub initial_panel: String,
     bindings: Option<crate::keybindings::KeyBindings>,
     previews: crate::previews::Previews,
@@ -199,6 +201,7 @@ impl ClassicUi {
             shared_keys: crate::keystore::SharedKeys::default(),
             legacy_schemes: Vec::new(),
             ui_actions: vec![],
+            pending_tell: None,
             initial_panel: "login".into(),
             bindings: None,
             previews,
@@ -993,6 +996,7 @@ impl ClassicUi {
             HostAction::FocusControl(id) => {
                 self.desktop.focus_control(&id);
             }
+            HostAction::StartTell(name) => self.pending_tell = Some(name),
             HostAction::ClassicTalkFocus(focus) => {
                 ask(cx, UiRequest::SetTalkFocus { focus: focus + 1 })
             }
@@ -1979,6 +1983,17 @@ impl ClassicUi {
             for name in std::mem::take(&mut self.ui_actions) {
                 self.desktop
                     .dispatch_panel("hud", ControlEvent::Action(name), &context);
+            }
+            if let Some(name) = self.pending_tell.take() {
+                self.desktop.dispatch_panel(
+                    "hud",
+                    ControlEvent::Edit {
+                        id: "chat:input".into(),
+                        text: format!("@tell {name}, "),
+                    },
+                    &context,
+                );
+                self.desktop.focus_control("chat:input");
             }
             // A left click on a panel while a targeting cursor is armed acts with it (the item
             // clicked is the target) and then ends it, as a click in the world does; a right

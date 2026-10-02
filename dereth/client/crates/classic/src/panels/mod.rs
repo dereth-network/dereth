@@ -162,6 +162,9 @@ pub enum HostAction {
         from: Option<u32>,
     },
     FocusControl(String),
+    /// Begin a tell to the named character in the chat entry: `@tell <name>, ` typed there and
+    /// the entry focused, ready for the message.
+    StartTell(String),
     ClassicTalkFocus(u32),
     ConfirmBinding(bool),
     DialogAnswer {

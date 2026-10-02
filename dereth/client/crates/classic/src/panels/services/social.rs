@@ -888,11 +888,13 @@ impl Social {
             "Tell",
             chosen.is_some_and(|f| f.online),
         );
-        label(
-            &mut f,
-            rect(14, h - 32, 276, 30),
-            "Friends are told to you as they log in and out.",
-            "15-6",
+        // The character's own presence to its friends, set as the fellowship's options are.
+        f.check(
+            "appear-offline",
+            rect(25, h - 26, 270, 13),
+            "Appear Offline",
+            c.game.player_option(PlayerOption::AppearOffline),
+            true,
         );
         f
     }
@@ -1100,6 +1102,7 @@ impl Panel for Social {
                     "share-loot" => (PlayerOption::FellowshipShareLoot, false),
                     "auto-fellow" => (PlayerOption::FellowshipAutoAcceptRequests, false),
                     "ignore-trade" => (PlayerOption::IgnoreTradeRequests, false),
+                    "appear-offline" => (PlayerOption::AppearOffline, false),
                     _ => return vec![],
                 };
                 changed_option(p, checked ^ invert)
@@ -1155,7 +1158,7 @@ impl Panel for Social {
                 "tell-friend" => self
                     .selected
                     .and_then(|i| friends_shown(c.game).get(i).cloned())
-                    .map(|f| request(UiRequest::StartTell { name: f.name }))
+                    .map(|f| vec![PanelAction::Host(HostAction::StartTell(f.name))])
                     .unwrap_or_default(),
                 // A character's squelch by name is the @squelch command's; an account's has
                 // its own message.
