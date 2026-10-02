@@ -163,6 +163,31 @@ fn an_infiltration_world_has_no_titles_tab_and_no_cloak_or_trinket_slot() {
         "shown before any era"
     );
 
+    // The strip's tabs, left to right, as the layout has them.
+    let strip = |ui: &UiSystem| -> Vec<(ElemHandle, i32, i32, bool)> {
+        let p = ui
+            .node(page)
+            .and_then(|n| n.behaviour.as_ref())
+            .and_then(|b| b.as_any())
+            .and_then(<dyn std::any::Any>::downcast_ref::<dereth_ui::widgets::panel::Panel>)
+            .expect("tabbed");
+        let mut tabs: Vec<_> = p
+            .tab_to_page
+            .keys()
+            .filter_map(|&id| ui.get_child_recursive(page, id))
+            .map(|h| {
+                let n = ui.node(h).expect("alive");
+                let b = n.region.box_;
+                (h, b.x0, b.x1 + 1, n.region.flags.visible)
+            })
+            .collect();
+        tabs.sort_by_key(|t| t.1);
+        tabs
+    };
+    let own = strip(&ui);
+    assert_eq!(own.len(), 3, "attributes, skills and titles");
+    let (start, end) = (own[0].1, own[2].2);
+
     let mut era = EraPanels::default();
     era.post_init(&ui, root);
     assert!(era.update(&mut ui, &world(EraId::Infiltration)));
@@ -170,6 +195,31 @@ fn an_infiltration_world_has_no_titles_tab_and_no_cloak_or_trinket_slot() {
     assert!(
         !ui.node(tab).expect("alive").region.flags.visible,
         "the tab is hidden"
+    );
+    // Attributes and Skills grow over the strip, half each, their end caps at their ends.
+    let left: Vec<(i32, i32)> = strip(&ui)
+        .iter()
+        .filter(|t| t.3)
+        .map(|t| (t.1, t.2))
+        .collect();
+    let half = start + (end - start) / 2;
+    assert_eq!(
+        left,
+        [(start, half), (half, end)],
+        "the two tabs fill the strip"
+    );
+    let first = strip(&ui)[0].0;
+    let caps: Vec<(i32, i32)> = ui
+        .children(first)
+        .iter()
+        .map(|&c| {
+            let b = ui.node(c).expect("alive").region.box_;
+            (b.x0, b.x1 + 1)
+        })
+        .collect();
+    assert!(
+        caps.iter().any(|&(_, e)| e == half - start),
+        "a part of the tab reaches its right end: {caps:?}"
     );
     assert_ne!(
         open_tab(&ui, tab),
@@ -181,6 +231,12 @@ fn an_infiltration_world_has_no_titles_tab_and_no_cloak_or_trinket_slot() {
     assert!(era.update(&mut ui, &world(EraId::Eor)));
     assert!(ui.node(tab).expect("alive").region.flags.visible);
     assert!(slot(&ui, cloak) && slot(&ui, trinket));
+    let back: Vec<(i32, i32)> = strip(&ui).iter().map(|t| (t.1, t.2)).collect();
+    let own: Vec<(i32, i32)> = own.iter().map(|t| (t.1, t.2)).collect();
+    assert_eq!(
+        back, own,
+        "with the Titles tab back each tab is in its own place"
+    );
 }
 
 /// Behaviour: presentation.era.the-screens-leave-out-what-the-worlds-era-lacks
@@ -243,17 +299,39 @@ fn on_an_infiltration_world_the_panel_buttons_close_up_over_the_missing_journal_
     assert_eq!(places.len(), 6, "six small panel buttons in one row");
     assert!(row(&ui, &s).iter().all(|(_, _, shown)| *shown));
 
+    let width = |ui: &UiSystem, h: ElemHandle| ui.node(h).expect("alive").region.box_.width();
+    let all = row(&ui, &s);
+    let end = all[5].1 + width(&ui, all[5].0);
+    let back = ui
+        .get_child_recursive(s.roots()[0], dereth_ui_screens::toolbar::BAR_BACK)
+        .expect("the bar's strip");
+    let own_back = ui.node(back).expect("alive").region.box_;
+
     assert!(s.apply_era(&mut ui, EraId::Infiltration.features()));
-    let shown: Vec<i32> = row(&ui, &s)
+    let shown: Vec<(ElemHandle, i32)> = row(&ui, &s)
         .iter()
         .filter(|(_, _, shown)| *shown)
-        .map(|(_, x, _)| *x)
+        .map(|(h, x, _)| (*h, *x))
         .collect();
     assert_eq!(shown.len(), 5, "the journal button is hidden");
+    assert_eq!(shown[0].1, places[0], "the first starts where the row does");
     assert_eq!(
-        shown,
-        places[..5],
-        "the five left take the first five places"
+        shown[4].1 + width(&ui, shown[4].0),
+        end,
+        "the last ends where the row does"
+    );
+    let gaps: Vec<i32> = shown.windows(2).map(|w| w[1].1 - w[0].1).collect();
+    let (least, most) = (
+        gaps.iter().min().copied().unwrap_or(0),
+        gaps.iter().max().copied().unwrap_or(0),
+    );
+    assert!(most - least <= 1, "evenly spread: {gaps:?}");
+    // The bar's black and gold strip runs behind the whole row, so there is no hole.
+    let b = ui.node(back).expect("alive").region.box_;
+    assert_eq!(
+        (b.x0, b.x1 + 1),
+        (places[0], end),
+        "the strip spans the row"
     );
 
     assert!(s.apply_era(&mut ui, EraId::Eor.features()));
@@ -265,6 +343,17 @@ fn on_an_infiltration_world_the_panel_buttons_close_up_over_the_missing_journal_
         .collect();
     let own: Vec<i32> = s.toolbar.buttons.iter().map(|b| b.slot.x0).collect();
     assert_eq!(back, own, "every button is back in its own place");
+    assert_eq!(
+        ui.node(
+            ui.get_child_recursive(s.roots()[0], dereth_ui_screens::toolbar::BAR_BACK)
+                .expect("the strip")
+        )
+        .expect("alive")
+        .region
+        .box_,
+        own_back,
+        "and the strip its own size"
+    );
 }
 
 /// Behaviour: presentation.era.the-screens-leave-out-what-the-worlds-era-lacks

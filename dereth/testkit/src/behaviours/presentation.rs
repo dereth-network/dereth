@@ -68,9 +68,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "presentation.era.the-panel-buttons-close-up-over-a-system-the-world-lacks",
         says: "When the world has no system for one of the toolbar's panel buttons (no journal on \
-               an Infiltration world), the button is hidden and the buttons after it in its row \
-               move up into the places before, so no gap is left between them; on an \
-               end-of-retail world every button is back in its own place.",
+               an Infiltration world), the button is hidden and the row's other buttons spread \
+               evenly from its first place to the end of its last, over the bar's black and gold \
+               strip stretched behind the whole row, so no hole is left; on an end-of-retail world \
+               every button is back in its own place and the strip its own size.",
         since: THIS_CLIENT,
         divergence: "CD-010",
         evidence: Evidence::Private("AC-EVID-UI-UNIFY-BUTTON-ROW"),
@@ -110,7 +111,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "presentation.era.the-screens-leave-out-what-the-worlds-era-lacks",
         says: "On a world whose era has no contract tracker the quest page shows no Contracts \
                tab, and on one with no titles the character page no Titles tab (a page left open \
-               on such a tab moves to its next tab); an era with no cloaks or trinkets has no \
+               on such a tab moves to its next tab, and the page's other tabs share its strip, \
+               growing over the gap); an era with no cloaks or trinkets has no \
                cloak or trinket slot on the paper doll, and one with no luminance no luminance \
                section on the character sheet; one with no journal has no journal button, and its \
                quest page never opens; a world the server announces without trade, tinkering, \

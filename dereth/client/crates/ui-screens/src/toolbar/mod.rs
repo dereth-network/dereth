@@ -47,6 +47,38 @@ pub struct Toolbar {
     pub buttons: Vec<PanelButtonInfo>,
     /// The inventory button's drag overlay — child `0x1000046c`, looked up at set-up.
     pub inventory_drag_overlay: Option<ElemHandle>,
+    /// The panel-button row's left end piece, [`BAR_BACK`], and its own box: a plain strip of the
+    /// bar's black and gold, stretched behind a row that has hidden buttons.
+    pub bar_back: Option<(ElemHandle, dereth_ui::Box2D)>,
+}
+
+/// The panel-button row's left end piece: a strip of the bar's black with its gold top edge, the
+/// same in every column, which the first button covers.
+pub const BAR_BACK: ElementId = ElementId(0x1000_0196);
+
+/// The places of a row's shown buttons, spread evenly from the row's first place to the end of
+/// its last: the first starts where the row does and the last ends where it does.
+fn spread(row: &[&PanelButtonInfo], shown: &[&PanelButtonInfo]) -> Vec<(i32, i32)> {
+    let (Some(first), Some(last)) = (row.first(), row.last()) else {
+        return Vec::new();
+    };
+    let (x0, x1, y) = (first.slot.x0, last.slot.x1 + 1, first.slot.y0);
+    let Some(end) = shown.last() else {
+        return Vec::new();
+    };
+    let gaps = i32::try_from(shown.len().saturating_sub(1)).unwrap_or(i32::MAX);
+    let travel = (x1 - x0 - end.slot.width()).max(0);
+    (0..shown.len())
+        .map(|i| {
+            let i = i32::try_from(i).unwrap_or(i32::MAX);
+            let x = if gaps == 0 {
+                x0
+            } else {
+                x0 + (travel * i + gaps / 2) / gaps
+            };
+            (x, y)
+        })
+        .collect()
 }
 
 impl Toolbar {
@@ -72,13 +104,17 @@ impl Toolbar {
             });
         }
         self.inventory_drag_overlay = ui.get_child_recursive(root, INVENTORY_DRAG_OVERLAY);
+        self.bar_back = ui
+            .get_child_recursive(root, BAR_BACK)
+            .and_then(|h| Some((h, ui.node(h)?.region.box_)));
     }
 
-    /// Close each row of panel buttons up over the ones that are hidden: the buttons of a row (the
-    /// same parent, the same height and the same top in the layout) take the row's places in
-    /// order, left to right, so a button the world has no system for leaves no hole between the
-    /// others. The places left over are at the row's end. With every button shown each takes
-    /// its own place back. Returns whether any button moved.
+    /// Close each row of panel buttons up over the ones that are hidden: the shown buttons of a
+    /// row (the same parent, the same height and the same top in the layout) spread evenly, left
+    /// to right, from the row's first place to the end of its last, so a button the world has no
+    /// system for leaves no hole; the bar's black and gold strip ([`BAR_BACK`]) is stretched
+    /// behind them along the whole row. With every button shown each takes its own place back and
+    /// the strip its own size. Returns whether any button moved.
     pub fn arrange_buttons(&self, ui: &mut UiSystem) -> bool {
         let mut rows: Vec<Vec<&PanelButtonInfo>> = Vec::new();
         for b in self.buttons.iter().filter(|b| b.slot.is_valid()) {
@@ -91,16 +127,48 @@ impl Toolbar {
         let mut moved = false;
         for mut row in rows {
             row.sort_by_key(|b| b.slot.x0);
-            let places: Vec<dereth_ui::Box2D> = row.iter().map(|b| b.slot).collect();
-            let shown: Vec<_> = row.iter().filter(|b| ui.is_visible(b.handle)).collect();
-            for (b, place) in shown.into_iter().zip(places) {
+            let shown: Vec<_> = row
+                .iter()
+                .copied()
+                .filter(|b| ui.is_visible(b.handle))
+                .collect();
+            let whole = shown.len() == row.len();
+            let places: Vec<(i32, i32)> = if whole {
+                row.iter().map(|b| (b.slot.x0, b.slot.y0)).collect()
+            } else {
+                spread(&row, &shown)
+            };
+            for (b, (x, y)) in shown.iter().zip(places) {
                 let at = ui
                     .node(b.handle)
                     .map(|n| (n.region.box_.x0, n.region.box_.y0));
-                if at != Some((place.x0, place.y0)) {
-                    ui.move_to(b.handle, place.x0, place.y0);
+                if at != Some((x, y)) {
+                    ui.move_to(b.handle, x, y);
                     moved = true;
                 }
+            }
+            // The strip behind the row: its own size with every button shown, else the row's.
+            let Some((back, own)) = self.bar_back else {
+                continue;
+            };
+            let (first, last) = (row[0].slot, row[row.len() - 1].slot);
+            // The strip is the row's whose first place it starts in.
+            if ui.parent(back) != ui.parent(row[0].handle)
+                || own.y0 != first.y0
+                || !(first.x0..=first.x1).contains(&own.x0)
+            {
+                continue;
+            }
+            let want = if whole {
+                own
+            } else {
+                dereth_ui::Box2D::from_xywh(first.x0, own.y0, last.x1 + 1 - first.x0, own.height())
+            };
+            // Its layout caps its width at the end piece's own, so the box is set outright: it has
+            // no children to re-anchor.
+            if let Some(n) = ui.node_mut(back).filter(|n| n.region.box_ != want) {
+                n.region.box_ = want;
+                moved = true;
             }
         }
         moved
