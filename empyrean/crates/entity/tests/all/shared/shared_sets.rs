@@ -49,6 +49,7 @@ pub(crate) const KNOWN_OPCODES_SHARED_ONLY: &[Known] = &[
     (0x02EA, "Qualities_UpdateAttribute2ndLevel", "not sent by ACE"),
     (0xF630, "Character_SetPlayerVisualDesc", "not sent by ACE"),
     (0xF651, "Login_AwaitingSubscriptionExpiration", "not sent by ACE"),
+    (0xF65A, "Login_CharacterScreenMessage", "the early clients' character screen message; ACE never sent it, Empyrean does when one is configured"),
     (0xF7CA, "Admin_ReceiveAccountData", "not sent by ACE"),
     (0xF7CB, "Admin_ReceivePlayerData", "not sent by ACE"),
     (0xF7EB, "DDD_EndDDDMessage", "not sent by ACE"),

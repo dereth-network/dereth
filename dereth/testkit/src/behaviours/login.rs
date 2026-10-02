@@ -9,7 +9,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -46,6 +46,19 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-SEAM-ARRIVAL"),
         station: "dereth-testkit::dat::login::scenario_any_front_end_tells_the_server_the_character_arrived",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "login.character-select.the-worlds-message-shows-in-a-window-of-its-own",
+        says: "When the world sends the character screen's message, the retail interface's \
+               character screen shows it in a floating chat window over the right of the \
+               screen, titled with the world's name, with its scrollbar and close button and no \
+               input line; the close button hides it for the rest of that screen. A world that \
+               sends none shows no window.",
+        since: THIS_CLIENT,
+        divergence: "CD-017",
+        evidence: Evidence::Private("AC-EVID-UI-UNIFY-SCREEN-MESSAGE"),
+        station: "dereth-ui-screens::dat::login::character_screen_message::the_worlds_character_screen_message_shows_in_a_floating_window_that_closes",
         tier: Tier::Dat,
     },
     behaviour! {

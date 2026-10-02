@@ -100,6 +100,7 @@ The same opcode is reused for the restore reply, which is why section 2's replac
 | `0xF7C1` account banned | S2C | an absolute expiry in seconds — **zero or less means permanent** — and a reason |
 | `0xF7DC` account booted | S2C | a reason that **may be absent entirely**, not merely empty |
 | `0xF659` character error | S2C | an error code |
+| `0xF65A` character screen message | S2C | two strings, shown one after the other in the character screen's message box. Clients before Throne of Destiny showed it; the end-of-retail client has no such message, and Dereth shows it in a window of its own |
 | `0xF655` character delete | C2S | account, **slot index** — not the character id |
 | `0xF655` character delete | S2C | an empty body |
 | `0xF653` log off | C2S | the character id |

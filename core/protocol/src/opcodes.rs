@@ -701,6 +701,10 @@ impl Opcode {
     pub const LOGIN_LOGIN_CHARACTER_SET: Self = Self(0xF658);
     /// `0xF659` Character_CharacterError
     pub const CHARACTER_CHARACTER_ERROR: Self = Self(0xF659);
+    /// `0xF65A` Login_CharacterScreenMessage: the text the character screen's message box shows.
+    /// Clients before Throne of Destiny showed it; the end-of-retail client has no such message,
+    /// so the name is this table's.
+    pub const LOGIN_CHARACTER_SCREEN_MESSAGE: Self = Self(0xF65A);
     /// `0xF661` Movement_StopMovementCommand
     pub const MOVEMENT_STOP_MOVEMENT_COMMAND: Self = Self(0xF661);
     /// `0xF6EA` Object_SendForceObjdesc
@@ -2997,6 +3001,13 @@ pub static OPCODES: &[OpcodeInfo] = &[
         recv_queue: Some(NetQueue::UiQueue),
     },
     OpcodeInfo {
+        opcode: Opcode(0xF65A),
+        name: "Login_CharacterScreenMessage",
+        direction: Direction::S2C,
+        send_queue: None,
+        recv_queue: Some(NetQueue::UiQueue),
+    },
+    OpcodeInfo {
         opcode: Opcode(0xF661),
         name: "Movement_StopMovementCommand",
         direction: Direction::C2S,
@@ -3280,7 +3291,7 @@ mod tests {
     /// hand has to change it deliberately.
     #[test]
     fn the_table_is_sorted_and_complete() {
-        assert_eq!(OPCODES.len(), 353);
+        assert_eq!(OPCODES.len(), 354);
         for w in OPCODES.windows(2) {
             assert!(
                 w[0].opcode.0 < w[1].opcode.0,

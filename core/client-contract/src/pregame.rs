@@ -45,6 +45,9 @@ pub struct PregameView {
     /// element `0x1000039B`, so like the character set it
     /// is a process global that a rebuild has to hand over.
     pub world_name: Option<String>,
+    /// The character screen's message from `0xF65A Login_CharacterScreenMessage`, when the
+    /// server sent one: what a world says to the players choosing a character.
+    pub character_screen_message: Option<String>,
     /// Whether the session reached the CharSel → InGame edge.
     pub in_world: bool,
     /// The character the player last selected on the character list, carried from character

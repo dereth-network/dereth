@@ -336,6 +336,19 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The owner asked for spell research in the retail interface too, built in code \
               since the interface's data files are not changed.",
     },
+    Divergence {
+        id: "CD-017",
+        title: "The character screen's message",
+        retail: "Clients before Throne of Destiny showed the server's character screen message \
+                 in the character screen's message box. The end-of-retail client has \
+                 no such message and ignores it.",
+        dereth: "The client reads the message, and the retail interface shows it on the \
+                 character screen in a floating chat window over the right of the screen, titled \
+                 with the world's name, with a scrollbar and a close button; the classic \
+                 interface shows it in its message box, as the clients of its era did.",
+        why: "The owner asked for a world's message to its players to be seen in both \
+              interfaces.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

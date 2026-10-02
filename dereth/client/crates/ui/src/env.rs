@@ -114,6 +114,24 @@ impl Env {
         Ok(h)
     }
 
+    /// [`Self::create_child_element_by_enum`] for an element anywhere in the layout, not only a
+    /// top-level one ([`UiSystem::create_child_by_data_id_nested`]).
+    pub fn create_nested_child_element_by_enum(
+        &self,
+        ui: &mut UiSystem,
+        parent: ElemHandle,
+        layout: LayoutEnum,
+        element: ElementId,
+    ) -> Result<ElemHandle, UiError> {
+        let did = self
+            .resolver
+            .resolve(layout)
+            .ok_or(UiError::UnresolvedLayoutEnum(layout))?;
+        let h = ui.create_child_by_data_id_nested(self.assets.as_ref(), parent, did, element)?;
+        ui.initialize_tree(h);
+        Ok(h)
+    }
+
     /// The list-box "add item from a template list" path's other half: a template named by a
     /// **layout DataID** rather than by a layout enum.
     ///

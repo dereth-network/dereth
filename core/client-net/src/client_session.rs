@@ -106,6 +106,8 @@ pub enum SessionEvent {
     },
     /// `0xF659`. The English text comes from string table `0x10000002`, not from this message.
     CharacterError(u32),
+    /// `0xF65A`: the character screen's message, as its box shows it.
+    CharacterScreenMessage(String),
     /// `0xF7DC`. An absent reason means the client substitutes
     /// `" for Code of Conduct Violations"`.
     AccountBooted(Option<String>),
@@ -898,6 +900,11 @@ impl<T: Transport> Session<T> {
                 for held in self.ui.crucial_events_received() {
                     self.deliver_ui_blob(&strip_order_header(&held));
                 }
+            }
+            Opcode::LOGIN_CHARACTER_SCREEN_MESSAGE => {
+                let m = decode!(dereth_protocol::login::LoginCharacterScreenMessage);
+                self.events
+                    .push(SessionEvent::CharacterScreenMessage(m.shown()));
             }
             Opcode::CHARACTER_CHARACTER_ERROR => {
                 let e = decode!(dereth_protocol::login::CharacterError);

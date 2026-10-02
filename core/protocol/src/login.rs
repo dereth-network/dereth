@@ -333,6 +333,43 @@ impl Message for CharacterError {
     }
 }
 
+/// `0xF65A Login_CharacterScreenMessage` (S2C): the character screen's message, two strings the
+/// box shows one after the other.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LoginCharacterScreenMessage {
+    pub text: String,
+    pub more: String,
+}
+
+impl LoginCharacterScreenMessage {
+    /// The whole message as the box shows it: the first string, then the second on a line of its
+    /// own when there is one.
+    #[must_use]
+    pub fn shown(&self) -> String {
+        if self.more.is_empty() {
+            self.text.clone()
+        } else {
+            format!("{}\n{}", self.text, self.more)
+        }
+    }
+}
+
+impl Message for LoginCharacterScreenMessage {
+    const OPCODE: Opcode = Opcode::LOGIN_CHARACTER_SCREEN_MESSAGE;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        Ok(Self {
+            text: r.pstring()?,
+            more: r.pstring()?,
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.pstring(&self.text)?;
+        w.pstring(&self.more)
+    }
+}
+
 /// The retail character-error enum, with the `ID_CHAR_ERROR_*` string token each value resolves
 /// to in the UI flow's character-error notice.
 ///
@@ -1452,6 +1489,25 @@ mod tests {
             ),
             (12, 800, "Frostfell")
         );
+    }
+
+    /// `0xF65A` is two length-prefixed strings, each padded to four bytes; the box shows the
+    /// first, then the second on a line of its own when there is one.
+    #[test]
+    fn the_character_screen_message_is_two_strings_shown_one_after_the_other() {
+        let m = LoginCharacterScreenMessage {
+            text: "Hi".into(),
+            more: String::new(),
+        };
+        let bytes = write_body(&m).unwrap();
+        assert_eq!(bytes, [2, 0, b'H', b'i', 0, 0, 0, 0]);
+        let back: LoginCharacterScreenMessage = round_trip(&bytes);
+        assert_eq!(back.shown(), "Hi");
+        let two = LoginCharacterScreenMessage {
+            text: "Hi".into(),
+            more: "there".into(),
+        };
+        assert_eq!(two.shown(), "Hi\nthere");
     }
 
     /// Oracle: the character-error code table (`docs/networking/messages/01-login-and-character.md`

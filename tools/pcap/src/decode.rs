@@ -335,6 +335,7 @@ pub static REGISTRY: &[Codec] = &[
     c!(login::LoginSendEnterWorld),
     c!(login::CharacterDeleteRequest, C2s),
     c!(login::CharacterError),
+    c!(login::LoginCharacterScreenMessage),
     c!(login::LoginAwaitingSubscriptionExpiration),
     c!(login::LoginAccountBanned),
     c!(login::LoginAccountBooted),

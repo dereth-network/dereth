@@ -721,15 +721,18 @@ impl Pregame {
             [0x600122d, 0x600122b, 0x600122d],
             true,
         );
-        // The message box: parchment, with the server's welcome text (or this client's own,
-        // when one is configured) until a status or error replaces it.
+        // The message box: parchment, with the world's character screen message (or this client's
+        // own welcome text, when one is configured) until a status or error replaces it.
         f.image("06001115", rect(293, 285, 450, 278), true, false);
         let mut status = self.status.clone();
         if let Some(e) = &c.pregame.error {
             status = e.clone();
         }
         if status.is_empty() {
-            status = if c.classic.welcome.is_empty() {
+            // The world's own message first, as this interface's era showed it.
+            status = if let Some(text) = &c.pregame.character_screen_message {
+                text.clone()
+            } else if c.classic.welcome.is_empty() {
                 "Receiving system messages...".into()
             } else {
                 c.classic.welcome.clone()

@@ -86,6 +86,19 @@ impl LayoutDesc {
         self.elements.get(&id)
     }
 
+    /// The description of element `id` anywhere in the layout: a top-level one, else the first
+    /// descendant with that id, depth first in id order.
+    #[must_use]
+    pub fn find_element(&self, id: ElementId) -> Option<&ElementDesc> {
+        fn walk(d: &ElementDesc, id: ElementId) -> Option<&ElementDesc> {
+            d.children
+                .get(&id)
+                .or_else(|| d.children.values().find_map(|c| walk(c, id)))
+        }
+        self.access_element(id)
+            .or_else(|| self.elements.values().find_map(|d| walk(d, id)))
+    }
+
     /// The design reference box for anchoring: `(0, 0, display_width-1, display_height-1)`.
     #[must_use]
     pub fn design_box(&self) -> crate::region::Box2D {

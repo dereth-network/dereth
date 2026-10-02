@@ -2860,11 +2860,15 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn drive_world_script(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
-        // `--action-at`: each action as its key would give it, on the input map the interface's
-        // own keys are on.
+        // `--action-at`: each action as its key would give it. A window toggle goes through the
+        // interface's own input maps; any other action to the game, as an unclaimed key does.
         for action in cx.take_scripted_actions() {
+            let window = dereth_input::names::enum_name_for_action(action).starts_with("Toggle");
             if let Some(ui) = self.classic.active_mut() {
                 ui.press_action(action);
+            } else if !window {
+                cx.inject_action(dereth_client_runtime::actions::Action::begin(action));
+                cx.inject_action(dereth_client_runtime::actions::Action::end(action));
             } else if let Some(input) = self.input.as_mut() {
                 input.inject_action(dereth_input::InputEvent {
                     action,

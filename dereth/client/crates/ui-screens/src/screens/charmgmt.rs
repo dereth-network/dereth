@@ -444,6 +444,8 @@ pub struct CharacterManagementScreen {
     pub delete_confirmation_phrase: Option<String>,
     /// What the host must ask player-session state for, oldest first. See [`CharacterAction`].
     pub actions: Vec<CharacterAction>,
+    /// The window the world's character screen message is shown in, when it sent one.
+    pub message: crate::screens::screen_message::ScreenMessageWindow,
 }
 
 impl CharacterManagementScreen {
@@ -1385,6 +1387,9 @@ impl Screen for CharacterManagementScreen {
         let ui = &mut *cx.ui;
         use crate::view::UiRequest::QueueMode;
         let button = m.id == dereth_ui::msg::element::id::BUTTON_CLICKED;
+        if button && self.message.on_close(ui, m.source_id) {
+            return;
+        }
         match m.source_id.0 {
             0x1000_03A0 if button => {
                 ui.requests
@@ -1538,6 +1543,15 @@ impl Screen for CharacterManagementScreen {
         // Update world name into element `0x1000039B`.
         if let Some(name) = host.world_name.as_deref() {
             self.update_world_name(ui, name);
+        }
+        // The world's message to the players choosing a character, in its own window, titled
+        // with the world's name.
+        if let (Some(text), Some(root)) = (
+            host.character_screen_message.as_deref(),
+            self.roots.first().copied(),
+        ) {
+            self.message
+                .show(ui, root, text, host.world_name.as_deref());
         }
         // The delete-character dialog's localised phrase, from table enum `0x10000002`. The
         // client resolves it through its string table; the host hands the table over.

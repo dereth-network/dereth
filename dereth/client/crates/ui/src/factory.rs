@@ -166,6 +166,39 @@ impl UiSystem {
         Ok(h)
     }
 
+    /// Create a child element by data id from an element anywhere in the layout, not only a
+    /// top-level one: a window the layout nests inside its screen, built on its own under
+    /// `parent`. The element keeps its own description; where it stands is the caller's to set.
+    pub fn create_child_by_data_id_nested(
+        &mut self,
+        assets: &dyn AssetSource,
+        parent: ElemHandle,
+        did: DataId,
+        element: ElementId,
+    ) -> Result<ElemHandle, UiError> {
+        if !self.lib.contains(did) {
+            let l = LayoutDesc::load(assets, did, &self.property_types)?;
+            self.lib.insert(l);
+        }
+        let layout = self
+            .lib
+            .get(did)
+            .cloned()
+            .ok_or(UiError::MissingRoot { did, element })?;
+        let desc = layout
+            .find_element(element)
+            .cloned()
+            .ok_or(UiError::MissingRoot { did, element })?;
+        let h =
+            self.create_element(assets, &layout, &desc)?
+                .ok_or(UiError::UnknownElementType {
+                    ty: desc.ty,
+                    engine_ty: desc.engine_ty,
+                })?;
+        self.set_parent(h, Some(parent));
+        Ok(h)
+    }
+
     fn create_from_data_id(
         &mut self,
         assets: &dyn AssetSource,

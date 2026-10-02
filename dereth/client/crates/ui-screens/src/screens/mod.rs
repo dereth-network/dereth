@@ -17,6 +17,7 @@ pub mod gameplay;
 pub mod gameplay_host;
 pub mod intro;
 pub mod pregame_host;
+pub mod screen_message;
 /// `WorldView`'s teleport / portal animation.
 pub mod teleport;
 

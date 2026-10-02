@@ -4366,6 +4366,13 @@ impl<S: Shell> App<S> {
                     // and updates the character row that the UI then reads back.
                     self.host_state.world_name = Some(name);
                 }
+                SessionEvent::CharacterScreenMessage(text) => {
+                    tracing::info!(
+                        "0xF65A character screen message, {} character(s)",
+                        text.len()
+                    );
+                    self.host_state.character_screen_message = Some(text);
+                }
                 SessionEvent::EnterWorldReady => tracing::info!("0xF7DF server ready"),
                 SessionEvent::CharGenResponse(r) => {
                     // The character-create response handler ends every arm by sending the
