@@ -248,6 +248,15 @@ pub const LANDSCAPE_ROWS: [ConfigRow; 3] = [
 /// The section [`LANDSCAPE_ROWS`] close.
 pub const LANDSCAPE_SECTION: &str = GRAPHICS;
 
+/// This client's interface choice (the retail interface or the classic one), after the landscape
+/// rows: a menu of literal captions, and *Restore Defaults* puts it back to the retail interface.
+pub const INTERFACE_ROW: ConfigRow = row(
+    GRAPHICS,
+    Menu,
+    dereth_client_contract::options::interface::INTERFACE,
+    Int(0),
+);
+
 /// The volume every one of the three sound check+slider pairs defaults its slider to.
 pub const SOUND_SLIDER_DEFAULT: f32 = 1.0;
 
@@ -406,6 +415,7 @@ pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
             for l in LANDSCAPE_ROWS {
                 out.push((l.preference, l.ui_default.into()));
             }
+            out.push((INTERFACE_ROW.preference, INTERFACE_ROW.ui_default.into()));
         }
     }
     out
@@ -607,8 +617,9 @@ mod tests {
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            27 + 3 + 3,
-            "27 rows plus the three paired volume sliders and this client's three era rows"
+            27 + 3 + 4,
+            "27 rows plus the three paired volume sliders, this client's three era rows and its \
+             interface"
         );
         assert_eq!(
             get_landscape(&v),

@@ -118,6 +118,48 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.interaction.pick.click_object().0
     }
 
+    /// Whether the interaction layer is looking for an object under the pointer (a pick the UI
+    /// asked for is still under way).
+    #[must_use]
+    pub fn looking_for_object(&self) -> bool {
+        self.app.interaction.pick.looking_for_object()
+    }
+
+    /// Where the pointer last was over the window, in window pixels.
+    #[must_use]
+    pub fn last_cursor(&self) -> Option<(f64, f64)> {
+        self.app.last_cursor
+    }
+
+    /// Whether the mouse is looking around (the pointer turns the camera and stays put).
+    #[must_use]
+    pub fn mouse_look(&self) -> bool {
+        self.app.mouse_look
+    }
+
+    /// Whether the game is full screen now.
+    #[must_use]
+    pub fn full_screen(&self) -> bool {
+        self.app.applied_full_screen
+    }
+
+    /// Whether the player is travelling through portal space.
+    #[must_use]
+    pub fn teleporting(&self) -> bool {
+        self.app.teleport.anim.state != dereth_client_contract::teleport::TeleportAnimState::Off
+    }
+
+    /// The screen sizes the display offers.
+    #[must_use]
+    pub fn display_modes(&self) -> Vec<(u32, u32)> {
+        self.app
+            .window
+            .display_modes()
+            .iter()
+            .map(|m| (m.width, m.height))
+            .collect()
+    }
+
     // ---- the front end's own
 
     /// The front end's HUD slot: the HUD model and whatever the front end keeps beside it.
@@ -271,6 +313,21 @@ impl<'a, S: Shell> UiContext<'a, S> {
         }
     }
 
+    /// The selection lighting raised since the last call, handed to a front end that lights the
+    /// world its own way.
+    pub fn take_selection_lighting(
+        &mut self,
+    ) -> Vec<(ObjectId, dereth_animation::parts::LightingMode)> {
+        self.app.interaction.take_pending_lighting()
+    }
+
+    /// Light object `id` in the drawn world as `mode` says.
+    pub fn light_object(&mut self, id: ObjectId, mode: dereth_animation::parts::LightingMode) {
+        if let Some(mut scene) = self.app.present.scene_mut(self.app.world.as_mut()) {
+            scene.world_mut().apply_object_lighting(id, mode);
+        }
+    }
+
     /// Chat-window titles set by command since the last call.
     pub fn take_chat_window_titles(&mut self) -> Vec<(u32, String)> {
         self.app.interaction.take_chat_window_title_notices()
@@ -387,6 +444,17 @@ impl<'a, S: Shell> UiContext<'a, S> {
     /// The pointer moved, in window pixels.
     pub fn cursor_moved(&mut self, x: f64, y: f64) {
         self.app.cursor_moved(x, y);
+    }
+
+    /// A held run key, against the run-as-default option as the movement keys read it.
+    pub fn set_hold_run(&mut self, held: bool) {
+        let toggles = self.app.objects.world.player_system.options.toggle_run();
+        self.app.movement.lists.set_hold_run(held, toggles);
+    }
+
+    /// A held sidestep key.
+    pub fn set_hold_sidestep(&mut self, held: bool) {
+        self.app.movement.lists.set_hold_sidestep(held);
     }
 
     /// The free camera's rise and sink keys.

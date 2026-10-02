@@ -177,10 +177,13 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
     }
     assert_eq!(
         p.menu_entries,
-        32 + 8 + 3,
-        "the page's own counter agrees with the eleven list boxes"
+        32 + 8 + 3 + 2,
+        "the page's own counter agrees with the twelve list boxes"
     );
-    assert_eq!(p.menu_popups, 11, "the eight and the three era rows");
+    assert_eq!(
+        p.menu_popups, 12,
+        "the eight, the three era rows and the interface row"
+    );
 
     for (pref, n) in want {
         let menu = control(p, pref);
@@ -515,12 +518,12 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
         30,
         "all 30 controls are still bound"
     );
-    // This client's three era rows ask the option value store, not this registry, so they keep
-    // their literal entries (four, four and three).
-    assert_eq!(p.menu_entries, 11, "and not one retail drop-down has a row");
+    // This client's three era rows and its interface row ask the option value store, not this
+    // registry, so they keep their literal entries (four, four, three and two).
+    assert_eq!(p.menu_entries, 13, "and not one retail drop-down has a row");
     assert_eq!(
-        p.menu_popups, 11,
-        "…while all eleven popups exist: make_popup does not ask the registry"
+        p.menu_popups, 12,
+        "…while all twelve popups exist: make_popup does not ask the registry"
     );
     for o in p
         .retail_options()
@@ -553,9 +556,14 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     assert_eq!(at(landscape::GROUND), at("Render.DegradeDistance") + 1);
     assert_eq!(at(landscape::SKY), at(landscape::GROUND) + 1);
     assert_eq!(at(landscape::OBJECTS), at(landscape::SKY) + 1);
+    // Then the interface row.
+    assert_eq!(
+        at(dereth_client_contract::options::interface::INTERFACE),
+        at(landscape::OBJECTS) + 1
+    );
     assert_eq!(
         at("Render.LandscapeTextureDetail"),
-        at(landscape::OBJECTS) + 1
+        at(dereth_client_contract::options::interface::INTERFACE) + 1
     );
 
     let menu = control(&s.config_page, landscape::GROUND);

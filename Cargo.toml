@@ -37,6 +37,9 @@ members = [
     "dereth/client/crates/input",
     "dereth/client/crates/clipboard",
     "dereth/client/crates/console",
+    "dereth/client/crates/classic",
+    "dereth/client/crates/classic-dat",
+    "dereth/client/crates/classic-gdi",
     "dereth/headless",
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.

@@ -1,0 +1,852 @@
+{
+  "width": 300,
+  "height": 362,
+  "commands": [
+    {
+      "kind": "image",
+      "did": "06001291",
+      "x": 0,
+      "y": 0,
+      "width": 40,
+      "height": 25,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "06001292",
+      "x": 40,
+      "y": 0,
+      "width": 32,
+      "height": 25,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "text",
+      "text": "Options",
+      "x": 9,
+      "y": 4,
+      "font": "16-7",
+      "color": 4292006600,
+      "clip": [
+        0,
+        0,
+        72,
+        25
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128F",
+      "x": 72,
+      "y": 0,
+      "width": 50,
+      "height": 25,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "06001290",
+      "x": 122,
+      "y": 0,
+      "width": 32,
+      "height": 25,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "text",
+      "text": "Character",
+      "x": 79,
+      "y": 4,
+      "font": "16-7",
+      "color": 4292006600,
+      "clip": [
+        72,
+        0,
+        154,
+        25
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "06001291",
+      "x": 154,
+      "y": 0,
+      "width": 90,
+      "height": 25,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "06001292",
+      "x": 244,
+      "y": 0,
+      "width": 32,
+      "height": 25,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "text",
+      "text": "Sound/Graphics",
+      "x": 161,
+      "y": 4,
+      "font": "16-7",
+      "color": 4292006600,
+      "clip": [
+        154,
+        0,
+        276,
+        25
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "06001283",
+      "x": 276,
+      "y": 0,
+      "width": 24,
+      "height": 25,
+      "tile": false,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "0600128A",
+      "x": 4,
+      "y": 25,
+      "width": 292,
+      "height": 333,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "060012BC",
+      "x": 0,
+      "y": 25,
+      "width": 4,
+      "height": 333,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "060012BD",
+      "x": 296,
+      "y": 25,
+      "width": 4,
+      "height": 333,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "060012BB",
+      "x": 0,
+      "y": 358,
+      "width": 300,
+      "height": 4,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "060012C4",
+      "x": 0,
+      "y": 33,
+      "width": 300,
+      "height": 8,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "060012C4",
+      "x": 4,
+      "y": 305,
+      "width": 296,
+      "height": 4,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "0600128A",
+      "x": 4,
+      "y": 41,
+      "width": 300,
+      "height": 900,
+      "tile": true,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "User Interface Behavior",
+      "x": 16,
+      "y": 49,
+      "font": "courier-14-7",
+      "color": 4278241505,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 67,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Automatically Create Shortcuts",
+      "x": 36,
+      "y": 69,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 87,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Stay in Chat Mode after sending a message",
+      "x": 36,
+      "y": 89,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 107,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Automatically keep combat targets in view",
+      "x": 36,
+      "y": 109,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 127,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Invert Mouse Look Up/Down",
+      "x": 36,
+      "y": 129,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128B",
+      "x": 14,
+      "y": 147,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Right-click mouselook",
+      "x": 36,
+      "y": 149,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 167,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Play Sounds Only When Active Application",
+      "x": 36,
+      "y": 169,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 187,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Salvage Multiple Materials at Once",
+      "x": 36,
+      "y": 189,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "User Interface Display",
+      "x": 16,
+      "y": 209,
+      "font": "courier-14-7",
+      "color": 4278241505,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128B",
+      "x": 14,
+      "y": 227,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Vivid Targeting Indicator",
+      "x": 36,
+      "y": 229,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128B",
+      "x": 14,
+      "y": 247,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Display Tooltips",
+      "x": 36,
+      "y": 249,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128D",
+      "x": 14,
+      "y": 267,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Stretch UI",
+      "x": 36,
+      "y": 269,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600128B",
+      "x": 14,
+      "y": 287,
+      "width": 13,
+      "height": 13,
+      "tile": false,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ],
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Show Coordinates Below The Radar",
+      "x": 36,
+      "y": 289,
+      "font": "15-6",
+      "color": 4292006600,
+      "clip": [
+        4,
+        41,
+        284,
+        305
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "06001260",
+      "x": 284,
+      "y": 57,
+      "width": 16,
+      "height": 232,
+      "tile": true,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "06001261",
+      "x": 284,
+      "y": 41,
+      "width": 16,
+      "height": 16,
+      "tile": false,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "0600125E",
+      "x": 284,
+      "y": 289,
+      "width": 16,
+      "height": 16,
+      "tile": false,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "06001263",
+      "x": 284,
+      "y": 57,
+      "width": 16,
+      "height": 16,
+      "tile": false,
+      "clip": null
+    },
+    {
+      "kind": "image",
+      "did": "0600120A",
+      "x": 25,
+      "y": 322,
+      "width": 48,
+      "height": 36,
+      "tile": true,
+      "clip": null,
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "06001205",
+      "x": 73,
+      "y": 322,
+      "width": 32,
+      "height": 36,
+      "tile": true,
+      "clip": null,
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Apply",
+      "x": 44,
+      "y": 332,
+      "font": "16-7",
+      "color": 4284769380,
+      "clip": [
+        25,
+        322,
+        105,
+        358
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600120A",
+      "x": 110,
+      "y": 322,
+      "width": 48,
+      "height": 36,
+      "tile": true,
+      "clip": null,
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "06001205",
+      "x": 158,
+      "y": 322,
+      "width": 32,
+      "height": 36,
+      "tile": true,
+      "clip": null,
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Reset",
+      "x": 130,
+      "y": 332,
+      "font": "16-7",
+      "color": 4284769380,
+      "clip": [
+        110,
+        322,
+        190,
+        358
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "0600120A",
+      "x": 195,
+      "y": 322,
+      "width": 48,
+      "height": 36,
+      "tile": true,
+      "clip": null,
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "image",
+      "did": "06001205",
+      "x": 243,
+      "y": 322,
+      "width": 32,
+      "height": 36,
+      "tile": true,
+      "clip": null,
+      "color_key": [
+        0,
+        0,
+        0
+      ],
+      "key_bits": [
+        5,
+        6,
+        5
+      ]
+    },
+    {
+      "kind": "text",
+      "text": "Defaults",
+      "x": 205,
+      "y": 332,
+      "font": "16-7",
+      "color": 4284769380,
+      "clip": [
+        195,
+        322,
+        275,
+        358
+      ]
+    }
+  ]
+}

@@ -42,6 +42,9 @@ dereth-world-render = { path = "../world-render" }
 dereth-ui = { path = "../ui" }
 dereth-ui-screens = { path = "../ui-screens" }
 dereth-input = { path = "../input" }
+# The classic interface, which the shell runs in the retail interface's place when it is chosen.
+dereth-classic-ui = { path = "../classic" }
+dereth-classic-dat = { path = "../classic-dat" }
 thiserror.workspace = true
 tracing.workspace = true
 

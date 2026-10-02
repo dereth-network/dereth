@@ -179,8 +179,10 @@ pub const CRATE_GROUPS: &[&str] = &[
 ];
 
 /// The crates whose directory is not their name without `dereth-`, as `(directory, package)`.
-pub(crate) const NAMED_OTHERWISE: &[(&str, &str)] =
-    &[("dereth/client/crates/shell", "dereth-client-shell")];
+pub(crate) const NAMED_OTHERWISE: &[(&str, &str)] = &[
+    ("dereth/client/crates/shell", "dereth-client-shell"),
+    ("dereth/client/crates/classic", "dereth-classic-ui"),
+];
 
 /// The directory of the workspace crate `krate` (a package name). An `empyrean-*` crate is looked
 /// for under `empyrean/crates/` and `empyrean/`, any other under `core/`, `dereth/`,

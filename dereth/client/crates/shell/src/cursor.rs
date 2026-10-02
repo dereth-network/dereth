@@ -449,6 +449,29 @@ impl CursorSystem {
     /// has it. That is not pedantry: it means
     /// the current did still advances on a frame with no UI, so the cursor is not
     /// re-pushed the moment one appears.
+    /// Put a wholly transparent cursor on the window, for an interface that draws its own
+    /// pointer. Built and installed once; the next cursor the retail interface chooses replaces it.
+    pub fn hide(&mut self) {
+        const HIDDEN: CursorKey = (DataId(0), 0, 0);
+        if self.current == Some(HIDDEN.0) {
+            return;
+        }
+        self.current = Some(HIDDEN.0);
+        let bits = dereth_render::cursor::IconBits {
+            and_mask: vec![0xFF; 32 * 4],
+            color_bgra: vec![0; 32 * 32 * 4],
+            hot_x: 0,
+            hot_y: 0,
+        };
+        if *self
+            .built
+            .entry(HIDDEN)
+            .or_insert_with(|| self.images.build(HIDDEN, &bits))
+        {
+            self.images.install(HIDDEN);
+        }
+    }
+
     pub fn update_cursor_state(
         &mut self,
         assets: &dyn dereth_primitives::AssetSource,

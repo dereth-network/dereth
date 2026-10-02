@@ -44,6 +44,12 @@ pub trait Host: 'static {
 
     /// The cursor images, put on `window` (the native handle, `None` without one).
     fn cursor_images(window: Option<isize>) -> Box<dyn CursorImages>;
+
+    /// The system fonts the classic interface's text is drawn with; `None` on a host that has
+    /// none, where the classic interface is not offered.
+    fn classic_fonts() -> Option<std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>> {
+        None
+    }
 }
 
 /// The host with nothing under it: no window, UTC, nothing launched, no sound, an empty

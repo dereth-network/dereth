@@ -1,0 +1,920 @@
+//! Classic panels read the existing game contract and emit semantic requests.
+pub use crate::TextAlign;
+pub use crate::TextRun;
+pub mod character_options;
+use crate::{widgets::Rect, Command, Screen};
+pub use dereth_client_contract::{
+    pregame::PregameView,
+    view::{GameView, UiRequest},
+};
+pub use dereth_primitives::{DataId, ObjectId};
+
+pub struct Context<'a> {
+    pub game: &'a dyn GameView,
+    pub pregame: &'a PregameView,
+    pub keyboard: &'a KeyboardState,
+    pub settings: &'a ClassicSettings,
+    pub map_teleport_allowed: bool,
+    pub classic: &'a ClassicState,
+}
+impl std::fmt::Debug for Context<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Context")
+            .field("map_teleport_allowed", &self.map_teleport_allowed)
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Clone, Debug)]
+pub struct ClassicState {
+    pub reply_targets: dereth_client_contract::chat::window::ReplyTargets,
+    pub chat_focus: Option<(u8, [bool; 7])>,
+    pub chat_target: Option<(ObjectId, String)>,
+    pub classic_power_level: Option<f32>,
+    pub stack_split: Option<(u32, u32)>,
+    pub equipment_priority: std::collections::BTreeMap<ObjectId, u32>,
+    pub cursor_mode: u32,
+    pub active_right: String,
+    /// The welcome text the character screen's message box shows, if this client has one.
+    pub welcome: String,
+    pub active_bottom: String,
+    pub book_edit_privileged: bool,
+    pub appraisal_extra: std::collections::BTreeMap<ObjectId, ClassicAppraisalExtra>,
+    pub portraits: std::collections::BTreeMap<ObjectId, ClassicPortrait>,
+    pub option_words: [u32; 2],
+    pub timestamp_format: String,
+    pub abuse_response: Option<String>,
+    pub game_status: String,
+    pub chat: Vec<(u32, String)>,
+}
+#[derive(Clone, Debug, Default)]
+pub struct ClassicAppraisalExtra {
+    pub attack_type: Option<i32>,
+    pub elemental_damage_bonus: Option<i32>,
+    pub activation_heritage: Option<String>,
+}
+#[derive(Clone, Debug)]
+pub struct ClassicPortrait {
+    pub textures: [u32; 3],
+    pub palettes: [u32; 3],
+}
+impl Default for ClassicState {
+    fn default() -> Self {
+        Self {
+            reply_targets: Default::default(),
+            stack_split: None,
+            chat_focus: None,
+            chat_target: None,
+            classic_power_level: None,
+            equipment_priority: Default::default(),
+            cursor_mode: 0,
+            active_right: String::new(),
+            welcome: String::new(),
+            active_bottom: String::new(),
+            book_edit_privileged: false,
+            appraisal_extra: std::collections::BTreeMap::new(),
+            portraits: std::collections::BTreeMap::new(),
+            option_words: crate::screens::DEFAULT_WORDS,
+            timestamp_format: String::new(),
+            abuse_response: None,
+            game_status: String::new(),
+            chat: vec![],
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClassicSettings {
+    pub sound_available: bool,
+    pub detail_available: bool,
+    pub hardware_acceleration: bool,
+    pub resolutions: Vec<(u32, u32)>,
+    pub resolution: usize,
+    pub stereo: bool,
+    pub effects: bool,
+    pub ambient: bool,
+    pub interface: bool,
+    pub effects_volume: f32,
+    pub ambient_volume: f32,
+    pub brightness: f32,
+    pub camera_stiffness: f32,
+    pub performance: f32,
+    pub auto_degrade: bool,
+    pub landscape_detail: bool,
+    pub environment_detail: bool,
+    pub texture_levels: [u8; 4],
+    /// Whether the game fills the monitor (a borderless window over it) rather than a window.
+    pub full_screen: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct KeyboardState {
+    pub capture_revision: u64,
+    pub dirty: bool,
+    pub warning: Option<String>,
+    pub scheme: u32,
+    pub schemes: Vec<String>,
+    pub bindings: Vec<KeyBinding>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyBinding {
+    pub action: u32,
+    pub map: u32,
+    pub label: String,
+    pub keys: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacyCreation {
+    /// Heritage and gender are zero-based January 2005 table indices.
+    pub result: dereth_client_contract::pregame::CharGenResultData,
+    pub heraldry_symbol: i32,
+    pub heraldry_color: u32,
+}
+/// How a line of local feedback is shown: information, or a warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedbackSeverity {
+    Information,
+    Warning,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum HostAction {
+    /// The spell research page's Test: the formula's components (as component class ids, in
+    /// order) tried on the target.
+    TestSpellFormula {
+        components: Vec<u32>,
+    },
+    OverwriteKeyMap {
+        name: String,
+    },
+    Quit,
+    LegacyHelp(u32),
+    PrintLegacyHelp {
+        context: u32,
+        topic: u32,
+    },
+    ClassicShortcutDrop {
+        object: ObjectId,
+        slot: u32,
+        from: Option<u32>,
+    },
+    FocusControl(String),
+    ClassicTalkFocus(u32),
+    ConfirmBinding(bool),
+    DialogAnswer {
+        id: String,
+        accepted: bool,
+    },
+    CombatMode(u32),
+    LocalFeedback {
+        text: String,
+        severity: crate::panels::FeedbackSeverity,
+    },
+    SplitForPanel {
+        object: ObjectId,
+        amount: u32,
+    },
+    SocialTarget(u8),
+    CharacterOptions {
+        words: [u32; 2],
+        timestamp_format: String,
+        save: bool,
+    },
+    ClearBindingSlot {
+        action: u32,
+        map: u32,
+        slot: usize,
+    },
+    CancelBindingCapture,
+    AllegianceSend {
+        action: dereth_client_contract::view::AllegianceAction,
+        target: ObjectId,
+    },
+    MapTeleport {
+        lx: u32,
+        ly: u32,
+    },
+    LegacyCharGen(Box<LegacyCreation>),
+    VendorSellAll,
+    ConfirmResolution(bool),
+    CloseVendorForced,
+    CloseGroundForced,
+    /// Put the selected item the player owns down on the ground.
+    DropSelected,
+    Wear(ObjectId),
+    Equip {
+        object: ObjectId,
+        location: u32,
+        slot: u32,
+    },
+    SaveKeyMapAs {
+        name: String,
+    },
+    DeleteKeyScheme {
+        name: String,
+    },
+    ApplyClassicSettings(ClassicSettings),
+    DefaultClassicSettings(ClassicSettings),
+    PreviewClassicSettings(ClassicSettings),
+    ResetClassicSettings,
+    KeyboardScheme(u32),
+    CaptureBinding {
+        action: u32,
+        map: u32,
+        slot: usize,
+    },
+    ClearBinding {
+        action: u32,
+        map: u32,
+    },
+    RestoreBindings,
+    QueryHouse,
+    OpenTrade(ObjectId),
+    AbuseLog {
+        target: String,
+        enabled: bool,
+        complaint: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PanelAction {
+    Toggle(String),
+    BeginDrag(DragPayload),
+    Control(ControlEvent),
+    Host(HostAction),
+    Game(UiRequest),
+    Open(String),
+    OpenObject {
+        id: String,
+        object: ObjectId,
+    },
+    OpenSpell {
+        id: String,
+        spell: u32,
+    },
+    Close,
+    Question {
+        id: String,
+        text: String,
+        accept: Vec<PanelAction>,
+        reject: Vec<PanelAction>,
+    },
+    Message {
+        id: String,
+        text: String,
+        accept: Vec<PanelAction>,
+    },
+    Confirm {
+        id: String,
+        text: String,
+        accept: Vec<PanelAction>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DragPayload {
+    Object(ObjectId),
+    Shortcut { object: ObjectId, from: u32 },
+    Spell(u32),
+    Text(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ControlEvent {
+    Magic(dereth_client_contract::view::MagicNotice),
+    Salvage(dereth_client_contract::panels::salvage::SalvageNotice),
+    Held {
+        id: String,
+        pressed: bool,
+    },
+    PreviewHit {
+        object_index: u32,
+        part_index: u32,
+        equipment_mask: u32,
+        right_click: bool,
+        double_click: bool,
+    },
+    Action(String),
+    Submit {
+        id: String,
+    },
+    DropStack {
+        id: String,
+        object: ObjectId,
+        amount: u32,
+        max_amount: u32,
+        slot: u32,
+    },
+    SplitReady(ObjectId),
+    SplitFailed,
+    KeyPressed,
+    WorldTarget(Option<ObjectId>),
+    Pointer {
+        x: i32,
+        y: i32,
+        pressed: bool,
+    },
+    RightClick {
+        id: String,
+        index: usize,
+    },
+    DragStart {
+        id: String,
+        index: usize,
+    },
+    Commit {
+        id: String,
+    },
+    Activate(String),
+    Check {
+        id: String,
+        checked: bool,
+    },
+    Edit {
+        id: String,
+        text: String,
+    },
+    Select {
+        id: String,
+        index: usize,
+    },
+    DoubleClick {
+        id: String,
+        index: usize,
+    },
+    Value {
+        id: String,
+        value: i32,
+    },
+    Scroll {
+        id: String,
+        value: i32,
+    },
+    Drop {
+        id: String,
+        payload: DragPayload,
+        slot: u32,
+    },
+    Tick,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListRow {
+    pub text: String,
+    pub icon: Option<DataId>,
+    pub color: u32,
+}
+impl From<String> for ListRow {
+    fn from(text: String) -> Self {
+        Self {
+            text,
+            icon: None,
+            color: 0xffd2d2c8,
+        }
+    }
+}
+impl From<&str> for ListRow {
+    fn from(text: &str) -> Self {
+        text.to_owned().into()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ItemEntry {
+    pub decoration: Option<dereth_client_contract::view::SlotDecoration>,
+    pub id: ObjectId,
+    pub icon: Option<DataId>,
+    pub caption: String,
+    pub count: u32,
+    /// Explicit classic widget amount; ordinary inventory stacks leave this absent.
+    pub amount: Option<u32>,
+    pub active_container: bool,
+    pub disabled: bool,
+}
+
+impl ItemEntry {
+    /// Object zero is the native empty slot, never a selectable or draggable item.
+    pub fn empty() -> Self {
+        Self {
+            id: ObjectId(0),
+            icon: None,
+            decoration: None,
+            caption: String::new(),
+            count: 0,
+            amount: None,
+            active_container: false,
+            disabled: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ControlKind {
+    ScrollBar {
+        min: i32,
+        max: i32,
+        value: i32,
+        page: i32,
+        step: i32,
+        vertical: bool,
+        arrow_size: i32,
+        thumb_size: i32,
+    },
+    Choice {
+        options: Vec<String>,
+        selected: usize,
+    },
+    ItemStrip {
+        entries: Vec<ItemEntry>,
+        slot_size: i32,
+        selected: Option<ObjectId>,
+        offset: i32,
+    },
+    Button {
+        caption: String,
+    },
+    Check {
+        caption: String,
+        checked: bool,
+    },
+    Edit {
+        text: String,
+        max_chars: usize,
+        multiline: bool,
+    },
+    List {
+        rows: Vec<ListRow>,
+        selected: Option<usize>,
+        row_height: i32,
+    },
+    /// Worker paints its own cells; the host supplies clipping, selection and scrolling input.
+    HitList {
+        row_count: usize,
+        row_height: i32,
+        selected: Option<usize>,
+        offset: i32,
+    },
+    Slider {
+        min: i32,
+        max: i32,
+        value: i32,
+        step: i32,
+    },
+    Items {
+        entries: Vec<ItemEntry>,
+        columns: u32,
+        slot_size: i32,
+        selected: Option<ObjectId>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct Control {
+    pub silent: bool,
+    pub drop_location: Option<u32>,
+    pub choice_enabled: Option<Vec<bool>>,
+    pub smooth_scroll: bool,
+    pub capture_edges: bool,
+    pub background: Option<u32>,
+    pub paint: bool,
+    pub id: String,
+    pub rect: Rect,
+    pub kind: ControlKind,
+    pub enabled: bool,
+    /// Normal/pressed/disabled image overrides. None selects the established theme.
+    pub images: Option<[String; 3]>,
+    pub endcaps: Option<[String; 3]>,
+    /// Whether the button's images are drawn with black as a colour key. The creation wizard's
+    /// picture buttons are drawn as they are, black included.
+    pub keyed: bool,
+    /// An edit field that selects all its text when it gains the focus.
+    pub select_on_focus: bool,
+    /// A dropdown whose list is the chat's destination list art.
+    pub chat_popup: bool,
+    /// A dropdown drawn from the interface art, as the creation screens' are: a 117x25 face on
+    /// the row image with the 26-pixel arrow to its right, and a popup of 25-pixel row images
+    /// between an 8-pixel top and bottom edge. Other dropdowns are plain black rows.
+    pub choice_art: bool,
+    /// A button that is also a slot: it can be dragged from and double-clicked, as one entry.
+    pub slot: bool,
+    /// A drop-down drawn from one of the interface's list art sets (face, arrow, rows, edges).
+    pub list_skin: Option<ListSkin>,
+    pub font: String,
+    pub color: u32,
+}
+
+/// The art of a drop-down list: the face and each popup row are a row image (and a lit one for
+/// the row under the pointer); the arrow sits at the face's right end; the popup may have a top
+/// and a bottom edge. The control's rectangle covers the face and the arrow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListSkin {
+    pub row: &'static str,
+    pub row_lit: &'static str,
+    pub arrow: &'static str,
+    pub arrow_pressed: &'static str,
+    pub arrow_width: i32,
+    pub arrow_height: i32,
+    pub top: Option<(&'static str, i32)>,
+    pub bottom: Option<(&'static str, i32)>,
+}
+impl ListSkin {
+    /// The vendor's category list: green rows, no popup edges.
+    pub const VENDOR: Self = Self {
+        row: "060012B3",
+        row_lit: "060012B4",
+        arrow: "060012B1",
+        arrow_pressed: "060012B2",
+        arrow_width: 17,
+        arrow_height: 19,
+        top: None,
+        bottom: None,
+    };
+    /// The options pages' lists (window size, stereo).
+    pub const OPTIONS: Self = Self {
+        row: "06001287",
+        row_lit: "06001289",
+        arrow: "06001274",
+        arrow_pressed: "06001275",
+        arrow_width: 20,
+        arrow_height: 19,
+        top: Some(("06001281", 3)),
+        bottom: Some(("06001288", 5)),
+    };
+    /// A book's page list.
+    pub const BOOK: Self = Self {
+        row: "06001276",
+        row_lit: "0600127A",
+        arrow: "06001274",
+        arrow_pressed: "06001275",
+        arrow_width: 20,
+        arrow_height: 19,
+        top: Some(("06001278", 3)),
+        bottom: Some(("06001277", 5)),
+    };
+}
+
+#[derive(Clone, Debug)]
+pub struct PanelFrame {
+    pub screen: Screen,
+    pub controls: Vec<Control>,
+    pub previews: Vec<Preview>,
+}
+#[derive(Clone, Debug)]
+pub struct Preview {
+    pub kind: PreviewKind,
+    pub rect: Rect,
+    pub object: Option<ObjectId>,
+    pub appearance: Option<Appearance>,
+}
+#[derive(Clone, Debug, Default)]
+pub struct Appearance {
+    pub rotation_velocity: f32,
+    pub zoom_face: bool,
+    pub heraldry: Option<Heraldry>,
+    pub base_palette_id: u32,
+    pub setup_id: u32,
+    pub environment_setup_id: u32,
+    pub base_objdesc_hex: String,
+    pub appearance_overlays_hex: Vec<String>,
+    pub skin_palette_set: u32,
+    pub skin_shade: f64,
+    pub hair_palette_set: u32,
+    pub hair_shade: f64,
+    pub eye_palette_id: u32,
+    pub clothing: Vec<Clothing>,
+    pub heading_degrees: f32,
+    pub show_clothes: bool,
+}
+#[derive(Clone, Debug)]
+pub struct Heraldry {
+    pub setup_id: u32,
+    pub old_texture: u32,
+    pub texture: u32,
+    pub holding_location: u32,
+}
+#[derive(Clone, Debug, Default)]
+pub struct Clothing {
+    pub table_id: u32,
+    pub palette_template: u32,
+    pub shade: f64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewKind {
+    CharGen,
+    PaperDoll,
+    Examine,
+}
+impl PanelFrame {
+    pub fn preview(&mut self, preview: Preview) {
+        self.screen.commands.push(Command::Preview {
+            index: self.previews.len(),
+        });
+        self.previews.push(preview);
+    }
+    pub fn rich_text_box(
+        &mut self,
+        rect: Rect,
+        runs: Vec<TextRun>,
+        font: &str,
+        align: TextAlign,
+        wrap: bool,
+        clip: Option<[i32; 4]>,
+    ) {
+        self.screen.commands.push(Command::RichTextBox {
+            runs,
+            rect: [rect.x, rect.y, rect.w, rect.h],
+            font: font.into(),
+            align,
+            wrap,
+            clip,
+        });
+    }
+    #[allow(clippy::too_many_arguments)] // one field per argument of the drawn command
+    pub fn text_box(
+        &mut self,
+        rect: Rect,
+        text: impl Into<String>,
+        font: &str,
+        color: u32,
+        align: TextAlign,
+        wrap: bool,
+        clip: Option<[i32; 4]>,
+    ) {
+        self.screen.commands.push(Command::TextBox {
+            text: text.into(),
+            rect: [rect.x, rect.y, rect.w, rect.h],
+            font: font.into(),
+            color,
+            align,
+            wrap,
+            clip,
+        });
+    }
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            screen: Screen {
+                width,
+                height,
+                commands: vec![],
+            },
+            controls: vec![],
+            previews: vec![],
+        }
+    }
+    pub fn control(
+        &mut self,
+        id: impl Into<String>,
+        rect: Rect,
+        kind: ControlKind,
+        enabled: bool,
+    ) -> &mut Control {
+        self.controls.push(Control {
+            silent: false,
+            drop_location: None,
+            choice_enabled: None,
+            smooth_scroll: false,
+            background: Some(0xff000000),
+            paint: true,
+            capture_edges: false,
+            id: id.into(),
+            rect,
+            kind,
+            enabled,
+            images: None,
+            endcaps: None,
+            keyed: true,
+            select_on_focus: false,
+            chat_popup: false,
+            choice_art: false,
+            slot: false,
+            list_skin: None,
+            font: "15-6".into(),
+            color: 0xffd2d2c8,
+        });
+        self.controls.last_mut().unwrap()
+    }
+    pub fn button(
+        &mut self,
+        id: impl Into<String>,
+        rect: Rect,
+        caption: impl Into<String>,
+        enabled: bool,
+    ) -> &mut Control {
+        let c = self.control(
+            id,
+            rect,
+            ControlKind::Button {
+                caption: caption.into(),
+            },
+            enabled,
+        );
+        c.font = "16-7".into();
+        c
+    }
+    pub fn check(
+        &mut self,
+        id: impl Into<String>,
+        rect: Rect,
+        caption: impl Into<String>,
+        checked: bool,
+        enabled: bool,
+    ) -> &mut Control {
+        self.control(
+            id,
+            rect,
+            ControlKind::Check {
+                caption: caption.into(),
+                checked,
+            },
+            enabled,
+        )
+    }
+    pub fn edit(
+        &mut self,
+        id: impl Into<String>,
+        rect: Rect,
+        text: impl Into<String>,
+        max_chars: usize,
+        multiline: bool,
+        enabled: bool,
+    ) -> &mut Control {
+        self.control(
+            id,
+            rect,
+            ControlKind::Edit {
+                text: text.into(),
+                max_chars,
+                multiline,
+            },
+            enabled,
+        )
+    }
+    pub fn list(
+        &mut self,
+        id: impl Into<String>,
+        rect: Rect,
+        rows: Vec<ListRow>,
+        selected: Option<usize>,
+        row_height: i32,
+    ) -> &mut Control {
+        self.control(
+            id,
+            rect,
+            ControlKind::List {
+                rows,
+                selected,
+                row_height,
+            },
+            true,
+        )
+    }
+    pub fn slider(
+        &mut self,
+        id: impl Into<String>,
+        rect: Rect,
+        min: i32,
+        max: i32,
+        value: i32,
+        step: i32,
+    ) -> &mut Control {
+        self.control(
+            id,
+            rect,
+            ControlKind::Slider {
+                min,
+                max,
+                value,
+                step,
+            },
+            true,
+        )
+    }
+    pub fn label(
+        &mut self,
+        x: i32,
+        y: i32,
+        text: impl Into<String>,
+        font: &str,
+        color: u32,
+        clip: Option<[i32; 4]>,
+    ) {
+        self.screen.commands.push(Command::Text {
+            text: text.into(),
+            x,
+            y,
+            font: font.into(),
+            color,
+            clip,
+        });
+    }
+    pub fn image(&mut self, did: &str, rect: Rect, tile: bool, keyed: bool) {
+        self.screen.commands.push(Command::Image {
+            did: did.into(),
+            x: rect.x,
+            y: rect.y,
+            width: rect.w.max(0) as u32,
+            height: rect.h.max(0) as u32,
+            tile,
+            clip: None,
+            color_key: keyed.then_some([0, 0, 0]),
+            key_bits: keyed.then_some([5, 6, 5]),
+        });
+    }
+    /// Draw `did` at its own size with its top left at `(x, y)`, cut to `clip`.
+    pub fn image_native(&mut self, did: &str, x: i32, y: i32, clip: Rect, keyed: bool) {
+        self.screen.commands.push(Command::Image {
+            did: did.into(),
+            x,
+            y,
+            width: 0,
+            height: 0,
+            tile: false,
+            clip: Some([clip.x, clip.y, clip.x + clip.w, clip.y + clip.h]),
+            color_key: keyed.then_some([0, 0, 0]),
+            key_bits: keyed.then_some([5, 6, 5]),
+        });
+    }
+    pub fn fill(&mut self, rect: Rect, color: u32) {
+        self.screen.commands.push(Command::Fill {
+            x: rect.x,
+            y: rect.y,
+            width: rect.w.max(0) as u32,
+            height: rect.h.max(0) as u32,
+            color,
+        });
+    }
+}
+
+pub trait Panel: std::fmt::Debug {
+    fn pointer_art(&self, _x: i32, _y: i32) -> Option<(String, u32, u32)> {
+        None
+    }
+    fn input(
+        &mut self,
+        _input: &crate::widgets::Input,
+        _context: &Context<'_>,
+    ) -> Option<Vec<PanelAction>> {
+        None
+    }
+    fn resize(&mut self, _width: u32, _height: u32) {}
+    /// What the window has selected outside its edit fields, for the copy key.
+    fn selected_text(&self) -> Option<String> {
+        None
+    }
+    fn set_object(&mut self, _object: ObjectId) {}
+    fn set_spell(&mut self, _spell: u32) {}
+    fn id(&self) -> &'static str;
+    fn frame(&self, context: &Context<'_>) -> PanelFrame;
+    fn event(&mut self, event: ControlEvent, context: &Context<'_>) -> Vec<PanelAction>;
+}
+
+pub const fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
+    Rect { x, y, w, h }
+}
+
+pub mod pregame;
+
+pub mod game;
+pub mod hud;
+
+pub mod services;
+
+static SIDE_HEIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(362);
+
+/// The side panel's page height: 362, or the window's height less 118 with the stretched
+/// interface. Pages lay themselves out to it.
+#[must_use]
+pub fn side_height() -> u32 {
+    SIDE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Set the side panel's page height (see [`side_height`]).
+pub fn set_side_height(height: u32) {
+    SIDE_HEIGHT.store(height.max(362), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The background of an options-style sub-page `height` tall: the parchment tiled inside a
+/// four-pixel border on the left, right and bottom.
+pub fn sub_page_background(f: &mut PanelFrame, height: i32) {
+    f.image("0600128A", rect(4, 0, 292, height - 4), true, false);
+    for (did, r) in [
+        ("060012BC", rect(0, 0, 4, height - 4)),
+        ("060012BD", rect(296, 0, 4, height - 4)),
+        ("060012BB", rect(0, height - 4, 300, 4)),
+    ] {
+        f.image(did, r, true, false);
+    }
+}
+
+/// Every classic panel, by id.
+#[must_use]
+pub fn factory(id: &str) -> Option<Box<dyn Panel>> {
+    if id == "character-options" {
+        return Some(Box::new(character_options::CharacterOptions::new()));
+    }
+    pregame::make(id)
+        .or_else(|| hud::make(id))
+        .or_else(|| game::make(id))
+        .or_else(|| services::make(id))
+        .or_else(|| crate::help::make(id))
+}

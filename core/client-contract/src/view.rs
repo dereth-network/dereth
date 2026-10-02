@@ -1673,6 +1673,46 @@ pub enum UiRequest {
         components: Vec<u32>,
     },
 
+    /// Put `item`, one of the player's own, on the ground: the drop-selection key and a drag out
+    /// of a pack onto the world.
+    PutInWorld(ObjectId),
+    /// Enter a combat mode (`1` peace, `2` melee, `4` missile, `8` magic), or with `0` the mode
+    /// the wielded weapon calls for; refused, with the world's own words, when the player cannot
+    /// change mode now.
+    SetCombatMode(u32),
+    /// Wear `item` where it goes, as a double click on armour or clothing does.
+    AutoWear(ObjectId),
+    /// Wield `item` in its slot; `side` picks a hand for a one-handed item (`0` either, `1` left,
+    /// `2` right).
+    AutoWield {
+        item: ObjectId,
+        side: u32,
+    },
+    /// The privileged player's map teleport: to the middle of the outdoor block at (`x`, `y`) in
+    /// the 2040-block world grid.
+    MapTeleport {
+        x: u32,
+        y: u32,
+    },
+    /// Ask the server for the house the player owns.
+    QueryHouse,
+    /// Open trade negotiations with `partner`; refused outside peace mode.
+    OpenTrade(ObjectId),
+    /// Switch the abuse log on `target` on or off, with the complaint.
+    AbuseLogStatus {
+        target: String,
+        enabled: bool,
+        complaint: String,
+    },
+    /// Set both character option words at once (the classic interface's Character page), and
+    /// the chat timestamp format; `save` sends them to the server.
+    SetOptionWords {
+        options: u32,
+        options2: u32,
+        timestamp_format: Option<String>,
+        save: bool,
+    },
+
     /// The combat system's set-requested-attack-height — the arm
     /// that makes the combat window's three attack-height buttons do anything.
     ///

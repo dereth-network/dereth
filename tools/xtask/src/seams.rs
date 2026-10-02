@@ -35,15 +35,17 @@
 //!    `tracing` events, and the binary that runs them installs the one subscriber that decides
 //!    where the events go. (`dereth-primitives` does not log at all; rule 0 keeps `tracing` out of
 //!    its tree.)
-//! 9. **The application's two halves** ([`APPLICATION_HALVES`]): `dereth-scene`, the drawn world,
-//!    and `dereth-client-shell`, the front end. They sit on the runtime, so rule 5's runtime ban
+//! 9. **The application's halves** ([`APPLICATION_HALVES`]): `dereth-scene`, the drawn world,
+//!    and the front ends: `dereth-client-shell`, the retail one and the shell that runs either,
+//!    and `dereth-classic-ui`, the classic one. They sit on the runtime, so rule 5's runtime ban
 //!    does not apply to them, and they reach no platform: no table of theirs names a platform
 //!    crate or the desktop's own platform crates ([`HALVES_FORBIDDEN`]), and their code names none
 //!    of them ([`HALVES_NAMES_NOT`]). The platform arrives through the shell's host trait, which
 //!    the desktop host (`dereth-desktop`) and the browser client implement. The scene does not depend on the shell.
-//! 10. **A front end never holds the application.** The retail front end's code
-//!     (`dereth-client-shell`'s `src/`, but for [`FRONT_END_ASSEMBLY`], where the executable puts
-//!     the application and its front end side by side) names none of [`FRONT_END_NAMES_NOT`]: the
+//! 10. **A front end never holds the application.** A front end's code ([`FRONT_ENDS`]: the
+//!     shell's `src/`, but for [`FRONT_END_ASSEMBLY`], where the executable puts the application
+//!     and its front end side by side, and the classic interface's) names none of
+//!     [`FRONT_END_NAMES_NOT`]: the
 //!     application and the runtime's internals behind it. Each step of the frame hands a front end
 //!     a `UiContext`, and that is all of the game it reaches -- the same for the retail UI as for
 //!     any other. (Its screens, `dereth-ui-screens`, cannot name the runtime at all: rule 2.)
@@ -200,7 +202,11 @@ pub const PRESENTATION_ON_CONTRACT: &[&str] = &[
 const PRESENTATION_FORBIDDEN: &[&str] = &["dereth-client-runtime"];
 
 /// The application's two halves: the drawn world and the front end over the runtime. Rule 9.
-pub const APPLICATION_HALVES: &[&str] = &["dereth-scene", "dereth-client-shell"];
+pub const APPLICATION_HALVES: &[&str] =
+    &["dereth-scene", "dereth-client-shell", "dereth-classic-ui"];
+
+/// The front ends rule 10 holds to their context.
+pub const FRONT_ENDS: &[&str] = &["dereth-client-shell", "dereth-classic-ui"];
 
 /// What no dependency table of an application half may name directly: the window system, the
 /// operating system's bindings, the sound device, and the desktop's own platform crates.
@@ -905,16 +911,24 @@ pub fn reports() -> Vec<Report> {
             HALVES_NAMES_NOT,
         )),
     };
-    // Rule 10: the retail front end reaches the game through its context.
-    let front_end_files: Vec<(PathBuf, String)> = crate_src(&ws, "dereth-client-shell")
-        .into_iter()
-        .filter(|(p, _)| !is_front_end_assembly(p))
-        .collect();
-    let front_end = if front_end_files.is_empty() {
-        Err("no sources found for dereth-client-shell".to_owned())
-    } else {
-        Ok(code_violations(&front_end_files, FRONT_END_NAMES_NOT))
-    };
+    // Rule 10: every front end reaches the game through its context.
+    let front_end = FRONT_ENDS
+        .iter()
+        .map(|krate| {
+            let files: Vec<(PathBuf, String)> = crate_src(&ws, krate)
+                .into_iter()
+                .filter(|(p, _)| !is_front_end_assembly(p))
+                .collect();
+            if files.is_empty() {
+                Err(format!("no sources found for {krate}"))
+            } else {
+                Ok(code_violations(&files, FRONT_END_NAMES_NOT))
+            }
+        })
+        .try_fold(Vec::new(), |mut all, one| {
+            all.extend(one?);
+            Ok::<_, String>(all)
+        });
     // Rule 8: every Rust file of the workspace, and every tracked text file in it.
     let mut workspace_rs = Vec::new();
     rust_files(&ws, &mut workspace_rs);
@@ -1054,7 +1068,8 @@ pub fn reports() -> Vec<Report> {
             "seam: front end -> context",
             front_end,
             format!(
-                "dereth-client-shell src but {FRONT_END_ASSEMBLY} names none of {}",
+                "{} src but {FRONT_END_ASSEMBLY} names none of {}",
+                FRONT_ENDS.join(", "),
                 FRONT_END_NAMES_NOT.join(", ")
             ),
         ),

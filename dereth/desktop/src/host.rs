@@ -46,4 +46,12 @@ impl<P: Product> Host for Desktop<P> {
     fn cursor_images(window: Option<isize>) -> Box<dyn CursorImages> {
         P::cursor_images(window)
     }
+
+    /// The Windows font system; none elsewhere.
+    fn classic_fonts() -> Option<std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>> {
+        cfg!(windows).then(|| {
+            std::sync::Arc::new(dereth_classic_gdi::fonts::SystemFonts)
+                as std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>
+        })
+    }
 }

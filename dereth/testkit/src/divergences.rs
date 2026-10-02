@@ -294,6 +294,26 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "Which era's models and pictures a world is seen in is a presentation choice, not a \
               rule of the era, and the owner asked for both directions.",
     },
+    Divergence {
+        id: "CD-015",
+        title: "The classic interface, chosen live",
+        retail: "Each client had one interface: the clients before Throne of Destiny the one the \
+                 game had before its 2005 redesign, drawn from their own portal.dat, and the \
+                 end-of-retail client the redesigned one.",
+        dereth: "Interface on the client options page (UI.Interface in the profile) chooses \
+                 Retail or Classic, and the client switches on the next frame, at the character \
+                 screen or in the world; the classic interface's Options page has a Retail \
+                 Interface button that goes back. The classic interface draws its pictures and creation \
+                 tables from the early-2005 portal.dat (the world's own on a world of that era, \
+                 else the one in the folder given with --legacy-dat-dir or Render.LegacyDatDir) \
+                 and its text with the system's fonts; without either it is refused with a \
+                 message in the chat window and the retail interface stays. A switch keeps the \
+                 game: the character, the selection and the world are the same, each interface \
+                 keeps its own windows, and the chat lines of the last while are handed to the \
+                 interface switched to.",
+        why: "The owner asked for both interfaces over any world, switchable while playing, as \
+              the landscape and object looks are.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

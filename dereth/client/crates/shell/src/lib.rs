@@ -6,7 +6,9 @@
 //! `dereth-client-model`, `dereth-client-contract`, `dereth-client-net`, `dereth-protocol`,
 //! `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-audio`), the drawn world (`dereth-scene`, with `dereth-render` and `dereth-world-render`),
-//! and the UI crates (`dereth-ui`, `dereth-ui-screens`, `dereth-input`). **Used by** the desktop
+//! the UI crates (`dereth-ui`, `dereth-ui-screens`, `dereth-input`), and the classic interface it
+//! runs when that is chosen (`dereth-classic-ui`, with `dereth-classic-dat` for its portal and its
+//! fonts). **Used by** the desktop
 //! client (`dereth-client`) and the browser client (`dereth-web`).
 //!
 //! **Must never** reach a platform itself: no window system, no operating system call and no sound
@@ -82,6 +84,8 @@ pub mod persist;
 pub use dereth_client_runtime::pick;
 // What the shell needs from the platform under it (`platform::host::Host`), and the window
 // events and key identities every platform shares.
+/// The classic interface in the retail interface's place, when it is chosen.
+mod classic_face;
 pub mod platform;
 /// The presentation: the runtime's device seam and what the UI adds to it.
 pub mod present;

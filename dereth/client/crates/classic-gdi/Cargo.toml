@@ -1,0 +1,26 @@
+[package]
+name = "dereth-classic-gdi"
+description = "The classic interface's two Windows graphics services, which the desktop host offers it: text rasterised with the system's fonts, and printing an image."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+# NOT `[lints] workspace = true`, for the reason `dereth-clipboard` gives: the workspace forbids
+# unsafe code, and `forbid` cannot be lifted by an inner `#[allow]`. `deny` here, with the
+# exception on the two Windows modules only.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[dependencies]
+dereth-classic-dat = { path = "../classic-dat" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_Controls_Dialogs", "Win32_System_Memory", "Win32_Storage_Xps"] }

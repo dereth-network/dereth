@@ -29,6 +29,9 @@ dereth-dat = { path = "../../core/dat" }
 # the OS error box.
 dereth-clipboard = { path = "../client/crates/clipboard" }
 dereth-console = { path = "../client/crates/console" }
+# The system fonts the classic interface's text is drawn with.
+dereth-classic-dat = { path = "../client/crates/classic-dat" }
+dereth-classic-gdi = { path = "../client/crates/classic-gdi" }
 tracing.workspace = true
 # The one subscriber a product's `main` installs (`logging`).
 tracing-subscriber.workspace = true

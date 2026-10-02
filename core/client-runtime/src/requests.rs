@@ -83,6 +83,7 @@ pub fn send_request<T: dereth_primitives::Transport>(
         // ordered game action with an empty body, exactly like `RequestPing` above. Retail sends
         // its tail jump during player initialization, not from any panel.
         R::QueryHouse(m) => s.send_action(m),
+        R::AdvocateTeleport(m) => s.send_action(m),
         // `0x021C`, `0x0221` and `0x0258`, all three `NetQueue::Weenie` in
         // `dereth_protocol::opcodes` and all three ordinary ordered game actions. The capture
         // `fixtures/packet-captures/house-purchase-refused.jsonl` shows the retail client sending `0x021C` exactly

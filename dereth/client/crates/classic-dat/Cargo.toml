@@ -1,0 +1,34 @@
+[package]
+name = "dereth-classic-dat"
+description = "The classic interface's data: the art and creation tables of a pre-Throne-of-Destiny portal.dat, read through the shared dat reader, and the font atlas format its text is drawn from."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[features]
+# Tier switch only: no library code is gated on it. Without it the `dat` binary's tests compile
+# and report themselves ignored; with it they read the portal named by `DERETH_CLASSIC_PORTAL`.
+retail-dats = []
+
+[dependencies]
+dereth-dat.workspace = true
+dereth-primitives.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"

@@ -758,6 +758,8 @@ pub enum Request {
     /// retail asks the shard about the player's house **exactly once per session**, on `0x0013`,
     /// with no UI involved at all.
     QueryHouse(dereth_protocol::trade::HouseQueryHouse),
+    /// The privileged map teleport.
+    AdvocateTeleport(dereth_protocol::trade::AdvocateTeleport),
     /// Buy a house using the supplied payment items — `0x021C`.
     ///
     /// The housing payment path is its only caller. A recorded purchase confirms the body:

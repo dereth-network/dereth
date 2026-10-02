@@ -688,12 +688,18 @@ impl PlayerOptionPage {
         let (element, row, control, preference) = (o.element, o.row, o.control, o.preference);
         let Some((table_enum, label, tooltip)) = super::preferences::inq_preference(preference)
         else {
-            // This client's landscape options are not in the string tables: their caption and
-            // their choices are literal text.
+            // This client's landscape and interface options are not in the string tables: their
+            // caption and their choices are literal text.
             if let Some(which) =
                 dereth_client_contract::options::landscape::Landscape::of(preference)
             {
                 self.set_literal_preference(ui, i, which.caption());
+            } else if preference == dereth_client_contract::options::interface::INTERFACE {
+                self.set_literal_preference(
+                    ui,
+                    i,
+                    dereth_client_contract::options::interface::CAPTION,
+                );
             }
             return;
         };
@@ -1394,6 +1400,7 @@ impl PlayerOptionPage {
     pub fn retail_options(&self) -> impl Iterator<Item = &UiOption> + '_ {
         self.options.iter().filter(|o| {
             dereth_client_contract::options::landscape::Landscape::of(o.preference).is_none()
+                && o.preference != dereth_client_contract::options::interface::INTERFACE
         })
     }
 
@@ -1564,6 +1571,7 @@ impl PlayerOptionPage {
             for r in super::config::LANDSCAPE_ROWS {
                 self.add_config_row(ui, &r);
             }
+            self.add_config_row(ui, &super::config::INTERFACE_ROW);
         }
     }
 

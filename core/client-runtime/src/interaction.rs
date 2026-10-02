@@ -4810,6 +4810,155 @@ impl Interaction {
                         Err(_) => self.stats.requests_refused += 1,
                     }
                 }
+                UiRequest::PutInWorld(item) => {
+                    if game.is_owned_by_player(item)
+                        && game
+                            .attempt_put_in_3d(&mut req, &mut out, item, now, false)
+                            .is_err()
+                    {
+                        self.stats.requests_refused += 1;
+                    }
+                }
+                UiRequest::SetCombatMode(raw) => {
+                    let mode = if raw == 0 {
+                        let (mode, refusal) = game.get_default_combat_mode(false);
+                        if let Some(text) = refusal {
+                            out.emit(dereth_client_model::Notice::DisplayString {
+                                channel: dereth_client_model::chat::REFUSAL_CHANNEL,
+                                text,
+                            });
+                        }
+                        mode
+                    } else {
+                        dereth_client_model::combat::CombatMode::from_raw(raw)
+                    };
+                    if matches!(mode.raw(), 1 | 2 | 4 | 8) {
+                        let ready = self.ready_for_mode_change(game);
+                        if game
+                            .set_combat_mode(&mut req, &mut out, mode, true, ready, false)
+                            .is_err()
+                        {
+                            self.stats.requests_refused += 1;
+                        }
+                    }
+                }
+                UiRequest::AutoWear(item) => {
+                    if game
+                        .auto_wear(&mut req, &mut out, item, self.split(), now, false)
+                        .is_err()
+                    {
+                        self.stats.requests_refused += 1;
+                    }
+                }
+                UiRequest::AutoWield { item, side } => {
+                    use dereth_client_model::inventory::slots::SlotSide;
+                    let side = match side {
+                        1 => SlotSide::Left,
+                        2 => SlotSide::Right,
+                        _ => SlotSide::Null,
+                    };
+                    if !game.auto_wield(
+                        &mut req,
+                        &mut out,
+                        item,
+                        side,
+                        false,
+                        true,
+                        false,
+                        self.split(),
+                        now,
+                    ) {
+                        self.stats.requests_refused += 1;
+                    }
+                }
+                // The map teleport of a privileged player: the middle of the outdoor block.
+                UiRequest::MapTeleport { x, y } => {
+                    if x < 0x7f8 && y < 0x7f8 {
+                        let cell =
+                            ((y & 7) + 1 + (x & 7) * 8) | ((((x & !7) << 5) | (y >> 3)) << 16);
+                        let mut destination = dereth_protocol::types::space::PositionWire {
+                            objcell_id: cell,
+                            ..Default::default()
+                        };
+                        destination.frame.origin.x = 10.;
+                        destination.frame.origin.y = 10.;
+                        destination.frame.orientation.w = 1.;
+                        dereth_client_model::RequestSink::send(
+                            &mut req,
+                            dereth_client_model::Request::AdvocateTeleport(
+                                dereth_protocol::trade::AdvocateTeleport {
+                                    target_name: String::new(),
+                                    destination,
+                                },
+                            ),
+                        );
+                    }
+                }
+                UiRequest::QueryHouse => {
+                    dereth_client_model::RequestSink::send(
+                        &mut req,
+                        dereth_client_model::Request::QueryHouse(
+                            dereth_protocol::trade::HouseQueryHouse,
+                        ),
+                    );
+                }
+                UiRequest::OpenTrade(partner) => {
+                    if partner.0 == 0 {
+                    } else if game.combat.combat_mode
+                        != dereth_client_model::combat::CombatMode::NonCombat
+                    {
+                        out.emit(dereth_client_model::Notice::DisplayString {
+                            channel: dereth_client_model::chat::REFUSAL_CHANNEL,
+                            text: "You need to be in peace mode to trade.".into(),
+                        });
+                        self.stats.requests_refused += 1;
+                    } else {
+                        dereth_client_model::RequestSink::send(
+                            &mut req,
+                            dereth_client_model::Request::OpenTradeNegotiations(
+                                dereth_protocol::trade::TradeOpenTradeNegotiations { partner },
+                            ),
+                        );
+                    }
+                }
+                UiRequest::AbuseLogStatus {
+                    target,
+                    enabled,
+                    complaint,
+                } => {
+                    dereth_client_model::RequestSink::send(
+                        &mut req,
+                        dereth_client_model::Request::AbuseLog(
+                            dereth_protocol::admin::CharacterAbuseLogRequest {
+                                target,
+                                status: u32::from(enabled),
+                                complaint,
+                            },
+                        ),
+                    );
+                }
+                // Both option words at once: the classic Character page. The second word keeps
+                // whatever the page does not show above its low byte.
+                UiRequest::SetOptionWords {
+                    options,
+                    options2,
+                    timestamp_format,
+                    save,
+                } => {
+                    let player = &mut game.player_system;
+                    player.options.options = options;
+                    player.options.options2 = options2;
+                    if let Some(module) = &mut player.module {
+                        module.options = options;
+                        module.options2 = options2;
+                        if timestamp_format.is_some() {
+                            module.timestamp_format = timestamp_format;
+                        }
+                    }
+                    if save {
+                        player.save_to_server(&mut req, true);
+                    }
+                }
                 UiRequest::CastSpell { spell_id } => {
                     let sent = req.0.len();
                     match game.cast_spell(&mut req, &mut out, spell_id) {

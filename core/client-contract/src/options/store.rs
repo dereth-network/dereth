@@ -284,6 +284,7 @@ pub fn init() -> usize {
         n += usize::from(register_preference(p.name, v, t));
     }
     super::landscape::register();
+    super::interface::register();
     n
 }
 
@@ -380,6 +381,10 @@ pub fn load(ini: &UserPreferences) -> (usize, usize) {
 pub fn convert_to_string(name: &str, v: &PrefValue) -> String {
     // This client's landscape options write one word per choice.
     if let Some(text) = super::landscape::convert_to_string(name, v) {
+        return text;
+    }
+    // So does the interface option.
+    if let Some(text) = super::interface::convert_to_string(name, v) {
         return text;
     }
     // The two run-time lists are choice lists too, so once the device has
@@ -718,6 +723,9 @@ fn set_from_string_uint(name: &str, text: &str) -> Option<i32> {
     if super::landscape::Landscape::of(name).is_some() {
         return super::landscape::parse_value(name, text);
     }
+    if name.eq_ignore_ascii_case(super::interface::INTERFACE) {
+        return super::interface::parse_value(name, text);
+    }
     if let Some(c) = enum_choices(name) {
         return Some(c.resolve(text));
     }
@@ -933,6 +941,9 @@ pub fn choice_rows(name: &str) -> Option<Vec<Choice>> {
     if let Some(rows) = super::landscape::choice_rows(name) {
         return Some(rows);
     }
+    if let Some(rows) = super::interface::choice_rows(name) {
+        return Some(rows);
+    }
     let runtime = display_choices(name);
     if !runtime.is_empty() {
         return Some(runtime);
@@ -1076,8 +1087,8 @@ mod tests {
     #[test]
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
-        // ...beside this client's three presentation options from another era.
-        assert_eq!(len(), 37);
+        // ...beside this client's three presentation options from another era and its interface.
+        assert_eq!(len(), 38);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

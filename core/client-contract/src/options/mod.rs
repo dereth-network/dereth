@@ -14,6 +14,7 @@
 
 /// `PrefValueConst`, moved down out of `dereth_ui_screens::options::config`.
 pub mod config;
+pub mod interface;
 /// This client's own presentation options from another era: the ground's, the sky's and the
 /// objects'.
 pub mod landscape;

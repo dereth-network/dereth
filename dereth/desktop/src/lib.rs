@@ -5,8 +5,9 @@
 //! **Depends on** the client shell (`dereth-client-shell`), whose `Host` this implements, the
 //! runtime it starts (`dereth-client-runtime`), the contract (`dereth-client-contract`) and
 //! `dereth-primitives`, the device crate's window arithmetic (`dereth-render`), the device
-//! input's key tables (`dereth-input`), the dat locator (`dereth-dat`) and the two unsafe hops
-//! (`dereth-clipboard`, `dereth-console`). **Used by** the desktop client
+//! input's key tables (`dereth-input`), the dat locator (`dereth-dat`), the two unsafe hops
+//! (`dereth-clipboard`, `dereth-console`), and the system fonts it hands the classic interface
+//! (`dereth-classic-gdi`, in the atlas format of `dereth-classic-dat`). **Used by** the desktop client
 //! (`dereth-client`), and by any other desktop product built on the client shell.
 //!
 //! **Must never** hold a UI, a screen or a game rule: it is the platform under the application, and

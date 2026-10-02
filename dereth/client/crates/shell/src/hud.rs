@@ -22,6 +22,11 @@ pub struct Hud {
     model: dereth_client_runtime::hud::Hud,
     /// The gameplay screen's panels, kept across screen rebuilds.
     pub panels: RemainingPanels,
+    /// The classic interface's receivers, which take the model's offers while it is the
+    /// interface shown.
+    pub classic: dereth_classic_ui::runtime::ClassicHudPanels,
+    /// Whether the classic interface is the one shown.
+    pub classic_active: bool,
 }
 
 impl Default for Hud {
@@ -33,6 +38,8 @@ impl Default for Hud {
         Self {
             model: dereth_client_runtime::hud::Hud::default(),
             panels: RemainingPanels::default(),
+            classic: Default::default(),
+            classic_active: false,
         }
     }
 }
@@ -85,7 +92,17 @@ impl Hud {
 
 impl HudSlot for Hud {
     fn split(&mut self) -> (&mut dereth_client_runtime::hud::Hud, &mut dyn HudPanels) {
-        (&mut self.model, &mut self.panels)
+        if self.classic_active {
+            (&mut self.model, &mut self.classic)
+        } else {
+            (&mut self.model, &mut self.panels)
+        }
+    }
+}
+
+impl dereth_classic_ui::runtime::ClassicHudSlot for Hud {
+    fn classic_panels(&mut self) -> &mut dereth_classic_ui::runtime::ClassicHudPanels {
+        &mut self.classic
     }
 }
 

@@ -372,6 +372,8 @@ pub struct ClientShell<H: Host> {
     pub(crate) ui_release: crate::gpu::UiReleaseReport,
     /// This frame's 2D blit list, built at step 7 and drawn inside `PresentFrame`.
     pub(crate) ui_draw_list: Vec<dereth_ui::UiDrawCmd>,
+    /// The classic interface, shown in this one's place while it is the one chosen.
+    pub(crate) classic: crate::classic_face::ClassicFace,
     targeted_dialogs: crate::target_confirmation::TargetedDialogs,
     /// How many times the gameplay screen has been constructed, so the HUD's
     /// player-module refresh runs again on a tree that was rebuilt by a mode switch.
@@ -478,6 +480,7 @@ impl<H: Host> ClientShell<H> {
             paper_doll_last_time: 0.0,
             examine_3d_last_time: 0.0,
             in_creation: false,
+            classic: crate::classic_face::ClassicFace::default(),
             examine_3d_built: None,
             preview_chargen: None,
             chargen_pal_sets: crate::preview::PaletteSetCache::default(),
@@ -2431,6 +2434,122 @@ impl<H: Host> Ui<'_, '_, H> {
     }
 }
 
+/// The host clipboard, as the classic text fields reach it.
+struct ClassicClipboard<'a, C: crate::clipboard::HostClipboard>(&'a mut C);
+
+impl<C: crate::clipboard::HostClipboard> dereth_classic_ui::runtime::Clipboard
+    for ClassicClipboard<'_, C>
+{
+    fn get(&mut self) -> Option<String> {
+        self.0.get_text().ok().flatten()
+    }
+    fn set(&mut self, text: &str) {
+        let _ = self.0.set_text(text);
+    }
+}
+
+/// Bring the classic interface up: its art from the early-2005 portal, its text from the host's
+/// fonts, its own settings beside the client's.
+fn build_classic<H: Host>(
+    cx: &mut Cx<'_, H>,
+) -> Result<dereth_classic_ui::runtime::ClassicUi, crate::classic_face::Refusal> {
+    use crate::classic_face::Refusal;
+    let portal = dereth_classic_dat::ClassicPortal::of_store(cx.store()).ok_or(Refusal::Files)?;
+    let fonts = H::classic_fonts().ok_or(Refusal::Fonts)?;
+    let art = dereth_classic_ui::art::ClassicArt::new(portal, &*fonts).map_err(Refusal::Failed)?;
+    let art = dereth_classic_ui::art::install(std::sync::Arc::new(art));
+    let cfg = cx.config();
+    let state = cfg
+        .preferences_file
+        .parent()
+        .map_or_else(
+            || std::path::PathBuf::from("."),
+            std::path::Path::to_path_buf,
+        )
+        .join("classic");
+    let portal_dir = cfg
+        .legacy_dat_dir
+        .clone()
+        .or_else(|| cfg.world_dat_dir.clone());
+    let size = cx.present().size();
+    let mut ui = dereth_classic_ui::runtime::ClassicUi::new(
+        art,
+        dereth_classic_ui::art::ClassicPaths { portal_dir, state },
+        dereth_classic_ui::panels::factory,
+        size,
+    );
+    ui.start(cx).map_err(Refusal::Failed)?;
+    Ok(ui)
+}
+
+impl<H: Host> ClientShell<H> {
+    /// Follow the interface choice: bring the classic interface up and show it, or put it away
+    /// and show this one; a classic choice that cannot be shown goes back, and the chat says why.
+    fn follow_interface(&mut self, cx: &mut Cx<'_, H>) {
+        use dereth_client_contract::options::interface::Interface;
+        let pending: Vec<_> = cx
+            .hud()
+            .pending_chat
+            .iter()
+            .map(|(_, m)| m.clone())
+            .collect();
+        self.classic.remember(&pending);
+        let Some(want) = self.classic.changed_choice() else {
+            return;
+        };
+        match want {
+            Interface::Classic => {
+                if self.classic.ui.is_none() {
+                    match build_classic(cx) {
+                        Ok(ui) => self.classic.ui = Some(ui),
+                        Err(refusal) => {
+                            tracing::warn!("{}", refusal.notice());
+                            cx.add_scroll_line(
+                                &refusal.notice(),
+                                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                            );
+                            self.classic.refused();
+                            return;
+                        }
+                    }
+                }
+                self.classic.active = true;
+                cx.hud_mut().classic_active = true;
+                let size = cx.present().size();
+                let history: Vec<_> = self.classic.history().cloned().collect();
+                if let Some(ui) = self.classic.ui.as_mut() {
+                    ui.set_display((
+                        i32::try_from(size.0).unwrap_or(i32::MAX),
+                        i32::try_from(size.1).unwrap_or(i32::MAX),
+                    ));
+                    ui.classic.chat.clear();
+                    for line in history {
+                        ui.chat_line(
+                            u32::from(line.ty),
+                            line.prefix.unwrap_or_default(),
+                            &line.body,
+                        );
+                    }
+                }
+                tracing::info!("the classic interface is shown");
+            }
+            Interface::Retail => {
+                if !self.classic.active {
+                    return;
+                }
+                self.classic.active = false;
+                cx.hud_mut().classic_active = false;
+                // This interface's chat takes the lines it missed.
+                let missed: Vec<_> = self.classic.take_missed();
+                for line in missed {
+                    cx.hud_mut().pending_chat.push((None, line));
+                }
+                tracing::info!("the retail interface is shown");
+            }
+        }
+    }
+}
+
 impl<H: Host> Shell for ClientShell<H> {
     type Hud = crate::hud::Hud;
     type Present = dyn ClientPresentation;
@@ -2460,6 +2579,36 @@ impl<H: Host> Shell for ClientShell<H> {
     /// The window's queued events, in arrival order, then the end of the drain.
     fn window_input(&mut self, cx: &mut Cx<'_, H>, time_ms: u32) {
         let events: Vec<_> = self.window_events.borrow_mut().drain(..).collect();
+        if self.classic.active {
+            // The classic interface takes the devices; the window's lifecycle stays the
+            // runtime's, and the keys still reach the window procedure for its own arms
+            // (Alt+Enter among them).
+            let mut devices = Vec::new();
+            for event in &events {
+                use crate::platform::window::HostEvent;
+                if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
+                    cx.window_event(self, &lifecycle, time_ms);
+                    if matches!(event, HostEvent::Focused(_)) {
+                        devices.push(event.clone());
+                    }
+                    continue;
+                }
+                if matches!(
+                    event,
+                    HostEvent::KeyboardInput { .. } | HostEvent::ModifiersChanged { .. }
+                ) {
+                    for m in self.devices.map_device_event(event, time_ms) {
+                        cx.window_message(crate::pump::window_message(m), m.time_ms);
+                    }
+                }
+                devices.push(event.clone());
+            }
+            let mut clipboard = ClassicClipboard(&mut self.host_clipboard);
+            if let Some(ui) = self.classic.ui.as_mut() {
+                ui.window_input(cx, &devices, &mut clipboard);
+            }
+            return;
+        }
         for event in &events {
             route_host_event(cx, self, event, time_ms);
         }
@@ -2472,12 +2621,19 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn hand_on_actions(&mut self, actions: &mut dereth_client_runtime::actions::ActionQueue) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.hand_on_actions(actions);
+            return;
+        }
         if let Some(input) = self.input.as_mut() {
             input.hand_on(actions);
         }
     }
 
     fn control_notice(&mut self, notice: dereth_client_runtime::shell::ControlNotice) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.control_notice(notice);
+        }
         if let Some(input) = self.input.as_mut() {
             input.apply_notice(notice);
         }
@@ -2507,11 +2663,14 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn has_ui(&self) -> bool {
-        self.ui.is_some()
+        self.ui.is_some() || self.classic.active().is_some()
     }
 
     /// Whether the current UI mode is the gameplay screen, which means "the player is in the world".
     fn in_gameplay(&self) -> bool {
+        if let Some(ui) = self.classic.active() {
+            return ui.in_gameplay();
+        }
         self.ui
             .as_ref()
             .is_some_and(|s| s.flow.current_mode() == Some(dereth_ui::framework::mode::GAME_PLAY))
@@ -2521,6 +2680,9 @@ impl<H: Host> Shell for ClientShell<H> {
     /// the character-management screen builds the rotating preview, while the credits screen
     /// only creates its two authored roots, so entering Credits hides the retained world.
     fn hides_world(&self) -> bool {
+        if let Some(ui) = self.classic.active() {
+            return ui.hides_world();
+        }
         self.ui.as_ref().and_then(|shell| shell.flow.current_mode())
             == Some(dereth_ui::framework::mode::CREDITS)
     }
@@ -2528,6 +2690,9 @@ impl<H: Host> Shell for ClientShell<H> {
     /// A Turbine callback is a synchronous notice to the CURRENT chat subscribers. Preserve that
     /// generation through the deferred Hud delivery, not across a rebuild.
     fn chat_generation(&self) -> Option<u64> {
+        if self.classic.active {
+            return None;
+        }
         self.ui
             .as_ref()
             .and_then(|shell| shell.flow.current())
@@ -2535,6 +2700,9 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn ui_requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox> {
+        if self.classic.active {
+            return self.classic.ui.as_mut().map(|ui| &mut ui.outbox);
+        }
         self.ui.as_mut().map(|s| &mut s.ui.requests)
     }
 
@@ -2549,6 +2717,9 @@ impl<H: Host> Shell for ClientShell<H> {
     /// the original viewport calculation's answer with nothing docked, so the two agree
     /// on the degenerate case rather than merely not disagreeing.
     fn game_viewport(&self) -> Option<dereth_primitives::Viewport> {
+        if let Some(ui) = self.classic.active() {
+            return ui.game_viewport();
+        }
         let shell = self.ui.as_ref()?;
         let root = *shell.flow.current()?.roots().first()?;
         let h = shell
@@ -2574,6 +2745,9 @@ impl<H: Host> Shell for ClientShell<H> {
     /// shipped layout, so this build asks the hit test instead -- the same machinery the click
     /// path consults. `true` with no UI at all.
     fn pointer_over_game_view(&self, cursor: (i32, i32)) -> bool {
+        if let Some(ui) = self.classic.active() {
+            return ui.pointer_over_game_view(cursor);
+        }
         let Some(shell) = self.ui.as_ref() else {
             return true;
         };
@@ -2584,6 +2758,9 @@ impl<H: Host> Shell for ClientShell<H> {
     /// Look up element `0x100005F7` and read its visibility bit: is `<EXAM>` on
     /// screen? `false` covers both negative legs: no UI manager and no such element.
     fn examine_panel_open(&mut self) -> bool {
+        if let Some(ui) = self.classic.active() {
+            return ui.examine_panel_open();
+        }
         let Some(shell) = self.ui.as_mut() else {
             return false;
         };
@@ -2600,6 +2777,10 @@ impl<H: Host> Shell for ClientShell<H> {
     /// Use the panel's own hide path so the key and close button
     /// reach one statement and one counter.
     fn close_examine_panel(&mut self) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.close_examine_panel();
+            return;
+        }
         let Some(shell) = self.ui.as_mut() else {
             return;
         };
@@ -2615,11 +2796,18 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn service_dialogs(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.service_dialogs(cx, now);
+            return;
+        }
         self.targeted_dialogs
             .service_with(cx, self.ui.as_mut(), now);
     }
 
     fn before_ui_input(&mut self, player_airborne: bool) {
+        if self.classic.active {
+            return;
+        }
         if let Some(shell) = self.ui.as_mut() {
             if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                 crate::hud_drive::game_call(
@@ -2634,10 +2822,16 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn drive_pregame_screens(&mut self, cx: &mut Cx<'_, H>) {
+        if self.classic.active {
+            return;
+        }
         Ui { cx, shell: self }.drive_pregame_screens();
     }
 
     fn drive_world_script(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
+        if self.classic.active {
+            return;
+        }
         let mut ui = Ui { cx, shell: self };
         ui.drive_world_script(now.0);
         ui.drive_say(now.0);
@@ -2647,6 +2841,10 @@ impl<H: Host> Shell for ClientShell<H> {
     /// element is element `0x10000436`, an 800x600 viewport element under `0x10000037` in layout
     /// `0x2100000F`.
     fn place_portal_space(&mut self, present: &mut Self::Present) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.place_portal_space(present.size());
+            return;
+        }
         let id = crate::gpu::PreviewId::Portal;
         let who = self.ui.as_ref().and_then(|shell| {
             let root = *shell.flow.current()?.roots().first()?;
@@ -2688,7 +2886,7 @@ impl<H: Host> Shell for ClientShell<H> {
 
     /// The screens carry `--enter-world` whenever they are up; with no UI the runtime does.
     fn drives_scripted_entry(&self) -> bool {
-        self.ui.is_some()
+        self.ui.is_some() && !self.classic.active
     }
 
     fn ui_frame(
@@ -2697,6 +2895,11 @@ impl<H: Host> Shell for ClientShell<H> {
         now: dereth_primitives::LocalTime,
         notices: UiNotices,
     ) {
+        self.follow_interface(cx);
+        if let Some(ui) = self.classic.active_mut() {
+            ui.ui_frame(cx, now, notices);
+            return;
+        }
         Ui { cx, shell: self }.ui_frame(now, notices);
     }
 
@@ -2705,6 +2908,9 @@ impl<H: Host> Shell for ClientShell<H> {
         talk_focus: dereth_client_model::chat::TalkFocus,
         notice: dereth_client_model::chat::TalkFocusNotice,
     ) -> bool {
+        if let Some(ui) = self.classic.active_mut() {
+            return ui.talk_focus_notice(talk_focus, notice);
+        }
         self.ui.as_mut().is_some_and(|shell| {
             crate::hud_drive::game_screen(&mut shell.flow).is_some_and(|screen| {
                 crate::hud::talk_focus_notice(&mut shell.ui, screen, talk_focus, notice)
@@ -2720,6 +2926,10 @@ impl<H: Host> Shell for ClientShell<H> {
         hud: &mut crate::hud::Hud,
         notices: Vec<dereth_client_model::combat::PowerBarNotice>,
     ) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.deliver_power_bar_notices(notices);
+            return;
+        }
         let Some(shell) = self.ui.as_mut() else {
             return;
         };
@@ -2744,10 +2954,17 @@ impl<H: Host> Shell for ClientShell<H> {
         world: &dereth_client_model::World,
         notice: &dereth_client_model::Notice,
     ) -> Vec<dereth_client_contract::UiRequest> {
+        if let Some(ui) = self.classic.active_mut() {
+            return ui.object_panel_notice(world, notice);
+        }
         dispatch_object_panel_notice(self.ui.as_mut(), hud, world, notice)
     }
 
     fn emit_magic_notices(&mut self, notices: Vec<dereth_client_contract::view::MagicNotice>) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.emit_magic_notices(notices);
+            return;
+        }
         if let Some(shell) = self.ui.as_mut() {
             for n in notices {
                 shell.ui.notice_inbox.emit(n);
@@ -2756,6 +2973,10 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn open_vendor_buying(&mut self, hud: &mut crate::hud::Hud) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.open_vendor_buying();
+            return;
+        }
         if let Some(shell) = self.ui.as_mut() {
             hud.panels.vendor.open_buying(&mut shell.ui);
         }
@@ -2768,6 +2989,9 @@ impl<H: Host> Shell for ClientShell<H> {
         world: &str,
         layout_commands: Vec<crate::interaction::UiLayoutCommand>,
     ) {
+        if self.classic.active {
+            return;
+        }
         if let Some(shell) = self.ui.as_mut() {
             for command in layout_commands {
                 let result = match command {
@@ -2797,6 +3021,9 @@ impl<H: Host> Shell for ClientShell<H> {
         view: &crate::hud::HudView<'_>,
         selected: dereth_primitives::ObjectId,
     ) {
+        if self.classic.active {
+            return;
+        }
         if let Some(shell) = self.ui.as_mut() {
             if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                 crate::hud_drive::game_call_with_view(
@@ -2810,22 +3037,51 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn dispatch_input_action(&mut self, action: u32) -> Option<bool> {
+        if let Some(ui) = self.classic.active_mut() {
+            return ui.dispatch_input_action(action);
+        }
         self.ui
             .as_mut()
             .map(|shell| shell.ui.dispatch_input_action(action))
     }
 
     fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
+        if self.classic.active {
+            return;
+        }
         if let Some(shell) = self.ui.as_mut() {
             apply_world_tooltip(shell, tooltip);
         }
     }
 
     fn draw_world_target(&mut self, cx: &mut Cx<'_, H>) {
+        if self.classic.active {
+            let selected = cx.model().selected;
+            let projection = selected.and_then(|id| {
+                let (present, world) = cx.present_with_world();
+                present.target_projection(id, world)
+            });
+            if let Some(ui) = self.classic.ui.as_mut() {
+                ui.draw_world_target(cx, &|id| {
+                    if Some(id) == selected {
+                        projection
+                    } else {
+                        None
+                    }
+                });
+            }
+            return;
+        }
         Ui { cx, shell: self }.draw_world_target();
     }
 
     fn update_cursor(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(ui) = self.classic.active_mut() {
+            // The classic interface draws its own pointer.
+            ui.update_cursor(cx);
+            self.cursor.hide();
+            return;
+        }
         Ui { cx, shell: self }.update_cursor_state();
     }
 
@@ -2834,12 +3090,22 @@ impl<H: Host> Shell for ClientShell<H> {
     /// cheap -- the send happens only on a Copy, the read only when the clipboard's sequence number
     /// moved.
     fn sync_clipboard(&mut self) {
+        if self.classic.active {
+            return;
+        }
         if let Some(s) = self.ui.as_mut() {
             self.clipboard.sync(&mut s.ui, &mut self.host_clipboard);
         }
     }
 
     fn compose_ui(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(ui) = self.classic.active_mut() {
+            ui.compose_ui(cx);
+            for error in ui.errors.drain(..).chain(ui.desktop.errors.drain(..)) {
+                tracing::warn!("classic interface: {error}");
+            }
+            return;
+        }
         Ui { cx, shell: self }.compose_ui_draw_list();
     }
 
@@ -2850,12 +3116,18 @@ impl<H: Host> Shell for ClientShell<H> {
         &mut self,
         present: &mut Self::Present,
     ) -> Result<(), dereth_client_runtime::present::PresentError> {
+        if let Some(ui) = self.classic.active_mut() {
+            return ui.draw_ui(present);
+        }
         present.draw_ui(&self.ui_draw_list)
     }
 
     /// Broadcast the global refresh message — `UiSystem::refresh_event`, which re-lays the root
     /// out at the new extent and pushes `UIGlobalMessage 0x0E` at every registered listener.
     fn set_display(&mut self, display: (i32, i32)) {
+        if let Some(ui) = self.classic.ui.as_mut() {
+            ui.set_display(display);
+        }
         if let Some(shell) = self.ui.as_mut() {
             shell.set_display(display);
         }
@@ -2864,6 +3136,8 @@ impl<H: Host> Shell for ClientShell<H> {
     /// UI cleanup: the flow and every root element it holds, then the element manager, with the
     /// texture slots they held handed back first.
     fn cleanup_ui(&mut self, cx: &mut Cx<'_, H>) {
+        self.classic.ui = None;
+        self.classic.active = false;
         let ui = self.ui.take();
         if ui.is_some() {
             let r = cx.present_mut().release_ui_textures();

@@ -120,6 +120,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "presentation.interface.a-switch-follows-the-choice-and-a-refused-one-goes-back",
+        says: "The interface follows the Interface option on the next frame; a choice of the \
+               classic interface that cannot be shown goes back to the retail one, and the chat \
+               lines of the last while are kept for the interface switched to.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-ERA-UI-SWITCH"),
+        station: "dereth-client-shell::lib::classic_face::tests::a_refused_classic_choice_goes_back_to_the_retail_interface",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "presentation.intro-movie.every-frame-decodes-at-the-movies-rate-and-it-never-loops",
         says: "Every frame of the opening movie decodes to a full opaque 640 by 480 picture, and \
                after the last frame the movie is over and stays over rather than starting again.",
