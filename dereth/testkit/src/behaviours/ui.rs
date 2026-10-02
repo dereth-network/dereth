@@ -313,6 +313,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "keys.shared.every-bindable-action-does-something-in-the-retail-interface",
+        says: "Every action a key can be bound to -- every bindable entry of the shipped action                map and every one of this client's own -- is answered in the retail interface                when its key is pressed in the place it belongs (a combat key in its combat                mode): by a window, the movement, the camera, the game or this client's own                handling. None goes unanswered.",
+        since: THIS_CLIENT,
+        divergence: "CD-019",
+        evidence: Evidence::Private("AC-EVID-R2-EVERY-KEY"),
+        station: "dereth-client::gpu::ui::every_bindable_action::every_bindable_action_is_taken_by_some_handler_in_the_retail_interface",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "keys.shared.one-key-map-for-every-interface",
         says: "Both interfaces bind keys in one key map, the client's key map file, in the \
                shared action names: a key the classic interface's Keyboard Configuration page \
@@ -328,6 +337,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-UI-UNIFY-ONE-KEYMAP"),
         station: "dereth-client::dat::ui::shared_key_map::a_key_bound_for_one_interface_is_the_shared_maps_and_survives_its_file",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "keys.shared.the-retail-interface-answers-this-clients-own-keys",
+        says: "In the retail interface hold sidestep is held for as long as its key is; the                inverted mouse look and mute-when-inactive keys flip the shared settings and the                right-click mouse look and stretched-interface keys the classic interface's,                each both ways; and the trade key shows the secure-trade window and hides it                again.",
+        since: THIS_CLIENT,
+        divergence: "CD-019",
+        evidence: Evidence::Private("AC-EVID-R2-OWN-KEYS-RETAIL"),
+        station: "dereth-client::gpu::ui::every_bindable_action::the_retail_interface_answers_this_clients_own_keys_with_its_own_equivalents",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "notice.a-line-still-waiting-when-the-character-logs-off-goes-with-the-windows",

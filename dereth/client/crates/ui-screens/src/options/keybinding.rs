@@ -1941,8 +1941,13 @@ impl KeyBindingPage {
                 // `ID_InputMap_MovementCommands`. An id with no switch arm leaves
                 // the string reference empty, it is not valid and **no text is
                 // set at all** — which is why the miss below writes nothing rather than a fallback.
-                let caption = super::pages::input_map_caption(map.0)
-                    .and_then(|tok| resolve_token(ui, table_enum::INPUT_MAP, tok));
+                let caption = if map == dereth_input::dereth::INPUT_MAP {
+                    // This client's own actions, under a heading of their own.
+                    Some(dereth_input::dereth::SECTION_NAME.to_owned())
+                } else {
+                    super::pages::input_map_caption(map.0)
+                        .and_then(|tok| resolve_token(ui, table_enum::INPUT_MAP, tok))
+                };
                 match self.list_boxes[bi]
                     .1
                     .add_from_template(ui, TEMPLATE_HEADER, None)
@@ -2021,8 +2026,14 @@ impl KeyBindingPage {
         };
         let (name_id, tip_id) = m.action_map.descrip_values(map, action);
         let table = dereth_primitives::DataId(m.action_map.string_table);
-        let name = ui.resolve_string(table, name_id).unwrap_or_default();
-        let tip = ui.resolve_string(table, tip_id).unwrap_or_default();
+        // This client's own actions have no row in the string table: their names are its own.
+        let (name, tip) = match dereth_input::dereth::name(action) {
+            Some(own) if map == dereth_input::dereth::INPUT_MAP => (own.to_owned(), String::new()),
+            _ => (
+                ui.resolve_string(table, name_id).unwrap_or_default(),
+                ui.resolve_string(table, tip_id).unwrap_or_default(),
+            ),
+        };
         set_literal(ui, h, &name);
         // Initialization takes the defaults as its fifth argument and fills the current list
         // itself from `find_keys_for_action` on the *merged* map. The two lists are different

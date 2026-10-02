@@ -372,6 +372,25 @@ pub static DIVERGENCES: &[Divergence] = &[
                  over either interface and on any screen.",
         why: "The owner asked for a frame-rate panel that belongs to no interface.",
     },
+    Divergence {
+        id: "CD-019",
+        title: "Every key that can be bound does something",
+        retail: "The end-of-retail client lets a key be bound to Show Cloak and does nothing \
+                 with it, and its key page lists only the actions its string table names.",
+        dereth: "Show Cloak flips the show-cloak option as the other character-option keys flip \
+                 theirs. This client's own actions (the performance panel, hold sidestep, the \
+                 trade and spell-research windows and the character settings the classic \
+                 interface had keys for) are listed on the retail interface's key page under \
+                 their own names, in a Dereth section of the tab they belong to, and the retail \
+                 interface answers each: hold sidestep steps sideways with the turning keys, the \
+                 trade key shows or hides the secure-trade window, the spell-research key opens \
+                 the magic window on its Create Spell tab, automatic shortcuts flips the \
+                 character's option, inverted mouse look and mute when inactive flip the shared \
+                 settings, and right-click mouse look and the stretched interface, which the \
+                 retail interface has no mode for, flip the classic interface's settings and say \
+                 so in the chat.",
+        why: "The owner asked that every key that can be bound work when it is bound.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

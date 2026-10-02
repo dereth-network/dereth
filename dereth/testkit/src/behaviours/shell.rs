@@ -1696,6 +1696,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.key-bindings.this-clients-own-actions-are-listed-by-name",
+        says: "The retail interface's key page lists this client's own actions (the performance                panel, hold sidestep, the trade and spell-research windows and the character                settings the classic interface had keys for) under their own names, in a section                headed Dereth on the movement, interface and character-settings tabs, with the                keys the key map gives them.",
+        since: THIS_CLIENT,
+        divergence: "CD-019",
+        evidence: Evidence::Private("AC-EVID-R2-OWN-KEYS"),
+        station: "dereth-ui-screens::dat::panels::options_key_bindings::this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_their_own",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.key-bindings.undo-opens-greyed-because-nothing-has-changed-yet",
         says: "The undo button on the key-bindings page is greyed when the page comes up, because \
                nothing has been changed yet -- it is not lit before the player has touched \

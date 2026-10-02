@@ -539,6 +539,10 @@ pub struct GamePlayScreen {
     pub layout_from_file: bool,
     /// The lock-UI flag's current value, as last cascaded.
     pub locked: bool,
+    /// How many key presses no element took that one of this screen's key handlers recognised
+    /// (the quickbar and make-shortcut keys, the chat keys, the log-out and hide-interface keys),
+    /// whether or not there was then anything for it to do.
+    pub keys_answered: u64,
     /// Whether ending the session also quits the application.
     pub should_quit_on_logout: bool,
     /// Whether the player has confirmed the log-out.
@@ -4076,6 +4080,68 @@ impl GamePlayScreen {
         }
     }
 
+    /// This client's two window keys, answered by this interface's own windows:
+    ///
+    /// - the trade key shows or hides the secure-trade window;
+    /// - the spell-research key opens the magic window on its Create Spell tab, or closes it when
+    ///   it is open there. A world without spell research has no such tab, and the key does
+    ///   nothing.
+    ///
+    /// A window of a system the world lacks stays shut, as with every other key. Returns whether
+    /// `action` was one of the two.
+    pub fn own_window_action(&mut self, ui: &mut UiSystem, action: u32) -> bool {
+        use dereth_client_contract::actions::dereth;
+        let page_of = |s: &Self, element: ElementId| {
+            s.panels
+                .pages
+                .iter()
+                .chain(s.env_panel.pages.iter())
+                .find(|p| p.element == element)
+                .copied()
+        };
+        match action {
+            dereth::TOGGLE_TRADE_PANEL => {
+                if let Some(p) = page_of(self, crate::panels::trade::WINDOW) {
+                    let shown = ui.node(p.handle).is_some_and(|n| n.region.flags.visible);
+                    self.recv_set_panel_visibility(ui, p.panel_id, !shown);
+                }
+                true
+            }
+            dereth::TOGGLE_SPELL_RESEARCH_PANEL => {
+                let Some(p) = page_of(self, crate::panels::remaining::SPELL_PAGE) else {
+                    return true;
+                };
+                let Some(tab) = ui.get_child_recursive(p.handle, crate::panels::research::TAB)
+                else {
+                    return true;
+                };
+                if !ui.node(tab).is_some_and(|n| n.region.flags.visible) {
+                    return true;
+                }
+                let shown = ui.node(p.handle).is_some_and(|n| n.region.flags.visible);
+                let on_research = ui
+                    .node(p.handle)
+                    .and_then(|n| n.behaviour.as_ref())
+                    .and_then(|b| b.as_any())
+                    .and_then(|a| a.downcast_ref::<dereth_ui::widgets::panel::Panel>())
+                    .is_some_and(|panel| panel.open_tab == Some(crate::panels::research::TAB));
+                if shown && on_research {
+                    self.recv_set_panel_visibility(ui, p.panel_id, false);
+                } else {
+                    self.recv_set_panel_visibility(ui, p.panel_id, true);
+                    ui.broadcast_element_message(
+                        tab,
+                        dereth_ui::msg::element::id::MOUSE_CLICK,
+                        0,
+                        0,
+                    );
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Whether a page of the world's systems is refused: its panel id names a page, of the toolbar
     /// stack or the environment stack, whose system the world lacks ([`era_lacks_page`]).
     fn era_refuses(&self, panel: u32) -> bool {
@@ -4830,7 +4896,7 @@ impl GamePlayScreen {
     }
 
     /// Global message 1, four actions.
-    pub fn handle_key_press(&mut self, ui: &mut UiSystem, action: u32) {
+    pub fn handle_key_press(&mut self, ui: &mut UiSystem, action: u32) -> bool {
         match action {
             action::LOGOUT_TO_SELECT => {
                 self.should_quit_on_logout = false;
@@ -4849,8 +4915,9 @@ impl GamePlayScreen {
                 }
             }
             action::OPEN_HELP => {}
-            _ => {}
+            _ => return false,
         }
+        true
     }
     // -----------------------------------------------------------------------------------------
     // The chat surface's keyboard, its talk-focus menu and the floaty write-backs
@@ -5436,8 +5503,12 @@ impl Screen for GamePlayScreen {
             // (`0x1000000D` and `0x1000000A`); here they arrive as the same global
             // message 1 every other hotkey in this screen uses, which is what the key-press event
             // broadcasts for an action nothing consumed.
-            self.chat_on_action(ui, param);
-            self.handle_key_press(ui, param);
+            let toolbar = crate::toolbar::shortcuts::dispatch(param, false).is_some();
+            let chat = self.chat_on_action(ui, param);
+            let key = self.handle_key_press(ui, param);
+            if toolbar || chat || key {
+                self.keys_answered += 1;
+            }
         } else if id == dereth_ui::msg::global::TICK {
             // The menu option control's global-message handler delays the
             // resolution confirmation for two global-message-3 edges. The page owns the option

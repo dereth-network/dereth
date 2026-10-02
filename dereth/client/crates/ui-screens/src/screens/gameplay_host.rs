@@ -75,6 +75,9 @@ pub enum GameCall {
     LockUi(bool),
     /// The start-tell notice for `name`, reaching the chat entry.
     StartTell(String),
+    /// One of this client's window keys ([`GamePlayScreen::own_window_action`]); the answer is
+    /// whether it was one.
+    OwnWindowAction(u32, bool),
     /// Place the screen's windows from a loaded layout; `placed` is how many were placed.
     LoadLayout { layout: ScreenLayout, placed: usize },
     /// The screen's windows as a layout.
@@ -360,6 +363,10 @@ pub(crate) fn on_game(s: &mut GamePlayScreen, cx: &mut ScreenCx<'_>, g: &mut Gam
         }
         GameCall::StartTell(name) => {
             s.chat_recv_notice_start_tell(cx.ui, name);
+            true
+        }
+        GameCall::OwnWindowAction(action, taken) => {
+            *taken = s.own_window_action(cx.ui, *action);
             true
         }
         GameCall::LoadLayout { layout, placed } => {

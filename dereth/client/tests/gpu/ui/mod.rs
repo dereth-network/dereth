@@ -5,6 +5,7 @@
 mod drag_after_resize;
 mod edit_field_selection_highlight;
 mod escape_and_action_arms;
+mod every_bindable_action;
 mod fill_and_erase;
 mod focus_loss_release;
 mod font_rasterisation;

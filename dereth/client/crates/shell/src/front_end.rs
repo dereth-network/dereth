@@ -498,6 +498,9 @@ impl<H: Host> ClientShell<H> {
     }
 }
 
+/// The character option word's automatic-shortcuts bit, which the early clients' option named.
+const AUTO_CREATE_SHORTCUTS_BIT: u32 = 1;
+
 /// What this executable's front end is handed at each step of the frame.
 type Cx<'a, H> = dereth_client_runtime::ui_context::UiContext<'a, ClientShell<H>>;
 
@@ -992,6 +995,7 @@ impl<H: Host> Ui<'_, '_, H> {
         // The 3D character preview's update, then the preview pass's own device work -- both
         // **outside** the frame bracket, for the same reason `prepare_ui` is: adding preview objects uploads
         // textures and `Gpu::upload_texture` runs a command list of its own.
+        self.own_actions();
         self.preview_use_time();
         // What the pointer and the screens asked for, acted on later in the frame where interaction runs.
         self.cx.queue(mouse_events, ui_requests);
@@ -1013,6 +1017,110 @@ impl<H: Host> Ui<'_, '_, H> {
         // the element's own draw, and adding a preview object uploads textures so it must stay outside
         // `begin_frame`/`end_frame`.
         self.examine_3d_use_time();
+    }
+
+    /// This client's own actions that the retail interface answers itself, taken out of what the
+    /// screens left this frame (the performance panel's key goes on to the runtime):
+    ///
+    /// | action | what this interface does |
+    /// |---|---|
+    /// | hold sidestep | the turning keys step sideways while it is held |
+    /// | trade, spell research | the secure-trade window; the magic window's Create Spell tab |
+    /// | automatic shortcuts | flips the character's option, as the classic key does |
+    /// | inverted mouse look, mute when inactive | flips the shared preference |
+    /// | right-click mouse look, stretched interface | flips the classic interface's own setting and says so: this interface has no such mode |
+    fn own_actions(&mut self) {
+        use dereth_client_contract::actions::dereth as own;
+        let Some(input) = self.shell.input.as_mut() else {
+            return;
+        };
+        let (mine, rest): (Vec<_>, Vec<_>) = input.take_events().into_iter().partition(|e| {
+            e.input_map == dereth_input::dereth::INPUT_MAP
+                && e.action.0 != own::TOGGLE_PERFORMANCE_PANEL
+        });
+        input.put_back_unconsumed(rest);
+        for e in mine {
+            let id = e.action.0;
+            if id == own::MOVEMENT_HOLD_SIDESTEP {
+                self.cx.set_hold_sidestep(e.start);
+                continue;
+            }
+            if !e.start {
+                continue;
+            }
+            match id {
+                own::TOGGLE_TRADE_PANEL | own::TOGGLE_SPELL_RESEARCH_PANEL => {
+                    if let Some(shell) = self.shell.ui.as_mut() {
+                        if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                            crate::hud_drive::game_call(
+                                &mut shell.ui,
+                                screen,
+                                dereth_ui_screens::screens::gameplay_host::GameCall::OwnWindowAction(
+                                    id, false,
+                                ),
+                            );
+                        }
+                    }
+                }
+                own::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS => {
+                    let options = &self.cx.model().player_system.options;
+                    let request = dereth_client_contract::UiRequest::SetOptionWords {
+                        options: options.options ^ AUTO_CREATE_SHORTCUTS_BIT,
+                        options2: options.options2,
+                        timestamp_format: None,
+                        save: true,
+                    };
+                    let now = dereth_primitives::LocalTime(self.cx.now());
+                    let _ = self.cx.run_request(request, now, &mut |_, _| false);
+                }
+                own::TOGGLE_INVERT_MOUSE_LOOK => {
+                    self.flip_preference("Input.InvertMouseLookYAxis", None);
+                }
+                own::TOGGLE_MUTE_ON_LOSING_FOCUS => {
+                    self.flip_preference("Sound.PlaySoundOnlyWhenActive", None);
+                }
+                own::TOGGLE_RIGHT_CLICK_MOUSE_LOOK => self.flip_preference(
+                    dereth_client_contract::options::classic::RIGHT_CLICK_MOUSE_LOOK,
+                    Some("Right-click mouse look"),
+                ),
+                own::TOGGLE_STRETCH_UI => self.flip_preference(
+                    dereth_client_contract::options::classic::STRETCH_UI,
+                    Some("The stretched interface"),
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    /// Flip a yes-or-no preference of the shared store, live. A setting of the classic interface's
+    /// own (`classic` names it) is only stored, and the chat says so.
+    fn flip_preference(&mut self, name: &'static str, classic: Option<&str>) {
+        use dereth_client_contract::PrefValue;
+        let on = matches!(
+            dereth_client_contract::options::store::inq_value(name),
+            Some(PrefValue::Bool(true))
+        );
+        let value = PrefValue::Bool(!on);
+        match classic {
+            None => {
+                // Stored, as the options page stores it, then applied live.
+                let _ = dereth_client_contract::options::store::set_value(name, value.clone());
+                let now = dereth_primitives::LocalTime(self.cx.now());
+                let _ = self.cx.run_request(
+                    dereth_client_contract::UiRequest::SetPreference(name, value),
+                    now,
+                    &mut |_, _| false,
+                );
+            }
+            Some(what) => {
+                let _ = dereth_client_contract::options::store::set_value(name, value);
+                let state = if on { "off" } else { "on" };
+                self.cx.add_scroll_line(
+                    &format!("{what} is {state} in the classic interface."),
+                    dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                );
+            }
+        }
     }
 
     /// Bring the UI up, after input and sound.
@@ -3037,8 +3145,23 @@ impl<H: Host> Shell for ClientShell<H> {
         // interface's own input maps; any other action to the game, as an unclaimed key does.
         for action in cx.take_scripted_actions() {
             let window = dereth_input::names::enum_name_for_action(action).starts_with("Toggle");
+            let own = dereth_input::dereth::name(action).is_some();
             if let Some(ui) = self.classic.active_mut() {
                 ui.press_action(action);
+            } else if let (true, Some(input)) = (own, self.input.as_mut()) {
+                // This client's own actions, in their own map, pressed and let go.
+                for start in [true, false] {
+                    input.inject_action(dereth_input::InputEvent {
+                        action,
+                        input_map: dereth_input::dereth::INPUT_MAP,
+                        toggle: dereth_input::ToggleType::Hold,
+                        extent: 1.0,
+                        start,
+                        repeat_delta: 0,
+                        repeat_total: 0,
+                        from_key_down: start,
+                    });
+                }
             } else if !window {
                 cx.inject_action(dereth_client_runtime::actions::Action::begin(action));
                 cx.inject_action(dereth_client_runtime::actions::Action::end(action));

@@ -1419,3 +1419,41 @@ mod defaults {
         assert_eq!(s.key_bindings.rows[i].saved, vec![keyboard(DIK_F7)]);
     }
 }
+
+/// Behaviour: options.key-bindings.this-clients-own-actions-are-listed-by-name
+#[test]
+fn this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_their_own() {
+    let (mut ui, m, p) = page();
+    let own = dereth_input::dereth::INPUT_MAP;
+    for a in dereth_input::dereth::ACTIONS {
+        let i = p
+            .row_of(own, ActionId(a.action))
+            .unwrap_or_else(|| panic!("{} has a row", a.name));
+        assert_eq!(p.rows[i].label, a.name);
+        assert!(!a.name.is_empty());
+    }
+    // The performance panel's row shows the keys the key map gives it.
+    let perf = p
+        .row_of(
+            own,
+            ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL),
+        )
+        .expect("a row");
+    assert_eq!(
+        p.rows[perf].current,
+        m.find_keys_for_action(
+            ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL),
+            own
+        )
+    );
+    // Each tab that lists them heads them "Dereth".
+    let headed = p
+        .header_elements
+        .iter()
+        .filter(|&&h| {
+            ui.text_element_mut(h)
+                .is_some_and(|t| t.glyphs.inq_text(false) == dereth_input::dereth::SECTION_NAME)
+        })
+        .count();
+    assert_eq!(headed, 3, "movement, interface and character settings");
+}
