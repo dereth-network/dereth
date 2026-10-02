@@ -165,6 +165,55 @@ fn image(f: &mut PanelFrame, did: u32, r: Rect, tile: bool, clip: Option<Rect>) 
         *c = clip.map(|r| [r.x, r.y, r.x + r.w, r.y + r.h]);
     }
 }
+/// The page the toolbar's journal button opens: the journal on a world with it, else the
+/// contracts; `None` on a world with neither, whose toolbar has no such button.
+fn quest_page(game: &dyn GameView) -> Option<&'static str> {
+    let features = game.era().map(|e| e.features());
+    if features.is_none_or(|f| f.journal) {
+        Some("journal")
+    } else if features.is_some_and(|f| f.contracts) {
+        Some("contracts")
+    } else {
+        None
+    }
+}
+
+/// The toolbar's panel buttons left to right: id, left edge, width and the normal, lit and
+/// pressed pictures. Five fill the row between its two end pieces; with the journal's there are
+/// six, so the right end piece goes, each picture is cut a little narrower from both sides, and
+/// the journal's sits between the character's and the map's.
+fn toolbar_buttons(journal: bool) -> Vec<(&'static str, i32, i32, [u32; 3])> {
+    let five = [
+        ("social", 35, [0x0600111f, 0x06001120, 0x06001121]),
+        ("spellbook", 34, [0x06001119, 0x0600111a, 0x0600111b]),
+        ("character-stats", 34, [0x06001122, 0x06001123, 0x06001124]),
+        ("map", 34, [0x06001116, 0x06001117, 0x06001118]),
+        ("options", 39, [0x0600111c, 0x0600111d, 0x0600111e]),
+    ];
+    let mut out = vec![];
+    if journal {
+        let mut six = five.to_vec();
+        six.insert(3, ("journal", 34, crate::composed::JOURNAL_BUTTON));
+        let mut x = 62;
+        for ((id, _, art), w) in six.into_iter().zip([31, 31, 30, 31, 30, 31]) {
+            out.push((
+                id,
+                x,
+                w,
+                art.map(|a| crate::composed::narrowed(a, w as u32)),
+            ));
+            x += w;
+        }
+    } else {
+        let mut x = 61;
+        for (id, w, art) in five {
+            out.push((id, x, w, art));
+            x += w;
+        }
+    }
+    out
+}
+
 fn button(f: &mut PanelFrame, id: &str, r: Rect, art: [u32; 3]) {
     f.button(id, r, "", true).images = Some(art.map(|a| format!("{a:08X}")));
 }
@@ -521,7 +570,10 @@ impl Panel for Hud {
         let x = r.toolbar.x;
         let y = r.toolbar.y;
         image(&mut f, 0x0600112b, rect(x + 55, y, 7, 27), false, None);
-        image(&mut f, 0x0600112c, rect(x + 237, y, 10, 27), false, None);
+        let quests = quest_page(c.game);
+        if quests.is_none() {
+            image(&mut f, 0x0600112c, rect(x + 237, y, 10, 27), false, None);
+        }
         image(
             &mut f,
             0x0600120f,
@@ -530,21 +582,9 @@ impl Panel for Hud {
             None,
         );
         append(&mut f, self.shortcuts.frame(c), x, y + 58, "shortcut:");
-        for (id, dx, w, normal, pressed, selected) in [
-            ("social", 61, 35, 0x0600111f, 0x06001121, 0x06001120),
-            ("spellbook", 96, 34, 0x06001119, 0x0600111b, 0x0600111a),
-            (
-                "character-stats",
-                130,
-                34,
-                0x06001122,
-                0x06001124,
-                0x06001123,
-            ),
-            ("map", 164, 34, 0x06001116, 0x06001118, 0x06001117),
-            ("options", 198, 39, 0x0600111c, 0x0600111e, 0x0600111d),
-        ] {
-            let active = c.classic.active_right == id;
+        for (id, dx, w, [normal, selected, pressed]) in toolbar_buttons(quests.is_some()) {
+            let active = c.classic.active_right == id
+                || (id == "journal" && matches!(c.classic.active_right.as_str(), "contracts"));
             button(
                 &mut f,
                 id,
@@ -736,6 +776,18 @@ impl Panel for Hud {
             match id.as_str() {
                 "social" | "spellbook" | "character-stats" | "options" | "inventory" | "map" => {
                     return vec![PanelAction::Toggle(id)];
+                }
+                // The journal's button closes its page or the contracts beside it when either is
+                // shown, and otherwise opens its page.
+                "journal" => {
+                    let shown = c.classic.active_right.as_str();
+                    return match quest_page(c.game) {
+                        Some(_) if matches!(shown, "journal" | "contracts") => {
+                            vec![PanelAction::Toggle(shown.into())]
+                        }
+                        Some(page) => vec![PanelAction::Open(page.into())],
+                        None => vec![],
+                    };
                 }
                 "combat" => {
                     return vec![PanelAction::Host(HostAction::CombatMode(
@@ -1820,6 +1872,66 @@ mod tests {
             map_teleport_allowed: false,
             classic: state,
         }
+    }
+    #[test]
+    fn the_journal_button_fits_between_the_character_and_map_buttons_only_where_it_exists() {
+        let five = toolbar_buttons(false);
+        assert_eq!(five.len(), 5);
+        assert_eq!((five[0].1, five[4].1 + five[4].2), (61, 237));
+        let six = toolbar_buttons(true);
+        let ids: Vec<_> = six.iter().map(|b| b.0).collect();
+        assert_eq!(
+            ids,
+            [
+                "social",
+                "spellbook",
+                "character-stats",
+                "journal",
+                "map",
+                "options"
+            ]
+        );
+        // Six narrowed buttons fill the row from the left end piece to the backpack, side by side.
+        assert_eq!((six[0].1, six[5].1 + six[5].2), (62, 246));
+        assert!(six.windows(2).all(|p| p[0].1 + p[0].2 == p[1].1));
+        assert!(six
+            .iter()
+            .all(|b| b.3.iter().all(|a| crate::composed::is_composed(*a))));
+        // A world with neither the journal nor contracts has no such button.
+        let mut era = dereth_client_contract::EraView::default();
+        era.era = dereth_primitives::era::EraId::Infiltration;
+        era.era_announced = true;
+        #[derive(Debug)]
+        struct Era(dereth_client_contract::EraView);
+        impl GameView for Era {
+            fn era(&self) -> Option<&dereth_client_contract::EraView> {
+                Some(&self.0)
+            }
+        }
+        assert_eq!(quest_page(&Era(era)), None);
+        assert_eq!(quest_page(&World::default()), Some("journal"));
+    }
+    #[test]
+    fn the_journal_button_opens_the_journal_and_closes_the_page_it_shows() {
+        let g = World::default();
+        let mut state = ClassicState::default();
+        let (p, k, s) = Default::default();
+        let mut hud = Hud::default();
+        assert_eq!(
+            hud.event(
+                ControlEvent::Activate("journal".into()),
+                &context(&g, &state, &p, &k, &s)
+            ),
+            vec![PanelAction::Open("journal".into())]
+        );
+        state.active_right = "contracts".into();
+        assert_eq!(
+            hud.event(
+                ControlEvent::Activate("journal".into()),
+                &context(&g, &state, &p, &k, &s)
+            ),
+            vec![PanelAction::Toggle("contracts".into())]
+        );
     }
     fn with_context(g: &World, f: impl FnOnce(&Context<'_>)) {
         f(&context(

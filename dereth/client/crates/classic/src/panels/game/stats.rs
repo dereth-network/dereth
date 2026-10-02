@@ -22,6 +22,10 @@ pub struct Stats {
     selected: Option<(u32, bool)>,
     scroll: i32,
     pending: Option<(u32, bool, u32, i32)>,
+    /// On a world with titles, the window's third tab: the character's titles, and whether it is
+    /// the one shown.
+    titles: super::systems::Titles,
+    on_titles: bool,
 }
 impl Stats {
     pub fn new(skills: bool) -> Self {
@@ -30,8 +34,15 @@ impl Stats {
             selected: None,
             scroll: 0,
             pending: None,
+            titles: super::systems::Titles::default(),
+            on_titles: false,
         }
     }
+}
+
+/// Whether the character window has a Titles tab: on a world with titles.
+fn titles_tab(game: &dyn GameView) -> bool {
+    super::systems::era_has(game, |e| e.titles)
 }
 #[derive(Clone)]
 enum Row<'a> {
@@ -223,18 +234,41 @@ impl Panel for Stats {
         let dy = height - 362;
         let list_h = 198 + dy;
         let mut f = PanelFrame::new(300, height as u32);
-        for (x, id, label, selected) in [
-            (0, "attributes", "Attributes", !self.skills),
-            (138, "skills", "Skills", self.skills),
-        ] {
+        // Two 138-pixel tabs, or three of 92 with the Titles tab.
+        let titles = titles_tab(game);
+        let width = if titles { 92 } else { 138 };
+        let on_titles = titles && self.on_titles;
+        for (i, (id, label, selected)) in [
+            ("attributes", "Attributes", !self.skills && !on_titles),
+            ("skills", "Skills", self.skills && !on_titles),
+            ("titles", "Titles", on_titles),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if i == 2 && !titles {
+                continue;
+            }
             art(
-                f.button(id, rect(x, 0, 138, 25), label, true),
+                f.button(id, rect(i32_from(i) * width, 0, width, 25), label, true),
                 if selected { 0x06000f95 } else { 0x06000f96 },
                 0x06000f95,
                 0x06001211,
             );
         }
         close(&mut f, 0x060011a9, 0x060011aa);
+        if on_titles {
+            image(
+                &mut f,
+                0x06001398,
+                rect(0, 25, 300, height - 25),
+                None,
+                true,
+                false,
+            );
+            self.titles.body(&mut f, height, context);
+            return f;
+        }
         profile(&mut f, game);
         let clip = [0, 104, if self.skills { 279 } else { 300 }, 302 + dy];
         if self.skills {
@@ -577,10 +611,17 @@ impl Panel for Stats {
     fn event(&mut self, event: ControlEvent, context: &Context<'_>) -> Vec<PanelAction> {
         match event {
             ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
+            ControlEvent::Activate(id) if id == "titles" && titles_tab(context.game) => {
+                self.on_titles = true;
+            }
             ControlEvent::Activate(id) if id == "attributes" || id == "skills" => {
+                self.on_titles = false;
                 self.skills = id == "skills";
                 self.selected = None;
                 self.scroll = 0;
+            }
+            event if self.on_titles && titles_tab(context.game) => {
+                return self.titles.body_event(event, context);
             }
             ControlEvent::Scroll { id, value } if id == "rows" || id == "rows-scroll" => {
                 self.scroll = value.max(0)

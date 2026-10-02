@@ -12,12 +12,8 @@ const TOP: i32 = 25;
 
 /// A side page's frame: background, title bar, title and close button.
 fn page(title: &str) -> (PanelFrame, i32) {
-    let height = crate::panels::side_height();
-    let mut f = PanelFrame::new(300, height);
-    let h = height as i32;
-    image(&mut f, 0x06001398, rect(0, 0, 300, h), None, true, false);
+    let (mut f, h) = bare_page();
     image(&mut f, 0x0600127b, rect(0, 0, 276, 25), None, true, false);
-    close(&mut f, 0x06001393, 0x06001394);
     text(
         &mut f,
         rect(2, 2, 272, 21),
@@ -29,6 +25,29 @@ fn page(title: &str) -> (PanelFrame, i32) {
         None,
     );
     (f, h)
+}
+
+/// A side page's background and close button, for a page whose top row is its tabs.
+pub(super) fn bare_page() -> (PanelFrame, i32) {
+    let height = crate::panels::side_height();
+    let mut f = PanelFrame::new(300, height);
+    let h = height as i32;
+    image(&mut f, 0x06001398, rect(0, 0, 300, h), None, true, false);
+    close(&mut f, 0x06001393, 0x06001394);
+    (f, h)
+}
+
+/// A row of tabs across the top of a page, `(id, caption)` each, the one at `shown` held down.
+pub(super) fn page_tabs(f: &mut PanelFrame, tabs: &[(&str, &str)], shown: usize) {
+    let width = 276 / i32_from(tabs.len().max(1));
+    for (i, (id, caption)) in tabs.iter().enumerate() {
+        art(
+            f.button(*id, rect(i32_from(i) * width, 0, width, 25), *caption, true),
+            if i == shown { 0x06000f76 } else { 0x06000f77 },
+            0x06000f76,
+            0x06000f77,
+        );
+    }
 }
 
 /// One list row: the classic row background, highlighted when selected, and its text.
@@ -78,7 +97,10 @@ fn sorted_titles(game: &dyn GameView) -> (u32, Vec<(u32, String)>) {
     (t.display, titles)
 }
 
-fn era_has(game: &dyn GameView, which: fn(&dereth_primitives::era::EraFeatures) -> bool) -> bool {
+pub(super) fn era_has(
+    game: &dyn GameView,
+    which: fn(&dereth_primitives::era::EraFeatures) -> bool,
+) -> bool {
     game.era().is_none_or(|e| which(&e.features()))
 }
 
@@ -88,9 +110,20 @@ impl Panel for Titles {
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
         let (mut f, h) = page("Titles");
+        self.body(&mut f, h, c);
+        f
+    }
+    fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        self.body_event(e, c)
+    }
+}
+
+impl Titles {
+    /// The page under its top row of `f`, `h` tall.
+    pub(super) fn body(&self, f: &mut PanelFrame, h: i32, c: &Context<'_>) {
         if !era_has(c.game, |e| e.titles) {
             text(
-                &mut f,
+                f,
                 rect(10, TOP + 10, 280, 40),
                 "This world has no titles.",
                 "16-7",
@@ -99,7 +132,7 @@ impl Panel for Titles {
                 true,
                 None,
             );
-            return f;
+            return;
         }
         let (display, titles) = sorted_titles(c.game);
         let clip = [0, TOP, 280, h - 44];
@@ -111,7 +144,7 @@ impl Panel for Titles {
                 continue;
             }
             let shown = if *id == display { "shown" } else { "" };
-            list_row(&mut f, y, name, shown, self.selected == Some(*id), clip);
+            list_row(f, y, name, shown, self.selected == Some(*id), clip);
         }
         f.control(
             "rows",
@@ -141,9 +174,8 @@ impl Panel for Titles {
         );
         let can_set = self.selected.is_some_and(|s| s != display);
         f.button("set", rect(80, h - 40, 140, 36), "Set as Title", can_set);
-        f
     }
-    fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+    pub(super) fn body_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         match e {
             ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
             ControlEvent::Select { id, index } if id == "rows" => {
@@ -180,9 +212,20 @@ impl Panel for Contracts {
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
         let (mut f, h) = page("Contracts");
+        self.body(&mut f, h, c);
+        f
+    }
+    fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        self.body_event(e, c)
+    }
+}
+
+impl Contracts {
+    /// The page under its top row of `f`, `h` tall.
+    fn body(&self, f: &mut PanelFrame, h: i32, c: &Context<'_>) {
         if !era_has(c.game, |e| e.contracts) {
             text(
-                &mut f,
+                f,
                 rect(10, TOP + 10, 280, 40),
                 "This world has no contracts.",
                 "16-7",
@@ -191,7 +234,7 @@ impl Panel for Contracts {
                 true,
                 None,
             );
-            return f;
+            return;
         }
         let contracts = c.game.contracts();
         // The list takes the top half; the selected contract's notes the rest.
@@ -205,7 +248,7 @@ impl Panel for Contracts {
                 continue;
             }
             list_row(
-                &mut f,
+                f,
                 y,
                 &contract.name,
                 &contract.status,
@@ -251,7 +294,7 @@ impl Panel for Contracts {
                 format!("{}\n\nContact: {}", contract.description, contract.contact)
             };
             text(
-                &mut f,
+                f,
                 rect(10, list_bottom + 6, 280, h - 44 - list_bottom - 6),
                 notes,
                 "16-7",
@@ -267,9 +310,8 @@ impl Panel for Contracts {
             "Abandon",
             self.selected.is_some(),
         );
-        f
     }
-    fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+    fn body_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         match e {
             ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
             ControlEvent::Select { id, index } if id == "rows" => {
@@ -307,6 +349,14 @@ pub struct Journal {
     file: Option<std::path::PathBuf>,
     /// The three timer boxes as typed.
     boxes: [String; 3],
+    /// On a world with contracts as well, the page's other tab, and whether it is the one shown.
+    contracts: Contracts,
+    on_contracts: bool,
+}
+
+/// Whether the journal page has a Contracts tab beside its own: on a world with both.
+fn quest_tabs(game: &dyn GameView) -> bool {
+    era_has(game, |e| e.journal) && era_has(game, |e| e.contracts)
 }
 
 use dereth_presentation::journal::{self as rules, JournalPage};
@@ -374,15 +424,61 @@ impl Journal {
     }
 }
 
+/// A page as the page list names it: its number, and its label when it has one.
+fn page_entry(p: &JournalPage) -> String {
+    let label = p.label.trim();
+    if label.is_empty() {
+        rules::page_number_text(p.page_number)
+    } else {
+        format!("{}: {label}", p.page_number)
+    }
+}
+
 impl Panel for Journal {
     fn id(&self) -> &'static str {
         "journal"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let (mut f, h) = page("Journal");
+        if !quest_tabs(c.game) {
+            let (mut f, h) = page("Journal");
+            self.body(&mut f, h, c);
+            return f;
+        }
+        let (mut f, h) = bare_page();
+        page_tabs(
+            &mut f,
+            &[("tab-contracts", "Contracts"), ("tab-journal", "Journal")],
+            usize::from(!self.on_contracts),
+        );
+        if self.on_contracts {
+            self.contracts.body(&mut f, h, c);
+        } else {
+            self.body(&mut f, h, c);
+        }
+        f
+    }
+    fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        if quest_tabs(c.game) {
+            match &e {
+                ControlEvent::Activate(id) if id == "tab-contracts" || id == "tab-journal" => {
+                    self.on_contracts = id == "tab-contracts";
+                    return vec![];
+                }
+                ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
+                _ if self.on_contracts => return self.contracts.body_event(e, c),
+                _ => {}
+            }
+        }
+        self.body_event(e, c)
+    }
+}
+
+impl Journal {
+    /// The page under its top row of `f`, `h` tall.
+    fn body(&self, f: &mut PanelFrame, h: i32, c: &Context<'_>) {
         if !era_has(c.game, |e| e.journal) {
             text(
-                &mut f,
+                f,
                 rect(10, TOP + 10, 280, 40),
                 "This world has no journal.",
                 "16-7",
@@ -391,15 +487,15 @@ impl Panel for Journal {
                 true,
                 None,
             );
-            return f;
+            return;
         }
         let Some(p) = self.page() else {
-            return f;
+            return;
         };
         let caption = |f: &mut PanelFrame, y: i32, s: &str| {
             text(f, rect(10, y, 50, 20), s, "15-6", CREAM, 0, false, None);
         };
-        caption(&mut f, TOP + 6, "Label");
+        caption(f, TOP + 6, "Label");
         f.edit(
             "label",
             rect(60, TOP + 6, 230, 20),
@@ -408,7 +504,7 @@ impl Panel for Journal {
             false,
             true,
         );
-        caption(&mut f, TOP + 30, "Title");
+        caption(f, TOP + 30, "Title");
         f.edit(
             "title",
             rect(60, TOP + 30, 230, 20),
@@ -417,7 +513,7 @@ impl Panel for Journal {
             false,
             true,
         );
-        caption(&mut f, TOP + 56, "Notes");
+        caption(f, TOP + 56, "Notes");
         let notes_bottom = h - 146;
         f.edit(
             "notes",
@@ -429,7 +525,7 @@ impl Panel for Journal {
         );
         // Where the character stood, and the button that stamps it.
         text(
-            &mut f,
+            f,
             rect(10, h - 106, 186, 22),
             format!(
                 "Location: {}",
@@ -445,7 +541,7 @@ impl Panel for Journal {
         // The timer: its countdown while it runs, else the three boxes.
         if p.timer_running {
             text(
-                &mut f,
+                f,
                 rect(10, h - 76, 186, 22),
                 format!(
                     "Timer: {}",
@@ -472,7 +568,7 @@ impl Panel for Journal {
                     true,
                 );
                 text(
-                    &mut f,
+                    f,
                     rect(x + 42, h - 76, 16, 22),
                     unit,
                     "15-6",
@@ -509,21 +605,23 @@ impl Panel for Journal {
                 enabled,
             );
         }
-        text(
-            &mut f,
-            rect(76, h - 42, 72, 34),
-            rules::page_number_text(self.current),
-            "16-7",
-            CREAM,
-            1,
-            false,
-            None,
+        // The page list: every page by number and label, the shown one chosen; choosing one
+        // turns to it.
+        let pages = f.control(
+            "pages",
+            rect(76, h - 38, 72, 25),
+            ControlKind::Choice {
+                options: self.pages.iter().map(page_entry).collect(),
+                selected: (self.current as usize).saturating_sub(1),
+            },
+            true,
         );
+        pages.list_skin = Some(crate::panels::ListSkin::BOOK);
+        pages.font = "15-6".into();
         // The shown page, taken out.
         f.button("delete", rect(200, h - 142, 90, 28), "Delete", true);
-        f
     }
-    fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+    fn body_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         if matches!(&e, ControlEvent::Activate(id) if id == "close") {
             return vec![PanelAction::Close];
         }
@@ -556,6 +654,10 @@ impl Panel for Journal {
                 }
                 _ => changed = false,
             },
+            ControlEvent::Select { id, index } if id == "pages" => {
+                self.show(u32::try_from(index + 1).unwrap_or(1));
+                changed = false;
+            }
             ControlEvent::Activate(id) => match id.as_str() {
                 "first" => self.show(1),
                 "prev" if self.current > 1 => self.show(self.current - 1),
@@ -860,5 +962,92 @@ mod tests {
             let f = contracts.frame(c);
             assert!(!f.controls.iter().any(|k| k.id == "abandon"));
         });
+    }
+
+    #[test]
+    fn the_journal_page_has_a_contracts_tab_on_a_world_with_both() {
+        let dir = journal_dir("tabs");
+        let game = Game {
+            journal_dir: Some(dir.clone()),
+            ..Game::default()
+        };
+        let mut j = Journal::default();
+        let has = |f: &PanelFrame, id: &str| f.controls.iter().any(|k| k.id == id);
+        with(&game, |c| {
+            j.event(ControlEvent::Tick, c);
+            let f = j.frame(c);
+            assert!(has(&f, "tab-contracts") && has(&f, "tab-journal") && has(&f, "stamp"));
+            act(&mut j, "tab-contracts", c);
+            let f = j.frame(c);
+            assert!(has(&f, "abandon") && !has(&f, "stamp"));
+            // The contracts tab works the contracts.
+            j.event(
+                ControlEvent::Select {
+                    id: "rows".into(),
+                    index: 0,
+                },
+                c,
+            );
+            assert_eq!(
+                j.event(ControlEvent::Activate("abandon".into()), c),
+                [PanelAction::Game(UiRequest::AbandonContract {
+                    contract_id: 9
+                })]
+            );
+            act(&mut j, "tab-journal", c);
+            assert!(has(&j.frame(c), "stamp"));
+        });
+        // A world with neither keeps the plain page.
+        let mut era = dereth_client_contract::EraView::default();
+        era.era = dereth_primitives::era::EraId::Infiltration;
+        era.era_announced = true;
+        let plain = Game {
+            era: Some(era),
+            ..Game::default()
+        };
+        with(&plain, |c| assert!(!has(&j.frame(c), "tab-contracts")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_page_list_names_every_page_and_turns_to_the_one_chosen() {
+        let dir = journal_dir("list");
+        let game = Game {
+            journal_dir: Some(dir.clone()),
+            ..Game::default()
+        };
+        let mut j = Journal::default();
+        let list = |j: &Journal, c: &Context<'_>| {
+            j.frame(c)
+                .controls
+                .into_iter()
+                .find_map(|k| match k.kind {
+                    ControlKind::Choice { options, selected } if k.id == "pages" => {
+                        Some((options, selected))
+                    }
+                    _ => None,
+                })
+                .expect("the page list")
+        };
+        with(&game, |c| {
+            j.event(ControlEvent::Tick, c);
+            type_in(&mut j, "label", "Rats", c);
+            act(&mut j, "new", c);
+            act(&mut j, "new", c);
+            assert_eq!(
+                list(&j, c),
+                (vec!["1: Rats".into(), "~ 2 ~".into(), "~ 3 ~".into()], 2)
+            );
+            j.event(
+                ControlEvent::Select {
+                    id: "pages".into(),
+                    index: 0,
+                },
+                c,
+            );
+            assert_eq!(list(&j, c).1, 0);
+            assert!(format!("{:?}", j.frame(c)).contains("Rats"));
+        });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

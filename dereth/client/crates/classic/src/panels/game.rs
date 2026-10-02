@@ -365,6 +365,19 @@ mod tests {
         assert!(!face_edge(&frame(&ClassicState::default())));
     }
     #[test]
+    fn the_character_window_shows_the_titles_on_its_third_tab() {
+        let w = World::default();
+        with_context(&w, |ctx| {
+            let mut p = make("character-stats").unwrap();
+            let has = |p: &dyn Panel, id: &str| p.frame(ctx).controls.iter().any(|c| c.id == id);
+            assert!(has(&*p, "titles") && !has(&*p, "set"));
+            p.event(click("titles"), ctx);
+            assert!(has(&*p, "set"));
+            p.event(click("skills"), ctx);
+            assert!(!has(&*p, "set"));
+        });
+    }
+    #[test]
     fn desired_component_count_waits_for_commit_and_rejects_out_of_range() {
         let w = World {
             components: vec![ComponentCategory {
