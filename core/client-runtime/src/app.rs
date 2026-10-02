@@ -105,7 +105,7 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
     let name: &'static str = preferences::UI_PREFERENCES
         .iter()
         .map(|p| p.name)
-        .chain([landscape::GROUND, landscape::SKY])
+        .chain([landscape::GROUND, landscape::SKY, landscape::OBJECTS])
         .find(|n| n.eq_ignore_ascii_case(key))?;
     if let Some(v) = landscape::parse_value(name, value) {
         return Some((name, dereth_client_contract::PrefValue::Int(v)));
@@ -2139,6 +2139,7 @@ impl<S: Shell> App<S> {
         for (which, refused) in [
             (Landscape::Ground, w.ground_refused),
             (Landscape::Sky, w.sky_refused),
+            (Landscape::Objects, w.objects_refused),
         ] {
             let Some((files, kept)) = refused else {
                 continue;
@@ -4468,17 +4469,19 @@ impl<S: Shell> App<S> {
                     || w.detail_texturing_changed
                     || w.ground_changed
                     || w.sky_changed
+                    || w.objects_changed
                 {
                     self.events.push(FrameEvent::RenderPreferencesApplied);
                     tracing::info!(
                         "render preferences changed -- flush {}, mid_radius {}, \
-                         detail textures {}, ground {}, sky {}, {} block(s) queued, \
-                         {} resident",
+                         detail textures {}, ground {}, sky {}, objects {}, \
+                         {} block(s) queued, {} resident",
                         w.flushed,
                         w.mid_radius_changed,
                         w.detail_texturing_changed,
                         w.ground_changed,
                         w.sky_changed,
+                        w.objects_changed,
                         w.blocks_queued,
                         w.blocks_rebuilt,
                     );
@@ -4580,6 +4583,8 @@ impl<S: Shell> App<S> {
                 sky_changed: false,
                 ground_refused: None,
                 sky_refused: None,
+                objects_changed: false,
+                objects_refused: None,
             },
         }
     }

@@ -223,7 +223,7 @@ pub static DIVERGENCES: &[Divergence] = &[
                  next frame, rebuilding the ground or the sky in place. The detail textures, when                  turned on, are drawn under every ground style: the style's own where its region                  names them, else the world's own region's, else the end-of-retail region's. An older world's later \
                  styles come from the end-of-retail files beside it; the end-of-retail world's \
                  older styles from a folder holding an older portal.dat, given with \
-                 --legacy-dat-dir or Render.LegacyDatDir, which nothing else reads. A style whose \
+                 --legacy-dat-dir or Render.LegacyDatDir, which only presentation reads. A style whose \
                  files are not there is refused with a message in the chat window, and the world \
                  keeps what it had.",
         why: "Every era can be played with the ground and sky its players saw on 3D hardware, the \
@@ -246,6 +246,32 @@ pub static DIVERGENCES: &[Divergence] = &[
                  heights and scenery are unchanged.",
         why: "A filler picture is not the ground that belongs there; the surrounding ground is \
               the closest thing the region has.",
+    },
+    Divergence {
+        id: "CD-014",
+        title: "The objects of any world can take another era's look",
+        retail: "Every client drew its world's objects with its own data files: the players, \
+                 creatures, items, buildings and scenery of a world from before Throne of \
+                 Destiny in the older models and pictures, those of the end-of-retail world in \
+                 the repainted later ones. No client drew one era's world with another era's \
+                 objects.",
+        dereth: "Object Mode on the client options page (Render.Objects in the profile, \
+                 --object-visuals on the command line) draws any world's objects in World \
+                 Default, Legacy or Modern look. Every object keeps the world's own parts, how \
+                 they are joined and how they move; each part's model, surfaces, pictures and \
+                 palettes come from the chosen era's files where they hold it, and from the \
+                 world's where they do not. A clothing or paint change the world's server sends is \
+                 put on the same surface of the other era's part, since the eras painted the same \
+                 parts with different pictures; an object whose change has no such surface is \
+                 drawn wholly in the world's look. The landscape's buildings, statics and scenery \
+                 are drawn whole in the chosen look; interiors stay the world's. Collision, motion \
+                 and everything the server agrees on stay the world's. A change takes effect on \
+                 the next frame. An older world's Modern look comes from the end-of-retail files \
+                 beside it; the end-of-retail world's Legacy look from the folder given with \
+                 --legacy-dat-dir or Render.LegacyDatDir. A look whose files are not there is \
+                 refused with a message in the chat window.",
+        why: "Which era's models and pictures a world is seen in is a presentation choice, not a \
+              rule of the era, and the owner asked for both directions.",
     },
 ];
 

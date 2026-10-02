@@ -108,13 +108,16 @@ pub fn open_data_files_for(
     }
     match store.clone().with_legacy_portal(legacy) {
         Ok(with) => {
-            tracing::info!("older grounds and skies are read from {}", legacy.display());
+            tracing::info!(
+                "older grounds, skies and object looks are read from {}",
+                legacy.display()
+            );
             Ok(with)
         }
         Err(e) => {
             tracing::warn!(
-                "the legacy dat folder {} will not open ({e}); the older grounds and skies \
-                 are unavailable",
+                "the legacy dat folder {} will not open ({e}); the older grounds, skies and \
+                 object looks are unavailable",
                 legacy.display()
             );
             Ok(store)

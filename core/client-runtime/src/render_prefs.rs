@@ -60,13 +60,25 @@ pub fn terrain_blending(prefs: &Preferences) -> TerrainBlending {
         .unwrap_or_default()
 }
 
-/// `[Render] Ground` and `[Render] Sky`: the landscape presentation options, which choose the era
-/// of the ground and of the sky. See [`dereth_client_contract::options::landscape`], which owns the
-/// names, the values and their spellings.
-pub use dereth_client_contract::options::landscape::{RegionStyle, RequiredFiles, GROUND, SKY};
+/// `[Render] Ground`, `[Render] Sky` and `[Render] Objects`: the presentation options from another
+/// era, which choose the era of the ground, of the sky and of the objects' look. See
+/// [`dereth_client_contract::options::landscape`], which owns the names, the values and their
+/// spellings.
+pub use dereth_client_contract::options::landscape::{
+    RegionStyle, RequiredFiles, GROUND, OBJECTS, SKY,
+};
+
+/// The objects have one older look: either older style is it.
+#[must_use]
+pub const fn objects_style(style: RegionStyle) -> RegionStyle {
+    match style {
+        RegionStyle::LegacySoftware | RegionStyle::LegacyHardware => RegionStyle::LegacyHardware,
+        RegionStyle::Modern => RegionStyle::Modern,
+    }
+}
 
 /// `[Render] LegacyDatDir`: a folder holding a `portal.dat` from before Throne of Destiny, read
-/// for the older grounds and skies alone. `--legacy-dat-dir` wins over it.
+/// for the older grounds, skies and object looks alone. `--legacy-dat-dir` wins over it.
 pub const LEGACY_DAT_DIR: &str = "Render.LegacyDatDir";
 
 /// One landscape option from the profile: `None` (the world's own) when it is absent or names
@@ -157,6 +169,10 @@ pub struct RenderPreferences {
     /// `[Render] Sky`: the region whose sky draws, with its light and fog; `None` is the world's
     /// own. Not a retail preference. The scene applies a change live.
     pub sky: Option<RegionStyle>,
+    /// `[Render] Objects`: the era whose models, surfaces, pictures and palettes the world's
+    /// objects draw with (`Some(LegacyHardware)` the older files, `Some(Modern)` the later ones);
+    /// `None` is the world's own. Not a retail preference. The scene applies a change live.
+    pub objects: Option<RegionStyle>,
 }
 
 impl Default for RenderPreferences {
@@ -178,6 +194,7 @@ impl Default for RenderPreferences {
             degrade_distance: dereth_animation::parts::S_R_DEGRADE_DISTANCE,
             ground: None,
             sky: None,
+            objects: None,
         }
     }
 }
@@ -280,6 +297,7 @@ impl RenderPreferences {
         }
         r.ground = landscape_style(prefs, GROUND);
         r.sky = landscape_style(prefs, SKY);
+        r.objects = landscape_style(prefs, OBJECTS).map(objects_style);
         if let Some(v) = prefs.f32(GRAPHICS_PERFORMANCE) {
             r.graphics_performance = v;
         }
@@ -394,7 +412,8 @@ impl RenderPreferences {
         if name.eq_ignore_ascii_case(AUTOMATIC_DEGRADES) {
             take!(automatic_degrades, boolean);
         }
-        // The two landscape options, which the scene's poll applies live.
+        // The three presentation options from another era, which the scene's poll applies
+        // live.
         if let Some(which) = dereth_client_contract::options::landscape::Landscape::of(name) {
             let PrefValue::Int(_) = value else {
                 return false;
@@ -405,6 +424,9 @@ impl RenderPreferences {
                     self.ground = style;
                 }
                 dereth_client_contract::options::landscape::Landscape::Sky => self.sky = style,
+                dereth_client_contract::options::landscape::Landscape::Objects => {
+                    self.objects = style.map(objects_style);
+                }
             }
             return true;
         }

@@ -1668,6 +1668,17 @@ impl<H: Host> Ui<'_, H> {
                     tracing::info!("no UserPreferences.ini; registered defaults stand")
                 }
             }
+            // `--object-visuals` wins over the profile's object mode, and the options page shows
+            // what is drawn.
+            if let Some(style) = self.core.cfg.object_visuals {
+                let _ = dereth_client_contract::options::store::set_value(
+                    dereth_client_contract::options::landscape::OBJECTS,
+                    dereth_client_contract::PrefValue::Int(style.map_or(
+                        dereth_client_contract::options::landscape::WORLD_DEFAULT,
+                        dereth_client_contract::options::landscape::RegionStyle::value,
+                    )),
+                );
+            }
             crate::render_prefs::seed_ui_registry(self.core.present.texture_filtering());
             // The data-movie loader's no-database-file path is "a plain file path, resolved
             // relative to the working directory". The client is started from its install directory;

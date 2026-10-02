@@ -269,8 +269,8 @@ pub fn set_value(name: &str, v: PrefValue) -> bool {
 /// resets the registry, so a host that re-creates its
 /// UI shell gets the registered defaults back rather than the previous shell's edits.
 ///
-/// It also registers this client's two landscape options ([`super::landscape::register`]), which
-/// are not retail's and are not in the count it returns.
+/// It also registers this client's three presentation options from another era
+/// ([`super::landscape::register`]), which are not retail's and are not in the count it returns.
 pub fn init() -> usize {
     REGISTRY.with(|r| r.borrow_mut().clear());
     let mut n = 0;
@@ -1076,8 +1076,8 @@ mod tests {
     #[test]
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
-        // ...beside this client's two landscape options.
-        assert_eq!(len(), 36);
+        // ...beside this client's three presentation options from another era.
+        assert_eq!(len(), 37);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

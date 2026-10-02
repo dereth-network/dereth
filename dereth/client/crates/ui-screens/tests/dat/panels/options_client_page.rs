@@ -363,8 +363,8 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     ui.requests.clear();
     let n = s.config_page.restore_default_values(&mut ui);
     assert_eq!(
-        n, 32,
-        "the 30 retail controls and this client's two landscape rows"
+        n, 33,
+        "the 30 retail controls and this client's three rows from another era"
     );
     let live: Vec<(&str, PrefValue)> = ui
         .requests
@@ -377,7 +377,7 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
         .collect();
     let stat: Vec<(&str, PrefValue)> = config::restore_default_values();
     assert_eq!(live, stat, "the built page and CONFIG_PAGE disagree");
-    assert_eq!(live.len(), 32);
+    assert_eq!(live.len(), 33);
 
     // The control kinds, counted: 12 check boxes, 10 sliders, 8 menus.
     let k = |c: OptionControl| {
@@ -741,8 +741,8 @@ mod sound_defaults {
         let out = ui.requests.take();
         assert_eq!(
             out.len(),
-            32,
-            "27 rows plus the three paired volume sliders and this client's two landscape rows"
+            33,
+            "27 rows plus the three paired volume sliders and this client's three era rows"
         );
 
         // The eight `Sound.*` writes, spelled out with the default values the page's option
@@ -824,10 +824,10 @@ mod sound_defaults {
             .expect("the option box is in the shipped layout");
         assert_eq!(
             ui.children(box_h).len(),
-            40,
-            "27 option rows, this client's 2 landscape rows, 6 section headers and 5 separators"
+            41,
+            "27 option rows, this client's 3 era rows, 6 section headers and 5 separators"
         );
-        assert_eq!(screen.config_page.row_count(), 40);
+        assert_eq!(screen.config_page.row_count(), 41);
         assert_eq!(screen.config_page.headers, 6);
         assert_eq!(screen.config_page.separators, 5);
         assert_eq!(screen.config_page.failures, 0, "every row template built");
@@ -836,7 +836,7 @@ mod sound_defaults {
             30,
             "27 rows, of which the three check+slider pairs register two controls each"
         );
-        assert_eq!(screen.config_page.landscape_options().count(), 2);
+        assert_eq!(screen.config_page.landscape_options().count(), 3);
 
         let (base_ui, base_all) = gameplay_tree();
         let count = |u: &UiSystem, hs: &[ElemHandle], ty: u32| {
@@ -885,8 +885,8 @@ mod sound_defaults {
         );
         assert_eq!(
             delta(0x1000_0038),
-            10,
-            "menu options: the eight menu rows and this client's two landscape rows"
+            11,
+            "menu options: the eight menu rows and this client's three era rows"
         );
         assert_eq!(
             delta(0x1000_0034),

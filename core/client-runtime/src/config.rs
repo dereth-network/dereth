@@ -218,11 +218,15 @@ pub struct Config {
     /// [`Self::dat_dir`]'s.
     pub world_dat_dir: Option<PathBuf>,
     /// `--legacy-dat-dir <dir>`, or `[Render] LegacyDatDir`: a folder holding a `portal.dat` from
-    /// before Throne of Destiny, read for the older grounds and skies alone (`[Render] Ground` and
-    /// `[Render] Sky`) beside a later world. The world never reads it. The switch wins over the
-    /// preference. `None`: no older files beside a later world, and choosing an older ground or
-    /// sky there is refused.
+    /// before Throne of Destiny, read for the older grounds, skies and object looks alone
+    /// (`[Render] Ground`, `[Render] Sky` and `[Render] Objects`) beside a later world. The world
+    /// never reads it. The switch wins over the preference. `None`: no older files beside a later
+    /// world, and choosing an older ground, sky or object look there is refused.
     pub legacy_dat_dir: Option<PathBuf>,
+    /// `--object-visuals <world|legacy|modern>`: the era whose look the world's objects draw
+    /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
+    /// the switch was not given and the preference stands; `Some(None)`: the world's own.
+    pub object_visuals: Option<Option<crate::render_prefs::RegionStyle>>,
     /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
     /// launcher reads it from the world's status. It wins over the era read from the data files;
     /// `None`: the data files decide.
@@ -457,6 +461,7 @@ impl Default for Config {
             dat_dir: default_dat_dir(),
             world_dat_dir: None,
             legacy_dat_dir: None,
+            object_visuals: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
         }
@@ -611,9 +616,16 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
-    // The older files the older grounds and skies are read from, beside a later world.
+    // The older files the older grounds, skies and object looks are read from, beside a later
+    // world.
     Switch {
         long: "legacy-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The era whose look the world's objects draw with.
+    Switch {
+        long: "object-visuals",
         short: None,
         arity: Arity::Required,
     },
@@ -1291,6 +1303,17 @@ impl Config {
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "world-dat-dir" => self.world_dat_dir = Some(PathBuf::from(v)),
             "legacy-dat-dir" => self.legacy_dat_dir = Some(PathBuf::from(v)),
+            "object-visuals" => {
+                let style = dereth_client_contract::options::landscape::parse(v)
+                    .ok_or_else(|| {
+                        ConfigError::new(format!(
+                            "--object-visuals takes world, legacy or modern, not {v:?}"
+                        ))
+                    })?
+                    .map(crate::render_prefs::objects_style);
+                self.render.objects = style;
+                self.object_visuals = Some(style);
+            }
             "set-at" => {
                 let (frame, setting) = v
                     .split_once(':')
@@ -1808,6 +1831,41 @@ mod tests {
         assert_eq!(styles("[Render]\nGround=hardware\n"), (None, None));
         assert_eq!(styles("[Render]\nGround=tod\nSky=World\n"), (None, None));
         assert_eq!(styles(""), (None, None));
+    }
+
+    /// `[Render] Objects` chooses the objects' look, and `--object-visuals` wins over it; either
+    /// older style is the one older look.
+    #[test]
+    fn the_object_visuals_come_from_the_switch_before_the_preference() {
+        use crate::render_prefs::RegionStyle;
+        let objects = |args: &[&str], text: &str| {
+            let argv: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
+            let c =
+                Config::from_args_and_prefs_with(&argv, &Preferences::parse(text)).expect("parses");
+            (c.scene_config().render.objects, c.object_visuals)
+        };
+        assert_eq!(objects(&[], ""), (None, None));
+        assert_eq!(
+            objects(&[], "[Render]\nObjects=Legacy\n"),
+            (Some(RegionStyle::LegacyHardware), None)
+        );
+        assert_eq!(
+            objects(&[], "[Render]\nObjects=PaletteShift\n"),
+            (Some(RegionStyle::LegacyHardware), None)
+        );
+        assert_eq!(
+            objects(
+                &["--object-visuals", "modern"],
+                "[Render]\nObjects=Legacy\n"
+            ),
+            (Some(RegionStyle::Modern), Some(Some(RegionStyle::Modern)))
+        );
+        assert_eq!(
+            objects(&["--object-visuals", "world"], "[Render]\nObjects=Legacy\n"),
+            (None, Some(None))
+        );
+        let argv = vec!["--object-visuals".to_string(), "sideways".to_string()];
+        assert!(Config::from_args_and_prefs_with(&argv, &Preferences::parse("")).is_err());
     }
 
     /// `--legacy-dat-dir` names the older presentation files, and wins over `[Render]

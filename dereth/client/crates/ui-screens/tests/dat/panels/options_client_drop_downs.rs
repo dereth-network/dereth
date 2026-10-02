@@ -163,22 +163,24 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
         );
     }
     assert_eq!(total, 32);
-    // This client's two landscape rows list the world's own and the three styles each, as literal
-    // text.
+    // This client's three rows from another era list the world's own and their styles, as
+    // literal text: three styles for the ground and the sky, two for the objects.
     for o in p.landscape_options() {
         let texts = rows(&mut ui, o.element);
-        assert_eq!(texts.len(), 4, "{}: {texts:?}", o.preference);
-        assert_eq!(
-            o.entries.iter().map(|e| e.1).collect::<Vec<_>>(),
-            [0, 1, 2, 3]
-        );
+        let want: &[i32] = if o.preference == dereth_client_contract::options::landscape::OBJECTS {
+            &[0, 2, 3]
+        } else {
+            &[0, 1, 2, 3]
+        };
+        assert_eq!(texts.len(), want.len(), "{}: {texts:?}", o.preference);
+        assert_eq!(o.entries.iter().map(|e| e.1).collect::<Vec<_>>(), want);
     }
     assert_eq!(
         p.menu_entries,
-        32 + 8,
-        "the page's own counter agrees with the ten list boxes"
+        32 + 8 + 3,
+        "the page's own counter agrees with the eleven list boxes"
     );
-    assert_eq!(p.menu_popups, 10, "the eight and the two landscape rows");
+    assert_eq!(p.menu_popups, 11, "the eight and the three era rows");
 
     for (pref, n) in want {
         let menu = control(p, pref);
@@ -513,12 +515,12 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
         30,
         "all 30 controls are still bound"
     );
-    // This client's two landscape rows ask the option value store, not this registry, so they
-    // keep their four literal entries each.
-    assert_eq!(p.menu_entries, 8, "and not one retail drop-down has a row");
+    // This client's three era rows ask the option value store, not this registry, so they keep
+    // their literal entries (four, four and three).
+    assert_eq!(p.menu_entries, 11, "and not one retail drop-down has a row");
     assert_eq!(
-        p.menu_popups, 10,
-        "…while all ten popups exist: make_popup does not ask the registry"
+        p.menu_popups, 11,
+        "…while all eleven popups exist: make_popup does not ask the registry"
     );
     for o in p
         .retail_options()
@@ -550,7 +552,11 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     let at = |p: &str| order.iter().position(|o| *o == p).expect("on the page");
     assert_eq!(at(landscape::GROUND), at("Render.DegradeDistance") + 1);
     assert_eq!(at(landscape::SKY), at(landscape::GROUND) + 1);
-    assert_eq!(at("Render.LandscapeTextureDetail"), at(landscape::SKY) + 1);
+    assert_eq!(at(landscape::OBJECTS), at(landscape::SKY) + 1);
+    assert_eq!(
+        at("Render.LandscapeTextureDetail"),
+        at(landscape::OBJECTS) + 1
+    );
 
     let menu = control(&s.config_page, landscape::GROUND);
     let texts: Vec<String> = rows(&mut ui, menu).into_iter().map(|(t, _)| t).collect();
@@ -574,6 +580,9 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
             "Modern"
         ]
     );
+    let objects = control(&s.config_page, landscape::OBJECTS);
+    let texts: Vec<String> = rows(&mut ui, objects).into_iter().map(|(t, _)| t).collect();
+    assert_eq!(texts, ["World Default", "Legacy", "Modern"]);
     assert_eq!(
         store::inq_value(landscape::GROUND),
         Some(PrefValue::Int(landscape::WORLD_DEFAULT))
@@ -619,6 +628,7 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     let text = store::save().to_text();
     assert!(text.contains("Ground=PaletteShift\r\n"), "{text}");
     assert!(text.contains("Sky=World\r\n"), "{text}");
+    assert!(text.contains("Objects=World\r\n"), "{text}");
     store::init();
     let ini = dereth_ui::persist::preferences::UserPreferences::parse(&text).expect("parses");
     store::load(&ini);
@@ -628,7 +638,7 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     ui.requests.clear();
     s.config_page.restore_default_values(&mut ui);
     let reqs = ui.requests.take();
-    for name in [landscape::GROUND, landscape::SKY] {
+    for name in [landscape::GROUND, landscape::SKY, landscape::OBJECTS] {
         assert!(
             reqs.contains(&UiRequest::SetPreference(
                 name,

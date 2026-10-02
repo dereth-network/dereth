@@ -411,6 +411,8 @@ mod imp {
         /// would otherwise be retried — and re-spawning a host restarts its emitters, which on a
         /// permanent one is a flame that never gets past its first particle.
         hosts_spawned: bool,
+        /// [`BakedObjects::objects_visual`], kept for the release.
+        objects_visual: bool,
     }
 
     /// Which block a window slot holds and how `generate` must build it: the landblock's
@@ -449,6 +451,9 @@ mod imp {
         /// Whether a texture this bake wanted was left pending on the mip worker, so the bake has
         /// to be handed back and taken again. See [`crate::mip_worker`].
         textures_pending: bool,
+        /// Whether `opaque` and `blended` were drawn with another era's look, whose surface cache
+        /// holds their links ([`LandContext::objects`]). The interior cells are the world's.
+        objects_visual: bool,
     }
 
     /// One resident block's bake as [`WorldScene::block_bake`] reports it.
@@ -889,6 +894,11 @@ mod imp {
         /// Two mosswarts cost one decode and one set of textures; two players in the same outfit do
         /// too, and two in different outfits do not.
         object_meshes: BTreeMap<AppearanceKey, Arc<Vec<PartLevels>>>,
+        /// The appearances in [`Self::object_meshes`] drawn with another era's look, whose
+        /// surface cache holds their links ([`LandContext::objects`]); the rest are the world's.
+        object_meshes_from_look: BTreeSet<AppearanceKey>,
+        /// Whether [`Self::character_parts`] were drawn with another era's look.
+        character_from_look: bool,
         /// One geometry entry per emitter graphics id in play: every particle of
         /// an emitter shares one graphics object, so a town full of torches costs one mesh.
         particle_gfx: ParticleGeometry,
@@ -1331,6 +1341,9 @@ mod imp {
         /// level, which is why it can still be shared: the levels are the same for two objects
         /// with the same appearance, and only the *choice* is per object.
         meshes: Arc<Vec<PartLevels>>,
+        /// The appearance [`Self::meshes`] is shared under, so a change of look can build it
+        /// again; `None` for the player's own object, which shares nothing.
+        appearance: Option<AppearanceKey>,
         /// Which level each part is drawing **this frame** —
         /// one per part, re-picked by
         /// `WorldScene::refresh_part_levels`. Per object rather than per appearance
@@ -1426,10 +1439,10 @@ mod imp {
                 None => return Ok(()),
             };
             // The local player's own array: see `build_part_meshes`.
-            let parts = self
+            let (parts, from_look) = self
                 .draw
-                .build_part_meshes(self.store, self.gpu, &array, true)?;
-            self.draw.set_character_parts(self.gpu, parts);
+                .build_object_meshes(self.store, self.gpu, &array, true)?;
+            self.draw.set_character_parts(self.gpu, parts, from_look);
             self.draw.stats.upload_bytes = self.draw.worst_case_upload_bytes();
             Ok(())
         }
@@ -1461,15 +1474,19 @@ mod imp {
             let meshes = match hit {
                 Some(m) => m,
                 None => {
-                    let m = Arc::new(self.draw.build_part_meshes(
+                    let (m, from_look) = self.draw.build_object_meshes(
                         self.store,
                         self.gpu,
                         &driver.part_array.parts,
                         is_player,
-                    )?);
+                    )?;
+                    let m = Arc::new(m);
                     if !is_player {
                         self.draw.stats.appearance_builds += 1;
-                        self.draw.object_meshes.insert(key, Arc::clone(&m));
+                        if from_look {
+                            self.draw.object_meshes_from_look.insert(key.clone());
+                        }
+                        self.draw.object_meshes.insert(key.clone(), Arc::clone(&m));
                     }
                     m
                 }
@@ -1486,6 +1503,7 @@ mod imp {
                 id,
                 SceneObject {
                     meshes,
+                    appearance: (!is_player).then_some(key),
                     part_levels,
                     part_draw_pos,
                     part_cypt,
@@ -1656,6 +1674,11 @@ mod imp {
         /// [`Self::server_object_setups`]: the two would be equal by construction if nothing were
         /// ever released.
         pub appearance_builds: u64,
+        /// Server-object and body builds drawn with another era's look (`[Render] Objects`).
+        pub object_appearances_from_look: u64,
+        /// Builds that wanted another era's look and were drawn with the world's records because
+        /// a texture change of theirs could not be carried onto the look's pictures.
+        pub object_appearances_from_world: u64,
         /// Appearances dropped because releasing the last link leaves them unowned.
         pub appearance_releases: u64,
         /// Texture descriptor slots handed back by those releases, one per `PartMesh` that carried
@@ -2119,11 +2142,72 @@ mod imp {
         /// Decoded setup part lists, graphics-object triangulations and resolved surfaces, shared by
         /// every block for the same reason.
         bake: BakeCache,
+        /// `[Render] Objects` when it is not the world's own: the other era's files the objects'
+        /// parts, the scenery, the buildings and the statics are drawn from, and the surface cache
+        /// their pictures are held in. `None`: the world's own.
+        objects: Option<ObjectLook>,
         /// The environment-cell reader for the **draw** side. Physics has
         /// its own inside [`dereth_client_runtime::land_source::DatLandSource`], because that one has to be
         /// reachable from a `LandSource` behind an `Arc` and this one has to be reachable from the
         /// scene; they read the same records and share nothing else.
         cells: dereth_client_runtime::env_cells::EnvCellLoader,
+    }
+
+    /// The world's objects drawn with another era's look (`[Render] Objects`).
+    ///
+    /// Every object keeps the world's setup: its part list, how the parts are joined and placed,
+    /// and the world's motion data that moves them (the eras' setups differ in part count, and
+    /// an animation addresses parts by index). What each part draws -- its model, surfaces,
+    /// pictures and palettes -- is read from [`Self::files`]: the other era's portal for every
+    /// record it holds, the world's for the rest. The landscape's own objects (scenery,
+    /// buildings, statics) are drawn whole from it, setups included, since nothing animates them.
+    /// Interiors stay the world's.
+    pub(crate) struct ObjectLook {
+        /// [`RetailDatStore::object_files`] of the world's store.
+        pub(crate) files: Arc<RetailDatStore>,
+        /// The surfaces those records resolve to. Apart from the world's cache because the two
+        /// eras hold different records under the same ids, so a memo keyed by id would hand one
+        /// era's surface to the other.
+        pub(crate) cache: BakeCache,
+    }
+
+    impl ObjectLook {
+        /// The look of `files` (an [`RetailDatStore::object_files`] store), with a surface cache
+        /// set up as `like`, the world's, is.
+        fn new(files: RetailDatStore, like: &BakeCache) -> Self {
+            Self {
+                files: Arc::new(files),
+                cache: BakeCache {
+                    surface_translucency: like.surface_translucency,
+                    image_scale: like.image_scale,
+                    environment_texture_detail: like.environment_texture_detail,
+                    ..BakeCache::default()
+                },
+            }
+        }
+    }
+
+    /// The files `style` draws the world's objects with: `Ok(None)` for the world's own (no
+    /// style, or the world's own era), the other era's portal first otherwise.
+    ///
+    /// # Errors
+    /// The files `style` needs, when they are not here.
+    pub fn object_files_for(
+        store: &RetailDatStore,
+        style: Option<RegionStyle>,
+    ) -> Result<Option<RetailDatStore>, RequiredFiles> {
+        let Some(style) = style else {
+            return Ok(None);
+        };
+        let needs = style.required_files();
+        let era = match needs {
+            RequiredFiles::Legacy => dereth_dat::ContainerEra::PreTod,
+            RequiredFiles::Modern => dereth_dat::ContainerEra::Tod,
+        };
+        if era == store.era() {
+            return Ok(None);
+        }
+        store.object_files(era).map(Some).ok_or(needs)
     }
 
     impl std::fmt::Debug for LandContext {
@@ -2675,6 +2759,10 @@ mod imp {
             lod_object_guard: bool,
         ) -> Result<BakedObjects, WorldError> {
             let pending_before = self.bake.pending_surfaces;
+            let look_pending_before = self
+                .objects
+                .as_ref()
+                .map_or(0, |l| l.cache.pending_surfaces);
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             // LINT-OK: `read_landblock` already bounded both to 0..=0xFE. Not a float conversion.
             let block = ((bx as u16) << 8) | (by as u16);
@@ -2698,9 +2786,17 @@ mod imp {
                 mut cell_restrictions,
             } = land_content(store, &self.region, lb, mesh, bx, by, lod_object_guard);
 
+            // The scenery, the building shells and the statics are drawn with the objects' look
+            // when it is another era's; their collision records above are the world's.
+            let objects_visual = self.objects.is_some();
+            let (draw_store, draw_cache): (&RetailDatStore, &mut BakeCache) =
+                match self.objects.as_mut() {
+                    Some(look) => (&*look.files, &mut look.cache),
+                    None => (store, &mut self.bake),
+                };
             let mut baker = ObjectBaker::new(
-                store,
-                &mut self.bake,
+                draw_store,
+                draw_cache,
                 part_degrades,
                 degrade_levels,
                 static_billboards,
@@ -2777,8 +2873,14 @@ mod imp {
                 .as_ref()
                 .filter(|_| full_detail)
                 .map_or_else(Vec::new, |info| bake_building_views(store, block, info));
+            let look_pending = self
+                .objects
+                .as_ref()
+                .map_or(0, |l| l.cache.pending_surfaces);
             Ok(BakedObjects {
-                textures_pending: self.bake.pending_surfaces != pending_before,
+                textures_pending: self.bake.pending_surfaces != pending_before
+                    || look_pending != look_pending_before,
+                objects_visual,
                 opaque,
                 blended,
                 degrade,
@@ -4778,6 +4880,34 @@ mod imp {
             // the viewer walks and two neighbouring blocks share most of their merge keys.
             let mut merge = TerrainMergeCache::new();
             merge.shift = land_texture_scale_shift(cfg.render.landscape_texture_detail);
+            let bake = BakeCache {
+                surface_translucency: cfg.surface_translucency,
+                // `Render.EnvironmentTextureDetail`, the same
+                // `max(v, 1) - 1` the poll writes into.
+                image_scale: dereth_render::texture::image_scale_from_shift(
+                    crate::render_prefs::RenderPreferences::image_scale(
+                        cfg.render.environment_texture_detail,
+                    ),
+                ),
+                environment_texture_detail: cfg.render.environment_texture_detail,
+                ..BakeCache::default()
+            };
+            // The objects' look: the world's own, or another era's (`[Render] Objects`). A style
+            // whose files are not here leaves the world's own.
+            let objects = match (
+                object_files_for(store, cfg.render.objects),
+                cfg.render.objects,
+            ) {
+                (Ok(Some(files)), Some(_)) => Some(ObjectLook::new(files, &bake)),
+                (Ok(_), _) => None,
+                (Err(files), _) => {
+                    tracing::warn!(
+                        "the object mode is not drawn: {}; the world's own is",
+                        files.objects_notice()
+                    );
+                    None
+                }
+            };
             let land = LandContext {
                 region: Box::new(region),
                 ground,
@@ -4798,18 +4928,8 @@ mod imp {
                 composites_wanted: !splat,
                 splat_sources: HashMap::new(),
                 splats: HashMap::new(),
-                bake: BakeCache {
-                    surface_translucency: cfg.surface_translucency,
-                    // `Render.EnvironmentTextureDetail`, the same
-                    // `max(v, 1) - 1` the poll writes into.
-                    image_scale: dereth_render::texture::image_scale_from_shift(
-                        crate::render_prefs::RenderPreferences::image_scale(
-                            cfg.render.environment_texture_detail,
-                        ),
-                    ),
-                    environment_texture_detail: cfg.render.environment_texture_detail,
-                    ..BakeCache::default()
-                },
+                bake,
+                objects,
                 cells: dereth_client_runtime::env_cells::EnvCellLoader::new(),
             };
 
@@ -4871,6 +4991,8 @@ mod imp {
                 viewcone_check_object_id: std::cell::Cell::new(0),
                 selected_part_drawn: std::cell::Cell::new(false),
                 object_meshes: BTreeMap::new(),
+                object_meshes_from_look: BTreeSet::new(),
+                character_from_look: false,
                 game_viewport: None,
                 particle_gfx: ParticleGeometry::default(),
                 frame_particles: std::cell::Cell::new(ParticleStats::default()),
@@ -5392,30 +5514,47 @@ mod imp {
         /// `unowned_release`.
         /// Every descriptor slot a bake took a link on, as [`Self::block_texture_slots`] for a bake
         /// that never became a block.
-        fn baked_texture_slots(b: &BakedObjects) -> Vec<TextureSlot> {
-            fn batches(v: &[StaticBatch]) -> impl Iterator<Item = TextureSlot> + '_ {
-                v.iter().filter_map(|s| s.texture)
-            }
-            let mut out: Vec<TextureSlot> = batches(&b.opaque).chain(batches(&b.blended)).collect();
-            for cell in &b.env_cells {
-                out.extend(cell.meshes.iter().filter_map(|m| m.texture));
-                out.extend(batches(&cell.statics));
-                out.extend(batches(&cell.statics_blended));
-            }
-            out
+        fn baked_texture_slots(b: &BakedObjects) -> (Vec<TextureSlot>, Vec<TextureSlot>) {
+            Self::slots_of(&b.opaque, &b.blended, &b.env_cells)
         }
 
-        fn block_texture_slots(b: &BlockDraw) -> Vec<TextureSlot> {
+        /// A block's slots in two lists: its exterior objects', then its interior cells'. The
+        /// first took their links from the objects' look's cache when the block says so.
+        fn block_texture_slots(b: &BlockDraw) -> (Vec<TextureSlot>, Vec<TextureSlot>) {
+            Self::slots_of(&b.opaque, &b.blended, &b.env_cells)
+        }
+
+        fn slots_of(
+            opaque: &[StaticBatch],
+            blended: &[StaticBatch],
+            env_cells: &[EnvCellDraw],
+        ) -> (Vec<TextureSlot>, Vec<TextureSlot>) {
             fn batches(v: &[StaticBatch]) -> impl Iterator<Item = TextureSlot> + '_ {
                 v.iter().filter_map(|s| s.texture)
             }
-            let mut out: Vec<TextureSlot> = batches(&b.opaque).chain(batches(&b.blended)).collect();
-            for cell in &b.env_cells {
-                out.extend(cell.meshes.iter().filter_map(|m| m.texture));
-                out.extend(batches(&cell.statics));
-                out.extend(batches(&cell.statics_blended));
+            let outside: Vec<TextureSlot> = batches(opaque).chain(batches(blended)).collect();
+            let mut inside = Vec::new();
+            for cell in env_cells {
+                inside.extend(cell.meshes.iter().filter_map(|m| m.texture));
+                inside.extend(batches(&cell.statics));
+                inside.extend(batches(&cell.statics_blended));
             }
-            out
+            (outside, inside)
+        }
+
+        /// Return one link to the cache that handed it out: the objects' look's when `from_look`
+        /// (and the look is drawn), the world's otherwise. Two caches can hold the same slot,
+        /// each with its own link, so the owner is said rather than looked up.
+        fn release_look_texture(
+            &mut self,
+            gpu: &mut Gpu,
+            slot: TextureSlot,
+            from_look: bool,
+        ) -> bool {
+            match self.land.objects.as_mut() {
+                Some(look) if from_look => look.cache.release_group_texture(gpu, slot),
+                _ => self.land.bake.release_group_texture(gpu, slot),
+            }
         }
 
         /// Release **textures** for every block
@@ -5430,9 +5569,14 @@ mod imp {
                 return;
             }
             for b in std::mem::take(&mut self.released_blocks) {
-                for slot in Self::block_texture_slots(&b) {
+                let (outside, inside) = Self::block_texture_slots(&b);
+                for (slot, from_look) in outside
+                    .into_iter()
+                    .map(|s| (s, b.objects_visual))
+                    .chain(inside.into_iter().map(|s| (s, false)))
+                {
                     self.stats.block_texture_releases += 1;
-                    if self.land.bake.release_group_texture(gpu, slot) {
+                    if self.release_look_texture(gpu, slot, from_look) {
                         self.stats.block_textures_freed += 1;
                     }
                 }
@@ -5618,7 +5762,16 @@ mod imp {
                     }
                 }
             }
-            if work.ground_changed {
+            if asked.objects != was.objects {
+                match self.set_objects(ws, store, gpu, asked.objects)? {
+                    Ok(()) => work.objects_changed = true,
+                    Err(files) => {
+                        self.cfg.render.objects = was.objects;
+                        work.objects_refused = Some((files, was.objects));
+                    }
+                }
+            }
+            if work.ground_changed || work.objects_changed {
                 work.blocks_rebuilt = self.blocks.len();
             }
             let live = self.cfg.render;
@@ -5802,6 +5955,130 @@ mod imp {
                     "palette shift"
                 } else {
                     "texture merge"
+                }
+            );
+            Ok(Ok(()))
+        }
+
+        /// `[Render] Objects`, live: draw the world's objects with `style`'s look (`None`: the
+        /// world's own) from the next frame. Every block is released and baked again (its scenery,
+        /// buildings and statics take the new look), every server object's appearance and the
+        /// body are built again, and the old look's pictures go with the old meshes.
+        ///
+        /// `Ok(Err(files))` when the style's files are not present: nothing changes, and `files`
+        /// says which were wanted.
+        ///
+        /// # Errors
+        /// [`WorldError`] when a rebuild cannot make a device resource.
+        pub fn set_objects(
+            &mut self,
+            ws: &mut WorldState,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            style: Option<RegionStyle>,
+        ) -> Result<Result<(), RequiredFiles>, WorldError> {
+            let files = match object_files_for(store, style) {
+                Ok(f) => f,
+                Err(files) => return Ok(Err(files)),
+            };
+            // Every block first, through the look that baked it.
+            self.flush_graphics_resources(ws, gpu);
+            // The old appearances and the body are kept until the new ones are built, so a
+            // picture the two looks share is never taken to zero and uploaded again.
+            let old_meshes = std::mem::take(&mut self.object_meshes);
+            let old_from_look = std::mem::take(&mut self.object_meshes_from_look);
+            let old_body = std::mem::take(&mut self.character_parts);
+            let old_body_from_look = self.character_from_look;
+            let new_look = match (files, style) {
+                (Some(files), Some(_)) => Some(ObjectLook::new(files, &self.land.bake)),
+                _ => None,
+            };
+            let old_look = std::mem::replace(&mut self.land.objects, new_look);
+            self.cfg.render.objects = style;
+            // Every server object, built again; objects that shared an appearance share it again.
+            let ids: Vec<ObjectId> = self.object_draws.keys().copied().collect();
+            for id in ids {
+                let Some(array) = ws
+                    .objects
+                    .get(&id)
+                    .map(|o| o.sim.driver.borrow().part_array.parts.clone())
+                else {
+                    continue;
+                };
+                let key = self
+                    .object_draws
+                    .get(&id)
+                    .and_then(|o| o.appearance.clone());
+                let shared = key
+                    .as_ref()
+                    .and_then(|k| self.object_meshes.get(k))
+                    .map(Arc::clone);
+                let meshes = if let Some(m) = shared {
+                    m
+                } else {
+                    let (m, from_look) =
+                        self.build_object_meshes(store, gpu, &array, key.is_none())?;
+                    let m = Arc::new(m);
+                    if let Some(k) = key {
+                        self.stats.appearance_builds += 1;
+                        if from_look {
+                            self.object_meshes_from_look.insert(k.clone());
+                        }
+                        self.object_meshes.insert(k, Arc::clone(&m));
+                    }
+                    m
+                };
+                if let Some(o) = self.object_draws.get_mut(&id) {
+                    o.meshes = meshes;
+                }
+            }
+            // The body.
+            if let Some(array) = ws
+                .character
+                .as_ref()
+                .map(|c| c.driver().part_array.parts.clone())
+            {
+                let (parts, from_look) = self.build_object_meshes(store, gpu, &array, true)?;
+                self.set_character_parts(gpu, parts, from_look);
+            }
+            // The old meshes give their links back: the world's through the world's cache, the
+            // old look's all at once with its cache, which nothing else holds now.
+            for (key, meshes) in &old_meshes {
+                if old_from_look.contains(key) {
+                    continue;
+                }
+                for part in meshes.iter() {
+                    for mesh in part.all() {
+                        if let Some(slot) = mesh.texture {
+                            self.land.bake.release_group_texture(gpu, slot);
+                        }
+                    }
+                }
+            }
+            if !old_body_from_look {
+                for part in &old_body {
+                    for mesh in part.all() {
+                        if let Some(slot) = mesh.texture {
+                            self.land.bake.release_group_texture(gpu, slot);
+                        }
+                    }
+                }
+            }
+            if let Some(mut look) = old_look {
+                release_bake_cache(&mut look.cache, gpu);
+            }
+            let radius = ws.streamer.window.mid_radius();
+            self.rebuild_window(ws, store, gpu, radius)?;
+            self.stats.server_object_setups = self.object_meshes.len();
+            self.stats.upload_bytes = self.worst_case_upload_bytes();
+            self.refresh_surface_stats();
+            self.refresh_land_stats(ws);
+            tracing::info!(
+                "the objects are drawn {}",
+                match style {
+                    None => "as the world's own",
+                    Some(RegionStyle::Modern) => "with the later files' look",
+                    Some(_) => "with the older files' look",
                 }
             );
             Ok(Ok(()))
@@ -6209,6 +6486,11 @@ mod imp {
             if let Some(mut cache) = self.sky_cache.take() {
                 n += release_bake_cache(&mut cache, gpu);
             }
+            // ...and so does another era's look for the objects.
+            if let Some(look) = self.land.objects.as_mut() {
+                n += release_bake_cache(&mut look.cache, gpu);
+            }
+            self.object_meshes_from_look.clear();
             n
         }
 
@@ -6290,6 +6572,18 @@ mod imp {
         #[must_use]
         pub fn ground_style(&self) -> Option<RegionStyle> {
             self.cfg.render.ground
+        }
+
+        /// `[Render] Objects` as drawn: `None` is the world's own.
+        #[must_use]
+        pub fn objects_style(&self) -> Option<RegionStyle> {
+            self.cfg.render.objects
+        }
+
+        /// Whether the objects are drawn from another era's files.
+        #[must_use]
+        pub fn objects_from_other_files(&self) -> bool {
+            self.land.objects.is_some()
         }
 
         /// The terrain types the ground's land surface has a picture for, one bit each.
@@ -6440,11 +6734,12 @@ mod imp {
                 let Some(meshes) = self.object_meshes.remove(key) else {
                     continue;
                 };
+                let from_look = self.object_meshes_from_look.remove(key);
                 for part in meshes.iter() {
                     for mesh in part.all() {
                         if let Some(slot) = mesh.texture {
                             self.stats.appearance_texture_releases += 1;
-                            if self.land.bake.release_group_texture(gpu, slot) {
+                            if self.release_look_texture(gpu, slot, from_look) {
                                 freed += 1;
                             } else {
                                 self.stats.appearance_textures_still_linked += 1;
@@ -6621,6 +6916,7 @@ mod imp {
                     hosts: b.hosts,
                     hosts_spawned: b.hosts_spawned,
                     textures_pending: false,
+                    objects_visual: b.objects_visual,
                 },
                 _ if wants_objects => self.land.bake(
                     store,
@@ -6643,7 +6939,11 @@ mod imp {
             // in -- and it is queued to bake again once every chain it asked for is done. See
             // [`crate::mip_worker`].
             let (built, baked) = if built.textures_pending {
-                for slot in Self::baked_texture_slots(&built) {
+                let (outside, inside) = Self::baked_texture_slots(&built);
+                for slot in outside {
+                    self.release_look_texture(gpu, slot, built.objects_visual);
+                }
+                for slot in inside {
                     self.land.bake.release_group_texture(gpu, slot);
                 }
                 let waiting = self.land.mip_worker.take_requested();
@@ -6687,6 +6987,7 @@ mod imp {
                     // Spawned on the next `sync_objects`; a `MotionDriver` needs the shared store.
                     hosts: built.hosts,
                     hosts_spawned: built.hosts_spawned,
+                    objects_visual: built.objects_visual,
                 },
             );
             Ok(())
@@ -7195,8 +7496,8 @@ mod imp {
             ws.character_sound_table = world_build::body_sound_table(&character);
             let array = character.driver().part_array.parts.clone();
             // This array *is* `player_iid`'s, so the degrade guard is not applied.
-            let parts = self.build_part_meshes(store, gpu, &array, true)?;
-            self.set_character_parts(gpu, parts);
+            let (parts, from_look) = self.build_object_meshes(store, gpu, &array, true)?;
+            self.set_character_parts(gpu, parts, from_look);
             // The window was built before the body existed, so nothing has prefetched its blocks'
             // interior cells into *this* land source yet.
             let resident: Vec<(i32, i32)> = self.blocks.keys().copied().collect();
@@ -7231,12 +7532,13 @@ mod imp {
         /// The new set is built by the caller **before** this runs, so a texture both outfits
         /// share is never taken to zero and re-uploaded: the incoming links are already counted
         /// when the outgoing ones are returned.
-        fn set_character_parts(&mut self, gpu: &mut Gpu, parts: Vec<PartLevels>) {
+        fn set_character_parts(&mut self, gpu: &mut Gpu, parts: Vec<PartLevels>, from_look: bool) {
+            let was_from_look = std::mem::replace(&mut self.character_from_look, from_look);
             for part in std::mem::take(&mut self.character_parts) {
                 for mesh in part.all() {
                     if let Some(slot) = mesh.texture {
                         self.stats.body_texture_releases += 1;
-                        if self.land.bake.release_group_texture(gpu, slot) {
+                        if self.release_look_texture(gpu, slot, was_from_look) {
                             self.stats.body_textures_freed += 1;
                         }
                     }
@@ -8163,6 +8465,39 @@ mod imp {
             self.stats.bake_unowned_releases = self.land.bake.unowned_releases;
         }
 
+        /// [`Self::build_part_meshes`] for a server object or the body, with the objects' look:
+        /// the parts' records from the look's files through its own surface cache, the texture
+        /// changes carried onto the look's pictures
+        /// ([`dereth_client_runtime::models::parts_for_look`]). An object whose changes cannot
+        /// be carried over, and every object when the look is the world's own, is built from
+        /// `world`. Returns the meshes and whether they came from the look.
+        fn build_object_meshes(
+            &mut self,
+            world: &RetailDatStore,
+            gpu: &mut Gpu,
+            array: &[dereth_animation::parts::PhysicsPart],
+            is_player: bool,
+        ) -> Result<(Vec<PartLevels>, bool), WorldError> {
+            let Some(files) = self.land.objects.as_ref().map(|l| Arc::clone(&l.files)) else {
+                return Ok((self.build_part_meshes(world, gpu, array, is_player)?, false));
+            };
+            let Some(parts) = dereth_client_runtime::models::parts_for_look(world, &files, array)
+            else {
+                self.stats.object_appearances_from_world += 1;
+                return Ok((self.build_part_meshes(world, gpu, array, is_player)?, false));
+            };
+            // The build reads the scene's surface cache; for the look it is the look's, put in
+            // its place for the length of the build and given back whatever the build returns.
+            let look = self.land.objects.as_mut().expect("the look is drawn");
+            let mut cache = std::mem::take(&mut look.cache);
+            std::mem::swap(&mut self.land.bake, &mut cache);
+            let built = self.build_part_meshes(&files, gpu, &parts, is_player);
+            std::mem::swap(&mut self.land.bake, &mut cache);
+            self.land.objects.as_mut().expect("the look is drawn").cache = cache;
+            self.stats.object_appearances_from_look += 1;
+            Ok((built?, true))
+        }
+
         /// Turn a setup's part array into drawable meshes, exactly as [`Self::attach_character`]
         /// does for the body. Object space; the transform rides in the `PerDraw` block.
         ///
@@ -8174,7 +8509,7 @@ mod imp {
         /// marker is the marker itself. The exemption is the client's, not a convenience here.
         fn build_part_meshes(
             &mut self,
-            store: &Arc<RetailDatStore>,
+            store: &RetailDatStore,
             gpu: &mut Gpu,
             array: &[dereth_animation::parts::PhysicsPart],
             is_player: bool,

@@ -228,6 +228,35 @@ the client's `--world-dat-dir`) answers every record the older portal and cell f
 them, in their layouts, and every other portal record and every language record from the later
 files, in the later layouts; `RetailDatStore::era_of` says which layout a record is in.
 
+## Objects drawn with the other era's records
+
+A world's objects can be drawn with the other era's models and pictures (`Render.Objects`). The
+store that reads them (`RetailDatStore::object_files`) answers every portal record the other
+era's portal holds from it, in its layout, and every record that portal lacks from the world's
+own; cell and language reads stay the world's. A later image texture names its image levels
+(`0x06`) by ids the older portal also uses for images of another layout, so a level is always read
+from the later files, whichever portal answered the texture.
+
+What carries over between the eras, measured between the February 2005 files and the end of
+retail:
+
+- **Setups** changed shape: 53 shared setups have another part count and 72 other parent
+  indices. The human body has 17 parts before Throne of Destiny and 34 after (the same 17 first,
+  then 17 placeholder parts the later clothing tables fill with armour layers). An animation
+  addresses parts by index, so an object keeps the world's setup and only what each part draws
+  comes from the other era.
+- **GfxObjs** kept their geometry (214 of 9,587 shared ones changed it) and were pointed at new
+  surfaces; the surfaces at new textures; the textures re-encoded from 256 to 2,048 palette
+  colours, many at twice the size; the palettes redone with them. A record read wholly from one
+  era is therefore self-consistent.
+- **Clothing tables** kept their palette ranges (11,523 of 11,795 shared palette templates are
+  the same), so a world's sub-palette ranges are those the other era sends for the same item.
+- **Texture changes** match a part's surfaces by picture id, and the eras painted the same parts
+  with different pictures (the 2005 shirt replaces the arm's `0x050002CC`, which the later arm
+  draws as `0x050003DD`; the later shirt replaces `0x050003DD`). A change is moved onto the same
+  surface slot of the other era's part; where the two parts list a different number of surfaces
+  it cannot be, and the object is drawn with the world's records.
+
 ## Ids only these files type
 
 Three ids of these files lie outside every later type range: the two quality filters at

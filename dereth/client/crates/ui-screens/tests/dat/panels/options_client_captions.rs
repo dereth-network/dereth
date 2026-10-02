@@ -83,8 +83,8 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     let rows: Vec<ElemHandle> = p.option_box.as_ref().expect("option box").items.clone();
     assert_eq!(
         rows.len(),
-        40,
-        "27 control rows, this client's 2 landscape rows, 6 headers, 5 separators"
+        41,
+        "27 control rows, this client's 3 rows from another era, 6 headers, 5 separators"
     );
     let mut captioned = 0;
     let mut blank: Vec<usize> = Vec::new();
@@ -166,9 +166,10 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     );
     assert_eq!(cap("UI.ChatFontFace"), "Chat Font Face");
     assert_eq!(cap("UI.ChatFontSize"), "Chat Font Size");
-    // This client's two landscape rows carry literal captions, on the tree as well.
+    // This client's three rows from another era carry literal captions, on the tree as well.
     assert_eq!(cap("Render.Ground"), "Terrain Mode");
     assert_eq!(cap("Render.Sky"), "Sky Mode");
+    assert_eq!(cap("Render.Objects"), "Object Mode");
     for o in p.landscape_options() {
         assert_eq!(
             child_text(&mut ui, o.row, 0x1000_0223).as_deref(),
@@ -361,7 +362,7 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
     // This client's own rows have no registry entry to lose: their captions are literal.
     assert_eq!(
         p.landscape_options().filter(|o| o.label.is_some()).count(),
-        2
+        3
     );
     assert_eq!(
         p.slider_end_captions, 12,
@@ -471,8 +472,8 @@ fn register_all_fills_the_registry() {
     );
     assert_eq!(
         dereth_ui_screens::options::store::len(),
-        36,
-        "…over 34 registered variables and this client's two landscape options"
+        37,
+        "…over 34 registered variables and this client's three options from another era"
     );
     let (table, label, _) =
         preferences::inq_preference("Camera.AlignToSlope").expect("inq_preference answers");
@@ -509,7 +510,7 @@ fn the_page_under_test_is_the_shipped_one() {
         built.retail_options().filter(|o| o.label.is_some()).count(),
         27
     );
-    assert_eq!(built.landscape_options().count(), 2);
+    assert_eq!(built.landscape_options().count(), 3);
     assert_eq!(built.header_captions, 6);
     assert_eq!(built.slider_end_captions, 12);
     assert_eq!(built.failures, 0);

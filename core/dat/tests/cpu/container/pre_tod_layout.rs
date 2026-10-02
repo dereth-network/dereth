@@ -328,6 +328,149 @@ fn an_older_world_is_its_own_legacy_files() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A later world's objects drawn with the older portal beside it: the older file answers every
+/// record it holds, the world's own portal every record it lacks, and an image level is always
+/// the later files'. The world's own reads are untouched, and its own era has no such store.
+#[test]
+fn the_object_files_of_a_later_world_read_the_older_portal_first_and_the_world_for_the_rest() {
+    use dereth_dat::write::DatWriter;
+    use dereth_dat::DbType;
+    let dir = std::env::temp_dir().join(format!("dereth-object-files-{}", std::process::id()));
+    let legacy_dir = dir.join("legacy");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&legacy_dir).expect("temp dir");
+    let (portal, records) = two_level(0x400, 2112);
+    std::fs::write(PreTodDat::Portal.in_dir(&legacy_dir), &portal).expect("write");
+    let shared = DataId(records[1].0);
+    let image = DataId(records[2].0);
+    let world_only = DataId(0x0100_0099);
+    {
+        let mut p = DatWriter::create(
+            &RetailDat::Portal.in_dir(&dir),
+            0x400,
+            1,
+            0,
+            0x400 + 0x400 * 32,
+        )
+        .expect("create");
+        p.save(shared, b"later copy", 1, 1, 1).expect("save");
+        p.save(world_only, b"world only", 1, 1, 1).expect("save");
+        p.save(image, b"later image", 1, 1, 1).expect("save");
+        DatWriter::create(
+            &RetailDat::Cell.in_dir(&dir),
+            0x100,
+            2,
+            1,
+            0x400 + 0x100 * 16,
+        )
+        .expect("create");
+        DatWriter::create(
+            &RetailDat::Local.in_dir(&dir),
+            0x400,
+            3,
+            1,
+            0x400 + 0x400 * 16,
+        )
+        .expect("create");
+    }
+    let world = RetailDatStore::open_dir(&dir).expect("opens");
+    assert!(
+        world.object_files(ContainerEra::PreTod).is_none(),
+        "no older files beside it yet"
+    );
+    assert!(
+        world.object_files(ContainerEra::Tod).is_none(),
+        "the world's own era is the world's files"
+    );
+    let world = world.with_legacy_portal(&legacy_dir).expect("attaches");
+    let objects = world
+        .object_files(ContainerEra::PreTod)
+        .expect("the older look");
+    // A record both hold is the older file's, in its layout.
+    assert_eq!(objects.read_portal(shared).expect("reads"), records[1].1);
+    assert_eq!(objects.era_of(shared), ContainerEra::PreTod);
+    // A record the older file lacks is the world's.
+    assert_eq!(
+        objects.read_portal(world_only).expect("reads"),
+        b"world only"
+    );
+    assert_eq!(objects.era_of(world_only), ContainerEra::Tod);
+    // An image level is the later files' even though the older file holds the same id.
+    assert_eq!(
+        objects
+            .read_typed(DbType::RenderSurface, image)
+            .expect("reads"),
+        b"later image"
+    );
+    assert_eq!(objects.era_of(image), ContainerEra::Tod);
+    // The world itself still reads its own.
+    assert_eq!(world.read_portal(shared).expect("reads"), b"later copy");
+    drop((objects, world));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An older world's objects drawn with the later files beside it: the later portal answers what
+/// it holds, the older world's portal what it lacks, and image levels are the later files'.
+#[test]
+fn the_object_files_of_an_older_world_read_the_later_portal_first_and_the_world_for_the_rest() {
+    use dereth_dat::write::DatWriter;
+    use dereth_dat::DbType;
+    let dir = std::env::temp_dir().join(format!("dereth-object-files-old-{}", std::process::id()));
+    let later_dir = dir.join("later");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&later_dir).expect("temp dir");
+    let (portal, records) = two_level(0x400, 2112);
+    let (cell, _) = two_level(0x100, 1593);
+    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
+    let shared = DataId(records[1].0);
+    let older_only = DataId(records[0].0);
+    let image = DataId(records[2].0);
+    {
+        let mut p = DatWriter::create(
+            &RetailDat::Portal.in_dir(&later_dir),
+            0x400,
+            1,
+            0,
+            0x400 + 0x400 * 32,
+        )
+        .expect("create");
+        p.save(shared, b"later copy", 1, 1, 1).expect("save");
+        p.save(image, b"later image", 1, 1, 1).expect("save");
+        DatWriter::create(
+            &RetailDat::Local.in_dir(&later_dir),
+            0x400,
+            3,
+            1,
+            0x400 + 0x400 * 16,
+        )
+        .expect("create");
+    }
+    let world = RetailDatStore::open_pre_tod_with_later(&dir, &later_dir).expect("opens");
+    assert!(world.object_files(ContainerEra::PreTod).is_none());
+    let objects = world
+        .object_files(ContainerEra::Tod)
+        .expect("the later look");
+    assert_eq!(objects.era(), ContainerEra::Tod);
+    assert_eq!(objects.read_portal(shared).expect("reads"), b"later copy");
+    assert_eq!(objects.era_of(shared), ContainerEra::Tod);
+    assert_eq!(
+        objects.read_portal(older_only).expect("reads"),
+        records[0].1
+    );
+    assert_eq!(objects.era_of(older_only), ContainerEra::PreTod);
+    assert_eq!(
+        objects
+            .read_typed(DbType::RenderSurface, image)
+            .expect("reads"),
+        b"later image"
+    );
+    // The world reads its own older record for the shared id.
+    assert_eq!(world.read_portal(shared).expect("reads"), records[1].1);
+    drop((objects, world));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_file_with_the_magic_at_neither_offset_is_refused() {
     let mut bytes = vec![0u8; 0x800];

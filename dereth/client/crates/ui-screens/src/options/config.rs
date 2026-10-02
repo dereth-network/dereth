@@ -218,12 +218,13 @@ pub const CONFIG_PAGE: [ConfigRow; 27] = [
     row(INTERFACE, Menu, "UI.ChatFontSize", Int(1)),
 ];
 
-/// This client's own two rows, the landscape options
-/// ([`dereth_client_contract::options::landscape`]): the ground's era and the sky's. Not retail
-/// rows, and not in [`CONFIG_PAGE`]; the page adds them at the end of the Graphics section, after
-/// its retail rows. Each is a menu of literal captions (the world's own and the three styles), so
-/// it needs no string table, and *Restore Defaults* puts it back to World Default.
-pub const LANDSCAPE_ROWS: [ConfigRow; 2] = [
+/// This client's own three rows, the presentation options from another era
+/// ([`dereth_client_contract::options::landscape`]): the ground's era, the sky's and the objects'
+/// look. Not retail rows, and not in [`CONFIG_PAGE`]; the page adds them at the end of the
+/// Graphics section, after its retail rows. Each is a menu of literal captions (the world's own
+/// and its styles), so it needs no string table, and *Restore Defaults* puts it back to World
+/// Default.
+pub const LANDSCAPE_ROWS: [ConfigRow; 3] = [
     row(
         GRAPHICS,
         Menu,
@@ -234,6 +235,12 @@ pub const LANDSCAPE_ROWS: [ConfigRow; 2] = [
         GRAPHICS,
         Menu,
         dereth_client_contract::options::landscape::SKY,
+        Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
+    ),
+    row(
+        GRAPHICS,
+        Menu,
+        dereth_client_contract::options::landscape::OBJECTS,
         Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
     ),
 ];
@@ -593,18 +600,23 @@ mod tests {
             [
                 dereth_client_contract::options::landscape::GROUND,
                 dereth_client_contract::options::landscape::SKY,
+                dereth_client_contract::options::landscape::OBJECTS,
             ]
             .map(|p| v.iter().find(|(k, _)| *k == p).map(|(_, x)| x.clone()))
         };
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            27 + 3 + 2,
-            "27 rows plus the three paired volume sliders and this client's two landscape rows"
+            27 + 3 + 3,
+            "27 rows plus the three paired volume sliders and this client's three era rows"
         );
         assert_eq!(
             get_landscape(&v),
-            [Some(PrefValue::Int(0)), Some(PrefValue::Int(0))]
+            [
+                Some(PrefValue::Int(0)),
+                Some(PrefValue::Int(0)),
+                Some(PrefValue::Int(0))
+            ]
         );
         let get = |p: &str| v.iter().find(|(k, _)| *k == p).map(|(_, x)| x.clone());
         assert_eq!(get("Display.Resolution"), Some(PrefValue::Int(0x0320_0258)));

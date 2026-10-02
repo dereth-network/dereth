@@ -72,6 +72,11 @@ pub struct RenderPrefWork {
     pub ground_refused: Option<LandscapeRefusal>,
     /// The same for `[Render] Sky`.
     pub sky_refused: Option<LandscapeRefusal>,
+    /// `[Render] Objects` moved and every object, the body and the landscape's objects were
+    /// rebuilt with the new look.
+    pub objects_changed: bool,
+    /// The same as [`Self::ground_refused`] for `[Render] Objects`.
+    pub objects_refused: Option<LandscapeRefusal>,
 }
 
 /// Which of `App::apply_input_actions`'s five consumers took an input action.

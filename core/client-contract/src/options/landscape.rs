@@ -1,4 +1,5 @@
-//! The landscape presentation options: which era's ground and which era's sky draw the world.
+//! The presentation options from another era: which era's ground, which era's sky, and which
+//! era's look the world's objects draw with.
 //!
 //! These are this client's own options, not retail ones. A dat set from before Throne of Destiny
 //! carries two regions, one its clients loaded when they drew in software and one they loaded
@@ -7,13 +8,18 @@
 //! the cells give heights, a terrain type and road bits per vertex, numbered the same in every
 //! era, and the region decides only how they look.
 //!
-//! Two preferences choose, [`GROUND`](crate::options::landscape::GROUND) and [`SKY`](crate::options::landscape::SKY), each holding a [`RegionStyle`](crate::options::landscape::RegionStyle) or
+//! The objects are the third: every object is drawn by its setup (the parts, how they are joined
+//! and how the world's motion data moves them), which stays the world's, and each part's model,
+//! surfaces, pictures and palettes, which can be the other era's. [`OBJECTS`](crate::options::landscape::OBJECTS) chooses: the
+//! files from before Throne of Destiny (Legacy) or the later ones (Modern).
+//!
+//! Three preferences choose, [`GROUND`](crate::options::landscape::GROUND), [`SKY`](crate::options::landscape::SKY) and [`OBJECTS`](crate::options::landscape::OBJECTS), each holding a [`RegionStyle`](crate::options::landscape::RegionStyle) or
 //! [`WORLD_DEFAULT`](crate::options::landscape::WORLD_DEFAULT) (the world's own). They are registered in the option value store beside the
 //! retail ones ([`crate::options::store::init`]) as unsigned enumerations whose choice labels are literal
 //! text, so any front end lists them from [`crate::options::store::choice_rows`] and writes them with
 //! [`crate::view::UiRequest::SetPreference`], as it does a retail option. The client applies a
 //! change live. A style whose files are not present is refused: the current one stays, and the
-//! client shows [`RequiredFiles::ground_notice`](crate::options::landscape::RequiredFiles::ground_notice) or [`RequiredFiles::sky_notice`](crate::options::landscape::RequiredFiles::sky_notice).
+//! client shows the preference's notice ([`Landscape::notice`](crate::options::landscape::Landscape::notice)).
 
 use crate::view::PrefValue;
 
@@ -21,6 +27,9 @@ use crate::view::PrefValue;
 pub const GROUND: &str = "Render.Ground";
 /// `[Render] Sky`: the sky, and the light and fog that come with it.
 pub const SKY: &str = "Render.Sky";
+/// `[Render] Objects`: the era whose models, surfaces, pictures and palettes the world's objects
+/// are drawn with.
+pub const OBJECTS: &str = "Render.Objects";
 
 /// The value both preferences hold for "the world's own": the hardware region of a world from
 /// before Throne of Destiny (Legacy Blend and its sky), the one region of a later world (Modern).
@@ -124,15 +133,26 @@ impl RequiredFiles {
             Self::Modern => "This sky requires end-of-retail DATs",
         }
     }
+
+    /// What the client shows when an object mode needing these files is chosen without them.
+    #[must_use]
+    pub const fn objects_notice(self) -> &'static str {
+        match self {
+            Self::Legacy => "This object mode requires legacy DATs",
+            Self::Modern => "This object mode requires end-of-retail DATs",
+        }
+    }
 }
 
-/// Which of the two preferences.
+/// Which of the three preferences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Landscape {
     /// [`GROUND`].
     Ground,
     /// [`SKY`].
     Sky,
+    /// [`OBJECTS`].
+    Objects,
 }
 
 impl Landscape {
@@ -143,6 +163,8 @@ impl Landscape {
             Some(Self::Ground)
         } else if name.eq_ignore_ascii_case(SKY) {
             Some(Self::Sky)
+        } else if name.eq_ignore_ascii_case(OBJECTS) {
+            Some(Self::Objects)
         } else {
             None
         }
@@ -154,6 +176,18 @@ impl Landscape {
         match self {
             Self::Ground => GROUND,
             Self::Sky => SKY,
+            Self::Objects => OBJECTS,
+        }
+    }
+
+    /// The styles this preference offers, in the order the options list them. The objects have
+    /// one older look (both older regions name the same objects), stored as
+    /// [`RegionStyle::LegacyHardware`].
+    #[must_use]
+    pub const fn styles(self) -> &'static [RegionStyle] {
+        match self {
+            Self::Ground | Self::Sky => &RegionStyle::ALL,
+            Self::Objects => &[RegionStyle::LegacyHardware, RegionStyle::Modern],
         }
     }
 
@@ -163,6 +197,7 @@ impl Landscape {
         match self {
             Self::Ground => "Terrain Mode",
             Self::Sky => "Sky Mode",
+            Self::Objects => "Object Mode",
         }
     }
 
@@ -172,6 +207,10 @@ impl Landscape {
         match self {
             Self::Ground => style.ground_label(),
             Self::Sky => style.sky_label(),
+            Self::Objects => match style {
+                RegionStyle::LegacySoftware | RegionStyle::LegacyHardware => "Legacy",
+                RegionStyle::Modern => "Modern",
+            },
         }
     }
 
@@ -181,6 +220,7 @@ impl Landscape {
         match self {
             Self::Ground => files.ground_notice(),
             Self::Sky => files.sky_notice(),
+            Self::Objects => files.objects_notice(),
         }
     }
 
@@ -195,6 +235,10 @@ impl Landscape {
             (Self::Sky, Some(RegionStyle::LegacySoftware)) => "LegacySoftware",
             (Self::Sky, Some(RegionStyle::LegacyHardware)) => "LegacyHardware",
             (Self::Sky, Some(RegionStyle::Modern)) => "Modern",
+            (Self::Objects, Some(RegionStyle::LegacySoftware | RegionStyle::LegacyHardware)) => {
+                "Legacy"
+            }
+            (Self::Objects, Some(RegionStyle::Modern)) => "Modern",
         }
     }
 }
@@ -205,9 +249,9 @@ pub const WORLD_DEFAULT_LABEL: &str = "World Default";
 /// A preferences-file value: `Some(None)` is the world's own, `Some(Some(style))` a style, and
 /// `None` a value that names neither (which leaves the preference where it was).
 ///
-/// Every spelling of either preference is read for both, in any case and with or without spaces:
-/// the file words, the option labels, and the three this client wrote before the styles had
-/// names. Of those, `software` was the palette-shift region and `later` the end-of-retail ground,
+/// Every spelling of any of the three preferences is read for all three, in any case and with or
+/// without spaces: the file words, the option labels, and the three this client wrote before the
+/// styles had names. `legacy` is the older hardware region (the objects' one older look). Of those, `software` was the palette-shift region and `later` the end-of-retail ground,
 /// and `hardware` was the world's own hardware region, which is the world's default.
 #[must_use]
 pub fn parse(raw: &str) -> Option<Option<RegionStyle>> {
@@ -219,21 +263,34 @@ pub fn parse(raw: &str) -> Option<Option<RegionStyle>> {
     Some(match word.as_str() {
         "world" | "worlddefault" | "default" | "hardware" => None,
         "paletteshift" | "legacysoftware" | "software" => Some(RegionStyle::LegacySoftware),
-        "legacyblend" | "legacyhardware" => Some(RegionStyle::LegacyHardware),
+        "legacyblend" | "legacyhardware" | "legacy" => Some(RegionStyle::LegacyHardware),
         "modernblend" | "modern" | "later" => Some(RegionStyle::Modern),
         _ => return None,
     })
 }
 
 /// The value a preferences-file string stands for, for the store's load; `None` for a name that
-/// is not one of the two, or a value it cannot read. A plain number is read as the value.
+/// is not one of the three, or a value it cannot read. A plain number is read as the value. The
+/// objects read either older style as their one older look.
 #[must_use]
 pub fn parse_value(name: &str, raw: &str) -> Option<i32> {
-    Landscape::of(name)?;
-    if let Ok(v) = raw.trim().parse::<i32>() {
-        return (v == WORLD_DEFAULT || RegionStyle::from_value(v).is_some()).then_some(v);
-    }
-    parse(raw).map(|s| s.map_or(WORLD_DEFAULT, RegionStyle::value))
+    let which = Landscape::of(name)?;
+    let style = if let Ok(v) = raw.trim().parse::<i32>() {
+        if v == WORLD_DEFAULT {
+            None
+        } else {
+            Some(RegionStyle::from_value(v)?)
+        }
+    } else {
+        parse(raw)?
+    };
+    let style = match (which, style) {
+        (Landscape::Objects, Some(RegionStyle::LegacySoftware)) => {
+            Some(RegionStyle::LegacyHardware)
+        }
+        (_, s) => s,
+    };
+    Some(style.map_or(WORLD_DEFAULT, RegionStyle::value))
 }
 
 /// How the store's save writes the value; `None` for any other name.
@@ -244,7 +301,7 @@ pub fn convert_to_string(name: &str, v: &PrefValue) -> Option<String> {
     Some(which.file_word(RegionStyle::from_value(*v)).to_string())
 }
 
-/// The choices an options list shows for one of the two: the world's own, then the three styles,
+/// The choices an options list shows for one of the three: the world's own, then its styles,
 /// with their captions. `None` for any other name.
 #[must_use]
 pub fn choice_rows(name: &str) -> Option<Vec<super::store::Choice>> {
@@ -253,16 +310,16 @@ pub fn choice_rows(name: &str) -> Option<Vec<super::store::Choice>> {
         label: WORLD_DEFAULT_LABEL.to_string(),
         value: WORLD_DEFAULT,
     }];
-    rows.extend(RegionStyle::ALL.iter().map(|s| super::store::Choice {
+    rows.extend(which.styles().iter().map(|s| super::store::Choice {
         label: which.label(*s).to_string(),
         value: s.value(),
     }));
     Some(rows)
 }
 
-/// Register both in the option value store, holding the world's own.
+/// Register the three in the option value store, holding the world's own.
 pub fn register() -> usize {
-    [GROUND, SKY]
+    [GROUND, SKY, OBJECTS]
         .iter()
         .map(|n| {
             usize::from(super::store::register_preference(
@@ -347,5 +404,35 @@ mod tests {
             [0, 1, 2, 3]
         );
         assert!(choice_rows("Display.Resolution").is_none());
+    }
+
+    /// The object mode lists the world's own, Legacy and Modern; it saves as one word per value
+    /// and reads either older style as its one older look.
+    #[test]
+    fn the_object_mode_offers_legacy_and_modern_and_reads_any_older_style_as_legacy() {
+        let rows = choice_rows(OBJECTS).expect("rows");
+        let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, ["World Default", "Legacy", "Modern"]);
+        assert_eq!(rows.iter().map(|r| r.value).collect::<Vec<_>>(), [0, 2, 3]);
+        for v in [0, 2, 3] {
+            let text = convert_to_string(OBJECTS, &PrefValue::Int(v)).expect("the objects");
+            assert_eq!(parse_value(OBJECTS, &text), Some(v), "{v} as {text}");
+        }
+        assert_eq!(
+            convert_to_string(OBJECTS, &PrefValue::Int(2)).as_deref(),
+            Some("Legacy")
+        );
+        assert_eq!(parse_value(OBJECTS, "legacy"), Some(2));
+        assert_eq!(parse_value(OBJECTS, "Legacy Software"), Some(2));
+        assert_eq!(parse_value(OBJECTS, "1"), Some(2));
+        assert_eq!(parse_value(OBJECTS, "Modern"), Some(3));
+        assert_eq!(parse_value(OBJECTS, "World Default"), Some(0));
+        assert_eq!(parse_value(OBJECTS, "tod"), None);
+        assert_eq!(Landscape::of("render.objects"), Some(Landscape::Objects));
+        assert_eq!(
+            Landscape::Objects.notice(RequiredFiles::Legacy),
+            "This object mode requires legacy DATs"
+        );
+        assert_eq!(Landscape::Objects.caption(), "Object Mode");
     }
 }

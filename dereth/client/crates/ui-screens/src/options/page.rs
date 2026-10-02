@@ -1557,8 +1557,8 @@ impl PlayerOptionPage {
         self.options.len()
     }
 
-    /// This client's own rows that close `section`, after its retail rows: the two landscape
-    /// options close the Graphics section.
+    /// This client's own rows that close `section`, after its retail rows: the three options
+    /// from another era close the Graphics section.
     fn add_closing_rows(&mut self, ui: &mut UiSystem, section: &'static str) {
         if section == super::config::LANDSCAPE_SECTION {
             for r in super::config::LANDSCAPE_ROWS {

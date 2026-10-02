@@ -194,6 +194,83 @@ pub fn resolve_parts_at(store: &RetailDatStore, id: DataId, placement: u32) -> V
     }
 }
 
+/// The picture each surface of a `GfxObj` draws, slot by slot: each surface's own texture id, or
+/// `None` for a surface with none. `None` when the object will not read or decode.
+#[must_use]
+pub fn surface_textures(store: &RetailDatStore, gfxobj: DataId) -> Option<Vec<Option<DataId>>> {
+    let bytes = store.read_typed(DbType::GfxObj, gfxobj).ok()?;
+    let g = GfxObj::decode_payload_in(store.era_of(gfxobj), gfxobj, &bytes).ok()?;
+    Some(
+        g.surfaces
+            .iter()
+            .map(|&s| {
+                let b = store.read_typed(DbType::Surface, s).ok()?;
+                dereth_assets::Surface::decode_payload_in(store.era_of(s), s, &b)
+                    .ok()?
+                    .orig_texture_id
+            })
+            .collect(),
+    )
+}
+
+/// An object's parts as drawn with another era's look (`look`) while its world is `world`: the
+/// same parts, with each texture change carried onto the look's own pictures.
+///
+/// A texture change replaces a picture on a part by matching the part's surfaces by their picture
+/// id, and the eras painted the same part with different picture ids (the later files repainted
+/// the human body, so a world's shirt replaces the older arm's picture, which the later arm does
+/// not carry). A change whose old picture the look's part does not carry, but the world's part
+/// does, goes to the same surface slot of the look's part: the slot the world's part has that
+/// picture in. That is what the look's own clothing tables name for the same garment.
+///
+/// `None` when a change cannot be placed that way (the two eras' part list another number of
+/// surfaces): the object is then drawn wholly with the world's records. A part either era cannot
+/// read keeps its changes as they are.
+#[must_use]
+pub fn parts_for_look(
+    world: &RetailDatStore,
+    look: &RetailDatStore,
+    parts: &[dereth_animation::parts::PhysicsPart],
+) -> Option<Vec<dereth_animation::parts::PhysicsPart>> {
+    let mut out = parts.to_vec();
+    for p in &mut out {
+        let Some(ov) = p.surface_overrides.as_mut() else {
+            continue;
+        };
+        if ov.texture_maps.is_empty() {
+            continue;
+        }
+        let (Some(w), Some(v)) = (
+            surface_textures(world, p.gfxobj_id),
+            surface_textures(look, p.gfxobj_id),
+        ) else {
+            continue;
+        };
+        let mut maps: Vec<(DataId, DataId)> = Vec::with_capacity(ov.texture_maps.len());
+        for &(old, new) in &ov.texture_maps {
+            if v.contains(&Some(old)) || !w.contains(&Some(old)) {
+                maps.push((old, new));
+                continue;
+            }
+            if w.len() != v.len() {
+                return None;
+            }
+            for (slot, picture) in w.iter().enumerate() {
+                if *picture != Some(old) {
+                    continue;
+                }
+                if let Some(there) = v[slot] {
+                    if !maps.iter().any(|(o, _)| *o == there) {
+                        maps.push((there, new));
+                    }
+                }
+            }
+        }
+        ov.texture_maps = maps;
+    }
+    Some(out)
+}
+
 fn identity() -> Frame {
     Frame::new(Vec3::ZERO, Quat::IDENTITY)
 }

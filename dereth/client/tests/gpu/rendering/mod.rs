@@ -20,6 +20,7 @@ mod landscape_draw_distance;
 mod lighting;
 mod mip_deferral;
 mod object_draw_distance;
+mod object_modes;
 mod object_part_submission;
 mod object_viewcone_cull;
 mod objects_through_doorways;

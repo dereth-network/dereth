@@ -423,6 +423,72 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.objects.a-clothing-picture-follows-the-surface-onto-the-other-eras-part",
+        says: "With another era's object mode, a garment still shows on the body: the later files \
+               painted the body with other pictures, so the picture the world's garment replaces \
+               is put on the same surface of the other era's part, as that era's own garment does.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-ERA-VISUALS-SLOT"),
+        station: "dereth-client::dat::rendering::object_look::a_clothing_picture_follows_the_surface_onto_the_later_arm",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.an-object-keeps-the-worlds-setup-under-another-eras-look",
+        says: "With another era's object mode, every object keeps the world's own parts and how \
+               they move: the body keeps its 17 parts on a February 2005 world and its 34 at the \
+               end of retail, and only what each part looks like comes from the other era.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-ERA-VISUALS-SETUP"),
+        station: "dereth-client::dat::rendering::object_look::the_human_body_keeps_the_worlds_seventeen_parts_and_the_later_files_name_the_same_ones",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.an-object-mode-switch-redraws-the-town-and-the-body-while-the-world-is-drawn",
+        says: "Changing the object mode while the world is on screen redraws the buildings, \
+               statics, scenery, creatures, items and the player's body in the chosen era's look \
+               from the next frame; changing back draws exactly the picture the world started \
+               with, and nothing the landscape places is added or lost.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-ERA-VISUALS-SWITCH"),
+        station: "dereth-client::gpu::rendering::object_modes::an_object_mode_switch_rebuilds_the_town_and_the_body_and_switching_back_restores_the_frame",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.objects.an-object-mode-without-its-files-is-refused",
+        says: "Choosing the Legacy object mode without the older data files leaves the objects \
+               drawn as they were, puts the option back, and tells the player in the chat window \
+               that the object mode requires legacy DATs.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-ERA-VISUALS-REFUSED"),
+        station: "dereth-client::gpu::rendering::object_modes::an_object_mode_without_its_files_is_refused_and_the_world_keeps_its_own",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.objects.an-object-whose-picture-change-cannot-be-placed-keeps-the-worlds-look",
+        says: "An object whose clothing or paint change has no matching surface on the other \
+               era's part is drawn whole in the world's own look, rather than without the change.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-ERA-VISUALS-FALLBACK"),
+        station: "dereth-client::dat::rendering::object_look::a_change_with_no_matching_slot_draws_the_object_with_the_worlds_records",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.an-older-world-draws-its-objects-with-the-later-look",
+        says: "With the Modern object mode, a February 2005 world draws its town and its \
+               player's body with the end-of-retail models and pictures, while its land, ground \
+               and sky stay as chosen.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-ERA-VISUALS-LATER"),
+        station: "dereth-client::gpu::rendering::object_modes::an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.particles.a-non-luminous-particle-is-lit-by-the-scene",
         says: "Particles that do not glow on their own are shaded by the lights around them: each \
                colour is drawn at the fraction of its unlit brightness the scene's lighting \
