@@ -1984,7 +1984,11 @@ impl ClassicUi {
                             if let Some((px, py)) = self.world_held {
                                 if (x - px).abs().max((y - py).abs()) >= WORLD_DRAG_DISTANCE {
                                     self.world_held = None;
-                                    if let Some(object) = world_drag_object(cx.model()) {
+                                    let pressed =
+                                        (!cx.looking_for_object()).then(|| cx.found_object());
+                                    if let Some(object) =
+                                        pressed.and_then(|id| world_drag_object(cx.model(), id))
+                                    {
                                         self.desktop.drag_payload =
                                             Some(crate::panels::DragPayload::Object(object));
                                     }
@@ -2675,21 +2679,28 @@ mod escape_tests {
 /// How far the pointer moves from a press on the world before the pressed object is picked up.
 const WORLD_DRAG_DISTANCE: i32 = 5;
 
-/// What a press on the world and a move pick up: the pressed (selected) object, at peace, when it
-/// lies loose in the world. Anything fixed in place, such as a lifestone, and any creature stay
-/// where they are; the player may pick up only themselves of the creatures.
-fn world_drag_object(world: &dereth_client_model::World) -> Option<dereth_primitives::ObjectId> {
-    let id = world.selected?;
-    let w = world.weenie(id)?;
+/// What a press on the world and a move pick up: the object under the pointer (not the selection:
+/// a drag over open ground picks up nothing), at peace, when it lies loose in the world and nobody
+/// wields it. Anything fixed in place, such as a lifestone, and any creature stay where they are;
+/// the player may pick up only themselves of the creatures, by dragging from their own body.
+fn world_drag_object(
+    world: &dereth_client_model::World,
+    pressed: dereth_primitives::ObjectId,
+) -> Option<dereth_primitives::ObjectId> {
+    if pressed.0 == 0 {
+        return None;
+    }
+    let w = world.weenie(pressed)?;
     world_drag_allowed(WorldDragFacts {
         at_peace: world.combat.combat_mode.raw() == 1,
         loose: w.current_state != dereth_client_model::weenie::PositionState::InContainer
-            && !world.is_owned_by_player(id),
+            && !world.is_owned_by_player(pressed)
+            && w.pwd.wielder_id.is_none_or(|id| id.0 == 0),
         fixed: w.pwd.bitfield & 0x4 != 0,
         creature: w.pwd.obj_type & 0x10 != 0,
-        player: world.player == Some(id),
+        player: world.player == Some(pressed),
     })
-    .then_some(id)
+    .then_some(pressed)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2708,6 +2719,16 @@ fn world_drag_allowed(f: WorldDragFacts) -> bool {
 mod world_drag_tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
+    #[test]
+    fn a_drag_where_no_object_lies_picks_up_nothing_whatever_is_selected() {
+        let mut world = dereth_client_model::World::default();
+        world.player = Some(dereth_primitives::ObjectId(0x5000_0001));
+        world.selected = world.player;
+        assert_eq!(
+            world_drag_object(&world, dereth_primitives::ObjectId(0)),
+            None
+        );
+    }
     #[test]
     fn only_loose_items_at_peace_can_be_dragged_out_of_the_world() {
         let item = WorldDragFacts {
