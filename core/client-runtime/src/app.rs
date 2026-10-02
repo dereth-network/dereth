@@ -100,7 +100,7 @@ pub fn shell_error_text(result: i32, url: &str) -> String {
 /// from the file; any other registered option is read through the option store's own load, as the
 /// file would be. `None` for a name no option has, or a value it cannot take.
 fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_contract::PrefValue)> {
-    use dereth_client_contract::options::{interface, landscape, preferences, store};
+    use dereth_client_contract::options::{interface, landscape, performance, preferences, store};
     let (key, value) = setting.split_once('=')?;
     let key = key.trim();
     let name: &'static str = preferences::UI_PREFERENCES
@@ -111,6 +111,7 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
             landscape::SKY,
             landscape::OBJECTS,
             interface::INTERFACE,
+            performance::PERFORMANCE_PANEL,
         ])
         .find(|n| n.eq_ignore_ascii_case(key))?;
     if let Some(v) =
@@ -836,6 +837,12 @@ pub struct App<S: Shell> {
     /// How many frames [`Self::frame`] has begun, which is what `--set-at` and `--capture-at`
     /// count.
     frames_begun: u64,
+    /// The last frames' times, for the performance panel.
+    pub perf: crate::perf::FramePerf,
+    /// How long each step of the last whole frame took.
+    perf_steps: [f32; crate::frame::STEPS],
+    /// Whether the performance panel's font is on the device.
+    perf_font: bool,
     /// Time when `0x0013` made the session playable, used by `--linger`.
     pub playable_at: Option<f64>,
     /// Movement-command position reporting: `0xF753` on the client's own 1.0 s schedule and
@@ -1363,6 +1370,9 @@ impl<S: Shell> App<S> {
             scripted_preferences: Vec::new(),
             scripted_actions: Vec::new(),
             frames_begun: 0,
+            perf: crate::perf::FramePerf::default(),
+            perf_steps: [0.0; crate::frame::STEPS],
+            perf_font: false,
             playable_at: None,
             // The reporter seeds `last_sent_position_time` with the clock start, not zero.
             position: dereth_client_net::client_session::PositionReporter::new(clock_start),
@@ -2743,7 +2753,19 @@ impl<S: Shell> App<S> {
         // phases late, it could never precede a click in the same frame, and retail's always does.
         // The actions the UI declined this frame — the action dispatch gives the winning map's
         // callback first refusal and the rest reach the other input handlers.
-        let actions = self.actions.take();
+        let mut actions = self.actions.take();
+        // The performance panel's key belongs to no interface and no game system: it flips the
+        // option, and the panel follows the option.
+        actions.retain(|a| {
+            if a.id.0 != dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL {
+                return true;
+            }
+            if a.is_start() {
+                let v = dereth_client_contract::options::performance::toggle();
+                tracing::info!("performance panel {v:?}");
+            }
+            false
+        });
         // The action handler's `0x1000002B` arm asks whether element
         // `0x100005F7` (`<EXAM>`) is visible before examining anything, and shuts it instead when
         // it is. The client
@@ -3720,6 +3742,8 @@ impl<S: Shell> App<S> {
         // The frame's spans: the frame and, as each step starts, that step. See
         // `crate::frame::FrameSpans`.
         let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
+        self.perf
+            .frame_started(web_time::Instant::now(), self.perf_steps);
         self.events.drain_frame();
         // `--capture-at` and `--set-at`: a picture of the frame just drawn, then the settings for
         // the one about to be.
@@ -4065,6 +4089,18 @@ impl<S: Shell> App<S> {
 
         shell.compose_ui(&mut UiContext::new(self));
 
+        // The performance panel's font goes up outside the frame bracket, once.
+        let perf_panel = dereth_client_contract::options::performance::shown();
+        if perf_panel && !self.perf_font {
+            match self
+                .present
+                .overlay_upload(crate::perf::FONT_TEXTURE, &crate::perf::font_sheet())
+            {
+                Ok(()) => self.perf_font = true,
+                Err(e) => tracing::warn!("the performance panel's font: {e}"),
+            }
+        }
+
         spans.step(FrameStep::PrepareDevice);
         self.events.push(FrameEvent::Step(FrameStep::PrepareDevice));
         self.present.prepare_graphics_device();
@@ -4106,6 +4142,13 @@ impl<S: Shell> App<S> {
         if let Err(e) = shell.draw_ui(&mut self.present) {
             tracing::warn!("the UI overlay failed: {e}");
         }
+        // The performance panel, over whatever the interface drew.
+        if perf_panel && self.perf_font {
+            let items = crate::perf::panel_items(&self.perf.summary().lines(), self.present.size());
+            if let Err(e) = self.present.draw_overlay(&items) {
+                tracing::warn!("the performance panel failed: {e}");
+            }
+        }
         if let Err(e) = self.present.end_frame() {
             tracing::error!("finishing a frame failed: {e}");
             self.state = AppState::ShuttingDown;
@@ -4116,6 +4159,7 @@ impl<S: Shell> App<S> {
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
         self.pacer.frame_sleep(self.pump.state.is_active_app);
+        self.perf_steps = spans.times();
 
         // `--enter-world` ends the loop when its script has run: `0x0013` made the session
         // playable, the log-off went out and the server answered. The retail equivalent is

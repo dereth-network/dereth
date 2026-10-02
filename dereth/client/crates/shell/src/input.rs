@@ -368,7 +368,7 @@ pub const FOCUSED_TEXT_MAP_REGISTRATIONS: [(u32, i32); 4] = [
 /// the panel toggles, the quickbar, emotes, combat or chat: `E` and `R` resolve to nothing there,
 /// and the only keys a pre-game screen answers are its own map 9's Enter and Escape, plus whatever a
 /// focused text box registers. See [`InputShell::set_character_session_input_maps`].
-pub const WHOLE_RUN_INPUT_MAPS: [u32; 3] = [0x10, 3, 5];
+pub const WHOLE_RUN_INPUT_MAPS: [u32; 4] = [0x10, 3, 5, dereth_input::dereth::INPUT_MAP.0];
 
 pub const BASE_MAP_REGISTRATIONS: &[(&str, u32, i32)] = &[
     (
@@ -377,6 +377,13 @@ pub const BASE_MAP_REGISTRATIONS: &[(&str, u32, i32)] = &[
         dereth_input::dispatch::priority::CLIENT_SYSTEM_KEYS,
     ),
     ("ui-manager", 3, dereth_input::dispatch::priority::LOWEST),
+    // This client's own actions (the performance panel's key), live for the whole run below
+    // every game map, so a player's own binding of the same key wins.
+    (
+        "Client",
+        dereth_input::dereth::INPUT_MAP.0,
+        dereth_input::dispatch::priority::LOWEST,
+    ),
     ("camera", 5, dereth_input::dispatch::priority::GAMEPLAY),
     ("player", 4, dereth_input::dispatch::priority::GAMEPLAY),
     // Combat-system character-session startup registers map `0x10000002` with the

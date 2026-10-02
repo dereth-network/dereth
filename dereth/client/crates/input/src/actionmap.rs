@@ -164,6 +164,18 @@ impl ActionMap {
             .map_or(ToggleType::Invalid, |v| v.toggle_type)
     }
 
+    /// Add or replace one entry: `a` in input map `m`.
+    pub(crate) fn insert(&mut self, m: InputMapId, a: ActionId, v: ActionMapValue) {
+        self.lookup.insert((m.0, a.0), v);
+        match self.input_maps.iter_mut().find(|(id, _)| *id == m) {
+            Some((_, actions)) => {
+                actions.retain(|(x, _)| *x != a);
+                actions.push((a, v));
+            }
+            None => self.input_maps.push((m, vec![(a, v)])),
+        }
+    }
+
     /// Whether the action is a toggle -- **always true for action id 1**.
     #[must_use]
     pub fn is_action_allowed_in_input_map(&self, m: InputMapId, a: ActionId) -> bool {

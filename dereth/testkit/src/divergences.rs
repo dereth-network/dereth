@@ -349,6 +349,19 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The owner asked for a world's message to its players to be seen in both \
               interfaces.",
     },
+    Divergence {
+        id: "CD-018",
+        title: "The performance panel",
+        retail: "The end-of-retail client shows no frame rate. Its benchmark and debug overlays \
+                 have actions but no key and no handler.",
+        dereth: "F7, or the Performance Panel option (Debug.PerformancePanel in the profile, a \
+                 check box at the end of the client options page's Graphics section), shows a \
+                 panel in the top left of the game: the frame rate, the mean and longest frame \
+                 time over the last frames, and how long the input and network, interface, \
+                 world, drawing and pacing parts of a frame take. The client draws it itself, \
+                 over either interface and on any screen.",
+        why: "The owner asked for a frame-rate panel that belongs to no interface.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

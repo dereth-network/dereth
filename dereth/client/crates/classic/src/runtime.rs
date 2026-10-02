@@ -752,7 +752,8 @@ impl ClassicUi {
     pub fn press_action(&mut self, id: dereth_client_contract::actions::ActionId) {
         use dereth_client_contract::actions::{names, Action};
         let name = names::enum_name_for_action(id);
-        if is_ui_action(&name) {
+        // This client's own actions (the performance panel's) are the game's, not a window's.
+        if names::DERETH_ACTION_NAMES.iter().all(|(a, _)| *a != id.0) && is_ui_action(&name) {
             self.ui_actions.push(name);
         } else {
             self.actions.push(Action::begin(id));

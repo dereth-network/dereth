@@ -363,8 +363,9 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     ui.requests.clear();
     let n = s.config_page.restore_default_values(&mut ui);
     assert_eq!(
-        n, 34,
-        "the 30 retail controls, this client's three rows from another era and its interface row"
+        n, 35,
+        "the 30 retail controls, this client's three rows from another era, its interface row and \
+         its performance row"
     );
     let live: Vec<(&str, PrefValue)> = ui
         .requests
@@ -377,7 +378,7 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
         .collect();
     let stat: Vec<(&str, PrefValue)> = config::restore_default_values();
     assert_eq!(live, stat, "the built page and CONFIG_PAGE disagree");
-    assert_eq!(live.len(), 34);
+    assert_eq!(live.len(), 35);
 
     // The control kinds, counted: 12 check boxes, 10 sliders, 8 menus.
     let k = |c: OptionControl| {
@@ -741,8 +742,8 @@ mod sound_defaults {
         let out = ui.requests.take();
         assert_eq!(
             out.len(),
-            34,
-            "27 rows plus the three paired volume sliders, this client's three era rows and its              interface row"
+            35,
+            "27 rows plus the three paired volume sliders, this client's three era rows and its              interface and performance rows"
         );
 
         // The eight `Sound.*` writes, spelled out with the default values the page's option
@@ -824,10 +825,10 @@ mod sound_defaults {
             .expect("the option box is in the shipped layout");
         assert_eq!(
             ui.children(box_h).len(),
-            42,
-            "27 option rows, this client's 3 era rows and its interface row, 6 section headers              and 5 separators"
+            43,
+            "27 option rows, this client's 3 era rows and its interface and performance rows, 6 section headers              and 5 separators"
         );
-        assert_eq!(screen.config_page.row_count(), 42);
+        assert_eq!(screen.config_page.row_count(), 43);
         assert_eq!(screen.config_page.headers, 6);
         assert_eq!(screen.config_page.separators, 5);
         assert_eq!(screen.config_page.failures, 0, "every row template built");
@@ -848,8 +849,9 @@ mod sound_defaults {
         let delta = |ty: u32| count(&ui, &all, ty) as i64 - count(&base_ui, &base_all, ty) as i64;
         assert_eq!(
             delta(0x1000_0035),
-            62,
-            "checkbox options: the client-options panel's 9 toggle rows + 3 paired boxes, and the character-settings panel's 50"
+            63,
+            "checkbox options: the client-options panel's 9 toggle rows + 3 paired boxes + the \
+             performance panel's, and the character-settings panel's 50"
         );
         assert_eq!(
             delta(0x1000_0036),

@@ -71,6 +71,12 @@ impl FrameStep {
         FrameStep::PaceFrame,
     ];
 
+    /// The step's place in [`Self::ORDER`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        Self::ORDER.iter().position(|s| *s == self).unwrap_or(0)
+    }
+
     /// The name of the client function represented by this step.
     #[must_use]
     pub const fn call(self) -> &'static str {
@@ -108,13 +114,23 @@ pub const SPAN_TARGET: &str = "dereth_client_runtime::frame";
 /// that times spans gets each step's duration.
 ///
 /// With neither level enabled a span costs one cached check and records nothing.
+///
+/// It also times the steps on the clock, whatever the levels: [`Self::times`] is how long each
+/// step of the frame has taken so far, which the performance panel shows.
 #[derive(Debug)]
 pub struct FrameSpans {
     // Declared after `step`: fields drop in declaration order, so the step closes inside its
     // frame.
     step: Option<tracing::span::EnteredSpan>,
     _frame: tracing::span::EnteredSpan,
+    /// The step in progress and when it started.
+    current: Option<(FrameStep, web_time::Instant)>,
+    /// Seconds spent in each step of [`FrameStep::ORDER`], by its index.
+    times: [f32; STEPS],
 }
+
+/// How many steps a frame has.
+pub const STEPS: usize = 14;
 
 impl FrameSpans {
     /// Open the span of frame `n` (counted from 1).
@@ -123,14 +139,34 @@ impl FrameSpans {
         Self {
             step: None,
             _frame: tracing::debug_span!(target: SPAN_TARGET, "frame", n).entered(),
+            current: None,
+            times: [0.0; STEPS],
         }
     }
 
     /// Close the step in progress, if any, and open `step`'s.
     pub fn step(&mut self, step: FrameStep) {
         self.step = None;
+        let now = web_time::Instant::now();
+        self.close(now);
+        self.current = Some((step, now));
         self.step =
             Some(tracing::trace_span!(target: SPAN_TARGET, "step", name = step.call()).entered());
+    }
+
+    /// Close the step in progress, and the seconds each step of the frame took, by its place in
+    /// [`FrameStep::ORDER`].
+    pub fn times(&mut self) -> [f32; STEPS] {
+        self.close(web_time::Instant::now());
+        self.times
+    }
+
+    fn close(&mut self, now: web_time::Instant) {
+        if let Some((step, at)) = self.current.take() {
+            if let Some(t) = self.times.get_mut(step.index()) {
+                *t += now.duration_since(at).as_secs_f32();
+            }
+        }
     }
 }
 
@@ -163,6 +199,19 @@ mod tests {
     use super::*;
 
     // Oracle: the numbered per-frame order, with the outer frame's prepended call in front.
+    #[test]
+    fn the_spans_time_each_step_in_its_own_place() {
+        assert_eq!(FrameStep::ORDER.len(), STEPS);
+        let mut s = FrameSpans::begin(1);
+        s.step(FrameStep::UiStep);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        s.step(FrameStep::DrawWorld);
+        let t = s.times();
+        assert!(t[FrameStep::UiStep.index()] >= 0.004, "{t:?}");
+        assert!(t[FrameStep::DrawWorld.index()] < 0.004, "{t:?}");
+        assert_eq!(t[FrameStep::PaceFrame.index()], 0.0);
+    }
+
     #[test]
     fn the_order_is_the_documented_one_and_has_no_gaps() {
         let names: Vec<&str> = FrameStep::ORDER.iter().map(|s| s.call()).collect();

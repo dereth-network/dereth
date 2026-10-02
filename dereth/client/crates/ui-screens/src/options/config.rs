@@ -257,6 +257,15 @@ pub const INTERFACE_ROW: ConfigRow = row(
     Int(0),
 );
 
+/// The performance panel, after the interface row: a check box with a literal caption, and
+/// *Restore Defaults* turns it off.
+pub const PERFORMANCE_ROW: ConfigRow = row(
+    GRAPHICS,
+    Check,
+    dereth_client_contract::options::performance::PERFORMANCE_PANEL,
+    Bool(false),
+);
+
 /// The volume every one of the three sound check+slider pairs defaults its slider to.
 pub const SOUND_SLIDER_DEFAULT: f32 = 1.0;
 
@@ -416,6 +425,10 @@ pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
                 out.push((l.preference, l.ui_default.into()));
             }
             out.push((INTERFACE_ROW.preference, INTERFACE_ROW.ui_default.into()));
+            out.push((
+                PERFORMANCE_ROW.preference,
+                PERFORMANCE_ROW.ui_default.into(),
+            ));
         }
     }
     out
@@ -617,9 +630,9 @@ mod tests {
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            27 + 3 + 4,
-            "27 rows plus the three paired volume sliders, this client's three era rows and its \
-             interface"
+            27 + 3 + 5,
+            "27 rows plus the three paired volume sliders, this client's three era rows, its \
+             interface and its performance panel"
         );
         assert_eq!(
             get_landscape(&v),

@@ -218,6 +218,14 @@ pub mod chat_entry {
     pub const TELL_TO_SELECTED: ActionId = ActionId(0x1000_0119);
 }
 
+/// This client's own actions, beside the retail ones: what any interface can bind and the
+/// retail action table has no row for. Their ids are above every retail id, and their names are
+/// in [`names::DERETH_ACTION_NAMES`], so a key map file names them as it names a retail action.
+pub mod dereth {
+    /// Show or hide the performance panel (frame rate and frame time), whatever the interface.
+    pub const TOGGLE_PERFORMANCE_PANEL: u32 = 0x2000_0001;
+}
+
 /// The action names: the enum table the client writes an action out with (field `0x19` of a
 /// `.keymap` file) and reads one back by. Read out of the retail portal dat; the combat and magic
 /// actions have human-readable names there too.
@@ -653,12 +661,22 @@ pub mod names {
         (0x1000013F, "PlayerOption_HearPKDeaths"),
     ];
 
+    /// This client's own actions ([`super::dereth`]), by name, in id order.
+    pub const DERETH_ACTION_NAMES: &[(u32, &str)] = &[(
+        super::dereth::TOGGLE_PERFORMANCE_PANEL,
+        "TogglePerformancePanel",
+    )];
+
+    /// Every named action: the retail table, then this client's own.
+    fn all() -> impl Iterator<Item = &'static (u32, &'static str)> {
+        ACTION_ENUM_NAMES.iter().chain(DERETH_ACTION_NAMES)
+    }
+
     /// The name the client writes for an action. An id the table does not know falls back to its
     /// decimal value, which is what an enum-mapper miss produces.
     #[must_use]
     pub fn enum_name_for_action(a: ActionId) -> String {
-        ACTION_ENUM_NAMES
-            .iter()
+        all()
             .find(|(k, _)| *k == a.0)
             .map_or_else(|| a.0.to_string(), |(_, n)| (*n).to_owned())
     }
@@ -666,8 +684,7 @@ pub mod names {
     /// The action a name stands for: the table's own name, or a decimal id.
     #[must_use]
     pub fn action_for_enum_name(name: &str) -> Option<ActionId> {
-        ACTION_ENUM_NAMES
-            .iter()
+        all()
             .find(|(_, n)| *n == name)
             .map(|(k, _)| ActionId(*k))
             .or_else(|| name.parse().ok().map(ActionId))

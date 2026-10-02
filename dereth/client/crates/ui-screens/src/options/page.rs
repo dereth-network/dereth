@@ -700,6 +700,13 @@ impl PlayerOptionPage {
                     i,
                     dereth_client_contract::options::interface::CAPTION,
                 );
+            } else if preference == dereth_client_contract::options::performance::PERFORMANCE_PANEL
+            {
+                self.set_literal_preference(
+                    ui,
+                    i,
+                    dereth_client_contract::options::performance::CAPTION,
+                );
             }
             return;
         };
@@ -751,6 +758,28 @@ impl PlayerOptionPage {
     /// binding for an option of this client's own, which has no string-table entries.
     fn set_literal_preference(&mut self, ui: &mut UiSystem, i: usize, caption: &str) {
         let Some(o) = self.options.get(i) else { return };
+        if o.control == OptionControl::Checkbox {
+            // A check box carries its caption itself, as a literal string.
+            let element = o.element;
+            let si = dereth_assets::ui::StringInfo {
+                override_flag: 1,
+                literal: Some(caption.to_string()),
+                string_id: None,
+                table_id: None,
+                is_adder: 0,
+                adder: None,
+                variables: Vec::new(),
+            };
+            let v = dereth_assets::ui::PropertyValue::StringInfo(Box::new(si));
+            if let Some(n) = ui.node_mut(element) {
+                n.instance_properties.set(ATTR_STRING_INFO, v.clone());
+            }
+            ui.on_set_attribute(element, ATTR_STRING_INFO, Some(&v));
+            if let Some(o) = self.options.get_mut(i) {
+                o.label = Some(caption.to_string());
+            }
+            return;
+        }
         if o.control != OptionControl::Menu {
             return;
         }
@@ -1401,6 +1430,7 @@ impl PlayerOptionPage {
         self.options.iter().filter(|o| {
             dereth_client_contract::options::landscape::Landscape::of(o.preference).is_none()
                 && o.preference != dereth_client_contract::options::interface::INTERFACE
+                && o.preference != dereth_client_contract::options::performance::PERFORMANCE_PANEL
         })
     }
 
@@ -1572,6 +1602,7 @@ impl PlayerOptionPage {
                 self.add_config_row(ui, &r);
             }
             self.add_config_row(ui, &super::config::INTERFACE_ROW);
+            self.add_config_row(ui, &super::config::PERFORMANCE_ROW);
         }
     }
 

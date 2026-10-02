@@ -561,9 +561,14 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
         at(dereth_client_contract::options::interface::INTERFACE),
         at(landscape::OBJECTS) + 1
     );
+    // Then the performance panel's.
+    assert_eq!(
+        at(dereth_client_contract::options::performance::PERFORMANCE_PANEL),
+        at(dereth_client_contract::options::interface::INTERFACE) + 1
+    );
     assert_eq!(
         at("Render.LandscapeTextureDetail"),
-        at(dereth_client_contract::options::interface::INTERFACE) + 1
+        at(dereth_client_contract::options::performance::PERFORMANCE_PANEL) + 1
     );
 
     let menu = control(&s.config_page, landscape::GROUND);

@@ -35,6 +35,8 @@ pub use dereth_client_contract::actions::ui as action;
 pub mod actionmap;
 pub mod binding;
 pub mod combat;
+/// This client's own actions: their input map, action-map rows and default keys.
+pub mod dereth;
 pub mod dispatch;
 pub mod error;
 pub mod fire;
@@ -307,6 +309,7 @@ impl InputManager {
     pub fn on_startup(action_map: &[u8], default_map: &[u8]) -> Result<Self, InputError> {
         let mut m = Self::empty();
         m.action_map = ActionMap::read(action_map)?;
+        m.action_map.add_dereth_actions();
         m.keymap = MasterInputMap::read(default_map)?;
         Ok(m)
     }
@@ -337,7 +340,12 @@ impl InputManager {
             }
         }
         let gm = MasterInputMap::read(gm_default_map)?;
-        let dm = MasterInputMap::read(default_map)?;
+        let mut dm = MasterInputMap::read(default_map)?;
+        // This client's own actions' default keys go in with the shipped defaults, so a restore
+        // puts them back and a row's defaults list them.
+        if let Some(own) = dereth::default_map(&dm) {
+            dm.merge(&own, true);
+        }
         self.keymap.merge(&gm, true);
         self.keymap.merge(&dm, true);
         self.shipped_maps = Some(Box::new((gm, dm)));

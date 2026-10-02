@@ -1073,6 +1073,12 @@ impl UiShell {
         //    reads input-manager mouse state, and a handler this dispatch runs can move it.
         let mut declined = Vec::new();
         for e in input.take_actions() {
+            // This client's own actions (the performance panel's key) belong to no interface:
+            // they go past the screens to the runtime.
+            if e.input_map == dereth_input::dereth::INPUT_MAP {
+                declined.push(e);
+                continue;
+            }
             let (x, y) = input.mouse_pos();
             // Action dispatch has a three-line wrapper around everything below, and its only
             // observable is a copy of key-down-in-progress into the action-dispatch latch; without

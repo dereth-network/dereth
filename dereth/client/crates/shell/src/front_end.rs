@@ -2870,9 +2870,17 @@ impl<H: Host> Shell for ClientShell<H> {
                 cx.inject_action(dereth_client_runtime::actions::Action::begin(action));
                 cx.inject_action(dereth_client_runtime::actions::Action::end(action));
             } else if let Some(input) = self.input.as_mut() {
+                // On the map a key of it is bound in, else the UI's.
+                let input_map = input
+                    .manager
+                    .keymap
+                    .sections
+                    .iter()
+                    .find(|s| !s.keys_for_action(action).is_empty())
+                    .map_or(crate::ui::UI_INPUT_MAP, |s| s.input_map_id);
                 input.inject_action(dereth_input::InputEvent {
                     action,
-                    input_map: crate::ui::UI_INPUT_MAP,
+                    input_map,
                     toggle: dereth_input::ToggleType::OneShot,
                     extent: 1.0,
                     start: true,
