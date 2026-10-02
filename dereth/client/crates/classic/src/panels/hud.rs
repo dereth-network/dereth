@@ -178,6 +178,29 @@ fn quest_page(game: &dyn GameView) -> Option<&'static str> {
     }
 }
 
+/// The side pages a toolbar button stands for: it is lit while any of them is shown, and a press
+/// while one is shown closes it. The magic button's pages are the spellbook's tabs and the
+/// research page, the social button's the social window's pages, the character button's its
+/// tabs, the journal button's the journal and the contracts.
+fn button_pages(id: &str) -> &'static [&'static str] {
+    match id {
+        "social" => &[
+            "social",
+            "allegiance",
+            "fellowship",
+            "trade-intro",
+            "friends",
+            "squelch",
+        ],
+        "spellbook" => &["spellbook", "components", "spell-research"],
+        "character-stats" => &["character-stats", "attributes", "skills", "titles"],
+        "journal" => &["journal", "contracts"],
+        "map" => &["map"],
+        "options" => &["options"],
+        _ => &[],
+    }
+}
+
 /// The toolbar's panel buttons left to right: id, left edge, width and the normal, lit and
 /// pressed pictures. Five fill the row between its two end pieces; with the journal's there are
 /// six, so the right end piece goes, each picture is cut a little narrower from both sides, and
@@ -583,8 +606,7 @@ impl Panel for Hud {
         );
         append(&mut f, self.shortcuts.frame(c), x, y + 58, "shortcut:");
         for (id, dx, w, [normal, selected, pressed]) in toolbar_buttons(quests.is_some()) {
-            let active = c.classic.active_right == id
-                || (id == "journal" && matches!(c.classic.active_right.as_str(), "contracts"));
+            let active = button_pages(id).contains(&c.classic.active_right.as_str());
             button(
                 &mut f,
                 id,
@@ -774,9 +796,14 @@ impl Panel for Hud {
         }
         if let ControlEvent::Activate(id) = e {
             match id.as_str() {
-                "social" | "spellbook" | "character-stats" | "options" | "inventory" | "map" => {
+                "social" | "spellbook" | "character-stats" | "options" | "map" => {
+                    let shown = c.classic.active_right.as_str();
+                    if button_pages(&id).contains(&shown) {
+                        return vec![PanelAction::Toggle(shown.into())];
+                    }
                     return vec![PanelAction::Toggle(id)];
                 }
+                "inventory" => return vec![PanelAction::Toggle(id)],
                 // The journal's button closes its page or the contracts beside it when either is
                 // shown, and otherwise opens its page.
                 "journal" => {
