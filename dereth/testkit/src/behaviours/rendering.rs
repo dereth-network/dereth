@@ -114,6 +114,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.degrade.an-older-eras-part-draws-the-levels-its-own-id-reaches",
+        says: "A body part from the February 2005 files is drawn with its detail levels, so up close                the torso is the denser model those files list first rather than the coarser model                the body names, on the February 2005 world and in its look on the end-of-retail                world alike.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PRETOD-DEGRADE-ID"),
+        station: "dereth-client::dat::rendering::pre_tod_degrade::a_february_2005_torso_draws_its_records_nearest_level_up_close_on_either_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.degrade.an-older-world-chooses-detail-from-the-raw-distance",
+        says: "On a world from before Throne of Destiny another character's parts change detail at                their own distances, within a few metres of the camera, while the end-of-retail                world keeps every part at its nearest detail for the first 50 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PRETOD-DEGRADE-DISTANCE"),
+        station: "dereth-client::dat::rendering::pre_tod_degrade::an_older_world_changes_the_torsos_level_at_the_raw_distance_and_the_later_world_50_m_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.degrade.detail-falls-under-load-and-recovers",
         says: "With automatic degrades on, the detail bias climbs to its highest while frames are \
                cheap, is driven to its lowest while they are expensive and climbs back when they \

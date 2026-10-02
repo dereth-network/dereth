@@ -186,3 +186,85 @@ fn switching_modes_converts_every_resident_cell_and_frees_the_other_mode() {
     assert_eq!(scene.terrain_splat_cells().0, 0, "and the splat layers go");
     scene.release_textures(&mut gpu);
 }
+
+/// Draw a few frames of `scene` looking down over the ground at a pinned clock; the last frame's
+/// RGBA.
+fn draw_ground(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> Vec<u8> {
+    let mut rgba = Vec::new();
+    for _ in 0..3 {
+        scene.update(
+            dereth_client::camera::CameraInput::default(),
+            dereth_client::character::CharacterInput::default(),
+            dereth_primitives::LocalTime(0.0),
+            0.0,
+        );
+        scene.stream(store, gpu).expect("stream");
+        scene.reserve_upload_arena(gpu).expect("reserve the arena");
+        gpu.begin_frame().expect("begin");
+        scene.draw(gpu).expect("draw");
+        gpu.end_frame().expect("end");
+        rgba = gpu.capture().expect("capture").to_rgba();
+    }
+    rgba
+}
+
+/// With the ground drawn by blending its layers (no composites), Landscape Texture Detail still
+/// sets how much of each source picture is drawn: moving it from Very High to Very Low through the
+/// per-frame preference poll flushes the layers and redraws the ground coarser, and moving it back
+/// draws the first frame again.
+#[test]
+fn under_splat_blending_landscape_texture_detail_changes_the_ground_and_back() {
+    let store = store();
+    let mut gpu = device_of(false);
+    if !gpu.terrain_splat_supported() {
+        eprintln!("skipping: this device cannot splat");
+        return;
+    }
+    let cfg = SceneConfig {
+        terrain_splat: true,
+        time_of_day: Some(0.5),
+        game_time: Some(0.0),
+        render: dereth_client::render_prefs::RenderPreferences {
+            landscape_texture_detail: 0,
+            ..SceneConfig::default().render
+        },
+        ..config(false)
+    };
+    let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the scene loads");
+    scene.set_weather_enabled(false);
+    scene.camera.pitch = -0.9;
+    assert!(scene.terrain_splat_cells().0 > 0, "the ground is splatted");
+    let very_high = draw_ground(&mut scene, &store, &mut gpu);
+    assert_eq!(
+        very_high,
+        draw_ground(&mut scene, &store, &mut gpu),
+        "the view is not still, so this test cannot see"
+    );
+
+    let set = |scene: &mut WorldScene, gpu: &mut Gpu, detail: u32| {
+        scene.draw.cfg.render.landscape_texture_detail = detail;
+        let work = scene
+            .update_from_preferences(&store, gpu)
+            .expect("the poll runs");
+        assert!(work.flushed, "{detail}: the poll flushed nothing");
+        draw_ground(scene, &store, gpu)
+    };
+    let very_low = set(&mut scene, &mut gpu, 4);
+    assert!(scene.terrain_composites().is_empty(), "still no composites");
+    let n = very_high
+        .iter()
+        .zip(&very_low)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(
+        n > 10_000,
+        "Very Low drew the ground as Very High did: {n} bytes moved"
+    );
+    let back = set(&mut scene, &mut gpu, 0);
+    assert_eq!(back, very_high, "Very High again draws the first frame");
+    eprintln!(
+        "splat Very High -> Very Low moved {n} of {} bytes",
+        very_high.len()
+    );
+    scene.release_textures(&mut gpu);
+}

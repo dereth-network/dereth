@@ -31,6 +31,11 @@ pub struct GfxObj {
     pub sort_center: Vec3,
     pub polygons: Vec<Polygon>,
     pub drawing_bsp: Option<BspTree>,
+    /// The `GfxObjDegradeInfo` that holds this object's detail levels. From Throne of Destiny on
+    /// the record names it (flags bit 3). Before, the record names none and the client finds it
+    /// by id instead: `0x11` in the top byte over the object's own low 24 bits. That id is set
+    /// here for every older object, so a reader treats a missing record exactly as it treats a
+    /// later object whose id names no record.
     pub did_degrade: Option<DataId>,
 }
 
@@ -46,9 +51,10 @@ impl Decode for GfxObj {
     }
 
     /// Before Throne of Destiny the counts are plain `u32`s rather than compressed, the polygons
-    /// and BSP nodes carry the older alignment, there is no degrade id, and bit 2 would add a
-    /// triangle-strip block (which no shipped record sets, and which is refused) before the
-    /// record ends aligned to four bytes.
+    /// and BSP nodes carry the older alignment, there is no degrade id (the record is found by
+    /// the object's own id; see [`GfxObj::did_degrade`]), and bit 2 would add a triangle-strip
+    /// block (which no shipped record sets, and which is refused) before the record ends aligned
+    /// to four bytes.
     fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         decode_gfxobj(c, ContainerEra::PreTod)
     }
@@ -92,7 +98,7 @@ fn decode_gfxobj(c: &mut Cursor<'_>, era: ContainerEra) -> Result<GfxObj, AssetE
             });
         }
         c.align_ptr();
-        None
+        Some(implicit_degrade_id(id))
     } else if flags & 8 != 0 {
         Some(c.data_id()?)
     } else {
@@ -110,6 +116,14 @@ fn decode_gfxobj(c: &mut Cursor<'_>, era: ContainerEra) -> Result<GfxObj, AssetE
         drawing_bsp,
         did_degrade,
     })
+}
+
+/// The degrade record an object from before Throne of Destiny reaches by its own id: the record
+/// type's top byte over the object's low 24 bits. The record need not exist; most objects have
+/// none.
+#[must_use]
+pub fn implicit_degrade_id(gfxobj: DataId) -> DataId {
+    DataId(0x1100_0000 | (gfxobj.raw() & 0x00FF_FFFF))
 }
 
 fn polygons(c: &mut Cursor<'_>, n: usize, era: ContainerEra) -> Result<Vec<Polygon>, AssetError> {

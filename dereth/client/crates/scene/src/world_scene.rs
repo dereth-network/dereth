@@ -1031,6 +1031,9 @@ mod imp {
         fog: dereth_render::camera::FogParams,
         /// Frame-rate estimate and degrade multiplier.
         pub degrade: DegradeState,
+        /// The layout of the world's own files, which decides how far away a detail level is
+        /// chosen ([`world_degrade_distance`]) whichever era's look the objects draw.
+        world_era: dereth_dat::ContainerEra,
         /// Draw the landscape by splatting its layers rather than with its composites. See
         /// [`SceneConfig::terrain_splat`] and [`Self::toggle_terrain_splat`].
         terrain_splat: bool,
@@ -2814,7 +2817,14 @@ mod imp {
                             *key,
                             merge.shift,
                         );
-                        let s = Arc::new(splat_of(gpu, splat_sources, &src, &plan)?);
+                        // The texels a composite at this detail level would hold for a cell,
+                        // before the distance reduction the splat draw leaves to the mips.
+                        let size = dereth_world_render::land::merge::merged_texture_size(
+                            tex_merge.base_tex_size,
+                            merge.shift,
+                            1,
+                        );
+                        let s = Arc::new(splat_of(gpu, splat_sources, &src, &plan, size)?);
                         splats.insert(*key, Arc::clone(&s));
                         s
                     }
@@ -4323,38 +4333,49 @@ mod imp {
         resident: &mut HashMap<DataId, Option<TextureSlot>>,
         src: &dyn TerrainTextureSource,
         plan: &MergePlan,
+        size: u32,
     ) -> Result<TerrainSplat, WorldError> {
-        let mut get = |id: DataId| -> Result<Option<TextureSlot>, WorldError> {
+        // Each source is uploaded at the texels the composite at `size` carries of it
+        // (`Render.LandscapeTextureDetail`), so the setting lowers the splat draw's detail as it
+        // does the composites'. A change of the setting flushes these, as it does the composites.
+        let mut get = |id: DataId, tiling: u32| -> Result<Option<TextureSlot>, WorldError> {
             if let Some(r) = resident.get(&id) {
                 return Ok(*r);
             }
             let r = match src.image(id) {
-                Some(img) => Some(
-                    gpu.upload_imgtex_keyed(
-                        dereth_render::TextureKey::UNCACHED,
-                        &dereth_primitives::TextureData {
-                            width: img.width,
-                            height: img.height,
-                            format: dereth_primitives::TextureFormat::Bgra8,
-                            levels: vec![img.pixels.as_flattened().to_vec()],
-                        },
+                Some(img) => {
+                    let shrunk =
+                        dereth_world_render::land::merge::source_at_scale(&img, size, tiling);
+                    let img = shrunk.as_ref().unwrap_or(&img);
+                    Some(
+                        gpu.upload_imgtex_keyed(
+                            dereth_render::TextureKey::UNCACHED,
+                            &dereth_primitives::TextureData {
+                                width: img.width,
+                                height: img.height,
+                                format: dereth_primitives::TextureFormat::Bgra8,
+                                levels: vec![img.pixels.as_flattened().to_vec()],
+                            },
+                        )
+                        .map_err(|e| WorldError::Render(e.to_string()))?,
                     )
-                    .map_err(|e| WorldError::Render(e.to_string()))?,
-                ),
+                }
                 None => None,
             };
             resident.insert(id, r);
             Ok(r)
         };
         let base = match plan.base {
-            Some(id) => get(id)?,
+            Some(id) => get(id, plan.base_tiling)?,
             None => None,
         };
         let mut overlays = Vec::with_capacity(plan.overlays.len());
         for o in &plan.overlays {
-            let Some(alpha) = get(o.alpha)? else { continue };
+            let Some(alpha) = get(o.alpha, 1)? else {
+                continue;
+            };
             let tex = match o.tex {
-                Some(id) => get(id)?,
+                Some(id) => get(id, o.tiling)?,
                 None => None,
             };
             overlays.push(TerrainSplatOverlay {
@@ -5037,6 +5058,19 @@ mod imp {
         }
     }
 
+    /// The distance taken off the viewing distance before a detail level is chosen, on a world of
+    /// `era`'s files. From Throne of Destiny on it is the degrade-distance preference (50 m by
+    /// default), so everything inside it draws its nearest level. A world from before has none:
+    /// its clients compared the raw distance, so another character's parts change level within a
+    /// few metres.
+    #[must_use]
+    pub fn world_degrade_distance(era: dereth_dat::ContainerEra, preference: f32) -> f32 {
+        match era {
+            dereth_dat::ContainerEra::PreTod => 0.0,
+            dereth_dat::ContainerEra::Tod => preference,
+        }
+    }
+
     impl SceneDraw {
         /// The drawing half of a server object, which every object in
         /// `world.objects` has under the same id: the two maps gain and lose an id together.
@@ -5296,6 +5330,7 @@ mod imp {
                 // the region's: colour `0x00AAAAAA`, 400..2000, disabled.
                 fog: dereth_render::camera::FogParams::default(),
                 degrade: DegradeState::new(cfg.auto_degrades),
+                world_era: store.era(),
                 // The palette-shift landscape has no splat form (`splat` already says so).
                 terrain_splat: splat,
                 stats: SceneStats::default(),
@@ -9613,8 +9648,12 @@ mod imp {
                     g.deg_mul
                 },
                 // The degrade-distance preference -- `Render.DegradeDistance`, whose
-                // initial value is the 50.0 `DegradeGlobals::default()` carried.
-                degrade_distance: self.cfg.render.degrade_distance,
+                // initial value is the 50.0 `DegradeGlobals::default()` carried -- by the
+                // world's own rule.
+                degrade_distance: world_degrade_distance(
+                    self.world_era,
+                    self.cfg.render.degrade_distance,
+                ),
             }
         }
 

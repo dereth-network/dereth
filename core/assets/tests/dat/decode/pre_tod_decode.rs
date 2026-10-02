@@ -285,3 +285,35 @@ fn every_february_2005_record_decodes() {
     assert_eq!(r.per_type[&DbType::QualityFilter], 2);
     assert_eq!(r.per_type[&DbType::Region], 2);
 }
+
+/// A February 2005 graphics object names no detail record; it reaches one by its own id, with the
+/// record type's top byte over its low 24 bits. The male torso's record lists six levels whose
+/// nearest is a denser mesh than the torso itself (44 drawing polygons against 16), and the
+/// object itself is the second level.
+#[test]
+fn a_february_2005_gfxobj_reaches_its_degrade_record_by_its_own_id() {
+    let s = store();
+    let torso: GfxObj = read(&s, 0x0100_004E);
+    assert_eq!(torso.flags & 8, 0, "the older record names no degrade id");
+    assert_eq!(torso.did_degrade, Some(DataId(0x1100_004E)));
+    let info: dereth_assets::motion::GfxObjDegradeInfo = read(&s, 0x1100_004E);
+    let levels: Vec<u32> = info.degrades.iter().map(|d| d.gfxobj_id.raw()).collect();
+    assert_eq!(
+        levels,
+        [
+            0x0100_1787,
+            0x0100_004E,
+            0x0100_01A2,
+            0x0100_01A0,
+            0x0100_01F1,
+            0
+        ]
+    );
+    let near: GfxObj = read(&s, 0x0100_1787);
+    assert_eq!((near.polygons.len(), torso.polygons.len()), (44, 16));
+
+    // An object with no record of that id still decodes; the id it carries simply names nothing.
+    let no_record: GfxObj = read(&s, 0x0100_04B6);
+    assert_eq!(no_record.did_degrade, Some(DataId(0x1100_04B6)));
+    assert!(s.read_portal(DataId(0x1100_04B6)).is_err());
+}

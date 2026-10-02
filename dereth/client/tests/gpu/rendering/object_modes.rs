@@ -192,8 +192,8 @@ fn moved(a: &[u8], b: &[u8]) -> usize {
 /// back through the same per-frame preference poll the options page reaches. The switch rebuilds
 /// every block (its buildings, statics and scenery take the older look where the older files hold
 /// the same objects) and the body, which keeps the world's 34-part setup and draws its parts
-/// with the older files' records: the same models where they are the same (the older parts
-/// themselves where the later files draw finer meshes through their degrade records), and the
+/// with the older files' records: the same models where they are the same (with the same finer
+/// nearest meshes, which the older files reach through the records their ids reach), and the
 /// older bare arms and hands for the later bare ones; the frame moves.
 /// Switching back draws exactly the frame the world was first drawn with. The scenery, building
 /// and static counts never change.
@@ -236,13 +236,16 @@ fn an_object_mode_switch_rebuilds_the_town_and_the_body_and_switching_back_resto
         scene.draw.stats.object_appearances_from_look > looks_before,
         "the body was not built with the older look"
     );
-    // The body keeps the world's 34 parts. What each draws is the older look's: the later files
-    // give the first sixteen a degrade record whose nearest level is a finer mesh, the older
-    // files have no such record, so the parts draw themselves, and the bare arms and hands are
-    // the older bare ones.
+    // The body keeps the world's 34 parts. What each draws is the older look's: the older files
+    // reach the same finer nearest meshes for the first ten through the records their ids
+    // reach, and the bare arms and hands are the older bare ones, which are their own nearest.
     let older_body = scene.character_built_from().to_vec();
     assert_eq!(older_body.len(), 34, "the body keeps the world's setup");
-    assert_eq!(&older_body[..17], &FEBRUARY_2005_LOOK_OF_THE_LATER_BODY[..]);
+    assert_eq!(&older_body[..10], &LATER_BODY_NEAREST[..10]);
+    assert_eq!(
+        &older_body[10..17],
+        &FEBRUARY_2005_LOOK_OF_THE_LATER_BODY[10..]
+    );
     assert_eq!(&older_body[17..], &body[17..]);
     let legacy_moved = moved(&own_px, &legacy_px);
     assert!(
@@ -285,8 +288,15 @@ fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups
     let mut gpu = crate::common::software_gpu(640, 480);
     let mut own = load(&store, &mut gpu, cfg(None));
     let own_px = draw(&mut own, &store, &mut gpu);
+    // The February 2005 body, its first sixteen parts at the nearest level of the records their
+    // ids reach (the same meshes the later files name), the head its own.
     let own_body = own.character_built_from().to_vec();
-    assert_eq!(own_body, FEBRUARY_2005_BODY, "the February 2005 body");
+    assert_eq!(
+        &own_body[..16],
+        &LATER_BODY_NEAREST[..],
+        "the February 2005 body"
+    );
+    assert_eq!(own_body[16], FEBRUARY_2005_BODY[16]);
     assert!(!own.draw.objects_from_other_files());
     drop(own);
 
@@ -427,7 +437,8 @@ fn the_paper_doll_wears_the_look_the_body_wears_in_the_world() {
     let scene = load(&store, &mut gpu, cfg(Some(RegionStyle::LegacyHardware)));
     assert!(scene.draw.objects_from_other_files());
     let body = scene.character_built_from().to_vec();
-    assert_eq!(&body[..17], &FEBRUARY_2005_LOOK_OF_THE_LATER_BODY[..]);
+    assert_eq!(&body[..10], &LATER_BODY_NEAREST[..10]);
+    assert_eq!(&body[10..17], &FEBRUARY_2005_LOOK_OF_THE_LATER_BODY[10..]);
     let look = scene.draw.object_look().expect("the older look");
     let assets = Arc::new(DatAnimAssets::new(Arc::clone(&store)));
     let mut doll = PreviewSpace::new(Arc::clone(&assets));

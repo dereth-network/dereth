@@ -587,6 +587,32 @@ pub fn merged_texture_size(base_tex_size: u32, shift: u32, pal_lod: u32) -> u32 
     MIN_TEX_SIZE.max(shifted / pal_lod.max(1))
 }
 
+/// One source image as the composite at `size` texels per cell carries it, for drawing the
+/// landscape by blending the sources in the pixel shader rather than through composites.
+///
+/// A composite of `size` texels tiles a texture `tiling` times, so each repeat holds
+/// `size / tiling` texels, picked by the same stride the composite takes; an alpha map
+/// (`tiling` 1) holds `size`. An image already at or under that is returned unchanged, so at the
+/// highest texture detail the shader samples the full source. Lower detail settings shrink `size`
+/// ([`merged_texture_size`]) and the sources with it, which is what the setting does to the
+/// composites.
+#[must_use]
+pub fn source_at_scale(img: &Bgra8, size: u32, tiling: u32) -> Option<Bgra8> {
+    let per_repeat = (size / tiling.max(1)).max(1);
+    let w = img.width.min(per_repeat);
+    let h = img.height.min(per_repeat);
+    if (w, h) == (img.width, img.height) {
+        return None;
+    }
+    let mut out = Bgra8::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            out.pixels[(y * w + x) as usize] = img.get(x * img.width / w, y * img.height / h);
+        }
+    }
+    Some(out)
+}
+
 /// Composite one merge key into a BGRA8 buffer.
 ///
 /// ```text
@@ -1447,6 +1473,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A splat source at each texture detail level carries the texels the composite at that
+    /// level carries for one repeat of the same texture: the highest detail leaves it whole, and
+    /// each lower setting picks the same texels the composite's stride picks.
+    #[test]
+    fn a_splat_source_carries_the_texels_the_composite_carries_at_each_detail_level() {
+        let mut tex = Bgra8::new(256, 256);
+        for (i, p) in tex.pixels.iter_mut().enumerate() {
+            *p = [(i % 251) as u8, (i / 256) as u8, (i % 256) as u8, 0xFF];
+        }
+        let tiling = 4;
+        for pref in 0..=4 {
+            let size = merged_texture_size(1024, land_texture_scale_shift(pref), 1);
+            let composite = copy_and_tile(size, Some(&tex), tiling);
+            let splat = source_at_scale(&tex, size, tiling);
+            let per_repeat = size / tiling;
+            match &splat {
+                None => assert!(per_repeat >= tex.width, "detail {pref} keeps the source"),
+                Some(s) => {
+                    assert_eq!(
+                        (s.width, s.height),
+                        (per_repeat, per_repeat),
+                        "detail {pref}"
+                    );
+                    for y in 0..per_repeat {
+                        for x in 0..per_repeat {
+                            assert_eq!(s.get(x, y), composite.get(x, y), "detail {pref} ({x},{y})");
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            source_at_scale(&tex, 1024, 4).is_none(),
+            "Very High: the whole source"
+        );
+        let very_low = source_at_scale(&tex, merged_texture_size(1024, 4, 1), 4).expect("shrunk");
+        assert_eq!(
+            very_low.width, 16,
+            "Very Low: 64 texels a cell, 16 a repeat"
+        );
     }
 
     /// Oracle: the merged-pixel size rule and land-texture-scale derivation,

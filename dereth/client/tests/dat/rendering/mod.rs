@@ -5,5 +5,6 @@ mod materialize_shimmer;
 mod mesh_uv_indices;
 mod object_look;
 mod object_particle_space;
+mod pre_tod_degrade;
 mod static_script_hook_census;
 mod terrain_blend;
