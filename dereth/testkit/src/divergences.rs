@@ -316,9 +316,14 @@ pub static DIVERGENCES: &[Divergence] = &[
                  game: the character, the selection and the world are the same, each interface \
                  keeps its own windows, and the chat lines of the last while are handed to the \
                  interface switched to; the journal is one file, written by the interface \
-                 switched from and read again by the one switched to.",
+                 switched from and read again by the one switched to. Both interfaces' options \
+                 pages edit the same preferences in the profile (the classic interface's own \
+                 three, its inverted vertical mouse look, right-click mouse look and stretched \
+                 layout, are UI.Classic.*), and both bind keys in one key map file: each brings \
+                 its own default scheme, and the player's keys lay over either.",
         why: "The owner asked for both interfaces over any world, switchable while playing, as \
-              the landscape and object looks are.",
+              the landscape and object looks are, and for one set of options and keys behind \
+              them.",
     },
     Divergence {
         id: "CD-016",

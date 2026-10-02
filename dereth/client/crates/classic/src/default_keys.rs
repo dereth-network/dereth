@@ -74,15 +74,17 @@ pub fn from_final_maps(assets: &dyn AssetSource, catalogue: &Catalogue) -> Optio
     };
     let mut rows: BTreeMap<u16, &str> = BTreeMap::new();
     for command in &catalogue.actions {
-        let Some(action) = crate::keybindings::runtime_action(&command.name) else {
+        // Every action the command is, each stance's for the combat keys.
+        let actions = crate::keystore::shared_actions(&command.name);
+        if actions.is_empty() {
             continue;
-        };
+        }
         for (map, section) in maps
             .iter()
             .flat_map(|m| m.sections.iter().map(move |s| (m, s)))
         {
             for (chord, bound) in section.bindings() {
-                if *bound != action
+                if !actions.contains(&bound.0)
                     || chord.meta_mode != 0
                     || !keyboard(map, chord.control.device_index())
                 {

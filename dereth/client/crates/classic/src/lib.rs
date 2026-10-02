@@ -39,6 +39,7 @@ pub mod item_art;
 pub mod key_catalogue;
 pub mod keybindings;
 pub mod keyboard_runtime;
+pub mod keystore;
 pub mod panels;
 pub mod previews;
 pub mod renderer;

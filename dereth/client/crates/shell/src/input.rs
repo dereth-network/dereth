@@ -754,6 +754,192 @@ impl InputShell {
         Ok(true)
     }
 
+    // ---------------------------------------------------------------------------------------
+    // The key map as every interface shares it
+    // ---------------------------------------------------------------------------------------
+
+    /// The player's own keys: every unmodified keyboard key the key map binds otherwise than the
+    /// shipped defaults (this client's own actions' defaults among them) do, as `(scan code,
+    /// action)`.
+    #[must_use]
+    pub fn player_bindings(&self) -> Vec<(u16, ActionId)> {
+        let Some(shipped) = self.manager.shipped_maps.as_ref() else {
+            return Vec::new();
+        };
+        let keymap = &self.manager.keymap;
+        let mut out = Vec::new();
+        for section in &keymap.sections {
+            for (qc, action) in section.bindings() {
+                if qc.meta_mode != 0
+                    || keymap.device_type_of(qc.control) != Some(dereth_input::DeviceType::Keyboard)
+                {
+                    continue;
+                }
+                let shipped_here = [&shipped.0, &shipped.1].iter().any(|m| {
+                    m.section(section.input_map_id)
+                        .is_some_and(|s| s.bindings().iter().any(|(k, a)| k == qc && a == action))
+                });
+                if !shipped_here {
+                    out.push((qc.control.offset(), *action));
+                }
+            }
+        }
+        out
+    }
+
+    /// The shipped defaults' unmodified keyboard bindings the key map no longer has, as `(scan
+    /// code, action)`: the keys the player took away.
+    #[must_use]
+    pub fn removed_bindings(&self) -> Vec<(u16, ActionId)> {
+        let Some(shipped) = self.manager.shipped_maps.as_ref() else {
+            return Vec::new();
+        };
+        let keymap = &self.manager.keymap;
+        let mut out = Vec::new();
+        for m in [&shipped.0, &shipped.1] {
+            for section in &m.sections {
+                for (qc, action) in section.bindings() {
+                    if qc.meta_mode != 0
+                        || m.device_type_of(qc.control) != Some(dereth_input::DeviceType::Keyboard)
+                    {
+                        continue;
+                    }
+                    let kept = keymap
+                        .section(section.input_map_id)
+                        .is_some_and(|s| s.bindings().iter().any(|(k, a)| k == qc && a == action));
+                    if !kept {
+                        out.push((qc.control.offset(), *action));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The input map an action's keys go in: the one the shipped defaults bind it in, else the
+    /// first the action map allows it in, else this client's own map.
+    #[must_use]
+    pub fn home_map(&self, action: ActionId) -> InputMapId {
+        if let Some(shipped) = self.manager.shipped_maps.as_ref() {
+            for m in [&shipped.0, &shipped.1] {
+                if let Some(s) = m
+                    .sections
+                    .iter()
+                    .find(|s| s.bindings().iter().any(|(_, a)| *a == action))
+                {
+                    return s.input_map_id;
+                }
+            }
+        }
+        self.manager
+            .action_map
+            .input_maps()
+            .find(|m| {
+                self.manager
+                    .action_map
+                    .is_action_allowed_in_input_map(*m, action)
+            })
+            .unwrap_or(dereth_input::dereth::INPUT_MAP)
+    }
+
+    /// Bind the unmodified key `scan` to `action` in its home map ([`Self::home_map`]), in place
+    /// of whatever the key did there and in the maps that conflict with it; `replaced`, when set,
+    /// is a key `action` no longer has. Returns whether the key map changed.
+    pub fn bind_key(&mut self, scan: u16, action: ActionId, replaced: Option<u16>) -> bool {
+        let Some(shipped) = self.manager.shipped_maps.as_ref() else {
+            return false;
+        };
+        let Some(chord) = dereth_input::dereth::keyboard_chord(&shipped.1, scan) else {
+            return false;
+        };
+        let old = replaced.and_then(|r| dereth_input::dereth::keyboard_chord(&shipped.1, r));
+        let map = self.home_map(action);
+        let mut maps: Vec<InputMapId> =
+            self.manager.action_map.conflicting_input_maps(map).to_vec();
+        if !maps.contains(&map) {
+            maps.push(map);
+        }
+        for m in maps {
+            if let Some(s) = self.manager.keymap.section_mut(m) {
+                s.unbind_control(chord.control);
+            }
+        }
+        let section = self.manager.keymap.create_input_map(map);
+        if let Some(old) = old {
+            section.unbind_control_from(old.control, action);
+        }
+        section.add_mapping(chord, action);
+        true
+    }
+
+    /// `action` no longer has the unmodified key `scan`, in any map.
+    pub fn unbind_key(&mut self, scan: u16, action: ActionId) {
+        let Some(chord) = self
+            .manager
+            .shipped_maps
+            .as_ref()
+            .and_then(|s| dereth_input::dereth::keyboard_chord(&s.1, scan))
+        else {
+            return;
+        };
+        for s in &mut self.manager.keymap.sections {
+            s.unbind_control_from(chord.control, action);
+        }
+    }
+
+    /// Write the key map file `name` (`.keymap` added): the shipped defaults with `keys` bound
+    /// ([`Self::bind_key`]). The key map in use is left as it was. `Ok(false)` when a file of that
+    /// name is already there, or there is no folder to write in.
+    pub fn save_scheme_as(
+        &mut self,
+        name: &str,
+        keys: &[(u16, ActionId)],
+    ) -> Result<bool, dereth_input::InputError> {
+        let keymap = self.manager.keymap.clone();
+        let path = self.keymap_path.clone();
+        self.restore_shipped_keys();
+        for (scan, action) in keys {
+            self.bind_key(*scan, *action, None);
+        }
+        let saved = self.save_keymap_as(name, false);
+        self.manager.keymap = keymap;
+        self.keymap_path = path;
+        Ok(matches!(saved?, Some(SaveKeymapAs::Saved)))
+    }
+
+    /// Back to the shipped defaults: the player's own keys are dropped.
+    pub fn restore_shipped_keys(&mut self) -> bool {
+        self.manager.reload_defaults()
+    }
+
+    /// Delete the key map file `name` (a basename, `.keymap` added when absent) beside the one in
+    /// use. The one in use is not deleted.
+    pub fn delete_keymap_file(&mut self, name: &str) -> Result<bool, dereth_input::InputError> {
+        let Some(dir) = self
+            .keymap_path
+            .as_deref()
+            .and_then(std::path::Path::parent)
+        else {
+            return Ok(false);
+        };
+        let mut file = std::path::PathBuf::from(name.trim());
+        if file.file_name() != Some(file.as_os_str()) {
+            return Ok(false);
+        }
+        if file
+            .extension()
+            .is_none_or(|e| !e.eq_ignore_ascii_case("keymap"))
+        {
+            file = std::path::PathBuf::from(format!("{}.keymap", name.trim()));
+        }
+        let path = dir.join(file);
+        if self.keymap_path.as_deref() == Some(path.as_path()) {
+            return Ok(false);
+        }
+        std::fs::remove_file(&path)?;
+        Ok(true)
+    }
+
     /// `SaveKeymap` for a new name from the Save Keymap dialog.
     pub fn save_keymap_as(
         &mut self,

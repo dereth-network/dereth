@@ -2471,10 +2471,120 @@ impl<C: crate::clipboard::HostClipboard> dereth_classic_ui::runtime::Clipboard
     }
 }
 
+/// The shared key map as the classic interface reads it: the player's own keys, and the key map
+/// files.
+fn shared_keys(
+    input: Option<&crate::input::InputShell>,
+) -> dereth_classic_ui::keystore::SharedKeys {
+    let Some(input) = input else {
+        return dereth_classic_ui::keystore::SharedKeys::default();
+    };
+    let stem = |n: &str| {
+        std::path::Path::new(n)
+            .file_stem()
+            .map_or_else(|| n.to_owned(), |s| s.to_string_lossy().into_owned())
+    };
+    dereth_classic_ui::keystore::SharedKeys {
+        player: input
+            .player_bindings()
+            .into_iter()
+            .map(
+                |(scan, action)| dereth_classic_ui::keystore::SharedBinding {
+                    scan,
+                    action: action.0,
+                },
+            )
+            .collect(),
+        removed: input
+            .removed_bindings()
+            .into_iter()
+            .map(
+                |(scan, action)| dereth_classic_ui::keystore::SharedBinding {
+                    scan,
+                    action: action.0,
+                },
+            )
+            .collect(),
+        files: input
+            .keymap_files()
+            .unwrap_or_default()
+            .iter()
+            .map(|n| stem(n))
+            .collect(),
+        current: input.keymap_file_name().map(|n| stem(&n)),
+    }
+}
+
+/// Carry out one of the classic key page's requests on the shared key map.
+fn apply_key_store_request(
+    input: &mut crate::input::InputShell,
+    request: dereth_classic_ui::keystore::KeyStoreRequest,
+) {
+    use dereth_classic_ui::keystore::KeyStoreRequest as R;
+    let result = match request {
+        R::Bind {
+            scan,
+            action,
+            replaced,
+        } => {
+            input.bind_key(scan, dereth_input::ActionId(action), replaced);
+            Ok(())
+        }
+        R::Unbind { scan, action } => {
+            input.unbind_key(scan, dereth_input::ActionId(action));
+            Ok(())
+        }
+        R::SaveAs { name, overwrite } => input.save_keymap_as(&name, overwrite).map(|_| ()),
+        R::Load(name) => input
+            .load_keymap_file(&format!("{name}.keymap"))
+            .map(|_| ()),
+        R::Delete(name) => input.delete_keymap_file(&name).map(|_| ()),
+        R::Defaults => {
+            input.restore_shipped_keys();
+            Ok(())
+        }
+    };
+    if let Err(e) = result {
+        tracing::warn!("the key map: {e}");
+    }
+}
+
+/// Carry the classic interface's old schemes into the shared key map: the one it had in use into
+/// the key map in use, each other into a key map file of its name (the shipped defaults with its
+/// keys), unless one of that name is already there.
+fn carry_legacy_schemes(
+    input: &mut crate::input::InputShell,
+    schemes: Vec<(
+        String,
+        Vec<dereth_classic_ui::keystore::SharedBinding>,
+        bool,
+    )>,
+) {
+    for (name, keys, in_use) in schemes {
+        let keys: Vec<(u16, dereth_input::ActionId)> = keys
+            .iter()
+            .map(|k| (k.scan, dereth_input::ActionId(k.action)))
+            .collect();
+        if in_use {
+            for (scan, action) in &keys {
+                input.bind_key(*scan, *action, None);
+            }
+            tracing::info!("the classic key scheme {name:?} is now the key map's own keys");
+        } else {
+            match input.save_scheme_as(&name, &keys) {
+                Ok(true) => tracing::info!("the classic key scheme {name:?} is now {name}.keymap"),
+                Ok(false) => {}
+                Err(e) => tracing::warn!("the classic key scheme {name:?}: {e}"),
+            }
+        }
+    }
+}
+
 /// Bring the classic interface up: its art from the early-2005 portal, its text from the host's
-/// fonts, its own settings beside the client's.
+/// fonts, its settings and keys in the stores both interfaces share.
 fn build_classic<H: Host>(
     cx: &mut Cx<'_, H>,
+    keys: dereth_classic_ui::keystore::SharedKeys,
 ) -> Result<dereth_classic_ui::runtime::ClassicUi, crate::classic_face::Refusal> {
     use crate::classic_face::Refusal;
     let portal = dereth_classic_dat::ClassicPortal::of_store(cx.store()).ok_or(Refusal::Files)?;
@@ -2501,6 +2611,7 @@ fn build_classic<H: Host>(
         dereth_classic_ui::panels::factory,
         size,
     );
+    ui.set_shared_keys(keys);
     ui.start(cx).map_err(Refusal::Failed)?;
     Ok(ui)
 }
@@ -2524,10 +2635,21 @@ impl<H: Host> ClientShell<H> {
             Interface::Classic => {
                 if let Some(ui) = self.classic.ui.as_mut() {
                     ui.shown_again();
+                    ui.set_shared_keys(shared_keys(self.input.as_ref()));
                 }
                 if self.classic.ui.is_none() {
-                    match build_classic(cx) {
-                        Ok(ui) => self.classic.ui = Some(ui),
+                    match build_classic(cx, shared_keys(self.input.as_ref())) {
+                        Ok(mut ui) => {
+                            let legacy = ui.take_legacy_schemes();
+                            if !legacy.is_empty() {
+                                if let Some(input) = self.input.as_mut() {
+                                    carry_legacy_schemes(input, legacy);
+                                    ui.legacy_schemes_moved();
+                                }
+                                ui.set_shared_keys(shared_keys(self.input.as_ref()));
+                            }
+                            self.classic.ui = Some(ui);
+                        }
                         Err(refusal) => {
                             tracing::warn!("{}", refusal.notice());
                             cx.add_scroll_line(
@@ -2975,6 +3097,20 @@ impl<H: Host> Shell for ClientShell<H> {
         self.follow_interface(cx);
         if let Some(ui) = self.classic.active_mut() {
             ui.ui_frame(cx, now, notices);
+            // What the classic key page asked of the shared key map, carried out, and the map
+            // handed back as it then is.
+            let requests = ui.take_key_store_requests();
+            if !requests.is_empty() {
+                if let Some(input) = self.input.as_mut() {
+                    for r in requests {
+                        apply_key_store_request(input, r);
+                    }
+                }
+                let keys = shared_keys(self.input.as_ref());
+                if let Some(ui) = self.classic.active_mut() {
+                    ui.set_shared_keys(keys);
+                }
+            }
             return;
         }
         Ui { cx, shell: self }.ui_frame(now, notices);

@@ -6,7 +6,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -311,6 +311,23 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-HUD-WINDOWS"),
         station: "dereth-client::gpu::panels::gameplay_hud::the_hud_comes_up_with_the_six_windows_the_retail_client_shows_and_no_others",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "keys.shared.one-key-map-for-every-interface",
+        says: "Both interfaces bind keys in one key map, the client's key map file, in the \
+               shared action names: a key the classic interface's Keyboard Configuration page \
+               binds goes into the map its action belongs to, in place of whatever the key did \
+               there and in the maps that conflict with it, and the retail key page and the \
+               retail interface's keys see it; the keys the retail page binds lay over the \
+               classic interface's own default scheme. Each interface keeps its own default \
+               scheme, the player's keys are what differs from the shipped defaults, the classic \
+               page's schemes are the key map files, and the commands only the classic interface \
+               has are written by this client's own action names.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-UNIFY-ONE-KEYMAP"),
+        station: "dereth-client::dat::ui::shared_key_map::a_key_bound_for_one_interface_is_the_shared_maps_and_survives_its_file",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "notice.a-line-still-waiting-when-the-character-logs-off-goes-with-the-windows",

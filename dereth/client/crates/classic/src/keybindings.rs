@@ -1,18 +1,18 @@
-//! January 2005 keyboard schemes: virtual keys and six-field .map files.
+//! January 2005 keyboard schemes: virtual keys, over the one key map both interfaces keep.
 //!
-//! A key map file is a count, then one row per binding of six fields: the input map, the key,
-//! the chord, the command name, the command type and the analog type. Capturing a key binds map 0,
-//! chord 0 and asks before displacing a key. These are not modern InputManager
-//! maps or its release-capture policy. Only the public action vocabulary is shared.
+//! The classic interface's default scheme is a six-field `.map` file (`Default.map`, or the
+//! stand-in built from the final client's maps): a count, then one row per binding of the input
+//! map, the key, the chord, the command name, the command type and the analog type. The player's
+//! own keys are not kept here: they are the shared key map's ([`crate::keystore`]), laid over the
+//! default scheme, and every key the page binds or clears is asked of it at once. The schemes the
+//! page lists are the shared key map files. Capturing a key binds map 0, chord 0 and asks before
+//! displacing a key; the keys themselves are dispatched here, not by the modern input manager.
 use crate::int::u32_from;
+use crate::keystore::{KeyStoreRequest, SharedKeys};
 use crate::panels::{HostAction, KeyBinding, KeyboardState};
 use dereth_client_contract::actions::{names, Action, ActionId, ActionPhase};
 use serde::Deserialize;
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Command {
@@ -83,8 +83,12 @@ pub struct LegacyCommand {
 #[derive(Debug)]
 pub struct KeyBindings {
     catalogue: Catalogue,
-    directory: PathBuf,
+    /// The interface's own default scheme, with this client's own actions' default keys.
+    defaults: Vec<Binding>,
     schemes: Vec<Scheme>,
+    /// What the page asks of the shared key map, oldest first. The host carries each out and
+    /// hands back the map as it then is ([`Self::set_shared`]).
+    pub requests: Vec<KeyStoreRequest>,
     selected: usize,
     capture: Option<Capture>,
     capture_revision: u64,
@@ -98,17 +102,16 @@ pub struct KeyBindings {
 impl KeyBindings {
     /// The key schemes over `catalogue`. `defaults` is the text of the default key map, if there
     /// is one (or why it could not be read): its scheme is "Default". Without one the first scheme
-    /// is "Unbound" and binds nothing. The player's own schemes (`*.map`) and the name of the
-    /// scheme in use (`current.txt`) live in `directory`.
+    /// is "Unbound" and binds nothing but this client's own actions' keys. The player's own keys
+    /// and the other schemes are the shared key map's, `shared`.
     pub fn load(
         catalogue: Catalogue,
-        directory: &Path,
         defaults: Option<Result<String, String>>,
+        shared: &SharedKeys,
     ) -> Result<Self, String> {
         if catalogue.actions.is_empty() {
             return Err("The keyboard command catalogue is empty".into());
         }
-        fs::create_dir_all(directory).map_err(err)?;
         let default_result = defaults
             .map(|text| text.and_then(|s| parse_map(&s, &catalogue)))
             .transpose();
@@ -116,59 +119,28 @@ impl KeyBindings {
             Ok(defaults) => (defaults, None),
             Err(error) => (None, Some(error)),
         };
-        let mut schemes = vec![Scheme {
-            name: if defaults.is_some() {
-                "Default"
-            } else {
-                "Unbound"
-            }
-            .into(),
-            bindings: defaults.clone().unwrap_or_default(),
-            saved: defaults.clone().unwrap_or_default(),
-        }];
-        let mut files = fs::read_dir(directory)
-            .map_err(err)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(err)?;
-        files.sort_by_key(|e| e.file_name());
-        for file in files {
-            let path = file.path();
-            if path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("map"))
-            {
-                let name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .ok_or("Non-Unicode scheme name")?;
-                validate_name(name)?;
-                if schemes.iter().any(|s| s.name.eq_ignore_ascii_case(name)) {
-                    continue;
-                }
-                let text = fs::read_to_string(&path).map_err(err)?;
-                let bindings =
-                    parse_map(&text, &catalogue).map_err(|e| format!("{}: {e}", path.display()))?;
-                schemes.push(Scheme {
-                    name: name.into(),
-                    saved: bindings.clone(),
-                    bindings,
-                });
-            }
+        let name: String = if defaults.is_some() {
+            "Default"
+        } else {
+            "Unbound"
         }
-        let current = fs::read_to_string(directory.join("current.txt")).unwrap_or_default();
-        let selected = schemes
-            .iter()
-            .position(|s| s.name.eq_ignore_ascii_case(current.trim()))
-            .unwrap_or(0);
-        let warning = defaults.is_none().then(|| {
+        .into();
+        let mut defaults = defaults.unwrap_or_default();
+        own_default_keys(&catalogue, &mut defaults);
+        let warning = (name == "Unbound").then(|| {
             let reason = default_error.map_or_else(|| "unavailable".into(), |e| format!("unusable ({e})"));
             format!("The default key map is {reason}; the Unbound scheme binds no keys. Bind keys and Save As to create a scheme.")
         });
-        Ok(Self {
+        let mut k = Self {
             catalogue,
-            directory: directory.into(),
-            schemes,
-            selected,
+            schemes: vec![Scheme {
+                name,
+                bindings: defaults.clone(),
+                saved: defaults.clone(),
+            }],
+            defaults,
+            requests: Vec::new(),
+            selected: 0,
             capture: None,
             capture_revision: 0,
             swallowed: vec![],
@@ -176,7 +148,138 @@ impl KeyBindings {
             held_legacy: BTreeMap::new(),
             combat_mode: 1,
             warning,
-        })
+        };
+        k.set_shared(shared);
+        Ok(k)
+    }
+
+    /// Follow the shared key map as it now is: the schemes are its files, and the one in use is
+    /// the default scheme with the player's own keys laid over it.
+    pub fn set_shared(&mut self, shared: &SharedKeys) {
+        let base = self.schemes[0].name.clone();
+        let mine = self.overlay(&shared.player, &shared.removed);
+        let mut files = shared.files.clone();
+        if let Some(current) = &shared.current {
+            if !files.iter().any(|f| f.eq_ignore_ascii_case(current)) {
+                files.push(current.clone());
+            }
+        }
+        files.retain(|f| !f.eq_ignore_ascii_case(&base));
+        let mut schemes = vec![Scheme {
+            name: base,
+            bindings: self.defaults.clone(),
+            saved: self.defaults.clone(),
+        }];
+        let mut selected = 0;
+        for f in files {
+            let current = shared
+                .current
+                .as_ref()
+                .is_some_and(|c| c.eq_ignore_ascii_case(&f));
+            let bindings = if current {
+                selected = schemes.len();
+                mine.clone()
+            } else {
+                self.defaults.clone()
+            };
+            schemes.push(Scheme {
+                name: f,
+                saved: bindings.clone(),
+                bindings,
+            });
+        }
+        // With no file in use, the player's keys are still the ones in force.
+        if selected == 0 {
+            schemes[0].bindings = mine;
+            schemes[0].saved = schemes[0].bindings.clone();
+        }
+        self.schemes = schemes;
+        self.selected = selected;
+        self.end_capture();
+    }
+
+    /// The default scheme with the player's own keys laid over it: each key the player bound
+    /// takes the classic command its action is, in place of whatever the key did. Keys with
+    /// modifiers, keys the interface keeps for itself and actions no command is are left out.
+    fn overlay(
+        &self,
+        player: &[crate::keystore::SharedBinding],
+        removed: &[crate::keystore::SharedBinding],
+    ) -> Vec<Binding> {
+        let mut bindings = self.defaults.clone();
+        for b in removed {
+            let (Some(command), Some(vk)) = (
+                self.command_of_action(b.action),
+                crate::default_keys::virtual_key(b.scan),
+            ) else {
+                continue;
+            };
+            bindings
+                .retain(|x| !(x.map == 0 && x.key == vk && x.chord == 0 && x.action == command));
+        }
+        for b in player {
+            let Some(command) = crate::keystore::command_for_action(
+                self.catalogue.actions.iter().map(|c| c.name.as_str()),
+                b.action,
+            )
+            .and_then(|name| self.catalogue.actions.iter().find(|c| c.name == name))
+            .map(|c| c.id) else {
+                continue;
+            };
+            let Some(vk) = crate::default_keys::virtual_key(b.scan).filter(|vk| !reserved(*vk))
+            else {
+                continue;
+            };
+            bindings.retain(|x| !(x.map == 0 && x.key == vk && x.chord == 0));
+            bindings.push(Binding {
+                map: 0,
+                key: vk,
+                chord: 0,
+                action: command,
+                command_type: 0,
+                analog_type: 0,
+            });
+        }
+        bindings
+    }
+
+    /// The classic command (by id) a shared action is.
+    fn command_of_action(&self, action: u32) -> Option<u32> {
+        crate::keystore::command_for_action(
+            self.catalogue.actions.iter().map(|c| c.name.as_str()),
+            action,
+        )
+        .and_then(|name| self.catalogue.actions.iter().find(|c| c.name == name))
+        .map(|c| c.id)
+    }
+
+    /// Ask the shared key map to bind or clear `key` for `command`: every shared action the
+    /// command is.
+    fn ask(&mut self, command: u32, key: u16, bind: bool, replaced: Option<u16>) {
+        let Some(name) = self.command(command).map(|c| c.name.clone()) else {
+            return;
+        };
+        let Some(scan) = crate::keystore::scan_code(key) else {
+            return;
+        };
+        let replaced = replaced.and_then(crate::keystore::scan_code);
+        for action in crate::keystore::shared_actions(&name) {
+            self.requests.push(if bind {
+                KeyStoreRequest::Bind {
+                    scan,
+                    action,
+                    replaced,
+                }
+            } else {
+                KeyStoreRequest::Unbind { scan, action }
+            });
+        }
+    }
+
+    /// The page's edits are the shared key map's at once: nothing is left unsaved.
+    fn settle(&mut self) {
+        let s = &mut self.schemes[self.selected];
+        s.saved = s.bindings.clone();
     }
 
     pub fn snapshot(&self) -> KeyboardState {
@@ -252,11 +355,15 @@ impl KeyBindings {
                 if *i as usize >= self.schemes.len() {
                     return Err("Unknown keyboard scheme".into());
                 }
-                self.schemes[self.selected].bindings = self.scheme().saved.clone();
                 self.selected = *i as usize;
-                self.schemes[self.selected].bindings = self.scheme().saved.clone();
+                // The default scheme is the shared map with none of the player's keys; another
+                // is that file of the shared map.
+                self.requests.push(if self.selected == 0 {
+                    KeyStoreRequest::Defaults
+                } else {
+                    KeyStoreRequest::Load(self.scheme().name.clone())
+                });
                 self.end_capture();
-                self.persist_selection()?;
             }
             HostAction::CaptureBinding { action, map, slot } => {
                 if *map != 0 || *slot >= 3 || self.command(*action).is_none() {
@@ -285,13 +392,26 @@ impl KeyBindings {
                     self.schemes[self.selected]
                         .bindings
                         .retain(|b| !(b.map == *map && b.key == key && b.chord == 0));
+                    self.ask(*action, key, false, None);
+                    self.settle();
                 }
                 self.end_capture();
             }
             HostAction::ClearBinding { action, map } => {
+                let keys: Vec<u16> = self
+                    .scheme()
+                    .bindings
+                    .iter()
+                    .filter(|b| b.map == *map && b.action == *action && b.chord == 0)
+                    .map(|b| b.key)
+                    .collect();
                 self.schemes[self.selected]
                     .bindings
                     .retain(|b| !(b.map == *map && b.action == *action));
+                for key in keys {
+                    self.ask(*action, key, false, None);
+                }
+                self.settle();
                 self.end_capture();
             }
             HostAction::SaveKeyMapAs { name } => {
@@ -304,18 +424,16 @@ impl KeyBindings {
                     return Err("A keyboard scheme with that name already exists".into());
                 }
                 let bindings = self.scheme().bindings.clone();
-                fs::write(
-                    self.directory.join(format!("{name}.map")),
-                    write_map(&bindings, &self.catalogue)?,
-                )
-                .map_err(err)?;
+                self.requests.push(KeyStoreRequest::SaveAs {
+                    name: name.clone(),
+                    overwrite: false,
+                });
                 self.schemes.push(Scheme {
                     name: name.clone(),
                     saved: bindings.clone(),
                     bindings,
                 });
                 self.selected = self.schemes.len() - 1;
-                self.persist_selection()?;
             }
             HostAction::OverwriteKeyMap { name } => {
                 validate_name(name)?;
@@ -328,17 +446,13 @@ impl KeyBindings {
                     return Err("The base keyboard scheme cannot be overwritten".into());
                 }
                 let bindings = self.scheme().bindings.clone();
-                // Write successfully before replacing the in-memory target selection.
-                fs::write(
-                    self.directory
-                        .join(format!("{}.map", self.schemes[index].name)),
-                    write_map(&bindings, &self.catalogue)?,
-                )
-                .map_err(err)?;
+                self.requests.push(KeyStoreRequest::SaveAs {
+                    name: self.schemes[index].name.clone(),
+                    overwrite: true,
+                });
                 self.schemes[index].saved = bindings.clone();
                 self.schemes[index].bindings = bindings;
                 self.selected = index;
-                self.persist_selection()?;
             }
             HostAction::DeleteKeyScheme { name } => {
                 let index = self
@@ -349,11 +463,8 @@ impl KeyBindings {
                 if index == 0 {
                     return Err("The base keyboard scheme cannot be deleted".into());
                 }
-                fs::remove_file(
-                    self.directory
-                        .join(format!("{}.map", self.schemes[index].name)),
-                )
-                .map_err(err)?;
+                self.requests
+                    .push(KeyStoreRequest::Delete(self.schemes[index].name.clone()));
                 self.schemes.remove(index);
                 if self.selected == index {
                     self.selected = 0;
@@ -361,22 +472,20 @@ impl KeyBindings {
                     self.selected -= 1;
                 }
                 self.end_capture();
-                self.persist_selection()?;
             }
             HostAction::RestoreBindings => {
+                // Back to the scheme as its file holds it.
+                self.requests.push(if self.selected == 0 {
+                    KeyStoreRequest::Defaults
+                } else {
+                    KeyStoreRequest::Load(self.scheme().name.clone())
+                });
                 self.schemes[self.selected].bindings = self.scheme().saved.clone();
                 self.end_capture();
             }
             _ => return Ok(false),
         }
         Ok(true)
-    }
-    fn persist_selection(&self) -> Result<(), String> {
-        fs::write(
-            self.directory.join("current.txt"),
-            format!("{}\n", self.scheme().name),
-        )
-        .map_err(err)
     }
     /// `vk` is the Windows virtual key, never a scan-code or Unicode scalar.
     /// The capture page creates unmodified keyboard-down entries only. Existing
@@ -588,6 +697,8 @@ impl KeyBindings {
             command_type: 0,
             analog_type: 0,
         });
+        self.ask(capture.action, key, true, old.filter(|o| *o != key));
+        self.settle();
         self.end_capture();
         Ok(CaptureResult::Finished)
     }
@@ -618,6 +729,104 @@ impl KeyBindings {
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Give this client's own actions their default keys in a default scheme, where the scheme
+/// leaves the key free: the performance panel's F7, whatever the interface.
+fn own_default_keys(catalogue: &Catalogue, bindings: &mut Vec<Binding>) {
+    for a in dereth_input::dereth::ACTIONS {
+        let (Some(scan), Some(name)) = (
+            a.default_key,
+            names::DERETH_ACTION_NAMES
+                .iter()
+                .find(|(id, _)| *id == a.action)
+                .map(|(_, n)| *n),
+        ) else {
+            continue;
+        };
+        let (Some(vk), Some(command)) = (
+            crate::default_keys::virtual_key(scan),
+            catalogue.actions.iter().find(|c| c.name == name),
+        ) else {
+            continue;
+        };
+        if bindings
+            .iter()
+            .any(|b| b.map == 0 && b.key == vk && b.chord == 0)
+        {
+            continue;
+        }
+        bindings.push(Binding {
+            map: 0,
+            key: vk,
+            chord: 0,
+            action: command.id,
+            command_type: 0,
+            analog_type: 0,
+        });
+    }
+}
+
+/// The classic interface's old schemes, `*.map` files in the folder it kept them in, as the
+/// player's keys each lays over the default scheme: `(name, keys, in use)`. The host carries them
+/// into the shared key map's files once ([`crate::keystore`]).
+///
+/// # Errors
+/// The folder is there and cannot be read.
+pub fn legacy_schemes(
+    directory: &std::path::Path,
+    catalogue: &Catalogue,
+    defaults: Option<&str>,
+) -> Result<Vec<(String, Vec<crate::keystore::SharedBinding>, bool)>, String> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Ok(Vec::new());
+    };
+    let base = defaults
+        .and_then(|t| parse_map(t, catalogue).ok())
+        .unwrap_or_default();
+    let current = std::fs::read_to_string(directory.join("current.txt")).unwrap_or_default();
+    let mut out = Vec::new();
+    let mut files = entries.collect::<Result<Vec<_>, _>>().map_err(err)?;
+    files.sort_by_key(std::fs::DirEntry::file_name);
+    for file in files {
+        let path = file.path();
+        if !path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("map"))
+        {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(bindings) = parse_map(&text, catalogue) else {
+            continue;
+        };
+        let mut keys = Vec::new();
+        for b in bindings
+            .iter()
+            .filter(|b| b.map == 0 && b.chord == 0 && !base.contains(b))
+        {
+            let (Some(scan), Some(command)) = (
+                crate::keystore::scan_code(b.key),
+                catalogue.actions.iter().find(|c| c.id == b.action),
+            ) else {
+                continue;
+            };
+            for action in crate::keystore::shared_actions(&command.name) {
+                keys.push(crate::keystore::SharedBinding { scan, action });
+            }
+        }
+        out.push((
+            name.to_owned(),
+            keys,
+            current.trim().eq_ignore_ascii_case(name),
+        ));
+    }
+    Ok(out)
 }
 /// Keys the classic interface keeps for itself and never binds: Tab, Enter, Escape, the number
 /// row (the shortcut bar), F1 (Help) and Num Lock.
@@ -739,24 +948,6 @@ fn parse_map(text: &str, catalogue: &Catalogue) -> Result<Vec<Binding>, String> 
         return Err("Unexpected text after keymap rows".into());
     }
     Ok(bindings)
-}
-fn write_map(bindings: &[Binding], catalogue: &Catalogue) -> Result<String, String> {
-    let mut text = format!("{}\n", bindings.len());
-    let mut rows: Vec<_> = bindings.iter().collect();
-    rows.sort_by_key(|b| (b.map, b.key, b.chord));
-    for b in rows {
-        let command = catalogue
-            .actions
-            .iter()
-            .find(|c| c.id == b.action)
-            .ok_or("Unknown action in keymap")?;
-        text += &format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\n",
-            b.map, b.key, b.chord, command.name, b.command_type, b.analog_type
-        );
-    }
-    text += "InputType\tInput\tChording\tCommand\tCommandType\tAnalogType\n";
-    Ok(text)
 }
 
 pub fn key_name(vk: u16) -> String {
@@ -961,56 +1152,34 @@ pub fn runtime_action_in_mode(name: &str, mode: u32) -> Option<ActionId> {
 
 #[cfg(test)]
 mod tests {
+    //! Behaviour: none (the classic key page's own engine; the shared key map it edits is tested
+    //! where the host keeps it).
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    struct Fixture {
-        dir: PathBuf,
-        catalogue: PathBuf,
-        defaults: PathBuf,
+    use crate::keystore::SharedBinding;
+
+    const CATALOGUE: &str = r#"{"categories":["Movement"],"actions":[
+        {"id":5,"name":"WalkForward","flags":1157627909,"category":0,"label":"Walk Forward"},
+        {"id":6,"name":"WalkBackwards","flags":1157627910,"category":0,"label":"Walk Backwards"},
+        {"id":177,"name":"ToggleCombat","flags":150995121,"category":0,"label":"Combat Mode"},
+        {"id":370,"name":"TogglePerformancePanel","flags":151000434,"category":0,"label":"Performance Panel"}
+    ]}"#;
+    const DEFAULTS: &str = "2\n0 87 0 WalkForward 0 0\n0 83 0 WalkBackwards 0 0\n";
+    /// The scan codes of Q, W, S and X.
+    const Q: u16 = 0x10;
+    const W: u16 = 0x11;
+    const X: u16 = 0x2D;
+
+    fn catalogue() -> Catalogue {
+        serde_json::from_str(CATALOGUE).unwrap()
     }
-    impl Fixture {
-        fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "dereth-classic-keybindings-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir_all(&dir).unwrap();
-            let catalogue = dir.join("catalogue.json");
-            fs::write(&catalogue, r#"{"categories":["Movement"],"actions":[
-                {"id":5,"name":"WalkForward","flags":1157627909,"category":0,"label":"Walk Forward"},
-                {"id":6,"name":"WalkBackwards","flags":1157627910,"category":0,"label":"Walk Backwards"},
-                {"id":177,"name":"ToggleCombat","flags":150995121,"category":0,"label":"Combat Mode"}
-            ]}"#).unwrap();
-            let defaults = dir.join("original.map");
-            fs::write(
-                &defaults,
-                "2\n0 87 0 WalkForward 0 0\n0 83 0 WalkBackwards 0 0\n",
-            )
-            .unwrap();
-            Self {
-                dir,
-                catalogue,
-                defaults,
-            }
-        }
-        fn catalogue(&self) -> Catalogue {
-            serde_json::from_slice(&fs::read(&self.catalogue).unwrap()).unwrap()
-        }
-        fn load(&self) -> KeyBindings {
-            KeyBindings::load(
-                self.catalogue(),
-                &self.dir.join("state"),
-                Some(fs::read_to_string(&self.defaults).map_err(|e| e.to_string())),
-            )
-            .unwrap()
+    fn shared() -> SharedKeys {
+        SharedKeys {
+            current: Some("dereth".into()),
+            ..SharedKeys::default()
         }
     }
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.dir);
-        }
+    fn load() -> KeyBindings {
+        KeyBindings::load(catalogue(), Some(Ok(DEFAULTS.into())), &shared()).unwrap()
     }
     fn bind(k: &mut KeyBindings, action: u32, slot: usize, key: u16) -> KeyOutcome {
         k.handle(&HostAction::CaptureBinding {
@@ -1022,57 +1191,102 @@ mod tests {
         k.key(key, true, false, 0, true).unwrap()
     }
     #[test]
-    fn legacy_map_round_trip_retains_devices_chords_and_payload_bits() {
-        let f = Fixture::new();
-        let k = f.load();
+    fn a_classic_map_reads_its_six_fields_and_refuses_what_is_out_of_bounds() {
+        let k = load();
         let text = "5\n0 87 7 WalkForward 8 255\n1 87 7 WalkBackwards 0 0\n2 5 1 ToggleCombat 0 4\n3 5 2 WalkForward 3 5\n4 21 3 WalkBackwards 2 7\nInputType Input Chording Command CommandType AnalogType\n";
-        let first = parse_map(text, &k.catalogue).unwrap();
-        let again = parse_map(&write_map(&first, &k.catalogue).unwrap(), &k.catalogue).unwrap();
-        assert_eq!(first, again);
+        let rows = parse_map(text, &k.catalogue).unwrap();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(
+            (rows[0].chord, rows[0].command_type, rows[0].analog_type),
+            (7, 8, 255)
+        );
         assert!(parse_map("1 0 256 0 WalkForward 0 0", &k.catalogue).is_err());
         assert!(parse_map("1 0 87 8 WalkForward 0 0", &k.catalogue).is_err());
         assert!(parse_map("1 0 87 0 WalkForward 0", &k.catalogue).is_err());
         assert!(parse_map("0 unexpected", &k.catalogue).is_err());
     }
+    /// Behaviour: keys.shared.one-key-map-for-every-interface
     #[test]
-    fn capture_replaces_only_selected_slot_and_survives_restart() {
-        let f = Fixture::new();
-        let mut k = f.load();
+    fn a_captured_key_is_asked_of_the_shared_map_and_comes_back_from_it() {
+        let mut k = load();
+        assert_eq!(k.scheme().name, "dereth", "the key map file in use");
         assert_eq!(bind(&mut k, 5, 0, 0x51).capture, CaptureResult::Finished);
         assert!(k.key(0x51, false, false, 0, true).unwrap().consumed);
-        assert!(k.snapshot().dirty);
-        assert_eq!(f.load().scheme().name, "Default");
-        assert_eq!(f.load().scheme().bindings[0].key, 0x57);
-        k.handle(&HostAction::SaveKeyMapAs {
-            name: "Custom".into(),
-        })
-        .unwrap();
-        assert!(!k.snapshot().dirty);
-        let mut restarted = f.load();
-        assert_eq!(restarted.scheme().name, "Custom");
-        assert!(restarted
+        assert!(!k.snapshot().dirty, "the shared map has it at once");
+        assert_eq!(
+            k.requests,
+            [KeyStoreRequest::Bind {
+                scan: Q,
+                action: 0x29,
+                replaced: Some(W)
+            }]
+        );
+        // The host binds it and hands the map back: Q walks forward, W no longer does.
+        k.set_shared(&SharedKeys {
+            player: vec![SharedBinding {
+                scan: Q,
+                action: 0x29,
+            }],
+            removed: vec![SharedBinding {
+                scan: W,
+                action: 0x29,
+            }],
+            ..shared()
+        });
+        assert!(k
             .key(0x57, true, false, 0, true)
             .unwrap()
             .actions
             .is_empty());
         assert_eq!(
-            restarted.key(0x51, true, false, 0, true).unwrap().actions,
+            k.key(0x51, true, false, 0, true).unwrap().actions,
+            vec![Action::begin(ActionId(41))]
+        );
+    }
+    /// Behaviour: keys.shared.one-key-map-for-every-interface
+    #[test]
+    fn the_other_interfaces_keys_lay_over_this_interfaces_default_scheme() {
+        let mut k = load();
+        // The retail page bound X to walking forward, and F7 is the performance panel's.
+        k.set_shared(&SharedKeys {
+            player: vec![SharedBinding {
+                scan: X,
+                action: 0x29,
+            }],
+            ..shared()
+        });
+        assert_eq!(
+            k.key(0x58, true, false, 0, true).unwrap().actions,
             vec![Action::begin(ActionId(41))]
         );
         assert_eq!(
-            fs::read_to_string(&f.defaults).unwrap(),
-            "2\n0 87 0 WalkForward 0 0\n0 83 0 WalkBackwards 0 0\n"
+            k.key(0x57, true, false, 0, true).unwrap().actions,
+            vec![Action::begin(ActionId(41))],
+            "the default scheme's own key stays"
         );
+        assert_eq!(
+            k.key(0x76, true, false, 0, true).unwrap().actions,
+            vec![Action::begin(ActionId(
+                dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL
+            ))],
+            "F7"
+        );
+        // Back to the default scheme: no player keys.
+        k.set_shared(&shared());
+        assert!(k
+            .key(0x58, true, false, 0, true)
+            .unwrap()
+            .actions
+            .is_empty());
     }
     #[test]
     fn conflict_requires_confirmation_before_displacing_another_action() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         assert_eq!(
             bind(&mut k, 5, 0, 0x53).capture,
             CaptureResult::Conflict("Walk Backwards".into())
         );
-        assert_eq!(k.scheme().bindings.len(), 2);
+        assert_eq!(k.scheme().bindings.len(), 3);
         assert_eq!(k.confirm_capture(false).unwrap(), CaptureResult::Waiting);
         k.key(0x53, false, false, 0, true).unwrap();
         assert!(matches!(
@@ -1080,13 +1294,16 @@ mod tests {
             CaptureResult::Conflict(_)
         ));
         k.confirm_capture(true).unwrap();
-        assert_eq!(k.scheme().bindings.len(), 1);
-        assert_eq!(k.scheme().bindings[0].action, 5);
+        assert_eq!(k.scheme().bindings.len(), 2);
+        assert!(k
+            .scheme()
+            .bindings
+            .iter()
+            .any(|b| b.key == 0x53 && b.action == 5));
     }
     #[test]
     fn reserved_keys_do_not_end_capture_or_fire_actions() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         for key in [9, 13, 0x30, 0x39, 0x70, 0x90] {
             let outcome = bind(&mut k, 5, 0, key);
             assert!(matches!(outcome.capture, CaptureResult::Rejected(_)));
@@ -1098,11 +1315,11 @@ mod tests {
             CaptureResult::Cancelled
         );
         assert!(!k.is_capturing());
+        assert!(k.requests.is_empty());
     }
     #[test]
     fn unchanged_capture_and_escape_still_notify_the_editor_without_dirtying_the_scheme() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         assert_eq!(k.snapshot().capture_revision, 0);
         assert_eq!(bind(&mut k, 5, 0, 0x57).capture, CaptureResult::Finished);
         assert_eq!(k.snapshot().capture_revision, 1);
@@ -1141,8 +1358,7 @@ mod tests {
     }
     #[test]
     fn capture_uses_mapped_key_and_zero_chord_even_with_native_modifiers() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         for key in [0xA0, 0x51] {
             k.handle(&HostAction::CaptureBinding {
                 action: 5,
@@ -1165,13 +1381,13 @@ mod tests {
     }
     #[test]
     fn three_slots_compact_after_removing_one_and_other_maps_survive() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         bind(&mut k, 5, 1, 0x51);
         k.key(0x51, false, false, 0, true).unwrap();
         bind(&mut k, 5, 2, 0x45);
         k.key(0x45, false, false, 0, true).unwrap();
-        k.schemes[k.selected].bindings.push(Binding {
+        let sel = k.selected;
+        k.schemes[sel].bindings.push(Binding {
             map: 2,
             key: 1,
             chord: 3,
@@ -1179,6 +1395,7 @@ mod tests {
             command_type: 0,
             analog_type: 42,
         });
+        k.requests.clear();
         k.handle(&HostAction::ClearBindingSlot {
             action: 5,
             map: 0,
@@ -1192,44 +1409,87 @@ mod tests {
             .find(|b| b.action == 5)
             .unwrap();
         assert_eq!(row.keys, ["W", "E"]);
-        k.handle(&HostAction::SaveKeyMapAs {
-            name: "Three slots".into(),
-        })
-        .unwrap();
-        let loaded = f.load();
-        assert!(loaded
+        assert_eq!(
+            k.requests,
+            [KeyStoreRequest::Unbind {
+                scan: Q,
+                action: 0x29
+            }]
+        );
+        assert!(k
             .scheme()
             .bindings
             .iter()
             .any(|b| b.map == 2 && b.analog_type == 42));
     }
+    /// Behaviour: keys.shared.one-key-map-for-every-interface
     #[test]
-    fn save_delete_switch_and_reset_are_persistent() {
-        let f = Fixture::new();
-        let mut k = f.load();
+    fn the_schemes_are_the_shared_key_map_files() {
+        let mut k = KeyBindings::load(
+            catalogue(),
+            Some(Ok(DEFAULTS.into())),
+            &SharedKeys {
+                files: vec!["dereth".into(), "pvp".into()],
+                ..shared()
+            },
+        )
+        .unwrap();
+        assert_eq!(k.snapshot().schemes, ["Default", "dereth", "pvp"]);
         k.handle(&HostAction::SaveKeyMapAs {
             name: "My Keys".into(),
         })
         .unwrap();
         k.handle(&HostAction::ClearBinding { action: 5, map: 0 })
             .unwrap();
-        assert_eq!(k.scheme().bindings.len(), 1);
-        assert!(k.snapshot().dirty);
-        assert_eq!(f.load().scheme().bindings.len(), 2);
         k.handle(&HostAction::RestoreBindings).unwrap();
-        assert!(!k.snapshot().dirty);
-        assert_eq!(k.scheme().bindings.len(), 2);
-        assert_eq!(f.load().scheme().bindings.len(), 2);
-        k.handle(&HostAction::DeleteKeyScheme {
-            name: "My Keys".into(),
-        })
-        .unwrap();
-        assert_eq!(f.load().scheme().name, "Default");
+        k.handle(&HostAction::KeyboardScheme(2)).unwrap();
+        k.handle(&HostAction::KeyboardScheme(0)).unwrap();
+        k.handle(&HostAction::DeleteKeyScheme { name: "pvp".into() })
+            .unwrap();
+        assert_eq!(
+            k.requests,
+            [
+                KeyStoreRequest::SaveAs {
+                    name: "My Keys".into(),
+                    overwrite: false
+                },
+                KeyStoreRequest::Unbind {
+                    scan: W,
+                    action: 0x29
+                },
+                KeyStoreRequest::Load("My Keys".into()),
+                KeyStoreRequest::Load("pvp".into()),
+                KeyStoreRequest::Defaults,
+                KeyStoreRequest::Delete("pvp".into()),
+            ]
+        );
         assert!(k
             .handle(&HostAction::DeleteKeyScheme {
                 name: "Default".into()
             })
             .is_err());
+        assert!(k
+            .handle(&HostAction::SaveKeyMapAs {
+                name: "my keys".into()
+            })
+            .is_err());
+        assert!(k
+            .handle(&HostAction::OverwriteKeyMap {
+                name: "Default".into()
+            })
+            .is_err());
+        k.requests.clear();
+        k.handle(&HostAction::OverwriteKeyMap {
+            name: "my KEYS".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            k.requests,
+            [KeyStoreRequest::SaveAs {
+                name: "My Keys".into(),
+                overwrite: true
+            }]
+        );
     }
     #[test]
     fn filenames_cannot_escape_state_directory_or_use_windows_device_names() {
@@ -1251,8 +1511,7 @@ mod tests {
     }
     #[test]
     fn held_movement_releases_when_typing_begins_or_focus_is_lost() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         assert_eq!(
             k.key(0x57, true, false, 0, true).unwrap().actions,
             vec![Action::begin(ActionId(41))]
@@ -1276,41 +1535,38 @@ mod tests {
     }
     #[test]
     fn absent_original_defaults_remain_explicitly_unbound() {
-        let f = Fixture::new();
-        let mut k = KeyBindings::load(f.catalogue(), &f.dir.join("state"), None).unwrap();
+        let mut k = KeyBindings::load(catalogue(), None, &SharedKeys::default()).unwrap();
         assert_eq!(k.scheme().name, "Unbound");
         assert!(k.warning.is_some());
         assert!(k
             .snapshot()
             .bindings
             .iter()
-            .filter(|b| b.action > 0 && b.action != u32::MAX)
+            .filter(|b| b.action > 0 && b.action != u32::MAX && b.action != 370)
             .all(|b| b.keys.is_empty()));
         assert!(k.handle(&HostAction::RestoreBindings).is_ok());
         assert_eq!(bind(&mut k, 5, 0, 0x57).capture, CaptureResult::Finished);
     }
     #[test]
-    fn malformed_defaults_do_not_hide_saved_schemes_or_abort_configuration() {
-        let f = Fixture::new();
-        let mut original = f.load();
-        bind(&mut original, 5, 0, 0x58);
-        original
-            .handle(&HostAction::SaveKeyMapAs {
-                name: "Custom".into(),
-            })
-            .unwrap();
-        fs::write(&f.defaults, "2\n0 87 truncated").unwrap();
-        let mut restored = f.load();
-        assert!(restored
-            .warning
-            .as_deref()
-            .is_some_and(|s| s.contains("unusable")));
-        assert!(restored.snapshot().schemes.iter().any(|s| s == "Custom"));
+    fn malformed_defaults_do_not_hide_the_players_keys_or_abort_configuration() {
+        let mut k = KeyBindings::load(
+            catalogue(),
+            Some(Ok("2\n0 87 truncated".into())),
+            &SharedKeys {
+                player: vec![SharedBinding {
+                    scan: X,
+                    action: 0x29,
+                }],
+                ..shared()
+            },
+        )
+        .unwrap();
+        assert!(k.warning.as_deref().is_some_and(|s| s.contains("unusable")));
         assert_eq!(
-            restored.key(0x58, true, false, 0, true).unwrap().actions,
+            k.key(0x58, true, false, 0, true).unwrap().actions,
             vec![Action::begin(ActionId(41))]
         );
-        assert!(restored.handle(&HostAction::RestoreBindings).is_ok());
+        assert!(k.handle(&HostAction::RestoreBindings).is_ok());
     }
     #[test]
     fn translation_uses_names_and_live_combat_mode_not_old_ordinals() {
@@ -1333,8 +1589,7 @@ mod tests {
     }
     #[test]
     fn untranslatable_held_commands_keep_a_private_release_path() {
-        let f = Fixture::new();
-        let mut k = f.load();
+        let mut k = load();
         k.catalogue.actions.push(Command {
             id: 1,
             name: "HoldRun".into(),
@@ -1342,7 +1597,8 @@ mod tests {
             category: 0,
             label: "Hold Run".into(),
         });
-        k.schemes[0].bindings.push(Binding {
+        let sel = k.selected;
+        k.schemes[sel].bindings.push(Binding {
             map: 0,
             key: 16,
             chord: 0,
@@ -1373,43 +1629,39 @@ mod tests {
             .is_empty());
     }
     #[test]
-    fn explicit_overwrite_replaces_only_the_named_custom_scheme_and_keeps_base_immutable() {
-        let f = Fixture::new();
-        let mut k = f.load();
-        k.handle(&HostAction::SaveKeyMapAs {
-            name: "Target".into(),
-        })
+    fn the_old_schemes_folder_reads_as_the_keys_each_scheme_lays_over_the_defaults() {
+        let dir = std::env::temp_dir().join(format!(
+            "dereth-classic-legacy-keys-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Mine.map"),
+            "2\n0 87 0 WalkForward 0 0\n0 81 0 WalkBackwards 0 0\n",
+        )
         .unwrap();
-        k.handle(&HostAction::SaveKeyMapAs {
-            name: "Source".into(),
-        })
-        .unwrap();
-        k.handle(&HostAction::ClearBinding { action: 5, map: 0 })
-            .unwrap();
-        let expected = k.scheme().bindings.clone();
-        assert!(k
-            .handle(&HostAction::SaveKeyMapAs {
-                name: "target".into()
-            })
-            .is_err());
-        k.handle(&HostAction::OverwriteKeyMap {
-            name: "tArGeT".into(),
-        })
-        .unwrap();
-        assert_eq!(k.scheme().name, "Target");
-        assert_eq!(f.load().scheme().bindings, expected);
-        assert_eq!(k.schemes.len(), 3);
-        assert!(k
-            .handle(&HostAction::OverwriteKeyMap {
-                name: "Default".into()
-            })
-            .is_err());
-        assert_eq!(k.schemes[0].bindings.len(), 2);
+        std::fs::write(dir.join("current.txt"), "Mine\n").unwrap();
+        let schemes = legacy_schemes(&dir, &catalogue(), Some(DEFAULTS)).unwrap();
+        assert_eq!(
+            schemes,
+            [(
+                "Mine".to_owned(),
+                vec![SharedBinding {
+                    scan: Q,
+                    action: 0x2A
+                }],
+                true
+            )]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn older_unknown_commands_are_skipped_without_losing_following_bindings() {
-        let f = Fixture::new();
-        let k = f.load();
+        let k = load();
         let rows = parse_map(
             "3\n0 87 0 WalkForward 0 0\n0 118 0 RetiredCommand 0 0\n0 83 0 WalkBackwards 0 0\n",
             &k.catalogue,

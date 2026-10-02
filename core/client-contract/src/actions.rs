@@ -224,6 +224,22 @@ pub mod chat_entry {
 pub mod dereth {
     /// Show or hide the performance panel (frame rate and frame time), whatever the interface.
     pub const TOGGLE_PERFORMANCE_PANEL: u32 = 0x2000_0001;
+    /// Hold to step sideways with the turning keys (the classic interface's Hold Sidestep).
+    pub const MOVEMENT_HOLD_SIDESTEP: u32 = 0x2000_0002;
+    /// Show or hide the secure-trade window (the classic interface's Trade panel key).
+    pub const TOGGLE_TRADE_PANEL: u32 = 0x2000_0003;
+    /// Show or hide the spell research window, on a world with spell research.
+    pub const TOGGLE_SPELL_RESEARCH_PANEL: u32 = 0x2000_0004;
+    /// Flip the character option that makes a shortcut of an item used.
+    pub const PLAYER_OPTION_AUTO_CREATE_SHORTCUTS: u32 = 0x2000_0005;
+    /// Flip the classic interface's inverted vertical mouse look.
+    pub const TOGGLE_INVERT_MOUSE_LOOK: u32 = 0x2000_0006;
+    /// Flip the classic interface's right-click mouse look.
+    pub const TOGGLE_RIGHT_CLICK_MOUSE_LOOK: u32 = 0x2000_0007;
+    /// Flip the classic interface's stretched layout.
+    pub const TOGGLE_STRETCH_UI: u32 = 0x2000_0008;
+    /// Flip whether sounds play only while the game's window is active.
+    pub const TOGGLE_MUTE_ON_LOSING_FOCUS: u32 = 0x2000_0009;
 }
 
 /// The action names: the enum table the client writes an action out with (field `0x19` of a
@@ -662,10 +678,38 @@ pub mod names {
     ];
 
     /// This client's own actions ([`super::dereth`]), by name, in id order.
-    pub const DERETH_ACTION_NAMES: &[(u32, &str)] = &[(
-        super::dereth::TOGGLE_PERFORMANCE_PANEL,
-        "TogglePerformancePanel",
-    )];
+    pub const DERETH_ACTION_NAMES: &[(u32, &str)] = &[
+        (
+            super::dereth::TOGGLE_PERFORMANCE_PANEL,
+            "TogglePerformancePanel",
+        ),
+        (
+            super::dereth::MOVEMENT_HOLD_SIDESTEP,
+            "MovementHoldSidestep",
+        ),
+        (super::dereth::TOGGLE_TRADE_PANEL, "ToggleTradePanel"),
+        (
+            super::dereth::TOGGLE_SPELL_RESEARCH_PANEL,
+            "ToggleSpellResearchPanel",
+        ),
+        (
+            super::dereth::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS,
+            "PlayerOption_AutoCreateShortcuts",
+        ),
+        (
+            super::dereth::TOGGLE_INVERT_MOUSE_LOOK,
+            "ToggleInvertMouseLook",
+        ),
+        (
+            super::dereth::TOGGLE_RIGHT_CLICK_MOUSE_LOOK,
+            "ToggleRightClickMouseLook",
+        ),
+        (super::dereth::TOGGLE_STRETCH_UI, "ToggleStretchUI"),
+        (
+            super::dereth::TOGGLE_MUTE_ON_LOSING_FOCUS,
+            "ToggleMuteOnLosingFocus",
+        ),
+    ];
 
     /// Every named action: the retail table, then this client's own.
     fn all() -> impl Iterator<Item = &'static (u32, &'static str)> {

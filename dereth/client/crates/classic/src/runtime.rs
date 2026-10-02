@@ -102,6 +102,11 @@ pub struct ClassicUi {
     panel_events: Vec<(String, ControlEvent)>,
     preview_click: Option<(u64, i32, i32, std::time::Instant)>,
     settings_host: Option<crate::settings_host::SettingsHost>,
+    /// The shared key map as the host last handed it over.
+    shared_keys: crate::keystore::SharedKeys,
+    /// The classic interface's old schemes, waiting for the host to carry them into the shared
+    /// key map's files.
+    legacy_schemes: Vec<(String, Vec<crate::keystore::SharedBinding>, bool)>,
     ui_actions: Vec<String>,
     pub initial_panel: String,
     bindings: Option<crate::keybindings::KeyBindings>,
@@ -191,6 +196,8 @@ impl ClassicUi {
             panel_events: vec![],
             preview_click: None,
             settings_host: None,
+            shared_keys: crate::keystore::SharedKeys::default(),
+            legacy_schemes: Vec::new(),
             ui_actions: vec![],
             initial_panel: "login".into(),
             bindings: None,
@@ -747,13 +754,48 @@ impl ClassicUi {
             self.key_outcome(cx, result);
         }
     }
+    /// The shared key map as it now is: the keys the player bound, in either interface, over this
+    /// interface's default scheme.
+    pub fn set_shared_keys(&mut self, keys: crate::keystore::SharedKeys) {
+        if let Some(bindings) = &mut self.bindings {
+            bindings.set_shared(&keys);
+            self.keyboard = bindings.snapshot();
+        }
+        self.shared_keys = keys;
+    }
+
+    /// What the key page asked of the shared key map since the last call, oldest first.
+    pub fn take_key_store_requests(&mut self) -> Vec<crate::keystore::KeyStoreRequest> {
+        self.bindings
+            .as_mut()
+            .map(|b| std::mem::take(&mut b.requests))
+            .unwrap_or_default()
+    }
+
+    /// The old schemes the host is to carry into the shared key map's files, once:
+    /// `(name, keys over the default scheme, in use)`.
+    pub fn take_legacy_schemes(
+        &mut self,
+    ) -> Vec<(String, Vec<crate::keystore::SharedBinding>, bool)> {
+        std::mem::take(&mut self.legacy_schemes)
+    }
+
+    /// The host has carried the old schemes over: their folder goes, and with it the classic
+    /// interface's old settings folder when nothing else is left in it.
+    pub fn legacy_schemes_moved(&mut self) {
+        let old_keys = self.paths.state.join("keys");
+        if old_keys.is_dir() && std::fs::remove_dir_all(&old_keys).is_ok() {
+            tracing::info!("the classic interface's old key schemes moved into the shared key map");
+        }
+        retire_folder(&self.paths.state);
+    }
+
     /// An action as if its key had been pressed and let go: a window toggle or a chat command to
     /// the interface's own windows, everything else to the game.
     pub fn press_action(&mut self, id: dereth_client_contract::actions::ActionId) {
         use dereth_client_contract::actions::{names, Action};
         let name = names::enum_name_for_action(id);
-        // This client's own actions (the performance panel's) are the game's, not a window's.
-        if names::DERETH_ACTION_NAMES.iter().all(|(a, _)| *a != id.0) && is_ui_action(&name) {
+        if is_ui_action(&name) {
             self.ui_actions.push(name);
         } else {
             self.actions.push(Action::begin(id));
@@ -1322,11 +1364,18 @@ impl ClassicUi {
             .or(beside)
             .map(|p| std::fs::read_to_string(&p).map_err(|e| e.to_string()))
             .or_else(|| crate::default_keys::from_final_maps(&**cx.store(), &catalogue).map(Ok));
-        let bindings = crate::keybindings::KeyBindings::load(
-            catalogue,
-            &self.paths.state.join("keys"),
-            defaults,
+        // The old schemes, kept in this interface's own folder, go into the shared key map.
+        let old_keys = self.paths.state.join("keys");
+        self.legacy_schemes = crate::keybindings::legacy_schemes(
+            &old_keys,
+            &catalogue,
+            defaults
+                .as_ref()
+                .and_then(|d| d.as_ref().ok())
+                .map(String::as_str),
         )?;
+        let bindings =
+            crate::keybindings::KeyBindings::load(catalogue, defaults, &self.shared_keys)?;
         self.keyboard = bindings.snapshot();
         self.bindings = Some(bindings);
         let size = cx.present().size();
@@ -2468,6 +2517,12 @@ impl ClassicUi {
     }
 }
 
+fn names_of_own(name: &str) -> bool {
+    dereth_client_contract::actions::names::DERETH_ACTION_NAMES
+        .iter()
+        .any(|(_, n)| *n == name)
+}
+
 /// The classic interface's old settings folder, once everything in it has moved into the shared
 /// store and key map: removed when nothing is left in it, and left with what is otherwise.
 fn retire_folder(folder: &std::path::Path) {
@@ -2487,6 +2542,10 @@ fn retire_folder(folder: &std::path::Path) {
 }
 
 fn is_ui_action(name: &str) -> bool {
+    // This client's own actions (the performance panel's) are the game's, not a window's.
+    if names_of_own(name) {
+        return false;
+    }
     name.starts_with("Toggle") && name.ends_with("Panel")
         || matches!(
             name,

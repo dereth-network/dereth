@@ -74,6 +74,18 @@ impl InputMap {
         self.bindings.retain(|(_, a)| *a != action);
     }
 
+    /// Unbind one unmodified control from one action, whatever its activation.
+    pub fn unbind_control_from(&mut self, control: crate::spec::ControlCode, action: ActionId) {
+        self.bindings
+            .retain(|(k, a)| !(k.control == control && k.meta_mode == 0 && *a == action));
+    }
+
+    /// Unbind one unmodified control from whatever it is bound to, whatever its activation.
+    pub fn unbind_control(&mut self, control: crate::spec::ControlCode) {
+        self.bindings
+            .retain(|(k, _)| !(k.control == control && k.meta_mode == 0));
+    }
+
     /// Find the best match for a control.
     ///
     /// Walks the whole list of equal controls and keeps the one the better-match comparison prefers.

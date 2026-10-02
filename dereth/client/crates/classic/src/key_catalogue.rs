@@ -19,7 +19,7 @@ pub const CATEGORIES: [&str; 10] = [
 
 /// `(command id, command name, flags, category, label)`, in command order.
 #[rustfmt::skip]
-pub const COMMANDS: [(u32, &str, u32, usize, &str); 196] = [
+pub const COMMANDS: [(u32, &str, u32, usize, &str); 197] = [
     (1, "HoldRun", 0x85000001, 1, "Hold Run"),
     (2, "HoldSidestep", 0x85000002, 1, "Hold Sidestep"),
     (3, "Ready", 0x41000003, 7, "Stand"),
@@ -220,6 +220,8 @@ pub const COMMANDS: [(u32, &str, u32, usize, &str); 196] = [
     (367, "CharacterTitlePanel", 0x0900016F, 5, "Character Title Panel"),
     (368, "ContractsPanel", 0x09000170, 5, "Contracts Panel"),
     (369, "JournalPanel", 0x09000171, 5, "Journal Panel"),
+    // This client's performance panel, which belongs to no interface, under a number of its own.
+    (370, "TogglePerformancePanel", 0x09000172, 7, "Performance Panel"),
 ];
 
 /// `(label, key)` for the fixed rows at the end of the list.

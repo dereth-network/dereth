@@ -31,12 +31,34 @@ pub struct DerethAction {
 pub const DIK_F7: u16 = 0x41;
 
 /// This client's actions.
-pub const ACTIONS: &[DerethAction] = &[DerethAction {
-    action: dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL,
-    toggle: ToggleType::OneShot,
-    class: 0,
-    default_key: Some(DIK_F7),
-}];
+pub const ACTIONS: &[DerethAction] = {
+    use dereth_client_contract::actions::dereth as a;
+    const fn one_shot(action: u32) -> DerethAction {
+        DerethAction {
+            action,
+            toggle: ToggleType::OneShot,
+            class: 0,
+            default_key: None,
+        }
+    }
+    &[
+        DerethAction {
+            default_key: Some(DIK_F7),
+            ..one_shot(a::TOGGLE_PERFORMANCE_PANEL)
+        },
+        DerethAction {
+            toggle: ToggleType::Hold,
+            ..one_shot(a::MOVEMENT_HOLD_SIDESTEP)
+        },
+        one_shot(a::TOGGLE_TRADE_PANEL),
+        one_shot(a::TOGGLE_SPELL_RESEARCH_PANEL),
+        one_shot(a::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS),
+        one_shot(a::TOGGLE_INVERT_MOUSE_LOOK),
+        one_shot(a::TOGGLE_RIGHT_CLICK_MOUSE_LOOK),
+        one_shot(a::TOGGLE_STRETCH_UI),
+        one_shot(a::TOGGLE_MUTE_ON_LOSING_FOCUS),
+    ]
+};
 
 impl ActionMap {
     /// Add this client's actions in [`INPUT_MAP`]. They carry no name in the shipped string
@@ -57,21 +79,32 @@ impl ActionMap {
     }
 }
 
-/// The default keys of this client's actions, as a key map over the same keyboard as `shipped`:
-/// each key takes the device, sub-control and activation of a key the shipped map binds on the
-/// keyboard (its first keyboard binding), with the action's own scan code. `None` when the
-/// shipped map binds no key on a keyboard.
+/// An unmodified key of the keyboard `map` binds keys on, by scan code (bit 7 for the extended
+/// prefix): the device, sub-control and activation of the first unmodified keyboard key `map`
+/// binds, with `scan` as the key. `None` when `map` binds no key on a keyboard.
 #[must_use]
-pub fn default_map(shipped: &MasterInputMap) -> Option<MasterInputMap> {
-    let template = shipped
+pub fn keyboard_chord(map: &MasterInputMap, scan: u16) -> Option<ControlChord> {
+    let template = map
         .sections
         .iter()
         .flat_map(|s| s.bindings().iter())
         .map(|(qc, _)| *qc)
         .find(|qc| {
-            shipped.device_type_of(qc.control) == Some(crate::spec::DeviceType::Keyboard)
+            map.device_type_of(qc.control) == Some(crate::spec::DeviceType::Keyboard)
                 && qc.meta_mode == 0
         })?;
+    let control = ControlCode::new(
+        template.control.device_index(),
+        template.control.sub_control(),
+        scan,
+    );
+    Some(ControlChord::new(control, 0, template.activation))
+}
+
+/// The default keys of this client's actions, as a key map over the same keyboard as `shipped`
+/// ([`keyboard_chord`]). `None` when the shipped map binds no key on a keyboard.
+#[must_use]
+pub fn default_map(shipped: &MasterInputMap) -> Option<MasterInputMap> {
     let mut map = MasterInputMap {
         devices: shipped.devices.clone(),
         ..MasterInputMap::default()
@@ -79,15 +112,7 @@ pub fn default_map(shipped: &MasterInputMap) -> Option<MasterInputMap> {
     let mut section = InputMap::new(INPUT_MAP);
     for a in ACTIONS {
         let Some(key) = a.default_key else { continue };
-        let control = ControlCode::new(
-            template.control.device_index(),
-            template.control.sub_control(),
-            key,
-        );
-        section.add_mapping(
-            ControlChord::new(control, 0, template.activation),
-            ActionId(a.action),
-        );
+        section.add_mapping(keyboard_chord(shipped, key)?, ActionId(a.action));
     }
     map.sections.push(section);
     Some(map)
