@@ -1064,6 +1064,8 @@ pub fn runtime_action(name: &str) -> Option<ActionId> {
         "SideStepRight" => "MovementStrafeRight",
         "SideStepLeft" => "MovementStrafeLeft",
         "Jump" => "MovementJump",
+        // Holding the run key is the shared walk-mode action, whose answer reaches the body.
+        "HoldRun" => "MovementWalkMode",
         "ResetView" => "CameraViewDefault",
         "CameraLeftRotate" => "CameraRotateLeft",
         "CameraRightRotate" => "CameraRotateRight",
@@ -1670,8 +1672,12 @@ mod tests {
         );
         assert_eq!(runtime_action_in_mode("HighAttack", 1), None);
     }
+    /// Shift, the run key, held over a movement key: the shared walk-mode action begins with
+    /// the press and ends with the release, held with Shift down as it is, and the movement key
+    /// still walks.
     #[test]
-    fn untranslatable_held_commands_keep_a_private_release_path() {
+    fn the_run_key_held_is_the_shared_walk_mode_and_movement_still_goes_with_it() {
+        use crate::keystore::SHIFT;
         let mut k = load();
         k.catalogue.actions.push(Command {
             id: 1,
@@ -1679,6 +1685,39 @@ mod tests {
             flags: 0x85000001,
             category: 0,
             label: "Hold Run".into(),
+        });
+        let sel = k.selected;
+        k.schemes[sel].bindings.push(Binding {
+            map: 0,
+            key: 0xA0,
+            chord: 0,
+            action: 1,
+            command_type: 0,
+            analog_type: 0,
+        });
+        let walk = ActionId(0x32);
+        let pressed = k.key(0xA0, true, false, SHIFT, true).unwrap();
+        assert_eq!(pressed.actions, vec![Action::begin(walk)]);
+        assert!(pressed.legacy_commands.is_empty());
+        assert_eq!(
+            k.key(0x57, true, false, SHIFT, true).unwrap().actions,
+            vec![Action::begin(ActionId(41))]
+        );
+        k.key(0x57, false, false, SHIFT, true).unwrap();
+        assert_eq!(
+            k.key(0xA0, false, false, 0, true).unwrap().actions,
+            vec![Action::end(walk)]
+        );
+    }
+    #[test]
+    fn untranslatable_held_commands_keep_a_private_release_path() {
+        let mut k = load();
+        k.catalogue.actions.push(Command {
+            id: 1,
+            name: "HoldSidestep".into(),
+            flags: 0x85000001,
+            category: 0,
+            label: "Hold Sidestep".into(),
         });
         let sel = k.selected;
         k.schemes[sel].bindings.push(Binding {
@@ -1694,14 +1733,14 @@ mod tests {
         assert_eq!(
             pressed.legacy_commands,
             vec![LegacyCommand {
-                name: "HoldRun".into(),
+                name: "HoldSidestep".into(),
                 phase: ActionPhase::Begin
             }]
         );
         assert_eq!(
             k.focus_lost().legacy_commands,
             vec![LegacyCommand {
-                name: "HoldRun".into(),
+                name: "HoldSidestep".into(),
                 phase: ActionPhase::End
             }]
         );
