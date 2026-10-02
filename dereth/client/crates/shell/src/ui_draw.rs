@@ -634,6 +634,31 @@ pub fn composite(
     })
 }
 
+/// A UI image that is not a composed icon, decoded from `source`'s files with its operation
+/// applied: the interface's pictures from `chrome`, the world's from `content`.
+///
+/// # Errors
+/// The image's id chain does not resolve or its payload does not decode.
+pub fn derive_plain(
+    chrome: &crate::textures::TextureStore<'_>,
+    content: &crate::textures::TextureStore<'_>,
+    id: DataId,
+    op: Option<SurfaceOp>,
+    source: ImageSource,
+) -> Result<dereth_primitives::TextureData, crate::textures::TextureError> {
+    // A picture the world names is an icon (an item's, a spell's, a skill's, an effect's or a
+    // component's), read as an icon layer: on a world of the files before Throne of Destiny its
+    // black is the transparent colour around it. The interface's own art draws its black.
+    let plain = match source {
+        ImageSource::Interface => chrome.texture_data(id),
+        ImageSource::World => content.icon_data(id),
+    }?;
+    Ok(match op {
+        Some(op) => derive(plain, op),
+        None => plain,
+    })
+}
+
 /// One dat image with its operation applied, texel by texel.
 ///
 /// The client blits the template into a locked `RenderSurface` and walks it; this walks the decoded

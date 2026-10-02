@@ -52,6 +52,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "presentation.era.a-component-drags-from-the-create-spell-grid-onto-the-formula",
+        says: "On the Create Spell page a carried component is picked up from the grid and \
+               dragged onto the formula, where it is laid at the formula's end. While a \
+               component (from the grid or the pack) is over the formula, the item slot's drag \
+               hint shows on the place it would be laid, accepting while the formula has room and \
+               refusing when it is full; it comes down when the drag leaves or drops. An empty \
+               grid slot picks nothing up.",
+        since: THIS_CLIENT,
+        divergence: "CD-016",
+        evidence: Evidence::Private("AC-EVID-R2-RESEARCH-DRAG"),
+        station: "dereth-ui-screens::dat::panels::create_spell_tab::a_component_dragged_from_the_grid_onto_the_formula_shows_the_drag_hint_and_is_laid",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.era.the-panel-buttons-close-up-over-a-system-the-world-lacks",
         says: "When the world has no system for one of the toolbar's panel buttons (no journal on \
                an Infiltration world), the button is hidden and the buttons after it in its row \

@@ -327,6 +327,90 @@ fn components_laid_on_the_create_spell_page_are_what_test_sends_and_clear_emptie
     );
 }
 
+/// Behaviour: presentation.era.a-component-drags-from-the-create-spell-grid-onto-the-formula
+#[test]
+fn a_component_dragged_from_the_grid_onto_the_formula_shows_the_drag_hint_and_is_laid() {
+    let (mut ui, mut s) = screen();
+    let (_window, mut page) = magic_window(&mut ui, &s);
+    let view = world(true);
+    page.update(&mut ui, &view);
+    open_page(&mut ui, &mut s, &mut page, &view);
+    let grid = page.grid_slots().to_vec();
+    let formula = page.formula_slots().to_vec();
+
+    // A component's icon is drawn with its white outline turned black, as the Components tab's
+    // rows draw it.
+    let op = ui
+        .node(grid[0])
+        .and_then(|n| n.region.image.as_ref())
+        .and_then(|g| g.op);
+    assert_eq!(
+        op,
+        Some(dereth_ui::region::SurfaceOp::ReplaceColor {
+            from: dereth_ui::region::SurfaceOp::OPAQUE_WHITE,
+            to: dereth_ui::region::SurfaceOp::OPAQUE_BLACK,
+        })
+    );
+
+    // Press on the third carried component and carry it over the formula.
+    let (x, y) = centre(&ui, grid[2]);
+    ui.mouse_down(7, x, y);
+    pump(&mut ui, &mut s, &mut page, &view);
+    let (fx, fy) = centre(&ui, formula[3]);
+    let now = dereth_primitives::LocalTime(1.0);
+    ui.mouse_move(now, x + 10, y);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert!(
+        ui.drag_state().element.is_some(),
+        "the component is picked up"
+    );
+    ui.mouse_move(now, fx, fy);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert_eq!(
+        page.hint(&ui),
+        Some((0, true)),
+        "the hint shows where it will be laid: the formula's first place"
+    );
+
+    ui.mouse_up(7, fx, fy, false);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert_eq!(page.formula.components(), [0x2B2], "the component is laid");
+    assert_eq!(page.hint(&ui), None, "the hint comes down with the drop");
+    let laid = ui
+        .node(formula[0])
+        .and_then(|n| n.region.image.as_ref())
+        .map(|g| g.did);
+    assert_eq!(laid, Some(DataId(0x0600_1002)));
+
+    // A drag that leaves the formula takes the hint down and lays nothing.
+    let (x, y) = centre(&ui, grid[0]);
+    ui.mouse_down(7, x, y);
+    ui.mouse_move(now, x + 10, y);
+    ui.mouse_move(now, fx, fy);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert_eq!(page.hint(&ui), Some((1, true)));
+    ui.mouse_move(now, x, y + 200);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert_eq!(page.hint(&ui), None, "off the formula, no hint");
+    ui.mouse_up(7, x, y + 200, false);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert_eq!(
+        page.formula.components(),
+        [0x2B2],
+        "dropped elsewhere, nothing laid"
+    );
+
+    // An empty grid slot picks nothing up.
+    let empty = grid[research::GRID_SLOTS - 1];
+    let (x, y) = centre(&ui, empty);
+    ui.mouse_down(7, x, y);
+    ui.mouse_move(now, x + 10, y);
+    pump(&mut ui, &mut s, &mut page, &view);
+    assert!(ui.drag_state().element.is_none(), "nothing to drag");
+    ui.mouse_up(7, x + 10, y, false);
+    pump(&mut ui, &mut s, &mut page, &view);
+}
+
 /// Behaviour: presentation.era.the-retail-magic-window-has-a-create-spell-tab-with-spell-research
 #[test]
 fn the_create_spell_grid_scrolls_by_rows_when_more_kinds_are_carried_than_it_shows() {

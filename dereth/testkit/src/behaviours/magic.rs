@@ -347,6 +347,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "spell-components.strip.a-components-icon-has-a-black-outline-and-a-clear-surround",
+        says: "The magic window draws a component's icon from the component table with its \
+               opaque white outline turned opaque black, around a clear surround; on a world of \
+               the files before Throne of Destiny, whose icons store no alpha, the icon's black \
+               surround is the clear colour.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-R2-COMPONENT-ICON"),
+        station: "dereth-client::dat::rendering::component_icons::a_components_icon_draws_a_clear_surround_and_a_black_outline_on_either_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "spell-components.strip.a-header-is-drawn-only-for-a-kind-the-player-holds-something-of",
         says: "The components page gives a heading to the kinds the player actually holds something \
                of and to no others: an empty pack draws no heading at all, one kind draws one \

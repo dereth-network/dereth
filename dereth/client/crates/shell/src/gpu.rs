@@ -202,10 +202,6 @@ mod imp {
                 if self.ui_textures.contains_key(&(id, op, source)) {
                     continue;
                 }
-                let textures = match source {
-                    dereth_ui::ImageSource::Interface => &chrome,
-                    dereth_ui::ImageSource::World => &content,
-                };
                 // An icon composite is a function of up to five *other* surfaces, so it does not
                 // start from `id`'s pixels the way a `ReplaceColor` or a `Multiply` does: it makes
                 // its own 32x32 local surface. `id`
@@ -215,12 +211,10 @@ mod imp {
                         crate::ui_draw::composite(r, &|d| content.icon_data(d).ok())
                             .ok_or(crate::textures::TextureError::NotATexture(id))
                     } else {
-                        textures.texture_data(id).map(|d| match op {
-                            // The blit-and-recolour the colour-spot and gradient-disk passes do into their own
-                            // local surface, done once per distinct pair rather than once per frame.
-                            Some(op) => crate::ui_draw::derive(d, op),
-                            None => d,
-                        })
+                        // The blit-and-recolour the colour-spot and gradient-disk passes do into
+                        // their own local surface, done once per distinct pair rather than once
+                        // per frame.
+                        crate::ui_draw::derive_plain(&chrome, &content, id, op, source)
                     };
                 let slot = match decoded {
                     // Keyed, so a second holder of the same image gets a cache hit and an `AddRef`

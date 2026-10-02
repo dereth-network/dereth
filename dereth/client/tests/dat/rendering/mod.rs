@@ -1,3 +1,4 @@
+mod component_icons;
 mod degrade_bias;
 mod degrade_marker_parts;
 mod indoor_surface_colour_census;

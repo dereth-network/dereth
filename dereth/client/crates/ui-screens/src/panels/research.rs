@@ -90,6 +90,9 @@ const CLEAR_AT: (i32, i32) = (170, 294);
 /// The empty item slot's frame.
 const EMPTY_SLOT: DataId = DataId(0x0600_4D20);
 
+/// The item slot's drag hint, each formula slot's child.
+const DRAG_HINT: ElementId = ElementId(crate::items::widget::child::DRAG_ACCEPT);
+
 /// The text element's caption and horizontal justification attributes; 1 centres.
 const ATTR_TEXT: u32 = 0x17;
 const ATTR_H_JUSTIFY: u32 = 0x14;
@@ -119,6 +122,10 @@ pub struct ResearchPanel {
     formula_slots: Vec<ElemHandle>,
     grid_slots: Vec<ElemHandle>,
     scrollbar: Option<ElemHandle>,
+    /// Each formula slot's drag hint, in slot order: the item slot's own.
+    hints: Vec<ElemHandle>,
+    /// The formula slot whose hint is up, while a component is dragged over the formula.
+    hinted: Option<usize>,
     test: Option<ElemHandle>,
     clear: Option<ElemHandle>,
     /// How far the grid is scrolled, in rows.
@@ -260,6 +267,11 @@ impl ResearchPanel {
             .collect();
         self.grid_slots = (0..GRID_SLOTS)
             .filter_map(|i| find(ui, slot_id(FIRST_GRID_SLOT, i)))
+            .collect();
+        self.hints = self
+            .formula_slots
+            .iter()
+            .filter_map(|&s| ui.get_child_recursive(s, DRAG_HINT))
             .collect();
         self.scrollbar = find(ui, SCROLLBAR);
         self.test = find(ui, TEST_BUTTON);
@@ -461,6 +473,28 @@ impl ResearchPanel {
         if let Some(h) = find(ui, BACKDROP) {
             ui.set_mouse_visible(h, true);
         }
+        // Each formula slot carries the item slot's drag hint, shown while a component is dragged
+        // over the formula. Without the interface's layouts there is no hint, and the drop still
+        // works.
+        for i in 0..FORMULA_SLOTS {
+            let Some(slot) = find(ui, slot_id(FIRST_FORMULA_SLOT, i)) else {
+                continue;
+            };
+            let built = ui.require_env().and_then(|e| {
+                e.create_nested_child_element_by_enum(
+                    ui,
+                    slot,
+                    crate::items::widget::ITEM_SLOT_LAYOUT,
+                    DRAG_HINT,
+                )
+            });
+            if let Ok(h) = built {
+                ui.move_to(h, 0, 0);
+                ui.resize_to(h, SLOT, SLOT);
+                ui.set_mouse_visible(h, false);
+                ui.set_state(h, crate::items::widget::drag_accept_state::NONE);
+            }
+        }
         if let Some(n) = find(ui, FORMULA).and_then(|h| ui.node_mut(h)) {
             n.drop_catcher = true;
         }
@@ -570,6 +604,10 @@ impl ResearchPanel {
                 row.and_then(|r| r.icon),
                 row.map(|r| r.name.clone()),
             );
+            // A slot holding a component is picked up and dragged; an empty one is not.
+            if let Some(n) = ui.node_mut(slot) {
+                n.flags.set_dragable(row.is_some());
+            }
         }
         let any = !drawn.formula.is_empty();
         for b in [self.test, self.clear].into_iter().flatten() {
@@ -594,9 +632,10 @@ impl ResearchPanel {
 
     fn draw_slot(ui: &mut UiSystem, slot: ElemHandle, icon: Option<DataId>, tip: Option<String>) {
         if let Some(n) = ui.node_mut(slot) {
-            // A component's icon is the world's; the empty slot is the interface's own.
+            // A component's icon is drawn as the Components tab draws it; the empty slot is the
+            // interface's own.
             n.region.image = Some(match icon {
-                Some(icon) => dereth_ui::GraphicRef::world_surface(icon, 0, 0),
+                Some(icon) => super::spellcomponent::component_icon(icon),
                 None => dereth_ui::GraphicRef::opaque_surface(EMPTY_SLOT, 0, 0),
             });
         }
@@ -642,6 +681,26 @@ impl ResearchPanel {
         }
         let consumed = match m.id {
             msgid::MOUSE_PRESS => self.on_press(ui, m),
+            msgid::DRAG_CURSOR_OVER if m.source_id == FORMULA => {
+                self.drag_over(ui, m.p1 != 0, view);
+                true
+            }
+            // The formula's copy of the drop, whose `p2` names the drag's owner: a component
+            // dragged from the grid is laid. One dragged from the pack reaches
+            // [`Self::accept_drop`] through the screen's drop handling instead.
+            msgid::DROP_FAILED if m.source_id == FORMULA && m.p2 != 0 => {
+                self.set_hint(ui, None, false);
+                let owner = ElemHandle::from_raw(m.p2);
+                if let Some(row) = self
+                    .grid_slots
+                    .iter()
+                    .position(|&s| s == owner)
+                    .and_then(|i| self.grid_row(i).cloned())
+                {
+                    self.lay(row.wcid);
+                }
+                true
+            }
             msgid::BUTTON_CLICKED if m.source_id == TEST_BUTTON => {
                 if !self.formula.is_empty() {
                     ui.requests.emit(UiRequest::TestSpellFormula {
@@ -670,6 +729,52 @@ impl ResearchPanel {
             self.update(ui, view);
         }
         consumed
+    }
+
+    /// The component being dragged, when the drag is one: a slot of the grid, or a carried
+    /// component picked up from the pack.
+    fn dragged_component(&self, ui: &UiSystem, view: &dyn GameView) -> Option<u32> {
+        let drag = ui.drag_state();
+        let owner = drag.owner?;
+        if let Some(i) = self.grid_slots.iter().position(|&s| s == owner) {
+            return self.grid_row(i).map(|r| r.wcid);
+        }
+        let proxy = drag.element?;
+        let info = crate::items::widget::inq_drop_icon_info(ui, proxy);
+        view.object_is_owned_component(info.item?)
+    }
+
+    /// The drag hint over the formula: entering with a component puts the hint up on the slot it
+    /// would be laid in, green while the formula has room and red when it is full; leaving takes
+    /// it down. A drag that is not a component shows none.
+    fn drag_over(&mut self, ui: &mut UiSystem, entered: bool, view: &dyn GameView) {
+        if !entered || self.dragged_component(ui, view).is_none() {
+            self.set_hint(ui, None, false);
+            return;
+        }
+        let at = self.formula.components().len();
+        let room = at < FORMULA_SLOTS;
+        self.set_hint(ui, Some(at.min(FORMULA_SLOTS - 1)), room);
+    }
+
+    /// Put the drag hint up on formula slot `at` (accepting or refusing), or take it down.
+    fn set_hint(&mut self, ui: &mut UiSystem, at: Option<usize>, accept: bool) {
+        use crate::items::widget::drag_accept_state as hint;
+        if let Some(old) = self.hinted.take().and_then(|i| self.hints.get(i).copied()) {
+            ui.set_state(old, hint::NONE);
+        }
+        let Some(i) = at else { return };
+        let Some(&h) = self.hints.get(i) else { return };
+        ui.set_state(h, if accept { hint::ACCEPT } else { hint::REFUSE });
+        self.hinted = Some(i);
+    }
+
+    /// The formula slot whose drag hint is up, and whether it accepts.
+    #[must_use]
+    pub fn hint(&self, ui: &UiSystem) -> Option<(usize, bool)> {
+        let i = self.hinted?;
+        let state = ui.node(*self.hints.get(i)?)?.state;
+        Some((i, state == crate::items::widget::drag_accept_state::ACCEPT))
     }
 
     fn on_press(&mut self, ui: &mut UiSystem, m: &dereth_ui::ElementMessage) -> bool {

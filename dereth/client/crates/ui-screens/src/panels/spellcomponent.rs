@@ -541,7 +541,7 @@ fn write_row(ui: &mut UiSystem, h: ElemHandle, r: &ComponentRow) {
     if let Some(icon) = r.icon {
         if let Some(c) = ui.get_child_recursive(h, ElementId(row::ICON)) {
             if let Some(n) = ui.node_mut(c) {
-                n.region.image = Some(dereth_ui::GraphicRef::world_surface(icon, 0, 0));
+                n.region.image = Some(component_icon(icon));
             }
         }
     }
@@ -557,6 +557,20 @@ fn write_row(ui: &mut UiSystem, h: ElemHandle, r: &ComponentRow) {
     if let Some(c) = ui.get_child_recursive(h, ElementId(row::DESIRED)) {
         dereth_ui::text::set_input_filter(ui, c, dereth_ui::text::number_input_filter);
     }
+}
+
+/// A component's icon as the magic window draws it: the component table's icon, read from the
+/// world's files, with its opaque white outline turned opaque black. Wherever the magic window
+/// shows a component (the Components tab's rows, the Create Spell page's slots) it draws this.
+#[must_use]
+pub fn component_icon(icon: dereth_primitives::DataId) -> dereth_ui::GraphicRef {
+    use dereth_ui::region::SurfaceOp;
+    let mut g = dereth_ui::GraphicRef::world_surface(icon, 0, 0);
+    g.op = Some(SurfaceOp::ReplaceColor {
+        from: SurfaceOp::OPAQUE_WHITE,
+        to: SurfaceOp::OPAQUE_BLACK,
+    });
+    g
 }
 
 /// The icon a row draws — the client's input.

@@ -339,8 +339,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                  Create Spell tab beside Spells and Components, built by the client from the \
                  window's own tab, headings, buttons and scrollbar: a formula row of eight slots, \
                  a grid of the carried components and Test and Clear. It works as the classic \
-                 interface's research page does. A world without spell research shows the \
-                 shipped two tabs.",
+                 interface's research page does: a component is laid by a double click or by \
+                 dragging it from the grid or the pack onto the formula, which shows the item \
+                 slot's drag hint. A world without spell research shows the shipped two tabs.",
         why: "The owner asked for spell research in the retail interface too, built in code \
               since the interface's data files are not changed.",
     },
