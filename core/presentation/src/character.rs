@@ -233,11 +233,13 @@ pub fn regeneration_band(sum: u32) -> &'static str {
 /// Defense and Missile Defense skills by N%"*. A load of exactly `1.0` gives `0`, `1.5` gives
 /// `50`, and anything at or over `2.0` gives `100`.
 ///
-/// The load mod is [`dereth_rules::burden::load_mod`], the one the run rate uses.
+/// The load mod is [`dereth_rules::burden::load_mod`], the one the run rate uses. The client
+/// multiplies it by ten in double precision and truncates the product without storing it as a
+/// float first; the end-of-retail client and the early ones do the same.
 #[must_use]
 pub fn burden_penalty_percent(load: f32) -> i32 {
     let load_mod = dereth_rules::burden::load_mod(load);
-    let tenths = dereth_primitives::num::to_i32(load_mod * 10.0);
+    let tenths = dereth_primitives::num::to_i32_f64(f64::from(load_mod) * 10.0);
     (10 - tenths) * 10
 }
 
@@ -377,8 +379,8 @@ mod tests {
         assert_eq!(regeneration_band(300), band::POOR);
     }
 
-    /// Oracle: the client's `(10 - trunc(load_mod(load) * 10.0)) * 10`, in `f32`, and the load
-    /// modifier's three branches.
+    /// Oracle: the client's `(10 - trunc(load_mod(load) * 10.0)) * 10`, the product in double
+    /// precision, and the load modifier's three branches.
     #[test]
     fn the_burden_penalty_is_ten_minus_the_load_mod_in_tenths_times_ten() {
         assert_eq!(
@@ -397,6 +399,14 @@ mod tests {
         // the 20% an `f64` implementation would print. Pinned because it is the one place this
         // function can silently disagree with retail.
         assert_eq!(burden_penalty_percent(1.2), 30);
+        // **The product is a double.** A load of 110% is `1.1f`, its mod `0.9f` is `0.89999998`,
+        // and ten of those is `8.9999998` in double precision: the truncation takes **8**, so the
+        // sheet says 20%. Rounded to a float first, the product would be `9.0` and the sheet 10%.
+        // Of every float load from 1 to 2 this is the one where the two widths disagree.
+        assert_eq!(
+            burden_penalty_percent(dereth_rules::burden::load(100, 110)),
+            20
+        );
         assert_eq!(
             burden_penalty_percent(1.9),
             90,
