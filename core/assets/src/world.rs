@@ -279,11 +279,69 @@ pub struct EnvCell {
     pub restriction_obj: Option<u32>,
 }
 
+fn read_cell_portal(c: &mut Cursor<'_>) -> Result<CellPortal, DatError> {
+    let flags = c.u16()?;
+    let polygon_id = c.u16()?;
+    let other = c.u16()?;
+    let other_portal_id = c.i16()?;
+    Ok(CellPortal {
+        flags,
+        polygon_id,
+        other_cell_id: if flags & 4 != 0 {
+            0xFFFF_FFFF
+        } else {
+            u32::from(other)
+        },
+        other_portal_id,
+    })
+}
+
 impl Decode for EnvCell {
     const TYPE: DbType = DbType::Cell;
 
     fn declared_id(&self) -> Option<DataId> {
         Some(self.id)
+    }
+
+    /// Before Throne of Destiny the record starts with the flags and then the cell id (there is
+    /// no leading id before the flags, so the id is read once and repeated here), and it aligns to
+    /// four bytes after the surface list and after the visible-cell list.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let flags = c.u32()?;
+        let id = c.data_id()?;
+        let num_surfaces = c.u8()? as usize;
+        let num_portals = c.u8()? as usize;
+        let num_stabs = c.u16()? as usize;
+        let surfaces = read_n(c, num_surfaces, |c| {
+            Ok(DataId(0x0800_0000 | u32::from(c.u16()?)))
+        })?;
+        c.align_ptr();
+        let environment = DataId(0x0D00_0000 | u32::from(c.u16()?));
+        let cell_struct = c.u16()?;
+        let frame = c.placed_frame()?;
+        let portals = read_n(c, num_portals, read_cell_portal)?;
+        let visible_cells = read_n(c, num_stabs, Cursor::u16)?;
+        c.align_ptr();
+        let static_objects = if flags & 2 != 0 {
+            let n = c.u32()? as usize;
+            read_n(c, n, ObjectEntry::decode)?
+        } else {
+            Vec::new()
+        };
+        let restriction_obj = if flags & 8 != 0 { Some(c.u32()?) } else { None };
+        Ok(Self {
+            id,
+            flags,
+            cell_id_repeat: id.raw(),
+            surfaces,
+            environment,
+            cell_struct,
+            frame,
+            portals,
+            visible_cells,
+            static_objects,
+            restriction_obj,
+        })
     }
 
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
@@ -301,22 +359,7 @@ impl Decode for EnvCell {
         // Note the offset: with an odd surface count the Frame starts 2-aligned but not 4-aligned,
         // and the client reads these floats unaligned. Nothing pads here.
         let frame = c.placed_frame()?;
-        let portals = read_n(c, num_portals, |c| {
-            let flags = c.u16()?;
-            let polygon_id = c.u16()?;
-            let other = c.u16()?;
-            let other_portal_id = c.i16()?;
-            Ok(CellPortal {
-                flags,
-                polygon_id,
-                other_cell_id: if flags & 4 != 0 {
-                    0xFFFF_FFFF
-                } else {
-                    u32::from(other)
-                },
-                other_portal_id,
-            })
-        })?;
+        let portals = read_n(c, num_portals, read_cell_portal)?;
         let visible_cells = read_n(c, num_stabs, Cursor::u16)?;
         let static_objects = if flags & 2 != 0 {
             let n = c.u32()? as usize;

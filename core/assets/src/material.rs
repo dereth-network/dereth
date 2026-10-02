@@ -104,6 +104,12 @@ impl Decode for Surface {
         None
     }
 
+    /// Before Throne of Destiny the record starts with its own id; the rest is unchanged.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let _id = c.data_id()?;
+        Self::decode(c)
+    }
+
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let surface_type = c.u32()?;
         let (orig_texture_id, orig_palette_id, color_value) = if surface_type & 6 != 0 {
@@ -160,6 +166,80 @@ impl Decode for SurfaceTexture {
             source_levels,
         })
     }
+
+    /// Before Throne of Destiny a `0x05` record is itself the image ([`pre_tod_image`]), so it
+    /// reads as a texture whose one level is itself; [`RenderSurface::from_pre_tod_texture`]
+    /// reads its pixels.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let (id, _) = pre_tod_image(c)?;
+        Ok(Self {
+            id,
+            data_category: 0,
+            unknown_byte: 0,
+            source_levels: vec![id],
+        })
+    }
+}
+
+/// The pixel formats of the image textures before Throne of Destiny, by their own type number,
+/// as `(bytes per pixel, the later pixel-format id that reads the same bytes)`:
+/// 2 8-bit palette indices with a trailing palette id (`PFID_P8`), 3 `A1R5G5B5`, 4 `A4R4G4B4`,
+/// 7 `R5G6B5`, 10 three bytes per pixel as the landscape textures are
+/// (`PFID_CUSTOM_LSCAPE_R8G8B8`), 11 one alpha byte per pixel (`PFID_CUSTOM_LSCAPE_ALPHA`).
+#[must_use]
+pub fn pre_tod_image_format(image_type: u32) -> Option<(u32, u32)> {
+    Some(match image_type {
+        2 => (1, PFID_P8),
+        3 => (2, 25),
+        4 => (2, 26),
+        7 => (2, 23),
+        10 => (3, 243),
+        11 => (1, 244),
+        _ => return None,
+    })
+}
+
+/// Read a `0x05` image texture from before Throne of Destiny: id, image type, width, height, the
+/// pixels, the default palette (type 2 only), then alignment to four bytes. Returns the id and
+/// the image as the later header describes it.
+fn pre_tod_image(c: &mut Cursor<'_>) -> Result<(DataId, RenderSurface), AssetError> {
+    let id = c.data_id()?;
+    let image_type = c.u32()?;
+    let width = c.u32()?;
+    let height = c.u32()?;
+    let (bytes_per_pixel, format) =
+        pre_tod_image_format(image_type).ok_or(AssetError::Unsupported {
+            what: "image texture type",
+            value: image_type,
+        })?;
+    let image_size = width
+        .checked_mul(height)
+        .and_then(|n| n.checked_mul(bytes_per_pixel))
+        .ok_or(AssetError::Unsupported {
+            what: "image texture size",
+            value: width,
+        })?;
+    let data_offset = c.position();
+    c.skip(image_size as usize)?;
+    let default_palette_id = if format == PFID_P8 {
+        Some(c.data_id()?)
+    } else {
+        None
+    };
+    c.align_ptr();
+    Ok((
+        id,
+        RenderSurface {
+            id,
+            data_category: 0,
+            width,
+            height,
+            format,
+            image_size,
+            data_offset,
+            default_palette_id,
+        },
+    ))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -251,7 +331,25 @@ impl RenderSurface {
     pub fn payload<'a>(&self, record: &'a [u8]) -> Option<&'a [u8]> {
         record.get(self.data_offset..self.data_offset + self.image_size as usize)
     }
+
+    /// A `0x05` image texture from before Throne of Destiny, read as the image header it is:
+    /// its pixel-format id is the later one that reads the same bytes ([`pre_tod_image_format`]),
+    /// and [`RenderSurface::payload`] slices its pixels out of `bytes`.
+    ///
+    /// # Errors
+    /// The record is not a whole image texture of a known type, or names another id.
+    pub fn from_pre_tod_texture(id: DataId, bytes: &[u8]) -> Result<Self, AssetError> {
+        let mut c = Cursor::new(bytes);
+        let (found, rs) = pre_tod_image(&mut c)?;
+        c.expect_end()?;
+        crate::check_id_echo(id, found)?;
+        Ok(rs)
+    }
 }
+
+/// `PFID_CUSTOM_B8G8R8`: three bytes per pixel in red, green, blue order, the order the `0x06`
+/// images before Throne of Destiny are stored in.
+pub const PFID_CUSTOM_B8G8R8: u32 = 242;
 
 impl Decode for RenderSurface {
     const TYPE: DbType = DbType::RenderSurface;
@@ -275,6 +373,35 @@ impl Decode for RenderSurface {
         } else {
             None
         };
+        Ok(Self {
+            id,
+            data_category,
+            width,
+            height,
+            format,
+            image_size,
+            data_offset,
+            default_palette_id,
+        })
+    }
+
+    /// Before Throne of Destiny a `0x06` record is an id, a width, a height and three bytes per
+    /// pixel in red, green, blue order ([`PFID_CUSTOM_B8G8R8`]), with no category, format, length,
+    /// palette or padding.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let id = c.data_id()?;
+        let width = c.u32()?;
+        let height = c.u32()?;
+        let image_size = width
+            .checked_mul(height)
+            .and_then(|n| n.checked_mul(3))
+            .ok_or(AssetError::Unsupported {
+                what: "image size",
+                value: width,
+            })?;
+        let data_offset = c.position();
+        c.skip(image_size as usize)?;
+        let (data_category, format, default_palette_id) = (0, PFID_CUSTOM_B8G8R8, None);
         Ok(Self {
             id,
             data_category,

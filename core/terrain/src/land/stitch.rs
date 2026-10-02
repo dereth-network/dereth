@@ -246,6 +246,7 @@ mod tests {
                     road_maps: Vec::new(),
                     terrain_desc: Vec::new(),
                 }),
+                pal_shift: None,
             },
             region_misc: None,
         }

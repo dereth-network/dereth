@@ -68,6 +68,42 @@ impl RetailDat {
     }
 }
 
+/// One of the two data files from before Throne of Destiny (June 2005), by its name on disk. Strings
+/// and interface layouts, which later moved to the language file, were in the portal file then.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PreTodDat {
+    /// `portal.dat`: the portal database, strings and layouts included.
+    Portal,
+    /// `cell.dat`: the landblocks and interior cells.
+    Cell,
+}
+
+impl PreTodDat {
+    /// Both, portal first.
+    pub const ALL: [Self; 2] = [Self::Portal, Self::Cell];
+
+    /// The file's name on disk.
+    #[must_use]
+    pub const fn file_name(self) -> &'static str {
+        match self {
+            Self::Portal => "portal.dat",
+            Self::Cell => "cell.dat",
+        }
+    }
+
+    /// The file's path inside `dir`.
+    #[must_use]
+    pub fn in_dir(self, dir: &Path) -> PathBuf {
+        dir.join(self.file_name())
+    }
+}
+
+/// Whether `dir` holds a dat set from before Throne of Destiny: `portal.dat` and `cell.dat`.
+#[must_use]
+pub fn holds_pre_tod_dats(dir: &Path) -> bool {
+    PreTodDat::ALL.iter().all(|d| d.in_dir(dir).is_file())
+}
+
 /// Whether `dir` holds the retail dats: whether `client_portal.dat` is a file in it.
 #[must_use]
 pub fn holds_retail_dats(dir: &Path) -> bool {

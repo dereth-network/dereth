@@ -13,10 +13,12 @@ use std::sync::{Arc, OnceLock};
 
 use dereth_primitives::{AssetError, AssetSource, DataId, DataType};
 
-use crate::container::{DatFile, CELL_DATFILE, HIRES_SUBSET, LOCAL_DATFILE, PORTAL_DATFILE};
+use crate::container::{
+    ContainerEra, DatFile, CELL_DATFILE, HIRES_SUBSET, LOCAL_DATFILE, PORTAL_DATFILE,
+};
 use crate::divine::{classify_cell_id, divine_type, DatKind, DbType};
 use crate::error::DatError;
-use crate::locate::RetailDat;
+use crate::locate::{PreTodDat, RetailDat};
 
 pub(crate) mod shared;
 
@@ -84,9 +86,21 @@ impl RetailDatStore {
     /// or `client_dir` is shared -- and `shared::open` re-walks whenever the file's length or
     /// mtime has moved, which is what keeps `App::invalidate_after_ddd`'s reopen honest.
     pub fn open_dir(client_dir: &Path) -> Result<Self, DatError> {
-        let portal = shared::open(&RetailDat::Portal.in_dir(client_dir))?;
-        let cell = shared::open(&RetailDat::Cell.in_dir(client_dir))?;
-        let local = shared::open(&RetailDat::Local.in_dir(client_dir))?;
+        let open = |dat: RetailDat| -> Result<Arc<DatFile>, DatError> {
+            let path = dat.in_dir(client_dir);
+            let file = shared::open(&path)?;
+            if file.era() != ContainerEra::Tod {
+                return Err(DatError::UnexpectedContainerEra {
+                    path,
+                    found: file.era(),
+                    expected: ContainerEra::Tod,
+                });
+            }
+            Ok(file)
+        };
+        let portal = open(RetailDat::Portal)?;
+        let cell = open(RetailDat::Cell)?;
+        let local = open(RetailDat::Local)?;
         Ok(Self {
             portal,
             cell,
@@ -94,6 +108,46 @@ impl RetailDatStore {
             highres: OnceLock::new(),
             client_dir: Some(client_dir.to_path_buf()),
         })
+    }
+
+    /// Open a dat set from before Throne of Destiny: `portal.dat` and `cell.dat` from one directory,
+    /// each checked to be in the older container layout. There is no language file: the records
+    /// that later moved there (strings, interface layouts) are in the portal file, so language-type
+    /// reads go to it. There is no high-resolution file either, and [`Self::grant_highres`] finds
+    /// none.
+    ///
+    /// # Errors
+    ///
+    /// A file is missing, does not open, or is in the later layout.
+    pub fn open_pre_tod_dir(dir: &Path) -> Result<Self, DatError> {
+        let open = |dat: PreTodDat| -> Result<Arc<DatFile>, DatError> {
+            let path = dat.in_dir(dir);
+            let file = shared::open(&path)?;
+            if file.era() != ContainerEra::PreTod {
+                return Err(DatError::UnexpectedContainerEra {
+                    path,
+                    found: file.era(),
+                    expected: ContainerEra::PreTod,
+                });
+            }
+            Ok(file)
+        };
+        let portal = open(PreTodDat::Portal)?;
+        let cell = open(PreTodDat::Cell)?;
+        Ok(Self {
+            local: Arc::clone(&portal),
+            portal,
+            cell,
+            highres: OnceLock::new(),
+            client_dir: Some(dir.to_path_buf()),
+        })
+    }
+
+    /// The container layout of the store's files: the portal file's, which [`Self::open_dir`] and
+    /// [`Self::open_pre_tod_dir`] each require the others to share.
+    #[must_use]
+    pub fn era(&self) -> ContainerEra {
+        self.portal.era()
     }
 
     /// A store from files already open. A `highres` handed in here counts as granted, which is
@@ -403,6 +457,10 @@ impl AssetSource for RetailDatStore {
 
     fn exists(&self, id: DataId) -> bool {
         self.resolve(id).is_some()
+    }
+
+    fn container_era(&self) -> ContainerEra {
+        self.era()
     }
 
     fn iter_type(&self, kind: DataType) -> Box<dyn Iterator<Item = DataId> + '_> {

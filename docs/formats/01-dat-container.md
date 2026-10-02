@@ -281,3 +281,42 @@ zero link in the second block. The free block at `0x1000` has link `0x80000000`.
 
 Nothing above is taken from a shipped data file: it is a minimal container these rules permit,
 written out longhand.
+
+## 11. The layout before Throne of Destiny
+
+Before Throne of Destiny (June 2005) the game shipped two files, `portal.dat` and `cell.dat`, in an
+older layout. Blocks, chains, the bit-31 free flag, the first block at `0x400`, the order-62
+directory and its lookup are the same; the header, the entry and the iteration are not. The layout
+changed exactly once, with the renaming, so a file's layout is told by where its magic sits: at
+`0x140` it is the layout above, at `0x12C` it is this one.
+
+**Readers:** `dereth_dat::container` (`ContainerEra::PreTod`, `DatFile::header_iteration`),
+`dereth_dat::btree` (`BtNode::parse_pre_tod`), `dereth_dat::store`
+(`RetailDatStore::open_pre_tod_dir`). The layout is read, never written.
+
+| offset | size | field | meaning |
+|---:|---:|---|---|
+| `0x000` | 300 | — | Zero. There is no transaction journal. |
+| `0x12C` | 4 | `magic` | `0x5442`. |
+| `0x130` | 4 | `block_size` | As above: 1024 in the portal file, 256 in the cell file. |
+| `0x134` | 4 | `file_size` | Total file size. |
+| `0x138` | 4 | `iteration` | The whole file's iteration (2112 in the February 2005 portal file, 1593 in its cell file). |
+| `0x13C` | 4 | `free_head` | Offset of the first free block. |
+| `0x140` | 4 | `free_tail` | Offset of the last free block. |
+| `0x144` | 4 | `free_count` | Number of free blocks. |
+| `0x148` | 4 | `btree_root` | Offset of the root directory node. |
+| `0x14C` | 12 | — | Three words, zero in every shipped file. |
+
+There is no data set, subset, pack version or version stamp: which file is which comes from its name
+and block size.
+
+A directory entry is **12 bytes**: `id`, `first_block`, `size`. There is no flags word (so no
+compression bit and no pack version), no date and no per-entry iteration. A node is therefore
+`62 × 4 + 4 + 61 × 12` = 984 bytes: one block in the portal file, four in the cell file. Child slots
+past the count hold `0xCD` fill and are never followed.
+
+There is no `0xFFFF0001` iteration file; the header's word is the iteration. Iterations restarted at
+Throne of Destiny, so an older file's iteration is not comparable with a later file's.
+
+The records that later moved to the language file (string tables, interface layouts) are in the
+portal file, so a reader routes language-type requests to it; there is no high-resolution file.

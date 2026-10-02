@@ -148,6 +148,15 @@ impl Decode for LanguageString {
             text: c.archive_string()?,
         })
     }
+
+    /// Before Throne of Destiny the text is a padded `u16`-length string (with the `0xFFFF`
+    /// escape to a `u32` length), not a packed-count one.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        Ok(Self {
+            id: c.data_id()?,
+            text: c.packobj_string()?,
+        })
+    }
 }
 
 /// A `u8` count followed by that many UTF-16 code units — the client's "character list" form,

@@ -51,13 +51,14 @@ pub mod write;
 
 pub use archive::{HashHeader, VersionRow};
 pub use btree::{BtEntry, BtNode};
-pub use container::{DatFile, DatStorage, DiskFileInfo, StructureReport};
+pub use container::{ContainerEra, DatFile, DatStorage, DiskFileInfo, StructureReport};
 pub use cursor::Cursor;
 pub use divine::{classify_cell_id, dat_for_type, divine_type, DatKind, DbType, ITERATION_LIST};
 pub use error::DatError;
 pub use inflate::{inflate_raw, inflate_zlib};
 pub use locate::{
-    holds_retail_dats, locate_retail_dats, protect_install, DatDir, DatsNotFound, RetailDat,
+    holds_pre_tod_dats, holds_retail_dats, locate_retail_dats, protect_install, DatDir,
+    DatsNotFound, PreTodDat, RetailDat,
 };
 pub use store::RetailDatStore;
 pub use write::{DatWriter, Fault, SaveOutcome};

@@ -1,18 +1,19 @@
 //! The track's acceptance gate, as a library function so that the fixture generator and CI can
 //! call it too.
 //!
-//! For every id in all four dats, resolve the type, decode it, and require `expect_end()` — zero
+//! For every id in the dat set (all four files, or the two before Throne of Destiny, read in their
+//! own record layouts), resolve the type, decode it, and require `expect_end()` — zero
 //! shortfalls and zero overruns.
 
 use std::collections::BTreeMap;
 
-use dereth_dat::{classify_cell_id, divine_type, DbType, RetailDatStore};
+use dereth_dat::{classify_cell_id, divine_type, ContainerEra, DbType, RetailDatStore};
 use dereth_primitives::DataId;
 
 use crate::error::AssetError;
 use crate::material::MaterialBlob;
 use crate::ui::{LayoutDesc, PropertyAsset, PropertyTypes};
-use crate::{decode_any, Decode, MasterProperty};
+use crate::{decode_any_in, Decode, MasterProperty};
 
 /// What one exhaustive pass found.
 #[derive(Debug, Clone, Default)]
@@ -62,8 +63,12 @@ pub fn exhaustive_decode(s: &RetailDatStore) -> Result<VerifyReport, AssetError>
     };
 
     let mut r = VerifyReport::default();
-    let mut files: Vec<(&dereth_dat::DatFile, bool)> =
-        vec![(s.portal(), false), (s.cell(), true), (s.local(), false)];
+    let mut files: Vec<(&dereth_dat::DatFile, bool)> = vec![(s.portal(), false), (s.cell(), true)];
+    // Before Throne of Destiny the language records are in the portal file, which the store also
+    // answers language reads from: walked once.
+    if s.era() == ContainerEra::Tod {
+        files.push((s.local(), false));
+    }
     if let Some(hi) = s.highres() {
         files.push((hi, false));
     }
@@ -81,7 +86,7 @@ pub fn exhaustive_decode(s: &RetailDatStore) -> Result<VerifyReport, AssetError>
                     continue;
                 }
             };
-            let outcome = decode_one(kind, id, &bytes, &types);
+            let outcome = decode_one(s.era(), kind, id, &bytes, &types);
             match outcome {
                 Ok(true) => {
                     r.decoded += 1;
@@ -97,6 +102,7 @@ pub fn exhaustive_decode(s: &RetailDatStore) -> Result<VerifyReport, AssetError>
 
 /// `Ok(true)` decoded, `Ok(false)` no decoder for that type, `Err` decode failure.
 fn decode_one(
+    era: ContainerEra,
     kind: DbType,
     id: DataId,
     bytes: &[u8],
@@ -117,7 +123,7 @@ fn decode_one(
             MaterialBlob::decode_payload(id, bytes)?;
             Ok(true)
         }
-        _ => match decode_any(kind, id, bytes) {
+        _ => match decode_any_in(era, kind, id, bytes) {
             Ok(_) => Ok(true),
             Err(AssetError::NoDecoder(_)) => Ok(false),
             Err(e) => Err(e),

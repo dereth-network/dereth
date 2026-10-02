@@ -129,3 +129,54 @@ pub fn open_store_or_fail() -> RetailDatStore {
         )
     })
 }
+
+/// The test-only variable naming a directory that holds the February 2005 dat set (`portal.dat`
+/// and `cell.dat`, from before Throne of Destiny).
+pub const PRE_TOD_DAT_DIR_VAR: &str = "DERETH_TEST_PRETOD_DAT_DIR";
+
+/// The directory `DERETH_TEST_PRETOD_DAT_DIR` names, or `None` when it is unset or empty.
+#[must_use]
+pub fn pre_tod_dat_dir() -> Option<PathBuf> {
+    std::env::var_os(PRE_TOD_DAT_DIR_VAR)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Why the February 2005 dats cannot be read, or `None` when both files are there.
+#[must_use]
+pub fn pre_tod_shortfall() -> Option<String> {
+    match pre_tod_dat_dir() {
+        None => Some(format!(
+            "the February 2005 dats were not found: {PRE_TOD_DAT_DIR_VAR} is unset (set it to \
+             the directory holding portal.dat and cell.dat)"
+        )),
+        Some(dir) if !crate::holds_pre_tod_dats(&dir) => Some(format!(
+            "the February 2005 dats were not found: no portal.dat and cell.dat under {} \
+             ({PRE_TOD_DAT_DIR_VAR})",
+            dir.display()
+        )),
+        Some(_) => None,
+    }
+}
+
+/// The store over the February 2005 dat set. The directory is protected for the run, as the
+/// retail install is.
+///
+/// # Panics
+///
+/// With [`pre_tod_shortfall`]'s line when the files are not there, or with the open error when
+/// they are and do not open.
+#[must_use]
+pub fn open_pre_tod_store_or_fail() -> RetailDatStore {
+    if let Some(msg) = pre_tod_shortfall() {
+        panic!("{msg}");
+    }
+    let dir = pre_tod_dat_dir().unwrap_or_default();
+    crate::protect_install(&dir);
+    RetailDatStore::open_pre_tod_dir(&dir).unwrap_or_else(|e| {
+        panic!(
+            "the February 2005 dats under {} did not open: {e}",
+            dir.display()
+        )
+    })
+}

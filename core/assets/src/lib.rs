@@ -47,7 +47,7 @@ pub mod ui;
 pub mod verify;
 pub mod world;
 
-use dereth_dat::{Cursor, DbType};
+use dereth_dat::{ContainerEra, Cursor, DbType};
 use dereth_primitives::DataId;
 
 pub use audio::{SoundTable, Wave};
@@ -98,6 +98,30 @@ pub trait Decode: Sized {
             check_id_echo(id, found)?;
         }
         Ok(v)
+    }
+
+    /// Read one object in its layout from before Throne of Destiny (the `portal.dat` and
+    /// `cell.dat` set). A type whose layout did not change there reads as [`Decode::decode`]; the
+    /// types rewritten at Throne of Destiny override it. Must consume the payload exactly.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        Self::decode(c)
+    }
+
+    /// Full payload to value in the layout of the dat set `era` names, with `expect_end()` and the
+    /// DataID echo check.
+    fn decode_payload_in(era: ContainerEra, id: DataId, bytes: &[u8]) -> Result<Self, AssetError> {
+        match era {
+            ContainerEra::Tod => Self::decode_payload(id, bytes),
+            ContainerEra::PreTod => {
+                let mut c = Cursor::new(bytes);
+                let v = Self::decode_pre_tod(&mut c)?;
+                c.expect_end()?;
+                if let Some(found) = v.declared_id() {
+                    check_id_echo(id, found)?;
+                }
+                Ok(v)
+            }
+        }
     }
 
     /// The same, without the echo check, for callers testing a synthetic payload.
@@ -164,13 +188,13 @@ pub enum DecodedAsset {
 }
 
 macro_rules! dispatch {
-    ($kind:expr, $id:expr, $bytes:expr,
+    ($era:expr, $kind:expr, $id:expr, $bytes:expr,
      plain { $( $t:ident => $v:ident($ty:ty) ),* $(,)? }
      boxed { $( $bt:ident => $bv:ident($bty:ty) ),* $(,)? }) => {
         match $kind {
-            $( DbType::$t => Ok(DecodedAsset::$v(<$ty as Decode>::decode_payload($id, $bytes)?)), )*
+            $( DbType::$t => Ok(DecodedAsset::$v(<$ty as Decode>::decode_payload_in($era, $id, $bytes)?)), )*
             $( DbType::$bt =>
-                Ok(DecodedAsset::$bv(Box::new(<$bty as Decode>::decode_payload($id, $bytes)?))), )*
+                Ok(DecodedAsset::$bv(Box::new(<$bty as Decode>::decode_payload_in($era, $id, $bytes)?))), )*
             other => Err(AssetError::NoDecoder(other)),
         }
     };
@@ -183,7 +207,18 @@ macro_rules! dispatch {
 /// as the client does. Use [`ui::LayoutDesc::decode_payload`] and
 /// [`ui::PropertyAsset::decode_payload`], which take that map.
 pub fn decode_any(kind: DbType, id: DataId, bytes: &[u8]) -> Result<DecodedAsset, AssetError> {
-    dispatch!(kind, id, bytes,
+    decode_any_in(ContainerEra::Tod, kind, id, bytes)
+}
+
+/// [`decode_any`] in the record layouts of the dat set `era` names: before Throne of Destiny the
+/// rewritten types read their older layout ([`Decode::decode_pre_tod`]) into the same values.
+pub fn decode_any_in(
+    era: ContainerEra,
+    kind: DbType,
+    id: DataId,
+    bytes: &[u8],
+) -> Result<DecodedAsset, AssetError> {
+    dispatch!(era, kind, id, bytes,
         plain {
             GfxObj => GfxObj(GfxObj),
             Setup => Setup(Setup),

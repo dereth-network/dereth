@@ -420,6 +420,7 @@ mod tests {
             land_surf: LandSurf {
                 surf_type: 0,
                 tex_merge: Some(tm),
+                pal_shift: None,
             },
             region_misc: None,
         }

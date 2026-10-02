@@ -1,7 +1,7 @@
 //! Resolve texture record chains and their palette records without interpreting pixels.
 
 use crate::{Decode, Palette, RenderSurface, RenderTexture, Surface, SurfaceTexture};
-use dereth_dat::{divine_type, DbType, RetailDatStore};
+use dereth_dat::{divine_type, ContainerEra, DbType, RetailDatStore};
 use dereth_primitives::DataId;
 
 /// A missing, malformed or non-texture record in a texture chain.
@@ -58,6 +58,13 @@ impl<'a> TextureLookup<'a> {
                 let next = s.orig_texture_id.ok_or(LookupError::NotATexture(id))?;
                 self.resolve(next)
             }
+            // Before Throne of Destiny an image texture carries its own pixels.
+            DbType::SurfaceTexture if self.store.era() == ContainerEra::PreTod => {
+                let bytes = self.read(DbType::SurfaceTexture, id)?;
+                let rs = RenderSurface::from_pre_tod_texture(id, &bytes)
+                    .map_err(|e| LookupError::Asset(id, e))?;
+                Ok((id, rs, bytes))
+            }
             DbType::SurfaceTexture => {
                 let t: SurfaceTexture = self.decode(DbType::SurfaceTexture, id)?;
                 // one level is that level; two levels are
@@ -87,7 +94,7 @@ impl<'a> TextureLookup<'a> {
             }
             DbType::RenderSurface => {
                 let bytes = self.read(DbType::RenderSurface, id)?;
-                let rs = RenderSurface::decode_payload(id, &bytes)
+                let rs = RenderSurface::decode_payload_in(self.store.era(), id, &bytes)
                     .map_err(|e| LookupError::Asset(id, e))?;
                 Ok((id, rs, bytes))
             }
@@ -103,6 +110,6 @@ impl<'a> TextureLookup<'a> {
 
     fn decode<T: Decode>(&self, kind: DbType, id: DataId) -> Result<T, LookupError> {
         let bytes = self.read(kind, id)?;
-        T::decode_payload(id, &bytes).map_err(|e| LookupError::Asset(id, e))
+        T::decode_payload_in(self.store.era(), id, &bytes).map_err(|e| LookupError::Asset(id, e))
     }
 }

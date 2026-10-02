@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use dereth_dat::{packobj::read_n, Cursor, DbType};
+use dereth_dat::{packobj::read_n, ContainerEra, Cursor, DbType};
 use dereth_primitives::{DataId, Frame, Vec3};
 
 use crate::common::{decode_sphere, BspKind, BspTree, Polygon, Sphere, VertexArray};
@@ -42,51 +42,80 @@ impl Decode for GfxObj {
     }
 
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        let id = c.data_id()?;
-        let flags = c.u32()?;
-        // The surface list count is a compressed integer, not a plain dword.
-        let n = c.compressed_u32()? as usize;
-        let surfaces = read_n(c, n, Cursor::data_id)?;
-        let vertex_array = VertexArray::decode(c)?;
-        let mut physics_polygons = Vec::new();
-        let mut physics_bsp = None;
-        if flags & 1 != 0 {
-            let n = c.compressed_u32()? as usize;
-            physics_polygons = polygons(c, n)?;
-            physics_bsp = Some(BspTree::decode(c, BspKind::Physics)?);
-        }
-        let sort_center = c.vec3()?;
-        let mut polygons_ = Vec::new();
-        let mut drawing_bsp = None;
-        if flags & 2 != 0 {
-            let n = c.compressed_u32()? as usize;
-            polygons_ = polygons(c, n)?;
-            drawing_bsp = Some(BspTree::decode(c, BspKind::Drawing)?);
-        }
-        let did_degrade = if flags & 8 != 0 {
-            Some(c.data_id()?)
-        } else {
-            None
-        };
-        Ok(Self {
-            id,
-            flags,
-            surfaces,
-            vertex_array,
-            physics_polygons,
-            physics_bsp,
-            sort_center,
-            polygons: polygons_,
-            drawing_bsp,
-            did_degrade,
-        })
+        decode_gfxobj(c, ContainerEra::Tod)
+    }
+
+    /// Before Throne of Destiny the counts are plain `u32`s rather than compressed, the polygons
+    /// and BSP nodes carry the older alignment, there is no degrade id, and bit 2 would add a
+    /// triangle-strip block (which no shipped record sets, and which is refused) before the
+    /// record ends aligned to four bytes.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_gfxobj(c, ContainerEra::PreTod)
     }
 }
 
-fn polygons(c: &mut Cursor<'_>, n: usize) -> Result<Vec<Polygon>, AssetError> {
+fn decode_gfxobj(c: &mut Cursor<'_>, era: ContainerEra) -> Result<GfxObj, AssetError> {
+    let pre_tod = era == ContainerEra::PreTod;
+    let count = |c: &mut Cursor<'_>| -> Result<usize, AssetError> {
+        Ok(if pre_tod {
+            c.u32()? as usize
+        } else {
+            // The later count is a compressed integer, not a plain dword.
+            c.compressed_u32()? as usize
+        })
+    };
+    let id = c.data_id()?;
+    let flags = c.u32()?;
+    let n = count(c)?;
+    let surfaces = read_n(c, n, Cursor::data_id)?;
+    let vertex_array = VertexArray::decode_in(c, era)?;
+    let mut physics_polygons = Vec::new();
+    let mut physics_bsp = None;
+    if flags & 1 != 0 {
+        let n = count(c)?;
+        physics_polygons = polygons(c, n, era)?;
+        physics_bsp = Some(BspTree::decode_in(c, BspKind::Physics, era)?);
+    }
+    let sort_center = c.vec3()?;
+    let mut polygons_ = Vec::new();
+    let mut drawing_bsp = None;
+    if flags & 2 != 0 {
+        let n = count(c)?;
+        polygons_ = polygons(c, n, era)?;
+        drawing_bsp = Some(BspTree::decode_in(c, BspKind::Drawing, era)?);
+    }
+    let did_degrade = if pre_tod {
+        if flags & 4 != 0 {
+            return Err(AssetError::Unsupported {
+                what: "triangle-strip block",
+                value: flags,
+            });
+        }
+        c.align_ptr();
+        None
+    } else if flags & 8 != 0 {
+        Some(c.data_id()?)
+    } else {
+        None
+    };
+    Ok(GfxObj {
+        id,
+        flags,
+        surfaces,
+        vertex_array,
+        physics_polygons,
+        physics_bsp,
+        sort_center,
+        polygons: polygons_,
+        drawing_bsp,
+        did_degrade,
+    })
+}
+
+fn polygons(c: &mut Cursor<'_>, n: usize, era: ContainerEra) -> Result<Vec<Polygon>, AssetError> {
     let mut v = Vec::new();
     for _ in 0..n {
-        v.push(Polygon::decode(c)?);
+        v.push(Polygon::decode_in(c, era)?);
     }
     Ok(v)
 }
@@ -358,39 +387,49 @@ impl Decode for Environment {
     }
 
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        let id = c.data_id()?;
-        let n = c.u32()? as usize;
-        let mut cells = Vec::new();
-        for _ in 0..n {
-            let cellstruct_id = c.u32()?;
-            let num_polygons = c.u32()? as usize;
-            let num_physics_polygons = c.u32()? as usize;
-            let num_portals = c.u32()? as usize;
-            let vertex_array = VertexArray::decode(c)?;
-            let polys = polygons(c, num_polygons)?;
-            let portals = read_n(c, num_portals, Cursor::u16)?;
-            c.align_ptr();
-            let cell_bsp = BspTree::decode(c, BspKind::Cell)?;
-            let physics_polygons = polygons(c, num_physics_polygons)?;
-            let physics_bsp = BspTree::decode(c, BspKind::Physics)?;
-            let has_drawing = c.u32()?;
-            let drawing_bsp = if has_drawing != 0 {
-                Some(BspTree::decode(c, BspKind::Drawing)?)
-            } else {
-                None
-            };
-            c.align_ptr();
-            cells.push(CellStruct {
-                cellstruct_id,
-                vertex_array,
-                polygons: polys,
-                portals,
-                cell_bsp,
-                physics_polygons,
-                physics_bsp,
-                drawing_bsp,
-            });
-        }
-        Ok(Self { id, cells })
+        decode_environment(c, ContainerEra::Tod)
     }
+
+    /// Before Throne of Destiny the shape is the same, and each polygon and BSP node carries the
+    /// older alignment ([`Polygon::decode_in`], [`BspTree::decode_in`]).
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_environment(c, ContainerEra::PreTod)
+    }
+}
+
+fn decode_environment(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Environment, AssetError> {
+    let id = c.data_id()?;
+    let n = c.u32()? as usize;
+    let mut cells = Vec::new();
+    for _ in 0..n {
+        let cellstruct_id = c.u32()?;
+        let num_polygons = c.u32()? as usize;
+        let num_physics_polygons = c.u32()? as usize;
+        let num_portals = c.u32()? as usize;
+        let vertex_array = VertexArray::decode_in(c, era)?;
+        let polys = polygons(c, num_polygons, era)?;
+        let portals = read_n(c, num_portals, Cursor::u16)?;
+        c.align_ptr();
+        let cell_bsp = BspTree::decode_in(c, BspKind::Cell, era)?;
+        let physics_polygons = polygons(c, num_physics_polygons, era)?;
+        let physics_bsp = BspTree::decode_in(c, BspKind::Physics, era)?;
+        let has_drawing = c.u32()?;
+        let drawing_bsp = if has_drawing != 0 {
+            Some(BspTree::decode_in(c, BspKind::Drawing, era)?)
+        } else {
+            None
+        };
+        c.align_ptr();
+        cells.push(CellStruct {
+            cellstruct_id,
+            vertex_array,
+            polygons: polys,
+            portals,
+            cell_bsp,
+            physics_polygons,
+            physics_bsp,
+            drawing_bsp,
+        });
+    }
+    Ok(Environment { id, cells })
 }

@@ -37,7 +37,8 @@ pub mod transport;
 pub mod viewport;
 
 pub use asset::{
-    AssetError, AssetSource, MeshData, MeshHandle, TextureData, TextureFormat, TextureHandle,
+    AssetError, AssetSource, ContainerEra, MeshData, MeshHandle, TextureData, TextureFormat,
+    TextureHandle,
 };
 pub use host::{HostEncoding, TextSink};
 pub use ids::{CellId, DataId, DataType, LandblockId, ObjectId, PropertyId};

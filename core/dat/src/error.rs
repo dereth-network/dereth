@@ -45,6 +45,13 @@ pub enum DatError {
     BadHashTableHeader { buckets: u32, count: u32 },
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
+    /// A file opened as one member of a dat set is in the other container layout.
+    #[error("{} is a {found:?} container, expected {expected:?}", path.display())]
+    UnexpectedContainerEra {
+        path: std::path::PathBuf,
+        found: crate::container::ContainerEra,
+        expected: crate::container::ContainerEra,
+    },
 
     // ----------------------------------------------------------------------------------------
     // The writer. Everything below is a refusal rather than a corruption: native

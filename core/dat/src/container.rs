@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use dereth_primitives::DataId;
 
-use crate::btree::{BtEntry, BtNode, NODE_SIZE};
+use crate::btree::{BtEntry, BtNode, NODE_SIZE, PRE_TOD_NODE_SIZE};
 use crate::error::DatError;
 
 /// Where a container's bytes are kept: a positional read that fills `buf` from `offset` or fails.
@@ -134,6 +134,54 @@ pub const LOCAL_DATFILE: u32 = 3;
 pub const HIRES_SUBSET: u32 = 0x6946_6948;
 
 pub(crate) const HEADER_OFFSET: u64 = 0x140;
+/// Where the header of a file from before Throne of Destiny starts: 44 bytes at `0x12C`.
+pub(crate) const PRE_TOD_HEADER_OFFSET: u64 = 0x12C;
+
+/// Which of the two container layouts a file uses. It is the primitives' era, shared with every
+/// reader of records, since the layout of a few record types changed at the same time. Blocks,
+/// chains and the order-62 directory are the same in both.
+pub use dereth_primitives::ContainerEra;
+
+/// Read the pre-Throne-of-Destiny header: magic, block size, file size, iteration, the free chain's
+/// head, tail and count, and the directory root, then three words that are zero in every shipped
+/// file. The file names no data set; its block size tells them apart (`0x400` portal, `0x100`
+/// cell), so the header's `data_set` is inferred from it and every field the layout lacks is zero.
+fn parse_pre_tod_header(b: &[u8; 0x2C]) -> Result<(DiskFileInfo, u32), DatError> {
+    let w = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+    let magic = w(0x00);
+    if magic != 0x5442 {
+        return Err(DatError::BadMagic(magic));
+    }
+    let block_size = w(0x04);
+    if block_size < 8 || block_size % 4 != 0 {
+        return Err(DatError::BadBlockSize(block_size));
+    }
+    let data_set = if block_size == 0x100 {
+        CELL_DATFILE
+    } else {
+        PORTAL_DATFILE
+    };
+    let header = DiskFileInfo {
+        magic,
+        block_size,
+        file_size: w(0x08),
+        data_set,
+        data_subset: 0,
+        free_head: w(0x10),
+        free_tail: w(0x14),
+        free_count: w(0x18),
+        btree_root: w(0x1C),
+        young_lru: 0,
+        old_lru: 0,
+        use_lru: false,
+        master_map_id: 0,
+        eng_pack_vnum: 0,
+        game_pack_vnum: 0,
+        version_major: [0; 16],
+        version_minor: 0,
+    };
+    Ok((header, w(0x0C)))
+}
 pub(crate) const FIRST_BLOCK: u32 = 0x400;
 /// The 64-byte transaction journal slot.
 pub(crate) const TRANSACTION_OFFSET: u64 = 0x100;
@@ -231,6 +279,8 @@ pub struct DatFile {
     /// the same thing, which `verify_structure` checks.
     dir: BTreeMap<u32, BtEntry>,
     node_offsets: Vec<u32>,
+    era: ContainerEra,
+    header_iteration: Option<u32>,
 }
 
 impl DatFile {
@@ -270,12 +320,52 @@ impl DatFile {
             },
             dir: BTreeMap::new(),
             node_offsets: Vec::new(),
+            era: ContainerEra::Tod,
+            header_iteration: None,
         };
         let mut hdr = [0u8; 0x50];
         me.read_exact_at(HEADER_OFFSET, &mut hdr)?;
-        me.header = DiskFileInfo::parse(&hdr)?;
+        match DiskFileInfo::parse(&hdr) {
+            Ok(header) => me.header = header,
+            // The layout is told by where the magic is: at 0x140 the file is from Throne of
+            // Destiny on; at 0x12C it is older. Anything else is refused with the 0x140 reading.
+            Err(DatError::BadMagic(magic)) => {
+                let mut old = [0u8; 0x2C];
+                me.read_exact_at(PRE_TOD_HEADER_OFFSET, &mut old)?;
+                if u32::from_le_bytes([old[0], old[1], old[2], old[3]]) != 0x5442 {
+                    return Err(DatError::BadMagic(magic));
+                }
+                let (header, iteration) = parse_pre_tod_header(&old)?;
+                me.header = header;
+                me.era = ContainerEra::PreTod;
+                me.header_iteration = Some(iteration);
+            }
+            Err(e) => return Err(e),
+        }
         me.load_directory()?;
         Ok(me)
+    }
+
+    /// Which container layout the file uses.
+    #[must_use]
+    pub fn era(&self) -> ContainerEra {
+        self.era
+    }
+
+    /// The whole file's iteration, which a file from before Throne of Destiny keeps in its header
+    /// (2112 in the February 2005 portal, 1593 in its cell file). `None` from Throne of Destiny on,
+    /// where the iteration is the `0xFFFF0001` list ([`DatFile::iteration_list`]).
+    #[must_use]
+    pub fn header_iteration(&self) -> Option<u32> {
+        self.header_iteration
+    }
+
+    /// The directory node's size in this layout.
+    fn node_size(&self) -> usize {
+        match self.era {
+            ContainerEra::PreTod => PRE_TOD_NODE_SIZE,
+            ContainerEra::Tod => NODE_SIZE,
+        }
     }
 
     #[must_use]
@@ -430,8 +520,11 @@ impl DatFile {
         if offset < FIRST_BLOCK || u64::from(offset) >= u64::from(self.header.file_size) {
             return Err(DatError::BlockOutOfRange(offset));
         }
-        let raw = self.read_chain(DataId(0), offset, NODE_SIZE)?;
-        BtNode::parse(&raw, offset)
+        let raw = self.read_chain(DataId(0), offset, self.node_size())?;
+        match self.era {
+            ContainerEra::PreTod => BtNode::parse_pre_tod(&raw, offset),
+            ContainerEra::Tod => BtNode::parse(&raw, offset),
+        }
     }
 
     /// The actual descend-and-binary-search, kept so that the search
@@ -513,7 +606,7 @@ impl DatFile {
             .values()
             .map(|e| (e.size as usize).div_ceil(per))
             .sum::<usize>()
-            + self.node_offsets.len() * NODE_SIZE.div_ceil(per);
+            + self.node_offsets.len() * self.node_size().div_ceil(per);
 
         Ok(StructureReport {
             entries: self.dir.len(),

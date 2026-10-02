@@ -268,6 +268,7 @@ pub fn test_region() -> Region {
         land_surf: LandSurf {
             surf_type: 0,
             tex_merge: None,
+            pal_shift: None,
         },
         region_misc: None,
     }

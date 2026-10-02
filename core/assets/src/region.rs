@@ -3,7 +3,7 @@
 //! Region records are described in `docs/formats/15-region.md`. The reference parser decodes the
 //! one shipped region with zero trailing bytes.
 
-use dereth_dat::{packobj::read_n, Cursor, DbType};
+use dereth_dat::{packobj::read_n, ContainerEra, Cursor, DbType};
 use dereth_primitives::DataId;
 
 use crate::error::AssetError;
@@ -179,15 +179,42 @@ pub struct TexMerge {
     pub terrain_desc: Vec<TerrainDesc>,
 }
 
+/// One road code of a [`PalShiftTexture`]: a sub-palette type per sub-palette range.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PalShiftRoad {
+    pub road_code: u32,
+    pub sub_palette_types: Vec<DataId>,
+}
+
+/// One texture of the palette-shift land surface: the texture, its `(index, length)` sub-palette
+/// ranges, the road codes and the palette each terrain type shifts it to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PalShiftTexture {
+    pub tex_gid: DataId,
+    pub sub_palettes: Vec<(u32, u32)>,
+    pub road_maps: Vec<PalShiftRoad>,
+    /// `(terrain type, palette)`.
+    pub terrain_palettes: Vec<(u32, DataId)>,
+}
+
+/// `PalShift`, the land surface before Throne of Destiny (`type == 1`): terrain drawn by shifting
+/// the palettes of a few textures.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PalShift {
+    pub textures: Vec<PalShiftTexture>,
+}
+
 /// `LandSurf`.
 ///
-/// `type == 1` selects the pre-`TexMerge` `PalShift` technique, which is never
-/// taken — `LandSurf.type == 0` in the shipped region. This decoder returns
-/// [`AssetError::Unsupported`] rather than guessing at a layout no shipped file exercises.
+/// `type == 0` is texture merging, the only kind from Throne of Destiny on; `type == 1` is the
+/// palette-shift technique of the dat set before it, and a later-layout region naming it is
+/// refused ([`AssetError::Unsupported`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LandSurf {
     pub surf_type: u32,
     pub tex_merge: Option<TexMerge>,
+    /// Present exactly when `tex_merge` is not.
+    pub pal_shift: Option<PalShift>,
 }
 
 /// `RegionMisc`, present iff `parts_mask & 0x200`.
@@ -229,6 +256,20 @@ impl Decode for Region {
     }
 
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_region(c, ContainerEra::Tod)
+    }
+
+    /// Before Throne of Destiny a sky object has no particle-script id (eight words), and the land
+    /// surface is the palette-shift technique ([`PalShift`], type 1) rather than texture merging.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_region(c, ContainerEra::PreTod)
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn decode_region(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Region, AssetError> {
+    let pre_tod = era == ContainerEra::PreTod;
+    {
         let id = c.data_id()?;
         let region_number = c.u32()?;
         let version = c.u32()?;
@@ -300,7 +341,8 @@ impl Decode for Region {
                         end_angle: c.f32()?,
                         tex_velocity: (c.f32()?, c.f32()?),
                         default_gfx_object: c.data_id()?,
-                        default_pes_object: c.data_id()?,
+                        // No particle script before Throne of Destiny: eight words.
+                        default_pes_object: if pre_tod { DataId(0) } else { c.data_id()? },
                         properties: c.u32()?,
                     };
                     c.align_ptr();
@@ -453,12 +495,41 @@ impl Decode for Region {
                 road_maps,
                 terrain_desc,
             })
+        } else if surf_type == 1 && pre_tod {
+            None
         } else {
-            // Never taken in retail data.
+            // Never taken in data from Throne of Destiny on.
             return Err(AssetError::Unsupported {
                 what: "land-surface type (PalShift)",
                 value: surf_type,
             });
+        };
+        let pal_shift = if tex_merge.is_none() {
+            let n = c.u32()? as usize;
+            Some(PalShift {
+                textures: read_n(c, n, |c| {
+                    let tex_gid = c.data_id()?;
+                    let n = c.u32()? as usize;
+                    let sub_palettes = read_n(c, n, |c| Ok((c.u32()?, c.u32()?)))?;
+                    let r = c.u32()? as usize;
+                    let road_maps = read_n(c, r, |c| {
+                        Ok(PalShiftRoad {
+                            road_code: c.u32()?,
+                            sub_palette_types: read_n(c, n, Cursor::data_id)?,
+                        })
+                    })?;
+                    let t = c.u32()? as usize;
+                    let terrain_palettes = read_n(c, t, |c| Ok((c.u32()?, c.data_id()?)))?;
+                    Ok(PalShiftTexture {
+                        tex_gid,
+                        sub_palettes,
+                        road_maps,
+                        terrain_palettes,
+                    })
+                })?,
+            })
+        } else {
+            None
         };
 
         let region_misc = if parts_mask & 0x200 != 0 {
@@ -474,7 +545,7 @@ impl Decode for Region {
             None
         };
 
-        Ok(Self {
+        Ok(Region {
             id,
             region_number,
             version,
@@ -489,6 +560,7 @@ impl Decode for Region {
             land_surf: LandSurf {
                 surf_type,
                 tex_merge,
+                pal_shift,
             },
             region_misc,
         })

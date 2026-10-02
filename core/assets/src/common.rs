@@ -4,7 +4,7 @@
 //! `docs/formats/16-environment.md`. The reference vertex, polygon and BSP readers decode every
 //! shipped object with zero trailing bytes.
 
-use dereth_dat::{packobj::read_n, Cursor, DatError};
+use dereth_dat::{packobj::read_n, ContainerEra, Cursor, DatError};
 use dereth_primitives::Vec3;
 
 use crate::error::AssetError;
@@ -52,6 +52,13 @@ pub struct VertexArray {
 
 impl VertexArray {
     pub fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        Self::decode_in(c, ContainerEra::Tod)
+    }
+
+    /// Decode in the given era's layout. Before Throne of Destiny each vertex is followed by
+    /// alignment to four bytes, which its fields always fill already, so the two layouts read the
+    /// same bytes.
+    pub fn decode_in(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Self, AssetError> {
         let vertex_type = c.u32()?;
         if vertex_type != 1 {
             return Err(AssetError::Unsupported {
@@ -66,6 +73,9 @@ impl VertexArray {
             let position = c.vec3()?;
             let normal = c.vec3()?;
             let uvs = read_n(c, nuv, |c| Ok((c.f32()?, c.f32()?)))?;
+            if era == ContainerEra::PreTod {
+                c.align_ptr();
+            }
             Ok(SwVertex {
                 id,
                 position,
@@ -99,6 +109,12 @@ pub struct Polygon {
 
 impl Polygon {
     pub fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        Self::decode_in(c, ContainerEra::Tod)
+    }
+
+    /// Decode in the given era's layout: before Throne of Destiny each polygon ends with
+    /// alignment to four bytes.
+    pub fn decode_in(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Self, AssetError> {
         let poly_id = c.i16()?;
         let num_pts = c.u8()?;
         let stippling = c.u8()?;
@@ -119,6 +135,9 @@ impl Polygon {
         if sides_type == 1 {
             neg_surface = pos_surface;
             neg_uv_indices.clone_from(&pos_uv_indices);
+        }
+        if era == ContainerEra::PreTod {
+            c.align_ptr();
         }
         Ok(Self {
             poly_id,
@@ -197,6 +216,16 @@ impl BspTree {
     /// Parsed with an explicit work list rather than recursion: deep DAT trees can exhaust
     /// a small stack.
     pub fn decode(c: &mut Cursor<'_>, kind: BspKind) -> Result<Self, AssetError> {
+        Self::decode_in(c, kind, ContainerEra::Tod)
+    }
+
+    /// Decode in the given era's layout: before Throne of Destiny a node's polygon list (a
+    /// drawing node's, with its portals, and a physics leaf's) ends with alignment to four bytes.
+    pub fn decode_in(
+        c: &mut Cursor<'_>,
+        kind: BspKind,
+        era: ContainerEra,
+    ) -> Result<Self, AssetError> {
         /// Where a freshly parsed node records itself.
         enum Link {
             Root,
@@ -209,6 +238,7 @@ impl BspTree {
             Finish(usize),
         }
 
+        let aligned = era == ContainerEra::PreTod;
         let mut nodes: Vec<BspNode> = Vec::new();
         let mut stack = vec![Task::Read(Link::Root)];
 
@@ -223,11 +253,17 @@ impl BspTree {
                             let nport = c.u32()? as usize;
                             nodes[i].in_polys = read_n(c, npoly, Cursor::i16)?;
                             nodes[i].in_portals = read_n(c, nport, |c| Ok((c.i16()?, c.i16()?)))?;
+                            if aligned {
+                                c.align_ptr();
+                            }
                         }
                         (BspKind::Drawing, false) => {
                             nodes[i].sphere = Some(decode_sphere(c)?);
                             let npoly = c.u32()? as usize;
                             nodes[i].in_polys = read_n(c, npoly, Cursor::i16)?;
+                            if aligned {
+                                c.align_ptr();
+                            }
                         }
                         (BspKind::Physics, false) => {
                             nodes[i].sphere = Some(decode_sphere(c)?);
@@ -255,6 +291,9 @@ impl BspTree {
                             nodes[idx].sphere = Some(decode_sphere(c)?);
                             let npoly = c.u32()? as usize;
                             nodes[idx].in_polys = read_n(c, npoly, Cursor::i16)?;
+                            if aligned {
+                                c.align_ptr();
+                            }
                         }
                         continue;
                     }

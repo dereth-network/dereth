@@ -240,14 +240,23 @@ impl Decode for SpellTable {
     fn declared_id(&self) -> Option<DataId> {
         Some(self.id)
     }
+    /// Before Throne of Destiny (in the layout from January 2004 on) the table is the spells
+    /// alone, each in the same layout: there are no spell sets.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let id = c.data_id()?;
+        let (spell_buckets, spells) = read_spells(c)?;
+        Ok(Self {
+            id,
+            spell_buckets,
+            spells,
+            spellset_bucket_index: 0,
+            spellsets: BTreeMap::new(),
+        })
+    }
+
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
-        let (n, spell_buckets) = count_then_buckets(c)?;
-        let mut spells = BTreeMap::new();
-        for _ in 0..n {
-            let k = c.u32()?;
-            spells.insert(k, read_spell_base(c)?);
-        }
+        let (spell_buckets, spells) = read_spells(c)?;
         let (n2, spellset_bucket_index) = count_then_bucket_index(c)?;
         let mut spellsets = BTreeMap::new();
         for _ in 0..n2 {
@@ -278,6 +287,17 @@ impl Decode for SpellTable {
             spellsets,
         })
     }
+}
+
+/// The spell list: the `u16` count and bucket header, then each key and spell.
+fn read_spells(c: &mut Cursor<'_>) -> Result<(u32, BTreeMap<u32, SpellBase>), AssetError> {
+    let (n, buckets) = count_then_buckets(c)?;
+    let mut spells = BTreeMap::new();
+    for _ in 0..n {
+        let k = c.u32()?;
+        spells.insert(k, read_spell_base(c)?);
+    }
+    Ok((buckets, spells))
 }
 
 /// One spell component.
@@ -455,6 +475,26 @@ impl Decode for XpTable {
             trained_xp: read_n(c, nt + 1, Cursor::u32)?,
             specialized_xp: read_n(c, ns + 1, Cursor::u32)?,
             level_xp: read_n(c, nl + 1, Cursor::u64)?,
+            level_credits: read_n(c, nl + 1, Cursor::u32)?,
+        })
+    }
+
+    /// Before Throne of Destiny the character-level list is `u32` (126 levels in February 2005),
+    /// widened here; the other five lists are unchanged.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let id = c.data_id()?;
+        let na = c.u32()? as usize;
+        let nv = c.u32()? as usize;
+        let nt = c.u32()? as usize;
+        let ns = c.u32()? as usize;
+        let nl = c.u32()? as usize;
+        Ok(Self {
+            id,
+            attribute_xp: read_n(c, na + 1, Cursor::u32)?,
+            vital_xp: read_n(c, nv + 1, Cursor::u32)?,
+            trained_xp: read_n(c, nt + 1, Cursor::u32)?,
+            specialized_xp: read_n(c, ns + 1, Cursor::u32)?,
+            level_xp: read_n(c, nl + 1, |c| Ok(u64::from(c.u32()?)))?,
             level_credits: read_n(c, nl + 1, Cursor::u32)?,
         })
     }
@@ -660,6 +700,9 @@ impl Decode for CharGen {
     fn declared_id(&self) -> Option<DataId> {
         Some(self.id)
     }
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_pre_tod_chargen(c)
+    }
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let second_data_id = c.data_id()?;
@@ -745,6 +788,271 @@ impl Decode for CharGen {
             heritage_groups,
         })
     }
+}
+
+// The character-generation table before Throne of Destiny: a pack layout rather than an archive
+// one. Counts are full `u32`s, heritages and sexes are ordered lists with no keys, and the credits,
+// skill costs and templates belong to each sex. It is read into the later shape: heritages keyed
+// 1, 2, 3 in list order, sexes keyed by name (Male 1, Female 2), and the heritage's credits, skill
+// costs and templates taken from its first sex (the February 2005 table gives every sex of a
+// heritage the same ones, only the template icons differing). What the older table does not have
+// (a sex's scale, physics, motion and combat tables, a hair style's alternate setup) reads as zero.
+
+/// A string of the older table: a `u32` length and the bytes, unless the first word is above
+/// `0xFFFF`, when it is a padded `u16`-length string instead.
+fn pre_tod_string(c: &mut Cursor<'_>) -> Result<String, AssetError> {
+    let start = c.position();
+    let n = c.u32()?;
+    if n > 0xFFFF {
+        c.seek(start)?;
+        return Ok(c.packobj_string()?);
+    }
+    Ok(cp1252_to_string(c.bytes(n as usize)?))
+}
+
+/// A `u32` count, then that many items.
+fn pre_tod_list<T>(
+    c: &mut Cursor<'_>,
+    mut item: impl FnMut(&mut Cursor<'_>) -> Result<T, AssetError>,
+) -> Result<Vec<T>, AssetError> {
+    let n = c.u32()?;
+    let mut v = Vec::new();
+    for _ in 0..n {
+        v.push(item(c)?);
+    }
+    Ok(v)
+}
+
+/// A string and two words, read and let go (the older table's help and naming lists).
+fn pre_tod_named_pair(c: &mut Cursor<'_>) -> Result<(), AssetError> {
+    pre_tod_string(c)?;
+    c.u32()?;
+    c.u32()?;
+    Ok(())
+}
+
+/// The heritage-level parts the older table keeps on each sex.
+struct PreTodSexExtras {
+    attribute_credits: u32,
+    skill_credits: u32,
+    skills: Vec<(u32, i32, i32)>,
+    templates: Vec<CharGenTemplate>,
+}
+
+fn pre_tod_template(c: &mut Cursor<'_>) -> Result<CharGenTemplate, AssetError> {
+    let name = pre_tod_string(c)?;
+    let icon = c.u32()?;
+    let _description = c.u32()?;
+    let profiles = pre_tod_list(c, |c| {
+        let mut attributes = [0u32; 6];
+        for a in &mut attributes {
+            *a = c.u32()?;
+        }
+        let normal = pre_tod_list(c, |c| Ok(c.u32()?))?;
+        let primary = pre_tod_list(c, |c| Ok(c.u32()?))?;
+        let third = pre_tod_list(c, |c| Ok(c.u32()?))?;
+        Ok((attributes, normal, primary, third))
+    })?;
+    // Every template of the February 2005 table has one profile and an empty third list; a table
+    // that used more would be read wrongly as the later single profile, so it is refused.
+    let [(attributes, normal_skills, primary_skills, third)] = <[_; 1]>::try_from(profiles)
+        .map_err(|p| AssetError::Unsupported {
+            what: "character-generation template profile count",
+            value: u32::try_from(p.len()).unwrap_or(u32::MAX),
+        })?;
+    if !third.is_empty() {
+        return Err(AssetError::Unsupported {
+            what: "character-generation template third skill list",
+            value: u32::try_from(third.len()).unwrap_or(u32::MAX),
+        });
+    }
+    Ok(CharGenTemplate {
+        name,
+        icon,
+        title: 0,
+        attributes,
+        normal_skills,
+        primary_skills,
+    })
+}
+
+fn pre_tod_gear(c: &mut Cursor<'_>) -> Result<Vec<GearItem>, AssetError> {
+    pre_tod_list(c, |c| {
+        Ok(GearItem {
+            name: pre_tod_string(c)?,
+            clothing_table: c.data_id()?,
+            weenie_default: c.u32()?,
+        })
+    })
+}
+
+fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetError> {
+    let name = pre_tod_string(c)?;
+    let setup = c.data_id()?;
+    let sound_table = c.data_id()?;
+    let icon = c.u32()?;
+    let _naming_help = c.u32()?;
+    let base_objdesc = read_objdesc(c)?;
+    c.u32()?;
+    c.u32()?;
+    pre_tod_list(c, pre_tod_string)?;
+    pre_tod_list(c, |c| {
+        pre_tod_string(c)?;
+        pre_tod_string(c)?;
+        c.u32()?;
+        Ok(())
+    })?;
+    let attribute_credits = c.u32()?;
+    c.u32()?;
+    let skill_credits = c.u32()?;
+    pre_tod_list(c, pre_tod_named_pair)?;
+    let skills = pre_tod_list(c, |c| Ok((c.u32()?, c.i32()?, c.i32()?)))?;
+    let templates = pre_tod_list(c, pre_tod_template)?;
+    pre_tod_list(c, |c| Ok(c.skip(17 * 4)?))?;
+    let base_palette = c.data_id()?;
+    let skin_palset = c.data_id()?;
+    let hair_colors = pre_tod_list(c, |c| Ok(c.u32()?))?;
+    let hair_styles = pre_tod_list(c, |c| {
+        let icon = c.u32()?;
+        let bald = c.u32()?;
+        Ok(HairStyle {
+            icon,
+            bald: u8::try_from(bald).map_err(|_| AssetError::Unsupported {
+                what: "hair style bald value",
+                value: bald,
+            })?,
+            alternate_setup: DataId(0),
+            objdesc: read_objdesc(c)?,
+        })
+    })?;
+    let eye_colors = pre_tod_list(c, |c| Ok(c.u32()?))?;
+    let eye_strips = pre_tod_list(c, |c| {
+        Ok(EyeStrip {
+            icon: c.u32()?,
+            icon_bald: c.u32()?,
+            objdesc: read_objdesc(c)?,
+            objdesc_bald: read_objdesc(c)?,
+        })
+    })?;
+    let nose_strips = pre_tod_list(c, |c| Ok((c.u32()?, read_objdesc(c)?)))?;
+    let mouth_strips = pre_tod_list(c, |c| Ok((c.u32()?, read_objdesc(c)?)))?;
+    let headgear = pre_tod_gear(c)?;
+    let shirts = pre_tod_gear(c)?;
+    let pants = pre_tod_gear(c)?;
+    let footwear = pre_tod_gear(c)?;
+    // The allowed clothing colours: a count, the largest index (which sizes the client's lookup),
+    // then the indices.
+    let n = c.u32()? as usize;
+    let _largest = c.u32()?;
+    let clothing_colors = read_n(c, n, Cursor::u32)?;
+    Ok((
+        SexCg {
+            name,
+            scale: 0,
+            setup,
+            sound_table,
+            icon,
+            base_palette,
+            skin_palset,
+            physics_table: DataId(0),
+            motion_table: DataId(0),
+            combat_table: DataId(0),
+            base_objdesc,
+            hair_colors,
+            hair_styles,
+            eye_colors,
+            eye_strips,
+            nose_strips,
+            mouth_strips,
+            headgear,
+            shirts,
+            pants,
+            footwear,
+            clothing_colors,
+        },
+        PreTodSexExtras {
+            attribute_credits,
+            skill_credits,
+            skills,
+            templates,
+        },
+    ))
+}
+
+fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
+    let id = c.data_id()?;
+    // Eight help-text string ids.
+    c.skip(8 * 4)?;
+    let starter_areas = pre_tod_list(c, |c| {
+        let name = pre_tod_string(c)?;
+        let locations = pre_tod_list(c, |c| Ok(read_position(c)?))?;
+        Ok(StarterArea { name, locations })
+    })?;
+    let heritages = pre_tod_list(c, |c| {
+        let name = pre_tod_string(c)?;
+        let icon = c.u32()?;
+        let setup = c.data_id()?;
+        let _description = c.u32()?;
+        let environment_setup = c.data_id()?;
+        let primary_start_areas = pre_tod_list(c, |c| Ok(c.u32()?))?;
+        let secondary_start_areas = pre_tod_list(c, |c| Ok(c.u32()?))?;
+        let sexes = pre_tod_list(c, pre_tod_sex)?;
+        Ok((
+            name,
+            icon,
+            setup,
+            environment_setup,
+            primary_start_areas,
+            secondary_start_areas,
+            sexes,
+        ))
+    })?;
+    let mut heritage_groups = BTreeMap::new();
+    for (i, (name, icon, setup, environment_setup, primary, secondary, sexes)) in
+        heritages.into_iter().enumerate()
+    {
+        let mut extras = None;
+        let mut by_key = BTreeMap::new();
+        for (j, (sex, sex_extras)) in sexes.into_iter().enumerate() {
+            let key = match sex.name.as_str() {
+                "Male" => 1,
+                "Female" => 2,
+                _ => u32::try_from(j + 1).unwrap_or(u32::MAX),
+            };
+            extras.get_or_insert(sex_extras);
+            by_key.insert(key, sex);
+        }
+        let extras = extras.unwrap_or(PreTodSexExtras {
+            attribute_credits: 0,
+            skill_credits: 0,
+            skills: Vec::new(),
+            templates: Vec::new(),
+        });
+        heritage_groups.insert(
+            u32::try_from(i + 1).unwrap_or(u32::MAX),
+            HeritageGroup {
+                name,
+                icon,
+                setup,
+                environment_setup,
+                attribute_credits: extras.attribute_credits,
+                skill_credits: extras.skill_credits,
+                primary_start_areas: primary,
+                secondary_start_areas: secondary,
+                skills: extras.skills,
+                templates: extras.templates,
+                sex_table_marker: 0,
+                sexes: by_key,
+            },
+        );
+    }
+    Ok(CharGen {
+        id,
+        second_data_id: DataId(0),
+        starter_areas,
+        hg_table_marker: 0,
+        heritage_groups,
+    })
 }
 
 fn read_gear(c: &mut Cursor<'_>) -> Result<Vec<GearItem>, AssetError> {
