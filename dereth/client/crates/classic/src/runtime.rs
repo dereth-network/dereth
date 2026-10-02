@@ -974,7 +974,7 @@ impl ClassicUi {
             HostAction::LegacyCharGen(creation) => {
                 // A final-era world: carry the classic choices onto the final tables.
                 let data = self.art.creation()?;
-                let tables = crate::era_bridge::FinalTables::load(&**cx.store())?;
+                let tables = crate::era_bridge::FinalTables::load(cx.store())?;
                 let (result, notes) = crate::era_bridge::to_final(&creation, &data, &tables)?;
                 for note in &notes {
                     tracing::info!("classic creation: {note}");

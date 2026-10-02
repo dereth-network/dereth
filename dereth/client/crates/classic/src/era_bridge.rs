@@ -26,21 +26,21 @@ const CHAR_GEN_ID: u32 = 0x0E00_0002;
 const SKILL_TABLE_ID: u32 = 0x0E00_0004;
 
 impl FinalTables {
-    pub fn load(assets: &dyn dereth_primitives::AssetSource) -> Result<Self, String> {
+    pub fn load(store: &dereth_dat::RetailDatStore) -> Result<Self, String> {
         use dereth_assets::Decode;
+        use dereth_primitives::AssetSource;
+        // Each table in the layout of the files it is in: the world's own era.
         let read = |id: u32| {
-            assets
-                .read(dereth_primitives::DataId(id))
-                .map_err(|e| format!("{id:#010X}: {e}"))
+            let id = dereth_primitives::DataId(id);
+            store
+                .read(id)
+                .map(|bytes| (store.era_of(id), id, bytes))
+                .map_err(|e| format!("{:#010X}: {e}", id.0))
         };
-        let char_gen =
-            CharGen::decode_payload(dereth_primitives::DataId(CHAR_GEN_ID), &read(CHAR_GEN_ID)?)
-                .map_err(|e| e.to_string())?;
-        let skills = SkillTable::decode_payload(
-            dereth_primitives::DataId(SKILL_TABLE_ID),
-            &read(SKILL_TABLE_ID)?,
-        )
-        .map_err(|e| e.to_string())?;
+        let (era, id, bytes) = read(CHAR_GEN_ID)?;
+        let char_gen = CharGen::decode_payload_in(era, id, &bytes).map_err(|e| e.to_string())?;
+        let (era, id, bytes) = read(SKILL_TABLE_ID)?;
+        let skills = SkillTable::decode_payload_in(era, id, &bytes).map_err(|e| e.to_string())?;
         Ok(Self { char_gen, skills })
     }
 }
@@ -245,10 +245,19 @@ pub fn to_final(
             continue;
         }
         let id = u32_from(id);
-        let target = RETIRED_WEAPONS
-            .iter()
-            .find(|(old, _)| *old == id)
-            .map_or(id, |(_, new)| *new);
+        // A skill the world's table still has stays itself; only a retired one moves to its
+        // combined successor.
+        let available = |s: u32| {
+            (s as usize) < TOTAL_NUM_SKILLS && levels[s as usize] != SkillAdvancementClass::Inactive
+        };
+        let target = if available(id) {
+            id
+        } else {
+            RETIRED_WEAPONS
+                .iter()
+                .find(|(old, _)| *old == id)
+                .map_or(id, |(_, new)| *new)
+        };
         if target != id {
             notes.push(format!("retired skill {id} becomes skill {target}"));
         }
