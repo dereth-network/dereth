@@ -2730,7 +2730,14 @@ fn world_double_click(previous: Option<(i32, i32, std::time::Instant)>, x: i32, 
 /// A message as the chat window holds it: one trailing line break ends the last line rather than
 /// starting an empty one (an empty line inside the message stays).
 fn chat_text(text: &str) -> String {
-    text.strip_suffix('\n').unwrap_or(text).to_owned()
+    let line = text.strip_suffix('\n').unwrap_or(text);
+    // The game's lines name a speaker as a tag run (`<Tell:IIDString:id:name>name<\Tell>`), which
+    // a chat window shows as the name: the markup is read as the retail chat window reads it.
+    if line.contains('<') {
+        dereth_ui::text::tag::parse(line).text
+    } else {
+        line.to_owned()
+    }
 }
 
 /// Stands for any classic window under the pointer: not the 3D view.
@@ -2776,6 +2783,20 @@ mod click_and_chat_tests {
         );
         assert_eq!(chat_text("a\n\nb"), "a\n\nb");
         assert_eq!(chat_text("plain"), "plain");
+    }
+    #[test]
+    fn a_tell_names_its_sender_without_the_name_markup() {
+        assert_eq!(
+            chat_text(
+                "<Tell:IIDString:1342177281:+Infiltrater>+Infiltrater<\\Tell> tells you, \"yo\"\n"
+            ),
+            "+Infiltrater tells you, \"yo\""
+        );
+        assert_eq!(
+            chat_text("[General] <Tell:IIDString:0:Bob>Bob<\\Tell> says, \"a < b\""),
+            "[General] Bob says, \"a < b\""
+        );
+        assert_eq!(chat_text("2 < 3 and 4 > 1"), "2 < 3 and 4 > 1");
     }
     #[test]
     fn only_a_left_release_over_a_panel_ends_targeting_after_the_panel_acts() {
