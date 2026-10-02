@@ -40,6 +40,13 @@ pub fn env_cell_geometry(id: CellId, cell: &EnvCell, cs: &CellStruct) -> EnvCell
 #[must_use]
 pub fn first_degrade_mode(dats: &DatManager, g: &GfxObj) -> Option<i32> {
     let id = g.did_degrade?;
+    // An object from before Throne of Destiny names no degrade record; the one its own id implies
+    // usually does not exist, and its absence is not a missing record.
+    if id == dereth_assets::geometry::implicit_degrade_id(g.id)
+        && !dats.portal_dat().contains_file(id.0)
+    {
+        return None;
+    }
     let info = dats.portal_dat().read_from_dat::<GfxObjDegradeInfo>(id.0)?;
     info.degrades.first().map(|d| d.degrade_mode)
 }

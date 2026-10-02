@@ -66,6 +66,17 @@ fn required<'a, T>(t: Option<&'a Arc<T>>, name: &str, id: u32) -> &'a Arc<T> {
     })
 }
 
+/// An up-front table, read as ACE reads it. The files from before Throne of Destiny have no
+/// contract, taboo, name-filter or master-property table and no character titles: the systems
+/// that read them came later and find them absent. Such a table is not asked for, so no missing
+/// record is reported for it; [`DatManager::initialize`] names each one once.
+fn later_table<T: DatFileType>(base: &DatDatabase, id: u32) -> Option<Arc<T>> {
+    if base.container_era() == ContainerEra::PreTod && !base.contains_file(id) {
+        return None;
+    }
+    base.read_from_dat::<T>(id)
+}
+
 macro_rules! portal_tables {
     ($( $field:ident, $try_get:ident: $ty:ty = $id:ident, $name:literal; )*) => {
         /// ACE's `PortalDatDatabase`: the portal dat plus the tables ACE reads at load.
@@ -127,7 +138,7 @@ impl PortalDatDatabase {
     // ACE: PortalDatDatabase.PortalDatDatabase
     fn new(base: DatDatabase) -> Result<Self, DatManagerError> {
         fn read<T: DatFileType>(base: &DatDatabase, id: u32) -> Option<Arc<T>> {
-            base.read_from_dat::<T>(id)
+            later_table(base, id)
         }
         let bad_data = read(&base, file_id::BAD_DATA);
         let chat_pose_table = read(&base, file_id::CHAT_POSE_TABLE);
@@ -226,7 +237,7 @@ pub struct LanguageDatDatabase {
 impl LanguageDatDatabase {
     // ACE: LanguageDatDatabase.LanguageDatDatabase
     fn new(base: DatDatabase) -> Self {
-        let character_titles = base.read_from_dat::<StringTable>(file_id::CHARACTER_TITLES);
+        let character_titles = later_table::<StringTable>(&base, file_id::CHARACTER_TITLES);
         Self {
             base,
             character_titles,
@@ -335,6 +346,11 @@ impl DatManager {
         ));
         if !pre_tod {
             log_opened(&language_dat, ITERATION_LANGUAGE);
+        } else if language_dat.try_character_titles().is_none() {
+            log::info!(
+                "{} has no CharacterTitles (a table the dats before Throne of Destiny do not have)",
+                portal_dat.file_path()
+            );
         }
 
         Ok(Arc::new(Self {

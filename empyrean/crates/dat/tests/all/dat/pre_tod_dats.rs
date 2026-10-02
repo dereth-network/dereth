@@ -13,7 +13,7 @@ use dereth_primitives::{CellId, ContainerEra, LandblockId, ObjectId, Position};
 use empyrean_dat::dat_manager::{ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005};
 use empyrean_dat::file_types::LandblockInfo;
 use empyrean_dat::physics::{DatLandSource, SetupGeometryCache};
-use empyrean_dat::{DatManager, RealDats};
+use empyrean_dat::{DatDatabaseType, DatManager, DatSource, RealDats};
 
 fn dats() -> Arc<DatManager> {
     static DATS: OnceLock<Arc<DatManager>> = OnceLock::new();
@@ -141,4 +141,87 @@ fn a_body_enters_a_february_2005_dungeon_cell() {
         }
     }
     assert!(entered >= 3, "bodies entered {entered} dungeon cells");
+}
+
+/// The February 2005 files read through a source that records every id asked of it that the files
+/// do not have: the ids the server reports as missing records.
+#[derive(Debug)]
+struct AbsentReads {
+    real: RealDats,
+    absent: std::sync::Mutex<Vec<u32>>,
+}
+
+impl DatSource for AbsentReads {
+    fn has_database(&self, db: DatDatabaseType) -> bool {
+        self.real.has_database(db)
+    }
+    fn file_ids(&self, db: DatDatabaseType) -> Vec<u32> {
+        self.real.file_ids(db)
+    }
+    fn contains(&self, db: DatDatabaseType, id: u32) -> bool {
+        self.real.contains(db, id)
+    }
+    fn read(&self, db: DatDatabaseType, id: u32) -> Option<Vec<u8>> {
+        let bytes = self.real.read(db, id);
+        if bytes.is_none() && id & 0xFFFF != 0xFFFE {
+            self.absent.lock().expect("the list").push(id);
+        }
+        bytes
+    }
+    fn file_iteration(&self, db: DatDatabaseType, id: u32) -> Option<u32> {
+        self.real.file_iteration(db, id)
+    }
+    fn describe(&self, db: DatDatabaseType) -> String {
+        self.real.describe(db)
+    }
+    fn container_era(&self) -> ContainerEra {
+        self.real.container_era()
+    }
+    fn header_iteration(&self, db: DatDatabaseType) -> Option<u32> {
+        self.real.header_iteration(db)
+    }
+}
+
+/// Opening the February 2005 files and building a run of objects' collision geometry asks for no
+/// record the files lack: the tables that began at Throne of Destiny are not read, and an older
+/// graphics object's implied detail record is looked for only where it exists, while the objects
+/// that have one still read it.
+#[test]
+fn the_february_2005_dats_are_never_asked_for_a_record_they_lack() {
+    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+        panic!("{msg}");
+    }
+    let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    let source = Arc::new(AbsentReads {
+        real: RealDats::open(&dir).expect("the February 2005 dats"),
+        absent: std::sync::Mutex::new(Vec::new()),
+    });
+    let dats = DatManager::initialize(Arc::clone(&source) as Arc<dyn DatSource>)
+        .expect("the February 2005 dats initialize");
+    let setups = SetupGeometryCache::new(Arc::clone(&dats));
+    let ids: Vec<u32> = dats
+        .portal_dat()
+        .all_files()
+        .into_iter()
+        .filter(|id| id >> 24 == 0x02)
+        .take(400)
+        .collect();
+    let mut with_detail = 0;
+    for id in ids {
+        if let Some(g) = setups.get(id) {
+            with_detail += g
+                .parts
+                .iter()
+                .filter(|p| p.first_degrade_mode.is_some())
+                .count();
+        }
+    }
+    let absent = source.absent.lock().expect("the list").clone();
+    assert!(
+        absent.is_empty(),
+        "asked for {} absent records, first {:08X?}",
+        absent.len(),
+        &absent[..absent.len().min(8)]
+    );
+    assert!(with_detail > 0, "no part read its implied detail record");
 }
