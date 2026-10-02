@@ -396,12 +396,24 @@ impl CharacterSettingsPage {
         let ht = help_token(option);
         // The toggle-label write puts the caption on the check box itself because
         // the check-box control carries button behavior and its own text caption.
-        let label = super::page::set_string_info(
+        let mut label = super::page::set_string_info(
             ui,
             element,
             table(ui),
             dereth_primitives::num::hash::str_hash(lt.as_bytes()),
         );
+        // A caption naming luminance drops it on a world without luminance.
+        if let Some(text) = label.as_deref() {
+            let shown =
+                crate::panels::era::caption_for_era(text, crate::panels::era::has_luminance(view));
+            if shown != text {
+                let shown = shown.into_owned();
+                if let Some(t) = ui.text_element_mut(element) {
+                    t.set_text(&shown);
+                }
+                label = Some(shown);
+            }
+        }
         self.row_captions += usize::from(label.is_some());
         let idx = self.rows.len();
         self.rows.push(CharacterOptionRow {

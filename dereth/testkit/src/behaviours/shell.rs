@@ -1716,6 +1716,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.panel-boxes.share-experience-names-luminance-only-on-a-world-with-it",
+        says: "The fellowship's sharing box, and the same option on the character options page, \
+               read Share Fellowship Experience and Luminance as the interface's strings have \
+               it on a world with luminance, and Share Fellowship Experience on one without.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-R2-SHARE-LUMINANCE"),
+        station: "dereth-ui-screens::dat::panels::panel_option_checkboxes::the_share_experience_box_names_luminance_only_on_a_world_with_luminance",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.preferences-file.a-retail-shaped-file-applies-every-key-the-options-page-attaches",
         says: "A preferences file written the way the original client writes it, each key under \
                its section heading, applies every one of the 34 settings the option pages carry a \

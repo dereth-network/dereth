@@ -446,6 +446,54 @@ fn with_no_string_table_the_boxes_report_no_caption_rather_than_a_wrong_one() {
     }
 }
 
+/// A world of an era, over the module's options.
+#[derive(Debug)]
+struct EraWorld {
+    module: Module,
+    era: dereth_ui_screens::view::EraView,
+}
+
+impl GameView for EraWorld {
+    fn player_option(&self, o: PlayerOption) -> bool {
+        self.module.player_option(o)
+    }
+    fn era(&self) -> Option<&dereth_ui_screens::view::EraView> {
+        Some(&self.era)
+    }
+}
+
+/// Behaviour: options.panel-boxes.share-experience-names-luminance-only-on-a-world-with-it
+#[test]
+fn the_share_experience_box_names_luminance_only_on_a_world_with_luminance() {
+    let (mut ui, s, mut panels) = screen(true);
+    let h = find(&ui, &s, FELLOWSHIP_BOXES[2].0);
+    let (shipped, _, _) = placed(&mut ui, h);
+    assert_eq!(shipped, "Share Fellowship Experience and Luminance");
+    let world = |era| EraWorld {
+        module: Module::new(DEFAULT_CHARACTER_OPTION),
+        era: dereth_ui_screens::view::EraView {
+            era,
+            era_announced: true,
+            ..Default::default()
+        },
+    };
+    frame(
+        &mut ui,
+        &mut panels,
+        &world(dereth_primitives::EraId::Infiltration),
+    );
+    let (text, glyphs, _) = placed(&mut ui, h);
+    assert_eq!(text, "Share Fellowship Experience");
+    assert_eq!(glyphs, text.chars().count(), "laid out again");
+    // The other boxes keep their captions.
+    let loot = find(&ui, &s, FELLOWSHIP_BOXES[3].0);
+    let (loot, _, _) = placed(&mut ui, loot);
+    assert!(!loot.is_empty());
+    frame(&mut ui, &mut panels, &world(dereth_primitives::EraId::Eor));
+    let (text, _, _) = placed(&mut ui, h);
+    assert_eq!(text, shipped, "an end-of-retail world names luminance");
+}
+
 mod appear_offline {
     //! The Friends panel's Appear Offline box is an option checkbox bound over its player option,
     //! draws its layout caption (no string-table token), opens at the character's bit, a steady frame

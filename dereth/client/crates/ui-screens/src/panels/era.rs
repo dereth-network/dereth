@@ -38,6 +38,26 @@ use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
 use crate::view::GameView;
 
+/// The words a caption loses on a world with no luminance: the fellowship's sharing option is
+/// *Share Fellowship Experience and Luminance* in the interface's strings.
+pub const LUMINANCE_WORDS: &str = " and Luminance";
+
+/// `text` as a world shows it: without [`LUMINANCE_WORDS`] when the world has no luminance.
+#[must_use]
+pub fn caption_for_era(text: &str, luminance: bool) -> std::borrow::Cow<'_, str> {
+    if luminance || !text.contains(LUMINANCE_WORDS) {
+        std::borrow::Cow::Borrowed(text)
+    } else {
+        std::borrow::Cow::Owned(text.replace(LUMINANCE_WORDS, ""))
+    }
+}
+
+/// Whether the world `view` shows has luminance; a view with no era has everything.
+#[must_use]
+pub fn has_luminance(view: &dyn GameView) -> bool {
+    view.era().is_none_or(|e| e.features().luminance)
+}
+
 /// The paper doll's cloak slot (worn location `0x08000000`).
 pub const CLOAK_SLOT: ElementId = ElementId(0x1000_05E9);
 /// The paper doll's trinket slot (worn location `0x04000000`).
