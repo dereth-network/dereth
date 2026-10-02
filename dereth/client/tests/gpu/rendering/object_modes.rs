@@ -520,3 +520,214 @@ fn holtburgs_rooms_take_the_other_eras_look_with_their_buildings_and_go_back_wit
     assert_eq!(kept, expected, "the rooms the later files hold elsewhere");
     assert!(rooms.len() > kept.len() + 100, "{} rooms", rooms.len());
 }
+
+/// The verdicts for `store`'s world and the other era's files beside it, as the application
+/// works them out.
+fn identity_of(
+    store: &RetailDatStore,
+) -> Arc<dereth_client_runtime::object_identity::ObjectIdentity> {
+    use dereth_client_runtime::object_identity::{Budget, IdentityBuild};
+    let mut build = IdentityBuild::for_store(store, None).expect("the other era is beside");
+    build.step(Budget::All).expect("all at once")
+}
+
+/// Behaviour: rendering.objects.an-object-mode-asked-for-before-its-verdicts-are-ready-is-drawn-when-they-arrive
+/// A scene whose application works the verdicts out in the background keeps the look it has
+/// while they are not ready. Loaded with the Legacy look asked for, the end-of-retail world is
+/// drawn with its own objects and the preference poll says it is waiting; a live switch back and
+/// forth while waiting changes nothing. The frame the verdicts are handed over, the next poll
+/// draws the older look, exactly as a scene that had them from the start draws it, and a later
+/// switch needs nothing more.
+#[test]
+fn an_object_mode_asked_for_before_its_verdicts_are_ready_keeps_the_look_until_they_arrive() {
+    let store = end_of_retail_with_legacy_files();
+    let mut gpu = crate::common::software_gpu(640, 480);
+    let background = SceneConfig {
+        object_identity_budget: Some(std::time::Duration::from_millis(3)),
+        ..cfg(Some(RegionStyle::LegacyHardware))
+    };
+    let mut scene = load(&store, &mut gpu, background);
+    assert!(!scene.draw.objects_from_other_files());
+    let own_px = draw(&mut scene, &store, &mut gpu);
+    for _ in 0..2 {
+        let work = scene
+            .update_from_preferences(&store, &mut gpu)
+            .expect("the poll runs");
+        assert!(work.objects_waiting, "{work:?}");
+        assert!(!work.objects_changed);
+        assert_eq!(work.objects_refused, None);
+        assert!(!scene.draw.objects_from_other_files());
+    }
+    assert_eq!(
+        moved(&own_px, &draw(&mut scene, &store, &mut gpu)),
+        0,
+        "the world's own look moved while waiting"
+    );
+    // Back to the world's own and to Legacy again, still waiting: nothing to do.
+    scene.draw.cfg.render.objects = None;
+    let work = scene
+        .update_from_preferences(&store, &mut gpu)
+        .expect("the poll runs");
+    assert!(!work.objects_waiting && !work.objects_changed, "{work:?}");
+    scene.draw.cfg.render.objects = Some(RegionStyle::LegacyHardware);
+    let work = scene
+        .update_from_preferences(&store, &mut gpu)
+        .expect("the poll runs");
+    assert!(work.objects_waiting, "{work:?}");
+
+    scene.draw.offer_object_identity(identity_of(&store));
+    let work = scene
+        .update_from_preferences(&store, &mut gpu)
+        .expect("the poll applies the look");
+    assert!(work.objects_changed && !work.objects_waiting, "{work:?}");
+    assert!(scene.draw.objects_from_other_files());
+    let legacy_px = draw(&mut scene, &store, &mut gpu);
+    drop(scene);
+
+    let mut at_once = load(&store, &mut gpu, cfg(Some(RegionStyle::LegacyHardware)));
+    assert!(at_once.draw.objects_from_other_files());
+    assert_eq!(
+        moved(&legacy_px, &draw(&mut at_once, &store, &mut gpu)),
+        0,
+        "the look drawn once the verdicts arrived is not the look drawn with them from the start"
+    );
+}
+
+/// Behaviour: rendering.objects.an-object-mode-asked-for-before-its-verdicts-are-ready-is-drawn-when-they-arrive
+/// The running client starts working the verdicts out the frame it starts, a few milliseconds
+/// a frame, its cache kept in the host's own store. Choosing the Legacy object mode before they
+/// are ready keeps the world's own objects, tells the player once in the chat window that the
+/// look is still being prepared, and gives the work more of each frame; the frame the verdicts
+/// are ready, the objects are drawn with the older look. No frame gave the work much more than
+/// its share.
+#[test]
+fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_early_when_ready() {
+    use dereth_client_contract::options::store;
+    store::init();
+    // The cache goes to a store in memory on this thread, never the player's own folder.
+    dereth_client_runtime::platform::files::install(memory_files::HOST);
+    let legacy = dereth_dat::testing::pre_tod_dat_dir()
+        .unwrap_or_else(|| panic!("{:?}", dereth_dat::testing::pre_tod_shortfall()));
+    let config = dereth_client::config::Config {
+        headless: true,
+        sound: false,
+        ui: false,
+        preferences_file: std::env::temp_dir().join("dereth-object-modes-not-created/prefs.ini"),
+        dat_dir: dereth_dat::testing::dat_dir(),
+        legacy_dat_dir: Some(legacy),
+        set_at: vec![(3, "Render.Objects=Legacy".to_string())],
+        object_identity_ms: Some(3),
+        ..dereth_client::config::Config::default()
+    };
+    let mut app = dereth_client::app::App::new(config)
+        .unwrap_or_else(|e| panic!("the headless client did not start: {e}"));
+    let units_at_start = app
+        .object_identity
+        .as_ref()
+        .expect("the verdicts start with the client")
+        .build
+        .units();
+    assert_eq!(units_at_start, 0);
+    let background_cfg = SceneConfig {
+        object_identity_budget: Some(std::time::Duration::from_millis(3)),
+        ..cfg(None)
+    };
+    app.load_static_scene(background_cfg)
+        .unwrap_or_else(|e| panic!("the static scene did not load: {e}"));
+    let before = app.objects().world.scroll.added;
+    for _ in 0..4 {
+        assert!(app.frame());
+    }
+    let work = app.last_render_pref_work();
+    assert!(work.objects_waiting, "{work:?}");
+    assert!(!app
+        .world_scene()
+        .expect("a world")
+        .draw
+        .objects_from_other_files());
+    assert_eq!(app.objects().world.scroll.added, before + 1);
+    let notice = "The objects' look is still being prepared; it is drawn as soon as it is ready.";
+    assert!(app
+        .objects()
+        .world
+        .scroll
+        .pending()
+        .iter()
+        .any(|l| l.body == notice));
+    let mut frames = 4;
+    while !app.object_identity.as_ref().is_some_and(|p| p.offered) {
+        assert!(
+            frames < 20_000,
+            "the verdicts were not ready in {frames} frames"
+        );
+        assert!(app.frame());
+        frames += 1;
+    }
+    let work = app.last_render_pref_work();
+    assert!(work.objects_changed, "{work:?}");
+    assert!(app
+        .world_scene()
+        .expect("a world")
+        .draw
+        .objects_from_other_files());
+    assert_eq!(
+        app.objects().world.scroll.added,
+        before + 1,
+        "the player was told more than once"
+    );
+    let prep = app.object_identity.as_ref().expect("the verdicts");
+    let source = prep.build.source().expect("ready");
+    assert!(!source.from_cache, "{source:?}");
+    assert_eq!(source.files_hashed, 4);
+    eprintln!(
+        "ready after {frames} frames, {} steps, {} units, the longest frame's share {:.1} ms",
+        prep.build.steps(),
+        prep.build.units(),
+        prep.longest_step.as_secs_f64() * 1000.0
+    );
+    assert!(
+        prep.longest_step < std::time::Duration::from_millis(40),
+        "a frame gave the work {:?}",
+        prep.longest_step
+    );
+}
+
+/// A store of the client's own files held in memory on this thread, as a host without a disk
+/// keeps them.
+mod memory_files {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    use dereth_client_runtime::platform::files::FileHost;
+
+    thread_local! {
+        static FILES: RefCell<BTreeMap<PathBuf, Vec<u8>>> = const { RefCell::new(BTreeMap::new()) };
+    }
+
+    pub const HOST: FileHost = FileHost {
+        read: |p| {
+            FILES
+                .with(|m| m.borrow().get(p).cloned())
+                .ok_or_else(|| io::ErrorKind::NotFound.into())
+        },
+        write: |p, bytes| {
+            FILES.with(|m| m.borrow_mut().insert(p.to_path_buf(), bytes.to_vec()));
+            Ok(())
+        },
+        list: |dir| {
+            Ok(FILES.with(|m| {
+                m.borrow()
+                    .keys()
+                    .filter(|p| p.parent() == Some(dir))
+                    .cloned()
+                    .collect()
+            }))
+        },
+        exists: |p| FILES.with(|m| m.borrow().contains_key(p)),
+        read_only: |_| Ok(false),
+        make_dirs: |_| Ok(()),
+        cache_dir: || Some(Path::new("/memory/cache").to_path_buf()),
+    };
+}

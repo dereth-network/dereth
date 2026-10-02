@@ -1,4 +1,5 @@
-//! The client's own small files: the preferences profile, the keymaps and the screen layouts.
+//! The client's own small files: the preferences profile, the keymaps, the screen layouts and
+//! the caches of work it can redo (the object identity verdicts).
 //!
 //! Every read and write of those goes through here, so a host without a disk can keep them
 //! somewhere else. With nothing installed they are the disk, through `std::fs`, exactly as before;
@@ -12,7 +13,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// A store for the client's own files: whole-file reads and writes by path, a listing of one
-/// directory's files, and the read-only question the keymap save dialog asks.
+/// directory's files, the read-only question the keymap save dialog asks, and where caches go.
 #[derive(Debug, Clone, Copy)]
 pub struct FileHost {
     /// The whole file. A missing file is [`io::ErrorKind::NotFound`].
@@ -25,6 +26,12 @@ pub struct FileHost {
     pub exists: fn(&Path) -> bool,
     /// Whether the file may not be written.
     pub read_only: fn(&Path) -> io::Result<bool>,
+    /// Make a directory and every directory above it; a store with no directories has nothing
+    /// to make.
+    pub make_dirs: fn(&Path) -> io::Result<()>,
+    /// Where this store keeps caches: per user, kept between runs, and safe to lose (everything
+    /// in them can be worked out again). `None` when it keeps none.
+    pub cache_dir: fn() -> Option<PathBuf>,
 }
 
 thread_local! {
@@ -52,7 +59,31 @@ pub const DISK: FileHost = FileHost {
     },
     exists: Path::exists,
     read_only: |p| Ok(std::fs::metadata(p)?.permissions().readonly()),
+    make_dirs: |p| std::fs::create_dir_all(p),
+    cache_dir: disk_cache_dir,
 };
+
+/// The per-user cache folder of the disk: `%LOCALAPPDATA%\Dereth` on Windows,
+/// `~/Library/Caches/Dereth` on macOS, and `$XDG_CACHE_HOME/dereth` (else `~/.cache/dereth`)
+/// elsewhere. `None` when the variable it is found from is not an absolute path.
+fn disk_cache_dir() -> Option<PathBuf> {
+    let var = |n: &str| {
+        std::env::var_os(n)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
+    if cfg!(windows) {
+        Some(var("LOCALAPPDATA")?.join("Dereth"))
+    } else if cfg!(target_os = "macos") {
+        Some(var("HOME")?.join("Library/Caches/Dereth"))
+    } else {
+        Some(
+            var("XDG_CACHE_HOME")
+                .or_else(|| var("HOME").map(|h| h.join(".cache")))?
+                .join("dereth"),
+        )
+    }
+}
 
 fn host() -> FileHost {
     HOST.with(Cell::get).unwrap_or(DISK)
@@ -104,6 +135,20 @@ pub fn read_only(path: &Path) -> io::Result<bool> {
     (host().read_only)(path)
 }
 
+/// Make `dir` and every directory above it.
+///
+/// # Errors
+/// The store's own.
+pub fn make_dirs(dir: &Path) -> io::Result<()> {
+    (host().make_dirs)(dir)
+}
+
+/// Where the store keeps caches; `None` when it keeps none.
+#[must_use]
+pub fn cache_dir() -> Option<PathBuf> {
+    (host().cache_dir)()
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (host file routing preserves whole-file operations).
@@ -136,6 +181,8 @@ mod tests {
         },
         exists: |p| MEMORY.with(|m| m.borrow().contains_key(p)),
         read_only: |_| Ok(false),
+        make_dirs: |_| Ok(()),
+        cache_dir: || Some(PathBuf::from("/nowhere-on-disk/cache")),
     };
 
     /// With nothing installed the files are the disk's: what `std::fs` wrote is what is read, and

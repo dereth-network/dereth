@@ -527,6 +527,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "rendering.objects.an-object-mode-asked-for-before-its-verdicts-are-ready-is-drawn-when-they-arrive",
+        says: "Another era's object mode chosen before the client has finished working out which \
+               of that era's records stand for the world's keeps the objects as they are drawn, \
+               tells the player once that the look is still being prepared, and draws the look \
+               the frame the work is done, exactly as it would have been drawn from the start.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-IDENTITY-PREBUILD-WAIT"),
+        station: "dereth-client::gpu::rendering::object_modes::an_object_mode_asked_for_before_its_verdicts_are_ready_keeps_the_look_until_they_arrive",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.objects.an-object-mode-switch-redraws-the-town-and-the-body-while-the-world-is-drawn",
         says: "Changing the object mode while the world is on screen redraws the buildings, \
                statics, scenery, creatures, items and the player's body in the chosen era's look \
@@ -579,6 +591,29 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-OBJECT-INTERIORS-FOLLOW"),
         station: "dereth-client::gpu::rendering::object_modes::holtburgs_rooms_take_the_other_eras_look_with_their_buildings_and_go_back_with_them",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.objects.the-object-identity-is-kept-in-the-hosts-store-and-read-back",
+        says: "Which of the other era's records stand for the world's is worked out once per set \
+               of data files and kept in the client's own store, named by the files' hashes; the \
+               next start reads it back without reading the data files whole, and a kept answer \
+               of another version is worked out again.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-IDENTITY-PREBUILD-CACHE"),
+        station: "dereth-client::dat::rendering::object_look::the_identity_is_kept_in_the_hosts_store_and_read_back_without_reading_the_files_whole",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.the-object-identity-worked-out-a-step-at-a-time-is-the-one-worked-out-at-once",
+        says: "The client works out which of the other era's records stand for the world's a few \
+               milliseconds a frame from start-up, and the answer is the same as working it out \
+               all at once.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-IDENTITY-PREBUILD-STEPS"),
+        station: "dereth-client::dat::rendering::object_look::the_identity_worked_out_a_unit_at_a_time_is_the_identity_worked_out_at_once",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "rendering.objects.the-paper-doll-wears-the-bodys-look",

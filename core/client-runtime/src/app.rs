@@ -943,8 +943,71 @@ pub struct App<S: Shell> {
     /// memoises every setup record and animation record it decodes.
     pub anim_assets: std::sync::Arc<crate::anim_assets::DatAnimAssets>,
 
+    /// The object identity verdicts, worked out a few milliseconds a frame from start-up when
+    /// another era's files are beside the world and the scene waits for them
+    /// ([`crate::scene::SceneConfig::object_identity_budget`]). `None` otherwise.
+    pub object_identity: Option<ObjectIdentityPrep>,
+
     /// Which of the game's own per-frame duties have run this frame. See [`FrameDuties`].
     duties: FrameDuties,
+}
+
+/// How long a frame of a connected client gives the object identity verdicts while nothing waits
+/// on them ([`crate::scene::SceneConfig::object_identity_budget`]).
+pub const IDENTITY_BACKGROUND_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
+
+/// How long a frame gives them, at least, while the objects wait to take a look the player asked
+/// for, and while no world is drawn.
+pub const IDENTITY_WAITING_BUDGET: std::time::Duration = std::time::Duration::from_millis(8);
+
+/// [`App::object_identity`]: the verdicts being worked out for the store, and what the frames
+/// have spent on them.
+#[derive(Debug)]
+pub struct ObjectIdentityPrep {
+    /// The work.
+    pub build: crate::object_identity::IdentityBuild,
+    /// How long a frame gives it while nothing waits on it.
+    budget: std::time::Duration,
+    /// The files it is for: a store reopened after a patch starts it again.
+    store: std::sync::Arc<dereth_dat::RetailDatStore>,
+    /// When it started.
+    started: web_time::Instant,
+    /// The longest a frame spent on it.
+    pub longest_step: std::time::Duration,
+    /// Whether the presentation has been handed the verdicts.
+    pub offered: bool,
+    /// Whether the drawn world waited on it at the last preference poll.
+    awaited: bool,
+    /// Whether the player has been told the look is being prepared.
+    noticed: bool,
+}
+
+impl ObjectIdentityPrep {
+    /// Start working out the verdicts for `store`, `budget` a frame, kept in the host's cache
+    /// folder when `cache`. `None` when no other era's files are beside the world.
+    #[must_use]
+    pub fn start(
+        store: &std::sync::Arc<dereth_dat::RetailDatStore>,
+        budget: std::time::Duration,
+        cache: bool,
+    ) -> Option<Self> {
+        let dir = if cache {
+            crate::object_identity::default_cache_dir()
+        } else {
+            None
+        };
+        let build = crate::object_identity::IdentityBuild::for_store(store, dir)?;
+        Some(Self {
+            build,
+            budget,
+            store: std::sync::Arc::clone(store),
+            started: web_time::Instant::now(),
+            longest_step: std::time::Duration::ZERO,
+            offered: false,
+            awaited: false,
+            noticed: false,
+        })
+    }
 }
 
 /// The game's own per-frame duties inside the UI step, and which of them have run.
@@ -1242,6 +1305,12 @@ impl<S: Shell> App<S> {
         // Before the struct literal, for the same reason `anim_assets` is: `cfg`
         // is moved into it.
         let ddd = crate::ddd::DddPatcher::new(cfg.dat_dir.clone());
+        // The object identity verdicts start now, whatever look is chosen, so a later switch to
+        // the other era's look is instant.
+        let scene_cfg = cfg.scene_config();
+        let object_identity = scene_cfg.object_identity_budget.and_then(|budget| {
+            ObjectIdentityPrep::start(&store, budget, scene_cfg.object_identity_cache)
+        });
         Ok(Self {
             cfg,
             state: AppState::Startup,
@@ -1313,6 +1382,7 @@ impl<S: Shell> App<S> {
             hud: S::Hud::default(),
             teleport: crate::teleport::Teleport::new(),
             anim_assets,
+            object_identity,
         })
     }
 
@@ -4947,6 +5017,79 @@ impl<S: Shell> App<S> {
         self.report_scene(landblock);
     }
 
+    /// This frame's share of the object identity verdicts ([`Self::object_identity`]): a few
+    /// milliseconds, more while the objects wait to take a look the player asked for or no world
+    /// is drawn, and the verdicts handed to the presentation the frame they are ready. A store reopened after a
+    /// patch starts them again for the new files.
+    fn prepare_object_identity(&mut self) {
+        let Some(prep) = self.object_identity.as_mut() else {
+            return;
+        };
+        if !std::sync::Arc::ptr_eq(&prep.store, &self.store) {
+            let (budget, cache) = (prep.budget, self.cfg.scene_config().object_identity_cache);
+            self.object_identity = ObjectIdentityPrep::start(&self.store, budget, cache);
+            return;
+        }
+        if prep.offered {
+            return;
+        }
+        // More of each frame while the objects wait for it, and while no world is drawn (the
+        // login and character screens, whose frames are light), so it is ready by world entry.
+        let budget = if prep.awaited || self.world.is_none() {
+            prep.budget.max(IDENTITY_WAITING_BUDGET)
+        } else {
+            prep.budget
+        };
+        let t = web_time::Instant::now();
+        let ready = prep
+            .build
+            .step(crate::object_identity::Budget::Time(budget));
+        prep.longest_step = prep.longest_step.max(t.elapsed());
+        if let Some(id) = ready {
+            let source = prep.build.source().unwrap_or_default();
+            tracing::info!(
+                "object identity: {} ids and {} rooms of the other era stand for the world's, \
+                 {} ({} of the files hashed whole), ready in {:.2} s over {} frames ({} units \
+                 of work, longest frame's share {:.1} ms)",
+                id.len(),
+                id.rooms_len(),
+                if source.from_cache {
+                    "read from the cache"
+                } else {
+                    "worked out"
+                },
+                source.files_hashed,
+                prep.started.elapsed().as_secs_f64(),
+                prep.build.steps(),
+                prep.build.units(),
+                prep.longest_step.as_secs_f64() * 1000.0
+            );
+            prep.offered = true;
+            self.present.offer_object_identity(id);
+        }
+    }
+
+    /// Whether the objects wait on the verdicts to take the look asked for, which gives the
+    /// verdicts more of each frame; the player is told once.
+    fn note_object_look_waiting(&mut self, w: &crate::frame_events::RenderPrefWork) {
+        let Some(prep) = self.object_identity.as_mut() else {
+            return;
+        };
+        prep.awaited = w.objects_waiting;
+        if w.objects_waiting && !prep.noticed {
+            prep.noticed = true;
+            let text = "The objects' look is still being prepared; it is drawn as soon as it is \
+                        ready.";
+            tracing::info!("{text}");
+            self.objects.world.scroll.add_text_to_scroll(
+                text,
+                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                true,
+                0,
+            );
+        }
+    }
+
     /// Build the landblocks the window scrolled onto this frame.
     ///
     /// A failure here is not fatal: the block stays undrawn and the next scroll will ask for it
@@ -4955,6 +5098,9 @@ impl<S: Shell> App<S> {
     /// gap.
     fn stream_world(&mut self) {
         let _stream = tracing::trace_span!("stream_world").entered();
+        // Before the preference poll, so a look waiting on the verdicts is drawn in the frame
+        // they arrive.
+        self.prepare_object_identity();
         let store = std::sync::Arc::clone(&self.store);
         // The client updates rendering preferences every frame. It sits **here**, at the top
         // of the frame's streaming step, because the work a changed preference asks for is the
@@ -4969,6 +5115,7 @@ impl<S: Shell> App<S> {
                 // what `last_render_pref_work` reads.
                 self.events.push(FrameEvent::RenderPreferencesPolled(w));
                 self.report_landscape_refusals(&w);
+                self.note_object_look_waiting(&w);
                 if w.flushed
                     || w.mid_radius_changed
                     || w.detail_texturing_changed
@@ -5090,6 +5237,7 @@ impl<S: Shell> App<S> {
                 sky_refused: None,
                 objects_changed: false,
                 objects_refused: None,
+                objects_waiting: false,
             },
         }
     }

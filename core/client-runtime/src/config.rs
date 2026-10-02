@@ -270,6 +270,12 @@ pub struct Config {
     /// queued at once. Unset, a connected run uses a small budget (so the portal tunnel keeps
     /// animating through a load) and an offline run or capture builds everything at once.
     pub stream_budget_ms: Option<u32>,
+    /// `--object-identity-ms <n>`: milliseconds per frame the client gives, from start-up, to
+    /// working out which of the other era's records stand for the world's, so the other era's
+    /// object look is ready before it is asked for. `0` works them out at once the first time
+    /// that look is drawn. Unset, a connected run uses a small budget and an offline run or
+    /// capture works them out at once.
+    pub object_identity_ms: Option<u32>,
     /// `--no-world`: fall back to the full-screen quad, which is what the quad regression
     /// wants and what a machine too slow for the world can still run.
     pub world: bool,
@@ -429,6 +435,7 @@ impl Default for Config {
             land_radius: crate::render_prefs::LANDSCAPE_DRAW_DISTANCE_DEFAULT,
             scenery_radius: 1,
             stream_budget_ms: None,
+            object_identity_ms: None,
             world: true,
             character: true,
             auto_degrades: true,
@@ -695,6 +702,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
         arity: Arity::Required,
     },
     Switch {
+        long: "object-identity-ms",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
         long: "no-world",
         short: None,
         arity: Arity::None,
@@ -914,8 +926,17 @@ impl Config {
             // `[Render] TerrainBlending`, the only control there is for it.
             gpu_terrain_merge: self.terrain_blending != crate::render_prefs::TerrainBlending::Cpu,
             terrain_splat: self.terrain_blending == crate::render_prefs::TerrainBlending::Splat,
-            // The client keeps the object-identity verdicts in its per-user cache folder.
-            object_identity_cache: crate::object_identity::default_cache_dir(),
+            // The client keeps the object-identity verdicts in its per-user cache folder. A
+            // connected client works them out in the background from start-up, so no frame
+            // waits on them; an offline run or a capture works them out when first drawn.
+            object_identity_cache: true,
+            object_identity_budget: match self.object_identity_ms {
+                Some(0) => None,
+                Some(ms) => Some(std::time::Duration::from_millis(u64::from(ms))),
+                None => self
+                    .will_connect()
+                    .then_some(crate::app::IDENTITY_BACKGROUND_BUDGET),
+            },
             ..crate::scene::SceneConfig::default()
         }
     }
@@ -1395,6 +1416,11 @@ impl Config {
                     ConfigError::new(format!("bad --stream-budget-ms value {v:?}"))
                 })?);
             }
+            "object-identity-ms" => {
+                self.object_identity_ms = Some(v.parse::<u32>().map_err(|_| {
+                    ConfigError::new(format!("bad --object-identity-ms value {v:?}"))
+                })?);
+            }
             "scenery-radius" => {
                 self.scenery_radius = v
                     .parse::<u32>()
@@ -1727,6 +1753,33 @@ impl Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: none (the object identity budget distinguishes connected and offline startup).
+    #[test]
+    fn connected_clients_work_out_the_object_identity_in_the_background_unless_told_not_to() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.scene_config().object_identity_budget, None);
+        assert!(cfg.scene_config().object_identity_cache);
+        cfg.account = "account".into();
+        cfg.host = "127.0.0.1".into();
+        assert_eq!(
+            cfg.scene_config().object_identity_budget,
+            Some(crate::app::IDENTITY_BACKGROUND_BUDGET)
+        );
+        cfg.object_identity_ms = Some(0);
+        assert_eq!(cfg.scene_config().object_identity_budget, None);
+        cfg.object_identity_ms = Some(5);
+        cfg.connect = false;
+        assert_eq!(
+            cfg.scene_config().object_identity_budget,
+            Some(std::time::Duration::from_millis(5))
+        );
+        let mut parsed = Config::default();
+        parsed
+            .parse_args(&["--object-identity-ms".to_string(), "2".to_string()])
+            .expect("the switch parses");
+        assert_eq!(parsed.object_identity_ms, Some(2));
+    }
 
     /// Behaviour: none (scene streaming budgets distinguish connected and offline startup).
     #[test]

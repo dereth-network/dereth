@@ -85,6 +85,11 @@ mod imp {
         overlay_textures: std::collections::BTreeMap<OverlayTexture, TextureSlot>,
         /// The overlay's three pipeline states, image / invert / text, built on first use.
         overlay_pipelines: Option<[PipelineKey; 3]>,
+        /// The object identity verdicts the application worked out for its store, once it has
+        /// them ([`Self::offer_object_identity`]): every world loaded after draws the other era's
+        /// look with them.
+        object_identity:
+            Option<std::sync::Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
     }
 
     /// A decoded retail surface and the six vertices that stretch it over the back buffer.
@@ -162,6 +167,7 @@ mod imp {
                     * dereth_render::camera::DEG_TO_RAD,
                 overlay_textures: std::collections::BTreeMap::new(),
                 overlay_pipelines: None,
+                object_identity: None,
             })
         }
 
@@ -182,7 +188,12 @@ mod imp {
             cfg: crate::world::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
         ) -> Result<(), crate::world::WorldError> {
-            let (mut scene, mut ws) = crate::world::SceneDraw::load(store, &mut self.gpu, cfg)?;
+            let (mut scene, mut ws) = crate::world::SceneDraw::load_with_identity(
+                store,
+                &mut self.gpu,
+                cfg,
+                self.object_identity.clone(),
+            )?;
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is
@@ -325,6 +336,18 @@ mod imp {
         /// The scene, for the camera.
         pub fn world_mut(&mut self) -> Option<&mut crate::world::SceneDraw> {
             self.world.as_mut()
+        }
+
+        /// The object identity verdicts the application worked out: kept for every world loaded
+        /// from now on, and handed to the one loaded now.
+        pub fn offer_object_identity(
+            &mut self,
+            identity: std::sync::Arc<dereth_client_runtime::object_identity::ObjectIdentity>,
+        ) {
+            if let Some(world) = self.world.as_mut() {
+                world.offer_object_identity(std::sync::Arc::clone(&identity));
+            }
+            self.object_identity = Some(identity);
         }
 
         /// The scene, for the startup log line and the tests.

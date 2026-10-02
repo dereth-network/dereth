@@ -43,10 +43,21 @@
 //!
 //! [`load_or_build`](crate::object_identity::ObjectIdentity::load_or_build) keeps the answer in
 //! a per-user cache file keyed by both files' hashes, so a pair of files is only worked out once.
+//!
+//! The work is long (seconds for a pair of files never seen before), so it is written to be done
+//! a little at a time: [`IdentityBuild`](crate::object_identity::IdentityBuild) takes it in steps
+//! of a few milliseconds, one per frame, from the moment the client starts, with the same results
+//! as doing it at once. The cache is read and written through the host's file store
+//! ([`crate::platform::files`]), so a host without a disk keeps it too.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
+use std::time::Duration;
 
 use dereth_assets::geometry::Environment;
 use dereth_assets::tables::ObjDesc;
@@ -55,9 +66,11 @@ use dereth_assets::{
     CharGen, ClothingTable, Decode, GfxObj, PaletteSet, RenderSurface, Setup, Surface,
     SurfaceTexture,
 };
-use dereth_dat::{divine_type_in, ContainerEra, DatFile, DbType};
+use dereth_dat::{divine_type_in, ContainerEra, DatFile, DbType, RetailDatStore};
 use dereth_primitives::frame::{localtoglobal, V3 as _};
 use dereth_primitives::{DataId, Frame, Vec3};
+
+use crate::platform::files as host_files;
 
 /// How an id both files hold was judged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -261,11 +274,12 @@ fn room_vertices(
 
 /// The world's interior cells whose other-era record is the same room in the same place, and
 /// the census of every cell.
-fn rooms(
+async fn rooms(
     world_cell: &DatFile,
     other_cell: &DatFile,
     world_portal: &DatFile,
     other_portal: &DatFile,
+    pace: &Pace,
 ) -> (HashSet<u32>, RoomCensus) {
     let mut out = HashSet::new();
     let mut c = RoomCensus::default();
@@ -274,6 +288,7 @@ fn rooms(
     let mut shapes: HashMap<(u32, u16), bool> = HashMap::new();
     let mut held: HashMap<u32, bool> = HashMap::new();
     for id in world_cell.iter_ids() {
+        pace.tick().await;
         let low = id.0 & 0xFFFF;
         if !(0x0100..0xFFFE).contains(&low) {
             continue;
@@ -339,8 +354,17 @@ fn rooms(
         }
         out.insert(id.0);
     }
+    // The environments decoded on the way are many and large: letting them go is paced too.
+    for (n, _) in wenv.drain().chain(oenv.drain()).enumerate() {
+        if n % ENVIRONMENTS_PER_TICK == 0 {
+            pace.tick().await;
+        }
+    }
     (out, c)
 }
+
+/// How many decoded environments one unit of work lets go of.
+const ENVIRONMENTS_PER_TICK: usize = 256;
 
 /// Picture changes, `(old, new)`.
 type Changes = Vec<(DataId, DataId)>;
@@ -413,8 +437,9 @@ fn hair_styles(world: &DatFile, other: &DatFile) -> HashMap<(u32, u32), Vec<Bare
 /// from (a skin or hair colour of a body of the character-creation tables, or any palette set
 /// both files hold) gives the look's palette at the same share of the way along the look's set;
 /// an eye colour, a palette itself, gives the look's eye colour of the same place. The first
-/// translation found stands (heritages in order, then the shared sets by id).
-fn palette_translations(world: &DatFile, other: &DatFile) -> HashMap<u32, u32> {
+/// translation found stands (heritages in order, then the shared sets by id). A palette set
+/// between each tick of `pace`.
+async fn palette_translations(world: &DatFile, other: &DatFile, pace: &Pace) -> HashMap<u32, u32> {
     let held = |id: u32| other.contains(DataId(id));
     let mut pairs: Vec<(u32, u32)> = Vec::new();
     let mut out: HashMap<u32, u32> = HashMap::new();
@@ -445,14 +470,16 @@ fn palette_translations(world: &DatFile, other: &DatFile) -> HashMap<u32, u32> {
             }
         }
     }
-    let theirs: HashSet<u32> = ids(other, DbType::PalSet).into_iter().collect();
+    let theirs: HashSet<u32> = ids(other, DbType::PalSet, pace).await.into_iter().collect();
     pairs.extend(
-        ids(world, DbType::PalSet)
+        ids(world, DbType::PalSet, pace)
+            .await
             .into_iter()
             .filter(|s| theirs.contains(s))
             .map(|s| (s, s)),
     );
     for (ws, ls) in pairs {
+        pace.tick().await;
         let (Some(w), Some(l)) = (get::<PaletteSet>(world, ws), get::<PaletteSet>(other, ls))
         else {
             continue;
@@ -567,6 +594,8 @@ struct Side {
     pal_uses: BTreeMap<u32, BTreeSet<Use>>,
     /// Setup -> its part list.
     setups: BTreeMap<u32, Vec<u32>>,
+    /// Surface -> the graphics objects naming it (for the census).
+    surfaces_named: BTreeMap<u32, BTreeSet<u32>>,
 }
 
 const USE_SLOT: u8 = 0;
@@ -579,13 +608,24 @@ const USE_TEXTURE_DEFAULT: u8 = 6;
 const USE_CHARGEN_PALETTE: u8 = 7;
 const USE_CLOTHING_PALETTE_SET: u8 = 8;
 
-fn ids(f: &DatFile, t: DbType) -> Vec<u32> {
+/// Every id of record type `t` in `f`, ascending.
+async fn ids(f: &DatFile, t: DbType, pace: &Pace) -> Vec<u32> {
     let era = f.era();
-    f.iter_ids()
-        .filter(|id| divine_type_in(era, *id) == Some(t))
-        .map(|id| id.0)
-        .collect()
+    let mut out = Vec::new();
+    for (n, id) in f.iter_ids().enumerate() {
+        if n % IDS_PER_TICK == 0 {
+            pace.tick().await;
+        }
+        if divine_type_in(era, id) == Some(t) {
+            out.push(id.0);
+        }
+    }
+    out
 }
+
+/// How many directory entries one unit of work sorts by type: sorting one is far cheaper than
+/// decoding a record.
+const IDS_PER_TICK: usize = 1024;
 
 fn get<T: Decode>(f: &DatFile, id: u32) -> Option<T> {
     let b = f.read(DataId(id)).ok()?;
@@ -607,9 +647,10 @@ fn texture_palette(f: &DatFile, id: u32) -> Option<u32> {
     rs.default_palette_id.map(|p| p.0)
 }
 
-fn side(f: &DatFile) -> Side {
+async fn side(f: &DatFile, pace: &Pace) -> Side {
     let mut s = Side::default();
-    for id in ids(f, DbType::Setup) {
+    for id in ids(f, DbType::Setup, pace).await {
+        pace.tick().await;
         if let Some(v) = get::<Setup>(f, id) {
             for p in &v.parts {
                 s.gfx_refs.entry(p.0).or_default().insert(id);
@@ -618,7 +659,8 @@ fn side(f: &DatFile) -> Side {
         }
     }
     let mut surfaces: BTreeMap<u32, (Option<u32>, Option<u32>)> = BTreeMap::new();
-    for id in ids(f, DbType::Surface) {
+    for id in ids(f, DbType::Surface, pace).await {
+        pace.tick().await;
         if let Some(v) = get::<Surface>(f, id) {
             surfaces.insert(
                 id,
@@ -629,11 +671,13 @@ fn side(f: &DatFile) -> Side {
             );
         }
     }
-    for id in ids(f, DbType::GfxObj) {
+    for id in ids(f, DbType::GfxObj, pace).await {
+        pace.tick().await;
         let Some(v) = get::<GfxObj>(f, id) else {
             continue;
         };
         for (k, sid) in v.surfaces.iter().enumerate() {
+            s.surfaces_named.entry(sid.0).or_default().insert(id);
             let Some(&(tex, pal)) = surfaces.get(&sid.0) else {
                 continue;
             };
@@ -654,7 +698,8 @@ fn side(f: &DatFile) -> Side {
             }
         }
     }
-    for id in ids(f, DbType::Clothing) {
+    for id in ids(f, DbType::Clothing, pace).await {
+        pace.tick().await;
         let Some(v) = get::<ClothingTable>(f, id) else {
             continue;
         };
@@ -692,7 +737,8 @@ fn side(f: &DatFile) -> Side {
             }
         }
     }
-    for id in ids(f, DbType::PalSet) {
+    for id in ids(f, DbType::PalSet, pace).await {
+        pace.tick().await;
         if let Some(v) = get::<PaletteSet>(f, id) {
             for (i, p) in v.palette_ids.iter().enumerate() {
                 // LINT-OK: a position within one palette set.
@@ -705,7 +751,8 @@ fn side(f: &DatFile) -> Side {
             }
         }
     }
-    for id in ids(f, DbType::SurfaceTexture) {
+    for id in ids(f, DbType::SurfaceTexture, pace).await {
+        pace.tick().await;
         if let Some(p) = texture_palette(f, id) {
             s.pal_uses
                 .entry(p)
@@ -713,6 +760,7 @@ fn side(f: &DatFile) -> Side {
                 .insert((USE_TEXTURE_DEFAULT, id, 0, 0));
         }
     }
+    pace.tick().await;
     if let Some(cg) = get::<CharGen>(f, 0x0E00_0002) {
         for (h, hg) in &cg.heritage_groups {
             for (sx, sex) in &hg.sexes {
@@ -799,152 +847,160 @@ fn uses_verdict(a: Option<&BTreeSet<Use>>, b: Option<&BTreeSet<Use>>) -> Verdict
     }
 }
 
+/// Work out the verdicts for the world's portal `world` against the other era's portal `other`,
+/// a unit of work between each tick of `pace` ([`ObjectIdentity::build`]).
+async fn build(world: &DatFile, other: &DatFile, pace: &Pace) -> (ObjectIdentity, IdentityCensus) {
+    let a = side(world, pace).await;
+    let b = side(other, pace).await;
+    let mut census = IdentityCensus::default();
+    let put = |c: &mut IdentityCensus, t: DbType, id: u32, v: Verdict| {
+        c.verdicts.insert((t, id), v);
+    };
+
+    // Graphics objects.
+    let theirs: HashSet<u32> = ids(other, DbType::GfxObj, pace).await.into_iter().collect();
+    for id in ids(world, DbType::GfxObj, pace).await {
+        pace.tick().await;
+        if !theirs.contains(&id) {
+            continue;
+        }
+        let (Some(x), Some(y)) = (get::<GfxObj>(world, id), get::<GfxObj>(other, id)) else {
+            continue;
+        };
+        // The same shape: every vertex where the other era has it. A shell of that shape meets
+        // the world's interiors at its doorways whatever its polygons and paint.
+        let same_shape = x.vertex_array.vertices.len() == y.vertex_array.vertices.len()
+            && x.vertex_array
+                .vertices
+                .iter()
+                .zip(&y.vertex_array.vertices)
+                .all(|(p, q)| p.position == q.position);
+        if same_shape {
+            census.geometry_same.insert(id);
+        }
+        let v = if x.vertex_array == y.vertex_array && x.polygons == y.polygons {
+            Verdict::Identical
+        } else {
+            let (ra, rb) = (a.gfx_refs.get(&id), b.gfx_refs.get(&id));
+            let close = matches!(
+                (bounds(&x), bounds(&y)),
+                (Some(p), Some(q)) if box_distance(p, q) < CLOSE_SHAPE
+            );
+            let near = matches!(
+                (bounds(&x), bounds(&y)),
+                (Some(p), Some(q)) if box_distance(p, q) < REMODEL_SHAPE
+            );
+            match (ra, rb) {
+                (Some(p), Some(q)) if !p.is_disjoint(q) => Verdict::SharedReferrer,
+                _ if close => Verdict::CloseShape,
+                _ if near => Verdict::Remodel,
+                _ => Verdict::Unrelated,
+            }
+        };
+        put(&mut census, DbType::GfxObj, id, v);
+    }
+
+    // Setups: the same part list, or a part in common, or a remodel filling the same box.
+    let mut remodels = HashMap::new();
+    for (id, parts) in &a.setups {
+        pace.tick().await;
+        let Some(theirs) = b.setups.get(id) else {
+            continue;
+        };
+        let v = if parts == theirs {
+            Verdict::Identical
+        } else if parts.iter().any(|p| theirs.contains(p)) {
+            Verdict::SharedReferrer
+        } else {
+            let (Some(x), Some(y)) = (get::<Setup>(world, *id), get::<Setup>(other, *id)) else {
+                continue;
+            };
+            match (setup_box(world, &x), setup_box(other, &y)) {
+                (Some(p), Some(q)) if box_distance(p, q) < REMODEL_SHAPE => {
+                    if let Some(l) = remodel_parts(&x, &y) {
+                        remodels.insert(*id, l);
+                    }
+                    Verdict::Remodel
+                }
+                _ => Verdict::Unrelated,
+            }
+        };
+        put(&mut census, DbType::Setup, *id, v);
+    }
+
+    // Textures and palettes, by use.
+    let theirs: HashSet<u32> = ids(other, DbType::SurfaceTexture, pace)
+        .await
+        .into_iter()
+        .collect();
+    for id in ids(world, DbType::SurfaceTexture, pace).await {
+        if theirs.contains(&id) {
+            let v = uses_verdict(a.tex_uses.get(&id), b.tex_uses.get(&id));
+            put(&mut census, DbType::SurfaceTexture, id, v);
+        }
+    }
+    let theirs: HashSet<u32> = ids(other, DbType::Palette, pace)
+        .await
+        .into_iter()
+        .collect();
+    for id in ids(world, DbType::Palette, pace).await {
+        if theirs.contains(&id) {
+            let v = uses_verdict(a.pal_uses.get(&id), b.pal_uses.get(&id));
+            put(&mut census, DbType::Palette, id, v);
+        }
+    }
+
+    // Surfaces: counted only, to show they are numbered per era.
+    let theirs: HashSet<u32> = ids(other, DbType::Surface, pace)
+        .await
+        .into_iter()
+        .collect();
+    let (na, nb) = (&a.surfaces_named, &b.surfaces_named);
+    for id in ids(world, DbType::Surface, pace).await {
+        if theirs.contains(&id) {
+            census.surfaces_shared += 1;
+            if matches!((na.get(&id), nb.get(&id)), (Some(p), Some(q)) if !p.is_disjoint(q)) {
+                census.surfaces_named_alike += 1;
+            }
+        }
+    }
+
+    let same = census
+        .verdicts
+        .iter()
+        .filter(|(_, v)| v.is_same())
+        .map(|((_, id), _)| *id)
+        .collect();
+    let geometry_same = census.geometry_same.iter().copied().collect();
+    pace.tick().await;
+    let bare = bare_parts(world, other);
+    census.bare_parts = bare.len();
+    pace.tick().await;
+    let hair = hair_styles(world, other);
+    census.hair_styles = hair.values().map(Vec::len).sum();
+    let palettes = palette_translations(world, other, pace).await;
+    census.palettes = palettes.len();
+    census.remodels_drawable = remodels.len();
+    (
+        ObjectIdentity {
+            same,
+            geometry_same,
+            bare,
+            rooms: HashSet::new(),
+            remodels,
+            hair,
+            palettes,
+        },
+        census,
+    )
+}
+
 impl ObjectIdentity {
     /// Work out the verdicts for the world's portal `world` against the other era's portal
-    /// `other`, either way round.
+    /// `other`, either way round, all at once.
     #[must_use]
     pub fn build(world: &DatFile, other: &DatFile) -> (Self, IdentityCensus) {
-        let (a, b) = (side(world), side(other));
-        let mut census = IdentityCensus::default();
-        let put = |c: &mut IdentityCensus, t: DbType, id: u32, v: Verdict| {
-            c.verdicts.insert((t, id), v);
-        };
-
-        // Graphics objects.
-        let theirs: HashSet<u32> = ids(other, DbType::GfxObj).into_iter().collect();
-        for id in ids(world, DbType::GfxObj) {
-            if !theirs.contains(&id) {
-                continue;
-            }
-            let (Some(x), Some(y)) = (get::<GfxObj>(world, id), get::<GfxObj>(other, id)) else {
-                continue;
-            };
-            // The same shape: every vertex where the other era has it. A shell of that shape meets
-            // the world's interiors at its doorways whatever its polygons and paint.
-            let same_shape = x.vertex_array.vertices.len() == y.vertex_array.vertices.len()
-                && x.vertex_array
-                    .vertices
-                    .iter()
-                    .zip(&y.vertex_array.vertices)
-                    .all(|(p, q)| p.position == q.position);
-            if same_shape {
-                census.geometry_same.insert(id);
-            }
-            let v = if x.vertex_array == y.vertex_array && x.polygons == y.polygons {
-                Verdict::Identical
-            } else {
-                let (ra, rb) = (a.gfx_refs.get(&id), b.gfx_refs.get(&id));
-                let close = matches!(
-                    (bounds(&x), bounds(&y)),
-                    (Some(p), Some(q)) if box_distance(p, q) < CLOSE_SHAPE
-                );
-                let near = matches!(
-                    (bounds(&x), bounds(&y)),
-                    (Some(p), Some(q)) if box_distance(p, q) < REMODEL_SHAPE
-                );
-                match (ra, rb) {
-                    (Some(p), Some(q)) if !p.is_disjoint(q) => Verdict::SharedReferrer,
-                    _ if close => Verdict::CloseShape,
-                    _ if near => Verdict::Remodel,
-                    _ => Verdict::Unrelated,
-                }
-            };
-            put(&mut census, DbType::GfxObj, id, v);
-        }
-
-        // Setups: the same part list, or a part in common, or a remodel filling the same box.
-        let mut remodels = HashMap::new();
-        for (id, parts) in &a.setups {
-            let Some(theirs) = b.setups.get(id) else {
-                continue;
-            };
-            let v = if parts == theirs {
-                Verdict::Identical
-            } else if parts.iter().any(|p| theirs.contains(p)) {
-                Verdict::SharedReferrer
-            } else {
-                let (Some(x), Some(y)) = (get::<Setup>(world, *id), get::<Setup>(other, *id))
-                else {
-                    continue;
-                };
-                match (setup_box(world, &x), setup_box(other, &y)) {
-                    (Some(p), Some(q)) if box_distance(p, q) < REMODEL_SHAPE => {
-                        if let Some(l) = remodel_parts(&x, &y) {
-                            remodels.insert(*id, l);
-                        }
-                        Verdict::Remodel
-                    }
-                    _ => Verdict::Unrelated,
-                }
-            };
-            put(&mut census, DbType::Setup, *id, v);
-        }
-
-        // Textures and palettes, by use.
-        let theirs: HashSet<u32> = ids(other, DbType::SurfaceTexture).into_iter().collect();
-        for id in ids(world, DbType::SurfaceTexture) {
-            if theirs.contains(&id) {
-                let v = uses_verdict(a.tex_uses.get(&id), b.tex_uses.get(&id));
-                put(&mut census, DbType::SurfaceTexture, id, v);
-            }
-        }
-        let theirs: HashSet<u32> = ids(other, DbType::Palette).into_iter().collect();
-        for id in ids(world, DbType::Palette) {
-            if theirs.contains(&id) {
-                let v = uses_verdict(a.pal_uses.get(&id), b.pal_uses.get(&id));
-                put(&mut census, DbType::Palette, id, v);
-            }
-        }
-
-        // Surfaces: counted only, to show they are numbered per era.
-        let theirs: HashSet<u32> = ids(other, DbType::Surface).into_iter().collect();
-        let named = |f: &DatFile| -> BTreeMap<u32, BTreeSet<u32>> {
-            let mut m: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
-            for g in ids(f, DbType::GfxObj) {
-                if let Some(v) = get::<GfxObj>(f, g) {
-                    for s in &v.surfaces {
-                        m.entry(s.0).or_default().insert(g);
-                    }
-                }
-            }
-            m
-        };
-        let (na, nb) = (named(world), named(other));
-        for id in ids(world, DbType::Surface) {
-            if theirs.contains(&id) {
-                census.surfaces_shared += 1;
-                if matches!((na.get(&id), nb.get(&id)), (Some(p), Some(q)) if !p.is_disjoint(q)) {
-                    census.surfaces_named_alike += 1;
-                }
-            }
-        }
-
-        let same = census
-            .verdicts
-            .iter()
-            .filter(|(_, v)| v.is_same())
-            .map(|((_, id), _)| *id)
-            .collect();
-        let geometry_same = census.geometry_same.iter().copied().collect();
-        let bare = bare_parts(world, other);
-        census.bare_parts = bare.len();
-        let hair = hair_styles(world, other);
-        census.hair_styles = hair.values().map(Vec::len).sum();
-        let palettes = palette_translations(world, other);
-        census.palettes = palettes.len();
-        census.remodels_drawable = remodels.len();
-        (
-            Self {
-                same,
-                geometry_same,
-                bare,
-                rooms: HashSet::new(),
-                remodels,
-                hair,
-                palettes,
-            },
-            census,
-        )
+        run_to_end(build(world, other, &Pace::unlimited()))
     }
 
     /// Whether the other era's record of `id` is the same object as the world's.
@@ -974,7 +1030,13 @@ impl ObjectIdentity {
         world_portal: &DatFile,
         other_portal: &DatFile,
     ) -> RoomCensus {
-        let (r, c) = rooms(world_cell, other_cell, world_portal, other_portal);
+        let (r, c) = run_to_end(rooms(
+            world_cell,
+            other_cell,
+            world_portal,
+            other_portal,
+            &Pace::unlimited(),
+        ));
         self.rooms = r;
         c
     }
@@ -1037,14 +1099,14 @@ impl ObjectIdentity {
     }
 
     /// The cache file for this pair of files under `dir`, named by both files' hashes. `None`
-    /// when a file cannot be read whole (a store opened from memory).
+    /// when a file cannot be read whole.
     #[must_use]
     pub fn cache_file(dir: &Path, world: &DatFile, other: &DatFile) -> Option<PathBuf> {
         Self::cache_file_with(dir, world, other, None)
     }
 
     /// [`Self::cache_file`], with both eras' cell files joining the name when `cells` (the
-    /// world's, the other era's) are compared too.
+    /// world's, the other era's) are compared too. Every file is hashed whole.
     #[must_use]
     pub fn cache_file_with(
         dir: &Path,
@@ -1052,20 +1114,13 @@ impl ObjectIdentity {
         other: &DatFile,
         cells: Option<(&DatFile, &DatFile)>,
     ) -> Option<PathBuf> {
-        let mut name = format!(
-            "{}-{}",
-            &file_hash(world.path())?[..16],
-            &file_hash(other.path())?[..16]
-        );
-        if let Some((wc, oc)) = cells {
-            let _ = write!(
-                name,
-                "-{}-{}",
-                &file_hash(wc.path())?[..16],
-                &file_hash(oc.path())?[..16]
-            );
-        }
-        Some(dir.join(format!("{name}.txt")))
+        let files = IdentityFiles {
+            world,
+            other,
+            cells,
+        };
+        let (name, _) = run_to_end(cache_name(files, None, &Pace::unlimited()))?;
+        Some(dir.join(name))
     }
 
     /// The verdicts for this pair of files: read from `cache` when it holds them, worked out and
@@ -1077,7 +1132,8 @@ impl ObjectIdentity {
     }
 
     /// [`Self::load_or_build`], with the rooms of `cells` (the world's cell file, the other
-    /// era's) compared too ([`Self::build_rooms`]) and kept in the same cache file.
+    /// era's) compared too ([`Self::build_rooms`]) and kept in the same cache file. All at once:
+    /// [`IdentityBuild`] does the same work a step at a time.
     #[must_use]
     pub fn load_or_build_with(
         world: &DatFile,
@@ -1085,32 +1141,12 @@ impl ObjectIdentity {
         cells: Option<(&DatFile, &DatFile)>,
         cache: Option<&Path>,
     ) -> Self {
-        let file = cache.and_then(|d| Self::cache_file_with(d, world, other, cells));
-        if let Some(f) = &file {
-            if let Some(found) = std::fs::read_to_string(f)
-                .ok()
-                .and_then(|t| Self::parse(&t))
-            {
-                return found;
-            }
-        }
-        let (mut built, _) = Self::build(world, other);
-        if let Some((wc, oc)) = cells {
-            let _ = built.build_rooms(wc, oc, world, other);
-        }
-        if let Some(f) = &file {
-            let written = f
-                .parent()
-                .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| std::fs::write(f, built.to_text()));
-            if let Err(e) = written {
-                tracing::warn!(
-                    "the object identity cache {} was not written: {e}",
-                    f.display()
-                );
-            }
-        }
-        built
+        let files = IdentityFiles {
+            world,
+            other,
+            cells,
+        };
+        run_to_end(load_or_build(files, cache, &Pace::unlimited())).0
     }
 
     /// The cache file's text: the magic line, then one id per line, `s` for the same object and
@@ -1119,17 +1155,24 @@ impl ObjectIdentity {
     /// and how many).
     #[must_use]
     pub fn to_text(&self) -> String {
+        run_to_end(self.to_text_paced(&Pace::unlimited()))
+    }
+
+    /// [`Self::to_text`], a few thousand lines between each tick of `pace`.
+    async fn to_text_paced(&self, pace: &Pace) -> String {
         let mut t = format!("{CACHE_MAGIC}\n");
         let mut s: Vec<u32> = self.same.iter().copied().collect();
         s.sort_unstable();
         for id in s {
             let _ = writeln!(t, "s {id:08X}");
         }
+        pace.tick().await;
         let mut g: Vec<u32> = self.geometry_same.iter().copied().collect();
         g.sort_unstable();
         for id in g {
             let _ = writeln!(t, "g {id:08X}");
         }
+        pace.tick().await;
         let mut b: Vec<(&(u32, u32), &BarePart)> = self.bare.iter().collect();
         b.sort_by_key(|(k, _)| **k);
         let maps = |m: &[(DataId, DataId)]| {
@@ -1147,16 +1190,34 @@ impl ObjectIdentity {
                 maps(&v.world_maps)
             );
         }
-        let mut r: Vec<u32> = self.rooms.iter().copied().collect();
-        r.sort_unstable();
-        let mut i = 0;
-        while i < r.len() {
-            let mut n = 1u32;
-            while r.get(i + n as usize) == Some(&(r[i] + n)) {
-                n += 1;
+        // The rooms in ascending order, a landblock at a time (sorting them all at once is a
+        // unit of work too long for one frame), as runs of consecutive cells.
+        let mut blocks: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for (k, cell) in self.rooms.iter().enumerate() {
+            if k % ROOMS_PER_TICK == 0 {
+                pace.tick().await;
             }
-            let _ = writeln!(t, "c {:08X} {n}", r[i]);
-            i += n as usize;
+            blocks.entry(cell >> 16).or_default().push(*cell);
+        }
+        let mut run: Option<(u32, u32)> = None;
+        for (k, (_, mut cells)) in blocks.into_iter().enumerate() {
+            if k % 64 == 0 {
+                pace.tick().await;
+            }
+            cells.sort_unstable();
+            for cell in cells {
+                run = match run {
+                    Some((first, n)) if first.checked_add(n) == Some(cell) => Some((first, n + 1)),
+                    Some((first, n)) => {
+                        let _ = writeln!(t, "c {first:08X} {n}");
+                        Some((cell, 1))
+                    }
+                    None => Some((cell, 1)),
+                };
+            }
+        }
+        if let Some((first, n)) = run {
+            let _ = writeln!(t, "c {first:08X} {n}");
         }
         let mut h: Vec<(&(u32, u32), &Vec<BarePart>)> = self.hair.iter().collect();
         h.sort_by_key(|(k, _)| **k);
@@ -1188,6 +1249,11 @@ impl ObjectIdentity {
     /// [`Self::to_text`] read back; `None` for anything else.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
+        run_to_end(Self::parse_paced(text, &Pace::unlimited()))
+    }
+
+    /// [`Self::parse`], a line between each tick of `pace`.
+    async fn parse_paced(text: &str, pace: &Pace) -> Option<Self> {
         let mut lines = text.lines();
         if lines.next()? != CACHE_MAGIC {
             return None;
@@ -1204,6 +1270,7 @@ impl ObjectIdentity {
                 .collect()
         };
         for l in lines {
+            pace.tick().await;
             let (kind, rest) = l.split_once(' ')?;
             match kind {
                 "s" => {
@@ -1253,48 +1320,441 @@ impl ObjectIdentity {
     }
 }
 
-/// A file's BLAKE3 hash in hex, read whole from disk. `None` when it cannot be read.
-fn file_hash(path: &Path) -> Option<String> {
-    use std::io::Read as _;
-    let mut f = std::fs::File::open(path).ok()?;
-    let mut h = blake3::Hasher::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = f.read(&mut buf).ok()?;
-        if n == 0 {
-            break;
+/// The files one set of verdicts is worked out from: the world's portal, the other era's, and
+/// both eras' cell files (the world's, the other era's) when the rooms are compared too.
+#[derive(Debug, Clone, Copy)]
+struct IdentityFiles<'a> {
+    world: &'a DatFile,
+    other: &'a DatFile,
+    cells: Option<(&'a DatFile, &'a DatFile)>,
+}
+
+impl<'a> IdentityFiles<'a> {
+    /// Every file, in the order the cache file's name lists them.
+    fn all(&self) -> Vec<&'a DatFile> {
+        let mut out = vec![self.world, self.other];
+        if let Some((w, o)) = self.cells {
+            out.extend([w, o]);
         }
+        out
+    }
+}
+
+/// The verdicts for `files`: read from the cache folder `cache` when it holds them, worked out
+/// and written there otherwise; in memory alone without one, or when it cannot be read or
+/// written. A unit of work between each tick of `pace`.
+async fn load_or_build(
+    files: IdentityFiles<'_>,
+    cache: Option<&Path>,
+    pace: &Pace,
+) -> (ObjectIdentity, IdentitySource) {
+    let mut source = IdentitySource::default();
+    let file = match cache {
+        Some(dir) => cache_name(files, Some(dir), pace).await.map(|(n, hashed)| {
+            source.files_hashed = hashed;
+            dir.join(n)
+        }),
+        None => None,
+    };
+    if let Some(f) = &file {
+        pace.tick().await;
+        if let Ok(text) = host_files::read_to_string(f) {
+            if let Some(found) = ObjectIdentity::parse_paced(&text, pace).await {
+                source.from_cache = true;
+                return (found, source);
+            }
+        }
+    }
+    let (mut built, _) = build(files.world, files.other, pace).await;
+    if let Some((wc, oc)) = files.cells {
+        let (r, _) = rooms(wc, oc, files.world, files.other, pace).await;
+        built.rooms = r;
+    }
+    if let Some(f) = &file {
+        let text = built.to_text_paced(pace).await;
+        pace.tick().await;
+        let written = f
+            .parent()
+            .map_or(Ok(()), host_files::make_dirs)
+            .and_then(|()| host_files::write(f, text));
+        if let Err(e) = written {
+            tracing::warn!(
+                "the object identity cache {} was not written: {e}",
+                f.display()
+            );
+        }
+    }
+    (built, source)
+}
+
+/// Where an [`IdentityBuild`]'s verdicts came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IdentitySource {
+    /// Read back from the cache file, rather than worked out from the files.
+    pub from_cache: bool,
+    /// How many of the files were read whole to hash them; the others were known by their
+    /// fingerprint.
+    pub files_hashed: usize,
+}
+
+/// The cache file's name for `files`: the first 16 hex digits of each file's BLAKE3 hash,
+/// `<world portal>-<other portal>[-<world cell>-<other cell>].txt`. `None` when a file cannot be
+/// read whole. With `index`, a file whose fingerprint was seen before is not read again
+/// ([`dat_hash`]); the count is of the files that were.
+async fn cache_name(
+    files: IdentityFiles<'_>,
+    index: Option<&Path>,
+    pace: &Pace,
+) -> Option<(String, usize)> {
+    let mut name = String::new();
+    let mut hashed = 0;
+    for f in files.all() {
+        let (h, read) = dat_hash(f, index, pace).await?;
+        hashed += usize::from(read);
+        if !name.is_empty() {
+            name.push('-');
+        }
+        name.push_str(&h[..16]);
+    }
+    Some((format!("{name}.txt"), hashed))
+}
+
+/// The first line of a file of the hash index ([`dat_hash`]).
+const HASH_MAGIC: &str = "dereth dat hash 1";
+
+/// What a file's fingerprint hashes first, so a change to what it covers changes every one.
+const FINGERPRINT_MAGIC: &str = "dereth dat fingerprint 1";
+
+/// How many bytes of a file one unit of hashing reads.
+const HASH_CHUNK: usize = 1 << 18;
+
+/// How many directory entries one unit of fingerprinting covers.
+const ENTRIES_PER_TICK: usize = 4096;
+
+/// How many rooms one unit of writing the cache file sorts into their landblocks.
+const ROOMS_PER_TICK: usize = 65_536;
+
+/// A file's BLAKE3 hash in hex. With `index`, a folder of earlier answers kept by the file's
+/// fingerprint ([`fingerprint`]): the file is read whole only when its fingerprint is not there,
+/// and the answer is kept there for the next time. `None` when the file cannot be read whole;
+/// with the hash, whether the file was read whole for it.
+async fn dat_hash(f: &DatFile, index: Option<&Path>, pace: &Pace) -> Option<(String, bool)> {
+    let Some(dir) = index else {
+        return Some((content_hash(f, pace).await?, true));
+    };
+    let fp = fingerprint(f, pace).await;
+    let key = dir.join(format!("dat-{}.hash", &fp[..32]));
+    pace.tick().await;
+    let known = host_files::read_to_string(&key).ok().and_then(|t| {
+        let mut lines = t.lines();
+        (lines.next()? == HASH_MAGIC)
+            .then(|| lines.next())
+            .flatten()
+            .filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(str::to_owned)
+    });
+    if let Some(h) = known {
+        return Some((h, false));
+    }
+    let h = content_hash(f, pace).await?;
+    let written = host_files::make_dirs(dir)
+        .and_then(|()| host_files::write(&key, format!("{HASH_MAGIC}\n{h}\n")));
+    if let Err(e) = written {
+        tracing::warn!("the dat hash {} was not kept: {e}", key.display());
+    }
+    Some((h, true))
+}
+
+/// What tells one state of a file from another without reading it whole: its header and every
+/// entry of its directory (each record's id, place, size, date and iteration), hashed. A record
+/// written into a file takes new blocks and moves its entry, and the header's free list moves
+/// with it, so a changed file has a new fingerprint.
+async fn fingerprint(f: &DatFile, pace: &Pace) -> String {
+    let mut h = blake3::Hasher::new();
+    h.update(FINGERPRINT_MAGIC.as_bytes());
+    let hd = f.header();
+    for w in [
+        hd.magic,
+        hd.block_size,
+        hd.file_size,
+        hd.data_set,
+        hd.data_subset,
+        hd.free_head,
+        hd.free_tail,
+        hd.free_count,
+        hd.btree_root,
+        hd.master_map_id,
+        hd.version_minor,
+        f.header_iteration().unwrap_or(0),
+    ] {
+        h.update(&w.to_le_bytes());
+    }
+    h.update(&hd.eng_pack_vnum.to_le_bytes());
+    h.update(&hd.game_pack_vnum.to_le_bytes());
+    h.update(&hd.version_major);
+    for (n, (id, e)) in f.iter_entries().enumerate() {
+        if n % ENTRIES_PER_TICK == 0 {
+            pace.tick().await;
+        }
+        let mut b = [0u8; 24];
+        for (k, w) in [id.0, e.bits, e.offset, e.size, e.date, e.iteration]
+            .into_iter()
+            .enumerate()
+        {
+            b[k * 4..k * 4 + 4].copy_from_slice(&w.to_le_bytes());
+        }
+        h.update(&b);
+    }
+    h.finalize().to_hex().to_string()
+}
+
+/// A file's BLAKE3 hash in hex, read whole (up to its header's file size) a quarter megabyte at a time.
+/// `None` when it cannot be read.
+async fn content_hash(f: &DatFile, pace: &Pace) -> Option<String> {
+    let len = u64::from(f.header().file_size);
+    let mut h = blake3::Hasher::new();
+    let mut buf = vec![0u8; HASH_CHUNK];
+    let mut at = 0u64;
+    while at < len {
+        pace.tick().await;
+        let n = usize::try_from((len - at).min(HASH_CHUNK as u64)).ok()?;
+        f.read_raw(at, &mut buf[..n]).ok()?;
         h.update(&buf[..n]);
+        at += n as u64;
     }
     Some(h.finalize().to_hex().to_string())
 }
 
-/// Where the desktop client keeps the cache: `%LOCALAPPDATA%\Dereth\object-identity` on
-/// Windows, `~/Library/Caches/Dereth/object-identity` on macOS, and
-/// `$XDG_CACHE_HOME/dereth/object-identity` (else `~/.cache/dereth/object-identity`) elsewhere.
-/// Worked out once per run.
-#[must_use]
-pub fn default_cache_dir() -> Option<&'static Path> {
-    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
-    DIR.get_or_init(cache_dir_from_env).as_deref()
+/// How much of the work one step of an [`IdentityBuild`] may do. A step always does at least one
+/// unit of work: one record or cell compared, a quarter megabyte hashed, one cache line read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Budget {
+    /// Until this much time has passed.
+    Time(Duration),
+    /// This many units of work.
+    Units(u32),
+    /// All that is left.
+    All,
 }
 
-fn cache_dir_from_env() -> Option<PathBuf> {
-    let var = |n: &str| {
-        std::env::var_os(n)
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-    };
-    let base = if cfg!(windows) {
-        var("LOCALAPPDATA")?.join("Dereth")
-    } else if cfg!(target_os = "macos") {
-        var("HOME")?.join("Library/Caches/Dereth")
-    } else {
-        var("XDG_CACHE_HOME")
-            .or_else(|| var("HOME").map(|h| h.join(".cache")))?
-            .join("dereth")
-    };
-    Some(base.join("object-identity"))
+/// Where paced work stops for the step: [`Pace::tick`] between two units of work ends the step
+/// once its budget is spent, and the work carries on from there at the next.
+#[derive(Debug, Default)]
+struct Pace(Mutex<PaceState>);
+
+#[derive(Debug, Default, Clone, Copy)]
+struct PaceState {
+    /// The step ends at this time.
+    deadline: Option<web_time::Instant>,
+    /// The step ends when this many more units are done.
+    units: Option<u32>,
+    /// Units of work begun, over every step.
+    ticks: u64,
+}
+
+impl Pace {
+    /// A pace that never stops the work.
+    fn unlimited() -> Self {
+        Self::default()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, PaceState> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A new step, with `budget`.
+    fn start(&self, budget: Budget) {
+        let mut p = self.lock();
+        p.deadline = None;
+        p.units = None;
+        match budget {
+            Budget::Time(d) => p.deadline = Some(web_time::Instant::now() + d),
+            Budget::Units(n) => p.units = Some(n.max(1)),
+            Budget::All => {}
+        }
+    }
+
+    /// A unit of work is about to begin: whether the step's budget is spent.
+    fn spent(&self) -> bool {
+        let mut p = self.lock();
+        p.ticks += 1;
+        if let Some(n) = p.units {
+            if n == 0 {
+                return true;
+            }
+            p.units = Some(n - 1);
+        }
+        p.deadline.is_some_and(|d| web_time::Instant::now() >= d)
+    }
+
+    /// Units of work begun so far.
+    fn ticks(&self) -> u64 {
+        self.lock().ticks
+    }
+
+    /// The point between two units of work where a step may end.
+    fn tick(&self) -> Tick<'_> {
+        Tick {
+            pace: self,
+            yielded: false,
+        }
+    }
+}
+
+/// [`Pace::tick`]: ready at once while the step's budget lasts; otherwise it ends the step and is
+/// ready at the next.
+struct Tick<'a> {
+    pace: &'a Pace,
+    yielded: bool,
+}
+
+impl Future for Tick<'_> {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+        if self.yielded || !self.pace.spent() {
+            Poll::Ready(())
+        } else {
+            self.yielded = true;
+            Poll::Pending
+        }
+    }
+}
+
+/// Paced work done all at once: under [`Pace::unlimited`] it never stops, so one poll finishes it.
+fn run_to_end<T>(work: impl Future<Output = T>) -> T {
+    let mut work = std::pin::pin!(work);
+    let mut cx = Context::from_waker(Waker::noop());
+    loop {
+        if let Poll::Ready(v) = work.as_mut().poll(&mut cx) {
+            return v;
+        }
+    }
+}
+
+/// The verdicts for the world's files against the other era's beside them, worked out a step at
+/// a time.
+///
+/// The client starts one when it starts, whatever look is chosen, and gives it a few milliseconds
+/// of each frame, so the other era's look is ready before it is asked for and no frame waits on
+/// it. The steps are the work [`ObjectIdentity::load_or_build_with`] does, in the same order and
+/// with the same results: the files' hashes (a file whose fingerprint was seen before is not read
+/// again), then the cache file when it holds them, else the comparison, written to the cache. The
+/// browser has no threads, so this is one path everywhere: the work stops between units and
+/// carries on at the next step.
+pub struct IdentityBuild {
+    pace: Arc<Pace>,
+    work: Option<IdentityWork>,
+    done: Option<(Arc<ObjectIdentity>, IdentitySource)>,
+    steps: u64,
+}
+
+/// The work of an [`IdentityBuild`], stopped between two units until its next step.
+type IdentityWork = Pin<Box<dyn Future<Output = (ObjectIdentity, IdentitySource)> + Send>>;
+
+impl std::fmt::Debug for IdentityBuild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityBuild")
+            .field("steps", &self.steps)
+            .field("units", &self.pace.ticks())
+            .field("ready", &self.done.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl IdentityBuild {
+    /// The build for `store`'s world against the other era's files beside it: its portal, and
+    /// the rooms too when that era's cell file is there. `None` when no other era's files are
+    /// beside the world. `cache` is the cache folder ([`default_cache_dir`]); `None` keeps
+    /// nothing.
+    #[must_use]
+    pub fn for_store(store: &RetailDatStore, cache: Option<PathBuf>) -> Option<Self> {
+        let era = match store.era() {
+            ContainerEra::Tod => ContainerEra::PreTod,
+            ContainerEra::PreTod => ContainerEra::Tod,
+        };
+        let look = store.object_files(era)?;
+        let interiors = store.interior_files(era);
+        Some(Self::new(store.clone(), look, interiors, cache))
+    }
+
+    /// The build for `world`'s portal against `look`'s, and `world`'s cell file against
+    /// `interiors`' when given.
+    #[must_use]
+    pub fn new(
+        world: RetailDatStore,
+        look: RetailDatStore,
+        interiors: Option<RetailDatStore>,
+        cache: Option<PathBuf>,
+    ) -> Self {
+        let pace = Arc::new(Pace::default());
+        let p = Arc::clone(&pace);
+        let work = async move {
+            let files = IdentityFiles {
+                world: world.portal(),
+                other: look.portal(),
+                cells: interiors.as_ref().map(|i| (world.cell(), i.cell())),
+            };
+            load_or_build(files, cache.as_deref(), &p).await
+        };
+        Self {
+            pace,
+            work: Some(Box::pin(work)),
+            done: None,
+            steps: 0,
+        }
+    }
+
+    /// Do up to `budget` of the work. The verdicts once they are ready, on this step and every
+    /// one after.
+    pub fn step(&mut self, budget: Budget) -> Option<Arc<ObjectIdentity>> {
+        if let Some(work) = self.work.as_mut() {
+            self.pace.start(budget);
+            self.steps += 1;
+            let mut cx = Context::from_waker(Waker::noop());
+            if let Poll::Ready((id, source)) = work.as_mut().poll(&mut cx) {
+                self.done = Some((Arc::new(id), source));
+                self.work = None;
+            }
+        }
+        self.ready().cloned()
+    }
+
+    /// The verdicts, once ready.
+    #[must_use]
+    pub fn ready(&self) -> Option<&Arc<ObjectIdentity>> {
+        self.done.as_ref().map(|(id, _)| id)
+    }
+
+    /// Where the verdicts came from, once ready.
+    #[must_use]
+    pub fn source(&self) -> Option<IdentitySource> {
+        self.done.as_ref().map(|(_, s)| *s)
+    }
+
+    /// How many steps have done work.
+    #[must_use]
+    pub fn steps(&self) -> u64 {
+        self.steps
+    }
+
+    /// How many units of work have been begun.
+    #[must_use]
+    pub fn units(&self) -> u64 {
+        self.pace.ticks()
+    }
+}
+
+/// Where the client keeps the cache: `object-identity` in the host's cache folder
+/// ([`crate::platform::files::cache_dir`]). On the desktop that is
+/// `%LOCALAPPDATA%\Dereth\object-identity` on Windows, `~/Library/Caches/Dereth/object-identity`
+/// on macOS, and `$XDG_CACHE_HOME/dereth/object-identity` (else
+/// `~/.cache/dereth/object-identity`) elsewhere; in the browser, the page's own storage.
+#[must_use]
+pub fn default_cache_dir() -> Option<PathBuf> {
+    Some(host_files::cache_dir()?.join("object-identity"))
 }
 
 #[cfg(test)]
@@ -1332,6 +1792,39 @@ mod tests {
         );
         assert!(ObjectIdentity::parse("something else\ns 01000001\n").is_none());
         assert!(ObjectIdentity::parse(&format!("{CACHE_MAGIC}\nx 01000001\n")).is_none());
+    }
+
+    /// Behaviour: none (the pacing of long work over steps: a step ends between two units once
+    /// its budget is spent, and the next carries on where it stopped).
+    #[test]
+    fn work_stopped_between_units_carries_on_where_it_stopped() {
+        let mut id = ObjectIdentity::default();
+        for k in 0..50u32 {
+            id.same.insert(0x0100_0000 + k);
+        }
+        id.rooms.insert(0xA9B4_0100);
+        let text = id.to_text();
+        let mut cx = Context::from_waker(Waker::noop());
+        for budget in [Budget::Units(1), Budget::Time(Duration::ZERO)] {
+            let pace = Pace::default();
+            let mut work = std::pin::pin!(ObjectIdentity::parse_paced(&text, &pace));
+            let mut steps = 0;
+            let back = loop {
+                pace.start(budget);
+                steps += 1;
+                if let Poll::Ready(v) = work.as_mut().poll(&mut cx) {
+                    break v;
+                }
+            };
+            assert_eq!(back.as_ref(), Some(&id), "{budget:?}");
+            // 51 lines after the first, at most two a step.
+            assert!(steps >= 26, "{budget:?}: {steps} steps");
+            assert_eq!(pace.ticks(), 51, "{budget:?}: one unit a line");
+        }
+        let pace = Pace::default();
+        pace.start(Budget::All);
+        let mut work = std::pin::pin!(ObjectIdentity::parse_paced(&text, &pace));
+        assert_eq!(work.as_mut().poll(&mut cx), Poll::Ready(Some(id)));
     }
 
     /// Behaviour: none (geometry arithmetic).

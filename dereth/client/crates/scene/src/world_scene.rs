@@ -2162,8 +2162,10 @@ mod imp {
         /// parts, the scenery, the buildings and the statics are drawn from, and the surface cache
         /// their pictures are held in. `None`: the world's own.
         objects: Option<ObjectLook>,
-        /// The verdicts the other era's look was last drawn with, kept when the look is switched
-        /// off so switching it back does not work them out again.
+        /// The verdicts the other era's look is drawn with: handed in by the application once
+        /// it has them ([`SceneDraw::offer_object_identity`]), or worked out the first time the
+        /// look was drawn, and kept when the look is switched off so switching it back does not
+        /// work them out again.
         identity: Option<Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
         /// The environment-cell reader for the **draw** side. Physics has
         /// its own inside [`dereth_client_runtime::land_source::DatLandSource`], because that one has to be
@@ -2244,20 +2246,25 @@ mod imp {
     }
 
     /// The verdicts for the world's portal against the other era's (`files`), and the world's
-    /// rooms against the other era's when its cell file is here (`interiors`), from `cache` when
-    /// it holds them, timed into the log.
+    /// rooms against the other era's when its cell file is here (`interiors`), all at once: from
+    /// the host's cache folder when `cache` and it holds them, timed into the log.
     fn object_identity(
         store: &RetailDatStore,
         files: &RetailDatStore,
         interiors: Option<&RetailDatStore>,
-        cache: Option<&std::path::Path>,
+        cache: bool,
     ) -> Arc<dereth_client_runtime::object_identity::ObjectIdentity> {
         let t = web_time::Instant::now();
+        let dir = if cache {
+            dereth_client_runtime::object_identity::default_cache_dir()
+        } else {
+            None
+        };
         let id = dereth_client_runtime::object_identity::ObjectIdentity::load_or_build_with(
             store.portal(),
             files.portal(),
             interiors.map(|i| (store.cell(), i.cell())),
-            cache,
+            dir.as_deref(),
         );
         tracing::info!(
             "object identity: {} ids and {} rooms of the other era stand for the world's, ready \
@@ -5082,6 +5089,22 @@ mod imp {
             gpu: &mut Gpu,
             cfg: SceneConfig,
         ) -> Result<(Self, WorldState), WorldError> {
+            Self::load_with_identity(store, gpu, cfg, None)
+        }
+
+        /// [`Self::load`], with the object identity verdicts the application already has for
+        /// this store (`identity`), which the other era's look is drawn with. Without them and
+        /// with [`SceneConfig::object_identity_budget`], the objects start in the world's own look
+        /// and take the one asked for when they arrive ([`Self::offer_object_identity`]).
+        ///
+        /// # Errors
+        /// As [`Self::load`].
+        pub fn load_with_identity(
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            cfg: SceneConfig,
+            identity: Option<Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
+        ) -> Result<(Self, WorldState), WorldError> {
             // The world's own region: the world's hardware region where it has one, as a client of
             // the world's time drawing with 3D hardware loaded it.
             let region = world_region(store)?;
@@ -5127,20 +5150,34 @@ mod imp {
                 ..BakeCache::default()
             };
             // The objects' look: the world's own, or another era's (`[Render] Objects`). A style
-            // whose files are not here leaves the world's own.
+            // whose files are not here leaves the world's own, and so, until they arrive, does
+            // one whose verdicts the application is still working out.
+            let mut identity = identity;
+            let mut objects_waiting = false;
             let objects = match (
                 object_files_for(store, cfg.render.objects),
                 cfg.render.objects,
             ) {
                 (Ok(Some(files)), Some(_)) => {
                     let interiors = store.interior_files(files.era());
-                    let identity = object_identity(
-                        store,
-                        &files,
-                        interiors.as_ref(),
-                        cfg.object_identity_cache,
-                    );
-                    Some(ObjectLook::new(files, interiors, identity, &bake))
+                    if identity.is_none() && !cfg.object_identity_budget.is_some() {
+                        identity = Some(object_identity(
+                            store,
+                            &files,
+                            interiors.as_ref(),
+                            cfg.object_identity_cache,
+                        ));
+                    }
+                    if let Some(id) = &identity {
+                        Some(ObjectLook::new(files, interiors, Arc::clone(id), &bake))
+                    } else {
+                        tracing::info!(
+                            "the objects are drawn as the world's own until the other era's \
+                             look is ready"
+                        );
+                        objects_waiting = true;
+                        None
+                    }
                 }
                 (Ok(_), _) => None,
                 (Err(files), _) => {
@@ -5172,7 +5209,7 @@ mod imp {
                 splat_sources: HashMap::new(),
                 splats: HashMap::new(),
                 bake,
-                identity: objects.as_ref().map(|l| Arc::clone(&l.identity)),
+                identity,
                 objects,
                 cells: dereth_client_runtime::env_cells::EnvCellLoader::new(),
             };
@@ -5263,6 +5300,12 @@ mod imp {
                 terrain_splat: splat,
                 stats: SceneStats::default(),
             };
+
+            // A look still waiting for its verdicts is not drawn yet: the shadow says the world's,
+            // so the preference poll takes the one asked for once they arrive.
+            if objects_waiting {
+                scene.render_shadow.objects = None;
+            }
 
             // The region is installed, so the
             // detail surfaces are generated at the preference's current value before anything is
@@ -6006,11 +6049,17 @@ mod imp {
                 }
             }
             if asked.objects != was.objects {
-                match self.set_objects(ws, store, gpu, asked.objects)? {
-                    Ok(()) => work.objects_changed = true,
-                    Err(files) => {
-                        self.cfg.render.objects = was.objects;
-                        work.objects_refused = Some((files, was.objects));
+                if self.objects_wait_for_identity(store, asked.objects) {
+                    // The look is drawn once the verdicts arrive; until then the objects keep
+                    // the one they have, and the poll asks again next frame.
+                    work.objects_waiting = true;
+                } else {
+                    match self.set_objects(ws, store, gpu, asked.objects)? {
+                        Ok(()) => work.objects_changed = true,
+                        Err(files) => {
+                            self.cfg.render.objects = was.objects;
+                            work.objects_refused = Some((files, was.objects));
+                        }
                     }
                 }
             }
@@ -6037,6 +6086,9 @@ mod imp {
                 != was.environment_detail_textures
                 || live.landscape_detail_textures != was.landscape_detail_textures;
             self.render_shadow = live;
+            if work.objects_waiting {
+                self.render_shadow.objects = was.objects;
+            }
             if work.detail_texturing_changed {
                 // Call the detail-texturing setter with `(landscape, v, v, 0)`.
                 // This arm is what makes the preference more than a counter.
@@ -6201,6 +6253,31 @@ mod imp {
                 }
             );
             Ok(Ok(()))
+        }
+
+        /// The object identity verdicts for this store, worked out by the application
+        /// ([`dereth_client_runtime::object_identity::IdentityBuild`]): kept for every later
+        /// switch of `[Render] Objects`, and a look asked for while they were not here is drawn
+        /// at the next preference poll.
+        pub fn offer_object_identity(
+            &mut self,
+            identity: Arc<dereth_client_runtime::object_identity::ObjectIdentity>,
+        ) {
+            self.land.identity = Some(identity);
+        }
+
+        /// Whether drawing the objects with `style`'s look has to wait for the verdicts: the
+        /// application works them out ([`SceneConfig::object_identity_budget`]), they are not here
+        /// yet, and the look needs them (another era's files are drawn).
+        fn objects_wait_for_identity(
+            &self,
+            store: &RetailDatStore,
+            style: Option<RegionStyle>,
+        ) -> bool {
+            self.cfg.object_identity_budget.is_some()
+                && self.land.identity.is_none()
+                && style.is_some()
+                && matches!(object_files_for(store, style), Ok(Some(_)))
         }
 
         /// `[Render] Objects`, live: draw the world's objects with `style`'s look (`None`: the

@@ -901,6 +901,13 @@ mod imp {
             SceneRenderer::set_world_view_state(self, hidden, view_distance);
         }
 
+        fn offer_object_identity(
+            &mut self,
+            identity: std::sync::Arc<dereth_client_runtime::object_identity::ObjectIdentity>,
+        ) {
+            SceneRenderer::offer_object_identity(self, identity);
+        }
+
         fn overlay_upload(
             &mut self,
             texture: OverlayTexture,

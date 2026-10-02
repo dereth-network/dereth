@@ -279,7 +279,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                  era's rooms come from its cell file beside the world (cell.dat in the legacy \
                  folder, the end-of-retail cell file beside an older world). Collision, motion \
                  and everything the server agrees on stay the world's. A change takes effect on \
-                 the next frame. An older world's Modern look comes from the end-of-retail files \
+                 the next frame. Which of the other era's records are the same objects is worked \
+                 out once per set of data files, a few milliseconds a frame from the moment the \
+                 client starts, and kept; a look chosen before that is done keeps the objects as \
+                 they are, says so in the chat window, and is drawn the frame it is ready. An \
+                 older world's Modern look comes from the end-of-retail files \
                  beside it; the end-of-retail world's Legacy look from the folder given with \
                  --legacy-dat-dir or Render.LegacyDatDir. A look whose files are not there is \
                  refused with a message in the chat window.",

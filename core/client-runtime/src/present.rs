@@ -295,6 +295,15 @@ pub trait Presentation: std::fmt::Debug {
     ) -> Result<crate::frame_events::RenderPrefWork, crate::landblock::WorldError>;
     /// Set whether the world is hidden and the optional view-distance override.
     fn set_world_view_state(&mut self, hidden: bool, view_distance: Option<f32>);
+    /// The object identity verdicts the application worked out for its store
+    /// ([`crate::object_identity::IdentityBuild`]), for the world loaded now and every one after:
+    /// the other era's look is drawn with them. A presentation that draws no world drops them.
+    fn offer_object_identity(
+        &mut self,
+        identity: std::sync::Arc<crate::object_identity::ObjectIdentity>,
+    ) {
+        let _ = identity;
+    }
 
     // ---------------------------------------------------------------------------------------
     // the overlay, any UI's -- see `dereth_client_contract::overlay`

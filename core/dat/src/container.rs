@@ -490,6 +490,15 @@ impl DatFile {
         Ok(())
     }
 
+    /// The container's own bytes from `offset`, filling all of `buf`, whatever storage holds
+    /// them: what a caller hashing the whole file reads, up to the header's file size.
+    ///
+    /// # Errors
+    /// The storage's read errors; end of data before `buf` is full is an I/O error.
+    pub fn read_raw(&self, offset: u64, buf: &mut [u8]) -> Result<(), DatError> {
+        self.read_exact_at(offset, buf)
+    }
+
     /// The `0xFFFF0001` iteration list, decoded.
     pub fn iteration_list(&self) -> Result<Vec<u32>, DatError> {
         let raw = self.read(crate::divine::ITERATION_LIST)?;

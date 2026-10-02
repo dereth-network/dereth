@@ -77,6 +77,9 @@ pub struct RenderPrefWork {
     pub objects_changed: bool,
     /// The same as [`Self::ground_refused`] for `[Render] Objects`.
     pub objects_refused: Option<LandscapeRefusal>,
+    /// `[Render] Objects` asks for another era's look whose verdicts the application is still
+    /// working out: the objects keep the look they have until they arrive.
+    pub objects_waiting: bool,
 }
 
 /// Which of `App::apply_input_actions`'s five consumers took an input action.

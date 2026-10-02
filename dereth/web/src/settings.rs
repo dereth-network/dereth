@@ -1,4 +1,5 @@
-//! The client's own files -- preferences, keymaps, screen layouts -- kept in browser storage.
+//! The client's own files -- preferences, keymaps, screen layouts, and the caches of work it can
+//! redo -- kept in browser storage.
 //!
 //! A worker can read and write browser storage synchronously only through a file it opened
 //! beforehand, so all of them live in one: the page opens it before the client starts, hands its
@@ -96,6 +97,9 @@ const STORE: FileHost = FileHost {
     },
     exists: |p| FILES.with(|f| f.borrow().contains_key(p)),
     read_only: |_| Ok(false),
+    // Paths are only names here: there are no directories to make.
+    make_dirs: |_| Ok(()),
+    cache_dir: || Some(Path::new("/cache").to_path_buf()),
 };
 
 /// Keep this thread's client files in memory, starting from `stored` (a store's bytes, empty for

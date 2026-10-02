@@ -359,6 +359,225 @@ fn an_interior_takes_the_other_eras_room_only_where_it_is_the_same_room_in_the_s
     );
 }
 
+/// The other era beside `world`.
+fn other_era(world: &RetailDatStore) -> ContainerEra {
+    match world.era() {
+        ContainerEra::Tod => ContainerEra::PreTod,
+        ContainerEra::PreTod => ContainerEra::Tod,
+    }
+}
+
+/// Step `build` with `budget` until its verdicts are ready.
+fn finish(
+    build: &mut dereth_client_runtime::object_identity::IdentityBuild,
+    budget: dereth_client_runtime::object_identity::Budget,
+) -> std::sync::Arc<ObjectIdentity> {
+    loop {
+        if let Some(id) = build.step(budget) {
+            return id;
+        }
+    }
+}
+
+/// Behaviour: rendering.objects.the-object-identity-worked-out-a-step-at-a-time-is-the-one-worked-out-at-once
+/// The client works the verdicts out from start-up a few milliseconds a frame. Here the work is
+/// stopped after every single unit (one record or cell compared, a quarter megabyte hashed) and carried
+/// on at the next step, for the end-of-retail world with the February 2005 files beside it and
+/// the other way round, rooms included: the verdicts are exactly those worked out at once, and
+/// the work took hundreds of thousands of steps.
+#[test]
+fn the_identity_worked_out_a_unit_at_a_time_is_the_identity_worked_out_at_once() {
+    use dereth_client_runtime::object_identity::{Budget, IdentityBuild};
+    for (name, world) in [
+        ("end-of-retail world", end_of_retail_world()),
+        ("February 2005 world", older_world()),
+    ] {
+        let era = other_era(&world);
+        let look = world.object_files(era).expect("the other era's portal");
+        let interiors = world
+            .interior_files(era)
+            .expect("the other era's cell file");
+        let t = std::time::Instant::now();
+        let at_once = ObjectIdentity::load_or_build_with(
+            world.portal(),
+            look.portal(),
+            Some((world.cell(), interiors.cell())),
+            None,
+        );
+        let once = t.elapsed();
+        let mut build = IdentityBuild::for_store(&world, None).expect("the other era is beside");
+        let t = std::time::Instant::now();
+        let stepped = finish(&mut build, Budget::Units(1));
+        let stepping = t.elapsed();
+        assert_eq!(*stepped, at_once, "{name}");
+        assert_eq!(stepped.rooms_len(), 447_201, "{name}");
+        assert!(
+            build.steps() > 100_000,
+            "{name}: {} steps, so the work was not stopped often",
+            build.steps()
+        );
+        assert!(
+            build.units() <= 2 * build.steps(),
+            "{name}: {} units in {} steps",
+            build.units(),
+            build.steps()
+        );
+        assert_eq!(
+            build.source(),
+            Some(dereth_client_runtime::object_identity::IdentitySource {
+                from_cache: false,
+                files_hashed: 0
+            }),
+            "{name}: with no cache, nothing is hashed or read back"
+        );
+        eprintln!(
+            "{name}: {} ids, {} rooms; at once {:.2} s, in {} steps of one unit {:.2} s",
+            stepped.len(),
+            stepped.rooms_len(),
+            once.as_secs_f64(),
+            build.steps(),
+            stepping.as_secs_f64()
+        );
+    }
+}
+
+/// A store of the client's own files held in memory on this thread, as a host without a disk
+/// keeps them.
+mod memory_files {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    use dereth_client_runtime::platform::files::FileHost;
+
+    thread_local! {
+        static FILES: RefCell<BTreeMap<PathBuf, Vec<u8>>> = const { RefCell::new(BTreeMap::new()) };
+    }
+
+    pub const HOST: FileHost = FileHost {
+        read: |p| {
+            FILES
+                .with(|m| m.borrow().get(p).cloned())
+                .ok_or_else(|| io::ErrorKind::NotFound.into())
+        },
+        write: |p, bytes| {
+            FILES.with(|m| m.borrow_mut().insert(p.to_path_buf(), bytes.to_vec()));
+            Ok(())
+        },
+        list: |dir| {
+            Ok(FILES.with(|m| {
+                m.borrow()
+                    .keys()
+                    .filter(|p| p.parent() == Some(dir))
+                    .cloned()
+                    .collect()
+            }))
+        },
+        exists: |p| FILES.with(|m| m.borrow().contains_key(p)),
+        read_only: |_| Ok(false),
+        make_dirs: |_| Ok(()),
+        cache_dir: || Some(Path::new("/memory/cache").to_path_buf()),
+    };
+}
+
+/// Behaviour: rendering.objects.the-object-identity-is-kept-in-the-hosts-store-and-read-back
+/// The verdicts are kept in the host's own store (here one held in memory, as the browser keeps
+/// its files): one cache file named by the first 16 hex digits of the four files' BLAKE3 hashes
+/// (`<world portal>-<other portal>-<world cell>-<other cell>.txt`, the same name the files'
+/// full hashes give), and one small file per data file keeping its hash under its fingerprint
+/// (its header and directory). The first build hashes all four files and works the verdicts out;
+/// the next reads them back without reading any file whole, and is the same. A cache file of
+/// another version is worked out again and replaced. Nothing reaches the disk.
+#[test]
+fn the_identity_is_kept_in_the_hosts_store_and_read_back_without_reading_the_files_whole() {
+    use dereth_client_runtime::object_identity::{
+        default_cache_dir, Budget, IdentityBuild, IdentitySource,
+    };
+    use dereth_client_runtime::platform::files;
+    files::install(memory_files::HOST);
+    let dir = default_cache_dir().expect("the host keeps caches");
+    assert_eq!(dir, std::path::Path::new("/memory/cache/object-identity"));
+
+    let world = end_of_retail_world();
+    let era = other_era(&world);
+    let look = world.object_files(era).expect("the older portal");
+    let interiors = world.interior_files(era).expect("the older cell file");
+    let budget = Budget::Time(std::time::Duration::from_millis(3));
+
+    let mut first = IdentityBuild::for_store(&world, Some(dir.clone())).expect("the older files");
+    let built = finish(&mut first, budget);
+    assert_eq!(
+        first.source(),
+        Some(IdentitySource {
+            from_cache: false,
+            files_hashed: 4
+        })
+    );
+    let name = ObjectIdentity::cache_file_with(
+        &dir,
+        world.portal(),
+        look.portal(),
+        Some((world.cell(), interiors.cell())),
+    )
+    .expect("the four files hash");
+    let mut kept = files::list(&dir).expect("the folder lists");
+    kept.sort();
+    assert_eq!(kept.len(), 5, "{kept:?}");
+    assert!(kept.contains(&name), "{kept:?} lacks {name:?}");
+    assert_eq!(
+        kept.iter()
+            .filter(|p| p.extension().is_some_and(|e| e == "hash"))
+            .count(),
+        4,
+        "{kept:?}"
+    );
+    let text = files::read_to_string(&name).expect("the cache file reads");
+    assert!(text.starts_with("dereth object identity "));
+    assert_eq!(text, built.to_text());
+
+    let mut second = IdentityBuild::for_store(&world, Some(dir.clone())).expect("the older files");
+    let read = finish(&mut second, budget);
+    assert_eq!(
+        second.source(),
+        Some(IdentitySource {
+            from_cache: true,
+            files_hashed: 0
+        })
+    );
+    assert_eq!(*read, *built);
+    assert!(
+        second.units() * 10 < first.units(),
+        "reading back took {} units, working out {}",
+        second.units(),
+        first.units()
+    );
+
+    files::write(&name, "dereth object identity 0\ns 01000001\n").expect("written");
+    let mut third = IdentityBuild::for_store(&world, Some(dir.clone())).expect("the older files");
+    let again = finish(&mut third, budget);
+    assert_eq!(
+        third.source(),
+        Some(IdentitySource {
+            from_cache: false,
+            files_hashed: 0
+        })
+    );
+    assert_eq!(*again, *built);
+    assert_eq!(
+        files::read_to_string(&name).expect("rewritten"),
+        built.to_text()
+    );
+    assert!(!dir.exists(), "nothing reached the disk");
+    eprintln!(
+        "worked out in {} steps ({} units), read back in {} steps ({} units)",
+        first.steps(),
+        first.units(),
+        second.steps(),
+        second.units()
+    );
+}
+
 /// The end-of-retail body the server sends a new Aluvian man at Holtburg in his starter clothes:
 /// its 17 parts as the description leaves them, each carrying the description's changes for it
 /// and the object's colours. The hair colour `0x04001FC5` is a palette the February 2005 files
