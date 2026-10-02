@@ -1,7 +1,13 @@
 //! Text rasterised with the Windows font system into the classic interface's coverage atlas
 //! ([`dereth_classic_dat::fonts`]): a height and an average character width in pixels, a weight,
-//! italic or not, and a face name, each printable Windows-1252 character drawn once, white on
-//! black, into a 16 by 14 grid of 64-pixel cells.
+//! italic or not, and a face name, each printable Windows-1252 character drawn once into a 16 by
+//! 14 grid of 64-pixel cells.
+//!
+//! Each glyph is the system's hinted grey glyph bitmap, 65 levels of coverage, the kind of glyph
+//! the game's own glyph sheets hold: the same on every machine, whatever smoothing the player's
+//! desktop uses for its own text. Drawing text straight onto a surface would take the desktop's
+//! choice instead, and with subpixel smoothing on, the coloured fringes read as extra coverage
+//! and every stroke comes out heavier.
 
 pub use dereth_classic_dat::fonts::{cp1252, measure_cells, to_cp1252, FontAtlas, FontSpec, Glyph};
 use dereth_classic_dat::fonts::{CELL, COLUMNS, PAD, ROWS};
@@ -37,42 +43,33 @@ pub fn rasterize(_spec: &FontSpec) -> Result<FontAtlas, String> {
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows {
-    use super::{cp1252, measure_cells, FontAtlas, FontSpec, CELL, COLUMNS, PAD, ROWS};
-    use std::mem::{size_of, zeroed};
+    use super::{coverage, cp1252, measure_cells, FontAtlas, FontSpec, CELL, COLUMNS, PAD, ROWS};
+    use std::mem::zeroed;
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::SIZE;
     use windows_sys::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, CreateDIBSection, CreateFontIndirectA, DeleteDC, DeleteObject,
-        ExtTextOutA, GdiFlush, GetTextExtentPoint32A, GetTextFaceA, GetTextMetricsA, SelectObject,
-        SetBkMode, SetTextAlign, SetTextColor, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-        DIB_RGB_COLORS, HBITMAP, HDC, HFONT, HGDIOBJ, LOGFONTA, TEXTMETRICA, TRANSPARENT,
+        CreateCompatibleDC, CreateFontIndirectA, DeleteDC, DeleteObject, GetGlyphOutlineA,
+        GetTextExtentPoint32A, GetTextFaceA, GetTextMetricsA, SelectObject, FIXED, GDI_ERROR,
+        GGO_GRAY8_BITMAP, GLYPHMETRICS, HDC, HFONT, HGDIOBJ, LOGFONTA, MAT2, TEXTMETRICA,
     };
 
     /// Everything made along the way, released in reverse on every exit.
     struct Resources {
         dc: HDC,
-        bitmap: HBITMAP,
         font: HFONT,
-        old_bitmap: HGDIOBJ,
         old_font: HGDIOBJ,
     }
 
     impl Drop for Resources {
         fn drop(&mut self) {
             // SAFETY: each handle is either null (never made, skipped) or one this function made
-            // and still owns; the previous selections are restored before anything is deleted.
+            // and still owns; the previous selection is restored before anything is deleted.
             unsafe {
                 if !self.old_font.is_null() {
                     SelectObject(self.dc, self.old_font);
                 }
-                if !self.old_bitmap.is_null() {
-                    SelectObject(self.dc, self.old_bitmap);
-                }
                 if !self.font.is_null() {
                     DeleteObject(self.font);
-                }
-                if !self.bitmap.is_null() {
-                    DeleteObject(self.bitmap);
                 }
                 if !self.dc.is_null() {
                     DeleteDC(self.dc);
@@ -83,7 +80,7 @@ mod windows {
 
     pub(super) fn rasterize(spec: &FontSpec) -> Result<FontAtlas, String> {
         let (aw, ah) = (COLUMNS * CELL, ROWS * CELL);
-        let size = usize::try_from(aw * ah * 4).map_err(|e| e.to_string())?;
+        let pixels = usize::try_from(aw * ah).map_err(|e| e.to_string())?;
         // SAFETY: an all-zero LOGFONTA is a valid value (every field is an integer or a byte
         // array); the fields that matter are set below.
         let mut logfont: LOGFONTA = unsafe { zeroed() };
@@ -100,55 +97,40 @@ mod windows {
         {
             *slot = i8::from_ne_bytes([byte]);
         }
-        let info = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: u32::try_from(size_of::<BITMAPINFOHEADER>()).unwrap_or(40),
-                biWidth: aw,
-                biHeight: -ah,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB,
-                biSizeImage: u32::try_from(size).unwrap_or(0),
-                biXPelsPerMeter: 0,
-                biYPelsPerMeter: 0,
-                biClrUsed: 0,
-                biClrImportant: 0,
-            },
-            // SAFETY: RGBQUAD is plain bytes.
-            bmiColors: [unsafe { zeroed() }],
-        };
-        let mut bits: *mut core::ffi::c_void = null_mut();
         // SAFETY: plain GDI object creation with valid arguments; every result is checked and
         // owned by `Resources`, which releases it on every path.
         let mut r = unsafe {
-            let dc = CreateCompatibleDC(null_mut());
             Resources {
-                dc,
-                bitmap: CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0),
+                dc: CreateCompatibleDC(null_mut()),
                 font: CreateFontIndirectA(&logfont),
-                old_bitmap: null_mut(),
                 old_font: null_mut(),
             }
         };
-        if r.dc.is_null() || r.bitmap.is_null() || r.font.is_null() || bits.is_null() {
+        if r.dc.is_null() || r.font.is_null() {
             return Err(format!(
                 "the system would not make the font {:?}",
                 spec.face
             ));
         }
+        let one = FIXED { fract: 0, value: 1 };
+        let none = FIXED { fract: 0, value: 0 };
+        let identity = MAT2 {
+            eM11: one,
+            eM12: none,
+            eM21: none,
+            eM22: one,
+        };
+        let failed = u32::from_ne_bytes(GDI_ERROR.to_ne_bytes());
+        let mut alpha = vec![0u8; pixels];
         let mut metrics: TEXTMETRICA;
         let mut face = [0u8; 128];
         let mut cells = Vec::new();
-        // SAFETY: `r.dc` is a live memory DC with the DIB and the font selected into it; `bits`
-        // points at `size` bytes the DIB owns for as long as `r` lives; every string handed to GDI
-        // is a one-byte slice with its length.
+        let mut buffer: Vec<u8> = Vec::new();
+        // SAFETY: `r.dc` is a live memory DC with the font selected into it; every string handed
+        // to GDI is a one-byte slice with its length, and every glyph buffer is as long as GDI
+        // said it must be.
         unsafe {
-            r.old_bitmap = SelectObject(r.dc, r.bitmap);
             r.old_font = SelectObject(r.dc, r.font);
-            std::ptr::write_bytes(bits.cast::<u8>(), 0, size);
-            SetTextAlign(r.dc, 0x18);
-            SetTextColor(r.dc, 0x00FF_FFFF);
-            SetBkMode(r.dc, TRANSPARENT as i32);
             metrics = zeroed();
             if GetTextMetricsA(r.dc, &mut metrics) == 0 {
                 return Err("the system would not measure the font".into());
@@ -163,34 +145,73 @@ mod windows {
                 let (cx, cy) = (index % COLUMNS * CELL, index / COLUMNS * CELL);
                 let text = [byte];
                 let mut extent = SIZE { cx: 0, cy: 0 };
-                if GetTextExtentPoint32A(r.dc, text.as_ptr(), 1, &mut extent) == 0
-                    || ExtTextOutA(
-                        r.dc,
-                        cx + PAD,
-                        cy + PAD + metrics.tmAscent,
-                        0,
-                        std::ptr::null(),
-                        text.as_ptr(),
-                        1,
-                        std::ptr::null(),
-                    ) == 0
+                if GetTextExtentPoint32A(r.dc, text.as_ptr(), 1, &mut extent) == 0 {
+                    return Err(format!(
+                        "the system would not measure U+{:04X}",
+                        u32::from(c)
+                    ));
+                }
+                cells.push((u32::from(c), cx, cy, extent.cx));
+                let mut glyph: GLYPHMETRICS = zeroed();
+                let size = GetGlyphOutlineA(
+                    r.dc,
+                    u32::from(byte),
+                    GGO_GRAY8_BITMAP,
+                    &mut glyph,
+                    0,
+                    null_mut(),
+                    &identity,
+                );
+                // A character with no ink (the space) has no bitmap at all.
+                if size == failed || size == 0 {
+                    continue;
+                }
+                buffer.clear();
+                buffer.resize(size as usize, 0);
+                if GetGlyphOutlineA(
+                    r.dc,
+                    u32::from(byte),
+                    GGO_GRAY8_BITMAP,
+                    &mut glyph,
+                    size,
+                    buffer.as_mut_ptr().cast(),
+                    &identity,
+                ) == failed
                 {
                     return Err(format!("the system would not draw U+{:04X}", u32::from(c)));
                 }
-                cells.push((u32::from(c), cx, cy, extent.cx));
+                // Rows of one byte per pixel, each row padded to four bytes, top first; the box's
+                // top left sits at the glyph origin from the pen on the baseline.
+                let width = i32::try_from(glyph.gmBlackBoxX).unwrap_or(0);
+                let height = i32::try_from(glyph.gmBlackBoxY).unwrap_or(0);
+                let pitch = (width + 3) & !3;
+                let left = cx + PAD + glyph.gmptGlyphOrigin.x;
+                let top = cy + PAD + metrics.tmAscent - glyph.gmptGlyphOrigin.y;
+                for y in 0..height {
+                    for x in 0..width {
+                        let (ax, ay) = (left + x, top + y);
+                        if ax < cx || ax >= cx + CELL || ay < cy || ay >= cy + CELL {
+                            return Err(format!(
+                                "the glyph for U+{:04X} does not fit its cell",
+                                u32::from(c)
+                            ));
+                        }
+                        let level = buffer
+                            .get(usize::try_from(y * pitch + x).unwrap_or(usize::MAX))
+                            .copied()
+                            .unwrap_or(0);
+                        if let Some(a) = alpha.get_mut(usize::try_from(ay * aw + ax).unwrap_or(0)) {
+                            *a = coverage(level);
+                        }
+                    }
+                }
             }
-            GdiFlush();
-        }
-        // SAFETY: the DIB's `size` bytes stay valid while `r` lives, and drawing has finished.
-        let bgra = unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), size) };
-        let mut rgba = vec![0xFF; size];
-        let mut alpha = vec![0u8; size / 4];
-        for (i, px) in bgra.as_chunks::<4>().0.iter().enumerate() {
-            let a = px[0].max(px[1]).max(px[2]);
-            alpha[i] = a;
-            rgba[i * 4 + 3] = a;
         }
         drop(r);
+        let mut rgba = vec![0xFF; pixels * 4];
+        for (px, a) in rgba.as_chunks_mut::<4>().0.iter_mut().zip(&alpha) {
+            px[3] = *a;
+        }
         let glyphs = measure_cells(&alpha, aw, &cells, metrics.tmAscent)?;
         let end = face.iter().position(|b| *b == 0).unwrap_or(face.len());
         Ok(FontAtlas {
@@ -202,6 +223,18 @@ mod windows {
             baseline: metrics.tmAscent,
             face: face[..end].iter().map(|b| char::from(*b)).collect(),
         })
+    }
+}
+
+/// A glyph pixel's coverage from the system's grey glyph bitmap, whose levels run from 0 (none)
+/// to 64 (full), spread over a byte the way the game's own glyph sheets spread theirs: level `n`
+/// is `4n - 1`, so full coverage is 255 and none is 0.
+#[must_use]
+pub fn coverage(level: u8) -> u8 {
+    match level {
+        0 => 0,
+        64.. => 255,
+        n => n * 4 - 1,
     }
 }
 
@@ -259,6 +292,45 @@ mod tests {
         );
         alpha[0] = 1;
         assert!(measure_cells(&alpha, width, &[(32, 0, 0, 4)], 11).is_err());
+    }
+
+    #[test]
+    fn grey_glyph_levels_spread_over_a_byte_as_the_game_s_glyph_sheets_spread_them() {
+        assert_eq!(coverage(0), 0);
+        assert_eq!(coverage(1), 3);
+        assert_eq!(coverage(2), 7);
+        assert_eq!(coverage(63), 251);
+        assert_eq!(coverage(64), 255);
+    }
+
+    /// The atlas holds at most the 65 grey levels and no colour: every pixel is white with its
+    /// coverage in alpha, whatever smoothing the desktop uses for its own text.
+    #[cfg(windows)]
+    #[test]
+    fn the_atlas_is_grey_coverage_in_sixty_five_levels_whatever_the_desktop_smoothing() {
+        let atlas = rasterize(&FontSpec {
+            height: 15,
+            width: 6,
+            weight: 500,
+            italic: false,
+            face: "Times New Roman".into(),
+        })
+        .unwrap();
+        let mut levels = std::collections::BTreeSet::new();
+        for px in atlas.rgba.as_chunks::<4>().0 {
+            assert_eq!(&px[..3], &[255, 255, 255]);
+            levels.insert(px[3]);
+        }
+        assert!(levels.len() <= 65, "{} levels", levels.len());
+        assert!(levels.iter().all(|a| *a == 0 || *a == 255 || a % 4 == 3));
+        // The letter l's stem, halfway down: a hinted serif face's thin vertical, at most two
+        // pixels of full ink across.
+        let l = atlas.glyphs[&u32::from('l')];
+        let row = l.y + l.height / 2;
+        let full = (l.x..l.x + l.width)
+            .filter(|x| atlas.rgba[usize::try_from((row * 1024 + x) * 4 + 3).unwrap()] == 255)
+            .count();
+        assert!(full <= 2, "{full} full pixels across the stem");
     }
 
     #[cfg(windows)]
