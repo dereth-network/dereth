@@ -310,7 +310,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                  message in the chat window and the retail interface stays. A switch keeps the \
                  game: the character, the selection and the world are the same, each interface \
                  keeps its own windows, and the chat lines of the last while are handed to the \
-                 interface switched to.",
+                 interface switched to; the journal is one file, written by the interface \
+                 switched from and read again by the one switched to.",
         why: "The owner asked for both interfaces over any world, switchable while playing, as \
               the landscape and object looks are.",
     },

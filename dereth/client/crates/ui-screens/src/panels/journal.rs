@@ -166,295 +166,21 @@ pub const LAST_PAGE_BUTTON: ElementId = ElementId(0x1000_0571);
 /// [`JournalPanel::reset_location`], i.e. "stamp where I am standing onto this page".
 pub const STAMP_LOCATION_BUTTON: ElementId = ElementId(0x1000_0574);
 
-/// The client's "no timer" answer, and the location display's "no location" one.
-/// Stored as a wide string.
-pub const NONE: &str = "None";
-/// The timer text's expired answer.
-pub const READY: &str = "Ready";
-/// The editable timer's button caption.
-pub const START: &str = "Start";
-/// The running timer's button caption.
-pub const RESET: &str = "Reset";
-
 /// The two journal-file stems and the path they build.
 ///
 /// [`JournalIdentity`] is defined in [`dereth_client_contract::journal`], because
 /// `GameView::journal_identity` returns it and the contract crate may not depend on this one;
 /// its one inherent method builds a path, so [`create_journal_path`] and [`STEM`] live there too.
-pub use dereth_client_contract::journal::{create_journal_path, JournalIdentity, STEM};
+pub use dereth_presentation::journal::{
+    create_journal_path, delta_time_to_string, JournalIdentity, STEM,
+};
 
-/// The load-error report's line, at channel [`LOAD_COMPLAINT_CHANNEL`].
-pub const LOAD_COMPLAINT: &str =
-    "Problem loading journal: Your journal file does not create a new page!";
-
-/// The chat channel the complaint is appended on — `dereth_client_model::scroll::LOCAL_ERROR_TYPE`.
-pub const LOAD_COMPLAINT_CHANNEL: u32 = 0x1A;
-
-/// The twelve record tags, in the order their `fwrite` calls go out.
-pub mod tag {
-    /// The record separator and the only tag that may open the file.
-    pub const NEW_PAGE: &str = "<NEWP>";
-    /// Accepted by the load and **discarded**; never written. See the module
-    /// header.
-    pub const PAGE_NUMBER: &str = "<PNUM>";
-    pub const LABEL: &str = "<LABE>";
-    pub const TITLE: &str = "<TITL>";
-    pub const NOTES: &str = "<NOTE>";
-    pub const DAYS: &str = "<DAYS>";
-    pub const HOURS: &str = "<HOUR>";
-    pub const MINUTES: &str = "<MINU>";
-    /// Whether a location is set.
-    pub const LOCATION_SET: &str = "<LOC?>";
-    /// The stored x — the **east/west** value. See [`super::location_text`].
-    pub const LOCATION_X: &str = "<LOCX>";
-    /// The stored y — the **north/south** value.
-    pub const LOCATION_Y: &str = "<LOCY>";
-    /// Whether the timer is running.
-    pub const TIMER_RUNNING: &str = "<TIM?>";
-    /// The timer stamp.
-    pub const TIMER_STAMP: &str = "<TIME>";
-}
-
-/// The stored word used to write `<LOC?>` and `<TIM?>`, and the
-/// **only** spelling the load reads back as true.
-const TRUE_WORD: &str = "TRUE";
-const FALSE_WORD: &str = "FALSE";
-
-/// `strtok`'s delimiter set for a tag and for a number.
-const WHITESPACE: [char; 4] = [' ', '\t', '\n', '\r'];
-
-/// The client's body, minus the `fopen`/`fwrite`/`fclose`.
-///
-/// Twelve records per page in the order the twelve `fwrite`s go out, and `<TIME>`'s format carries
-/// the **second** newline that separates one page from the next.
-#[must_use]
-pub fn save_pages_text(pages: &[JournalPage]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::new();
-    for p in pages {
-        // `"<NEWP>\n"` is the one record with no `%s` in it.
-        let _ = writeln!(out, "{}", tag::NEW_PAGE);
-        let _ = writeln!(out, "{} {}", tag::LABEL, p.label);
-        let _ = writeln!(out, "{} {}", tag::TITLE, p.title);
-        // `replace("\n", "\t")`: the record is one line, so the note's own newlines
-        // ride across as tabs and the load turns them back.
-        let _ = writeln!(out, "{} {}", tag::NOTES, p.notes.replace('\n', "\t"));
-        let _ = writeln!(out, "{} {}", tag::DAYS, p.days);
-        let _ = writeln!(out, "{} {}", tag::HOURS, p.hours);
-        let _ = writeln!(out, "{} {}", tag::MINUTES, p.minutes);
-        let _ = writeln!(out, "{} {}", tag::LOCATION_SET, bool_word(p.location_set));
-        let _ = writeln!(out, "{} {:.6}", tag::LOCATION_X, p.ew);
-        let _ = writeln!(out, "{} {:.6}", tag::LOCATION_Y, p.ns);
-        let _ = writeln!(out, "{} {}", tag::TIMER_RUNNING, bool_word(p.timer_running));
-        // `"<TIME> %f\n\n"` — the blank line is part of the format.
-        let _ = writeln!(out, "{} {:.6}\n", tag::TIMER_STAMP, p.timer_stamp);
-    }
-    out
-}
-
-const fn bool_word(v: bool) -> &'static str {
-    if v {
-        TRUE_WORD
-    } else {
-        FALSE_WORD
-    }
-}
-
-/// The client's body, minus the `fopen`/`fgets`/`fclose`.
-///
-/// `Err(())` is the one refusal the function has: the first token that is not whitespace is not
-/// `<NEWP>`, which reports [`LOAD_COMPLAINT`] in the chat scroll and abandons the file with
-/// the store already emptied. Every other unrecognised tag is ignored, exactly as the `else`
-/// ladder's fall-through is.
-///
-/// # Errors
-/// `Err(())` when the file does not open with a `<NEWP>` record.
-#[allow(clippy::result_unit_err)] // the one refusal carries nothing
-pub fn parse_pages(text: &str) -> Result<Vec<JournalPage>, ()> {
-    let mut pages: Vec<JournalPage> = Vec::new();
-    for line in text.lines() {
-        // `strtok(buf, " \t\n\r")` — a line of nothing but whitespace has no token and is skipped,
-        // which is what makes the blank line after `<TIME>` harmless.
-        let ws = &WHITESPACE[..];
-        let head = line.trim_start_matches(ws);
-        let tag_end = head.find(ws).unwrap_or(head.len());
-        let (tag, after) = head.split_at(tag_end);
-        if tag.is_empty() {
-            continue;
-        }
-        // `strtok(NULL, "\n\r")` resumes at the character **after** the one delimiter the first
-        // call overwrote, so only that single separator is consumed and any further space is part
-        // of the value. (`\n` and `\r` are already gone: `str::lines` took them.)
-        let line_rest = after.strip_prefix(ws).unwrap_or(after);
-        // `strtok(NULL, " \t\n\r")` for the numeric and boolean arms, which does skip a run.
-        let tail = after.trim_start_matches(ws);
-        let word = &tail[..tail.find(ws).unwrap_or(tail.len())];
-
-        if pages.is_empty() && tag != tag::NEW_PAGE {
-            return Err(());
-        }
-        if tag == tag::NEW_PAGE {
-            let n = u32::try_from(pages.len()).unwrap_or(u32::MAX) + 1;
-            pages.push(JournalPage {
-                page_number: n,
-                ..JournalPage::default()
-            });
-            continue;
-        }
-        let Some(p) = pages.last_mut() else { continue };
-        match tag {
-            // Read, parsed with `%d`, and dropped on the floor. See the module header.
-            tag::PAGE_NUMBER => {}
-            tag::LABEL => p.label = line_rest.to_owned(),
-            tag::TITLE => p.title = line_rest.to_owned(),
-            tag::NOTES => p.notes = line_rest.replace('\t', "\n"),
-            // `if (sscanf(tok, "%d", &v) == 1)` — a field that will not parse leaves the previous
-            // value alone rather than zeroing it.
-            tag::DAYS => {
-                if let Ok(v) = word.parse() {
-                    p.days = v;
-                }
-            }
-            tag::HOURS => {
-                if let Ok(v) = word.parse() {
-                    p.hours = v;
-                }
-            }
-            tag::MINUTES => {
-                if let Ok(v) = word.parse() {
-                    p.minutes = v;
-                }
-            }
-            tag::LOCATION_SET => p.location_set = word == TRUE_WORD,
-            tag::LOCATION_X => {
-                if let Ok(v) = word.parse() {
-                    p.ew = v;
-                }
-            }
-            tag::LOCATION_Y => {
-                if let Ok(v) = word.parse() {
-                    p.ns = v;
-                }
-            }
-            tag::TIMER_RUNNING => p.timer_running = word == TRUE_WORD,
-            tag::TIMER_STAMP => {
-                if let Ok(v) = word.parse() {
-                    p.timer_stamp = v;
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(pages)
-}
-
-// One second in the clock's units, and the four divisors
-// the client's delta-time-to-string uses.
-//
-// Defined in [`dereth_client_contract::journal`] with
-// [`delta_time_to_string`], their only reader.
-
-/// How often the running timer redraws — the client schedules the next update half a second
-/// after the current time.
-pub const TICK_PERIOD: f64 = 0.5;
-
-/// The client's delta-time-to-string.
-///
-/// Defined in [`dereth_client_contract::journal`], beside `JournalIdentity`,
-/// because `dereth_client::hud` formats the house-purchase countdown with it.
-pub use dereth_client_contract::journal::delta_time_to_string;
-
-/// See the module header for the strings and the three arms.
-#[must_use]
-pub fn timer_text(running: bool, stamp: f64, now: f64) -> String {
-    if !running || stamp <= 0.0 {
-        return NONE.to_owned();
-    }
-    let remaining = i64::from(dereth_primitives::num::to_i32_f64(stamp - now));
-    if remaining > 0 {
-        delta_time_to_string(remaining)
-    } else {
-        READY.to_owned()
-    }
-}
-
-/// The journal panel's location update's string.
-///
-/// `ns` is the stored y and `ew` the stored x; see the module header for why the names are that
-/// way round. **The zero arm is the one difference from
-/// [`crate::mapradar::radar::format_coordinate`]**: this function's letter for an exactly-zero
-/// coordinate is the *empty string*, because the location update tests `< 0` and
-/// then `== 0` separately, where the radar's takes the positive
-/// letter for everything `>= 0`.
-#[must_use]
-pub fn location_text(location_set: bool, ns: f64, ew: f64) -> String {
-    if !location_set {
-        return NONE.to_owned();
-    }
-    let letter = |v: f64, pos: &str, neg: &str| -> &'static str {
-        if v < 0.0 {
-            if neg == "S" {
-                "S"
-            } else {
-                "W"
-            }
-        } else if v > 0.0 {
-            if pos == "N" {
-                "N"
-            } else {
-                "E"
-            }
-        } else {
-            ""
-        }
-    };
-    format!(
-        "{:.1}{}, {:.1}{}",
-        ns.abs(),
-        letter(ns, "N", "S"),
-        ew.abs(),
-        letter(ew, "E", "W")
-    )
-}
-
-/// The journal panel's page number update — `"~ %d ~"` over the current page, or 1 when the
-/// current page is zero or negative.
-#[must_use]
-pub fn page_number_text(current_page: u32) -> String {
-    let n = if current_page == 0 { 1 } else { current_page };
-    format!("~ {n} ~")
-}
-
-/// One journal page, shared by `JournalPanel` and `PageListPanel`.
-///
-/// The two coordinates are named for what they hold rather than for retail's x/y; see
-/// [`location_text`].
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct JournalPage {
-    /// The label.
-    pub label: String,
-    /// The title.
-    pub title: String,
-    /// The notes.
-    pub notes: String,
-    /// The page number — **1-based**, and rewritten over the whole vector by
-    /// [`JournalPanel::delete_page`].
-    pub page_number: u32,
-    /// The timer stamp — an absolute clock time, not a duration.
-    pub timer_stamp: f64,
-    /// Days / hours / minutes, as `wcstoul` read them out of the three edit boxes.
-    pub days: u32,
-    pub hours: u32,
-    pub minutes: u32,
-    /// The stored y — the **north/south** value.
-    pub ns: f64,
-    /// The stored x — the **east/west** value.
-    pub ew: f64,
-    /// Whether the timer is running.
-    pub timer_running: bool,
-    /// Whether a location is set.
-    pub location_set: bool,
-}
+// The journal's captions, file format and page live in the shared presentation rules; they are
+// re-exported here so their retail paths still resolve.
+pub use dereth_presentation::journal::{
+    location_text, page_number_text, parse_pages, save_pages_text, tag, timer_text, JournalPage,
+    LOAD_COMPLAINT, LOAD_COMPLAINT_CHANNEL, NONE, READY, RESET, START, TICK_PERIOD,
+};
 
 /// `JournalPanel`.
 #[derive(Debug, Default)]
@@ -598,25 +324,10 @@ impl JournalPanel {
             .map_or_else(String::new, |t| t.glyphs.inq_text(false))
     }
 
-    /// `wcstoul(text, NULL, 0)` — base-`0` C parsing of whatever is in one of the three timer edit
-    /// boxes, which means **a leading `0x` is hexadecimal and anything unparseable is zero**, and
-    /// `errno` is cleared first so an overflow is `ULONG_MAX` rather than an error.
-    ///
-    /// The timer start uses the result unchecked, so a box reading `"abc"` contributes
-    /// nothing rather than refusing the start. Reproduced.
+    /// One of the three timer boxes as a count; see
+    /// [`dereth_presentation::journal::parse_count`].
     fn wcstoul(s: &str) -> u32 {
-        let t = s.trim();
-        let (digits, radix) =
-            if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-                (hex, 16)
-            } else {
-                (t, 10)
-            };
-        let taken: String = digits.chars().take_while(|c| c.is_digit(radix)).collect();
-        if taken.is_empty() {
-            return 0;
-        }
-        u32::from_str_radix(&taken, radix).unwrap_or(u32::MAX)
+        dereth_presentation::journal::parse_count(s)
     }
 
     // ---- the timer ----------------------------------------------------------------------------
@@ -700,11 +411,13 @@ impl JournalPanel {
         self.info.days = Self::wcstoul(&Self::get_text(ui, self.days_edit));
         self.info.hours = Self::wcstoul(&Self::get_text(ui, self.hours_edit));
         self.info.minutes = Self::wcstoul(&Self::get_text(ui, self.minutes_edit));
-        let seconds = f64::from(self.info.days) * 86_400.0
-            + f64::from(self.info.hours) * 3_600.0
-            + f64::from(self.info.minutes) * 60.0;
         self.info.timer_running = true;
-        self.info.timer_stamp = ui.now.0 + seconds;
+        self.info.timer_stamp = dereth_presentation::journal::timer_stamp(
+            ui.now.0,
+            self.info.days,
+            self.info.hours,
+            self.info.minutes,
+        );
         self.timer_starts += 1;
         0
     }
@@ -844,9 +557,7 @@ impl JournalPanel {
             return;
         }
         self.pages.remove(page as usize - 1);
-        for (i, p) in self.pages.iter_mut().enumerate() {
-            p.page_number = u32::try_from(i).unwrap_or(0) + 1;
-        }
+        dereth_presentation::journal::renumber(&mut self.pages);
         self.goto_page(ui, 1);
     }
 
@@ -964,6 +675,37 @@ impl JournalPanel {
         if std::fs::write(&path, save_pages_text(&self.pages)).is_ok() {
             self.page_saves += 1;
         }
+    }
+
+    /// Write the page being edited and the whole journal to its file now, as closing the panel
+    /// does, so another interface reading the file sees every edit. Nothing happens before the
+    /// journal is loaded, and a journal of blank pages makes no file where there is none: a world
+    /// without the journal never shows it, and leaves nothing behind.
+    pub fn hand_over(&mut self, ui: &mut UiSystem) {
+        if !self.loaded {
+            return;
+        }
+        self.save_this_page(ui);
+        let blank = self.pages.iter().all(|p| {
+            *p == JournalPage {
+                page_number: p.page_number,
+                ..JournalPage::default()
+            }
+        });
+        if blank && !self.file.as_ref().is_some_and(|f| f.exists()) {
+            return;
+        }
+        self.save_pages();
+    }
+
+    /// Drop the pages held here, so the next load reads the file again: another interface has
+    /// had the journal and may have changed it.
+    pub fn forget(&mut self) {
+        self.loaded = false;
+        self.file = None;
+        self.pages.clear();
+        self.info = JournalPage::default();
+        self.current_page = 0;
     }
 
     /// Take the pending scroll report. The host puts it in the scroll at channel

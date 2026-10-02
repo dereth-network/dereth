@@ -2513,6 +2513,11 @@ impl<H: Host> ClientShell<H> {
                         }
                     }
                 }
+                // The journal is one file both interfaces keep: the retail one writes its pages
+                // before the classic one reads them.
+                if let Some(shell) = self.ui.as_mut() {
+                    cx.hud_mut().panels.journal.hand_over(&mut shell.ui);
+                }
                 self.classic.active = true;
                 cx.hud_mut().classic_active = true;
                 let size = cx.present().size();
@@ -2539,6 +2544,9 @@ impl<H: Host> ClientShell<H> {
                 }
                 self.classic.active = false;
                 cx.hud_mut().classic_active = false;
+                // The classic interface wrote the journal as it went; the retail one reads it
+                // again rather than keep its older pages.
+                cx.hud_mut().panels.journal.forget();
                 // This interface's chat takes the lines it missed.
                 let missed: Vec<_> = self.classic.take_missed();
                 for line in missed {

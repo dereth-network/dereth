@@ -21,6 +21,7 @@ pub fn make(id: &str) -> Option<Box<dyn Panel>> {
         "spell-research" => Box::new(research::SpellResearch::default()),
         "titles" => Box::new(systems::Titles::default()),
         "contracts" => Box::new(systems::Contracts::default()),
+        "journal" => Box::new(systems::Journal::default()),
         "beneficial-effects" => Box::new(magic::Effects::new(true)),
         "harmful-effects" => Box::new(magic::Effects::new(false)),
         "vitae" => Box::new(magic::Vitae),

@@ -14,9 +14,11 @@
 //! - [`character`]: the character information sheet's ladders, breakdowns and its augmentation
 //!   and luminance section, composed over whatever string service the interface has.
 //! - [`coordinates`]: the player's coordinates as text.
+//! - [`journal`]: the journal's pages, its file's text and its captions.
 //! - [`target`]: where the target indicator's brackets and arrows go.
 
 pub mod appraisal;
 pub mod character;
 pub mod coordinates;
+pub mod journal;
 pub mod target;
