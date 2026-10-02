@@ -93,6 +93,9 @@ pub struct Titles {
 fn sorted_titles(game: &dyn GameView) -> (u32, Vec<(u32, String)>) {
     let t = game.character_titles();
     let mut titles = t.titles;
+    // A title the world's title table has no name for is not listed, as in the retail
+    // interface's list; nor is title 0.
+    titles.retain(|(id, name)| *id != 0 && !name.is_empty());
     titles.sort_by_key(|t| t.1.to_lowercase());
     (t.display, titles)
 }
@@ -756,7 +759,12 @@ mod tests {
         fn character_titles(&self) -> CharacterTitles {
             CharacterTitles {
                 display: 2,
-                titles: vec![(2, "Wanderer".into()), (5, "Apprentice".into())],
+                titles: vec![
+                    (2, "Wanderer".into()),
+                    (5, "Apprentice".into()),
+                    (900, String::new()),
+                    (0, "Nobody".into()),
+                ],
             }
         }
         fn contracts(&self) -> Vec<ContractEntry> {
@@ -784,6 +792,11 @@ mod tests {
     fn a_title_picked_from_the_list_is_set_as_the_shown_title() {
         let mut titles = Titles::default();
         with(&Game::default(), |c| {
+            // A title with no name, and title 0, are not listed.
+            assert_eq!(
+                sorted_titles(c.game).1,
+                [(5, "Apprentice".to_string()), (2, "Wanderer".to_string())]
+            );
             // The rows are in name order: Apprentice first.
             titles.event(
                 ControlEvent::Select {
