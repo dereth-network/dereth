@@ -117,3 +117,36 @@ fn an_older_world_changes_the_torsos_level_at_the_raw_distance_and_the_later_wor
     assert_eq!(later(54.0).0, TORSO.raw());
     assert_eq!(later(70.0), (0x0100_01F1, DegradeMode::AxisZ));
 }
+
+/// Behaviour: rendering.degrade.an-older-eras-part-draws-the-levels-its-own-id-reaches
+/// A step of the Holtburg cottage stair has no record of its own in the February 2005 files, so on
+/// the February 2005 world it reaches none and draws itself: the end-of-retail record kept under
+/// the id its own id implies is another object's levels and is not read in its place. A record the
+/// later files hold for an object the older files lack is still read from them.
+#[test]
+fn an_older_part_without_its_own_record_draws_itself_and_not_the_later_record_under_that_id() {
+    const STEP: DataId = DataId(0x0100_081A);
+    const IMPLIED: DataId = DataId(0x1100_081A);
+    let older = older_world();
+    assert!(
+        dereth_dat::testing::open_store_or_fail()
+            .portal()
+            .contains(IMPLIED),
+        "the end-of-retail files hold a record under the implied id"
+    );
+    assert_eq!(record(&older, STEP).map(|(did, _)| did), None);
+    assert!(older.read_typed(DbType::DegradeInfo, IMPLIED).is_err());
+    assert_eq!(older.era_of(IMPLIED), ContainerEra::PreTod);
+    assert!(!older.ids_of(DbType::DegradeInfo).contains(&IMPLIED));
+    // A later record no older object implies stays readable beside the older world.
+    let later_only = older
+        .ids_of(DbType::DegradeInfo)
+        .into_iter()
+        .find(|id| !older.portal().contains(*id))
+        .expect("a later detail record whose object the older files lack");
+    assert!(!older
+        .portal()
+        .contains(DataId(0x0100_0000 | (later_only.raw() & 0x00FF_FFFF))));
+    assert!(older.read_typed(DbType::DegradeInfo, later_only).is_ok());
+    assert_eq!(older.era_of(later_only), ContainerEra::Tod);
+}

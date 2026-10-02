@@ -215,13 +215,33 @@ impl RetailDatStore {
         if self.cell.contains(id) {
             return self.cell.era();
         }
-        let later = self.later_portal.as_ref().is_some_and(|f| f.contains(id))
+        let later = self.later_answers(id)
             || (!Arc::ptr_eq(&self.local, &self.portal) && self.local.contains(id));
         if later {
             ContainerEra::Tod
         } else {
             self.portal.era()
         }
+    }
+
+    /// Whether the later portal file beside an older world answers the portal read of `id`: it
+    /// holds the record and the older portal file does not, and the id is not one the older files
+    /// imply for an object of their own. An older graphics object names no detail record; the
+    /// one its id implies (the detail type's top byte over its low 24 bits) is its own only when
+    /// the older files hold it. Most do not, and the later files' record under that id is another
+    /// object's levels, which would draw that object's meshes in its place.
+    fn later_answers(&self, id: DataId) -> bool {
+        let Some(later) = &self.later_portal else {
+            return false;
+        };
+        if self.portal.contains(id) || !later.contains(id) {
+            return false;
+        }
+        let implied_by_older = divine_type(id) == Some(DbType::DegradeInfo)
+            && self
+                .portal
+                .contains(DataId(0x0100_0000 | (id.raw() & 0x00FF_FFFF)));
+        !implied_by_older
     }
 
     /// Whether this store answers from the later interface files beside an older world.
@@ -527,8 +547,8 @@ impl RetailDatStore {
                 return hi.read(id);
             }
         }
-        if let Some(later) = &self.later_portal {
-            if !self.portal.contains(id) && later.contains(id) {
+        if self.later_answers(id) {
+            if let Some(later) = &self.later_portal {
                 return later.read(id);
             }
         }
@@ -556,7 +576,7 @@ impl RetailDatStore {
                     DatKind::Portal => {
                         f.contains(id)
                             || self.highres.get().is_some_and(|h| h.contains(id))
-                            || self.later_portal.as_ref().is_some_and(|l| l.contains(id))
+                            || self.later_answers(id)
                     }
                     _ => f.contains(id),
                 };
@@ -574,36 +594,37 @@ impl RetailDatStore {
     /// Every id of a `DbType`, ascending. For portal types the high-res partition is included.
     #[must_use]
     pub fn ids_of(&self, kind: DbType) -> Vec<DataId> {
-        let mut v: Vec<DataId> =
-            match kind.dat() {
-                DatKind::Portal => {
-                    let mut ids: Vec<DataId> = self
-                        .portal
-                        .iter_ids()
-                        .filter(|i| divine_type(*i) == Some(kind))
-                        .collect();
-                    if let Some(hi) = self.highres.get() {
-                        ids.extend(hi.iter_ids().filter(|i| divine_type(*i) == Some(kind)));
-                    }
-                    if let Some(later) = &self.later_portal {
-                        ids.extend(later.iter_ids().filter(|i| {
-                            divine_type(*i) == Some(kind) && !self.portal.contains(*i)
-                        }));
-                    }
-                    ids
-                }
-                DatKind::Local => self
-                    .local
+        let mut v: Vec<DataId> = match kind.dat() {
+            DatKind::Portal => {
+                let mut ids: Vec<DataId> = self
+                    .portal
                     .iter_ids()
                     .filter(|i| divine_type(*i) == Some(kind))
-                    .collect(),
-                DatKind::Cell => self
-                    .cell
-                    .iter_ids()
-                    .filter(|i| classify_cell_id(*i) == Some(kind))
-                    .collect(),
-                DatKind::None => Vec::new(),
-            };
+                    .collect();
+                if let Some(hi) = self.highres.get() {
+                    ids.extend(hi.iter_ids().filter(|i| divine_type(*i) == Some(kind)));
+                }
+                if let Some(later) = &self.later_portal {
+                    ids.extend(
+                        later
+                            .iter_ids()
+                            .filter(|i| divine_type(*i) == Some(kind) && self.later_answers(*i)),
+                    );
+                }
+                ids
+            }
+            DatKind::Local => self
+                .local
+                .iter_ids()
+                .filter(|i| divine_type(*i) == Some(kind))
+                .collect(),
+            DatKind::Cell => self
+                .cell
+                .iter_ids()
+                .filter(|i| classify_cell_id(*i) == Some(kind))
+                .collect(),
+            DatKind::None => Vec::new(),
+        };
         v.sort_unstable();
         v
     }
