@@ -57,6 +57,14 @@ impl Panel for Combat {
                 PlayerOption::AutoRepeatAttack,
             ),
             ("auto-target", "Auto Target", 120, PlayerOption::AutoTarget),
+            // The final client's third: the camera keeps the combat target in view. The
+            // February 2005 panel had only the first two; the option was on its Character page.
+            (
+                "keep-in-view",
+                "Keep in View",
+                234,
+                PlayerOption::ViewCombatTarget,
+            ),
         ] {
             let checked = c.game.player_option(option);
             image(
@@ -184,6 +192,7 @@ impl Panel for Combat {
                 let option = match id.as_str() {
                     "repeat" => PlayerOption::AutoRepeatAttack,
                     "auto-target" => PlayerOption::AutoTarget,
+                    "keep-in-view" => PlayerOption::ViewCombatTarget,
                     _ => return vec![],
                 };
                 vec![
@@ -253,5 +262,35 @@ mod tests {
                 &c
             )
             .is_empty());
+    }
+
+    #[test]
+    fn keep_in_view_sets_the_combat_target_tracking_option() {
+        let mut p = Combat::default();
+        let c = Context {
+            game: &World,
+            pregame: &PregameView::default(),
+            keyboard: &KeyboardState::default(),
+            settings: &ClassicSettings::default(),
+            map_teleport_allowed: false,
+            classic: &ClassicState::default(),
+        };
+        assert!(p.frame(&c).controls.iter().any(|k| k.id == "keep-in-view"));
+        assert_eq!(
+            p.event(
+                ControlEvent::Check {
+                    id: "keep-in-view".into(),
+                    checked: true
+                },
+                &c
+            ),
+            vec![
+                PanelAction::Game(UiRequest::SetPlayerOption(
+                    PlayerOption::ViewCombatTarget,
+                    true
+                )),
+                PanelAction::Game(UiRequest::SavePlayerOptions),
+            ]
+        );
     }
 }
