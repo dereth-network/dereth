@@ -264,7 +264,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                  paint. A bare arm or hand is drawn as the chosen era's bare arm or hand, and a \
                  head with a character-creation hair style as that era's head for the style in \
                  the same place of its list, where it has one. A colour the chosen era lacks is \
-                 its colour from the same place in the same choice of colours. A creature that \
+                 its colour from the same place in the same choice of colours; a dye with no such \
+                 colour is left off the chosen era's part, which keeps its own colour there. A \
+                 part kept in the world's look beside parts in the chosen look takes the chosen \
+                 era's colours where that era has them, so a later head on an older body has the \
+                 older body's skin. A creature that \
                  era built with other models is drawn with them, moved by the world's \
                  animations, where each rests where the world's part rests. A \
                  clothing or paint change the world's server sends is put on the same surface of \

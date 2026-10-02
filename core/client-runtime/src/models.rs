@@ -234,8 +234,9 @@ pub fn surface_textures(store: &RetailDatStore, gfxobj: DataId) -> Option<Vec<Op
 /// another number of surfaces the change has no slot, and the part is the world's.
 ///
 /// A palette the look lacks is the look's palette from the same place in the palette set both
-/// eras pick it from ([`crate::object_identity::ObjectIdentity::palette`]); a part with a palette
-/// nothing translates is the world's. Body parts translate through both eras'
+/// eras pick it from ([`crate::object_identity::ObjectIdentity::palette`]); a colour range whose
+/// palette nothing translates is left off, and the look's part keeps its own colours there. A
+/// part whose base palette nothing translates is the world's. Body parts translate through both eras'
 /// character-creation tables: a bare part draws the look's bare model, a head the look's head
 /// for the same hair style. An object built on `setup`, a setup the look remodelled, draws the
 /// look's parts in place of the setup's own where the look's rest where the world's do
@@ -266,33 +267,69 @@ pub fn parts_for_look(
         .collect()
 }
 
-/// A part's palettes as the look holds them: each the look lacks, translated
-/// ([`crate::object_identity::ObjectIdentity::palette`]). `false` when one has no translation.
+/// A palette as the look names it: the same id where the look holds it, else its translation
+/// ([`crate::object_identity::ObjectIdentity::palette`]); `None` when nothing translates it.
+fn palette_in_look(
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    p: DataId,
+) -> Option<DataId> {
+    if look.portal().contains(p) {
+        Some(p)
+    } else {
+        identity.palette(p)
+    }
+}
+
+/// A part's palettes as the look holds them: each the look lacks, translated. A colour range
+/// whose palette nothing translates is left off, so the look's part keeps its own colours there.
+/// `false` when the base palette has no translation.
 fn palettes_for_look(
     look: &RetailDatStore,
     identity: &crate::object_identity::ObjectIdentity,
     ov: &mut dereth_animation::parts::SurfaceOverrides,
 ) -> bool {
-    let to_look = |p: DataId| {
-        if look.portal().contains(p) {
-            Some(p)
-        } else {
-            identity.palette(p)
-        }
-    };
     if let Some(p) = ov.shift_palette {
-        match to_look(p) {
+        match palette_in_look(look, identity, p) {
             Some(q) => ov.shift_palette = Some(q),
             None => return false,
         }
     }
+    ov.subpalettes
+        .retain_mut(|r| match palette_in_look(look, identity, r.palette_set) {
+            Some(q) => {
+                r.palette_set = q;
+                true
+            }
+            None => false,
+        });
+    true
+}
+
+/// A part the world's records draw ([`parts_for_look`] gave `None`) in an object other parts of
+/// which take the look, with the look's colours: each colour range whose palette the look holds
+/// or translates names the look's palette, to be read from the look's files, so the part's
+/// colours match the look's parts beside it (a later head on an older body takes the older
+/// body's skin). The second value says, range by range, which read the look's files; a range
+/// nothing translates keeps the world's. The model, its pictures and the base palette stay the
+/// world's. `None` when no range takes the look's colours.
+#[must_use]
+pub fn colours_for_look(
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    part: &dereth_animation::parts::PhysicsPart,
+) -> Option<(dereth_animation::parts::PhysicsPart, Vec<bool>)> {
+    let mut out = part.clone();
+    let ov = out.surface_overrides.as_mut()?;
+    let mut from_look = Vec::with_capacity(ov.subpalettes.len());
     for r in &mut ov.subpalettes {
-        match to_look(r.palette_set) {
-            Some(q) => r.palette_set = q,
-            None => return false,
+        let q = palette_in_look(look, identity, r.palette_set);
+        from_look.push(q.is_some());
+        if let Some(q) = q {
+            r.palette_set = q;
         }
     }
-    true
+    from_look.contains(&true).then_some((out, from_look))
 }
 
 /// Every part of an object built on a setup the look remodelled, as the look's setup draws it,

@@ -491,7 +491,11 @@ fn real_dat_palette_and_clipmap_pixels_survive_runtime_generation_and_cache_rele
         .ids_of(DbType::Palette)
         .into_iter()
         .find_map(|p| {
-            let recipe = PaletteComposition { base: p, ranges: vec![] };
+            let recipe = PaletteComposition {
+                base: p,
+                ranges: vec![],
+                from_look: vec![],
+            };
             let (palette, failures) = recipe.build(&textures)?;
             assert_eq!(failures, 0);
             let data = textures.texture_data_shifted(id, true, Some(&palette)).ok()?;

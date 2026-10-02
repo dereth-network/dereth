@@ -1330,13 +1330,31 @@ mod imp {
                     .map(|g| dereth_client_runtime::models::build_gfxobj(store, g))
                     .unwrap_or_default();
                 ids.push(gfxobj.unwrap_or(DataId(0)));
+                // A part the world draws beside the look's parts takes the look's colours where
+                // the look has them, as it does in the world.
+                let coloured = match (look, chosen.as_ref()) {
+                    (Some((files, identity)), Some(c)) if c.iter().any(Option::is_some) => {
+                        dereth_client_runtime::models::colours_for_look(files, identity, part).map(
+                            |(p, ranges)| {
+                                let t = crate::textures::TextureStore::new(store)
+                                    .with_colours_from(files, ranges);
+                                (p, t)
+                            },
+                        )
+                    }
+                    _ => None,
+                };
+                let (overrides, textures) = match &coloured {
+                    Some((p, t)) => (p.surface_overrides.as_ref(), t),
+                    None => (part.surface_overrides.as_ref(), &textures),
+                };
                 out.push(build_meshes(
                     store,
                     &mut self.cache,
-                    &textures,
+                    textures,
                     gpu,
                     &groups,
-                    part.surface_overrides.as_ref(),
+                    overrides,
                     None,
                 )?);
             }

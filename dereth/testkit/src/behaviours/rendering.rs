@@ -484,6 +484,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "rendering.objects.a-dye-the-other-era-cannot-match-is-left-off",
+        says: "With another era's object mode, a dye or skin colour the other era has nothing \
+               for in the same place is left off the other era's part, which keeps its own colour \
+               there; the rest of the object still takes the other era's look.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-COLOURS-DYE"),
+        station: "dereth-client::dat::rendering::object_look::a_dye_the_older_files_cannot_match_is_left_off_and_the_body_takes_the_older_look",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.objects.a-head-draws-the-other-eras-head-for-the-same-hair-style",
         says: "With another era's object mode, a head wearing one of the character-creation hair \
                styles is drawn as the other era's head for the style in the same place of its \
@@ -499,12 +510,23 @@ pub static ROWS: &[Behaviour] = &[
         id: "rendering.objects.a-part-draws-wholly-from-one-era",
         says: "With another era's object mode, each part of an object is drawn wholly in one \
                era's look, its model with that era's own paint: a model the other era does not \
-               have, or has as something else, keeps the world's look entire, and is never \
-               painted with whatever the other era keeps under the same numbers.",
+               have, or has as something else, keeps the world's look (its colours aside), and is \
+               never painted with whatever the other era keeps under the same numbers.",
         since: THIS_CLIENT,
         divergence: "CD-014",
         evidence: Evidence::Private("AC-EVID-OBJECT-FIDELITY-ONE-ERA"),
         station: "dereth-client::dat::rendering::object_look::a_later_model_the_older_files_lack_is_drawn_wholly_from_the_worlds_records",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.a-part-kept-in-the-worlds-look-takes-the-other-eras-colours",
+        says: "With another era's object mode, a part kept in the world's look beside parts drawn \
+               in the other era's look takes the other era's colours where that era has them, so \
+               a later head on an older body has the older body's skin.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-COLOURS-SKIN"),
+        station: "dereth-client::dat::rendering::object_look::a_later_head_on_an_older_body_takes_the_older_skin_colour",
         tier: Tier::Dat,
     },
     behaviour! {

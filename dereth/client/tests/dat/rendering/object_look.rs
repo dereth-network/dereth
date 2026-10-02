@@ -12,8 +12,8 @@
 //! (`DERETH_TEST_DAT_DIR`) beside them. A missing input fails.
 
 use dereth_animation::parts::{PaletteRange, PhysicsPart, SurfaceOverrides};
-use dereth_assets::{Decode, PaletteSet, Setup, Surface};
-use dereth_client::models::{parts_for_look, surface_textures};
+use dereth_assets::{Decode, Palette, PaletteSet, Setup, Surface};
+use dereth_client::models::{colours_for_look, parts_for_look, surface_textures};
 use dereth_client::object_identity::ObjectIdentity;
 use dereth_dat::{ContainerEra, DbType, RetailDatStore};
 use dereth_primitives::DataId;
@@ -721,6 +721,208 @@ fn a_new_end_of_retail_body_takes_the_older_look_with_the_older_hair_colour() {
         );
     }
     assert!(drawn[16].is_none(), "the head keeps the world's hair");
+}
+
+/// The skin range's colours of palette `id` as `store` holds it, entry by entry of the 2048 the
+/// client expands every palette to (an older 256-colour palette holds each colour eight times).
+fn skin_colours(store: &RetailDatStore, id: u32) -> Vec<u32> {
+    let id = DataId(id);
+    let bytes = store
+        .read_typed(DbType::Palette, id)
+        .expect("the palette reads");
+    let p = Palette::decode_payload_in(store.era_of(id), id, &bytes).expect("decodes");
+    let step = 2048 / p.colors_argb.len();
+    (0..192).map(|i| p.colors_argb[i / step]).collect()
+}
+
+/// Behaviour: rendering.objects.a-part-kept-in-the-worlds-look-takes-the-other-eras-colours
+/// The new end-of-retail body's head (hair style 46, `0x0100481D`) has no February 2005
+/// counterpart and keeps the world's model and pictures, while the rest of the body takes the
+/// older look. The two eras keep different colours under the Aluvian skin colour `0x040002BA`, so
+/// the head read the world's skin and drew a shade paler than the older neck. The head now reads
+/// every colour of its description from the older files, as the older parts do (the hair colour
+/// as the older look names it), so head and neck draw the same skin; its model, pictures and base
+/// palette stay the world's. A part with no colours of its own has nothing to take.
+#[test]
+fn a_later_head_on_an_older_body_takes_the_older_skin_colour() {
+    let world = end_of_retail_world();
+    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let body = end_of_retail_starter_body();
+    let drawn = parts_for_look(&world, &look, &identity, None, &body);
+    assert!(drawn[16].is_none(), "the head keeps the world's model");
+    let neck = drawn[0].as_ref().expect("the torso takes the older look");
+    assert_ne!(
+        skin_colours(&world, 0x0400_02BA),
+        skin_colours(&look, 0x0400_02BA),
+        "the eras keep different colours under the skin colour's id"
+    );
+
+    let (head, from_look) =
+        colours_for_look(&look, &identity, &body[16]).expect("the head takes the older colours");
+    assert_eq!(head.gfxobj_id, body[16].gfxobj_id);
+    assert_eq!(maps(&head), maps(&body[16]));
+    assert_eq!(
+        head.surface_overrides
+            .as_ref()
+            .and_then(|o| o.shift_palette),
+        body[16]
+            .surface_overrides
+            .as_ref()
+            .and_then(|o| o.shift_palette),
+        "the base palette stays the world's"
+    );
+    assert_eq!(
+        from_look,
+        vec![true; 8],
+        "every colour reads the older files"
+    );
+    assert_eq!(
+        palettes(&head),
+        palettes(neck),
+        "the head's colours are the older torso's, the skin `0x040002BA` among them"
+    );
+    assert_eq!(palettes(&head)[1], 0x0400_02BA);
+
+    assert!(colours_for_look(&look, &identity, &PhysicsPart::new(DataId(0x0100_481D))).is_none());
+}
+
+/// The end-of-retail barkeeper Lazzaro (weenie 42805 of the world database) as the server sends
+/// him: his 17 parts as his description leaves them, each with its changes and the object's
+/// colours. Two of them, the dye `0x04001B4B` and the skin `0x04001B82`, come from palette sets
+/// the February 2005 files lack.
+fn end_of_retail_barkeeper() -> Vec<PhysicsPart> {
+    let models: [u32; 17] = [
+        0x0100_120B,
+        0x0100_004F,
+        0x0100_394D,
+        0x0100_3947,
+        0x0100_3949,
+        0x0100_0053,
+        0x0100_394C,
+        0x0100_3948,
+        0x0100_394A,
+        0x0100_0054,
+        0x0100_0055,
+        0x0100_11FE,
+        0x0100_0058,
+        0x0100_0057,
+        0x0100_11FD,
+        0x0100_005B,
+        0x0100_47F8,
+    ];
+    let changes: [(usize, u32, u32); 16] = [
+        (0, 0x0500_0BB0, 0x0500_0F5C),
+        (0, 0x0500_0CBE, 0x0500_0F5B),
+        (1, 0x0500_03D8, 0x0500_00A1),
+        (2, 0x0500_03DA, 0x0500_03CF),
+        (5, 0x0500_03D8, 0x0500_00A1),
+        (6, 0x0500_03DA, 0x0500_03CF),
+        (9, 0x0500_03D5, 0x0500_0F59),
+        (9, 0x0500_03D4, 0x0500_0F5A),
+        (10, 0x0500_03DD, 0x0500_02BE),
+        (11, 0x0500_02C4, 0x0500_140D),
+        (13, 0x0500_03DD, 0x0500_02BE),
+        (14, 0x0500_02C4, 0x0500_140D),
+        (16, 0x0500_0098, 0x0500_11FD),
+        (16, 0x0500_024C, 0x0500_1152),
+        (16, 0x0500_02F5, 0x0500_117F),
+        (16, 0x0500_025C, 0x0500_11C8),
+    ];
+    let colours: [(u32, u32, u32); 9] = [
+        (0x0400_044C, 92, 4),
+        (0x0400_0473, 72, 8),
+        (0x0400_04B0, 32, 8),
+        (0x0400_05B2, 40, 24),
+        (0x0400_05BE, 64, 8),
+        (0x0400_094D, 216, 24),
+        (0x0400_1B4B, 160, 8),
+        (0x0400_1B82, 0, 24),
+        (0x0400_2013, 24, 8),
+    ];
+    models
+        .iter()
+        .enumerate()
+        .map(|(i, &m)| {
+            let mut p = PhysicsPart::new(DataId(m));
+            p.surface_overrides = Some(SurfaceOverrides {
+                shift_palette: Some(DataId(0x0400_007E)),
+                subpalettes: colours
+                    .iter()
+                    .map(|&(c, offset, length)| PaletteRange {
+                        palette_set: DataId(c),
+                        offset: offset * 8,
+                        length: length * 8,
+                    })
+                    .collect(),
+                texture_maps: changes
+                    .iter()
+                    .filter(|&&(at, _, _)| at == i)
+                    .map(|&(_, o, n)| (DataId(o), DataId(n)))
+                    .collect(),
+            });
+            p
+        })
+        .collect()
+}
+
+/// Behaviour: rendering.objects.a-dye-the-other-era-cannot-match-is-left-off
+/// The barkeeper Lazzaro wears a dye (`0x04001B4B`) and a skin colour (`0x04001B82`) from
+/// palette sets the February 2005 files lack, so nothing translates them. They are left off his
+/// parts in the older look, each of which keeps its own colours there, and his other colours
+/// take the older look as they would without them (`0x04002013` translated, the rest held).
+/// Before, one such colour kept every part of him in the world's look.
+#[test]
+fn a_dye_the_older_files_cannot_match_is_left_off_and_the_body_takes_the_older_look() {
+    let world = end_of_retail_world();
+    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    for c in [0x0400_1B4B, 0x0400_1B82] {
+        assert!(!look.portal().contains(DataId(c)));
+        assert_eq!(
+            identity.palette(DataId(c)),
+            None,
+            "{c:08X} has no translation"
+        );
+    }
+    let skin = identity
+        .palette(DataId(0x0400_2013))
+        .expect("the third colour translates");
+    let body = end_of_retail_barkeeper();
+    let drawn = parts_for_look(&world, &look, &identity, None, &body);
+    let torso = drawn[0].as_ref().expect("the torso takes the older look");
+    assert_eq!(
+        palettes(torso),
+        vec![
+            0x0400_044C,
+            0x0400_0473,
+            0x0400_04B0,
+            0x0400_05B2,
+            0x0400_05BE,
+            0x0400_094D,
+            skin.0,
+        ]
+    );
+    let ranges: Vec<(u32, u32)> = torso
+        .surface_overrides
+        .as_ref()
+        .map(|o| o.subpalettes.iter().map(|r| (r.offset, r.length)).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        ranges[6],
+        (24 * 8, 8 * 8),
+        "each kept colour keeps its range"
+    );
+    let from_look = drawn.iter().filter(|p| p.is_some()).count();
+    assert!(
+        from_look >= 10,
+        "most parts take the older look ({from_look} of 17)"
+    );
+
+    // The later head beside them keeps the world's colours where nothing translates them.
+    let (_, head) = colours_for_look(&look, &identity, &body[16]).expect("the head");
+    assert_eq!(
+        head,
+        vec![true, true, true, true, true, true, false, false, true]
+    );
 }
 
 /// Behaviour: rendering.objects.a-head-draws-the-other-eras-head-for-the-same-hair-style

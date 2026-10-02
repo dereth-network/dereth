@@ -59,6 +59,9 @@ impl From<LookupError> for TextureError {
 #[derive(Debug)]
 pub struct TextureStore<'a> {
     lookup: TextureLookup<'a>,
+    /// The other era's files, where a part drawn from these records reads some of its colour
+    /// ranges ([`Self::with_colours_from`]).
+    colours: Option<(TextureLookup<'a>, Vec<bool>)>,
     // ORDER-OK: keyed by DataId and only ever looked up, never iterated for output.
     bgra: HashMap<DataId, Option<Bgra8>>,
 }
@@ -99,8 +102,36 @@ impl<'a> TextureStore<'a> {
     pub fn with_environment_texture_detail(store: &'a RetailDatStore, detail: u32) -> Self {
         Self {
             lookup: TextureLookup::new(store, detail),
+            colours: None,
             bgra: HashMap::new(),
         }
+    }
+
+    /// This store with `look`, the other era's files, as where [`Self::look_palette`] reads, for
+    /// a part drawn from these records with the look's colours: `ranges` says, colour range by
+    /// colour range of the part's description, which are read there
+    /// ([`dereth_client_runtime::models::colours_for_look`]).
+    #[must_use]
+    pub fn with_colours_from(mut self, look: &'a RetailDatStore, ranges: Vec<bool>) -> Self {
+        // Only palettes are read there, which no detail setting changes.
+        let detail = u32::from(!self.lookup.keeps_high_detail());
+        self.colours = Some((TextureLookup::new(look, detail), ranges));
+        self
+    }
+
+    /// Which colour ranges [`Self::look_palette`] stands for ([`Self::with_colours_from`]);
+    /// empty when every range reads this store.
+    #[must_use]
+    pub fn look_ranges(&self) -> &[bool] {
+        self.colours.as_ref().map_or(&[], |(_, r)| r.as_slice())
+    }
+
+    /// One `Palette` of the other era's files ([`Self::with_colours_from`]), expanded as
+    /// [`Self::palette`] does. `None` without them or when they lack it.
+    #[must_use]
+    pub fn look_palette(&self, id: DataId) -> Option<ExpandedPalette> {
+        let p = self.colours.as_ref()?.0.palette(id).ok()?;
+        ExpandedPalette::from_dat(&p.colors_argb)
     }
 
     /// Whether this store resolves a two-level `SurfaceTexture` to its high-res level.

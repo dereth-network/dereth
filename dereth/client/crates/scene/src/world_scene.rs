@@ -4195,6 +4195,7 @@ mod imp {
                             .iter()
                             .map(|r| (r.palette_set, r.offset, r.length))
                             .collect(),
+                        from_look: textures.look_ranges().to_vec(),
                     })
                 }
                 _ => None,
@@ -4229,6 +4230,10 @@ mod imp {
         pub(crate) base: DataId,
         /// `(sub-palette id, offset, colour count)` in the wire's **8-entry units**; a colour count of 0 is 256.
         pub(crate) ranges: Vec<(DataId, u32, u32)>,
+        /// Range by range, whether the colours are read from the other era's files
+        /// ([`TextureStore::look_palette`]): a part the world draws with the look's colours
+        /// ([`dereth_client_runtime::models::colours_for_look`]). Empty reads every range here.
+        pub(crate) from_look: Vec<bool>,
     }
 
     impl PaletteComposition {
@@ -4238,11 +4243,16 @@ mod imp {
         fn build(&self, textures: &TextureStore<'_>) -> Option<(ExpandedPalette, u32)> {
             let mut p = textures.palette(self.base)?.make_modified();
             let mut failed = 0u32;
-            for &(sub, offset, length) in &self.ranges {
+            for (i, &(sub, offset, length)) in self.ranges.iter().enumerate() {
                 // Each entry in the range is copied from the same index of the sub-palette, so
                 // the source is read at the **same absolute indices**, not from the sub-palette's
                 // start. Offsets and lengths are in 8-entry units, so both are multiplied by 8.
-                let Some(src) = textures.palette(sub) else {
+                let src = if self.from_look.get(i).copied().unwrap_or(false) {
+                    textures.look_palette(sub)
+                } else {
+                    textures.palette(sub)
+                };
+                let Some(src) = src else {
                     failed += 1;
                     continue;
                 };
@@ -8872,9 +8882,25 @@ mod imp {
             let mut built_from = Vec::new();
             for (part, look) in array.iter().zip(&chosen) {
                 let mut built = match look {
-                    None => {
-                        self.build_part_meshes(world, gpu, std::slice::from_ref(part), is_player)?
-                    }
+                    // A part the world draws beside the look's parts takes the look's colours
+                    // where the look has them, so the object is one colour across its parts.
+                    None => match dereth_client_runtime::models::colours_for_look(
+                        &files, &identity, part,
+                    ) {
+                        Some((coloured, ranges)) => self.build_part_meshes_coloured(
+                            world,
+                            gpu,
+                            std::slice::from_ref(&coloured),
+                            is_player,
+                            Some((&files, ranges)),
+                        )?,
+                        None => self.build_part_meshes(
+                            world,
+                            gpu,
+                            std::slice::from_ref(part),
+                            is_player,
+                        )?,
+                    },
                     Some(p) => {
                         // The build reads the scene's surface cache; for the look it is the
                         // look's, put in its place for the length of the build and given back
@@ -8920,10 +8946,27 @@ mod imp {
             array: &[dereth_animation::parts::PhysicsPart],
             is_player: bool,
         ) -> Result<Vec<PartLevels>, WorldError> {
-            let textures = TextureStore::with_environment_texture_detail(
+            self.build_part_meshes_coloured(store, gpu, array, is_player, None)
+        }
+
+        /// [`Self::build_part_meshes`], with `colours`, the other era's files and which colour
+        /// ranges of the parts' descriptions are read there
+        /// ([`TextureStore::with_colours_from`]).
+        fn build_part_meshes_coloured(
+            &mut self,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            array: &[dereth_animation::parts::PhysicsPart],
+            is_player: bool,
+            colours: Option<(&RetailDatStore, Vec<bool>)>,
+        ) -> Result<Vec<PartLevels>, WorldError> {
+            let mut textures = TextureStore::with_environment_texture_detail(
                 store,
                 self.cfg.render.environment_texture_detail,
             );
+            if let Some((look, ranges)) = colours {
+                textures = textures.with_colours_from(look, ranges);
+            }
             let mut parts: Vec<PartLevels> = Vec::new();
             // Recorded here, in the loop that actually reads `part.gfxobj_id` and hands
             // it to `build_gfxobj`, so that it is the *drawn* geometry's id and not the model's.
