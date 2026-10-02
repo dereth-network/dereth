@@ -750,34 +750,7 @@ impl<H: Host> Ui<'_, '_, H> {
         if screen_changed || !has_external_subscriber {
             self.cx.end_external_container_watches();
         }
-        // **The journal-path builder's three inputs.** The same
-        // three the screen-layout path below is built from, and this is the one place in the
-        // client that holds all of them: the preferences file is `--prefs`, the world name comes
-        // from `0xF7E1 Login_WorldInfo` and the character is recorded on the log-on edge by
-        // `run_character_actions`. Recomposed each frame rather than latched,
-        // because the character changes with every log-on and the journal is per character.
-        // `None` while any of the three is missing, which is a build that writes no journal at
-        // all rather than one that writes to a guessed path.
-        let journal_identity = (|| {
-            let dir = self.cx.config().preferences_file.parent()?;
-            let world = self
-                .cx
-                .pregame()
-                .world_name
-                .as_deref()
-                .filter(|s| !s.is_empty())?;
-            let character = self
-                .cx
-                .pregame()
-                .entered_character
-                .as_deref()
-                .filter(|s| !s.is_empty())?;
-            Some(dereth_ui_screens::panels::journal::JournalIdentity {
-                directory: dir.to_path_buf(),
-                world: world.to_owned(),
-                character: character.to_owned(),
-            })
-        })();
+        let journal_identity = journal_identity(self.cx);
         self.cx.hud_mut().journal_identity = journal_identity;
         // Retail adds `(msg, 0x1A, TRUE, 0)` to the text scroll, the
         // one complaint the journal's page load makes. The panel cannot reach the scroll from
@@ -2471,6 +2444,34 @@ impl<C: crate::clipboard::HostClipboard> dereth_classic_ui::runtime::Clipboard
     }
 }
 
+/// **The journal-path builder's three inputs.** The same three the screen-layout path is built
+/// from, and the one place in the client that holds all of them: the preferences file is
+/// `--prefs`, the world name comes from `0xF7E1 Login_WorldInfo` and the character is recorded on
+/// the log-on edge by `run_character_actions`. Recomposed each frame rather than latched, because
+/// the character changes with every log-on and the journal is per character. `None` while any of
+/// the three is missing, which is a build that writes no journal at all rather than one that
+/// writes to a guessed path.
+fn journal_identity<H: Host>(
+    cx: &Cx<'_, H>,
+) -> Option<dereth_ui_screens::panels::journal::JournalIdentity> {
+    let dir = cx.config().preferences_file.parent()?;
+    let world = cx
+        .pregame()
+        .world_name
+        .as_deref()
+        .filter(|s| !s.is_empty())?;
+    let character = cx
+        .pregame()
+        .entered_character
+        .as_deref()
+        .filter(|s| !s.is_empty())?;
+    Some(dereth_ui_screens::panels::journal::JournalIdentity {
+        directory: dir.to_path_buf(),
+        world: world.to_owned(),
+        character: character.to_owned(),
+    })
+}
+
 /// The shared key map as the classic interface reads it: the player's own keys, and the key map
 /// files.
 fn shared_keys(
@@ -3096,6 +3097,9 @@ impl<H: Host> Shell for ClientShell<H> {
     ) {
         self.follow_interface(cx);
         if let Some(ui) = self.classic.active_mut() {
+            // The journal's file follows the character in this interface too.
+            let journal_identity = journal_identity(cx);
+            cx.hud_mut().journal_identity = journal_identity;
             ui.ui_frame(cx, now, notices);
             // What the classic key page asked of the shared key map, carried out, and the map
             // handed back as it then is.
