@@ -1,5 +1,6 @@
 //! The Game/Support page carries seven buttons in layout order; two carry input actions; either
-//! support button raises the support-URL request; Restore Defaults restores every option page;
+//! support button raises the support-URL request; Use Mouse Turning Settings sets the mouse-turning
+//! preset and nothing else;
 //! exit-to-character-select still asks; non-message-1 is not a press.
 //! Fixture: shipped layouts, strings and keymaps loaded from the retail DATs.
 
@@ -193,73 +194,86 @@ fn clicking_either_support_button_raises_the_support_url_request() {
     );
 }
 
-/// Behaviour: options.gameplay-page.restore-defaults-restores-every-option-pages-defaults
-/// **The second red.** `0x100005CC` broadcasts global message `0x0C`, and `0x0C`
-/// is `RESTORE_DEFAULTS` — every client options page is registered for it. Nothing in this
-/// build reached it.
-///
-/// The assertion is on the **writes**, not on a counter: a restore must put `SetPreference` on the
-/// queue for the Client Options page's rows, which is the same production path each page's own
-/// *Defaults* button takes (`GamePlayScreen::on_config_page_button`).
+/// Behaviour: options.gameplay-page.mouse-turning-settings-sets-the-preset-and-nothing-else
+/// `0x100005CC` broadcasts global message `0x0C`, whose listeners set the mouse-turning preset.
+/// The press writes the six preset preferences that were off their preset values, prints one
+/// chat line for each, and writes nothing else: no other Client Options row, and no character
+/// option.
 #[test]
-fn clicking_restore_defaults_restores_every_option_pages_defaults() {
+fn use_mouse_turning_settings_sets_the_preset_and_nothing_else() {
+    use dereth_ui_screens::options::config::{MOUSE_TURNING_CHANNEL, MOUSE_TURNING_PRESET};
+    use dereth_ui_screens::PrefValue;
     let (mut ui, mut s) = screen();
     let rows = s.config_page.options.len();
-    assert!(
-        rows > 20,
-        "the Client Options page built {rows} rows; option initialization builds 27"
-    );
+    assert!(rows > 20, "the Client Options page built {rows} rows");
+    // Every preset row starts off its preset value.
+    for row in MOUSE_TURNING_PRESET {
+        let i = s
+            .config_page
+            .options
+            .iter()
+            .position(|o| o.preference == row.preference)
+            .unwrap_or_else(|| panic!("{} is on the page", row.preference));
+        s.config_page.options[i].current = match row.value {
+            dereth_ui_screens::options::config::PrefValueConst::Bool(b) => PrefValue::Bool(!b),
+            dereth_ui_screens::options::config::PrefValueConst::Float(f) => {
+                PrefValue::Float(f / 2.0)
+            }
+            dereth_ui_screens::options::config::PrefValueConst::Int(n) => PrefValue::Int(n + 1),
+        };
+    }
 
-    let rs = click(&mut ui, &mut s, button::RESTORE_DEFAULTS);
-    let prefs: Vec<&str> = rs
+    let rs = click(&mut ui, &mut s, button::MOUSE_TURNING_SETTINGS);
+    let prefs: Vec<(&str, PrefValue)> = rs
         .iter()
         .filter_map(|r| match r {
-            UiRequest::SetPreference(name, _) => Some(*name),
+            UiRequest::SetPreference(name, v) => Some((*name, v.clone())),
             _ => None,
         })
         .collect();
-    assert!(
-        prefs.len() >= rows,
-        "Restore Defaults must write every one of the {rows} Client Options rows; wrote \
-         {} ({prefs:?})",
-        prefs.len()
-    );
-    assert!(
-        prefs.contains(&"Sound.SoundVolume"),
-        "the sound volume row is one of them; got {prefs:?}"
-    );
-}
-
-/// The read-back half: after the press, the control the player reopens shows the default, not the
-/// value that was there. `restore_default_values` writes `current` from `default` and refreshes the
-/// element, so the page's own array is the read-back the client would show.
-#[test]
-fn restore_defaults_is_visible_when_the_client_options_page_is_read_back() {
-    let (mut ui, mut s) = screen();
-    // Move one row away from its default first, so the restore has something to undo.
-    let i = s
-        .config_page
-        .options
+    let want: Vec<(&str, PrefValue)> = MOUSE_TURNING_PRESET
         .iter()
-        .position(|o| o.preference == "Sound.SoundVolume")
-        .expect("the sound volume row");
-    let default = s.config_page.options[i].default.clone();
-    s.config_page.options[i].current = dereth_ui_screens::PrefValue::Float(0.125);
-    assert_ne!(
-        s.config_page.options[i].current, default,
-        "the row is off its default"
+        .map(|r| (r.preference, r.value.into()))
+        .collect();
+    assert_eq!(prefs, want, "the six preset rows and nothing else");
+    assert!(
+        !rs.iter().any(|r| matches!(
+            r,
+            UiRequest::SetPlayerOption(..) | UiRequest::SetOptionWords { .. }
+        )),
+        "no character option is written: {rs:?}"
     );
-
-    click(&mut ui, &mut s, button::RESTORE_DEFAULTS);
-
+    let lines: Vec<&str> = rs
+        .iter()
+        .filter_map(|r| match r {
+            UiRequest::DisplayChatText { channel, text } if *channel == MOUSE_TURNING_CHANNEL => {
+                Some(text.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lines.len(), 6, "a line per row moved: {lines:?}");
     assert_eq!(
-        s.config_page.options[i].current, default,
-        "the reopened row reads back the default"
+        lines[0],
+        "Camera Stiffness was changed from 0.475000 to the mouse turning default of 0.950000."
     );
-    assert_eq!(
-        dereth_ui_screens::options::store::inq_value("Sound.SoundVolume"),
-        Some(default),
-        "and so does the preference registry the page wrote through"
+    for row in MOUSE_TURNING_PRESET {
+        assert_eq!(
+            dereth_ui_screens::options::store::inq_value(row.preference),
+            Some(row.value.into()),
+            "{} holds the preset",
+            row.preference
+        );
+    }
+
+    // A second press finds every row at its preset value: nothing written, nothing printed.
+    let again = click(&mut ui, &mut s, button::MOUSE_TURNING_SETTINGS);
+    assert!(
+        !again.iter().any(|r| matches!(
+            r,
+            UiRequest::SetPreference(..) | UiRequest::DisplayChatText { .. }
+        )),
+        "{again:?}"
     );
 }
 

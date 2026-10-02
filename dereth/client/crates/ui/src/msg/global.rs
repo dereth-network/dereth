@@ -39,8 +39,9 @@ pub const ELEMENT_GEOMETRY: MessageId = MessageId(7);
 /// 0x0B — **login complete**: the player object and its whole inventory exist.
 pub const LOGIN_COMPLETE: MessageId = MessageId(0x0B);
 
-/// 0x0C — **restore option defaults**.
-pub const RESTORE_DEFAULTS: MessageId = MessageId(0x0C);
+/// 0x0C — **apply the mouse-turning settings**: the Client Options page sets its six
+/// mouse-turning rows and the key bindings page binds the wheel to the camera zoom.
+pub const MOUSE_TURNING_DEFAULTS: MessageId = MessageId(0x0C);
 
 /// 0x0D — **UI lock toggled**. All twelve floaty windows listen; they
 /// enable and disable their drag bars and resize bars.
@@ -59,7 +60,7 @@ pub const LIVE_IDS: [MessageId; 10] = [
     ELEMENT_CREATED,
     ELEMENT_GEOMETRY,
     LOGIN_COMPLETE,
-    RESTORE_DEFAULTS,
+    MOUSE_TURNING_DEFAULTS,
     UI_LOCK_TOGGLED,
     WINDOW_MOVED,
 ];

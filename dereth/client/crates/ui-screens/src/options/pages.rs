@@ -359,7 +359,7 @@ pub fn gameplay_option_action(element: ElementId) -> Option<GameplayOptionAction
         // "Log out to character select".
         0x1000_0203 => Request(UiRequest::EndCharacterSession { ask: true }),
         0x1000_0206 | 0x1000_0207 => Request(UiRequest::OpenUrl(SUPPORT_URL)),
-        // "refresh the options panels".
+        // *Use Mouse Turning Settings*: the mouse-turning preset.
         0x1000_05CC => BroadcastGlobal { id: 0x0C, param: 0 },
         // "synthesises the *quit* input action".
         0x1000_0617 => BroadcastGlobal {

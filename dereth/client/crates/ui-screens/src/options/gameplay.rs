@@ -66,7 +66,7 @@
 //! | `0x10000203` | [`crate::screens::gameplay::GamePlayScreen::on_end_character_session`] — the asking form |
 //! | `0x10000617` | the key-press path with `0x10000027` |
 //! | `0x10000206` / `0x10000207` | [`crate::view::UiRequest::OpenUrl`] on the ordinary request queue |
-//! | `0x100005CC` | *Restore Defaults* on all three option pages — see `RESTORE_DEFAULTS_NOTE` |
+//! | `0x100005CC` | *Use Mouse Turning Settings*: the mouse-turning preset — see `MOUSE_TURNING_NOTE` |
 //! | `0x10000204` / `0x10000205` | the generic button path, `dereth_ui::widgets`' `BUTTON_INPUT_ACTION` dispatch |
 
 use dereth_ui::{ElemHandle, ElementId, MessageId, UiSystem};
@@ -93,8 +93,8 @@ pub mod button {
     pub const EXIT_GAME: ElementId = ElementId(0x1000_0617);
     /// No class arm; the layout fires input action `0x1000001F` `ToggleKeyboardPanel`.
     pub const KEY_BINDINGS: ElementId = ElementId(0x1000_0204);
-    /// *Restore Defaults* — global message (`0x0C`, 0).
-    pub const RESTORE_DEFAULTS: ElementId = ElementId(0x1000_05CC);
+    /// *Use Mouse Turning Settings* — global message (`0x0C`, 0).
+    pub const MOUSE_TURNING_SETTINGS: ElementId = ElementId(0x1000_05CC);
     /// No class arm; the layout fires input action `0x7B` `ToggleHelp`.
     pub const HELP: ElementId = ElementId(0x1000_0205);
     /// The upper support-ticket button — `ShellExecuteA("open", SUPPORT_URL)`.
@@ -111,7 +111,7 @@ pub const BUTTONS: [(ElementId, i32); 7] = [
     (button::EXIT_TO_CHARACTER_SELECTION, 20),
     (button::EXIT_GAME, 60),
     (button::KEY_BINDINGS, 110),
-    (button::RESTORE_DEFAULTS, 150),
+    (button::MOUSE_TURNING_SETTINGS, 150),
     (button::HELP, 190),
     (button::SUPPORT_TICKET_UPPER, 240),
     (button::SUPPORT_TICKET_LOWER, 280),
@@ -127,20 +127,17 @@ pub const LAYOUT_DRIVEN: [(ElementId, u32); 2] = [
     (button::HELP, 0x0000_007B),
 ];
 
-/// What global message (`0x0C`, 0) means, and how far this build takes it.
+/// What global message (`0x0C`, 0) means.
 ///
-/// Global message `0x0C` is [`dereth_ui::msg::global::RESTORE_DEFAULTS`]. In the client every
-/// options page and every `ActionKeyMapOption` is registered for it, so the button is a
-/// *restore every default on every options page* control — not a "refresh the options panels".
-///
-/// This build takes it to the three `PlayerOptionPage` subclasses — Client Options, Character
-/// Options and Chat Options — which is exactly the reach of each page's own *Defaults* button
-/// (`super::config::button::DEFAULTS`). The fourth listener, the action-key-map control's
-/// global-message handler → its mouse-turning defaults write, needs the host's
-/// `InputManager` and cannot run inside an element-message dispatch; it is the one part of this
-/// button that is still short of retail.
-pub const RESTORE_DEFAULTS_NOTE: &str =
-    "global 0x0C restores defaults on every option page; the key-map rows are not reached yet";
+/// Global message `0x0C` is [`dereth_ui::msg::global::MOUSE_TURNING_DEFAULTS`]. Its two
+/// listeners are the Client Options page, which sets Camera Stiffness, Camera Adjustment Speed,
+/// Mouselook Sensitivity, Align Camera to Slope, Invert Mouselook Axes and Turn your character
+/// with camera turning to the mouse-turning preset
+/// ([`super::config::MOUSE_TURNING_PRESET`]) and prints a chat line for each it changes, and the
+/// key bindings page's camera-zoom rows, which take the mouse wheel. It restores no defaults and
+/// writes no character option.
+pub const MOUSE_TURNING_NOTE: &str =
+    "global 0x0C applies the mouse-turning preset and binds the wheel to the camera zoom";
 
 /// The Game / Support page, bound to the built tree.
 ///
@@ -245,7 +242,7 @@ mod tests {
             })
         );
         assert_eq!(
-            gameplay_option_action(button::RESTORE_DEFAULTS),
+            gameplay_option_action(button::MOUSE_TURNING_SETTINGS),
             Some(GameplayOptionAction::BroadcastGlobal { id: 0x0C, param: 0 })
         );
         for b in [button::SUPPORT_TICKET_UPPER, button::SUPPORT_TICKET_LOWER] {
@@ -270,7 +267,10 @@ mod tests {
     /// The switch subtraction establishes `0x100005CC + 0x4B == 0x10000617`.
     #[test]
     fn the_two_broadcast_ids_are_the_pair_the_switch_subtracts() {
-        assert_eq!(button::RESTORE_DEFAULTS.0 + 0x4B, button::EXIT_GAME.0);
-        assert_eq!(dereth_ui::msg::global::RESTORE_DEFAULTS, MessageId(0x0C));
+        assert_eq!(button::MOUSE_TURNING_SETTINGS.0 + 0x4B, button::EXIT_GAME.0);
+        assert_eq!(
+            dereth_ui::msg::global::MOUSE_TURNING_DEFAULTS,
+            MessageId(0x0C)
+        );
     }
 }

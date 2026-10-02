@@ -1545,13 +1545,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "options.gameplay-page.restore-defaults-restores-every-option-pages-defaults",
-        says: "Pressing Restore Defaults on the gameplay options page writes the default back for \
-               every row of the client options page, the sound volume among them, the same way \
-               that page's own Defaults button does.",
+        id: "options.gameplay-page.mouse-turning-settings-sets-the-preset-and-nothing-else",
+        says: "Pressing Use Mouse Turning Settings on the gameplay options page sets camera \
+               stiffness to 0.95, camera adjustment speed to 50, mouse-look sensitivity to 0.7, \
+               turns align-to-slope off and inverted mouse look and turning with the camera on, \
+               and prints a chat line for each one it changed. It changes no other option and \
+               none of the character's options; each page's Defaults button restores defaults.",
         since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-P1149-GAMEPLAY-PAGE"),
-        station: "dereth-ui-screens::dat::panels::options_gameplay_page::clicking_restore_defaults_restores_every_option_pages_defaults",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-UNIFY-MOUSE-TURNING"),
+        station: "dereth-ui-screens::dat::panels::options_gameplay_page::use_mouse_turning_settings_sets_the_preset_and_nothing_else",
         tier: Tier::Dat,
     },
     behaviour! {

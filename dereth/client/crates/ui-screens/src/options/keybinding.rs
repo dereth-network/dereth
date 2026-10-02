@@ -1509,6 +1509,21 @@ pub struct KeyBindingPage {
 }
 
 impl KeyBindingPage {
+    /// The mouse-turning settings' key half, offered to every row: the two camera-zoom rows take
+    /// the mouse wheel and the rest do nothing. Returns the chat lines the two print.
+    pub fn set_mouse_turning_defaults(
+        &mut self,
+        ui: &mut UiSystem,
+        m: &mut InputManager,
+    ) -> Vec<&'static str> {
+        let delimiter = self.delimiter.clone();
+        let mut lines = Vec::new();
+        for row in &mut self.rows {
+            lines.extend(row.set_mouse_turning_defaults(ui, m, &delimiter));
+        }
+        lines
+    }
+
     /// Instantiate the pending dialog elements owned by this page's rows.
     ///
     /// `ActionKeyMapRow::open_dialog` creates the retail factory context and queue entry. The

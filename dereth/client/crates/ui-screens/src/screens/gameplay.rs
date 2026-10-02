@@ -710,6 +710,10 @@ pub struct GamePlayScreen {
     /// page's own four buttons, in dispatch order. Drained by
     /// [`Self::take_key_binding_page_events`].
     key_binding_page_events: Vec<crate::options::keybinding::PageEvent>,
+    /// The Game / Support page's *Use Mouse Turning Settings* has set the Client Options page's
+    /// rows and is waiting for [`Self::drive_key_bindings`] to bind the wheel to the camera zoom,
+    /// which needs the host's `InputManager`.
+    mouse_turning_keys_pending: bool,
     /// Visibility edges on the Character Options page, held for the same reason
     /// [`Self::key_binding_inbox`] is: the client's show
     /// arm is `save_current_values`, which re-reads every check box from the `PlayerModule`, and a
@@ -4237,15 +4241,15 @@ impl GamePlayScreen {
     /// | `EndCharacterSession { ask }` | [`Self::on_end_character_session`], the asking form |
     /// | `OpenUrl` | [`crate::requests`] — this crate may not call `ShellExecuteA` |
     /// | `BroadcastGlobal { id: 1, param }` | [`Self::handle_key_press`], because the only listener in this build that answers global 1 with `0x10000027` is that arm, so it is called rather than the bus re-entered from inside a dispatch |
-    /// | `BroadcastGlobal { id: 0x0C, .. }` | *Restore Defaults* on all three `PlayerOptionPage`s |
+    /// | `BroadcastGlobal { id: 0x0C, .. }` | *Use Mouse Turning Settings*: the Client Options page's preset, then the wheel bindings |
     ///
-    /// **Global `0x0C` is `RESTORE_DEFAULTS`, not a refresh**, though `0x100005CC` reads like
-    /// *"refresh the options panels"*; `dereth_ui::msg::global::RESTORE_DEFAULTS` is `0x0C` and
-    /// every option page in the client is registered for it, so the button restores defaults
-    /// everywhere. The reach here is the three option pages — exactly what each page's own
-    /// *Defaults* button reaches. The fourth retail listener, the action-key-map control's
-    /// global-message handler, needs the host's `InputManager` and is a known gap rather than faked
-    /// here.
+    /// **Global `0x0C` applies the mouse-turning settings.** Its two listeners are the Client
+    /// Options page, which sets its six mouse-turning rows
+    /// ([`crate::options::page::PlayerOptionPage::set_mouse_turning_defaults`]) and prints a chat
+    /// line for each it moves, and the key bindings page's two camera-zoom rows, which take the
+    /// mouse wheel. The second needs the host's `InputManager`, so it runs in
+    /// [`Self::drive_key_bindings`]. Nothing else changes: no other option and no character
+    /// option. Each page restores its own defaults with its own *Defaults* button.
     pub fn on_gameplay_options_action(
         &mut self,
         ui: &mut UiSystem,
@@ -4268,15 +4272,17 @@ impl GamePlayScreen {
                 0
             }
             A::BroadcastGlobal { id, .. }
-                if MessageId(*id) == dereth_ui::msg::global::RESTORE_DEFAULTS =>
+                if MessageId(*id) == dereth_ui::msg::global::MOUSE_TURNING_DEFAULTS =>
             {
-                let mut n = self.config_page.restore_default_values(ui);
-                n += self.character_options.restore_default_values(ui);
-                let (c, effects) = self.chat_options.restore_default_values(ui);
-                n += c;
-                for e in effects {
-                    self.chat_recv_notice_gameplay_option_changed(ui, e);
+                let lines = self.config_page.set_mouse_turning_defaults(ui);
+                let n = lines.len();
+                for text in lines {
+                    ui.requests.emit(UiRequest::DisplayChatText {
+                        channel: crate::options::config::MOUSE_TURNING_CHANNEL,
+                        text,
+                    });
                 }
+                self.mouse_turning_keys_pending = true;
                 n
             }
             A::BroadcastGlobal { .. } => 0,
@@ -4663,6 +4669,15 @@ impl GamePlayScreen {
         Vec<dereth_input::binding::Capture>,
     ) {
         let mut events = Vec::new();
+        // The mouse-turning settings' second half: the two camera-zoom rows take the wheel.
+        if std::mem::take(&mut self.mouse_turning_keys_pending) {
+            for line in self.key_bindings.set_mouse_turning_defaults(ui, m) {
+                ui.requests.emit(UiRequest::DisplayChatText {
+                    channel: crate::options::config::MOUSE_TURNING_CHANNEL,
+                    text: line.to_owned(),
+                });
+            }
+        }
         for msg in std::mem::take(&mut self.key_binding_inbox) {
             // The key-binding page handler is the page's own handler, and each
             // `ActionKeyMapOption` has the row handler;

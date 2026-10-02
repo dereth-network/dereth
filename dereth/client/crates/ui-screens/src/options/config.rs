@@ -2,10 +2,10 @@
 //! with the preference registration.
 //!
 //! The trap here is deliberate and must **not** be reconciled: the value the page passes as its
-//! row default — which global message `0x0C`, *Restore Defaults*, restores — is not always
-//! the value the preference was registered with. Three disagree, and they are the ones a player
-//! notices: restoring defaults drops a 1024×768 client to 800×600, turns automatic degrades off
-//! rather than on, and doubles the mouse sensitivity.
+//! row default — which the page's own *Defaults* button restores — is not always the value the
+//! preference was registered with. Three disagree, and they are the ones a player notices:
+//! restoring defaults drops a 1024×768 client to 800×600, turns automatic degrades off rather
+//! than on, and doubles the mouse sensitivity.
 
 use crate::view::{PrefValue, UiRequest};
 
@@ -338,64 +338,73 @@ pub const DEFAULT_DISAGREEMENTS: [DefaultDisagreement; 4] = [
     },
 ];
 
-/// The config panel's mouse turning defaults write — one preset row.
+/// One row of the mouse-turning preset: the preference the Game / Support page's *Use Mouse
+/// Turning Settings* button sets, the value it sets it to, and the chat line it prints when the
+/// value changes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MouseTurningPreset {
     pub preference: &'static str,
-    /// The value the preset writes, where it is known.
-    ///
-    /// `None` for the three floats: the chat lines the function prints use `%f`, so the *fact* of
-    /// the change is known but not the number.
-    // UNVERIFIED: the three float values the mouse-turning defaults write to
-    // `Camera.AdjustmentSpeed`, `Camera.Stiffness` and `Input.MouseLookSensitivity` are printed
-    // with `%f` in the chat lines and are not otherwise known, and the sixth line ("Turn to Face
-    // Camera") names no registered preference. Everything else about the preset — which five
-    // preferences it rewrites, the two booleans' values, and the six chat lines — is known.
-    pub value: Option<PrefValueConst>,
-    /// The chat line the preset prints.
+    /// The value the preset writes.
+    pub value: PrefValueConst,
+    /// The chat line the preset prints, the old value first and the preset's second for the
+    /// three sliders (each `%f`, six decimal places).
     pub message: &'static str,
 }
 
-/// The five preferences the mouse-turning preset rewrites, plus the sixth line it prints for
-/// `Turn to Face Camera`.
+/// The mouse-turning preset, in the order the button sets it: a row whose current value already
+/// equals the preset's is left alone and prints nothing.
 ///
-/// The mouse-turning preset writes six other settings and prints six chat lines. It is a
-/// visible side effect in retail, not a bug.
+/// The sixth row, *Turn to Face Camera* in the chat line, is the page's *Turn your character with
+/// camera turning* check box, `Input.UseMouseTurning`.
 pub const MOUSE_TURNING_PRESET: [MouseTurningPreset; 6] = [
     MouseTurningPreset {
-        preference: "Camera.AlignToSlope",
-        value: Some(Bool(false)),
-        message: "Align To Slope was changed from TRUE to the mouse turning default of FALSE.",
-    },
-    MouseTurningPreset {
-        preference: "Camera.AdjustmentSpeed",
-        value: None,
-        message: "Camera Adjustment was changed from %f to the mouse turning default of %f.",
-    },
-    MouseTurningPreset {
         preference: "Camera.Stiffness",
-        value: None,
+        value: Float(0.95),
         message: "Camera Stiffness was changed from %f to the mouse turning default of %f.",
     },
     MouseTurningPreset {
+        preference: "Camera.AdjustmentSpeed",
+        value: Float(50.0),
+        message: "Camera Adjustment was changed from %f to the mouse turning default of %f.",
+    },
+    MouseTurningPreset {
         preference: "Input.MouseLookSensitivity",
-        value: None,
+        value: Float(0.7),
         message: "Mouse Sensitivity was changed from %f to the mouse turning default of %f.",
     },
     MouseTurningPreset {
+        preference: "Camera.AlignToSlope",
+        value: Bool(false),
+        message: "Align To Slope was changed from TRUE to the mouse turning default of FALSE.",
+    },
+    MouseTurningPreset {
         preference: "Input.InvertMouseLookYAxis",
-        value: Some(Bool(true)),
+        value: Bool(true),
         message:
             "Invert Mouselook Axes was changed from FALSE to the mouse turning default of TRUE.",
     },
     MouseTurningPreset {
-        // The sixth line names no registered preference and no `PlayerOption`; it is printed
-        // alongside the five rewrites. UNVERIFIED: which setting, if any, it corresponds to.
-        preference: "(unrecovered: \"Turn to Face Camera\")",
-        value: Some(Bool(true)),
+        preference: "Input.UseMouseTurning",
+        value: Bool(true),
         message: "Turn to Face Camera was changed from FALSE to the mouse turning default of TRUE.",
     },
 ];
+
+/// The chat line a preset row prints when it moves `old` to its value: the slider rows fill
+/// their two `%f`s with six decimal places, as C's `%f` does.
+#[must_use]
+pub fn mouse_turning_message(row: &MouseTurningPreset, old: &PrefValue) -> String {
+    match (row.value, old) {
+        (Float(new), PrefValue::Float(old)) => row
+            .message
+            .replacen("%f", &format!("{old:.6}"), 1)
+            .replacen("%f", &format!("{new:.6}"), 1),
+        _ => row.message.to_owned(),
+    }
+}
+
+/// The chat channel the preset's lines are printed on.
+pub const MOUSE_TURNING_CHANNEL: u32 = 7;
 
 /// The two key rebindings prints.
 pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
@@ -403,7 +412,7 @@ pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
     "The key for Camera Zoom Out has been changed to the mouse wheel down.",
 ];
 
-/// The option page's restore-defaults, driven by global message `0x0C`.
+/// The option page's restore-defaults, the page's own *Defaults* button.
 ///
 /// Returns `(preference, value)` for every row, using the **UI** default — including the three that
 /// disagree with the registration.
@@ -615,8 +624,8 @@ mod tests {
         assert_eq!(SOUND_SLIDER_DEFAULT, 1.0);
     }
 
-    /// Oracle: — global message `0x0C` restores every
-    /// control on the page, including the slider half of each check+slider pair.
+    /// The page's Defaults restores every control on the page, including the slider half of each
+    /// check+slider pair.
     #[test]
     fn restore_defaults_writes_every_control_including_the_paired_sliders() {
         let get_landscape = |v: &[(&str, PrefValue)]| {
@@ -653,48 +662,41 @@ mod tests {
             Some(PrefValue::Float(0.55))
         );
         assert_eq!(get("Sound.AmbientSoundVolume"), Some(PrefValue::Float(1.0)));
-        assert_eq!(
-            dereth_ui::msg::global::RESTORE_DEFAULTS,
-            dereth_ui::MessageId(0x0C)
-        );
     }
 
-    /// Oracle: the client's six quoted chat lines.
+    /// The preset is the six rows the button sets, in its order, with their values.
     #[test]
-    fn the_mouse_turning_preset_is_five_rewrites_and_six_chat_lines() {
-        assert_eq!(MOUSE_TURNING_PRESET.len(), 6);
-        let named: Vec<&str> = MOUSE_TURNING_PRESET.iter().map(|p| p.preference).collect();
+    fn the_mouse_turning_preset_is_six_rows_with_their_values() {
+        let named: Vec<(&str, PrefValueConst)> = MOUSE_TURNING_PRESET
+            .iter()
+            .map(|p| (p.preference, p.value))
+            .collect();
         assert_eq!(
             named,
             vec![
-                "Camera.AlignToSlope",
-                "Camera.AdjustmentSpeed",
-                "Camera.Stiffness",
-                "Input.MouseLookSensitivity",
-                "Input.InvertMouseLookYAxis",
-                "(unrecovered: \"Turn to Face Camera\")",
+                ("Camera.Stiffness", Float(0.95)),
+                ("Camera.AdjustmentSpeed", Float(50.0)),
+                ("Input.MouseLookSensitivity", Float(0.7)),
+                ("Camera.AlignToSlope", Bool(false)),
+                ("Input.InvertMouseLookYAxis", Bool(true)),
+                ("Input.UseMouseTurning", Bool(true)),
             ]
         );
-        // The five named preferences are all controls on the Client Options page, which is why
-        // ticking Use Mouse Turning visibly moves five other rows.
-        for p in &MOUSE_TURNING_PRESET[..5] {
+        // Every one is a control on the Client Options page.
+        for p in &MOUSE_TURNING_PRESET {
             assert!(
                 CONFIG_PAGE.iter().any(|r| r.preference == p.preference),
                 "{} should be a row on the page",
                 p.preference
             );
         }
-        // The two booleans are recovered; the three floats are not.
-        assert_eq!(MOUSE_TURNING_PRESET[0].value, Some(Bool(false)));
-        assert_eq!(MOUSE_TURNING_PRESET[4].value, Some(Bool(true)));
-        assert_eq!(MOUSE_TURNING_PRESET[5].value, Some(Bool(true)));
-        let unknown = MOUSE_TURNING_PRESET
-            .iter()
-            .filter(|p| p.value.is_none())
-            .count();
         assert_eq!(
-            unknown, 3,
-            "the three `%f` values are not in the recovered text"
+            mouse_turning_message(&MOUSE_TURNING_PRESET[0], &PrefValue::Float(0.45)),
+            "Camera Stiffness was changed from 0.450000 to the mouse turning default of 0.950000."
+        );
+        assert_eq!(
+            mouse_turning_message(&MOUSE_TURNING_PRESET[3], &PrefValue::Bool(true)),
+            MOUSE_TURNING_PRESET[3].message
         );
         assert_eq!(MOUSE_TURNING_KEY_MESSAGES.len(), 2);
     }

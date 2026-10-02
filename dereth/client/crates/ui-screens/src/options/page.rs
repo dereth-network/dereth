@@ -1419,6 +1419,36 @@ impl PlayerOptionPage {
         self.options.len()
     }
 
+    /// The Game / Support page's *Use Mouse Turning Settings*: each row of
+    /// [`super::config::MOUSE_TURNING_PRESET`] the page holds is set to the preset's value where
+    /// it differs, written at once, and the new values become the saved ones, so closing the page
+    /// keeps them. Returns the chat line of each row that moved, in the preset's order; a row
+    /// already at its preset value prints nothing. No other row and no character option is
+    /// touched.
+    pub fn set_mouse_turning_defaults(&mut self, ui: &mut UiSystem) -> Vec<String> {
+        let mut lines = Vec::new();
+        for row in super::config::MOUSE_TURNING_PRESET {
+            let Some(i) = self
+                .options
+                .iter()
+                .position(|o| o.preference == row.preference)
+            else {
+                continue;
+            };
+            let want: PrefValue = row.value.into();
+            let old = self.options[i].current.clone();
+            if old == want {
+                continue;
+            }
+            self.options[i].current = want.clone();
+            self.options[i].saved = want;
+            self.refresh(ui, i);
+            self.apply(&mut ui.requests, i);
+            lines.push(super::config::mouse_turning_message(&row, &old));
+        }
+        lines
+    }
+
     /// True as soon as one option reports that it changed.
     #[must_use]
     pub fn changed(&self) -> bool {
