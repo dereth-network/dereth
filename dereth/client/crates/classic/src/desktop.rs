@@ -469,6 +469,17 @@ impl Desktop {
             self.fit_bottom_windows(context);
         }
     }
+    /// Whether `token` is a spell's examination shown over the spellbook: closing it brings the
+    /// spellbook back rather than closing the side panel.
+    fn spell_examination_over_spellbook(&self, token: u64) -> bool {
+        let mut panes = self.windows.iter().rev().filter(|w| right_pane(&w.key));
+        panes
+            .next()
+            .is_some_and(|w| w.token == token && w.key == "examine-spell")
+            && panes
+                .next()
+                .is_some_and(|w| matches!(w.key.as_str(), "spellbook" | "components"))
+    }
     /// The side panel's page on show, if any.
     fn shown_pane(&self) -> Option<u64> {
         self.windows
@@ -832,10 +843,11 @@ impl Desktop {
                 }
                 PanelAction::Close => {
                     let pane = self.shown_pane() == Some(origin);
+                    let covered = self.spell_examination_over_spellbook(origin);
                     self.deactivate_token(origin, context);
                     self.windows.retain(|w| w.token != origin);
                     self.focus = self.windows.last().map(|w| w.token);
-                    if pane {
+                    if pane && !covered {
                         self.close_retained_panes(context);
                     }
                     self.fit_bottom_windows(context);
@@ -1416,6 +1428,55 @@ mod tests {
             assert!(!desktop.is_visible("first"));
             assert!(!desktop.is_open("first"));
             assert!(desktop.active_regions().0.is_empty());
+        });
+    }
+    #[test]
+    fn closing_a_spells_examination_brings_the_spellbook_back() {
+        context_test(|c| {
+            let mut d = Desktop::new(crate::panels::factory, (800, 600));
+            let book = d.open("spellbook", c).unwrap();
+            d.apply(
+                book,
+                vec![PanelAction::OpenSpell {
+                    id: "examine-spell".into(),
+                    spell: 1,
+                }],
+                c,
+            );
+            assert!(d.is_visible("examine-spell") && !d.is_visible("spellbook"));
+            let token = d
+                .windows
+                .iter()
+                .find(|w| w.key == "examine-spell")
+                .unwrap()
+                .token;
+            d.dispatch(token, ControlEvent::Activate("close".into()), c);
+            assert!(d.is_visible("spellbook"));
+            assert!(!d.is_open("examine-spell"));
+            // Over any other page the examination's close still closes the side panel.
+            d.open("inventory", c);
+            let inv = d
+                .windows
+                .iter()
+                .find(|w| w.key == "inventory")
+                .unwrap()
+                .token;
+            d.apply(
+                inv,
+                vec![PanelAction::OpenSpell {
+                    id: "examine-spell".into(),
+                    spell: 1,
+                }],
+                c,
+            );
+            let token = d
+                .windows
+                .iter()
+                .find(|w| w.key == "examine-spell")
+                .unwrap()
+                .token;
+            d.dispatch(token, ControlEvent::Activate("close".into()), c);
+            assert!(d.active_regions().0.is_empty());
         });
     }
     #[test]

@@ -295,6 +295,37 @@ mod tests {
         });
     }
     #[test]
+    fn a_click_on_a_spell_selects_it_and_the_right_button_examines_it() {
+        let w = World {
+            spells: vec![spell(17, 1, 1)],
+            filter: 0x18,
+            ..Default::default()
+        };
+        with_context(&w, |ctx| {
+            let mut p = make("spellbook").unwrap();
+            assert!(p.event(select(0), ctx).is_empty());
+            // The selection is the one Delete takes.
+            assert!(p
+                .frame(ctx)
+                .controls
+                .iter()
+                .any(|c| c.id == "delete" && c.enabled));
+            assert_eq!(
+                p.event(
+                    ControlEvent::RightClick {
+                        id: "rows".into(),
+                        index: 0
+                    },
+                    ctx
+                ),
+                vec![PanelAction::OpenSpell {
+                    id: "examine-spell".into(),
+                    spell: 17
+                }]
+            );
+        });
+    }
+    #[test]
     fn a_creature_with_a_face_shows_its_face_and_one_without_its_icon() {
         let w = World {
             appraisal: Some(dereth_client_contract::view::AppraisalView {

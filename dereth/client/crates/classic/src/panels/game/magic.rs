@@ -437,6 +437,12 @@ impl Panel for Spellbook {
                         ))];
                     }
                 } else if let Some(s) = spells(ctx.game).get(index) {
+                    // A click selects the spell; the examination is the right button's.
+                    self.selected = Some(s.id);
+                }
+            }
+            ControlEvent::RightClick { id, index } if id == "rows" && !self.components => {
+                if let Some(s) = spells(ctx.game).get(index) {
                     self.selected = Some(s.id);
                     return vec![PanelAction::OpenSpell {
                         id: "examine-spell".into(),
