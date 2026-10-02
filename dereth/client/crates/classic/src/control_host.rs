@@ -514,6 +514,17 @@ impl ControlHost {
         let Some(entry) = entries.get(index) else {
             return;
         };
+        if let Some(filter) = control.drop_filter {
+            let takes = match filter {
+                crate::panels::DropFilter::Salvage { material } => {
+                    g.item_owned_by_player(dragged) && g.salvage_item_suitable(dragged, material)
+                }
+                crate::panels::DropFilter::Trade => g.trade_drag_item_acceptable(dragged),
+            };
+            let art = if takes { 0x060011f9 } else { 0x060011f8 };
+            self.item_feedback = Some((control.id.clone(), index, art));
+            return;
+        }
         if let Some(location) = control.drop_location {
             if let Some(art) =
                 equipment.and_then(|facts| facts.hover(location, true, !control.enabled))

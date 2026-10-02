@@ -378,6 +378,7 @@ fn trade_accept_uses_both_displayed_counts_and_offer_scroll_is_independent() {
             open: true,
             self_rows: vec![TradeRow::default(); 12],
             partner_rows: vec![TradeRow::default(); 3],
+            partner: Some(ObjectId(77)),
             ..Default::default()
         },
         ..Default::default()

@@ -742,7 +742,8 @@ impl Social {
                     .selection_query_facts(*id)
                     .is_some_and(|f| f.is_player)
         });
-        if c.game.trade().open {
+        // While a negotiation is on (a cancelled one, its window still up, is over).
+        if c.game.trade().partner.is_some() {
             social_button(
                 &mut f,
                 "trade",
@@ -1232,7 +1233,7 @@ impl Panel for Social {
                         })]
                     })
                     .unwrap_or_default(),
-                "trade" if c.game.trade().open => request(UiRequest::TradeClose),
+                "trade" if c.game.trade().partner.is_some() => request(UiRequest::TradeClose),
                 "trade" => c
                     .game
                     .selected_object()

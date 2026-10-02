@@ -20,15 +20,25 @@ fn entry(c: &Context<'_>, id: ObjectId) -> ItemEntry {
         disabled: false,
     }
 }
+/// A strip of item slots. With `fill` it runs on to its end in empty slots, each showing the
+/// empty slot's art and, on a strip that takes drops, lit by a drag; `filter` is the rule a
+/// strip's drag hints follow.
+#[allow(clippy::too_many_arguments)] // one field per argument of the strip
 fn items(
     f: &mut PanelFrame,
     id: &str,
     r: Rect,
-    entries: Vec<ItemEntry>,
+    mut entries: Vec<ItemEntry>,
     selected: Option<ObjectId>,
     offset: i32,
+    fill: bool,
+    filter: Option<crate::panels::DropFilter>,
 ) {
     horizontal_scroll(f, id, r, entries.len(), offset);
+    let shown = usize::try_from((r.w + offset + 31) / 32).unwrap_or(0);
+    if fill && entries.len() < shown {
+        entries.resize_with(shown, ItemEntry::empty);
+    }
     f.control(
         id,
         r,
@@ -39,7 +49,8 @@ fn items(
             selected,
         },
         true,
-    );
+    )
+    .drop_filter = filter;
 }
 #[derive(Debug, Default)]
 struct Trade {
@@ -70,7 +81,10 @@ impl Panel for Trade {
         ] {
             f.image(did, r, true, false);
         }
+        // The partner's name on the left, the player's own on the right.
         centered(&mut f, rect(5, 0, half - 40, 40), &t.partner_name, "16-7");
+        let own = c.game.player().and_then(|p| c.game.name(p)).unwrap_or("");
+        centered(&mut f, rect(half + 48, 0, half - 74, 40), own, "16-7");
         centered(
             &mut f,
             rect(5, 38, half - 56, 20),
@@ -105,6 +119,8 @@ impl Panel for Trade {
                     .collect(),
                 self.selected,
                 self.offsets[usize::from(id == "offer" || id == "offer-scroll")],
+                true,
+                (id == "offer").then_some(crate::panels::DropFilter::Trade),
             );
         }
         image_button(
@@ -114,7 +130,10 @@ impl Panel for Trade {
             [0x060012AA, 0x060012A9, 0x060012AA],
             true,
         );
-        let b = f.button("accept", rect(half, 0, 46, 30), " Trade", t.open);
+        // The negotiation, not the window, makes the buttons live: a cancelled trade leaves the
+        // window up with nothing to accept or clear.
+        let trading = t.open && t.partner.is_some();
+        let b = f.button("accept", rect(half, 0, 46, 30), " Trade", trading);
         b.font = "14-6".into();
         b.images = Some(
             [
@@ -138,7 +157,7 @@ impl Panel for Trade {
             "clear",
             rect(half - 30, 41, 60, 14),
             "Clear All",
-            t.open && !t.self_rows.is_empty(),
+            trading && !t.self_rows.is_empty(),
         );
         b.images = Some(["06001DC6", "06001DC5", "06001DC6"].map(String::from));
         b.font = "14-6".into();
@@ -153,8 +172,8 @@ impl Panel for Trade {
             }
             ControlEvent::Activate(id) => match id.as_str() {
                 "close" => vec![PanelAction::Game(UiRequest::TradeClose), PanelAction::Close],
-                "clear" if t.open => request(UiRequest::TradeReset),
-                "accept" if t.open => request(if t.accepted {
+                "clear" if t.open && t.partner.is_some() => request(UiRequest::TradeReset),
+                "accept" if t.open && t.partner.is_some() => request(if t.accepted {
                     UiRequest::TradeDecline
                 } else {
                     UiRequest::TradeAccept {
@@ -170,7 +189,7 @@ impl Panel for Trade {
                 amount,
                 max_amount,
                 slot,
-            } if id == "offer" && t.open => {
+            } if id == "offer" && t.open && t.partner.is_some() => {
                 if amount == 0 || amount > max_amount || !c.game.trade_drag_item_acceptable(object)
                 {
                     return vec![];
@@ -192,7 +211,7 @@ impl Panel for Trade {
                 id,
                 payload: DragPayload::Object(item),
                 slot,
-            } if id == "offer" && t.open => {
+            } if id == "offer" && t.open && t.partner.is_some() => {
                 if !c.game.trade_drag_item_acceptable(item) {
                     return vec![];
                 }
@@ -300,6 +319,13 @@ impl Panel for Salvage {
             self.offered.iter().map(|i| entry(c, *i)).collect(),
             self.selected,
             self.offset,
+            true,
+            Some(crate::panels::DropFilter::Salvage {
+                material: self
+                    .offered
+                    .first()
+                    .map_or(0, |i| c.game.item_material_type(*i)),
+            }),
         );
         let b = f.button(
             "salvage",

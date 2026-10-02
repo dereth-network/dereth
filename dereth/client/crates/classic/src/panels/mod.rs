@@ -475,10 +475,23 @@ pub enum ControlKind {
     },
 }
 
+/// Which items an item strip takes, for its drag hints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropFilter {
+    /// The salvage list: items the player owns that suit salvaging alongside those already
+    /// offered, whose material the first offered item sets (`0` when the list is empty).
+    Salvage { material: u32 },
+    /// The trade window's own side: items the player may offer.
+    Trade,
+}
+
 #[derive(Clone, Debug)]
 pub struct Control {
     pub silent: bool,
     pub drop_location: Option<u32>,
+    /// For an item strip that takes only some items, the rule its drag hints follow: an item it
+    /// takes lights any slot as a place to drop, any other item as refused.
+    pub drop_filter: Option<DropFilter>,
     pub choice_enabled: Option<Vec<bool>>,
     pub smooth_scroll: bool,
     pub capture_edges: bool,
@@ -678,6 +691,7 @@ impl PanelFrame {
         self.controls.push(Control {
             silent: false,
             drop_location: None,
+            drop_filter: None,
             choice_enabled: None,
             smooth_scroll: false,
             background: Some(0xff000000),

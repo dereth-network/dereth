@@ -109,6 +109,8 @@ impl Panel for Vendor {
             ),
             self.selected,
             self.offset,
+            false,
+            None,
         );
         if self.tab == 0 {
             f.control(
