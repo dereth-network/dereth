@@ -17,9 +17,9 @@ pub use dereth_client_runtime::render_prefs::*;
 /// device: the projection pair, multi-pass alpha, the detail levels and the two degrade knobs.
 pub fn apply_scene_preference_requests(
     prefs: &mut RenderPreferences,
-    requests: Vec<dereth_ui_screens::UiRequest>,
-) -> Vec<dereth_ui_screens::UiRequest> {
-    use dereth_ui_screens::UiRequest;
+    requests: Vec<dereth_client_contract::UiRequest>,
+) -> Vec<dereth_client_contract::UiRequest> {
+    use dereth_client_contract::UiRequest;
     requests
         .into_iter()
         .filter(|r| {
@@ -40,9 +40,9 @@ pub fn apply_scene_preference_requests(
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 pub fn apply_gpu_preference_requests(
     gpu: &mut dereth_render::device::Gpu,
-    requests: Vec<dereth_ui_screens::UiRequest>,
-) -> Vec<dereth_ui_screens::UiRequest> {
-    use dereth_ui_screens::{PrefValue, UiRequest};
+    requests: Vec<dereth_client_contract::UiRequest>,
+) -> Vec<dereth_client_contract::UiRequest> {
+    use dereth_client_contract::{PrefValue, UiRequest};
     requests
         .into_iter()
         .filter(|r| {

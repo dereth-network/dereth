@@ -40,7 +40,13 @@
 //!    does not apply to them, and they reach no platform: no table of theirs names a platform
 //!    crate or the desktop's own platform crates ([`HALVES_FORBIDDEN`]), and their code names none
 //!    of them ([`HALVES_NAMES_NOT`]). The platform arrives through the shell's host trait, which
-//!    the desktop client and the browser client implement. The scene does not depend on the shell.
+//!    the desktop host (`dereth-desktop`) and the browser client implement. The scene does not depend on the shell.
+//! 10. **A front end never holds the application.** The retail front end's code
+//!     (`dereth-client-shell`'s `src/`, but for [`FRONT_END_ASSEMBLY`], where the executable puts
+//!     the application and its front end side by side) names none of [`FRONT_END_NAMES_NOT`]: the
+//!     application and the runtime's internals behind it. Each step of the frame hands a front end
+//!     a `UiContext`, and that is all of the game it reaches -- the same for the retail UI as for
+//!     any other. (Its screens, `dereth-ui-screens`, cannot name the runtime at all: rule 2.)
 //! 8. **One place finds the retail dats.** No workspace file outside `core/dat/` joins a retail dat
 //!    file name onto a path ([`dat_path_violations`]): the client, the server and every test find
 //!    the directory with `dereth_dat::locate_retail_dats` (the tests through `dereth_dat::testing`)
@@ -204,6 +210,7 @@ pub const HALVES_FORBIDDEN: &[&str] = &[
     "windows-sys",
     "cpal",
     "dereth-client",
+    "dereth-desktop",
     "dereth-clipboard",
     "dereth-console",
 ];
@@ -215,9 +222,18 @@ pub const HALVES_NAMES_NOT: &[&str] = &[
     "windows",
     "cpal",
     "dereth_client",
+    "dereth_desktop",
     "dereth_clipboard",
     "dereth_console",
 ];
+
+/// The one file of the retail front end's crate that holds the application: the assembly, which
+/// builds the runtime's application beside the front end and feeds the one to the other.
+pub const FRONT_END_ASSEMBLY: &str = "src/app.rs";
+
+/// What a front end's code must not name: the application, and the runtime's internals a holder of
+/// it would reach (the interaction state, the network link).
+pub const FRONT_END_NAMES_NOT: &[&str] = &["App", "CoreApp", "Interaction", "NetLink"];
 
 /// Presentation and platform crates the contract must not reach either.
 const CONTRACT_FORBIDDEN: &[&str] = &["winit", "windows", "cpal", "ash"];
@@ -627,6 +643,13 @@ fn crate_sources(ws: &Path, krate: &str) -> Vec<(PathBuf, String)> {
 }
 
 /// A crate's production sources only (`src/`), for rules its tests are exempt from.
+/// Whether `path` (relative to the workspace) is the retail front end's assembly.
+fn is_front_end_assembly(path: &Path) -> bool {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .ends_with(&format!("dereth/client/crates/shell/{FRONT_END_ASSEMBLY}"))
+}
+
 fn crate_src(ws: &Path, krate: &str) -> Vec<(PathBuf, String)> {
     crate_sources(ws, krate)
         .into_iter()
@@ -882,6 +905,16 @@ pub fn reports() -> Vec<Report> {
             HALVES_NAMES_NOT,
         )),
     };
+    // Rule 10: the retail front end reaches the game through its context.
+    let front_end_files: Vec<(PathBuf, String)> = crate_src(&ws, "dereth-client-shell")
+        .into_iter()
+        .filter(|(p, _)| !is_front_end_assembly(p))
+        .collect();
+    let front_end = if front_end_files.is_empty() {
+        Err("no sources found for dereth-client-shell".to_owned())
+    } else {
+        Ok(code_violations(&front_end_files, FRONT_END_NAMES_NOT))
+    };
     // Rule 8: every Rust file of the workspace, and every tracked text file in it.
     let mut workspace_rs = Vec::new();
     rust_files(&ws, &mut workspace_rs);
@@ -1018,6 +1051,14 @@ pub fn reports() -> Vec<Report> {
             ),
         ),
         row(
+            "seam: front end -> context",
+            front_end,
+            format!(
+                "dereth-client-shell src but {FRONT_END_ASSEMBLY} names none of {}",
+                FRONT_END_NAMES_NOT.join(", ")
+            ),
+        ),
+        row(
             "seam: dat paths",
             dat_paths,
             "only dereth-dat joins a retail dat file name onto a path".to_owned(),
@@ -1126,6 +1167,27 @@ mod tests {
             "#[cfg(windows)]\nlet n = layout.windows.len();\nuse winit::event;\nlet h = windows::core::HSTRING::new();\n".to_owned(),
         )];
         assert_eq!(path_violations(&code, HALVES_NAMES_NOT).len(), 2);
+    }
+
+    #[test]
+    fn a_front_end_names_neither_the_application_nor_its_internals() {
+        let code = vec![(
+            PathBuf::from("src/front_end.rs"),
+            "fn step(cx: &mut Cx<'_, H>) {}\n\
+             fn bad(core: &mut CoreApp<H>) {}\n\
+             let i: &mut crate::interaction::Interaction = x;\n\
+             use crate::interaction::TargetMode;\n\
+             // the App is assembled elsewhere\n\
+             let apply = AppState::default();\n"
+                .to_owned(),
+        )];
+        assert_eq!(code_violations(&code, FRONT_END_NAMES_NOT).len(), 2);
+        assert!(is_front_end_assembly(Path::new(
+            "dereth\\client\\crates\\shell\\src\\app.rs"
+        )));
+        assert!(!is_front_end_assembly(Path::new(
+            "dereth/client/crates/shell/src/front_end.rs"
+        )));
     }
 
     #[test]

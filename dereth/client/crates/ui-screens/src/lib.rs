@@ -1,7 +1,7 @@
 //! Every concrete screen, panel, window and game-specific widget of the retail UI.
 //!
 //! **Depends on** `dereth-primitives`, the decoded tables of `dereth-assets`, the shared rules
-//! (`dereth-rules`), the UI engine (`dereth-ui`), the device input's action ids (`dereth-input`)
+//! (`dereth-rules`), character creation's model (`dereth-chargen`), the UI engine (`dereth-ui`), the device input's action ids (`dereth-input`)
 //! and the contract (`dereth-client-contract`), through which it reads the game. **Used by** the
 //! client and its test kit.
 //!

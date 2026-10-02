@@ -1094,7 +1094,7 @@ pub struct AppliedKey {
 /// The host half of the HUD: the player module, the player's qualities and the chat
 /// stream, plus the derived values the read-only [`GameView`] hands to the panels.
 #[derive(Debug, Default)]
-pub struct Hud<P: HudPanels> {
+pub struct Hud {
     /// The player's qualities live in the object table's
     /// local-player row because that is the only place retail keeps them. Login creates a local
     /// player description for the player and no other object, then publishes that allocation as
@@ -1329,13 +1329,6 @@ pub struct Hud<P: HudPanels> {
     pub skills: Vec<SkillEntry>,
     /// The player's spellbook joined to the `SpellTable`, same reason.
     pub spells: Vec<SpellEntry>,
-    /// The Skills and Spellbook panels.
-    ///
-    /// They live here rather than on `GamePlayScreen`; the inventory's equivalent is
-    /// `GamePlayScreen::inventory`, and these could sit beside it with a one-field change.
-    /// Binding is off `GamePlayScreen::root()`, which is public, so
-    /// nothing about the arrangement is load-bearing.
-    pub panels: P,
     /// App's one-frame transit, discarded if the subscriber dies before delivery.
     pub pending_external_container: Vec<ExternalContainerNotice>,
     /// The same transit for the Salvage panel's three notices.
@@ -1354,7 +1347,7 @@ pub struct Hud<P: HudPanels> {
     /// hidden `<ENVP>` host**, with `UiSystem::is_visible` false while the panel's own flag is
     /// already `true`.
     pub env_page_visibility: [Option<bool>; 4],
-    /// The `screen_serial` [`Self::panels`] was bound against, so a mode switch that rebuilt the
+    /// The `screen_serial` the front end's panels were bound against, so a mode switch that rebuilt the
     /// element tree re-binds instead of writing into freed handles.
     pub panels_bound_to: Option<u64>,
 
@@ -1393,7 +1386,7 @@ pub struct Hud<P: HudPanels> {
     pub stats: HudStats,
 }
 
-impl<P: HudPanels> Hud<P> {
+impl Hud {
     /// Mirrors the visual `Admin_Environs` handler's write to the radar-blank flag.
     pub fn set_admin_radar_blank(&mut self, blank: bool) {
         self.radar_blank = blank;
@@ -1984,7 +1977,13 @@ impl<P: HudPanels> Hud<P> {
         events: &[SessionEvent],
         world: &mut dereth_client_model::World,
     ) -> Vec<ChatMessage> {
-        self.apply_events_with_combat_mode_handler(events, world, None, &mut |_, _| {})
+        self.apply_events_with_combat_mode_handler(
+            events,
+            world,
+            &mut NoPanels,
+            None,
+            &mut |_, _| {},
+        )
     }
 
     /// Apply HUD events and synchronously deliver the combat system's player-quality callback.
@@ -1995,6 +1994,7 @@ impl<P: HudPanels> Hud<P> {
         &mut self,
         events: &[SessionEvent],
         world: &mut dereth_client_model::World,
+        panels: &mut dyn HudPanels,
         mut ui_requests: Option<&mut dereth_client_contract::requests::Outbox>,
         on_combat_mode: &mut dyn FnMut(
             &mut dereth_client_model::World,
@@ -2014,7 +2014,7 @@ impl<P: HudPanels> Hud<P> {
             .get(dereth_client_model::player::options::option::DISPLAY_TIME_STAMPS);
         world.scroll.now_unix = wall_clock_unix();
         world.scroll.utc_offset_secs = utc_offset_secs(world.scroll.now_unix);
-        self.drain_scroll(world, &mut chat);
+        self.drain_scroll(world, panels, &mut chat);
         for e in events {
             match e {
                 // Character startup is gated by the event's enable flag. Handle it in stream order
@@ -2034,11 +2034,11 @@ impl<P: HudPanels> Hud<P> {
                 }
                 SessionEvent::TurbineChat(raw) => {
                     // Preserve ordinary notices already queued by an earlier event separately.
-                    self.drain_scroll(world, &mut chat);
+                    self.drain_scroll(world, panels, &mut chat);
                     if !world.recv_turbine_chat(raw) {
                         self.stats.undecodable += 1;
                     }
-                    let lines = self.collect_scroll(world);
+                    let lines = self.collect_scroll(world, panels);
                     if let Some(generation) = self.turbine_chat_generation {
                         self.pending_chat
                             .extend(lines.iter().cloned().map(|m| (Some(generation), m)));
@@ -2266,7 +2266,7 @@ impl<P: HudPanels> Hud<P> {
                 SessionEvent::PlayerCreated(id) => self.player = Some(*id),
                 SessionEvent::UiEvent { opcode, blob } => {
                     let before = chat.len();
-                    self.ui_event(*opcode, blob, world, &mut chat, on_combat_mode);
+                    self.ui_event(*opcode, blob, world, panels, &mut chat, on_combat_mode);
                     // These handlers compose the same complete body that
                     // retail hands to the censor filter. Filter only
                     // this direct slice before either registered receiver sees it. Lines from
@@ -2304,7 +2304,7 @@ impl<P: HudPanels> Hud<P> {
                     // side notices escape only because they flow through `collect_scroll`, which
                     // makes the same offer; this is that offer for the network arm.
                     for m in &chat[before..] {
-                        let took = self.panels.spew_offer(m.ty, &m.body);
+                        let took = panels.spew_offer(m.ty, &m.body);
                         if took {
                             self.stats.spew_lines += 1;
                         }
@@ -2320,9 +2320,9 @@ impl<P: HudPanels> Hud<P> {
                                 m.ty,
                                 m.window,
                                 m.body,
-                                self.panels.spew_trace().0,
-                                self.panels.spew_trace().1,
-                                self.panels.spew_trace().2,
+                                panels.spew_trace().0,
+                                panels.spew_trace().1,
+                                panels.spew_trace().2,
                             );
                         }
                     }
@@ -2363,7 +2363,7 @@ impl<P: HudPanels> Hud<P> {
                     // The same argument one queue upstream: a notice still in the
                     // scroll at log-off goes down with the windows.
                     world.scroll.clear();
-                    self.panels.spew_clear_pending();
+                    panels.spew_clear_pending();
                     self.applied_to = None;
                     // The three remembered names go with the session, the way
                     // every other communication-system member does: the last teller's pair is
@@ -2438,11 +2438,15 @@ impl<P: HudPanels> Hud<P> {
     /// **Error** group (`0x04000000`) in the chat options gets it in both places; by default it is
     /// the spew box alone. Sending it to both from here is not a guess about which one wins — it is
     /// the client's fan-out, with each receiver's own test left where the client put it.
-    fn collect_scroll(&mut self, world: &mut dereth_client_model::World) -> Vec<ChatMessage> {
+    fn collect_scroll(
+        &mut self,
+        world: &mut dereth_client_model::World,
+        panels: &mut dyn HudPanels,
+    ) -> Vec<ChatMessage> {
         let mut lines = Vec::new();
         for line in world.scroll.drain() {
             let ty = u8::try_from(line.chat_type).unwrap_or(0);
-            let took = self.panels.spew_offer(ty, &line.body);
+            let took = panels.spew_offer(ty, &line.body);
             if took {
                 self.stats.spew_lines += 1;
             }
@@ -2470,9 +2474,10 @@ impl<P: HudPanels> Hud<P> {
     fn drain_scroll(
         &mut self,
         world: &mut dereth_client_model::World,
+        panels: &mut dyn HudPanels,
         chat: &mut Vec<ChatMessage>,
     ) {
-        let lines = self.collect_scroll(world);
+        let lines = self.collect_scroll(world, panels);
         // The chat half is queued exactly as a network line is; `drive` routes it through the five
         // interfaces, where the filter that drops `0x1A` lives. Only this drain's lines are
         // appended: it also runs before incoming Turbine callbacks to preserve event order.
@@ -2804,6 +2809,7 @@ impl<P: HudPanels> Hud<P> {
         opcode: dereth_protocol::Opcode,
         blob: &[u8],
         world: &mut dereth_client_model::World,
+        panels: &mut dyn HudPanels,
         chat: &mut Vec<ChatMessage>,
         on_combat_mode: &mut dyn FnMut(
             &mut dereth_client_model::World,
@@ -2932,7 +2938,7 @@ impl<P: HudPanels> Hud<P> {
                     Ok(m) => {
                         // Same failure-event arm and same notice as the stringless 0x028A
                         // sibling. The Abuse panel ignores this message's otherwise-substituted text.
-                        self.panels.abuse_response(m.error_type);
+                        panels.abuse_response(m.error_type);
                         if crate::trace::notice() {
                             tracing::debug!(
                                 target: "dereth::trace::notice",
@@ -3289,7 +3295,7 @@ impl<P: HudPanels> Hud<P> {
                         // line. It sends an abuse-report response notice, whose receiver writes
                         // the result field even while
                         // the panel is hidden. Keep the Silent chat arm below as the second half.
-                        self.panels.abuse_response(m.error_type);
+                        panels.abuse_response(m.error_type);
                         if crate::trace::notice() {
                             tracing::debug!(
                                 target: "dereth::trace::notice",
@@ -4630,6 +4636,18 @@ impl<P: HudPanels> Hud<P> {
         }
     }
 
+    /// The chat lines waiting for the chat windows, oldest first, for the screen generation
+    /// `screen`: a line raised for an earlier generation of the screen (a notice of a window that
+    /// has since been rebuilt) is dropped, and a line tied to no screen is kept. The queue is
+    /// emptied either way, so no line is delivered twice.
+    pub fn take_chat_lines(&mut self, screen: u64) -> Vec<ChatMessage> {
+        std::mem::take(&mut self.pending_chat)
+            .into_iter()
+            .filter(|(generation, _)| !generation.is_some_and(|g| g != screen))
+            .map(|(_, m)| m)
+            .collect()
+    }
+
     /// Rebuild the derived per-frame values: the radar list, the coordinates and the heading.
     ///
     /// The radar's regeneration walks every live weenie and adds each one; this is that walk,
@@ -5015,7 +5033,7 @@ impl<P: HudPanels> Hud<P> {
 
     /// The read-only seam the HUD panels see.
     #[must_use]
-    pub fn view<'a>(&'a self, objects: &'a crate::objects::ObjectStream) -> HudView<'a, P> {
+    pub fn view<'a>(&'a self, objects: &'a crate::objects::ObjectStream) -> HudView<'a> {
         HudView {
             hud: self,
             world: &objects.world,
@@ -5436,14 +5454,21 @@ fn contract_location(p: dereth_primitives::Position) -> Option<String> {
     Some(dereth_client_model::quests::contract_location_text(coords))
 }
 
+/// What a front end keeps beside the HUD model: the model itself, and the panels the model offers
+/// lines and answers to as events land ([`HudPanels`]), lent for the length of a call.
+pub trait HudSlot: std::ops::DerefMut<Target = Hud> {
+    /// The model and the front end's receivers, both borrowed.
+    fn split(&mut self) -> (&mut Hud, &mut dyn HudPanels);
+}
+
 /// The read-only view the HUD panels read. Every method is one client accessor.
 #[derive(Debug)]
-pub struct HudView<'a, P: HudPanels> {
-    pub hud: &'a Hud<P>,
+pub struct HudView<'a> {
+    pub hud: &'a Hud,
     pub world: &'a dereth_client_model::World,
 }
 
-impl<P: HudPanels> HudView<'_, P> {
+impl HudView<'_> {
     /// The local player's qualities, which belong to the player's own object and nothing else.
     ///
     /// The constructor registers the object allocated for the player id, so
@@ -5490,7 +5515,7 @@ impl<P: HudPanels> HudView<'_, P> {
     }
 }
 
-impl<P: HudPanels> GameView for HudView<'_, P> {
+impl GameView for HudView<'_> {
     fn era(&self) -> Option<&dereth_client_contract::EraView> {
         Some(&self.hud.era)
     }
@@ -8183,7 +8208,7 @@ mod tests {
     fn the_era_view_reads_the_worlds_level_cap_and_skills() {
         let world = dereth_client_model::World::default();
         let old = dereth_dat::testing::open_pre_tod_store_or_fail();
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         h.load_tables(&old, &world);
         let v = HudView {
             hud: &h,
@@ -8205,7 +8230,7 @@ mod tests {
         assert!(!era.features().ratings && !era.features().luminance);
 
         // The server's announcement wins over the files.
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         h.era.era = dereth_primitives::EraId::Eor;
         h.era.era_announced = true;
         h.load_tables(&old, &world);
@@ -8213,7 +8238,7 @@ mod tests {
         assert!(h.era.features().ratings);
 
         let later = dereth_dat::testing::open_store_or_fail();
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         h.load_tables(&later, &world);
         assert!(!h.era.before_throne_of_destiny());
         assert_eq!(h.era.level_cap, 275);
@@ -8328,13 +8353,13 @@ mod tests {
         option_ordinal(dereth_client_contract::PlayerOption::SideBySideVitals)
     }
 
-    fn hud_with(options: u32, options2: u32) -> (Hud<NoPanels>, dereth_client_model::World) {
+    fn hud_with(options: u32, options2: u32) -> (Hud, dereth_client_model::World) {
         let m = PlayerModule {
             options,
             options2,
             ..PlayerModule::default()
         };
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         h.player_module = Some(m.clone());
         let mut w = dereth_client_model::World::new();
         w.player_system.apply_player_module(&m);
@@ -8410,7 +8435,7 @@ mod tests {
     /// With no player description every option bit is false.
     #[test]
     fn with_no_player_description_every_option_bit_is_false() {
-        let h = Hud::<NoPanels>::new();
+        let h = Hud::new();
         let mut w = dereth_client_model::World::new();
         // The model word can be non-zero before a description lands: `Options::default()` is
         // the default character-option word. The gate is the *module*, not the word.
@@ -8536,7 +8561,7 @@ mod tests {
     /// The title table message keeps its list and not only the display title.
     #[test]
     fn the_title_table_message_keeps_its_list_and_not_only_the_display_title() {
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         let mut w = dereth_client_model::World::new();
         let m = dereth_protocol::social::CharacterTitlesMessage {
             version: 1,
@@ -8562,7 +8587,7 @@ mod tests {
     /// which is the dedupe below.
     #[test]
     fn add_or_set_character_title_appends_to_the_list_whether_or_not_it_becomes_the_display() {
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         let mut w = dereth_client_model::World::new();
         let table = dereth_protocol::social::CharacterTitlesMessage {
             version: 1,
@@ -8635,7 +8660,7 @@ mod tests {
             text: text.into(),
             text_type: 0,
         };
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         let mut w = dereth_client_model::World::new();
         assert!(w.player_system.options.hear_pk_deaths(), "on by default");
         let got = h.apply_events(&[ui_event(&line("[PKDe]Lark was slain by Wren!"))], &mut w);
@@ -8661,7 +8686,7 @@ mod tests {
     /// window 0.
     #[test]
     fn event_0317_is_drawn_as_a_transient_line() {
-        let mut h = Hud::<NoPanels>::new();
+        let mut h = Hud::new();
         let mut w = dereth_client_model::World::new();
         let got = h.apply_events(
             &[

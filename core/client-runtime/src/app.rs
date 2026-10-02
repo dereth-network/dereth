@@ -27,6 +27,7 @@ use dereth_client_contract::window_proc::style;
 use dereth_primitives::{AssetSource, DataId};
 
 pub use crate::shell::{NullShell, Shell, UiNotices};
+use crate::ui_context::UiContext;
 use crate::{
     camera::CameraInput,
     config::Config,
@@ -839,6 +840,8 @@ pub struct App<S: Shell> {
     /// The world-object pick, the world-view wrapper's search-reason machine and the
     /// one place a `dereth_client_model::Request` becomes bytes. See [`crate::interaction`].
     pub interaction: crate::interaction::Interaction,
+    /// The questions the game has asked the player and not had answered. See [`crate::dialogs`].
+    pub dialogs: crate::dialogs::DialogService,
     /// This frame's actions, from the front end's device input or injected by a script, on
     /// their way through the frame's handler stages. See [`crate::actions`].
     pub actions: crate::actions::ActionQueue,
@@ -935,15 +938,62 @@ pub struct App<S: Shell> {
     /// The world-object system's three teleport flags and the world-controller UI's animation. Driven at the
     /// `WorldViewStep` step and read by the teleport overlay. See [`crate::teleport`].
     pub teleport: crate::teleport::Teleport,
-    /// Whether this frame's teleport step ([`Self::teleport_use_time`]) has run. A front end runs
-    /// it inside its own UI step, where the teleport overlay ticks; the frame runs it itself when
-    /// no front end did, so a client with no UI, or one that never calls it, still tells the
-    /// server it has finished loading. Cleared at the top of every frame.
-    teleport_ticked: bool,
 
     /// The `AnimAssets` a preview space builds its objects through. One per process, because it
     /// memoises every setup record and animation record it decodes.
     pub anim_assets: std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+
+    /// Which of the game's own per-frame duties have run this frame. See [`FrameDuties`].
+    duties: FrameDuties,
+}
+
+/// The game's own per-frame duties inside the UI step, and which of them have run.
+///
+/// The teleport tick (and the portal space it drives), the HUD model's sync and following the game
+/// screen's size are the game's,
+/// not the UI's: skip the teleport tick and the server is never told the character arrived, and
+/// it keeps the player in portal space. Each runs once a frame. A front end whose timing matters
+/// runs one at its own point in its UI step ([`App::teleport_use_time`], [`App::sync_hud`],
+/// [`App::follow_screen_forced_resolution`]); whatever it did not run, the runtime runs at the
+/// foot of the UI step, so a front end that never heard of them still has a working game.
+#[derive(Debug, Default)]
+struct FrameDuties {
+    /// [`App::teleport_use_time`] ran this frame.
+    teleport_ticked: bool,
+    /// [`App::sync_hud`] ran this frame.
+    hud_synced: bool,
+    /// The game-screen answer the screen size last followed; `None` before the first.
+    gameplay_followed: Option<bool>,
+    /// [`App::start_preferences`] has run.
+    preferences_started: bool,
+    /// [`App::portal_space_use_time`] ran this frame.
+    portal_driven: bool,
+    /// The time of the portal space's last step, which it advances by.
+    portal_last_time: f64,
+    /// The UI has the character-creation wizard up (`UiRequest::CharacterCreation`).
+    creating_character: bool,
+    /// The character has asked to leave the world and is still in it.
+    leaving_world: bool,
+    /// A quit has logged the character off and stops the loop once the log-off has gone out.
+    quit_owed: bool,
+}
+
+/// An object notice offered to the front end's panels, and the requests they raised on the way
+/// answered in order: the toolbar's queries here, at once, and the rest back to the front end.
+fn object_panel_notice<S: Shell>(
+    shell: &mut S,
+    hud: &mut S::Hud,
+    inter: &mut crate::interaction::Interaction,
+    world: &mut dereth_client_model::World,
+    notice: &dereth_client_model::Notice,
+) {
+    for request in shell.object_panel_notice(hud, world, notice) {
+        if !inter.dispatch_toolbar_query(world, &request) {
+            if let Some(outbox) = shell.ui_requests() {
+                outbox.emit(request);
+            }
+        }
+    }
 }
 
 /// The scripted enter-world run `--enter-world` drives, in place of the player's clicks.
@@ -1239,6 +1289,7 @@ impl<S: Shell> App<S> {
             position: dereth_client_net::client_session::PositionReporter::new(clock_start),
             last_jump_request: None,
             interaction: crate::interaction::Interaction::new(),
+            dialogs: crate::dialogs::DialogService::default(),
             actions: crate::actions::ActionQueue::default(),
             audio: None,
             host_state: HostState::default(),
@@ -1246,6 +1297,7 @@ impl<S: Shell> App<S> {
             ddd,
             ddd_invalidation: None,
             pending_auto_layout: false,
+            duties: FrameDuties::default(),
             applied_full_screen: started_full_screen,
             applied_resolution: (client_w, client_h),
             applied_sync_to_refresh: started_sync_to_refresh,
@@ -1260,7 +1312,6 @@ impl<S: Shell> App<S> {
             ui_sound_table: None,
             hud: S::Hud::default(),
             teleport: crate::teleport::Teleport::new(),
-            teleport_ticked: false,
             anim_assets,
         })
     }
@@ -1308,7 +1359,7 @@ impl<S: Shell> App<S> {
     pub fn start_shell(&mut self, shell: &mut S) -> Result<(), StartupError> {
         // The front end's device input first: a client with no key bindings is useless but can
         // still draw, so a front end that cannot load its bindings says so and carries on.
-        shell.start_input(self);
+        shell.start_input(&mut UiContext::new(self));
 
         // A headless run never takes the machine's audio endpoint.
         let want_device = self.cfg.sound && !self.cfg.headless;
@@ -1366,7 +1417,12 @@ impl<S: Shell> App<S> {
 
         // Initialize the UI after input and sound.
         if self.cfg.ui {
-            shell.start_ui(self)?;
+            shell.start_ui(&mut UiContext::new(self))?;
+            // The preference store, if the front end did not start it at its own point.
+            if !self.duties.preferences_started {
+                dereth_client_contract::options::store::init();
+                self.start_preferences();
+            }
         }
         // `Attribute2ndTable 0x0E000003`, which the vitals bar needs
         // for every maximum it shows.
@@ -1447,6 +1503,32 @@ impl<S: Shell> App<S> {
             }
         }
         Ok(())
+    }
+
+    /// Start the preference store the options pages read, over a registry that holds its
+    /// registered defaults: the display modes the adapter offers, and then the player's saved
+    /// `UserPreferences.ini` over the defaults.
+    ///
+    /// A front end that rebuilds the registry itself runs this straight after; otherwise
+    /// [`Self::start_shell`] registers the defaults and runs it once the UI is up. The display
+    /// choices go before the file because a saved resolution resolves through their label list.
+    pub fn start_preferences(&mut self) {
+        use dereth_client_contract::options::store;
+        self.duties.preferences_started = true;
+        self.register_display_modes();
+        match crate::platform::files::read_to_string(&self.cfg.preferences_file)
+            .ok()
+            .and_then(|t| {
+                dereth_client_contract::persist::preferences::UserPreferences::parse(&t).ok()
+            }) {
+            Some(ini) => {
+                let (applied, ignored) = store::load(&ini);
+                tracing::debug!("user preferences: {applied} applied, {ignored} for other owners");
+            }
+            // "A missing file is not an error": retail ignores the preference loader's result,
+            // and the registered defaults are then what the page shows.
+            None => tracing::info!("no UserPreferences.ini; registered defaults stand"),
+        }
     }
 
     /// Play the one sound the bring-up proves the device with, once.
@@ -1540,7 +1622,7 @@ impl<S: Shell> App<S> {
     /// the two portal sounds are played. Everything is a function of the teleport state; nothing
     /// accumulates per frame.
     pub fn teleport_use_time(&mut self, shell: &S) {
-        self.teleport_ticked = true;
+        self.duties.teleport_ticked = true;
         let now = self.timer.cur_time;
         let before = (self.teleport.tunnels_played, self.teleport.anim.state);
         let was_teleporting = self.teleport.anim.teleport_in_progress;
@@ -1642,6 +1724,167 @@ impl<S: Shell> App<S> {
         }
     }
 
+    /// Rebuild the HUD model's per-frame values -- the radar list, the coordinates and the
+    /// heading -- from where the player's body stands this frame.
+    ///
+    /// A front end whose panels read the model during its own UI step runs this at the point they
+    /// need it; otherwise the runtime runs it at the foot of the UI step. See [`FrameDuties`].
+    pub fn sync_hud(&mut self) {
+        self.duties.hud_synced = true;
+        let viewer = self
+            .world
+            .as_ref()
+            .and_then(|w| w.character.as_ref())
+            .map(|c| {
+                let p = c.position();
+                crate::hud::ViewerFrame {
+                    position: p,
+                    heading_degrees: dereth_animation::frame::get_heading(&p.frame),
+                }
+            });
+        self.hud.sync(&self.objects, viewer);
+    }
+
+    /// The game duties the front end did not run during its UI step, run at its foot so that
+    /// every front end has them. See [`FrameDuties`].
+    fn run_owed_frame_duties(&mut self, shell: &mut S) {
+        if !self.duties.hud_synced {
+            self.sync_hud();
+        }
+        // The game screen's size follows its construction and destruction. With no UI there is
+        // no screen to follow.
+        if shell.has_ui() && self.duties.gameplay_followed != Some(shell.in_gameplay()) {
+            self.follow_screen_forced_resolution(shell);
+            self.follow_gameplay_full_screen(shell);
+        }
+        if !self.duties.teleport_ticked {
+            self.teleport_use_time(shell);
+        }
+        // Straight after the tick, whose tunnel state it reads.
+        if !self.duties.portal_driven {
+            self.portal_space_use_time(shell);
+        }
+    }
+
+    /// The teleport tunnel's swirl, stepped once a frame straight after the teleport tick.
+    ///
+    /// The tunnel is not just a hidden world: it is a preview space, built and driven from its UI
+    /// update:
+    ///
+    /// * one object, the enum `0x10000001` setup -- `portalspace_background`;
+    /// * one `DISTANT_LIGHT` at intensity **2.0**, direction `(0.3, -1.9, 0.65)` -- **negative**
+    ///   y, where the 3D character preview's is positive;
+    /// * the camera at `(0.24, -2.7, 0.88)`, re-issued every tunnel frame by the update;
+    /// * the smart-box field of view, which makes the teleport's projection collapse apply to the
+    ///   swirl as well as the world;
+    /// * `set_sequence_animation(<DID for enum 0x10000002>, clear = 1, low = 1, **40.0** fps)`,
+    ///   started when the portal-space element becomes visible, and cleared when the
+    ///   tunnel ends;
+    /// * a camera direction of `(0, current rotation angle, 0)` every frame, which is the eased
+    ///   spin the teleport animation computes and exposes as `TeleportAnim::rotation_angle`.
+    ///
+    /// A 1.1 scale is **not** applied to the portal space: the client's 1.1 scale is set on the
+    /// *world* camera, unconditionally.
+    ///
+    /// The sequence's real frame counter is what ends the tunnel ([`crate::teleport::Teleport`]),
+    /// so the space is stepped whatever draws it; where it is drawn is the front end's
+    /// ([`Shell::place_portal_space`]). A front end whose UI step needs this frame's tunnel state
+    /// runs it at its own point, straight after [`Self::teleport_use_time`]; otherwise the runtime
+    /// runs it at the foot of the UI step. See [`FrameDuties`].
+    pub fn portal_space_use_time(&mut self, shell: &mut S) {
+        use dereth_client_contract::overlay::{PreviewLight, PreviewSpace};
+        use dereth_client_contract::teleport::{portal_space as ps, timing};
+
+        self.duties.portal_driven = true;
+        let now = self.timer.cur_time;
+        // Elapsed seconds, on the same terms as the char-gen space's: nothing accumulated.
+        let dt = (now - self.duties.portal_last_time).clamp(0.0, 0.25);
+        self.duties.portal_last_time = now;
+        let id = PreviewSpace::Portal;
+        let tunnel = self.teleport.anim.state.is_tunnel();
+        if !tunnel {
+            // The tunnel fade-out's end: clear the teleport object's sequence anims and hide.
+            if self.present.preview_has_anims(id, 0) {
+                self.present.preview_clear_sequence_anims(id, 0);
+            }
+            self.teleport.portal_anim_frame = None;
+            return;
+        }
+
+        let assets = std::sync::Arc::clone(&self.anim_assets);
+        let store = std::sync::Arc::clone(&self.store);
+        if self.present.preview_ensure(id, &assets) {
+            // Start the portal-space animation once, on the transition to visible.
+            let obj = crate::assets::enum_did(&*store, ps::UIASSET_GROUP, ps::OBJECT_ENUM);
+            match obj {
+                Some(o) => match self.present.preview_add_object(id, &store, o) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => tracing::warn!("the portal object {o:?} would not load"),
+                    Err(e) => tracing::warn!("the portal space failed: {e}"),
+                },
+                None => tracing::warn!("UIASSET portalspace_background does not resolve"),
+            }
+            self.present.preview_set_light(
+                id,
+                PreviewLight::Directional,
+                ps::LIGHT_INTENSITY,
+                dereth_primitives::Vec3::new(
+                    ps::LIGHT_DIRECTION.0,
+                    ps::LIGHT_DIRECTION.1,
+                    ps::LIGHT_DIRECTION.2,
+                ),
+            );
+            self.present.preview_use_world_fov(id);
+        }
+
+        // The update's portal-space-not-visible arm: start the sequence, place the camera,
+        // show the space and hide the world. The teleport animation has already hidden the world.
+        let anim = crate::assets::enum_did(&*store, ps::UIASSET_GROUP, ps::ANIMATION_ENUM);
+        let angle = self.teleport.anim.rotation_angle;
+        if !self.present.preview_has_anims(id, 0) {
+            if let Some(a) = anim {
+                #[allow(clippy::cast_possible_truncation)]
+                // LINT-OK: `set_sequence_animation`'s framerate argument is a `float` literal
+                // in the client -- 40.0.
+                let fps = timing::PORTAL_FRAMERATE as f32;
+                if !self
+                    .present
+                    .preview_set_sequence_animation(id, 0, a, true, 1, fps)
+                {
+                    tracing::warn!("portalspace_animation {a:?} is not in the dat");
+                }
+            }
+        }
+        self.present.preview_set_camera_position(
+            id,
+            dereth_primitives::Vec3::new(
+                ps::CAMERA_POSITION.0,
+                ps::CAMERA_POSITION.1,
+                ps::CAMERA_POSITION.2,
+            ),
+        );
+        #[allow(clippy::cast_possible_truncation)]
+        // LINT-OK: the client's current rotation angle is a `double`, while the preview camera direction
+        // is a `Vec3` of `float`s; the client narrows it here too.
+        self.present.preview_set_camera_direction_degrees(
+            id,
+            dereth_primitives::Vec3::new(0.0, angle as f32, 0.0),
+        );
+        self.present.preview_use_time(id, dt);
+        // The sequence's real frame counter.
+        self.teleport.portal_anim_frame = self.present.preview_curr_frame_number(id, 0);
+        // Where it draws is the front end's.
+        shell.place_portal_space(&mut *self.present);
+    }
+
+    /// How busy the client is, as any UI's cursor shows it: the world's one shared busy count,
+    /// raised by a teleport, a cast, a use, a shop request, a swing, an examine and the allegiance
+    /// request until each is answered. Nonzero is the hourglass.
+    #[must_use]
+    pub fn busy_count(&self) -> u32 {
+        self.objects.world.magic.busy_count
+    }
+
     /// The smart-box field-of-view distance with its override off: the game view distance.
     ///
     /// The aspect is built the same way the drawn world's view parameters build it, so the
@@ -1724,9 +1967,11 @@ impl<S: Shell> App<S> {
                 if *opcode == dereth_protocol::Opcode::QUALITIES_PRIVATE_UPDATE_INT
                     || *opcode == dereth_protocol::Opcode::QUALITIES_UPDATE_INT)
         }) {
-            return self.hud.apply_events_with_combat_mode_handler(
+            let (hud, panels) = crate::hud::HudSlot::split(&mut self.hud);
+            return hud.apply_events_with_combat_mode_handler(
                 events,
                 &mut self.objects.world,
+                panels,
                 shell.ui_requests(),
                 &mut |_, _| {},
             );
@@ -1746,9 +1991,11 @@ impl<S: Shell> App<S> {
         let now = dereth_primitives::LocalTime(self.timer.cur_time);
         let interaction = &mut self.interaction;
         let mut combat_modes = Vec::new();
-        let applied = self.hud.apply_events_with_combat_mode_handler(
+        let (hud, panels) = crate::hud::HudSlot::split(&mut self.hud);
+        let applied = hud.apply_events_with_combat_mode_handler(
             events,
             &mut self.objects.world,
+            panels,
             shell.ui_requests(),
             &mut |world, mode| {
                 interaction.on_combat_mode_quality_changed(world, mode, &phys, radius, now);
@@ -1891,6 +2138,14 @@ impl<S: Shell> App<S> {
         self.host_state.connected = connected;
         self.host_state.has_packet_controller = has_net;
         self.host_state.in_world = in_world;
+        if self.host_state.disconnect.is_none() {
+            if let Some(code) = self.link.as_ref().and_then(|l| l.net.error()) {
+                self.host_state.disconnect =
+                    Some(dereth_client_contract::pregame::DisconnectNotice::Net(
+                        code.id_string().to_string(),
+                    ));
+            }
+        }
         self.host_state.error = error;
         // With a live connection the DDD stream is real and `patch_finished` is what the
         // patch-time-end message says rather than an assumption. Without one there is no shared
@@ -1901,6 +2156,56 @@ impl<S: Shell> App<S> {
         // Drained into the screen once per frame; `HostState` is cloned into `UiShell::frame`, so
         // the queue must be emptied here or every event would be delivered again next frame.
         self.host_state.ddd = std::mem::take(&mut self.pending_ddd);
+        let phase = self.game_phase();
+        if phase != self.host_state.phase {
+            tracing::debug!("game phase {:?} -> {phase:?}", self.host_state.phase);
+            self.host_state.phase = phase;
+            self.host_state.phase_changes = self.host_state.phase_changes.wrapping_add(1);
+        }
+    }
+
+    /// Where the game is this frame ([`dereth_client_contract::pregame::GamePhase`]), from the
+    /// session and the requests the UI has made.
+    ///
+    /// The edges are the ones the retail flow takes: the character list is reachable once the
+    /// connection is up, the data check is over and the list has arrived (or there is no server
+    /// to wait for); the world is entered on the session becoming playable; and a log-off returns
+    /// to the list only when the server answers it, which is when the session leaves the world.
+    fn game_phase(&mut self) -> dereth_client_contract::pregame::GamePhase {
+        use dereth_client_contract::pregame::{DisconnectNotice, GamePhase};
+        use dereth_client_net::client_session::SessionState;
+        if let Some(notice) = &self.host_state.disconnect {
+            return GamePhase::Disconnected(notice.clone());
+        }
+        let Some(link) = self.link.as_ref() else {
+            // No server: the character list is up from the start, empty.
+            return if self.duties.creating_character {
+                GamePhase::CharacterCreation
+            } else {
+                GamePhase::CharacterSelect
+            };
+        };
+        let state = link.net.session.state();
+        if state != SessionState::Playable {
+            self.duties.leaving_world = false;
+        }
+        if state != SessionState::CharacterSelect {
+            self.duties.creating_character = false;
+        }
+        match state {
+            SessionState::Connected => GamePhase::Connecting,
+            SessionState::Patching => GamePhase::Patching,
+            SessionState::CharacterSelect if !self.host_state.connected => GamePhase::Connecting,
+            SessionState::CharacterSelect if !self.host_state.patch_finished => GamePhase::Patching,
+            SessionState::CharacterSelect if self.duties.creating_character => {
+                GamePhase::CharacterCreation
+            }
+            SessionState::CharacterSelect => GamePhase::CharacterSelect,
+            SessionState::EnteringWorld => GamePhase::EnteringWorld,
+            SessionState::Playable if self.duties.leaving_world => GamePhase::LoggingOff,
+            SessionState::Playable => GamePhase::InWorld,
+            SessionState::Disconnected(_) => GamePhase::Disconnected(DisconnectNotice::ServerDied),
+        }
     }
 
     /// Step 7's UI update and mode switch. Player-description arrival triggers
@@ -1928,7 +2233,13 @@ impl<S: Shell> App<S> {
     fn ui_use_time(&mut self, shell: &mut S, now: dereth_primitives::LocalTime) {
         // The previous frame's unclaimed actions expire here, before this frame's are produced.
         self.actions.begin_frame();
-        shell.service_dialogs(&mut self.interaction, &mut self.objects.world, now);
+        self.duties.teleport_ticked = false;
+        self.duties.hud_synced = false;
+        self.duties.portal_driven = false;
+        if std::mem::take(&mut self.duties.quit_owed) {
+            self.pump.done();
+        }
+        shell.service_dialogs(&mut UiContext::new(self), now);
         // Communication notices affect command routing, so the existing subscriber receives
         // them before shell input, not in the late display-only power-bar batch below. If a mode
         // is queued, this is still the outgoing live subscriber; the new `post_init` reads globals.
@@ -1944,10 +2255,11 @@ impl<S: Shell> App<S> {
             .as_ref()
             .and_then(|w| w.character.as_ref())
             .is_some_and(|c| !c.in_contact());
-        shell.before_ui_input(
+        shell.before_ui_input(player_airborne);
+        crate::ui_context::offer_talk_focus_notices(
             &mut self.objects.world.chat,
-            player_airborne,
             chat_focus_notices,
+            &mut |focus, notice| shell.talk_focus_notice(focus, notice),
         );
         // Drain even with no UI/gameplay subscriber. Retail notices have no replay history;
         // keeping them while headless or on another screen would grow without bound and deliver
@@ -1975,8 +2287,8 @@ impl<S: Shell> App<S> {
         // table that a different generation of the window owns.
         let trade_for_dummies = self.interaction.take_trade_for_dummies();
         self.build_host_state();
-        shell.drive_pregame_screens(self);
-        shell.drive_world_script(self, now);
+        shell.drive_pregame_screens(&mut UiContext::new(self));
+        shell.drive_world_script(&mut UiContext::new(self), now);
         // Before the pointer events are dispatched: a click reaches smart-box object
         // search from inside `dispatch` below, and it must be measured against
         // the rectangle `<SBOX>` occupies *this* frame.
@@ -1994,15 +2306,25 @@ impl<S: Shell> App<S> {
             // No UI, but the device input still gets its per-frame tick: the input manager's
             // per-frame step is step 6 of the frame, and the repeat sweep is what makes a held key
             // repeat at all.
-            shell.input_use_time(self, now);
-            // No UI, so nothing else runs the teleport step: without it the login-complete
-            // notification never goes out and the server never finishes the player's log-in.
-            self.teleport_use_time(shell);
+            shell.input_use_time(&mut UiContext::new(self), now);
             shell.hand_on_actions(&mut self.actions);
+            self.run_owed_frame_duties(shell);
             return;
         }
+        // The motion facts the UI's input callbacks read, and the selection notices raised since
+        // the last delivery, before the UI takes its input: a click on a panel this frame is judged
+        // against this frame's selection.
+        {
+            let viewport = self.present.size();
+            let body = self.world.as_ref().and_then(|w| w.character.as_ref());
+            self.interaction
+                .prepare_ui_dispatch(body, &mut self.objects.world, viewport);
+            let body = self.world.as_ref().and_then(|w| w.character.as_ref());
+            self.interaction
+                .dispatch_ui_selection_notices(body, &mut self.objects, now);
+        }
         shell.ui_frame(
-            self,
+            &mut UiContext::new(self),
             now,
             UiNotices {
                 power_bar: power_bar_notices,
@@ -2013,19 +2335,113 @@ impl<S: Shell> App<S> {
                 trade_for_dummies,
             },
         );
-        // The teleport step belongs to the frame, not to a front end: a UI that did not run it
-        // inside its own step has it run here, once, so the login-complete notification and the
-        // world's hide and reveal never depend on a front end remembering to call it.
-        if !self.teleport_ticked {
-            self.teleport_use_time(shell);
-        }
         shell.hand_on_actions(&mut self.actions);
+        self.run_owed_frame_duties(shell);
     }
 
     /// Queue an action for the next frame, as a device would produce it. A script, a bot or a
     /// test acts through this; it reaches the same handlers a key does.
     pub fn inject_action(&mut self, action: crate::actions::Action) {
         self.actions.inject(action);
+    }
+
+    /// What the runtime owes one request a UI raised, done at once, in the client's order: the
+    /// two requests that change the local player's look in place (the barber's particle script and
+    /// motion table), the HUD's own placement owners, the game's handlers (chat-focus notices
+    /// raised on the way are handed to `chat_focus` there and then, as the client delivers them to
+    /// the chat entry synchronously), and the audio and device preferences. Returns what no runtime
+    /// owner took.
+    ///
+    /// A UI calls it from inside its own input dispatch, at the point its listener raised the
+    /// request, so the game sees the request before the UI's next listener runs. Follow it with
+    /// [`Self::deliver_selection_notices`], or call [`Self::request_now`] for both.
+    pub fn run_request(
+        &mut self,
+        request: dereth_client_contract::UiRequest,
+        now: dereth_primitives::LocalTime,
+        chat_focus: &mut dyn FnMut(&mut dereth_client_model::chat::ChatState),
+    ) -> Vec<dereth_client_contract::UiRequest> {
+        use dereth_client_contract::UiRequest;
+        match request {
+            UiRequest::BarberLocalEffect(script) => {
+                if let Some(mut scene) = self.present.scene_mut(self.world.as_mut()) {
+                    scene.replace_player_particle_script(script);
+                }
+                Vec::new()
+            }
+            UiRequest::BarberLocalMotionTable(table) => {
+                if let Some(mut scene) = self.present.scene_mut(self.world.as_mut()) {
+                    scene.world_mut().replace_player_motion_table(table);
+                }
+                Vec::new()
+            }
+            request => {
+                let mut request = vec![request];
+                self.hud.consume_placement_requests(
+                    &mut self.objects.world,
+                    &mut request,
+                    dereth_primitives::ServerTime(now.0),
+                );
+                if request.is_empty() {
+                    return Vec::new();
+                }
+                // The player's position, for `@loc`: the one chat command that reads the body.
+                // Stamped per request, the way the selection notices read the same origin, because
+                // the handler runs against the model and the body lives on the scene.
+                self.interaction.player_position = self
+                    .world
+                    .as_ref()
+                    .and_then(|w| w.character.as_ref())
+                    .map(crate::character::Character::position);
+                self.interaction.queue(Vec::new(), request);
+                let remaining = self.interaction.run_ui_requests_with_chat_focus(
+                    &mut self.objects.world,
+                    self.hud.player_desc_received,
+                    dereth_primitives::ServerTime(now.0),
+                    chat_focus,
+                );
+                let remaining =
+                    crate::audio::apply_preference_requests(self.audio.as_mut(), remaining);
+                self.present.apply_device_preference_requests(remaining)
+            }
+        }
+    }
+
+    /// The selection notices a request raised (the defender and selection-change receivers),
+    /// delivered at once, after the request and before the UI's next listener. A request the UI
+    /// answered itself raises them too.
+    pub fn deliver_selection_notices(&mut self, now: dereth_primitives::LocalTime) {
+        let body = self.world.as_ref().and_then(|w| w.character.as_ref());
+        self.interaction
+            .dispatch_ui_selection_notices(body, &mut self.objects, now);
+    }
+
+    /// [`Self::run_request`] and then [`Self::deliver_selection_notices`]: everything one request
+    /// does, for a UI that handles none of its own.
+    pub fn request_now(
+        &mut self,
+        request: dereth_client_contract::UiRequest,
+        now: dereth_primitives::LocalTime,
+        chat_focus: &mut dyn FnMut(&mut dereth_client_model::chat::ChatState),
+    ) -> Vec<dereth_client_contract::UiRequest> {
+        let unowned = self.run_request(request, now, chat_focus);
+        self.deliver_selection_notices(now);
+        unowned
+    }
+
+    /// One pass of the dialog service ([`crate::dialogs::DialogService::service`]), with
+    /// `presenter` showing the questions, or none to drop them.
+    pub fn service_dialogs_with(
+        &mut self,
+        presenter: Option<&mut dyn crate::dialogs::DialogPresenter>,
+        now: dereth_primitives::LocalTime,
+    ) {
+        self.dialogs.service(
+            presenter,
+            &mut self.interaction,
+            &mut self.objects.world,
+            now,
+        );
     }
 
     /// Queue requests for the interaction step of the next frame: a chat line, a use of an
@@ -2265,7 +2681,9 @@ impl<S: Shell> App<S> {
                 // An option's notice is synchronous relative to the next queued ChatLine.
                 // Drain even with no subscriber; no hidden UI may replay this batch later.
                 let notices = chat.take_talk_focus_notices();
-                shell.deliver_chat_focus_notices(chat, notices);
+                crate::ui_context::offer_talk_focus_notices(chat, notices, &mut |focus, notice| {
+                    shell.talk_focus_notice(focus, notice)
+                });
             },
         );
         // The magic notices this frame's input raised go to the UI's inbox now, in the order they
@@ -2316,7 +2734,7 @@ impl<S: Shell> App<S> {
         }
         // Complete a geometric target's dialog at this world-draw boundary, also draining
         // notices without UI. No extra frame tick or broadcast pass is introduced.
-        shell.service_dialogs(&mut self.interaction, &mut self.objects.world, now);
+        shell.service_dialogs(&mut UiContext::new(self), now);
         // The arm calls the visibility setter with `false` on `<EXAM>` itself.
         // `ExaminationPanel::hide` is that
         // call and is the one place `closed` is counted, so this leg and the close button are the
@@ -2422,8 +2840,8 @@ impl<S: Shell> App<S> {
         // buttons. Without this filter it would fall past every filter above and only be printed
         // by the line below. See
         // [`apply_open_url_requests`] for the complete consume-and-launch behavior.
-        let (unowned, shell) = apply_open_url_requests(unowned);
-        for c in shell {
+        let (unowned, shell_calls) = apply_open_url_requests(unowned);
+        for c in shell_calls {
             // Deviation 2 in [`apply_open_url_requests`]: retail's `MessageBoxA` is out
             // of reach of a `forbid(unsafe_code)` crate, so its **own text** goes to the scroll.
             if let ShellCall::ErrorBox { text, .. } = c {
@@ -2435,6 +2853,7 @@ impl<S: Shell> App<S> {
                 );
             }
         }
+        let unowned = self.apply_session_requests(shell, unowned);
         for r in unowned {
             if self.unowned_gate.ready() {
                 let more = std::mem::take(&mut self.unowned_suppressed);
@@ -2449,6 +2868,42 @@ impl<S: Shell> App<S> {
                 self.unowned_suppressed += 1;
             }
         }
+    }
+
+    /// The requests about the session and the process rather than the world: leaving, the
+    /// character list's operations, the selected character, the key bindings and the start of a
+    /// tell. A front end that handles one itself never passes it on; whatever it passes on is done
+    /// here, the same way for every front end. Everything else is handed back.
+    fn apply_session_requests(
+        &mut self,
+        shell: &mut S,
+        requests: Vec<dereth_client_contract::UiRequest>,
+    ) -> Vec<dereth_client_contract::UiRequest> {
+        use dereth_client_contract::UiRequest;
+        let mut rest = Vec::new();
+        for r in requests {
+            match r {
+                UiRequest::CharacterAction(a) => self.run_character_actions(vec![a]),
+                UiRequest::CharGenAction(a) => self.run_chargen_actions(vec![a]),
+                UiRequest::SelectedAvatar(id) => self.host_state.selected_avatar = Some(id),
+                UiRequest::EndCharacterSession { .. } => self.log_off_character(),
+                UiRequest::DeviceDone => self.pump.done(),
+                // The log-off is queued now and framed by the next frame's packet step; the loop
+                // stops at that frame's UI step, so the server is told before the client goes.
+                UiRequest::Quit => {
+                    self.log_off_character();
+                    self.duties.quit_owed = true;
+                }
+                UiRequest::SaveKeyMap => {
+                    let outcome = shell.save_bindings();
+                    tracing::debug!("key bindings saved: {outcome:?}");
+                }
+                UiRequest::StartTell { name } => shell.start_tell(name),
+                UiRequest::CharacterCreation(open) => self.duties.creating_character = open,
+                other => rest.push(other),
+            }
+        }
+        rest
     }
 
     /// Tell the server where the player is.
@@ -3012,6 +3467,7 @@ impl<S: Shell> App<S> {
 
         self.teleport
             .request_log_off(self.timer.cur_time, is_player_killer);
+        self.duties.leaving_world = true;
         if let Some(link) = self.link.as_mut() {
             tracing::info!("the epilogue UI requested character logoff");
             // The departure request sends before its local teardown tail.
@@ -3168,7 +3624,6 @@ impl<S: Shell> App<S> {
         // `crate::frame::FrameSpans`.
         let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
         self.events.drain_frame();
-        self.teleport_ticked = false;
         // `--capture-at` and `--set-at`: a picture of the frame just drawn, then the settings for
         // the one about to be.
         self.scripted_use_time();
@@ -3330,7 +3785,7 @@ impl<S: Shell> App<S> {
                 session,
                 &mut |world, notice| {
                     inter.dispatch_object_notice(world, notice.clone(), &geometry, radius, now);
-                    shell.object_panel_notice(hud, inter, world, &notice);
+                    object_panel_notice(shell, hud, inter, world, &notice);
                 },
             );
             self.deliver_object_notices();
@@ -3482,9 +3937,13 @@ impl<S: Shell> App<S> {
         // next UI frame, whose `check_tooltip` runs *before*
         // it broadcasts global message 3 to the global-loop listeners — so the client's own
         // ordering is that the pick answer of frame N is read by the tooltip check of frame N+1.
-        shell.world_tooltip(&mut self.interaction);
+        if shell.has_ui() {
+            if let Some(tooltip) = self.interaction.take_world_tooltip() {
+                shell.world_tooltip(tooltip);
+            }
+        }
 
-        shell.draw_world_target(self);
+        shell.draw_world_target(&mut UiContext::new(self));
 
         // Cursor-state update chooses one of the dat's 41 cursors
         // and pushes it as the manager's **default**. Retail calls it from eight notice
@@ -3498,7 +3957,7 @@ impl<S: Shell> App<S> {
         // smart-box drawing completes the pick that writes `click_object_id` — the `h` of
         // the state machine — and before the frame bracket, where a `SetCursor` would be
         // competing with the swap chain.
-        shell.update_cursor(self);
+        shell.update_cursor(&mut UiContext::new(self));
 
         // Copy the completed frame into the UI image, and the
         // mirror `Paste` reads back. Here, beside the cursor drain, because both are
@@ -3507,7 +3966,7 @@ impl<S: Shell> App<S> {
         // `GetClipboardSequenceNumber` moved.
         shell.sync_clipboard();
 
-        shell.compose_ui(self);
+        shell.compose_ui(&mut UiContext::new(self));
 
         spans.step(FrameStep::PrepareDevice);
         self.events.push(FrameEvent::Step(FrameStep::PrepareDevice));
@@ -3630,7 +4089,7 @@ impl<S: Shell> App<S> {
         // which makes them arrive with or without a packet controller -- and it is the one call
         // site, so there is nothing for a second path to drift away from.
         for e in &events {
-            self.recv_disconnect_notice(shell, e);
+            self.recv_disconnect_notice(e);
             // **The phase-two smart-box reset, taken here for the same reason the two notices
             // above it are: before the link guard.**
             //
@@ -3726,6 +4185,7 @@ impl<S: Shell> App<S> {
         }
         let scripted = self.cfg.enter_world;
         let no_ui = !shell.has_ui();
+        let runtime_enters = !shell.drives_scripted_entry();
         let wanted = self.cfg.start_char.clone();
 
         // The `--linger` deadline, checked before the batch so a run with no traffic still ends.
@@ -3772,11 +4232,13 @@ impl<S: Shell> App<S> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                    // With the UI up, the front end's pre-game drive
-                    // ([`Shell::drive_pregame_screens`]) presses the screen's own
-                    // buttons and does the rest.
-                    // This branch is the no-UI fallback, which is what `--no-ui` runs.
-                    if scripted && no_ui && self.script == EnterWorldScript::AwaitingCharacterSet {
+                    // A front end whose pre-game drive ([`Shell::drive_pregame_screens`])
+                    // presses its screens' own buttons does the rest itself. For every other one
+                    // -- `--no-ui` included -- the runtime logs the character on here.
+                    if scripted
+                        && runtime_enters
+                        && self.script == EnterWorldScript::AwaitingCharacterSet
+                    {
                         // `-u`/`-user` names the character in the retail switch set and this build
                         // is the first thing to read it; without one, the first slot.
                         let pick = set
@@ -4186,17 +4648,60 @@ impl<S: Shell> App<S> {
     /// the shell's resolve-or-pass-through is what shows it — which is why the shell's string
     /// resolver must not find a row for it.
     ///
-    /// The literals are the front end's: see [`Shell::disconnect_message`].
-    fn recv_disconnect_notice(
-        &mut self,
-        shell: &S,
-        e: &dereth_client_net::client_session::SessionEvent,
-    ) {
-        let id = shell.disconnect_message(e, &*self.clock);
-        let Some(id) = id else { return };
+    /// The literals and the tables are [`dereth_client_contract::disconnect`]'s, so every front end
+    /// shows the same reason; the notice itself is `HostState::disconnect`, and its phase
+    /// `GamePhase::Disconnected`.
+    fn recv_disconnect_notice(&mut self, e: &dereth_client_net::client_session::SessionEvent) {
+        use dereth_client_contract::disconnect as text;
+        use dereth_client_contract::pregame::DisconnectNotice;
+        use dereth_client_net::client_session::{DisconnectReason, SessionEvent, SessionState};
+        let (notice, id) = match e {
+            // Send the character-error notice for this code. A code with no token is the
+            // switch's `default:` arm and never shows the screen.
+            SessionEvent::CharacterError(code) => match text::character_error_string_id(*code) {
+                Some(id) => (DisconnectNotice::CharacterError(*code), id.to_string()),
+                None => return,
+            },
+            // The session independently decides both the 110-second world-entry timeout and the
+            // 40-second heartbeat gap.
+            SessionEvent::StateChanged(SessionState::Disconnected(
+                DisconnectReason::ServerDied,
+            )) => (
+                DisconnectNotice::ServerDied,
+                text::SERVER_DIED_STRING_ID.to_string(),
+            ),
+            // `None` is a `0xF7DC` with no body at all, which the handler cannot tell from an
+            // empty reason; both take the default.
+            SessionEvent::AccountBooted(reason) => (
+                DisconnectNotice::Booted(reason.clone()),
+                text::account_booted_message(reason.as_deref()),
+            ),
+            // The clock is an input because the handler reads real time at the moment the
+            // message lands, and the zone is an input because it does `asctime(localtime(&t))`.
+            // The zone is read for the **expiry** instant, not for now: a ban that ends after a
+            // daylight change is announced in the zone it will end in.
+            SessionEvent::AccountBanned { expiry, reason } => {
+                let now = self.clock.unix_secs();
+                let at = text::ban_expiry_epoch(*expiry, now);
+                (
+                    DisconnectNotice::Banned {
+                        expiry: *expiry,
+                        reason: reason.clone(),
+                    },
+                    text::account_banned_message(
+                        *expiry,
+                        reason,
+                        now,
+                        self.clock.utc_offset_secs(at),
+                    ),
+                )
+            }
+            _ => return,
+        };
         if self.host_state.error.is_none() {
             tracing::info!("the disconnected screen, showing {id}");
             self.host_state.error = Some(id);
+            self.host_state.disconnect = Some(notice);
         }
     }
 
@@ -4230,7 +4735,7 @@ impl<S: Shell> App<S> {
                 self.objects
                     .apply_event_with_dispatch(&event, now, &mut |world, notice| {
                         inter.dispatch_object_notice(world, notice.clone(), &geometry, radius, now);
-                        shell.object_panel_notice(hud, inter, world, &notice);
+                        object_panel_notice(shell, hud, inter, world, &notice);
                     });
             // A public description update forces a synchronous object-description Control enqueue. Preserve that
             // boundary: it reaches Session before queued notice delivery, released arrivals, or
@@ -4270,7 +4775,7 @@ impl<S: Shell> App<S> {
                 events,
                 &mut self.objects.world,
                 Some((&geometry, radius)),
-                &mut |inter, world, notice| shell.object_panel_notice(hud, inter, world, notice),
+                &mut |inter, world, notice| object_panel_notice(shell, hud, inter, world, notice),
             );
             // Defender handlers stamp/AutoTarget first; their synchronously raised selection
             // notices then reenter Combat before another admitted UI packet can change state.
@@ -4959,7 +5464,7 @@ impl<S: Shell> App<S> {
             events,
             &mut self.objects.world,
             Some((&geometry, radius)),
-            &mut |inter, world, notice| shell.object_panel_notice(hud, inter, world, notice),
+            &mut |inter, world, notice| object_panel_notice(shell, hud, inter, world, notice),
         );
     }
 
@@ -4996,7 +5501,7 @@ impl<S: Shell> App<S> {
         for event in drained.events {
             self.handle_window_event(shell, &event, time_ms);
         }
-        shell.window_input(self, time_ms);
+        shell.window_input(&mut UiContext::new(self), time_ms);
         if drained.exited {
             self.pump.done();
         }
@@ -5495,13 +6000,19 @@ impl<S: Shell> App<S> {
     /// the next mode edge, and a toggle that silently reverts is worse than one that does
     /// nothing. The event loop (`do_event_loop`) is where that refusal lives.
     pub fn follow_gameplay_full_screen(&mut self, shell: &mut S) {
+        self.duties.gameplay_followed = Some(shell.in_gameplay());
         if self.pump.state.is_done {
             return;
         }
         self.pump.state.full_screen = shell.in_gameplay() && self.cfg.display.full_screen;
     }
 
+    /// The forced pre-game display size on the game screen's construction and destruction edges.
+    /// See [`Self::follow_gameplay_full_screen`]; a front end that does not call the pair on its own
+    /// screen edges has them called at the foot of its UI step whenever
+    /// [`Shell::in_gameplay`] changes.
     pub fn follow_screen_forced_resolution(&mut self, shell: &mut S) {
+        self.duties.gameplay_followed = Some(shell.in_gameplay());
         if self.pump.state.is_done {
             return;
         }
@@ -6166,6 +6677,12 @@ impl<S: Shell> App<S> {
         self.pump.done();
     }
 
+    /// The context a front end's step is handed, for a host that feeds its front end outside the
+    /// frame (a window event delivered directly, say).
+    pub fn ui_context(&mut self) -> UiContext<'_, S> {
+        UiContext::new(self)
+    }
+
     /// What the last frame did, in call order. The frame-order test reads this.
     #[must_use]
     pub fn last_frame_steps(&self) -> &[FrameStep] {
@@ -6338,7 +6855,7 @@ impl<S: Shell> App<S> {
         log.push(Step::LanguageInfo, Outcome::NotInThisBuild);
         // 5. UI cleanup: the flow and every root element it holds, then the element manager.
         //    **Before the database**, because UI elements hold dat objects.
-        shell.cleanup_ui(&mut self);
+        shell.cleanup_ui(&mut UiContext::new(&mut self));
         log.push(Step::CleanupUi, Outcome::Ran);
         // 6. Preference cleanup, whose last two operations are
         //    save preferences, then run the remaining preference cleanup.

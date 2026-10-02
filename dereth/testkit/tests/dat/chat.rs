@@ -473,7 +473,11 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
     }
     let notices = c.world_mut().chat.take_talk_focus_notices();
     let drawn = on_the_shipped_menu(&mut c, |ui, screen, chat| {
-        dereth_client::hud::deliver_chat_focus_notices(ui, screen, chat, notices);
+        dereth_client_runtime::ui_context::offer_talk_focus_notices(
+            chat,
+            notices,
+            &mut |focus, notice| dereth_client::hud::talk_focus_notice(ui, screen, focus, notice),
+        );
         let state = |row: u32| {
             screen
                 .main_chat
@@ -531,7 +535,11 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
     }
     let notices = c.world_mut().chat.take_talk_focus_notices();
     let rebuilt = on_the_shipped_menu(&mut c, |ui, screen, chat| {
-        dereth_client::hud::deliver_chat_focus_notices(ui, screen, chat, notices);
+        dereth_client_runtime::ui_context::offer_talk_focus_notices(
+            chat,
+            notices,
+            &mut |focus, notice| dereth_client::hud::talk_focus_notice(ui, screen, focus, notice),
+        );
         let kept = chat.talk_focus == TalkFocus::General;
         // The menu builds itself again and lands on the row it does have.
         let landed = screen.main_chat.init_talk_focus_menu(ui);

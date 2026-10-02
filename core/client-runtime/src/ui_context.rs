@@ -1,0 +1,420 @@
+//! What a front end is given at each step of the frame it takes part in.
+//!
+//! A front end never holds the application. Each [`Shell`](crate::shell::Shell) hook that does
+//! more than draw is handed a [`UiContext`](crate::ui_context::UiContext): the game as a front end
+//! may see it (the model read-only, the pre-game state, the scene as a view), the front end's own
+//! HUD slot, the presentation, and a named call for each thing a front end may ask the game to do.
+//! Every front end gets the same context, the retail UI included, so nothing a UI does goes past
+//! it.
+
+use std::sync::Arc;
+
+use dereth_client_contract::UiRequest;
+use dereth_client_model::chat::{ChatState, TalkFocus, TalkFocusNotice};
+use dereth_client_model::World;
+use dereth_primitives::{LocalTime, ObjectId, ServerTime};
+
+use crate::app::{App, EnterWorldScript, HostState};
+use crate::config::Config;
+use crate::interaction::{TargetMode, UiMouseEvent};
+use crate::objects::ObjectStream;
+use crate::present::{Presentation, Scene};
+use crate::shell::Shell;
+
+/// One step's view of the game for front end `S`. See the module documentation.
+pub struct UiContext<'a, S: Shell> {
+    app: &'a mut App<S>,
+}
+
+impl<S: Shell> std::fmt::Debug for UiContext<'_, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UiContext").finish_non_exhaustive()
+    }
+}
+
+impl<'a, S: Shell> UiContext<'a, S> {
+    pub(crate) fn new(app: &'a mut App<S>) -> Self {
+        Self { app }
+    }
+
+    // ---- what the front end reads
+
+    /// The run's configuration.
+    #[must_use]
+    pub fn config(&self) -> &Config {
+        &self.app.cfg
+    }
+
+    /// The portal dats.
+    #[must_use]
+    pub fn store(&self) -> &Arc<dereth_dat::RetailDatStore> {
+        &self.app.store
+    }
+
+    /// The animation assets the preview spaces build their objects from.
+    #[must_use]
+    pub fn anim_assets(&self) -> &Arc<crate::anim_assets::DatAnimAssets> {
+        &self.app.anim_assets
+    }
+
+    /// This frame's time, in seconds.
+    #[must_use]
+    pub fn now(&self) -> f64 {
+        self.app.timer.cur_time
+    }
+
+    /// The pre-game state: the connection, the character list, the world's name.
+    #[must_use]
+    pub fn pregame(&self) -> &HostState {
+        &self.app.host_state
+    }
+
+    /// The scripted entry (`--enter-world`) the pre-game screens are driving.
+    #[must_use]
+    pub fn entry_script(&self) -> EnterWorldScript {
+        self.app.script
+    }
+
+    /// How busy the game is: nonzero while anything the player asked for is still waiting. See
+    /// [`App::busy_count`].
+    #[must_use]
+    pub fn busy_count(&self) -> u32 {
+        self.app.busy_count()
+    }
+
+    /// The vivid-target indicator's global switch.
+    #[must_use]
+    pub fn vivid_target_indicator(&self) -> bool {
+        self.app.teleport.anim.vivid_target_indicator
+    }
+
+    /// The game model, read-only.
+    #[must_use]
+    pub fn model(&self) -> &World {
+        &self.app.objects.world
+    }
+
+    /// The object tables, read-only.
+    #[must_use]
+    pub fn objects(&self) -> &ObjectStream {
+        &self.app.objects
+    }
+
+    /// The drawn world as one read-only view, `None` before there is one.
+    #[must_use]
+    pub fn scene(&self) -> Option<Box<dyn Scene + '_>> {
+        self.app.present.scene(self.app.world.as_ref())
+    }
+
+    /// The interaction layer's target mode.
+    #[must_use]
+    pub fn target_mode(&self) -> TargetMode {
+        self.app.interaction.target_mode()
+    }
+
+    /// The object under the pointer, as last found.
+    #[must_use]
+    pub fn found_object(&self) -> ObjectId {
+        self.app.interaction.pick.click_object().0
+    }
+
+    // ---- the front end's own
+
+    /// The front end's HUD slot: the HUD model and whatever the front end keeps beside it.
+    #[must_use]
+    pub fn hud(&self) -> &S::Hud {
+        &self.app.hud
+    }
+
+    /// …writable.
+    pub fn hud_mut(&mut self) -> &mut S::Hud {
+        &mut self.app.hud
+    }
+
+    /// The HUD slot and the object tables it is drawn from, together.
+    pub fn hud_and_objects(&mut self) -> (&mut S::Hud, &ObjectStream) {
+        (&mut self.app.hud, &self.app.objects)
+    }
+
+    /// The presentation.
+    #[must_use]
+    pub fn present(&self) -> &S::Present {
+        &self.app.present
+    }
+
+    /// …writable.
+    pub fn present_mut(&mut self) -> &mut S::Present {
+        &mut self.app.present
+    }
+
+    /// The presentation, with the drawn world's state for the calls that need it.
+    pub fn present_with_world(
+        &mut self,
+    ) -> (&mut S::Present, Option<&crate::world_state::WorldState>) {
+        (&mut self.app.present, self.app.world.as_ref())
+    }
+
+    /// The sound mixer, when there is one.
+    pub fn audio_mut(&mut self) -> Option<&mut crate::audio::Audio> {
+        self.app.audio.as_mut()
+    }
+
+    /// Switch one talk focus on or off. The switch raises a notice, which
+    /// [`Self::deliver_talk_focus_notices`] offers back.
+    pub fn set_talk_focus_enabled(&mut self, focus: TalkFocus, enabled: bool) {
+        self.app
+            .objects
+            .world
+            .chat
+            .set_talk_focus_enabled(focus, enabled);
+    }
+
+    /// The talk-focus notices raised since the last delivery, offered now. See
+    /// [`offer_talk_focus_notices`].
+    pub fn deliver_talk_focus_notices(&mut self, answer: &mut TalkFocusAnswer<'_>) {
+        let chat = &mut self.app.objects.world.chat;
+        let notices = chat.take_talk_focus_notices();
+        offer_talk_focus_notices(chat, notices, answer);
+    }
+
+    // ---- what the front end asks the game to do
+
+    /// What the runtime owes one request a UI raised, done at once. See [`App::run_request`]. The
+    /// talk-focus notices the request raises are offered to `talk_focus` as they are raised.
+    pub fn run_request(
+        &mut self,
+        request: UiRequest,
+        now: LocalTime,
+        talk_focus: &mut TalkFocusAnswer<'_>,
+    ) -> Vec<UiRequest> {
+        self.app.run_request(request, now, &mut |chat| {
+            let notices = chat.take_talk_focus_notices();
+            offer_talk_focus_notices(chat, notices, talk_focus);
+        })
+    }
+
+    /// See [`App::deliver_selection_notices`].
+    pub fn deliver_selection_notices(&mut self, now: LocalTime) {
+        self.app.deliver_selection_notices(now);
+    }
+
+    /// Queue an action for the next frame, as a device would produce it: a scripted run presses
+    /// the game's keys through this. See [`App::inject_action`].
+    pub fn inject_action(&mut self, action: crate::actions::Action) {
+        self.app.inject_action(action);
+    }
+
+    /// One pass of the dialog service with `presenter` showing the questions, or none to drop
+    /// them.
+    pub fn service_dialogs(
+        &mut self,
+        presenter: Option<&mut dyn crate::dialogs::DialogPresenter>,
+        now: LocalTime,
+    ) {
+        self.app.service_dialogs_with(presenter, now);
+    }
+
+    /// The UI's sound requests, played at once; anything that is not a sound comes back.
+    pub fn play_sounds(&mut self, requests: Vec<UiRequest>) -> Vec<UiRequest> {
+        crate::audio::apply_sound_requests(self.app.audio.as_mut(), &self.app.store, requests)
+    }
+
+    /// Hand the pointer events and the requests no step took this frame to the interaction step.
+    pub fn queue(&mut self, mouse: Vec<UiMouseEvent>, requests: Vec<UiRequest>) {
+        self.app.interaction.queue(mouse, requests);
+    }
+
+    /// The HUD's own placement owners, applied to `requests` at once; what they took is removed.
+    pub fn consume_placement_requests(&mut self, requests: &mut Vec<UiRequest>, now: ServerTime) {
+        self.app
+            .hud
+            .consume_placement_requests(&mut self.app.objects.world, requests, now);
+    }
+
+    /// A pointer event over the world.
+    pub fn pointer(&mut self, event: UiMouseEvent) {
+        let viewport = self.app.present.size();
+        self.app.interaction.dispatch_ui_mouse(event, viewport);
+    }
+
+    /// The pointer resting at `position` over the world, over item `item` if a slot is under it.
+    pub fn hover(
+        &mut self,
+        position: (i32, i32),
+        item: Option<ObjectId>,
+        over_view: bool,
+        now: LocalTime,
+    ) {
+        let viewport = self.app.present.size();
+        let inter = &mut self.app.interaction;
+        inter.note_pointer_over_game_view(over_view);
+        inter.dispatch_ui_hover(
+            position,
+            item,
+            viewport,
+            &mut self.app.objects.world,
+            ServerTime(now.0),
+        );
+    }
+
+    /// The selection blink's once-a-loop step.
+    pub fn selection_blink(&mut self, now: LocalTime) {
+        self.app.interaction.global_loop_lighting(now.0);
+    }
+
+    /// The selection lighting raised since the last call, applied to the drawn world.
+    pub fn apply_selection_lighting(&mut self) {
+        for (id, mode) in self.app.interaction.take_pending_lighting() {
+            if let Some(mut scene) = self.app.present.scene_mut(self.app.world.as_mut()) {
+                scene.world_mut().apply_object_lighting(id, mode);
+            }
+        }
+    }
+
+    /// Chat-window titles set by command since the last call.
+    pub fn take_chat_window_titles(&mut self) -> Vec<(u32, String)> {
+        self.app.interaction.take_chat_window_title_notices()
+    }
+
+    /// Frame-rate display switches set by command since the last call.
+    pub fn take_framerate_display_switches(&mut self) -> Vec<bool> {
+        self.app.interaction.take_framerate_display_notices()
+    }
+
+    /// A local line in the text scroll.
+    pub fn add_scroll_line(&mut self, text: &str, kind: u32) {
+        self.app
+            .objects
+            .world
+            .scroll
+            .add_text_to_scroll(text, kind, true, 0);
+    }
+
+    /// The external-container panel's range watches end (the panel that held them is gone).
+    pub fn end_external_container_watches(&mut self) {
+        self.app
+            .objects
+            .world
+            .object_range_checks
+            .unregister_all(dereth_client_model::range::RangeHandler::ExternalContainer);
+    }
+
+    /// Bring the preferences up into the UI's option store. See [`App::start_preferences`].
+    pub fn start_preferences(&mut self) {
+        self.app.start_preferences();
+    }
+
+    /// The HUD model's once-a-frame sync. See [`App::sync_hud`].
+    pub fn sync_hud(&mut self) {
+        self.app.sync_hud();
+    }
+
+    /// Whether the saved screen layout is waiting to be loaded.
+    #[must_use]
+    pub fn screen_layout_pending(&self) -> bool {
+        self.app.pending_auto_layout
+    }
+
+    /// The saved screen layout was loaded, or will not be.
+    pub fn screen_layout_done(&mut self) {
+        self.app.pending_auto_layout = false;
+    }
+
+    /// The character screen's asks: log on, delete, restore.
+    pub fn run_character_actions(
+        &mut self,
+        actions: Vec<dereth_client_contract::pregame::CharacterAction>,
+    ) {
+        self.app.run_character_actions(actions);
+    }
+
+    /// The creation wizard's asks.
+    pub fn run_chargen_actions(
+        &mut self,
+        actions: Vec<dereth_client_contract::pregame::CharGenAction>,
+    ) {
+        self.app.run_chargen_actions(actions);
+    }
+
+    /// Log the character off.
+    pub fn log_off_character(&mut self) {
+        self.app.log_off_character();
+    }
+
+    /// Quit: the device is done.
+    pub fn quit(&mut self) {
+        self.app.done();
+    }
+
+    /// The teleport overlay's step. See [`App::teleport_use_time`].
+    pub fn teleport_use_time(&mut self, shell: &S) {
+        self.app.teleport_use_time(shell);
+    }
+
+    /// The portal space's step. See [`App::portal_space_use_time`].
+    pub fn portal_space_use_time(&mut self, shell: &mut S) {
+        self.app.portal_space_use_time(shell);
+    }
+
+    /// The gameplay screen came or went: follow its forced resolution and full-screen state.
+    pub fn follow_screen_change(&mut self, shell: &mut S) {
+        self.app.follow_screen_forced_resolution(shell);
+        self.app.follow_gameplay_full_screen(shell);
+    }
+
+    // ---- the window
+
+    /// A window lifecycle event (resize, focus, close). See [`App::handle_window_event`].
+    pub fn window_event(
+        &mut self,
+        shell: &mut S,
+        event: &crate::platform::window::HostEvent,
+        time_ms: u32,
+    ) {
+        self.app.handle_window_event(shell, event, time_ms);
+    }
+
+    /// A device message, through the window procedure.
+    pub fn window_message(&mut self, message: crate::pump::WindowMessage, time_ms: u32) {
+        self.app.pump.dispatch(message, time_ms);
+    }
+
+    /// The mouse-look button.
+    pub fn mouse_look_button(&mut self, down: bool) {
+        self.app.mouse_look_button(down);
+    }
+
+    /// The pointer moved, in window pixels.
+    pub fn cursor_moved(&mut self, x: f64, y: f64) {
+        self.app.cursor_moved(x, y);
+    }
+
+    /// The free camera's rise and sink keys.
+    pub fn flycam_rise(&mut self, held: bool) {
+        self.app.flycam_rise(held);
+    }
+
+    /// …
+    pub fn flycam_sink(&mut self, held: bool) {
+        self.app.flycam_sink(held);
+    }
+}
+
+/// A UI's answer to one talk-focus notice: handed the current talk focus and the notice, it says
+/// whether the talk focus falls back to All (the chat entry's row for the current focus was just
+/// switched off under it).
+pub type TalkFocusAnswer<'a> = dyn FnMut(TalkFocus, TalkFocusNotice) -> bool + 'a;
+
+/// Talk-focus `notices` offered to a UI one at a time, in the order they were raised. A fall-back
+/// the UI answers takes effect before the next notice is offered, which reads it.
+pub fn offer_talk_focus_notices(
+    chat: &mut ChatState,
+    notices: Vec<TalkFocusNotice>,
+    answer: &mut TalkFocusAnswer<'_>,
+) {
+    for notice in notices {
+        if answer(chat.talk_focus, notice) {
+            chat.set_talk_focus(TalkFocus::All);
+        }
+    }
+}

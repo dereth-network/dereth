@@ -45,7 +45,7 @@ pub mod spellcomponent;
 /// line as it arrives; the abuse panel takes the failure-event answer. Both are synchronous in the
 /// client, so the model calls them in place rather than queueing. `dereth_ui_screens` implements it
 /// for its panel set.
-pub trait HudPanels: std::fmt::Debug + Default {
+pub trait HudPanels: std::fmt::Debug {
     /// The speech-bubble strip's final-string receiver. Whether it took the line.
     fn spew_offer(&mut self, ty: u8, body: &str) -> bool;
     /// For the notice trace: whether the strip's list is bound, how many lines are pending, and

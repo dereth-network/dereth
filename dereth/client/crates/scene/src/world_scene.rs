@@ -4503,7 +4503,7 @@ mod imp {
             &self,
             id: ObjectId,
             viewport: (u32, u32),
-        ) -> Option<dereth_ui_screens::hud::target::Projection> {
+        ) -> Option<dereth_client_contract::target::Projection> {
             self.draw.target_projection(&self.world, id, viewport)
         }
 
@@ -8701,9 +8701,9 @@ mod imp {
             ws: &WorldState,
             id: ObjectId,
             viewport: (u32, u32),
-        ) -> Option<dereth_ui_screens::hud::target::Projection> {
+        ) -> Option<dereth_client_contract::target::Projection> {
+            use dereth_client_contract::target::Projection;
             use dereth_physics::math::{globaltolocal, localtoglobal};
-            use dereth_ui_screens::hud::target::Projection;
             use dereth_world_render::cells::{
                 clip::ViewPoly,
                 cull::{viewcone_check, Bounding},
@@ -15726,7 +15726,7 @@ mod imp {
             &self,
             id: ObjectId,
             viewport: (u32, u32),
-        ) -> Option<dereth_ui_screens::hud::target::Projection> {
+        ) -> Option<dereth_client_contract::target::Projection> {
             self.draw.target_projection(self.world, id, viewport)
         }
 
@@ -16156,7 +16156,7 @@ mod imp {
             &self,
             id: ObjectId,
             viewport: (u32, u32),
-        ) -> Option<dereth_ui_screens::hud::target::Projection> {
+        ) -> Option<dereth_client_contract::target::Projection> {
             self.draw.target_projection(&*self.world, id, viewport)
         }
 

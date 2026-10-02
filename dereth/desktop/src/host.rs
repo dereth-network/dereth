@@ -1,19 +1,22 @@
-//! The desktop host: what the client shell is given by this executable — the `winit` window and
-//! the system clock, the operating system's time zone and URL launch, the `cpal` sound output, the
-//! system clipboard and the system cursors.
+//! The desktop host: what the client shell is given on a desktop -- the `winit` window and the
+//! system clock, the operating system's time zone and URL launch, the `cpal` sound output, the
+//! system clipboard and the system cursors -- for the product `P`.
 
+use std::marker::PhantomData;
+
+use dereth_client_runtime::app::{Platform, StartupError};
+use dereth_client_runtime::config::Config;
 use dereth_client_shell::cursor::CursorImages;
 use dereth_client_shell::platform::host::Host;
 
-use crate::app::{Platform, StartupError};
-use crate::Config;
+use crate::Product;
 
-/// The desktop, as the client shell's host.
+/// The desktop, as the client shell's host, for product `P`.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Desktop;
+pub struct Desktop<P: Product>(PhantomData<P>);
 
-impl Host for Desktop {
-    const BUILD_ID: &'static str = concat!("dereth-client ", env!("CARGO_PKG_VERSION"));
+impl<P: Product> Host for Desktop<P> {
+    const BUILD_ID: &'static str = P::BUILD_ID;
 
     type Clipboard = crate::clipboard::Win32Clipboard;
 
@@ -21,7 +24,7 @@ impl Host for Desktop {
         cfg: &Config,
         events: crate::platform::window::WindowEvents,
     ) -> Result<Platform, StartupError> {
-        crate::app::open_platform(cfg, events)
+        crate::launch::open_platform::<P>(cfg, events)
     }
 
     fn local_utc_offset_secs(unix_secs: i64) -> i32 {
@@ -29,7 +32,7 @@ impl Host for Desktop {
     }
 
     fn launch_uri(url: &str) -> i32 {
-        crate::app::launch_uri(url)
+        crate::launch::launch_uri(url)
     }
 
     fn install_default_output() {
@@ -41,6 +44,6 @@ impl Host for Desktop {
     }
 
     fn cursor_images(window: Option<isize>) -> Box<dyn CursorImages> {
-        crate::cursor::desktop_cursor_images(window)
+        P::cursor_images(window)
     }
 }

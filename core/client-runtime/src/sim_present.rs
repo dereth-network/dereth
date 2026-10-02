@@ -215,6 +215,152 @@ impl Presentation for SimPresentation {
         self.device.set_world_view_state(hidden, view_distance);
     }
 
+    fn overlay_upload(
+        &mut self,
+        texture: dereth_client_contract::overlay::OverlayTexture,
+        data: &dereth_primitives::TextureData,
+    ) -> Result<(), PresentError> {
+        self.device.overlay_upload(texture, data)
+    }
+    fn overlay_release(
+        &mut self,
+        texture: dereth_client_contract::overlay::OverlayTexture,
+    ) -> dereth_client_contract::overlay::OverlayReleased {
+        self.device.overlay_release(texture)
+    }
+    fn draw_overlay(
+        &mut self,
+        items: &[dereth_client_contract::overlay::OverlayItem],
+    ) -> Result<(), PresentError> {
+        self.device.draw_overlay(items)
+    }
+
+    fn preview_ensure(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        assets: &std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+    ) -> bool {
+        self.device.preview_ensure(id, assets)
+    }
+    fn preview_set_light(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        light: dereth_client_contract::overlay::PreviewLight,
+        intensity: f32,
+        direction: dereth_primitives::Vec3,
+    ) {
+        self.device
+            .preview_set_light(id, light, intensity, direction)
+    }
+    fn preview_use_sharp_mode(&mut self, id: dereth_client_contract::overlay::PreviewSpace) {
+        self.device.preview_use_sharp_mode(id)
+    }
+    fn preview_use_world_fov(&mut self, id: dereth_client_contract::overlay::PreviewSpace) {
+        self.device.preview_use_world_fov(id)
+    }
+    fn preview_set_camera_position(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        position: dereth_primitives::Vec3,
+    ) {
+        self.device.preview_set_camera_position(id, position)
+    }
+    fn preview_set_camera_direction(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        direction: dereth_primitives::Vec3,
+    ) {
+        self.device.preview_set_camera_direction(id, direction)
+    }
+    fn preview_set_camera_direction_degrees(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        degrees: dereth_primitives::Vec3,
+    ) {
+        self.device
+            .preview_set_camera_direction_degrees(id, degrees)
+    }
+    fn preview_remove_all_objects(&mut self, id: dereth_client_contract::overlay::PreviewSpace) {
+        self.device.preview_remove_all_objects(id)
+    }
+    fn preview_add_object(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        store: &dereth_dat::RetailDatStore,
+        setup: DataId,
+    ) -> Result<Option<usize>, PresentError> {
+        self.device.preview_add_object(id, store, setup)
+    }
+    fn preview_add_object_dressed(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        store: &dereth_dat::RetailDatStore,
+        setup: DataId,
+        objdesc: Option<&dereth_animation::parts::ObjDesc>,
+    ) -> Result<Option<usize>, PresentError> {
+        self.device
+            .preview_add_object_dressed(id, store, setup, objdesc)
+    }
+    fn preview_set_heading(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+        degrees: f32,
+    ) {
+        self.device.preview_set_heading(id, index, degrees)
+    }
+    fn preview_set_sequence_animation(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+        animation: DataId,
+        clear: bool,
+        low_frame: i32,
+        framerate: f32,
+    ) -> bool {
+        self.device
+            .preview_set_sequence_animation(id, index, animation, clear, low_frame, framerate)
+    }
+    fn preview_clear_sequence_anims(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+    ) {
+        self.device.preview_clear_sequence_anims(id, index)
+    }
+    fn preview_has_anims(
+        &self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+    ) -> bool {
+        self.device.preview_has_anims(id, index)
+    }
+    fn preview_use_time(&mut self, id: dereth_client_contract::overlay::PreviewSpace, dt: f64) {
+        self.device.preview_use_time(id, dt)
+    }
+    fn preview_curr_frame_number(
+        &self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+    ) -> Option<u32> {
+        self.device.preview_curr_frame_number(id, index)
+    }
+    fn preview_object_bounding_box(
+        &self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+        store: &dereth_dat::RetailDatStore,
+    ) -> Option<dereth_physics::geom::BBox> {
+        self.device.preview_object_bounding_box(id, index, store)
+    }
+    fn preview_part_array_mut(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+    ) -> Option<&mut dereth_animation::parts::PartArray> {
+        self.device.preview_part_array_mut(id, index)
+    }
+
     fn scene<'a>(&'a self, world: Option<&'a WorldState>) -> Option<Box<dyn Scene + 'a>> {
         Some(Box::new(SimScene {
             ws: world?,

@@ -24,6 +24,11 @@ use dereth_ui_screens::view::GameView as _;
 /// scenario asserts**, and the function.
 pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     (
+        "any_front_end_answers_the_servers_question_the_same_way",
+        &["confirmation.any-front-end-answers-the-servers-question-the-same-way"],
+        any_front_end_answers_the_servers_question_the_same_way,
+    ),
+    (
         "fellowship_membership_moves_the_cycle_and_the_tab",
         &["fellowship.membership.moves-the-tab-target-cycle-and-the-chat-tab"],
         fellowship_membership_moves_the_cycle_and_the_tab,
@@ -1490,4 +1495,132 @@ pub fn allegiance_login_becomes_a_chat_line() {
 #[test]
 fn scenario_allegiance_login_becomes_a_chat_line() {
     scenario("allegiance_login_becomes_a_chat_line");
+}
+
+// =============================================================================================
+// confirmation.*  -- the server's questions, whatever shows them
+// =============================================================================================
+
+/// A front end with boxes of its own: it shows whatever it is asked, and answers what the test
+/// tells it to.
+#[derive(Debug, Default)]
+struct Boxes {
+    shown: Vec<dereth_client_runtime::dialogs::Question>,
+    answers: BTreeMap<dereth_client_runtime::dialogs::QuestionId, Option<bool>>,
+}
+
+impl dereth_client_runtime::dialogs::DialogPresenter for Boxes {
+    fn accepting(&self) -> bool {
+        true
+    }
+    fn generation(&self) -> u64 {
+        1
+    }
+    fn open(&mut self, question: &dereth_client_runtime::dialogs::Question) -> bool {
+        self.shown.push(question.clone());
+        true
+    }
+    fn poll(
+        &mut self,
+        id: dereth_client_runtime::dialogs::QuestionId,
+    ) -> dereth_client_runtime::dialogs::Answer {
+        match self.answers.get(&id) {
+            Some(a) => dereth_client_runtime::dialogs::Answer::Closed(*a),
+            None => dereth_client_runtime::dialogs::Answer::Waiting,
+        }
+    }
+    fn close(&mut self, id: dereth_client_runtime::dialogs::QuestionId) {
+        self.shown.retain(|q| q.id != id);
+        self.answers.remove(&id);
+    }
+    fn deliver(&mut self, _request: UiRequest) {}
+}
+
+/// One pass of the dialog service with `boxes` as the front end, and what it sent.
+fn ask(
+    c: &mut HeadlessClient,
+    dialogs: &mut dereth_client_runtime::dialogs::DialogService,
+    boxes: &mut Boxes,
+) -> Vec<(i32, u32, i32)> {
+    let (inter, world) = c.interaction_and_world_mut();
+    dialogs.service(Some(boxes), inter, world, dereth_primitives::LocalTime(0.0));
+    inter
+        .take_pending_requests()
+        .into_iter()
+        .filter_map(|r| match r {
+            dereth_client_model::Request::ConfirmationResponse(m) => {
+                Some((m.confirmation_type, m.context_id, m.accepted))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn question(c: &mut HeadlessClient, confirmation_type: i32, context_id: u32, text: &str) {
+    c.when(Inbound::message(
+        &dereth_protocol::comms::CharacterConfirmationRequest {
+            confirmation_type,
+            context_id,
+            text: text.to_owned(),
+        },
+    ));
+}
+
+/// The server's question is asked and answered by the runtime's rules, so a front end with boxes
+/// of its own gets the client's behaviour: a Yes/No request reads as the server wrote it, a
+/// second question while one is up takes over the open box, the answer goes back either way, and
+/// a question the server withdraws is answered No on the way out.
+pub fn any_front_end_answers_the_servers_question_the_same_way() {
+    use dereth_client_runtime::dialogs::Prompt;
+
+    let mut c = HeadlessClient::model();
+    c.given(dereth_testkit::Given::APlayer(PLAYER));
+    let mut dialogs = dereth_client_runtime::dialogs::DialogService::default();
+    let mut boxes = Boxes::default();
+
+    question(&mut c, 7, 9, "Ready?");
+    let sent_on_asking = ask(&mut c, &mut dialogs, &mut boxes);
+    let one_modal_box = boxes.shown.len() == 1
+        && boxes.shown[0].modal
+        && boxes.shown[0].prompt == Prompt::Text("Ready?".to_owned());
+
+    // A second question while the first is up: nothing new is shown, and the open box now
+    // answers the second.
+    question(&mut c, 7, 10, "Again?");
+    ask(&mut c, &mut dialogs, &mut boxes);
+    let still_one = boxes.shown.len() == 1;
+    let first = boxes.shown[0].id;
+    boxes.answers.insert(first, Some(true));
+    let answered = ask(&mut c, &mut dialogs, &mut boxes);
+
+    // Another type gets " Continue?" after the server's words; withdrawing it answers No.
+    question(&mut c, 2, 11, "Raise it.");
+    ask(&mut c, &mut dialogs, &mut boxes);
+    let worded = boxes.shown.len() == 1
+        && boxes.shown[0].prompt == Prompt::Text("Raise it. Continue?".to_owned());
+    c.when(Inbound::message(
+        &dereth_protocol::comms::CharacterConfirmationDone {
+            confirmation_type: 2,
+            context_id: 11,
+        },
+    ));
+    let withdrawn = ask(&mut c, &mut dialogs, &mut boxes);
+
+    c.assert_behaviour(
+        "confirmation.any-front-end-answers-the-servers-question-the-same-way",
+        move |_| {
+            sent_on_asking.is_empty()
+                && one_modal_box
+                && still_one
+                && answered == vec![(7, 10, 1)]
+                && worded
+                && withdrawn == vec![(2, 11, 0)]
+                && boxes.shown.is_empty()
+        },
+    );
+}
+
+#[test]
+fn scenario_any_front_end_answers_the_servers_question_the_same_way() {
+    scenario("any_front_end_answers_the_servers_question_the_same_way");
 }

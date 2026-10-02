@@ -40,9 +40,29 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         a_whole_client_with_no_device_or_window,
     ),
     (
+        "any_front_end_logs_the_character_off_when_it_quits",
+        &["logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops"],
+        any_front_end_logs_the_character_off_when_it_quits,
+    ),
+    (
+        "any_front_end_tells_the_server_the_character_arrived",
+        &["login.arrival.any-front-end-tells-the-server-the-character-arrived"],
+        any_front_end_tells_the_server_the_character_arrived,
+    ),
+    (
+        "a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it",
+        &["login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it"],
+        a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it,
+    ),
+    (
         "entering_the_world_reaches_the_hud_from_the_wizard",
         &["login.enter-world.reaches-the-hud-from-the-wizard-as-well-as-from-character-select"],
         entering_the_world_reaches_the_hud_from_the_wizard,
+    ),
+    (
+        "every_front_end_follows_one_game_flow",
+        &["login.phase.every-front-end-follows-one-game-flow"],
+        every_front_end_follows_one_game_flow,
     ),
     (
         "two_bodies_cannot_share_one_id",
@@ -389,4 +409,339 @@ pub fn two_bodies_cannot_share_one_id() {
 #[test]
 fn scenario_two_bodies_cannot_share_one_id() {
     scenario("two_bodies_cannot_share_one_id");
+}
+
+// -------------------------------------------------------------------------------------------
+// login.arrival.any-front-end-tells-the-server-the-character-arrived
+// logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops
+// -------------------------------------------------------------------------------------------
+
+/// The character log-in-complete notification, the action that tells the server the character
+/// has arrived.
+const LOGIN_COMPLETE: u32 = 0x00A1;
+/// The character log-off message.
+const LOG_OFF: u32 = 0xF653;
+
+/// A front end with a UI and nothing else: it draws nothing, answers every question the frame
+/// asks with the default, and runs none of the game's per-frame duties itself. What it asks for
+/// it asks for through the runtime's request queue, as any front end may.
+#[derive(Debug, Default)]
+struct BareLayer;
+
+impl dereth_client_runtime::shell::Shell for BareLayer {
+    type Hud = dereth_client_runtime::shell::PlainHud;
+    type Present = dyn dereth_client_runtime::present::Presentation;
+
+    fn has_ui(&self) -> bool {
+        true
+    }
+}
+
+/// What a client did, frame by frame: everything it sent, and the game phase it was in.
+#[derive(Debug, Default)]
+struct Seen {
+    wire: dereth_testkit::wire::Wire,
+    phases: Vec<dereth_client_contract::pregame::GamePhase>,
+}
+
+impl Seen {
+    /// Take what the client sent this frame, and the phase it is in.
+    fn observe<S: dereth_client_runtime::shell::Shell>(
+        &mut self,
+        app: &mut dereth_client_runtime::app::App<S>,
+    ) {
+        let now = LocalTime(app.clock().local_time);
+        if let Some(net) = app.replay_network_mut() {
+            self.wire.ingest(&net.take_outgoing(), now);
+        }
+        let phase = app.host_state().phase.clone();
+        if self.phases.last() != Some(&phase) {
+            self.phases.push(phase);
+        }
+    }
+}
+
+/// A runtime client under front end `S`, with a UI when `ui`, over the retail dats and a simulated
+/// world, with no server yet.
+fn brought_up<S>(shell: &mut S, ui: bool) -> dereth_client_runtime::app::App<S>
+where
+    S: dereth_client_runtime::shell::Shell<
+        Present = dyn dereth_client_runtime::present::Presentation,
+    >,
+{
+    use dereth_client_runtime::app::{App, Platform};
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::present::Presentation;
+
+    let (w, h) = (800, 600);
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ui,
+        width: w,
+        height: h,
+        dat_dir: dereth_dat::testing::dat_dir(),
+        preferences_file: std::env::temp_dir()
+            .join("dereth-seam-login-not-created")
+            .join("prefs.ini"),
+        ..Config::default()
+    };
+    // The world is simulated with no device, so the body has cells to stand in: the arrival
+    // tunnel ends when the body stands in a loaded scene.
+    let mut app = App::<S>::bring_up(
+        cfg,
+        |_| Ok(Platform::headless(w, h)),
+        |_, _, _, _| {
+            Ok(
+                Box::new(dereth_client_runtime::sim_present::SimPresentation::new(
+                    w, h,
+                )) as Box<dyn Presentation>,
+            )
+        },
+    )
+    .expect("a headless client needs the retail dats under $DERETH_TEST_DAT_DIR");
+    app.start_shell(shell).expect("the front end starts");
+    app.defer_static_scene(dereth_client_runtime::scene::SceneConfig {
+        character: true,
+        ..dereth_client_runtime::scene::SceneConfig::default()
+    });
+    app
+}
+
+/// A runtime client under front end `S`, with a UI when `ui`, logged into the recorded session
+/// and standing in the world: the front end asked for the first character through
+/// `UiRequest::CharacterAction`, and the recording's server datagrams have been fed one per frame
+/// up to the one that created the character, and no further, because the recording goes on to
+/// log off. `seen` holds everything the client sent and every phase it went through.
+fn logged_in<S>(shell: &mut S, ui: bool, seen: &mut Seen) -> dereth_client_runtime::app::App<S>
+where
+    S: dereth_client_runtime::shell::Shell<
+        Present = dyn dereth_client_runtime::present::Presentation,
+    >,
+{
+    use dereth_client_contract::pregame::CharacterAction;
+    use dereth_client_contract::UiRequest;
+    use dereth_client_net::client_session::SessionState;
+
+    let mut app = brought_up(shell, ui);
+    let records = recording(FIRST_LOGIN);
+    app.attach_replay_network(endpoint(&records, "seam"))
+        .expect("a fresh client has no link");
+    let mut asked = false;
+    for r in records.iter().filter(|r| !r.c2s) {
+        let now = LocalTime(app.clock().local_time);
+        let net = app.replay_network_mut().expect("the endpoint is attached");
+        net.feed(&r.raw, r.peer(), now);
+        assert!(app.frame(shell), "the client stopped during the log-in");
+        seen.observe(&mut app);
+        let net = app.replay_network_mut().expect("the endpoint is attached");
+        if !asked && net.session_state() == SessionState::CharacterSelect {
+            let gid = net
+                .characters()
+                .characters
+                .first()
+                .expect("the recording's account has a character")
+                .gid;
+            app.submit_requests(vec![UiRequest::CharacterAction(CharacterAction::LogOn(
+                gid,
+            ))]);
+            asked = true;
+        }
+        if app.objects().player().is_some() {
+            break;
+        }
+    }
+    assert!(asked, "the recording reaches character select");
+    assert!(
+        app.objects().player().is_some(),
+        "the recording puts the character in the world"
+    );
+    app
+}
+
+/// Run `max` frames, feeding `seen` as they go. Answers whether the client was still running at
+/// the end.
+fn run_frames<S>(
+    app: &mut dereth_client_runtime::app::App<S>,
+    shell: &mut S,
+    seen: &mut Seen,
+    max: u32,
+) -> bool
+where
+    S: dereth_client_runtime::shell::Shell<
+        Present = dyn dereth_client_runtime::present::Presentation,
+    >,
+{
+    for _ in 0..max {
+        let running = app.frame(shell);
+        seen.observe(app);
+        if !running {
+            return false;
+        }
+    }
+    true
+}
+
+/// How many times `opcode` went out as an action.
+fn actions(wire: &dereth_testkit::wire::Wire, opcode: u32) -> usize {
+    wire.sub_types().iter().filter(|s| **s == opcode).count()
+}
+
+/// The runtime ticks the arrival tunnel whatever the front end does, so the server is told the
+/// character arrived by a front end that never heard of the tunnel and by one with no UI at all.
+pub fn any_front_end_tells_the_server_the_character_arrived() {
+    // Ten simulated seconds after the last recorded datagram: the tunnel is a few seconds long.
+    const FRAMES: u32 = 600;
+
+    let mut bare = BareLayer;
+    let mut seen = Seen::default();
+    let mut app = logged_in(&mut bare, true, &mut seen);
+    run_frames(&mut app, &mut bare, &mut seen, FRAMES);
+    let bare_sent = actions(&seen.wire, LOGIN_COMPLETE);
+    app.shutdown(&mut bare);
+
+    let mut null = dereth_client_runtime::shell::NullShell;
+    let mut seen = Seen::default();
+    let mut app = logged_in(&mut null, false, &mut seen);
+    run_frames(&mut app, &mut null, &mut seen, FRAMES);
+    let null_sent = actions(&seen.wire, LOGIN_COMPLETE);
+    app.shutdown(&mut null);
+
+    // Retail sends one or two, as the tunnel and the settling of the body fall: both are in the
+    // recorded sessions. What is asserted is that it goes out, and that the front end does not
+    // change how often.
+    assert!(
+        bare_sent >= 1 && bare_sent == null_sent,
+        "the arrival is reported under a bare front end ({bare_sent}) and under none ({null_sent}), the same number of times"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "login.arrival.any-front-end-tells-the-server-the-character-arrived",
+    );
+}
+
+#[test]
+fn scenario_any_front_end_tells_the_server_the_character_arrived() {
+    scenario("any_front_end_tells_the_server_the_character_arrived");
+}
+
+/// `UiRequest::Quit` from a front end with no epilogue screen of its own: the log-off goes out,
+/// and then the loop ends.
+pub fn any_front_end_logs_the_character_off_when_it_quits() {
+    let mut bare = BareLayer;
+    let mut seen = Seen::default();
+    let mut app = logged_in(&mut bare, true, &mut seen);
+    let before = seen.wire.messages().len();
+    app.submit_requests(vec![dereth_client_contract::UiRequest::Quit]);
+    let running = run_frames(&mut app, &mut bare, &mut seen, 10);
+    let after: Vec<u32> = seen.wire.messages()[before..].to_vec();
+    app.shutdown(&mut bare);
+    assert!(!running, "the client stops after a quit");
+    assert!(
+        after.contains(&LOG_OFF),
+        "the character's log-off went out before the client stopped: {after:08X?}"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops",
+    );
+}
+
+#[test]
+fn scenario_any_front_end_logs_the_character_off_when_it_quits() {
+    scenario("any_front_end_logs_the_character_off_when_it_quits");
+}
+
+// -------------------------------------------------------------------------------------------
+// login.phase.every-front-end-follows-one-game-flow
+// login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it
+// -------------------------------------------------------------------------------------------
+
+/// The recording whose server boots the account.
+const BOOTED: &str = "login-account-booted";
+
+/// The game phase is the runtime's: a front end that draws nothing and decides nothing goes from
+/// connecting to the character list, into the world and, after a quit, out of it, on the same
+/// edges the retail screens take; and the retail creation wizard is a phase of it.
+pub fn every_front_end_follows_one_game_flow() {
+    use dereth_client_contract::pregame::GamePhase;
+
+    let mut bare = BareLayer;
+    let mut seen = Seen::default();
+    let mut app = logged_in(&mut bare, true, &mut seen);
+    run_frames(&mut app, &mut bare, &mut seen, 600);
+    app.submit_requests(vec![dereth_client_contract::UiRequest::Quit]);
+    run_frames(&mut app, &mut bare, &mut seen, 10);
+    app.shutdown(&mut bare);
+    let order = |p: &GamePhase| seen.phases.iter().position(|q| q == p);
+    let (select, entering, world, leaving) = (
+        order(&GamePhase::CharacterSelect),
+        order(&GamePhase::EnteringWorld),
+        order(&GamePhase::InWorld),
+        order(&GamePhase::LoggingOff),
+    );
+    assert!(
+        seen.phases.first() == Some(&GamePhase::Connecting)
+            && select.is_some()
+            && select < entering
+            && entering < world
+            && world < leaving,
+        "the phases were {:?}",
+        seen.phases
+    );
+
+    // The retail wizard, with no server: the screen is up, so the phase is creation.
+    let mut c = HeadlessClient::new(ClientSpec::screen(dereth_ui::framework::mode::CHAR_GEN, 3));
+    let phase = c.view().expect_app().host_state().phase.clone();
+    c.shutdown();
+    assert_eq!(phase, GamePhase::CharacterCreation);
+    dereth_testkit::behaviours::note_asserted("login.phase.every-front-end-follows-one-game-flow");
+}
+
+#[test]
+fn scenario_every_front_end_follows_one_game_flow() {
+    scenario("every_front_end_follows_one_game_flow");
+}
+
+/// The runtime resolves why the session ended, so a front end that resolves nothing still shows
+/// the server's own reason for a boot.
+pub fn a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it() {
+    use dereth_client_contract::pregame::{DisconnectNotice, GamePhase};
+
+    let mut bare = BareLayer;
+    let mut seen = Seen::default();
+    let mut app = brought_up(&mut bare, true);
+    let records = recording(BOOTED);
+    app.attach_replay_network(endpoint(&records, "seam"))
+        .expect("a fresh client has no link");
+    for r in records.iter().filter(|r| !r.c2s) {
+        let now = LocalTime(app.clock().local_time);
+        app.replay_network_mut()
+            .expect("the endpoint is attached")
+            .feed(&r.raw, r.peer(), now);
+        if !app.frame(&mut bare) {
+            break;
+        }
+        seen.observe(&mut app);
+    }
+    run_frames(&mut app, &mut bare, &mut seen, 3);
+    let host = app.host_state().clone();
+    app.shutdown(&mut bare);
+    let Some(GamePhase::Disconnected(DisconnectNotice::Booted(reason))) = seen.phases.last() else {
+        panic!("the session did not end in a boot: {:?}", seen.phases);
+    };
+    assert_eq!(
+        host.error.as_deref(),
+        Some(
+            dereth_client_contract::disconnect::account_booted_message(reason.as_deref()).as_str()
+        ),
+        "the disconnected screen shows the boot's own sentence"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it",
+    );
+}
+
+#[test]
+fn scenario_a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it() {
+    scenario("a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it");
 }

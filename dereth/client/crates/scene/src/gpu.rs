@@ -17,19 +17,8 @@ pub use dereth_client_runtime::assets::FIRST_PIXEL_SURFACE;
 
 /// Which preview space. There are only ever a handful and they are named rather than
 /// allocated: `WorldView` has exactly one, and every char-gen page uses the same
-/// shared character-preview viewport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PreviewId {
-    /// The teleport tunnel's swirl.
-    Portal,
-    /// The character-generation turntable viewport.
-    CharGen,
-    /// The backpack panel's paper doll.
-    PaperDoll,
-    /// The identify window's portrait of the
-    /// appraised creature, hosted by `Viewport` `0x10000148`.
-    Examine,
-}
+/// shared character-preview viewport. The contract's, so any UI names the same four.
+pub use dereth_client_contract::overlay::PreviewSpace as PreviewId;
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 pub use imp::*;
@@ -51,6 +40,10 @@ mod imp {
     use dereth_render::{ui, DrawConstants, RenderError, ViewParams, ZFunc};
 
     use super::PreviewId;
+    use dereth_client_contract::overlay::{
+        OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler, OverlaySpace,
+        OverlayTexture, OverlayVertex,
+    };
 
     #[cfg(test)]
     use super::FIRST_PIXEL_SURFACE;
@@ -87,6 +80,11 @@ mod imp {
         /// aspect. It comes from the `Render.FieldOfView`
         /// preference; the preference system is not wired, so this is its 90-degree default.
         pub world_fov: f32,
+        /// The overlay's textures, by the key their front end chose. See [`Self::overlay_upload`].
+        // ORDER-OK: a lookup by key; nothing iterates it in an order anyone sees.
+        overlay_textures: std::collections::BTreeMap<OverlayTexture, TextureSlot>,
+        /// The overlay's three pipeline states, image / invert / text, built on first use.
+        overlay_pipelines: Option<[PipelineKey; 3]>,
     }
 
     /// A decoded retail surface and the six vertices that stretch it over the back buffer.
@@ -162,6 +160,8 @@ mod imp {
                 previews: std::collections::BTreeMap::new(),
                 world_fov: dereth_render::camera::DEFAULT_FOV_DEGREES
                     * dereth_render::camera::DEG_TO_RAD,
+                overlay_textures: std::collections::BTreeMap::new(),
+                overlay_pipelines: None,
             })
         }
 
@@ -629,7 +629,7 @@ mod imp {
             &self,
             id: dereth_primitives::ObjectId,
             ws: Option<&dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<dereth_ui_screens::hud::target::Projection> {
+        ) -> Option<dereth_client_contract::target::Projection> {
             if self.world_hidden {
                 return None;
             }
@@ -819,6 +819,216 @@ mod imp {
             self.gpu.wait_idle()
         }
     }
+
+    /// The overlay: any UI's textures and its drawing list. See `dereth_client_contract::overlay`.
+    impl SceneRenderer {
+        /// Upload an overlay texture, outside the frame bracket. An `Image` or `Glyphs` key is
+        /// shared through the device's keyed table, so a resident key is a hit; a `Local` key is
+        /// its own, so a resident one is released first and replaced.
+        ///
+        /// # Errors
+        /// The device's own.
+        pub fn overlay_upload(
+            &mut self,
+            texture: OverlayTexture,
+            data: &dereth_primitives::TextureData,
+        ) -> Result<(), RenderError> {
+            let slot = match texture.space {
+                OverlaySpace::Image | OverlaySpace::Glyphs => {
+                    if self.overlay_textures.contains_key(&texture) {
+                        return Ok(());
+                    }
+                    let key = if texture.space == OverlaySpace::Image {
+                        dereth_render::TextureKey::ui(texture.key)
+                    } else {
+                        dereth_render::TextureKey::font_sheet(texture.key)
+                    };
+                    self.gpu.upload_texture_keyed(key, data)?
+                }
+                OverlaySpace::Local => {
+                    if let Some(old) = self.overlay_textures.remove(&texture) {
+                        let _ = self.gpu.release_texture(old);
+                    }
+                    self.gpu.upload_texture(data)?
+                }
+            };
+            self.overlay_textures.insert(texture, slot);
+            Ok(())
+        }
+
+        /// The device slot an overlay texture is resident in, for a test that reads it back.
+        #[must_use]
+        pub fn overlay_slot(&self, texture: OverlayTexture) -> Option<TextureSlot> {
+            self.overlay_textures.get(&texture).copied()
+        }
+
+        /// Release an overlay texture.
+        pub fn overlay_release(&mut self, texture: OverlayTexture) -> OverlayReleased {
+            match self.overlay_textures.remove(&texture) {
+                None => OverlayReleased::Absent,
+                Some(slot) => match self.gpu.release_texture(slot) {
+                    dereth_render::descriptor::Released::Freed => OverlayReleased::Freed,
+                    dereth_render::descriptor::Released::StillLinked(_) => {
+                        OverlayReleased::StillLinked
+                    }
+                    dereth_render::descriptor::Released::Unknown => OverlayReleased::Unknown,
+                },
+            }
+        }
+
+        /// The UI's three pipeline states. **Image**: row 1 of the catalogue -- an opaque
+        /// textured surface -- with alpha blending on and the depth test off, matching the UI
+        /// renderer's own state. **Invert**: the same state with one substitution, a white source
+        /// under `INVDESTCOLOR`/`ZERO`, which leaves `1 - dest` in every colour channel.
+        /// **Text**: the texture-font material, whose colour op is `TEXOP_SELECTARG2` with arg2
+        /// `DIFFUSE`, so the colour comes entirely from the vertex and the sheet contributes only
+        /// coverage.
+        fn overlay_pipelines(&mut self) -> [PipelineKey; 3] {
+            if let Some(p) = self.overlay_pipelines {
+                return p;
+            }
+            let surf = Surface {
+                r#type: st::BASE1_IMAGE,
+                ..Surface::default()
+            };
+            let ctx = SurfaceContext {
+                vertex_format: VertexFormat::XyzDiffuseTex1,
+                ..SurfaceContext::default()
+            };
+            let (mut image, _) = PipelineKey::from_surface(&surf, ctx);
+            image.z_func = ZFunc::Always;
+            image.z_write = false;
+            image.alpha_blend = true;
+            image.src_blend = dereth_render::pso::Blend::SrcAlpha;
+            image.dst_blend = dereth_render::pso::Blend::InvSrcAlpha;
+            let mut invert = image;
+            invert.src_blend = dereth_render::pso::Blend::InvDestColor;
+            invert.dst_blend = dereth_render::pso::Blend::Zero;
+            let text = dereth_render::font::TextBatch::new().pipeline_key();
+            let p = [image, invert, text];
+            self.overlay_pipelines = Some(p);
+            p
+        }
+
+        /// Draw the overlay over the finished world, in order, inside the frame bracket. A batch
+        /// whose texture is not resident draws nothing; a preview space that does not exist or
+        /// holds no object draws nothing.
+        ///
+        /// # Errors
+        /// The device's own; the rest of the list is not drawn.
+        pub fn draw_overlay(&mut self, items: &[OverlayItem]) -> Result<(), RenderError> {
+            if items.is_empty() {
+                return Ok(());
+            }
+            let [image, invert, text] = self.overlay_pipelines();
+            let view = ViewParams::default();
+            let mut per_frame = PerFrameConstants::from_view(&view);
+            per_frame.view_proj = glam_identity();
+            per_frame.view = glam_identity();
+            for item in items {
+                match item {
+                    OverlayItem::Triangles {
+                        material,
+                        texture,
+                        sampler,
+                        vertices,
+                    } => {
+                        let Some(slot) = self.overlay_textures.get(texture).copied() else {
+                            continue;
+                        };
+                        let key = match material {
+                            OverlayMaterial::Image => image,
+                            OverlayMaterial::Invert => invert,
+                            OverlayMaterial::Text => text,
+                        };
+                        self.gpu.bind_texture(slot, overlay_sampler_index(*sampler));
+                        self.gpu.draw_dynamic(
+                            &key,
+                            &DrawConstants::default(),
+                            &per_frame,
+                            &PerDrawConstants::identity(),
+                            &overlay_vertex_bytes(vertices),
+                        )?;
+                    }
+                    OverlayItem::Preview { space, rect } => {
+                        let Some(preview) = self.previews.get(space) else {
+                            continue;
+                        };
+                        if preview.object_count() == 0 {
+                            continue;
+                        }
+                        preview.draw(&mut self.gpu, *rect, self.view_distance, self.world_fov)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// The device's sampler index for an overlay sampler: the UI's eight, POINT or LINEAR by
+    /// each pair of address modes (`ui::pixel_rules::ui_surface_sampler_axes`' table).
+    #[must_use]
+    pub fn overlay_sampler_index(s: OverlaySampler) -> u32 {
+        // Equal sizes and no rotation answer POINT; anything else answers LINEAR.
+        let size = if s.point { (1, 1) } else { (1, 2) };
+        ui::pixel_rules::ui_surface_sampler_axes((1, 1), size, false, (s.wrap_u, s.wrap_v))
+    }
+
+    #[cfg(test)]
+    mod overlay_tests {
+        use super::*;
+
+        /// Each of the UI's eight sampler indices is one overlay sampler: the filter and the two
+        /// address modes it names come back as that index.
+        #[test]
+        fn every_ui_sampler_is_exactly_one_overlay_sampler() {
+            let mut seen = Vec::new();
+            for point in [false, true] {
+                for wrap_u in [false, true] {
+                    for wrap_v in [false, true] {
+                        let s = OverlaySampler {
+                            point,
+                            wrap_u,
+                            wrap_v,
+                        };
+                        let i = overlay_sampler_index(s);
+                        let (u, v) = ui::pixel_rules::ui_sampler_address_modes(i);
+                        let wraps = |m: u32| m == ui::pixel_rules::TEXADDRESS_WRAP;
+                        assert_eq!((wraps(u), wraps(v)), (wrap_u, wrap_v), "{s:?} -> {i}");
+                        assert_eq!(
+                            ui::pixel_rules::ui_sampler_filter(i)
+                                == ui::pixel_rules::TEXFILTER_POINT,
+                            point,
+                            "{s:?} -> {i}"
+                        );
+                        seen.push(i);
+                    }
+                }
+            }
+            seen.sort_unstable();
+            assert_eq!(seen, (0..8).collect::<Vec<u32>>());
+            assert_eq!(
+                overlay_sampler_index(OverlaySampler::POINT_CLAMP),
+                ui::pixel_rules::UI_GLYPH_SAMPLER
+            );
+        }
+    }
+
+    /// The overlay's vertices as the 24-byte `XYZ | DIFFUSE | TEX1` records the device draws.
+    #[must_use]
+    pub fn overlay_vertex_bytes(vertices: &[OverlayVertex]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(vertices.len() * 24);
+        for v in vertices {
+            for c in v.position {
+                out.extend_from_slice(&c.to_le_bytes());
+            }
+            out.extend_from_slice(&v.color.to_le_bytes());
+            out.extend_from_slice(&v.uv[0].to_le_bytes());
+            out.extend_from_slice(&v.uv[1].to_le_bytes());
+        }
+        out
+    }
+
     /// The identity matrix in the column-major array `PerFrameConstants` holds. The quad's vertices
     /// are already in clip space, exactly as `D3DFVF_XYZRHW` geometry would be.
     #[must_use]

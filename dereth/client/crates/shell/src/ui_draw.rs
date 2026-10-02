@@ -30,6 +30,8 @@ use dereth_ui::region::{IconRecipe, SurfaceOp};
 use dereth_ui::text::PlacedGlyph;
 use dereth_ui::UiDrawCmd;
 
+use dereth_client_contract::overlay::{OverlaySpace, OverlayTexture, OverlayVertex};
+
 /// `D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1` (0x142): float3 position, `D3DCOLOR` diffuse,
 /// float2 uv — 24 bytes, the format emits its two triangles in.
 pub const UI_VERTEX_BYTES: usize = 24;
@@ -393,6 +395,59 @@ pub fn image_key(id: DataId, op: Option<SurfaceOp>) -> dereth_render::TextureKey
         }
     };
     dereth_render::TextureKey::ui(dereth_render::combined_texture_key(half, id.0))
+}
+
+/// A UI image and its operation as an overlay texture: [`image_key`]'s payload, in the overlay's
+/// shared image space.
+#[must_use]
+pub fn image_texture(id: DataId, op: Option<SurfaceOp>) -> OverlayTexture {
+    OverlayTexture {
+        space: OverlaySpace::Image,
+        key: image_key(id, op).raw(),
+    }
+}
+
+/// A font's glyph sheet (`pass` 0) or outline sheet (`pass` 1) as an overlay texture: the same
+/// payload `dereth_render::TextureKey::font` carries.
+#[must_use]
+pub fn glyph_texture(pass: u32, font: DataId) -> OverlayTexture {
+    OverlayTexture {
+        space: OverlaySpace::Glyphs,
+        key: dereth_render::TextureKey::font(pass, font.0).raw(),
+    }
+}
+
+/// The one white texel the flat fills and the selection inverts sample: the UI's own, shared with
+/// nothing.
+pub const WHITE_TEXEL: OverlayTexture = OverlayTexture {
+    space: OverlaySpace::Local,
+    key: u64::MAX,
+};
+
+/// The intro movie's current frame for image `id`: the UI's own, replaced every frame.
+#[must_use]
+pub fn movie_texture(id: DataId) -> OverlayTexture {
+    OverlayTexture {
+        space: OverlaySpace::Local,
+        key: u64::from(id.0),
+    }
+}
+
+/// [`UI_VERTEX_BYTES`]-byte vertex records as the overlay's vertices: the same position, colour and
+/// texture coordinate, read back bit for bit.
+#[must_use]
+pub fn overlay_vertices(bytes: &[u8]) -> Vec<OverlayVertex> {
+    let f = |b: &[u8], at: usize| f32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+    bytes
+        .as_chunks::<UI_VERTEX_BYTES>()
+        .0
+        .iter()
+        .map(|v| OverlayVertex {
+            position: [f(v, 0), f(v, 4), f(v, 8)],
+            color: u32::from_le_bytes([v[12], v[13], v[14], v[15]]),
+            uv: [f(v, 16), f(v, 20)],
+        })
+        .collect()
 }
 
 /// Compose the drag and base icon surfaces against decoded dat surfaces rather than a locked
@@ -1160,6 +1215,26 @@ mod tests {
             invert: Vec::new(),
             fills: Vec::new(),
         }
+    }
+
+    /// The overlay's vertices are the device's 24-byte records read back bit for bit, so a list
+    /// lowered onto the overlay and packed again draws the bytes it was lowered from.
+    #[test]
+    fn overlay_vertices_are_the_device_records_bit_for_bit() {
+        let c = cmd(Box2D::new(10, 20, 73, 51), Box2D::new(0, 0, 799, 599));
+        let q = quad(&c, (800, 600), (16, 16)).expect("a visible quad");
+        let v = overlay_vertices(&q.vertices);
+        assert_eq!(v.len(), 6);
+        let mut packed = Vec::new();
+        for x in &v {
+            for c in x.position {
+                packed.extend_from_slice(&c.to_le_bytes());
+            }
+            packed.extend_from_slice(&x.color.to_le_bytes());
+            packed.extend_from_slice(&x.uv[0].to_le_bytes());
+            packed.extend_from_slice(&x.uv[1].to_le_bytes());
+        }
+        assert_eq!(packed, q.vertices);
     }
 
     /// A one pixel fill covers exactly one pixel of clip space.

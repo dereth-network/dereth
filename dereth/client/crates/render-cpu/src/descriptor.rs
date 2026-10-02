@@ -191,6 +191,16 @@ impl TextureKey {
         }
     }
 
+    /// A font sheet by its already-combined payload, `combined_texture_key(pass, font DID)`: the
+    /// form an overlay's glyph-sheet key carries. Equal to [`Self::font`] of the same pair.
+    #[must_use]
+    pub const fn font_sheet(key: u64) -> Self {
+        Self {
+            space: TextureSpace::Font,
+            key,
+        }
+    }
+
     /// Which producer built it.
     #[must_use]
     pub const fn space(self) -> TextureSpace {

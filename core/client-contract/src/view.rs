@@ -1437,6 +1437,14 @@ pub enum UiRequest {
     OpenUrl(&'static str),
     /// Shut down the device — the epilogue screen's only job.
     DeviceDone,
+    /// The player opened (`true`) or closed (`false`) character creation: the one game phase a UI
+    /// enters by asking (`crate::pregame::GamePhase::CharacterCreation`).
+    CharacterCreation(bool),
+    /// Leave the game: end the character session and then shut down, what the epilogue screen's
+    /// [`Self::EndCharacterSession`] and [`Self::DeviceDone`] do between them, with no screen in
+    /// between. Without the character session's end the account stays logged in on the server
+    /// until its own timeout.
+    Quit,
     /// A player-session operation the character-management screen asks for (log on, delete,
     /// restore). The screen has no session; the UI shell's request drain routes it to the host's
     /// character-action queue, in emission order.

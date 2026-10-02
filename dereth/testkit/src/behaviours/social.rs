@@ -309,6 +309,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "confirmation.any-front-end-answers-the-servers-question-the-same-way",
+        says: "The server's question is asked and answered the same way whatever shows it: a plain \
+               Yes/No question reads as the server wrote it and the others end in \" Continue?\", \
+               a second question while one is up takes over the open box rather than opening \
+               another, the answer goes back whether it is yes or no, and a question the server \
+               withdraws is answered no on the way out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SEAM-DIALOGS"),
+        station: "dereth-testkit::cpu::social::scenario_any_front_end_answers_the_servers_question_the_same_way",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "fellowship.buttons.a-leader-who-leaves-hands-the-lead-on-first",
         says: "A leader who leaves his fellowship hands the lead to somebody else before he goes, in \
                that order and in the same breath, so the fellowship is never left without one. A \

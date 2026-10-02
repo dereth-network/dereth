@@ -1913,19 +1913,6 @@ impl dereth_client_model::NoticeSink for Notices {
 }
 
 impl Interaction {
-    /// Drop the callback-dialog requests no UI will ever show: the queues a dialog subscriber
-    /// drains before it knows whether there is a screen to show them on. A question nobody can see
-    /// is never answered, and a UI that comes up later must not show an old one.
-    pub fn discard_unshown_dialogs(&mut self) {
-        let _ = self.take_usage_confirmations();
-        let _ = self.take_targeted_confirmations();
-        let _ = self.take_vendor_close_confirmations();
-        let _ = self.take_house_payment_confirmations();
-        let _ = self.take_server_confirmations();
-        let _ = self.take_confirmation_aborts();
-        let _ = self.take_fellowship_requests();
-    }
-
     pub fn take_usage_confirmations(
         &mut self,
     ) -> Vec<(
@@ -4105,8 +4092,8 @@ impl Interaction {
                 }
                 // The chat-focus enable notice carries `(n, on)` and is raised by the
                 // allegiance panel's three data-update tails. The write lands on the one
-                // `ChatState`; its `TalkFocusNotice` then reaches the menu row through
-                // `deliver_chat_focus_notices`, the same path `0x0295 ChatRoomTracker` and the
+                // `ChatState`; its `TalkFocusNotice` then reaches the menu row as a talk-focus
+                // notice offered to the UI, the same path `0x0295 ChatRoomTracker` and the
                 // fellowship messages already take. Nothing is sent.
                 UiRequest::SetTalkFocusEnabled { focus, enabled } => {
                     if let Some(focus) = dereth_client_model::chat::TalkFocus::from_raw(focus) {

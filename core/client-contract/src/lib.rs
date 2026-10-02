@@ -39,6 +39,8 @@ pub mod combat_notice;
 /// dialog engine.
 pub mod confirmation;
 pub mod ctime;
+/// What a disconnect says, whatever UI shows it.
+pub mod disconnect;
 /// `PlayerModule`'s window-placement blob, shared with `dereth_ui_screens::hud::floaty`.
 /// `dereth_client::hud` owns the blob.
 pub mod floaty;
@@ -59,6 +61,8 @@ pub mod notices;
 /// The option *data*: the preference value store, the choice tables and the two const tables it
 /// registers from. `dereth_ui_screens::options` re-exports each item.
 pub mod options;
+/// The overlay any UI draws over the world, as a presentation draws it.
+pub mod overlay;
 /// The panel seam shared with `dereth_ui_screens::panels`: the property
 /// keys, tables, notices and formulas the world half of the client has to agree with a panel
 /// about. The panels themselves stay in the UI.
@@ -85,6 +89,8 @@ pub mod sampler;
 pub mod snapshot;
 pub mod spellbook;
 pub mod statmgmt;
+/// Where the selected object stands on screen.
+pub mod target;
 /// The world-view teleport / portal animation model, which
 /// `dereth_ui_screens::screens::teleport` re-exports.
 pub mod teleport;

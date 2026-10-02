@@ -31,13 +31,13 @@ mod imp {
     use std::path::Path;
 
     use dereth_primitives::{AssetSource, DataId};
-    use dereth_render::device::{PerDrawConstants, PerFrameConstants, TextureSlot, WindowHandles};
-    use dereth_render::pso::{PipelineKey, SurfaceContext};
-    use dereth_render::surface::{surface_type as st, Surface};
-    use dereth_render::vertex::VertexFormat;
-    use dereth_render::{ui, DrawConstants, RenderError, ViewParams, ZFunc};
+    use dereth_render::device::WindowHandles;
+    use dereth_render::{ui, RenderError};
 
     use super::{PreviewId, SceneRenderer, UiReleaseReport};
+    use dereth_client_contract::overlay::{
+        OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler, OverlayTexture,
+    };
 
     /// The scene's renderer and the UI drawn over it.
     ///
@@ -60,22 +60,13 @@ mod imp {
         #[allow(clippy::type_complexity)] // a one-off tuple, named where it is read
         ui_textures: std::collections::BTreeMap<
             (DataId, Option<dereth_ui::region::SurfaceOp>),
-            Option<(TextureSlot, (u32, u32))>,
+            Option<(OverlayTexture, (u32, u32))>,
         >,
-        /// The PSO the UI blit uses, built once. Row 1 of the surface catalogue with alpha
-        /// blending on: blits `SRCALPHA/INVSRCALPHA` with the depth test
-        /// off, because the UI is a 2D overlay over a finished frame.
-        ui_key: Option<PipelineKey>,
-        /// The PSO becomes here: the UI blit's state with
-        /// `INVDESTCOLOR`/`ZERO` instead of `SRCALPHA`/`INVSRCALPHA`, so a white quad leaves
-        /// `dest' = 1 * (1 - dest) + 0 * dest` — the per-channel complement the client writes with
-        /// `~*p & (r|g|b)`. Built once, beside [`Self::ui_key`].
-        ui_invert_key: Option<PipelineKey>,
         /// One opaque white texel, so a flat-colour fill can go through the same
         /// `TEXOP_MODULATE(TEXTURE, diffuse)` pipeline as every other UI quad and come out as the
         /// vertex colour. A fill has no source image at all, and
         /// this is the shortest honest way to say that with a texturing pipeline.
-        ui_white: Option<TextureSlot>,
+        ui_white: Option<OverlayTexture>,
         /// One 256x256 `A8R8G8B8` atlas per distinct font DataID, plus its SRV slot --
         /// The reference client builds one per font too and keeps it for the life of the device. `None`
         /// records a font that would not load, so a broken id costs one failed read.
@@ -85,8 +76,8 @@ mod imp {
             DataId,
             Option<(
                 dereth_render::font::FontAtlas,
-                TextureSlot,
-                Option<TextureSlot>,
+                OverlayTexture,
+                Option<OverlayTexture>,
             )>,
         >,
         /// What [`Renderer::set_movie_frame`]'s per-frame releases have done. `unknown`
@@ -152,8 +143,6 @@ mod imp {
             Self {
                 device,
                 ui_textures: std::collections::BTreeMap::new(),
-                ui_key: None,
-                ui_invert_key: None,
                 ui_white: None,
                 ui_fonts: std::collections::BTreeMap::new(),
                 ui_release: UiReleaseReport::default(),
@@ -220,12 +209,15 @@ mod imp {
                     // the original combined-texture cache. A UI image has no
                     // palette, so the palette half of the key is 0 and the key is the image id.
                     Ok(data) => match self
-                        .gpu
-                        .upload_texture_keyed(crate::ui_draw::image_key(id, op), &data)
+                        .device
+                        .overlay_upload(crate::ui_draw::image_texture(id, op), &data)
                     {
-                        Ok(s) => {
+                        Ok(()) => {
                             self.ui_stats.uploaded += 1;
-                            Some((s, (data.width, data.height)))
+                            Some((
+                                crate::ui_draw::image_texture(id, op),
+                                (data.width, data.height),
+                            ))
                         }
                         Err(e) => {
                             tracing::warn!("UI texture {id:?} would not upload: {e}");
@@ -269,10 +261,13 @@ mod imp {
                 format: dereth_primitives::TextureFormat::Bgra8,
                 levels: vec![vec![0xFF, 0xFF, 0xFF, 0xFF]],
             };
-            match self.device.gpu.upload_texture(&data) {
-                Ok(slot) => {
+            match self
+                .device
+                .overlay_upload(crate::ui_draw::WHITE_TEXEL, &data)
+            {
+                Ok(()) => {
                     self.ui_stats.uploaded += 1;
-                    self.ui_white = Some(slot);
+                    self.ui_white = Some(crate::ui_draw::WHITE_TEXEL);
                 }
                 Err(e) => tracing::warn!("the UI fill texel would not upload: {e}"),
             }
@@ -316,23 +311,19 @@ mod imp {
                                     format: dereth_primitives::TextureFormat::Bgra8,
                                     levels: vec![px],
                                 });
-                        match self
-                            .gpu
-                            // The font sheets are their own key space. `(0, font DID)`
-                            // is exactly the shape an unpalettised world texture keys on, and a
-                            // font DID and a `RenderSurface` DID are two ids out of one dat.
-                            .upload_texture_keyed(dereth_render::TextureKey::font(0, did.0), &data)
-                        {
-                            Ok(slot) => {
+                        // The font sheets are their own key space. `(0, font DID)`
+                        // is exactly the shape an unpalettised world texture keys on, and a
+                        // font DID and a `RenderSurface` DID are two ids out of one dat.
+                        let sheet = crate::ui_draw::glyph_texture(0, did);
+                        match self.device.overlay_upload(sheet, &data) {
+                            Ok(()) => {
                                 self.ui_stats.fonts_baked += 1;
-                                let outline_slot = outline_data.and_then(|d| {
-                                    match self.gpu.upload_texture_keyed(
-                                        dereth_render::TextureKey::font(1, did.0),
-                                        &d,
-                                    ) {
-                                        Ok(o) => {
+                                let outline_sheet = outline_data.and_then(|d| {
+                                    let outline = crate::ui_draw::glyph_texture(1, did);
+                                    match self.device.overlay_upload(outline, &d) {
+                                        Ok(()) => {
                                             self.ui_stats.font_outlines_baked += 1;
-                                            Some(o)
+                                            Some(outline)
                                         }
                                         Err(e) => {
                                             tracing::warn!(
@@ -344,7 +335,7 @@ mod imp {
                                         }
                                     }
                                 });
-                                Some((atlas, slot, outline_slot))
+                                Some((atlas, sheet, outline_sheet))
                             }
                             Err(e) => {
                                 tracing::warn!("font atlas {did:?} would not upload: {e}");
@@ -368,17 +359,28 @@ mod imp {
         /// Called **between the 3D scene and** `EndScene`/`Present`, which is where the client
         /// draws it: the UI is composited over a finished 3D frame with the depth test off.
         ///
+        /// The draw list is lowered onto the presentation's overlay ([`Self::overlay_items`]) and
+        /// the overlay is what the device draws, so the retail UI draws through the same call any
+        /// other UI does.
+        ///
         /// # Errors
         /// Any failure from the runtime.
         pub fn draw_ui(&mut self, cmds: &[dereth_ui::UiDrawCmd]) -> Result<(), RenderError> {
-            // Taken rather than borrowed: the preview pass below needs `&mut self.device.gpu`
-            // and `&self.device.previews` at once, and draining here also guarantees a queue entry for an
-            // element that turned out not to be drawn is dropped rather than carried into the next
-            // frame.
+            let items = self.overlay_items(cmds);
+            self.device.draw_overlay(&items)
+        }
+
+        /// The retail draw list as the overlay draws it: each command's own blit, its fills, the
+        /// preview spaces it hosts, its glyphs (outline pass first) and its selection inverts, in
+        /// that order, with the counters the report reads counted as each is lowered.
+        pub fn overlay_items(&mut self, cmds: &[dereth_ui::UiDrawCmd]) -> Vec<OverlayItem> {
+            // Taken rather than borrowed: draining here guarantees a queue entry for an element
+            // that turned out not to be drawn is dropped rather than carried into the next frame.
             let previews = std::mem::take(&mut self.preview_draws);
             let mut drawn_previews: Vec<dereth_ui::ElemHandle> = Vec::new();
+            let mut items = Vec::new();
             if cmds.is_empty() {
-                return Ok(());
+                return items;
             }
             // A preview viewport that is **transparent** and carries no glyphs and no fills
             // emits no `UiDrawCmd` at all (`UiSystem::draw_region`'s
@@ -392,76 +394,16 @@ mod imp {
                 .iter()
                 .filter(|(w, _, _)| !cmds.iter().any(|c| c.who == *w))
             {
-                let Some(space) = self.device.previews.get(id) else {
-                    continue;
-                };
-                if space.object_count() == 0 {
-                    self.ui_stats.previews_empty += 1;
-                    continue;
-                }
-                space.draw(
-                    &mut self.device.gpu,
-                    *rect,
-                    self.device.view_distance,
-                    self.device.world_fov,
-                )?;
-                self.ui_stats.previews_drawn += 1;
+                self.lower_preview(*id, *rect, &mut items);
             }
             let fb = self.device.gpu.size();
-            let key = match self.ui_key {
-                Some(k) => k,
-                None => {
-                    // Row 1 of the catalogue -- an opaque textured surface -- with alpha blending
-                    // on and the depth test off, matching the UI renderer's own state.
-                    let surf = Surface {
-                        r#type: st::BASE1_IMAGE,
-                        ..Surface::default()
-                    };
-                    let ctx = SurfaceContext {
-                        vertex_format: VertexFormat::XyzDiffuseTex1,
-                        ..SurfaceContext::default()
-                    };
-                    let (mut k, _) = PipelineKey::from_surface(&surf, ctx);
-                    k.z_func = ZFunc::Always;
-                    k.z_write = false;
-                    k.alpha_blend = true;
-                    k.src_blend = dereth_render::pso::Blend::SrcAlpha;
-                    k.dst_blend = dereth_render::pso::Blend::InvSrcAlpha;
-                    self.ui_key = Some(k);
-                    k
-                }
-            };
-            // The selection invert is a *pixel op* on the element's own surface, not a blit, so it is the same state with one substitution: a white
-            // source under `INVDESTCOLOR`/`ZERO` leaves `1 - dest` in every colour channel.
-            let invert_key = match self.ui_invert_key {
-                Some(k) => k,
-                None => {
-                    let mut k = key;
-                    k.src_blend = dereth_render::pso::Blend::InvDestColor;
-                    k.dst_blend = dereth_render::pso::Blend::Zero;
-                    self.ui_invert_key = Some(k);
-                    k
-                }
-            };
-            // The texture-font material differs from the
-            // UI quad's in exactly one place: the colour op is `TEXOP_SELECTARG2` with arg2
-            // `DIFFUSE`, so **the colour comes entirely from the vertex** and the atlas contributes
-            // only coverage through an alpha op of `MODULATE`. That is what makes one white atlas
-            // draw text in every colour.
-            let text_key = dereth_render::font::TextBatch::new().pipeline_key();
-
-            let view = ViewParams::default();
-            let mut per_frame = PerFrameConstants::from_view(&view);
-            per_frame.view_proj = dereth_scene::gpu::glam_identity();
-            per_frame.view = dereth_scene::gpu::glam_identity();
-
             for cmd in cmds {
                 // Step 6 `DrawSelf`: the element's own blit first, then the glyphs it composes over
                 // it. Both belong to this element and both precede the next command, which is what
                 // keeps the whole overlay in order.
                 if let Some(id) = cmd.image {
                     match self.ui_textures.get(&(id, cmd.image_op)).copied() {
-                        Some(Some((slot, physical))) => {
+                        Some(Some((texture, physical))) => {
                             match crate::ui_draw::quad(cmd, fb, physical) {
                                 Some(crate::ui_draw::UiQuad { vertices, wrap }) => {
                                     // The client's sampler choice is not constant: the element's
@@ -518,21 +460,23 @@ mod imp {
                                     if tiles {
                                         self.ui_stats.blits_tiled += 1;
                                     }
-                                    if ui::pixel_rules::ui_sampler_filter(sampler)
-                                        == ui::pixel_rules::TEXFILTER_POINT
-                                    {
+                                    let point = ui::pixel_rules::ui_sampler_filter(sampler)
+                                        == ui::pixel_rules::TEXFILTER_POINT;
+                                    if point {
                                         self.ui_stats.blits_unscaled += 1;
                                     } else {
                                         self.ui_stats.blits_scaled += 1;
                                     }
-                                    self.device.gpu.bind_texture(slot, sampler);
-                                    self.device.gpu.draw_dynamic(
-                                        &key,
-                                        &DrawConstants::default(),
-                                        &per_frame,
-                                        &PerDrawConstants::identity(),
-                                        &vertices,
-                                    )?;
+                                    items.push(OverlayItem::Triangles {
+                                        material: OverlayMaterial::Image,
+                                        texture,
+                                        sampler: OverlaySampler {
+                                            point,
+                                            wrap_u: wrap.0,
+                                            wrap_v: wrap.1,
+                                        },
+                                        vertices: crate::ui_draw::overlay_vertices(&vertices),
+                                    });
                                     self.ui_stats.quads_drawn += 1;
                                 }
                                 None => self.ui_stats.clipped_away += 1,
@@ -567,19 +511,16 @@ mod imp {
                             // the same value at every sample and this **cannot change a pixel**.
                             // It is the census agreeing with the client's own choice, not a
                             // repair; the UI sampler tests assert both halves.
+                            //
                             // A fill has no graphic at all, so the graphic
                             // tiling arm cannot be reached and the address mode is
                             // CLAMP by the same construction that makes the filter POINT.
-                            let sampler =
-                                ui::pixel_rules::ui_surface_sampler((1, 1), (1, 1), false, false);
-                            self.device.gpu.bind_texture(white, sampler);
-                            self.device.gpu.draw_dynamic(
-                                &key,
-                                &DrawConstants::default(),
-                                &per_frame,
-                                &PerDrawConstants::identity(),
-                                &vertices,
-                            )?;
+                            items.push(OverlayItem::Triangles {
+                                material: OverlayMaterial::Image,
+                                texture: white,
+                                sampler: OverlaySampler::POINT_CLAMP,
+                                vertices: crate::ui_draw::overlay_vertices(&vertices),
+                            });
                             self.ui_stats.fills_drawn += 1;
                         }
                         None => self.ui_stats.fills_clipped += 1,
@@ -595,20 +536,7 @@ mod imp {
                 // not once per blit.
                 if !drawn_previews.contains(&cmd.who) {
                     for (_, id, rect) in previews.iter().filter(|(w, _, _)| *w == cmd.who) {
-                        let Some(space) = self.device.previews.get(id) else {
-                            continue;
-                        };
-                        if space.object_count() == 0 {
-                            self.ui_stats.previews_empty += 1;
-                            continue;
-                        }
-                        space.draw(
-                            &mut self.device.gpu,
-                            *rect,
-                            self.device.view_distance,
-                            self.device.world_fov,
-                        )?;
-                        self.ui_stats.previews_drawn += 1;
+                        self.lower_preview(*id, *rect, &mut items);
                     }
                     drawn_previews.push(cmd.who);
                 }
@@ -624,7 +552,7 @@ mod imp {
                     continue;
                 };
                 for (font, run) in crate::ui_draw::font_runs(&cmd.glyphs) {
-                    let Some(Some((atlas, slot, outline_slot))) = self.ui_fonts.get(&font) else {
+                    let Some(Some((atlas, sheet, outline_sheet))) = self.ui_fonts.get(&font) else {
                         self.ui_stats.glyphs_skipped += run.len() as u64;
                         continue;
                     };
@@ -641,8 +569,8 @@ mod imp {
                         let (verts, arm, dropped) =
                             crate::ui_draw::outline_vertices(atlas, run, outline_colour, clip, fb);
                         let tex = match arm {
-                            crate::ui_draw::OutlineArm::BackgroundSheet => *outline_slot,
-                            crate::ui_draw::OutlineArm::Neighbourhood => Some(*slot),
+                            crate::ui_draw::OutlineArm::BackgroundSheet => *outline_sheet,
+                            crate::ui_draw::OutlineArm::Neighbourhood => Some(*sheet),
                         };
                         match arm {
                             crate::ui_draw::OutlineArm::BackgroundSheet => {
@@ -658,19 +586,15 @@ mod imp {
                                 // The same POINT/CLAMP sampler the foreground pass uses: the
                                 // outline blit uses the same integer source rectangle too: one
                                 // destination pixel to one source texel, only dilated.
-                                self.device
-                                    .gpu
-                                    .bind_texture(tex, ui::pixel_rules::UI_GLYPH_SAMPLER);
                                 self.ui_stats.outline_draws += 1;
-                                self.device.gpu.draw_dynamic(
-                                    &text_key,
-                                    &DrawConstants::default(),
-                                    &per_frame,
-                                    &PerDrawConstants::identity(),
-                                    &verts,
-                                )?;
                                 self.ui_stats.outline_glyphs_drawn +=
                                     (verts.len() / crate::ui_draw::UI_VERTEX_BYTES / 6) as u64;
+                                items.push(OverlayItem::Triangles {
+                                    material: OverlayMaterial::Text,
+                                    texture: tex,
+                                    sampler: OverlaySampler::POINT_CLAMP,
+                                    vertices: crate::ui_draw::overlay_vertices(&verts),
+                                });
                             }
                             // An element asked for an outline the font cannot draw: the
                             // background sheet would not decode or would not upload. Tolerated
@@ -683,7 +607,6 @@ mod imp {
                     if vertices.is_empty() {
                         continue;
                     }
-                    let slot = *slot;
                     // The client's font material sets both minification and
                     // magnification filters to `TEXFILTER_POINT`, and both address modes to
                     // `TEXADDRESS_CLAMP`, overriding the device default of LINEAR/WRAP. That is
@@ -692,19 +615,15 @@ mod imp {
                     // texel on one pixel in integers, so at the shipped placement the two agree
                     // exactly -- and a half-pixel error is 0 px under POINT and 256 under LINEAR.
                     // **The geometry is not adjusted to compensate; only the sampler changed.**
-                    self.device
-                        .gpu
-                        .bind_texture(slot, ui::pixel_rules::UI_GLYPH_SAMPLER);
                     self.ui_stats.glyph_draws += 1;
-                    self.device.gpu.draw_dynamic(
-                        &text_key,
-                        &DrawConstants::default(),
-                        &per_frame,
-                        &PerDrawConstants::identity(),
-                        &vertices,
-                    )?;
                     self.ui_stats.glyphs_drawn +=
                         (vertices.len() / crate::ui_draw::UI_VERTEX_BYTES / 6) as u64;
+                    items.push(OverlayItem::Triangles {
+                        material: OverlayMaterial::Text,
+                        texture: *sheet,
+                        sampler: OverlaySampler::POINT_CLAMP,
+                        vertices: crate::ui_draw::overlay_vertices(&vertices),
+                    });
                 }
                 // **The element draw's selection arm, and it comes after the glyphs.**
                 // Retail inverts each selected glyph's cell immediately after drawing the character
@@ -720,23 +639,38 @@ mod imp {
                         Some(vertices) => {
                             // One white texel under CLAMP, exactly as a fill: the quad carries no
                             // picture and the blend does all the work.
-                            let sampler =
-                                ui::pixel_rules::ui_surface_sampler((1, 1), (1, 1), false, false);
-                            self.device.gpu.bind_texture(white, sampler);
-                            self.device.gpu.draw_dynamic(
-                                &invert_key,
-                                &DrawConstants::default(),
-                                &per_frame,
-                                &PerDrawConstants::identity(),
-                                &vertices,
-                            )?;
+                            items.push(OverlayItem::Triangles {
+                                material: OverlayMaterial::Invert,
+                                texture: white,
+                                sampler: OverlaySampler::POINT_CLAMP,
+                                vertices: crate::ui_draw::overlay_vertices(&vertices),
+                            });
                             self.ui_stats.inverts_drawn += 1;
                         }
                         None => self.ui_stats.inverts_clipped += 1,
                     }
                 }
             }
-            Ok(())
+            items
+        }
+
+        /// A queued preview space at this point in the overlay, counted as drawn or as empty. A
+        /// space that was never built is neither, as before.
+        fn lower_preview(
+            &mut self,
+            id: PreviewId,
+            rect: dereth_render::camera::Viewport,
+            items: &mut Vec<OverlayItem>,
+        ) {
+            let Some(space) = self.device.previews.get(&id) else {
+                return;
+            };
+            if space.object_count() == 0 {
+                self.ui_stats.previews_empty += 1;
+                return;
+            }
+            items.push(OverlayItem::Preview { space: id, rect });
+            self.ui_stats.previews_drawn += 1;
         }
 
         /// The intro movie's current frame, as the UI image `id` names.
@@ -753,24 +687,25 @@ mod imp {
         /// a release inside an open frame is parked against that frame's fence and the slot is not
         /// reusable until it passes.
         pub fn set_movie_frame(&mut self, id: DataId, t: &dereth_primitives::TextureData) {
-            if let Some(Some((slot, _))) = self.ui_textures.get(&(id, None)).copied() {
-                match self.device.gpu.release_texture(slot) {
-                    dereth_render::descriptor::Released::Freed => self.ui_release.freed += 1,
-                    dereth_render::descriptor::Released::StillLinked(_) => {
-                        self.ui_release.still_linked += 1;
+            if let Some(Some((texture, _))) = self.ui_textures.get(&(id, None)).copied() {
+                match self.device.overlay_release(texture) {
+                    OverlayReleased::Freed => self.ui_release.freed += 1,
+                    OverlayReleased::StillLinked => self.ui_release.still_linked += 1,
+                    OverlayReleased::Unknown | OverlayReleased::Absent => {
+                        self.ui_release.unknown += 1;
                     }
-                    dereth_render::descriptor::Released::Unknown => self.ui_release.unknown += 1,
                 }
                 self.ui_textures.remove(&(id, None));
             }
             // Uncached on purpose: 's table is keyed by a *DataID*
             // pair and every frame of a movie would collide on the same key, handing back the first
-            // frame for ever.
-            match self.device.gpu.upload_texture(t) {
-                Ok(slot) => {
+            // frame for ever. A local texture is the overlay's uncached kind.
+            let texture = crate::ui_draw::movie_texture(id);
+            match self.device.overlay_upload(texture, t) {
+                Ok(()) => {
                     self.ui_stats.uploaded += 1;
                     self.ui_textures
-                        .insert((id, None), Some((slot, (t.width, t.height))));
+                        .insert((id, None), Some((texture, (t.width, t.height))));
                 }
                 Err(e) => {
                     tracing::warn!("movie frame would not upload: {e}");
@@ -805,11 +740,17 @@ mod imp {
         /// signal, because that frame's command list may already have bound it.
         pub fn release_ui_textures(&mut self) -> UiReleaseReport {
             let mut report = UiReleaseReport::default();
-            for (slot, _) in self.ui_textures.values().flatten() {
-                match self.device.gpu.release_texture(*slot) {
-                    dereth_render::descriptor::Released::Freed => report.freed += 1,
-                    dereth_render::descriptor::Released::StillLinked(_) => report.still_linked += 1,
-                    dereth_render::descriptor::Released::Unknown => report.unknown += 1,
+            let resident: Vec<OverlayTexture> = self
+                .ui_textures
+                .values()
+                .flatten()
+                .map(|(texture, _)| *texture)
+                .collect();
+            for texture in resident {
+                match self.device.overlay_release(texture) {
+                    OverlayReleased::Freed => report.freed += 1,
+                    OverlayReleased::StillLinked => report.still_linked += 1,
+                    OverlayReleased::Unknown | OverlayReleased::Absent => report.unknown += 1,
                 }
             }
             self.ui_textures.clear();
@@ -960,53 +901,24 @@ mod imp {
             SceneRenderer::set_world_view_state(self, hidden, view_distance);
         }
 
-        fn scene<'a>(
-            &'a self,
-            world: Option<&'a dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<Box<dyn crate::present::Scene + 'a>> {
-            let (draw, world) = (self.device.world()?, world?);
-            Some(Box::new(crate::world::WorldSceneRef { world, draw }))
-        }
-
-        fn scene_mut<'a>(
-            &'a mut self,
-            world: Option<&'a mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<Box<dyn crate::present::SceneMut + 'a>> {
-            let (draw, world) = (self.device.world_mut()?, world?);
-            Some(Box::new(crate::world::WorldSceneMut { world, draw }))
-        }
-    }
-
-    impl crate::present::ClientPresentation for Renderer {
-        fn draw_ui(
+        fn overlay_upload(
             &mut self,
-            cmds: &[dereth_ui::UiDrawCmd],
+            texture: OverlayTexture,
+            data: &dereth_primitives::TextureData,
         ) -> Result<(), crate::present::PresentError> {
-            Renderer::draw_ui(self, cmds).map_err(crate::present::present_error)
+            SceneRenderer::overlay_upload(self, texture, data)
+                .map_err(crate::present::present_error)
         }
 
-        fn prepare_ui(
+        fn overlay_release(&mut self, texture: OverlayTexture) -> OverlayReleased {
+            SceneRenderer::overlay_release(self, texture)
+        }
+
+        fn draw_overlay(
             &mut self,
-            store: &dereth_dat::RetailDatStore,
-            cmds: &[dereth_ui::UiDrawCmd],
-        ) {
-            Renderer::prepare_ui(self, store, cmds);
-        }
-
-        fn release_ui_textures(&mut self) -> UiReleaseReport {
-            Renderer::release_ui_textures(self)
-        }
-
-        fn set_movie_frame(&mut self, id: DataId, texture: &dereth_primitives::TextureData) {
-            Renderer::set_movie_frame(self, id, texture);
-        }
-
-        fn target_projection(
-            &self,
-            id: dereth_primitives::ObjectId,
-            world: Option<&dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<dereth_ui_screens::hud::target::Projection> {
-            SceneRenderer::target_projection(self, id, world)
+            items: &[OverlayItem],
+        ) -> Result<(), crate::present::PresentError> {
+            SceneRenderer::draw_overlay(self, items).map_err(crate::present::present_error)
         }
 
         fn preview_ensure(
@@ -1020,10 +932,17 @@ mod imp {
         fn preview_set_light(
             &mut self,
             id: PreviewId,
-            light: dereth_world_render::lighting::LightType,
+            light: dereth_client_contract::overlay::PreviewLight,
             intensity: f32,
             direction: dereth_primitives::Vec3,
         ) {
+            use dereth_client_contract::overlay::PreviewLight as L;
+            use dereth_world_render::lighting::LightType;
+            let light = match light {
+                L::Point => LightType::Point,
+                L::Directional => LightType::Directional,
+                L::Spot => LightType::Spot,
+            };
             if let Some(s) = self.preview_mut(id) {
                 s.set_light(light, intensity, direction);
             }
@@ -1156,6 +1075,55 @@ mod imp {
             index: usize,
         ) -> Option<&mut dereth_animation::parts::PartArray> {
             self.preview_mut(id).and_then(|s| s.part_array_mut(index))
+        }
+
+        fn scene<'a>(
+            &'a self,
+            world: Option<&'a dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<Box<dyn crate::present::Scene + 'a>> {
+            let (draw, world) = (self.device.world()?, world?);
+            Some(Box::new(crate::world::WorldSceneRef { world, draw }))
+        }
+
+        fn scene_mut<'a>(
+            &'a mut self,
+            world: Option<&'a mut dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<Box<dyn crate::present::SceneMut + 'a>> {
+            let (draw, world) = (self.device.world_mut()?, world?);
+            Some(Box::new(crate::world::WorldSceneMut { world, draw }))
+        }
+    }
+
+    impl crate::present::ClientPresentation for Renderer {
+        fn draw_ui(
+            &mut self,
+            cmds: &[dereth_ui::UiDrawCmd],
+        ) -> Result<(), crate::present::PresentError> {
+            Renderer::draw_ui(self, cmds).map_err(crate::present::present_error)
+        }
+
+        fn prepare_ui(
+            &mut self,
+            store: &dereth_dat::RetailDatStore,
+            cmds: &[dereth_ui::UiDrawCmd],
+        ) {
+            Renderer::prepare_ui(self, store, cmds);
+        }
+
+        fn release_ui_textures(&mut self) -> UiReleaseReport {
+            Renderer::release_ui_textures(self)
+        }
+
+        fn set_movie_frame(&mut self, id: DataId, texture: &dereth_primitives::TextureData) {
+            Renderer::set_movie_frame(self, id, texture);
+        }
+
+        fn target_projection(
+            &self,
+            id: dereth_primitives::ObjectId,
+            world: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<dereth_ui_screens::hud::target::Projection> {
+            SceneRenderer::target_projection(self, id, world)
         }
 
         fn preview_queue(

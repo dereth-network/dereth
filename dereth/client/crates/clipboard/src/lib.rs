@@ -2,7 +2,7 @@
 //! need unsafe code.
 //!
 //! **Depends on** no other workspace crate (`windows-sys` on Windows, `arboard` elsewhere). **Used
-//! by** the client (`dereth-client`), which hands it the text the UI's selection produced.
+//! by** the desktop host (`dereth-desktop`), which hands it the text the UI's selection produced.
 //!
 //! **Must never** hold unsafe code outside its one Windows module: the workspace forbids
 //! `unsafe_code`, nothing in the dependency set offers a safe clipboard, and this crate is the hop,
@@ -25,7 +25,7 @@
 #![deny(unsafe_code)]
 
 /// The only module in this crate permitted to call Win32. Every other module here, and every
-/// consumer of this crate, stays safe -- `dereth-client` in particular keeps `#![forbid(unsafe_code)]`.
+/// consumer of this crate, stays safe -- `dereth-desktop` in particular keeps `#![forbid(unsafe_code)]`.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows;

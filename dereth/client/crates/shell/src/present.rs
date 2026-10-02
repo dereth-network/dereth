@@ -1,15 +1,13 @@
 //! The presentation, as this executable draws through it: the runtime's device seam
 //! (`Presentation`, `NullPresentation`, `Scene`) and what the UI adds to it
-//! (`ClientPresentation`): the overlay the UI draws over the world, its textures, the movie
-//! frame, the target reticule's projection and the four preview spaces.
+//! (`ClientPresentation`): the retail draw list, its textures, the movie frame, the target
+//! reticule's projection and where the preview spaces are drawn.
 //!
 //! Backend-neutral by construction: no method, type or argument here names a graphics API, and no
 //! backend type appears in a signature. The device implementation is `crate::gpu::Renderer`,
 //! behind the device features; `NullPresentation` is the headless one, which performs the device
 //! steps as **counted no-ops**, so a headless `App` still records all fourteen `FrameStep`s in
 //! order and a test can assert that the step it cares about was asked for.
-
-use std::sync::Arc;
 
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, ObjectId, Viewport};
@@ -39,8 +37,8 @@ pub fn present_error(e: dereth_render::RenderError) -> PresentError {
     PresentError(e.to_string())
 }
 
-/// What the UI adds to the device: the overlay, its textures, the movie frame, the target
-/// reticule's projection and the four preview spaces.
+/// What the retail UI adds to the device: its draw list, its textures, the movie frame, the
+/// target reticule's projection and where its preview spaces are drawn.
 pub trait ClientPresentation: Presentation {
     /// The frame's 2D half, the UI draw list `PresentFrame` blits over the world.
     ///
@@ -58,79 +56,8 @@ pub trait ClientPresentation: Presentation {
         world: Option<&WorldState>,
     ) -> Option<dereth_ui_screens::hud::target::Projection>;
 
-    // ---------------------------------------------------------------------------------------
-    // the four preview spaces
-    // ---------------------------------------------------------------------------------------
-
-    /// Build the space if it does not exist. `true` when this call created it.
-    fn preview_ensure(
-        &mut self,
-        id: PreviewId,
-        assets: &Arc<crate::anim_assets::DatAnimAssets>,
-    ) -> bool;
-    fn preview_set_light(
-        &mut self,
-        id: PreviewId,
-        light: dereth_world_render::lighting::LightType,
-        intensity: f32,
-        direction: dereth_primitives::Vec3,
-    );
-    fn preview_use_sharp_mode(&mut self, id: PreviewId);
-    fn preview_use_world_fov(&mut self, id: PreviewId);
-    fn preview_set_camera_position(&mut self, id: PreviewId, position: dereth_primitives::Vec3);
-    fn preview_set_camera_direction(&mut self, id: PreviewId, direction: dereth_primitives::Vec3);
-    fn preview_set_camera_direction_degrees(
-        &mut self,
-        id: PreviewId,
-        degrees: dereth_primitives::Vec3,
-    );
-    fn preview_remove_all_objects(&mut self, id: PreviewId);
-    /// # Errors
-    /// Whatever the device answers while baking the object's meshes.
-    fn preview_add_object(
-        &mut self,
-        id: PreviewId,
-        store: &RetailDatStore,
-        setup: DataId,
-    ) -> Result<Option<usize>, PresentError>;
-    /// # Errors
-    /// As `Presentation::preview_add_object`.
-    fn preview_add_object_dressed(
-        &mut self,
-        id: PreviewId,
-        store: &RetailDatStore,
-        setup: DataId,
-        objdesc: Option<&dereth_animation::parts::ObjDesc>,
-    ) -> Result<Option<usize>, PresentError>;
-    fn preview_set_heading(&mut self, id: PreviewId, index: usize, degrees: f32);
-    fn preview_set_sequence_animation(
-        &mut self,
-        id: PreviewId,
-        index: usize,
-        animation: DataId,
-        clear: bool,
-        low_frame: i32,
-        framerate: f32,
-    ) -> bool;
-    fn preview_clear_sequence_anims(&mut self, id: PreviewId, index: usize);
-    fn preview_has_anims(&self, id: PreviewId, index: usize) -> bool;
-    fn preview_use_time(&mut self, id: PreviewId, dt: f64);
-    /// The current frame number of preview object `index`.
-    fn preview_curr_frame_number(&self, id: PreviewId, index: usize) -> Option<u32>;
-    /// The preview object's bounding box, which the identify portrait frames its camera from.
-    fn preview_object_bounding_box(
-        &self,
-        id: PreviewId,
-        index: usize,
-        store: &RetailDatStore,
-    ) -> Option<dereth_physics::geom::BBox>;
-    /// The doll's live part array, for the selection blink.
-    fn preview_part_array_mut(
-        &mut self,
-        id: PreviewId,
-        index: usize,
-    ) -> Option<&mut dereth_animation::parts::PartArray>;
-    /// draw this space into that element's rectangle this frame.
+    /// Draw preview space `id` into that element's rectangle this frame. The spaces themselves
+    /// are the presentation's own (`Presentation::preview_ensure` and the rest).
     fn preview_queue(&mut self, id: PreviewId, who: dereth_ui::ElemHandle, rect: Viewport);
 }
 
@@ -157,110 +84,6 @@ impl ClientPresentation for NullPresentation {
         None
     }
 
-    fn preview_ensure(
-        &mut self,
-        _id: PreviewId,
-        _assets: &Arc<crate::anim_assets::DatAnimAssets>,
-    ) -> bool {
-        self.counts_mut().preview_calls += 1;
-        false
-    }
-    fn preview_set_light(
-        &mut self,
-        _id: PreviewId,
-        _light: dereth_world_render::lighting::LightType,
-        _intensity: f32,
-        _direction: dereth_primitives::Vec3,
-    ) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_use_sharp_mode(&mut self, _id: PreviewId) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_use_world_fov(&mut self, _id: PreviewId) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_set_camera_position(&mut self, _id: PreviewId, _position: dereth_primitives::Vec3) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_set_camera_direction(
-        &mut self,
-        _id: PreviewId,
-        _direction: dereth_primitives::Vec3,
-    ) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_set_camera_direction_degrees(
-        &mut self,
-        _id: PreviewId,
-        _degrees: dereth_primitives::Vec3,
-    ) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_remove_all_objects(&mut self, _id: PreviewId) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_add_object(
-        &mut self,
-        _id: PreviewId,
-        _store: &RetailDatStore,
-        _setup: DataId,
-    ) -> Result<Option<usize>, PresentError> {
-        self.counts_mut().preview_calls += 1;
-        Ok(None)
-    }
-    fn preview_add_object_dressed(
-        &mut self,
-        _id: PreviewId,
-        _store: &RetailDatStore,
-        _setup: DataId,
-        _objdesc: Option<&dereth_animation::parts::ObjDesc>,
-    ) -> Result<Option<usize>, PresentError> {
-        self.counts_mut().preview_calls += 1;
-        Ok(None)
-    }
-    fn preview_set_heading(&mut self, _id: PreviewId, _index: usize, _degrees: f32) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_set_sequence_animation(
-        &mut self,
-        _id: PreviewId,
-        _index: usize,
-        _animation: DataId,
-        _clear: bool,
-        _low_frame: i32,
-        _framerate: f32,
-    ) -> bool {
-        self.counts_mut().preview_calls += 1;
-        false
-    }
-    fn preview_clear_sequence_anims(&mut self, _id: PreviewId, _index: usize) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_has_anims(&self, _id: PreviewId, _index: usize) -> bool {
-        false
-    }
-    fn preview_use_time(&mut self, _id: PreviewId, _dt: f64) {
-        self.counts_mut().preview_calls += 1;
-    }
-    fn preview_curr_frame_number(&self, _id: PreviewId, _index: usize) -> Option<u32> {
-        None
-    }
-    fn preview_object_bounding_box(
-        &self,
-        _id: PreviewId,
-        _index: usize,
-        _store: &RetailDatStore,
-    ) -> Option<dereth_physics::geom::BBox> {
-        None
-    }
-    fn preview_part_array_mut(
-        &mut self,
-        _id: PreviewId,
-        _index: usize,
-    ) -> Option<&mut dereth_animation::parts::PartArray> {
-        None
-    }
     fn preview_queue(&mut self, _id: PreviewId, _who: dereth_ui::ElemHandle, _rect: Viewport) {
         self.counts_mut().preview_calls += 1;
     }

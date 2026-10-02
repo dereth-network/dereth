@@ -204,7 +204,7 @@ pub static ROWS: &[Behaviour] = &[
         since: THIS_CLIENT,
         divergence: "CD-007",
         evidence: Evidence::Private("AC-EVID-CONFIG-SETTINGS-DIR"),
-        station: "dereth-client::lib::folders::tests::the_settings_directory_follows_the_platform_convention",
+        station: "dereth-desktop::lib::folders::tests::the_settings_directory_follows_the_platform_convention",
         tier: Tier::Cpu,
     },
     behaviour! {

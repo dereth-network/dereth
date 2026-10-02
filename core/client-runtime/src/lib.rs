@@ -151,6 +151,8 @@ pub mod object_step;
 /// predicates. `dereth_client` re-exports each at its old path.
 pub mod allegiance_view;
 pub mod cursor;
+/// The questions the game asks the player, whatever UI shows them.
+pub mod dialogs;
 pub mod hud;
 pub mod interaction;
 pub mod trade_view;
@@ -192,6 +194,9 @@ pub mod pump;
 /// The front end that plugs into the frame: the UI, the cursor, the clipboard, and whatever draws
 /// over the world.
 pub mod shell;
+
+/// What a front end is handed at each step it takes part in.
+pub mod ui_context;
 
 /// The answers a headless client with no server gives itself, in the server's place.
 pub mod server_stub;

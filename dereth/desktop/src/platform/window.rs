@@ -41,8 +41,8 @@ pub use dereth_client_shell::platform::window::{
 };
 
 use crate::platform::keys::{Key, MouseButton};
+use dereth_client_contract::options::store::DisplayMode;
 use dereth_render::window_proc::{Rect, ScreenMetrics};
-use dereth_ui_screens::options::store::DisplayMode;
 
 /// `GetSystemMetrics(SM_CXSCREEN / SM_CYSCREEN)` plus the monitor's own
 /// origin and usable rectangle, out of `winit` and dereth-render's safe Win32 wrapper — this crate is
@@ -108,6 +108,7 @@ const IDI_APP: u16 = 1;
 #[cfg(windows)]
 fn with_application_icon(
     builder: winit::window::WindowAttributes,
+    _look: &WindowLook,
 ) -> winit::window::WindowAttributes {
     use winit::platform::windows::{IconExtWindows as _, WindowAttributesExtWindows as _};
 
@@ -129,10 +130,7 @@ fn with_application_icon(
 /// Wayland is the exception -- a Wayland surface has no icon property, and the compositor takes
 /// the picture from the `.desktop` entry the application was launched from -- so winit answers
 /// that request by ignoring it, and nothing here is wasted but the decode.
-#[cfg(not(any(windows, target_os = "macos")))]
-const ICON_PNG: &[u8] = include_bytes!("../../assets/dereth-256.png");
-
-/// [`ICON_PNG`] decoded, or `None` with the reason logged.
+/// The product's icon pixels ([`WindowLook::icon_png`]) decoded, or `None` with the reason logged.
 ///
 /// **One size, and a large one.** `_NET_WM_ICON` is a *list* of images and the window manager
 /// picks the one nearest the size it is about to draw -- but `winit`'s window attribute holds a
@@ -142,8 +140,8 @@ const ICON_PNG: &[u8] = include_bytes!("../../assets/dereth-256.png");
 /// 256 is a resample every toolkit does well; coming up from 64 is blur that cannot be undone.
 /// The cost of the larger one is an image sent once, when the window is created.
 #[cfg(not(any(windows, target_os = "macos")))]
-fn window_icon() -> Option<winit::window::Icon> {
-    let mut reader = png::Decoder::new(std::io::Cursor::new(ICON_PNG))
+fn window_icon(icon_png: &[u8]) -> Option<winit::window::Icon> {
+    let mut reader = png::Decoder::new(std::io::Cursor::new(icon_png))
         .read_info()
         .map_err(|e| tracing::warn!("window icon: {e}"))
         .ok()?;
@@ -173,47 +171,25 @@ fn window_icon() -> Option<winit::window::Icon> {
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn with_application_icon(
     builder: winit::window::WindowAttributes,
+    look: &WindowLook,
 ) -> winit::window::WindowAttributes {
-    builder.with_window_icon(window_icon())
+    builder.with_window_icon(window_icon(look.icon_png))
 }
 
-/// On Linux the icon is also found by name: the window carries the client's application id (its
+/// On Linux the icon is also found by name: the window carries the product's application id (its
 /// Wayland app id and its X11 class), and the desktop takes the icon from the `.desktop` entry of
-/// that name. A Wayland window has no other way to show one. The entry is written here, before the
-/// window exists, when it is missing or differs ([`register_desktop_entry`]).
+/// that name. A Wayland window has no other way to show one; the product writes the entry before
+/// the window opens (`Product::before_window`).
 #[cfg(target_os = "linux")]
 fn with_application_icon(
     builder: winit::window::WindowAttributes,
+    look: &WindowLook,
 ) -> winit::window::WindowAttributes {
     use winit::platform::wayland::WindowAttributesExtWayland as _;
 
-    register_desktop_entry();
-    let id = dereth_launch::desktop::CLIENT_APP_ID;
-    builder.with_window_icon(window_icon()).with_name(id, id)
-}
-
-/// The client window's hidden `.desktop` entry and the icon it names, under the user's data
-/// folder, each written only when it is missing or its content differs. A client the launcher
-/// started finds both as the launcher wrote them and writes nothing; a client started on its own
-/// writes them itself. A failure is logged: the client runs with a generic icon rather than not at
-/// all.
-#[cfg(target_os = "linux")]
-fn register_desktop_entry() {
-    use dereth_launch::desktop;
-
-    let var = |v: &str| std::env::var_os(v);
-    let (Some(home), Ok(me)) = (desktop::data_home(&var), std::env::current_exe()) else {
-        return;
-    };
-    let exec = desktop::entry_target(&var, me);
-    match desktop::write_changed(&desktop::client_files(&home, &exec, ICON_PNG)) {
-        Ok(written) => {
-            for path in written {
-                tracing::debug!("desktop entry written: {}", path.display());
-            }
-        }
-        Err(e) => tracing::warn!("desktop entry: {e}"),
-    }
+    builder
+        .with_window_icon(window_icon(look.icon_png))
+        .with_name(look.app_id, look.app_id)
 }
 
 /// macOS puts no icon on a window at all -- a Cocoa window shows one only for a document, and
@@ -228,6 +204,7 @@ fn register_desktop_entry() {
 #[cfg(target_os = "macos")]
 fn with_application_icon(
     builder: winit::window::WindowAttributes,
+    _look: &WindowLook,
 ) -> winit::window::WindowAttributes {
     builder
 }
@@ -250,8 +227,8 @@ fn with_application_icon(
 ///   same `< 32` comparison the client uses, which is why the fall-back below exists.
 fn adapter_display_modes(
     monitor: Option<&winit::monitor::MonitorHandle>,
-) -> Vec<dereth_ui_screens::options::store::DisplayMode> {
-    use dereth_ui_screens::options::store::DisplayMode;
+) -> Vec<dereth_client_contract::options::store::DisplayMode> {
+    use dereth_client_contract::options::store::DisplayMode;
 
     let Some(m) = monitor else { return Vec::new() };
     m.video_modes()
@@ -555,9 +532,22 @@ impl std::fmt::Debug for WinitWindow {
     }
 }
 
+/// What a product's window wears: its title, its icon and, on Linux, its application id.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowLook {
+    /// The title, before the account name the title adds (`Config::window_title_for`).
+    pub title: &'static str,
+    /// The icon, as an 8-bit RGBA PNG, for the window systems that take one as pixels. (Windows
+    /// takes the executable's own icon resource instead, and macOS the application bundle's.)
+    pub icon_png: &'static [u8],
+    /// The application id the desktop finds the window's `.desktop` entry by, on Linux.
+    pub app_id: &'static str,
+}
+
 /// The window the startup sequence asks for, on `monitor`.
 fn window_attributes(
-    cfg: &crate::config::Config,
+    cfg: &dereth_client_runtime::config::Config,
+    look: &WindowLook,
     monitor: Option<&winit::monitor::MonitorHandle>,
 ) -> winit::window::WindowAttributes {
     use winit::dpi::PhysicalSize;
@@ -599,7 +589,7 @@ fn window_attributes(
     // example a two-account test of trade or housing -- and the task bar is the only place
     // that tells them apart. See `Config::window_title`.
     let attributes = winit::window::Window::default_attributes()
-        .with_title(cfg.window_title())
+        .with_title(cfg.window_title_for(look.title))
         .with_inner_size(PhysicalSize::new(client_w, client_h))
         .with_resizable(false)
         .with_maximized(false)
@@ -620,7 +610,7 @@ fn window_attributes(
         .with_visible(true);
     // After the rest of the attributes: the icon is the window's, so it has to be on the
     // attributes winit creates the window from.
-    with_application_icon(attributes)
+    with_application_icon(attributes, look)
 }
 
 /// How long the startup sequence waits for the window system to let it make its window.
@@ -636,7 +626,8 @@ const OPEN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 /// The window system's reason when the event loop or the window cannot be created. `App` turns it
 /// into a `StartupError::Device`.
 pub fn open_window(
-    cfg: &crate::config::Config,
+    cfg: &dereth_client_runtime::config::Config,
+    look: &WindowLook,
     events: WindowEvents,
 ) -> Result<WinitWindow, String> {
     use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
@@ -658,6 +649,7 @@ pub fn open_window(
     let held = HeldSize::default();
     let mut opening = Opening {
         cfg,
+        look,
         opened: None,
         queue: Vec::new(),
         held: &held,
@@ -716,7 +708,8 @@ pub fn open_window(
 /// The event loop's handler while the window is being made: it makes the window when the loop
 /// is running, and routes the window's first events as [`Drain`] routes every later one.
 struct Opening<'a> {
-    cfg: &'a crate::config::Config,
+    cfg: &'a dereth_client_runtime::config::Config,
+    look: &'a WindowLook,
     /// The window and whether its size limits are held here, or why it could not be made.
     opened: Option<Result<(winit::window::Window, bool), String>>,
     queue: Vec<HostEvent>,
@@ -737,7 +730,7 @@ impl winit::application::ApplicationHandler for Opening<'_> {
             return;
         }
         let monitor = event_loop.primary_monitor();
-        let attributes = window_attributes(self.cfg, monitor.as_ref());
+        let attributes = window_attributes(self.cfg, self.look, monitor.as_ref());
         self.opened = Some(
             event_loop
                 .create_window(attributes)
@@ -1548,7 +1541,7 @@ mod tests {
     }
 
     /// Monitor metrics carries the selected monitors real work area.
-    #[cfg(all(windows, any(feature = "vulkan", feature = "d3d12")))]
+    #[cfg(windows)]
     #[test]
     fn monitor_metrics_carries_the_selected_monitors_real_work_area() {
         use winit::platform::pump_events::EventLoopExtPumpEvents as _;

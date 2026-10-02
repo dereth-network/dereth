@@ -2,7 +2,7 @@
 //! subsystem.
 //!
 //! **Depends on** no other workspace crate (`windows-sys`, on Windows). **Used by** the client
-//! (`dereth-client`).
+//! (`dereth-client`) and the desktop host (`dereth-desktop`).
 //!
 //! **Must never** hold, dereference or close a handle, or pass a buffer: its unsafe is exactly one
 //! kernel32 call (`AttachConsole`) plus `GetLastError`, and everything else about the console is

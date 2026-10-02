@@ -2,23 +2,27 @@
 //!
 //! The model — the object rows, the chat composition, the property caches and the read-only
 //! [`HudView`] projection that is the game's `GameView` — is [`dereth_client_runtime::hud`], and every
-//! item of it is re-exported here at its historical path. What this module adds is the panel set
-//! the model sits beside: the gameplay screen's [`RemainingPanels`], which the application owns
-//! across screen rebuilds, wrapped in [`RemainingPanels`] so the model can feed the two receivers it
-//! feeds as events land (the speech-bubble strip and the abuse panel). [`Hud`] and [`HudView`]
-//! here are the model over that panel set; the per-frame drive that hands the model to the live
-//! screen is [`crate::hud_drive`].
+//! item of it is re-exported here at its historical path. What this module adds is the retail UI's
+//! panel set, kept beside the model in the slot every front end has (`HudSlot`): the gameplay
+//! screen's [`RemainingPanels`], which outlive screen rebuilds, and which the model lends the two
+//! receivers it feeds as events land (the speech-bubble strip and the abuse panel). The per-frame
+//! drive that hands the model and the panels to the live screen is [`crate::hud_drive`].
 
 use dereth_ui_screens::panels::remaining::RemainingPanels;
 
 pub use dereth_client_runtime::hud::*;
 
-pub use crate::hud_drive::{deliver_chat_focus_notices, deliver_power_bar_notices};
+pub use crate::hud_drive::{deliver_power_bar_notices, talk_focus_notice};
 
-/// The HUD model over the gameplay screen's panels, plus the per-frame drive that hands it to the
-/// live gameplay screen ([`crate::hud_drive`]). Everything else is the model's, through `Deref`.
+/// The HUD model and the retail UI's panel set beside it, plus the per-frame drive that hands both
+/// to the live gameplay screen ([`crate::hud_drive`]). Everything else is the model's, through
+/// `Deref`.
 #[derive(Debug)]
-pub struct Hud(pub dereth_client_runtime::hud::Hud<RemainingPanels>);
+pub struct Hud {
+    model: dereth_client_runtime::hud::Hud,
+    /// The gameplay screen's panels, kept across screen rebuilds.
+    pub panels: RemainingPanels,
+}
 
 impl Default for Hud {
     /// A fresh HUD. Constructing one is also where this build hands the model crate the answers
@@ -26,7 +30,10 @@ impl Default for Hud {
     /// are installed by the application that knows its host ([`install_platform`]).
     fn default() -> Self {
         install_shared();
-        Self(dereth_client_runtime::hud::Hud::default())
+        Self {
+            model: dereth_client_runtime::hud::Hud::default(),
+            panels: RemainingPanels::default(),
+        }
     }
 }
 
@@ -35,23 +42,65 @@ impl Hud {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Apply a batch of session events to the model, with this panel set as its receivers. See
+    /// [`dereth_client_runtime::hud::Hud::apply_events`].
+    pub fn apply_events(
+        &mut self,
+        events: &[dereth_client_net::client_session::SessionEvent],
+        world: &mut dereth_client_model::World,
+    ) -> Vec<dereth_client_contract::chat::interface::ChatMessage> {
+        self.model.apply_events_with_combat_mode_handler(
+            events,
+            world,
+            &mut self.panels,
+            None,
+            &mut |_, _| {},
+        )
+    }
+}
+
+impl Hud {
+    /// [`Self::apply_events`] with the combat system's callback and the UI's request queue. See
+    /// [`dereth_client_runtime::hud::Hud::apply_events_with_combat_mode_handler`].
+    pub fn apply_events_with_combat_mode_handler(
+        &mut self,
+        events: &[dereth_client_net::client_session::SessionEvent],
+        world: &mut dereth_client_model::World,
+        ui_requests: Option<&mut dereth_client_contract::requests::Outbox>,
+        on_combat_mode: &mut dyn FnMut(
+            &mut dereth_client_model::World,
+            dereth_client_model::combat::CombatMode,
+        ),
+    ) -> Vec<dereth_client_contract::chat::interface::ChatMessage> {
+        self.model.apply_events_with_combat_mode_handler(
+            events,
+            world,
+            &mut self.panels,
+            ui_requests,
+            on_combat_mode,
+        )
+    }
+}
+
+impl HudSlot for Hud {
+    fn split(&mut self) -> (&mut dereth_client_runtime::hud::Hud, &mut dyn HudPanels) {
+        (&mut self.model, &mut self.panels)
+    }
 }
 
 impl std::ops::Deref for Hud {
-    type Target = dereth_client_runtime::hud::Hud<RemainingPanels>;
+    type Target = dereth_client_runtime::hud::Hud;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.model
     }
 }
 
 impl std::ops::DerefMut for Hud {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.model
     }
 }
-
-/// The read-only view over [`Hud`] and the world: the production `GameView`.
-pub type HudView<'a> = dereth_client_runtime::hud::HudView<'a, RemainingPanels>;
 
 /// Hand the model crate the platform answers it cannot compute itself: the local-time shift the
 /// C runtime's `localtime` would apply and the URL launch, which are host `H`'s, and the caret

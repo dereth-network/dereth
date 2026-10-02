@@ -26,6 +26,8 @@ dereth-ui = { path = "../ui" }
 # Only for `PropertyValue`, which `dereth-ui` re-exports from `dereth-assets`; the layout byte
 # format belongs to that crate and this one never decodes a layout itself.
 dereth-assets = { path = "../../../../core/assets" }
+# Character creation's model, which the wizard's pages are views over.
+dereth-chargen = { path = "../../../../core/chargen" }
 # The key-binding page calls the input crate's `pub` binding surface (`capture_key_hit`,
 # `set_binding`, `find_keys_for_action`) and reads the shipped `ActionMap` to know which actions
 # are bindable. `dereth-input` depends on nothing in the UI crates, so this edge is acyclic.

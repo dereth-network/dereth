@@ -51,7 +51,8 @@ use std::path::{Path, PathBuf};
 
 use dereth_client_runtime::config::{Config, ConfigError, PREFERENCES_FILE_NAME};
 
-/// The client's folder inside the state root. The launcher keeps its own beside it.
+/// The Dereth client's folder inside the state root. The launcher keeps its own beside it, and
+/// another product on this host keeps its own beside both (`Product::SETTINGS_DIR_NAME`).
 pub const CLIENT_DIR_NAME: &str = "client";
 
 /// The folder inside the settings directory that holds the crash logs, one
@@ -115,19 +116,20 @@ pub fn state_root() -> Option<PathBuf> {
     }
 }
 
-/// **The one directory every setting this client writes lives in**: [`CLIENT_DIR_NAME`] in
-/// [`state_root`]. See the module documentation for each platform's answer.
+/// **The one directory every setting a product writes lives in**: its folder `dir_name` (for the
+/// Dereth client, [`CLIENT_DIR_NAME`]) in [`state_root`]. See the module documentation for each
+/// platform's answer.
 #[must_use]
-pub fn default_settings_dir() -> Option<PathBuf> {
-    state_root().map(|root| root.join(CLIENT_DIR_NAME))
+pub fn default_settings_dir(dir_name: &str) -> Option<PathBuf> {
+    state_root().map(|root| root.join(dir_name))
 }
 
 /// Where the client binary writes its crash logs: [`CRASH_LOG_DIR_NAME`] in
 /// [`default_settings_dir`], whatever `-prefs` says, because the log is opened before the command
 /// line is read.
 #[must_use]
-pub fn crash_log_dir() -> Option<PathBuf> {
-    default_settings_dir().map(|dir| dir.join(CRASH_LOG_DIR_NAME))
+pub fn crash_log_dir(dir_name: &str) -> Option<PathBuf> {
+    default_settings_dir(dir_name).map(|dir| dir.join(CRASH_LOG_DIR_NAME))
 }
 
 /// `%USERPROFILE%\Documents\Asheron's Call`, the original game's settings directory. Windows only;
@@ -149,14 +151,14 @@ pub fn retail_settings_dir() -> Option<PathBuf> {
 /// directory moves with it -- and it is the override that needs no new flag. `-prefs <file>`
 /// replaces the answer outright.
 #[must_use]
-pub fn default_preferences_file() -> Option<PathBuf> {
+pub fn default_preferences_file(dir_name: &str) -> Option<PathBuf> {
     let cwd = std::env::current_dir()
         .unwrap_or_default()
         .join(PREFERENCES_FILE_NAME);
     if cwd.exists() {
         return Some(cwd);
     }
-    default_settings_dir().map(|dir| dir.join(PREFERENCES_FILE_NAME))
+    default_settings_dir(dir_name).map(|dir| dir.join(PREFERENCES_FILE_NAME))
 }
 
 /// Whether `dir` already holds settings: anything but the crash logs, which are written before the
@@ -363,7 +365,7 @@ mod tests {
         assert_eq!(macos_state_root(&env), None);
 
         // And this host's answer is the client's folder inside its own platform's root.
-        if let Some(dir) = default_settings_dir() {
+        if let Some(dir) = default_settings_dir(CLIENT_DIR_NAME) {
             assert_eq!(
                 dir.file_name().and_then(|n| n.to_str()),
                 Some(CLIENT_DIR_NAME)
@@ -402,13 +404,13 @@ mod tests {
         let cwd_file = std::env::current_dir()
             .unwrap_or_default()
             .join(PREFERENCES_FILE_NAME);
-        let actual = default_preferences_file();
+        let actual = default_preferences_file(CLIENT_DIR_NAME);
         if cwd_file.exists() {
             assert_eq!(actual, Some(cwd_file), "a cwd UserPreferences.ini wins");
         } else {
             assert_eq!(
                 actual,
-                default_settings_dir().map(|d| d.join(PREFERENCES_FILE_NAME)),
+                default_settings_dir(CLIENT_DIR_NAME).map(|d| d.join(PREFERENCES_FILE_NAME)),
                 "otherwise the settings directory's"
             );
         }

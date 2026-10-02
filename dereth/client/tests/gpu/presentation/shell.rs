@@ -404,8 +404,11 @@ fn a_ui_element_rasterises_over_the_world_and_only_where_it_said_it_would() {
 // ---------------------------------------------------------------------------------------------
 
 /// Oracle: the retail default key map (`0x14000000`, KEYMAP group 10 entry `0x10000001`). Input map
-/// 4 — the player system's, at gameplay priority — binds `DIK_W` (0x11) with meta-mode 0 to
-/// action **41**, which `dereth_client_runtime::actions::movement::action` names `MOVE_FORWARD`.
+/// 5 — the camera's, registered for the whole run, so on the pre-game screen the client starts on
+/// too — binds `DIK_NUMPAD4` (0x4B) with meta-mode 0 to action **0x35**, which
+/// `dereth_client_runtime::actions::camera::action` names `ROTATE_LEFT`. (The character session's
+/// maps, movement among them, are not registered until the player is in the world, so a movement
+/// key here would reach no map at all.)
 ///
 /// The `MSG` is built by `crate::pump`, which is the same code the real pump runs, and it is fed
 /// through `App::frame` so the whole per-frame path — window-message forwarding, input-manager
@@ -421,16 +424,16 @@ fn a_window_message_reaches_the_input_manager_through_the_frame_and_fires_its_ac
     app.load_first_pixel_scene()
         .expect("the first-pixel surface decodes");
 
-    // The `MSG` a `winit` `KeyW` press produces, with the `GetMessageTime()` the pump carries.
+    // The `MSG` a `winit` `Numpad4` press produces, with the `GetMessageTime()` the pump carries.
     let mut pump = dereth_client::pump::Pump::new();
     let down = pump
-        .key_message_for(winit::keyboard::KeyCode::KeyW, true, 12_345)
-        .expect("winit maps KeyW to a virtual key and a scan code");
-    assert_eq!(down.wparam, 0x57, "VK_W");
+        .key_message_for(winit::keyboard::KeyCode::Numpad4, true, 12_345)
+        .expect("winit maps Numpad4 to a virtual key and a scan code");
+    assert_eq!(down.wparam, 0x64, "VK_NUMPAD4");
     assert_eq!(
         dereth_input::win32::keyboard_offset(down.lparam),
-        Some(0x11),
-        "DIK_W must be in the lParam; the input pipeline never reads the wParam"
+        Some(0x4B),
+        "DIK_NUMPAD4 must be in the lParam; the input pipeline never reads the wParam"
     );
 
     let input = app.input_manager_mut().expect("present");
@@ -444,12 +447,13 @@ fn a_window_message_reaches_the_input_manager_through_the_frame_and_fires_its_ac
     assert!(app.frame());
 
     // The assertion is made **where the action went**: `App::apply_input_actions`, the
-    // command-handler leg of the listener dispatch, consumes the queued movement action, so the
-    // queue is empty after a frame and the forward input is set. A still-queued action would mean
-    // nothing anywhere was listening, and it would be re-offered to the UI on every frame.
+    // command-handler leg of the listener dispatch, consumes the queued camera action, so the
+    // queue is empty after a frame and the camera's turn-left input is held. A still-queued action
+    // would mean nothing anywhere was listening, and it would be re-offered to the UI on every
+    // frame.
     assert!(
-        app.char_input().forward,
-        "the command interpreter must set the forward movement input"
+        app.camera_input().look_left,
+        "the camera must be turning left while the key is down"
     );
     let input = app.input_manager_mut().expect("present");
     assert!(
@@ -457,7 +461,7 @@ fn a_window_message_reaches_the_input_manager_through_the_frame_and_fires_its_ac
         "and it was consumed rather than left in the queue to be re-offered on every frame"
     );
     assert!(
-        input.is_action_in_progress(dereth_client_runtime::actions::movement::action::MOVE_FORWARD)
+        input.is_action_in_progress(dereth_client_runtime::actions::camera::action::ROTATE_LEFT)
     );
     assert_eq!(input.stats.messages_offered, 1);
     assert_eq!(input.stats.messages_handled, 1);

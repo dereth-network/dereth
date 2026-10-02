@@ -38,8 +38,10 @@ dereth-animation = { path = "../../../../core/animation" }
 dereth-audio = { path = "../../../../core/audio" }
 # The wire appearance a server object arrives with.
 dereth-protocol = { path = "../../../../core/protocol" }
-# The target reticule's projection and the character-generation state the preview spaces read.
-dereth-ui-screens = { path = "../ui-screens" }
+# The target reticule's projection and the preferences the renderer applies.
+dereth-client-contract = { path = "../../../../core/client-contract" }
+# The character-generation state the preview spaces read.
+dereth-chargen = { path = "../../../../core/chargen" }
 thiserror.workspace = true
 tracing.workspace = true
 # The matrix type `dereth_render::camera` is expressed in. Same version as dereth-render's.
@@ -50,6 +52,8 @@ web-time = "0.2"
 png = "0.17"
 
 [dev-dependencies]
+# The options page's restore-defaults list, which one test checks the renderer's seed against.
+dereth-ui-screens = { path = "../ui-screens" }
 # `dereth_dat::testing`: where the tests find the retail dats.
 dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
 # `DERETH_TEST_RENDERER`: the backend a test's device comes up on.

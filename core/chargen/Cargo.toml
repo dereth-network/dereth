@@ -1,0 +1,22 @@
+[package]
+name = "dereth-chargen"
+description = "Character creation's model: the choices, the credits, the rules and the random draws every creation screen is a view over."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[dependencies]
+dereth-primitives.workspace = true
+# The creation tables: `CharGen`, `SkillTable`, `ClothingTable`. Decoded values only.
+dereth-assets = { path = "../assets" }
+# The creation arithmetic shared with the server. Off the wire crate, as the UI crates take it.
+dereth-rules = { path = "../rules", default-features = false }
+# `CharGenResultData`, the finished creation the session sends.
+dereth-client-contract = { path = "../client-contract" }
+
+[lints]
+workspace = true

@@ -141,31 +141,28 @@ pub fn deliver_power_bar_notices(
     accepted
 }
 
-/// Deliver queued talk-focus enable notices to the gameplay screen.
-/// Deliver before the next input/command, in sender order, against the live row and one global
-/// focus owner. The mask cannot be polled: false/true can leave a selected channel at Say.
-pub fn deliver_chat_focus_notices(
+/// One talk-focus enable notice, delivered to the gameplay screen against the live row and the
+/// current talk focus. Notices go in sender order, before the next input or command; the mask
+/// cannot be polled, since false/true can leave a selected channel at Say. Answers whether the
+/// screen reset the talk focus to All.
+pub fn talk_focus_notice(
     ui: &mut dereth_ui::UiSystem,
     screen: &mut dyn Screen,
-    chat: &mut dereth_client_model::chat::ChatState,
-    notices: impl IntoIterator<Item = dereth_client_model::chat::TalkFocusNotice>,
-) {
-    for notice in notices {
-        let call = game_call(
-            ui,
-            screen,
-            GameCall::ChatFocus {
-                talk_focus: chat.talk_focus as u32,
-                focus: notice.focus as u32,
-                enabled: notice.enabled,
-                is_olthoi: notice.is_olthoi,
-                reset: false,
-            },
-        );
-        if let GameCall::ChatFocus { reset: true, .. } = call {
-            chat.set_talk_focus(dereth_client_model::chat::TalkFocus::All);
-        }
-    }
+    talk_focus: dereth_client_model::chat::TalkFocus,
+    notice: dereth_client_model::chat::TalkFocusNotice,
+) -> bool {
+    let call = game_call(
+        ui,
+        screen,
+        GameCall::ChatFocus {
+            talk_focus: talk_focus as u32,
+            focus: notice.focus as u32,
+            enabled: notice.enabled,
+            is_olthoi: notice.is_olthoi,
+            reset: false,
+        },
+    );
+    matches!(call, GameCall::ChatFocus { reset: true, .. })
 }
 
 impl Hud {
@@ -291,11 +288,7 @@ impl Hud {
             // squelch menu row toggles against.
             world.chat.is_squelched(t, "", 1)
         });
-        let chat = std::mem::take(&mut self.pending_chat)
-            .into_iter()
-            .filter(|(generation, _)| !generation.is_some_and(|g| g != screen_serial))
-            .map(|(_, m)| m)
-            .collect();
+        let chat = self.take_chat_lines(screen_serial);
         let frame = FrameCall {
             rebind: self.panels_bound_to != Some(screen_serial),
             external_container: std::mem::take(&mut self.pending_external_container),

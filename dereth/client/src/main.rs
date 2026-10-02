@@ -25,113 +25,8 @@
 
 use dereth_client::config::Config;
 use dereth_client::corestrings;
-use dereth_client::folders;
-
-/// A crash report on disk, because an intermittent exit otherwise leaves no reason behind.
-///
-/// A launcher that starts the client with `Start-Process` and does not redirect its streams
-/// sends everything `main` prints -- including the `Error: ...` line on the failure path --
-/// to a console that dies with the process. An exit with code **1** would then leave no
-/// record of why.
-///
-/// So every run appends to a file, and the file has **three** states rather than two:
-///
-/// | the log says | what happened |
-/// |---|---|
-/// | `START` then `EXIT code=N` | `main` returned; the client itself decided to stop |
-/// | `START` then `PANIC` with a backtrace | a Rust panic unwound out of `main` (exit code **101**) |
-/// | `START` and nothing else | the process was **killed**; it never reached the end of `main` |
-///
-/// The third state is the point. On a machine where several clients run at once, an external
-/// process kill and a self-inflicted
-/// failure are **indistinguishable from the exit code alone** -- both are 1 -- and only a record
-/// written by the process itself can tell them apart.
-mod crashlog {
-    use std::io::Write as _;
-    use std::path::PathBuf;
-
-    /// `dereth-client-<pid>.log` in the settings directory's `crash-logs` folder
-    /// (`dereth_client::folders::crash_log_dir`): beside the player's other files, and per-pid so
-    /// that concurrent clients cannot interleave into one file. `None` when the environment names
-    /// no home, and then no log is kept.
-    #[must_use]
-    pub fn path() -> Option<PathBuf> {
-        dereth_client::folders::crash_log_dir()
-            .map(|dir| dir.join(format!("dereth-client-{}.log", std::process::id())))
-    }
-
-    /// Seconds since the Unix epoch, so a record can be lined up against a harness transcript.
-    fn stamp() -> f64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64())
-    }
-
-    /// Append one record. This never fails the run and never panics: a diagnostic that can kill
-    /// the process it is diagnosing is worse than no diagnostic at all.
-    pub fn append(kind: &str, body: &str) {
-        let Some(p) = path() else {
-            return;
-        };
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&p)
-        {
-            let _ = writeln!(f, "[{kind}] unix={:.3} pid={}", stamp(), std::process::id());
-            let _ = writeln!(f, "{body}");
-            let _ = f.flush();
-        }
-    }
-
-    /// Record the start of the run and install the panic hook. Call this first thing in `main`.
-    pub fn install() {
-        let argv: Vec<String> = std::env::args().collect();
-        // The file names itself, so a reader who has the log does not need the launch transcript.
-        // **This is where the path goes, and it is deliberately not on stderr.** The path embeds
-        // the pid, and printing it unconditionally would break `headless_capture`'s three-run
-        // stderr comparison: the pid is the one thing that cannot repeat, and stderr is the
-        // channel a determinism test reads.
-        append(
-            "START",
-            &format!(
-                "log = {}\nargv = {argv:?}",
-                path().unwrap_or_default().display()
-            ),
-        );
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            // `force_capture` ignores `RUST_BACKTRACE`. The moment an intermittent fault finally
-            // fires is not the moment to discover the variable was unset.
-            let backtrace = std::backtrace::Backtrace::force_capture();
-            append(
-                "PANIC",
-                &format!(
-                    "{info}
-{backtrace}"
-                ),
-            );
-            previous(info);
-        }));
-        // The crash log's calibration hook, and the reason it lives in production rather than in a
-        // test: a zero from an instrument is worth nothing
-        // until that instrument has produced a known-positive, and a panic hook is by definition
-        // never exercised by a run that goes well. The hidden `--crash-test` switch fires one on
-        // demand, so anyone can prove in one command that the hook still records a backtrace
-        // before reporting that no crash occurred.
-        if dereth_client::config::crash_test_in_argv(argv.get(1..).unwrap_or_default()) {
-            panic!("--crash-test -- a deliberate panic, to prove the hook writes a backtrace");
-        }
-    }
-
-    /// The last record of any run that reaches the end of `main`.
-    pub fn finished(code: i32, detail: &str) {
-        append("EXIT", &format!("code={code} {detail}"));
-    }
-}
+use dereth_client::Dereth;
+use dereth_desktop::crashlog;
 
 fn main() -> std::process::ExitCode {
     // Before *everything*, including the crash log's own `START` record and the stderr line below:
@@ -152,10 +47,10 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::SUCCESS;
     }
     // Before anything else, so that a failure inside argument parsing is recorded too.
-    crashlog::install();
+    crashlog::install::<Dereth>();
     match run() {
         Ok(()) => {
-            crashlog::finished(0, "ran to the end of main");
+            crashlog::finished::<Dereth>(0, "ran to the end of main");
             std::process::ExitCode::SUCCESS
         }
         Err(message) => {
@@ -164,7 +59,7 @@ fn main() -> std::process::ExitCode {
             // and a non-zero exit. It is the dialog's stand-in rather than a log line, and a parse
             // failure reaches it before the log is installed, so it is written directly.
             eprintln!("{}: {message}", corestrings::CAPTION_ERROR);
-            crashlog::finished(1, &format!("{}: {message}", corestrings::CAPTION_ERROR));
+            crashlog::finished::<Dereth>(1, &format!("{}: {message}", corestrings::CAPTION_ERROR));
             std::process::ExitCode::FAILURE
         }
     }
@@ -172,169 +67,10 @@ fn main() -> std::process::ExitCode {
 
 /// `WinMain` steps 9 to 12: parse, initialize the client, run it, and clean up.
 fn run() -> Result<(), String> {
-    // Step 9: parse the command line. On failure -> corestrings 205 -> exit.
+    // Step 9: parse the command line, make the settings folder and install the log.
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let default_preferences = folders::default_preferences_file().unwrap_or_default();
-    // Parse, make the first-run copy, and load the preferences after it (`folders::load_config`),
-    // before the directory is created: "the new directory holds nothing yet" is exactly what makes
-    // this the first run. On Windows the original game's settings are copied (never moved) into it.
-    // The outcome is logged below, once the log (which may write into that directory) is installed.
-    let settings_dir = folders::default_settings_dir();
-    let original_settings_dir = folders::retail_settings_dir();
-    let (cfg, copied) = folders::load_config(
-        &argv,
-        &default_preferences,
-        settings_dir.as_deref(),
-        original_settings_dir.as_deref(),
-    )
-    .map_err(|e| e.to_string())?;
-    // The retail dats, before anything else is started: `--dat-dir`, else the working directory,
-    // else the executable's directory. A run that has none says where it looked and how to say
-    // where they are. The install is then read-only for the run: a data-patch message that would
-    // save into it is refused.
-    if !dereth_dat::holds_retail_dats(&cfg.dat_dir) && !dereth_dat::holds_pre_tod_dats(&cfg.dat_dir)
-    {
-        let mut searched = dereth_client::config::dat_dir_candidates();
-        if !searched.contains(&cfg.dat_dir) {
-            searched = vec![cfg.dat_dir.clone()];
-        }
-        let e = dereth_dat::locate_retail_dats(&searched)
-            .err()
-            .map_or_else(String::new, |e| e.to_string());
-        return Err(format!(
-            "{} ({e}; pass --dat-dir <dir> naming the folder that holds them)",
-            corestrings::display_string(corestrings::ID_CANT_OPEN_DATA_FILES, &[])
-        ));
-    }
-    dereth_dat::protect_install(&cfg.dat_dir);
-    // The settings directory is the installer's job in retail and there is no installer here, so
-    // the binary makes it. This is the *only* place it is made: `App` must not, and
-    // `physical_window_resize_reaches_the_backbuffer_and_ui_without_changing_preferences` names a
-    // directory that does not exist precisely to prove that nothing along that path creates one.
-    //
-    // It matters on every platform: `%APPDATA%\Dereth\client`,
-    // `~/Library/Application Support/Dereth/client` and `~/.config/dereth/client` do not exist
-    // until something makes them.
-    // Without this, every preference, keymap and screen layout the player saved would fail to
-    // write with `NotFound` and say nothing -- the same silent-save failure as the original.
-    //
-    // A failure is ignored for the same reason startup ignores preference initialization errors: a client
-    // that cannot write settings must still run. The first save then fails as it did before.
-    if let Some(dir) = cfg.preferences_file.parent() {
-        if !dir.as_os_str().is_empty() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-    }
-    logging::install(&cfg);
-    // The crash log's path is not logged: it holds the pid, and stderr stays byte-identical
-    // across runs. The pid is on every line of the file itself, which makes each run's record
-    // independently identifiable.
-    if let Some((from, to, outcome)) = copied {
-        match outcome {
-            Ok(0) => {}
-            Ok(n) => tracing::info!(
-                "first run -- copied {n} file(s) from {} to {}",
-                from.display(),
-                to.display()
-            ),
-            // Ignored for the same reason the create above is: a client that could not carry
-            // the old settings over must still start, with the defaults it would have had.
-            Err(e) => tracing::warn!("could not carry settings over from {}: {e}", from.display()),
-        }
-    }
+    let cfg = dereth_desktop::start::<Dereth>(&argv)?;
     run_with(cfg)
-}
-
-/// The client's log: the one subscriber for every crate's `tracing` events (and, bridged, the
-/// `log` records of the dependencies that use that facade instead).
-///
-/// Configured by [`Config`] alone -- `--log <filter>` or `[Log] Level=`, `--log-file` or
-/// `[Log] File=`, and `--log-spans` -- and never by the environment. The default is `info`. The
-/// live diagnostic traces are the `dereth::trace::net`, `::camera`, `::raise` and `::notice`
-/// targets at `debug`: `--log info,dereth::trace=debug` shows all four.
-///
-/// * **stderr**, always: one compact line per event, `LEVEL target: message`, with no timestamp,
-///   so that two runs of the same deterministic scene write the same bytes (the headless capture's
-///   three-run comparison reads this stream).
-/// * **`dereth-client.log`** beside the preferences file, with `--log-file`: the same lines with a
-///   UTC timestamp, appended, so a run started from the launcher with no console still leaves a
-///   record. Several clients may share it, so each run starts with a line naming its process.
-mod logging {
-    use dereth_client::config::Config;
-    use tracing_subscriber::filter::{LevelFilter, Targets};
-    use tracing_subscriber::fmt::format::FmtSpan;
-    use tracing_subscriber::layer::SubscriberExt as _;
-    use tracing_subscriber::util::SubscriberInitExt as _;
-
-    /// The log file's name, in the directory the preferences file is in.
-    pub const FILE_NAME: &str = "dereth-client.log";
-
-    /// Install the log for `cfg`. Called once, before anything that logs.
-    pub fn install(cfg: &Config) {
-        let (filter, refused) = match cfg.log_filter.as_deref().map(str::parse::<Targets>) {
-            None => (Targets::new().with_default(LevelFilter::INFO), None),
-            Some(Ok(t)) => (t, None),
-            Some(Err(e)) => (Targets::new().with_default(LevelFilter::INFO), Some(e)),
-        };
-        let spans = if cfg.log_spans {
-            FmtSpan::CLOSE
-        } else {
-            FmtSpan::NONE
-        };
-        let stderr = tracing_subscriber::fmt::layer()
-            .compact()
-            .without_time()
-            .with_span_events(spans.clone())
-            .with_writer(std::io::stderr);
-        let path = cfg
-            .preferences_file
-            .parent()
-            .map_or_else(|| FILE_NAME.into(), |d| d.join(FILE_NAME));
-        let (file, file_error) = if cfg.log_file {
-            match std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-            {
-                Ok(f) => (
-                    Some(
-                        tracing_subscriber::fmt::layer()
-                            .compact()
-                            .with_span_events(spans)
-                            .with_writer(std::sync::Mutex::new(f)),
-                    ),
-                    None,
-                ),
-                Err(e) => (None, Some(e)),
-            }
-        } else {
-            (None, None)
-        };
-        let has_file = file.is_some();
-        // `try_init` also installs the bridge that turns `log` records into events. It fails only
-        // if a subscriber is already installed, which in this binary nothing else does.
-        let _ = tracing_subscriber::registry()
-            .with(filter)
-            .with(stderr)
-            .with(file)
-            .try_init();
-        if let Some(e) = refused {
-            tracing::warn!(
-                "the log filter {:?} is not one this client reads ({e}); logging at info",
-                cfg.log_filter.as_deref().unwrap_or_default()
-            );
-        }
-        if let Some(e) = file_error {
-            tracing::warn!("the log file {} would not open: {e}", path.display());
-        }
-        if has_file {
-            tracing::info!(
-                "log file {}, process {}",
-                path.display(),
-                std::process::id()
-            );
-        }
-    }
 }
 
 /// A `StartupError` on its way to `main`'s stderr sentence, with its cause logged first.

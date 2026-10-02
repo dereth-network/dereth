@@ -20,13 +20,9 @@ pub const IMAGE_DAT_TYPE: u32 = 0x0C;
 /// The off-screen element, child `0x10000045` of the smart-box element.
 pub const OFF_SCREEN_ELEMENT: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_0045);
 
-/// The two displayable results of the smart box's object bounding-box query.
-/// Missing/invalid physics is `None` at the seam, not an off-screen target.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Projection {
-    OnScreen((i32, i32, i32, i32)),
-    OffScreen(f32),
-}
+/// The two displayable results of the smart box's object bounding-box query; any UI's target
+/// indicator reads them, so they are the contract's.
+pub use dereth_client_contract::target::Projection;
 
 /// The inset every clamp uses.
 pub const INSET: i32 = 8;

@@ -47,6 +47,9 @@ pub struct PregameView {
     pub world_name: Option<String>,
     /// Whether the session reached the CharSel → InGame edge.
     pub in_world: bool,
+    /// The character the player last selected on the character list, carried from character
+    /// select to whatever comes after it, and back. `None` until a front end names one.
+    pub selected_avatar: Option<ObjectId>,
     /// The name of the character this session entered the world as.
     ///
     /// The automatic-layout path reads the player's singular object name, and it is
@@ -56,6 +59,14 @@ pub struct PregameView {
     /// The server-died or character-error notice supplies the
     /// error string carried into the queued error UI mode (string table `0x10000002`).
     pub error: Option<String>,
+    /// Why the session ended, when it has: the notice [`Self::error`] is the text of.
+    pub disconnect: Option<DisconnectNotice>,
+    /// Where the game is, from connecting to the world and out again. The runtime's, so every UI
+    /// follows the same flow; see [`GamePhase`].
+    pub phase: GamePhase,
+    /// How many times [`Self::phase`] has changed. A phase is a level a UI can read any frame;
+    /// this is the edge, for a UI that acts once per change.
+    pub phase_changes: u32,
     /// `0xF643 Character_CharGenVerificationResponse`'s code, applied once on the edge.
     ///
     /// The verification handler forwards this code to character management and the creation
@@ -92,6 +103,51 @@ pub struct PregameView {
     /// its own `(1, 1)` — which is what a headless run ends up with anyway, and is why a headless
     /// roll is reproducible.
     pub chargen_seeds: Option<(i32, u32)>,
+}
+
+/// Where the game is, as every UI follows it.
+///
+/// The runtime derives it each frame from the session and the requests the UI has made; a UI shows
+/// the phase and asks for the next one, and does not decide it. Character creation is the one phase
+/// a UI enters by asking (`UiRequest::CharacterCreation`): the session cannot tell the wizard from
+/// the character list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum GamePhase {
+    /// Connecting to the server, before the character list can be shown. Also the phase of a client
+    /// with no server at all until its first frame.
+    #[default]
+    Connecting,
+    /// The server is checking or patching the data files.
+    Patching,
+    /// The character list is up.
+    CharacterSelect,
+    /// The player is making a character.
+    CharacterCreation,
+    /// A character has been asked to log on, and is not in the world yet.
+    EnteringWorld,
+    /// A character is in the world.
+    InWorld,
+    /// The character has asked to leave the world and the server has not answered yet.
+    LoggingOff,
+    /// The session has ended, for this reason.
+    Disconnected(DisconnectNotice),
+}
+
+/// Why a session ended, as the disconnected screen shows it. The text each one shows is
+/// `dereth_client_contract::disconnect`'s.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisconnectNotice {
+    /// `0xF659 Character_CharacterError`, carrying the character-error value.
+    CharacterError(u32),
+    /// The server stopped answering, or a world entry timed out.
+    ServerDied,
+    /// `0xF7DC Login_AccountBooted`, with its reason if it carried one.
+    Booted(Option<String>),
+    /// `0xF7C1 Login_AccountBanned`: seconds from now until the ban ends (0 or less is permanent),
+    /// and its reason.
+    Banned { expiry: i32, reason: String },
+    /// The transport's own error, by its string id.
+    Net(String),
 }
 
 /// A DDD event → the string id the data-patch screen shows for it, from table enum `0x10000002`.

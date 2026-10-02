@@ -37,6 +37,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "login.arrival.any-front-end-tells-the-server-the-character-arrived",
+        says: "Once a character has entered the world and the arrival tunnel has played, the \
+               client tells the server the character has arrived, and it does so the same way \
+               whatever is drawing the screen: the full interface, no interface at all, or one \
+               that does nothing but ask to enter. Without it the server keeps the player in \
+               portal space.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SEAM-ARRIVAL"),
+        station: "dereth-testkit::dat::login::scenario_any_front_end_tells_the_server_the_character_arrived",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "login.chargen.two-olthoi-heritages-reuse-preview-ids",
         says: "In the shipped character-creation data the two Olthoi heritages share one \
                background scene and each uses one body for both sexes, while their bodies and \
@@ -67,6 +79,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O9-DDD"),
         station: "dereth-testkit::cpu::login::scenario_the_data_download_interrogation_is_surfaced_and_unanswered",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it",
+        says: "When the server boots the account, the session ends and the reason shown is the \
+               server's own sentence, or the default one when it gave none, whatever is drawing \
+               the screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SEAM-BOOT"),
+        station: "dereth-testkit::dat::login::scenario_a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "login.disconnect.a-boot-keeps-the-process-up-until-the-player-asks",
@@ -182,6 +204,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "login.phase.every-front-end-follows-one-game-flow",
+        says: "The game goes from connecting to the character list (or character creation), into \
+               the world and back out on the same edges whatever is drawing the screen: the \
+               character list once the connection, the data check and the list are all in; the \
+               world when the character's description arrives; and out of it only when the \
+               server answers the log-off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SEAM-PHASE"),
+        station: "dereth-testkit::dat::login::scenario_every_front_end_follows_one_game_flow",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "login.player-identity.two-bodies-cannot-share-one-id",
         says: "Two bodies registered under one object id leave the first of them out of the physics sweep \
                with nothing said, which is why the client refuses to move a body onto an id another body \
@@ -274,6 +308,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P37-NOTICES"),
         station: "dereth-ui-screens::dat::login::logoff_notices::the_logoff_notice_raises_the_logoff_confirmation_and_arms_the_quit",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops",
+        says: "Leaving the game from the world ends the character's session with the server \
+               before the client stops, so the account is not left logged in until the server's \
+               own timeout.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SEAM-QUIT"),
+        station: "dereth-testkit::dat::login::scenario_any_front_end_logs_the_character_off_when_it_quits",
         tier: Tier::Dat,
     },
     behaviour! {

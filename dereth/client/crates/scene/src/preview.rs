@@ -66,8 +66,8 @@ use std::collections::BTreeMap;
 use dereth_animation::parts::{AnimPartChange, ObjDesc, PaletteRange, TextureMapChange};
 use dereth_assets::motion::ClothingTable;
 use dereth_assets::tables::{CharGen, GearItem, ObjDesc as CgObjDesc};
+use dereth_chargen::CharGenState;
 use dereth_primitives::DataId;
-use dereth_ui_screens::screens::chargen_state::CharGenState;
 
 /// A `Subpalette`'s `offset` / `numcolors` are palette **entries** everywhere the client keeps
 /// them in memory -- `ClothingTable`'s ranges, the char-gen table's `ObjDesc`s, and the three
@@ -1013,7 +1013,7 @@ mod imp {
         /// The unsignedness is load-bearing: the tunnel exit check computes
         /// `(0x78 - frame)` in it, and a frame past 120 wraps to about 4.29e9 rather than going
         /// negative, which is what keeps the tunnel from exiting early. See
-        /// [`dereth_ui_screens::screens::teleport::in_exit_window`].
+        /// [`dereth_client_contract::teleport::in_exit_window`].
         #[must_use]
         pub fn curr_frame_number(&self, i: usize) -> u32 {
             #[allow(clippy::cast_sign_loss)]

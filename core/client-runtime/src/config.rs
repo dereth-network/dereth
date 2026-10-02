@@ -933,11 +933,17 @@ impl Config {
     /// bare name, which is also what a run whose account is whitespace gets.
     #[must_use]
     pub fn window_title(&self) -> String {
+        self.window_title_for("Dereth")
+    }
+
+    /// [`Self::window_title`] for a product named `name`: the name, and the account after it.
+    #[must_use]
+    pub fn window_title_for(&self, name: &str) -> String {
         let account = self.account_as_typed.trim();
         if account.is_empty() {
-            "Dereth".to_string()
+            name.to_string()
         } else {
-            format!("Dereth | {account}")
+            format!("{name} | {account}")
         }
     }
 

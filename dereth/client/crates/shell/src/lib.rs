@@ -30,6 +30,7 @@ pub use dereth_client_runtime::anim_hooks;
 pub use dereth_client_runtime::trade_view;
 pub use dereth_client_runtime::vendor_view;
 pub mod app;
+pub mod front_end;
 pub use dereth_client_runtime::assets;
 /// The sound model, the runtime's; the host supplies the output device.
 pub use dereth_client_runtime::audio;

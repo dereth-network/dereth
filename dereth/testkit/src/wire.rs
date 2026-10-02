@@ -46,12 +46,14 @@ pub const GAME_ACTION: u32 = 0xF7B1;
 pub struct Wire {
     reassembly: Indicator,
     sub_types: Vec<u32>,
+    messages: Vec<u32>,
 }
 
 impl std::fmt::Debug for Wire {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Wire")
             .field("sub_types", &self.sub_types)
+            .field("messages", &self.messages)
             .finish_non_exhaustive()
     }
 }
@@ -95,6 +97,9 @@ impl Wire {
                 self.reassembly
                     .check_in_packet(&packet.fragments, packet.header.rec_id, now)
             {
+                if let Some(&[a, b, c, d]) = blob.payload.get(..4) {
+                    self.messages.push(u32::from_le_bytes([a, b, c, d]));
+                }
                 if blob.payload.get(..4) != Some(GAME_ACTION.to_le_bytes().as_slice()) {
                     continue; // login, cache and acknowledgement housekeeping
                 }
@@ -109,6 +114,13 @@ impl Wire {
     #[must_use]
     pub fn sub_types(&self) -> &[u32] {
         &self.sub_types
+    }
+
+    /// The opcode of every message the client framed, actions and the rest alike, oldest first,
+    /// without clearing it: a log-off is a message of its own, not an action.
+    #[must_use]
+    pub fn messages(&self) -> &[u32] {
+        &self.messages
     }
 
     /// Everything this reader has seen since the last take, and clear it.

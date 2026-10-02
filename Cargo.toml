@@ -15,6 +15,7 @@ members = [
     "core/transport",
     "core/protocol",
     "core/rules",
+    "core/chargen",
     "core/client-net",
     "core/client-model",
     "core/client-contract",
@@ -25,6 +26,7 @@ members = [
     # dereth/client/crates/ (drawing, the scene, the client shell, the retail UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
     "dereth/client",
+    "dereth/desktop",
     "dereth/client/crates/render",
     "dereth/client/crates/render-cpu",
     "dereth/client/crates/world-render",

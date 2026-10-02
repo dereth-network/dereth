@@ -55,6 +55,9 @@ dereth-render = { path = "crates/render", default-features = false, features = [
 # The application: the front end over the runtime, generic over its host, and the drawn world it
 # renders. This crate is the desktop host under them.
 dereth-client-shell = { path = "crates/shell", default-features = false }
+# The desktop host under it: the window, the pump, the folders, the sound device, the clipboard,
+# the cursors, the log and the crash log. This crate is the product on top of it.
+dereth-desktop = { path = "../desktop" }
 dereth-scene = { path = "crates/scene", default-features = false }
 dereth-dat    = { path = "../../core/dat" }
 dereth-assets = { path = "../../core/assets" }
@@ -91,11 +94,6 @@ dereth-client-model    = { path = "../../core/client-model" }
 # already builds (src/input.rs) and the sound device `dereth-audio` deliberately does not wire
 # (src/audio.rs).
 dereth-ui         = { path = "crates/ui" }
-# Putting a string on the system clipboard is six user32 calls and there is no safe
-# way to make them, so the hop lives in its own crate under `deny` instead of the workspace `forbid`
-# -- the arrangement `dereth-primitives`' `text` module already uses for kernel32 NLS. `dereth-client` itself keeps `forbid`:
-# `src/clipboard.rs` contains no unsafe at all.
-dereth-clipboard  = { path = "crates/clipboard" }
 # The console, under the windows subsystem. `main.rs` is linked with
 # `#![windows_subsystem = "windows"]` so that `--no-console` can mean "no console" rather than
 # "a console window that closes again"; that makes borrowing one an explicit act, and
@@ -106,11 +104,8 @@ dereth-ui-screens = { path = "crates/ui-screens" }
 dereth-input      = { path = "crates/input" }
 dereth-audio      = { path = "../../core/audio" }
 thiserror.workspace = true
-# The client's own events and spans, and the subscriber `main` installs for every crate's:
-# stderr, and optionally a file in the settings directory. `tracing-log` bridges the `log`
-# records some dependencies (the window system, the GPU allocator, the decoders) emit.
+# The client's own events and spans; the subscriber is the desktop host's (`dereth_desktop::logging`).
 tracing.workspace = true
-tracing-subscriber.workspace = true
 # The matrix type dereth_render::camera is expressed in. Same version as dereth-render's, so there is one
 # glam in the tree and the Mat4 that crosses the boundary is the same type.
 glam = "0.30"
@@ -128,28 +123,6 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 # takes no icon from a window at all: it reads one out of the application bundle that
 # `cargo xtask bundle-macos` builds.)
 png = "0.17"
-
-# The sound device. `dereth-audio`'s own documentation says why the backend is not in that
-# crate: "`VoicePool::mix` fills a caller-supplied interleaved stereo block, so the whole crate --
-# and its acceptance gate -- runs without a sound card. Wiring that to `cpal` is a handful of lines
-# and deliberately not done here". This is that handful of lines, and it is the application's,
-# exactly as the window is. Default features: no ASIO, no JACK.
-cpal = { version = "0.15", default-features = false }
-
-# `Globalization` + `Foundation` are for the local clock in `src/platform/`. Every Win32 entry point
-# in this crate is an `unsafe fn` and `GetTimeZoneInformation` -- what MSVCR70's `localtime` calls
-# -- is no exception, but the WinRT bindings are **safe** fns, so `Windows.Globalization.Calendar`
-# is how this crate learns the local zone without breaking `forbid(unsafe_code)`. `System` is the
-# `Launcher` the Options page's support buttons open a URL with.
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Foundation", "Globalization", "System"] }
-
-# The same two host services off Windows. `chrono` answers the local-zone question `platform.rs`
-# asks (it reads the host's zoneinfo itself, no `unsafe` on this side), and `open` is
-# `ShellExecuteA(NULL, "open", url, ...)` for `xdg-open` / `open`.
-[target.'cfg(not(windows))'.dependencies]
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-open = "5"
 
 # The Linux window backends. winit's defaults are off above so that Windows and macOS do not carry
 # them; Linux needs both, because which one a session runs is the user's compositor's choice.

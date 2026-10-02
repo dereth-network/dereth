@@ -38,18 +38,24 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         "a capable device is the discriminating negative"
     );
     renderer.prepare_ui(&store, std::slice::from_ref(&cmd));
-    let (image_slot, size) = renderer.ui_textures[&(id, None)].expect("actual UI image upload");
+    let (image, size) = renderer.ui_textures[&(id, None)].expect("actual UI image upload");
+    let image_slot = renderer.overlay_slot(image).expect("the image is resident");
     assert_eq!(size, (texture.width, texture.height));
     assert_eq!(renderer.gpu.texture_mip_levels(image_slot), Some(1));
     assert_eq!(
         renderer.gpu.capture_texture_level(image_slot, 0).expect("UI bytes").bgra,
         texture.levels[0]
     );
-    let (_, glyph_slot, outline) =
-        renderer.ui_fonts[&font].as_ref().expect("actual DAT glyph upload");
-    assert_eq!(renderer.gpu.texture_mip_levels(*glyph_slot), Some(1));
+    let (_, sheet, outline) = *renderer.ui_fonts[&font]
+        .as_ref()
+        .map(|(_, s, o)| ((), *s, *o))
+        .as_ref()
+        .expect("actual DAT glyph upload");
+    let glyph_slot = renderer.overlay_slot(sheet).expect("the sheet is resident");
+    assert_eq!(renderer.gpu.texture_mip_levels(glyph_slot), Some(1));
     if let Some(outline) = outline {
-        assert_eq!(renderer.gpu.texture_mip_levels(*outline), Some(1));
+        let outline_slot = renderer.overlay_slot(outline).expect("the outline is resident");
+        assert_eq!(renderer.gpu.texture_mip_levels(outline_slot), Some(1));
     }
     let uploaded = renderer.ui_stats.uploaded;
     renderer.prepare_ui(&store, &[cmd]);
@@ -63,7 +69,8 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         levels: vec![[20, 40, 80, 255].repeat(64)],
     };
     renderer.set_movie_frame(id, &movie);
-    let (movie_slot, _) = renderer.ui_textures[&(id, None)].expect("actual movie frame upload");
+    let (frame, _) = renderer.ui_textures[&(id, None)].expect("actual movie frame upload");
+    let movie_slot = renderer.overlay_slot(frame).expect("the frame is resident");
     assert_eq!(renderer.gpu.texture_mip_levels(movie_slot), Some(1));
     assert_eq!(
         renderer.gpu.capture_texture_level(movie_slot, 0).expect("movie bytes").bgra,

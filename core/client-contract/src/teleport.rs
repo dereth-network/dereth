@@ -115,6 +115,8 @@ pub mod timing {
 
 /// The portal space's own constants, and the per-frame update's.
 pub mod portal_space {
+    /// The asset cache's `UIASSET` group, through which both of the portal's enums resolve.
+    pub const UIASSET_GROUP: u32 = 7;
     /// Data enum `0x10000001`, the portal object itself.
     pub const OBJECT_ENUM: u32 = 0x1000_0001;
     /// Data enum `0x10000002`, the sequence animation the portal object runs.
