@@ -1186,3 +1186,30 @@ fn the_social_windows_later_pages_follow_the_classic_page_options_on_any_world()
         })]
     );
 }
+
+#[test]
+fn a_click_on_the_map_teleports_only_a_character_allowed_to() {
+    let v = View::default();
+    let mut p = make("map").unwrap();
+    let press = ControlEvent::Pointer {
+        x: 150,
+        y: 25 + 166,
+        pressed: true,
+    };
+    assert!(event(&mut *p, press.clone(), &v).is_empty());
+    let pregame = PregameView::default();
+    let keyboard = KeyboardState::default();
+    let settings = ClassicSettings::default();
+    let allowed = Context {
+        game: &v,
+        pregame: &pregame,
+        keyboard: &keyboard,
+        settings: &settings,
+        map_teleport_allowed: true,
+        classic: &ClassicState::default(),
+    };
+    assert!(matches!(
+        p.event(press, &allowed).as_slice(),
+        [PanelAction::Host(HostAction::MapTeleport { .. })]
+    ));
+}
