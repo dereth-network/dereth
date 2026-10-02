@@ -165,6 +165,13 @@ fn image(f: &mut PanelFrame, did: u32, r: Rect, tile: bool, clip: Option<Rect>) 
         *c = clip.map(|r| [r.x, r.y, r.x + r.w, r.y + r.h]);
     }
 }
+/// [`image`] with its black see-through.
+fn keyed_image(f: &mut PanelFrame, did: u32, r: Rect, clip: Option<Rect>) {
+    f.image(&format!("{did:08X}"), r, false, true);
+    if let Some(Command::Image { clip: c, .. }) = f.screen.commands.last_mut() {
+        *c = clip.map(|r| [r.x, r.y, r.x + r.w, r.y + r.h]);
+    }
+}
 /// The page the toolbar's journal button opens: the journal on a world with it, else the
 /// contracts; `None` on a world with neither, whose toolbar has no such button.
 fn quest_page(game: &dyn GameView) -> Option<&'static str> {
@@ -1008,12 +1015,13 @@ impl Panel for Vitals {
                     false,
                     clip,
                 );
+                // The icon's black is the bar showing through it: the empty bar's grey icon,
+                // the full bar's coloured one cut to the vital's level over it.
                 if !self.numeric {
-                    image(
+                    keyed_image(
                         &mut f,
                         icon,
                         rect(x + width / 2 - icon_width / 2, 0, icon_width, 28),
-                        false,
                         clip,
                     );
                 }
@@ -2488,7 +2496,7 @@ mod tests {
                 f.screen
                     .commands
                     .iter()
-                    .any(|c| matches!(c,Command::Image{did,..} if did=="0600131A"))
+                    .any(|c| matches!(c,Command::Image{did,color_key,..} if did=="0600131A" && color_key.is_some()))
             };
             assert!(!has_icon(v.frame(c)));
             v.event(ControlEvent::Activate("vital:Health".into()), c);
