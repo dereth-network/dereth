@@ -2,7 +2,7 @@
 //! formatting primitives are shared with the modern presentation; changed blocks are local.
 use super::super::ClassicAppraisalExtra;
 use dereth_client_contract::view::AppraisalView;
-use dereth_ui_screens::panels::examination as shared;
+use dereth_presentation::appraisal as shared;
 use shared::ItemInfo;
 fn line(out: &mut Vec<ItemInfo>, text: impl Into<String>, same_line: bool, color: u8) {
     out.push(ItemInfo {

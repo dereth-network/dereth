@@ -490,7 +490,7 @@ impl Panel for Hud {
         // ("42.2N, 33.8E"), with the "coordinates below radar" character option.
         if c.classic.option_words[0] & 0x40_0000 != 0 {
             if let Some(coords) = c.game.player_coords() {
-                let text = dereth_ui_screens::mapradar::radar::update_coordinates(coords).combined;
+                let text = dereth_presentation::coordinates::update_coordinates(coords).combined;
                 f.text_box(
                     rect(radar.x - 20, radar.y + radar.h - 1, radar.w + 40, 14),
                     text,

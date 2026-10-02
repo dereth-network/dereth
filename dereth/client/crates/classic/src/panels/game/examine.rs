@@ -361,7 +361,7 @@ impl Panel for Examine {
                     None,
                 );
             }
-            for (i, (name, value)) in dereth_ui_screens::panels::examination::creature_rows(&a)
+            for (i, (name, value)) in dereth_presentation::appraisal::creature_rows(&a)
                 .iter()
                 .enumerate()
             {

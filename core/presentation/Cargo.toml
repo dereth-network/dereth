@@ -1,0 +1,21 @@
+[package]
+name = "dereth-presentation"
+description = "The game's presentation rules: how an appraisal, the character sheet, the coordinates and the target indicator are worded, numbered and placed, for any interface."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+[dependencies]
+dereth-primitives.workspace = true
+# The read-only view the rules are functions of (`AppraisalView`, `CharacterInfo`), the digit
+# grouping and the character sheet's tables.
+dereth-client-contract = { path = "../client-contract" }
+# The item level arithmetic, the burden load mod and the elemental modifier. Off the wire crate.
+dereth-rules = { path = "../rules", default-features = false }
+
+[lints]
+workspace = true

@@ -2147,7 +2147,7 @@ impl ClassicUi {
     pub fn draw_world_target<S: Host>(
         &mut self,
         cx: &mut Cx<'_, S>,
-        project: &dyn Fn(ObjectId) -> Option<dereth_ui_screens::hud::target::Projection>,
+        project: &dyn Fn(ObjectId) -> Option<dereth_client_contract::target::Projection>,
     ) {
         self.target_commands.clear();
         let vivid = cx.model().player_system.options.options & 0x8000 != 0;

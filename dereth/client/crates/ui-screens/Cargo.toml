@@ -26,6 +26,9 @@ dereth-ui = { path = "../ui" }
 # Only for `PropertyValue`, which `dereth-ui` re-exports from `dereth-assets`; the layout byte
 # format belongs to that crate and this one never decodes a layout itself.
 dereth-assets = { path = "../../../../core/assets" }
+# The game's presentation rules (the appraisal lines, the character sheet's rules, the
+# coordinates, the target indicator's placement), shared with every other interface.
+dereth-presentation = { path = "../../../../core/presentation" }
 # Character creation's model, which the wizard's pages are views over.
 dereth-chargen = { path = "../../../../core/chargen" }
 # The key-binding page calls the input crate's `pub` binding surface (`capture_key_hit`,

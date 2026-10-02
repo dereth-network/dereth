@@ -138,11 +138,12 @@ const TARGET_COLOURS: [(u32, u32); 11] = [
 /// pixels inside the viewport, and each mark's white takes the object's colour.
 #[must_use]
 pub fn target_marks(
-    projection: Option<dereth_ui_screens::hud::target::Projection>,
+    projection: Option<dereth_client_contract::target::Projection>,
     view: crate::widgets::Rect,
     colour: u8,
 ) -> Vec<crate::Command> {
-    use dereth_ui_screens::hud::target::{off_screen_position, on_screen_box, Projection};
+    use dereth_client_contract::target::Projection;
+    use dereth_presentation::target::{off_screen_position, on_screen_box};
     let (large, small) = TARGET_COLOURS[usize::from(colour).min(10)];
     let image = |did: u32, tint: u32, x: i32, y: i32, size: u32| crate::Command::Image {
         did: format!("{did:08X}+{tint:08X}"),
@@ -744,7 +745,7 @@ mod tests {
     use super::*;
     #[test]
     fn the_selection_indicator_frames_a_visible_object_and_points_at_a_hidden_one() {
-        use dereth_ui_screens::hud::target::Projection;
+        use dereth_client_contract::target::Projection;
         let view = crate::panels::rect(0, 28, 491, 472);
         let dids = |p| -> Vec<(String, i32, i32)> {
             target_marks(Some(p), view, 3)

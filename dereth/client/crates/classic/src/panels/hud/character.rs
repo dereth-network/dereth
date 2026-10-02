@@ -2,6 +2,7 @@
 use super::*;
 use crate::int::i32_from;
 use dereth_client_contract::view::CharacterInfo;
+use dereth_presentation::appraisal::insert_commas as comma;
 use dereth_primitives::num::to_i32_f64;
 
 #[derive(Debug)]
@@ -19,17 +20,6 @@ impl Default for Character {
         }
     }
 }
-fn comma(n: i32) -> String {
-    let raw = n.to_string();
-    let mut out = String::new();
-    for (i, ch) in raw.chars().enumerate() {
-        if i > 0 && ch != '-' && (raw.len() - i).is_multiple_of(3) && !out.ends_with('-') {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
-}
 fn duration(age: i32) -> String {
     let mut seconds = age as u32;
     let mut parts = vec![];
@@ -46,7 +36,7 @@ fn duration(age: i32) -> String {
 /// A date as the C library's `%c` writes it in the C locale; the classic interface never sets a
 /// locale, so the month and day names are always English.
 pub(super) fn date(timestamp: i64, offset: i32) -> String {
-    let asc = dereth_ui_screens::ctime::asctime(timestamp, offset);
+    let asc = dereth_client_contract::ctime::asctime(timestamp, offset);
     let p: Vec<_> = asc.split_whitespace().collect();
     let month = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -64,7 +54,7 @@ pub(super) fn date(timestamp: i64, offset: i32) -> String {
     )
 }
 fn body(i: &CharacterInfo) -> String {
-    use dereth_ui_screens::panels::characterinfo::{regeneration_band, resist_band};
+    use dereth_presentation::character::{regeneration_band, resist_band};
     let mut s = String::new();
     if let Some(t) = i.created {
         s.push_str(&format!(

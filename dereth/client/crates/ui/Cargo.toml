@@ -30,6 +30,8 @@ dereth-assets = { path = "../../../../core/assets" }
 # of `dereth_input::action`. There is no cycle -- `dereth-input` depends only on
 # `dereth-primitives`.
 dereth-input = { path = "../input" }
+# The string-table resolver warns, through the facade, when a table will not load.
+tracing.workspace = true
 
 [dev-dependencies]
 # Test-only: the acceptance gate reads the retail `client_local_English.dat` when it is present.

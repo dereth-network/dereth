@@ -955,85 +955,8 @@ impl dereth_ui::text::FontProvider for DatFontProvider {
     }
 }
 
-/// One decoded `StringTable`: string id -> the row's fragments **and** its own variable list.
-///
-/// The variable list is not decoration: substitution matches the caller's values against it by
-/// hashed id, so dropping it would force every caller to hard-code the order it believes the row
-/// uses.
-type StringRows = BTreeMap<u32, (Vec<String>, Vec<u32>)>;
-
-/// `StringTable` lookup in `client_local_<Language>.dat`, memoised per table.
-///
-/// A string-table entry holds a list of variants; a label shows variant 0, the singular/default form.
-#[derive(Debug)]
-pub struct DatStringResolver {
-    store: Arc<dereth_dat::RetailDatStore>,
-    tables: RefCell<BTreeMap<DataId, Option<StringRows>>>,
-}
-
-impl DatStringResolver {
-    #[must_use]
-    pub fn new(store: Arc<dereth_dat::RetailDatStore>) -> Self {
-        Self {
-            store,
-            tables: RefCell::new(BTreeMap::new()),
-        }
-    }
-}
-
-impl DatStringResolver {
-    fn load(&self, table: DataId) {
-        if self.tables.borrow().contains_key(&table) {
-            return;
-        }
-        use dereth_assets::Decode;
-        use dereth_primitives::AssetSource;
-        let loaded = self.store.read(table).ok().and_then(|b| {
-            dereth_assets::ui::StringTable::decode_payload(table, &b)
-                .ok()
-                .map(|t| {
-                    t.strings
-                        .into_iter()
-                        .map(|(k, v)| (k, (v.strings, v.variables)))
-                        .collect::<StringRows>()
-                })
-        });
-        if loaded.is_none() {
-            tracing::warn!("string table {table:?} would not load");
-        }
-        self.tables.borrow_mut().insert(table, loaded);
-    }
-}
-
-/// The rows come back **as the dat stores them**: unescaping is
-/// [`dereth_ui::text::StringResolver`]'s job, not this resolver's, so `dereth-ui-screens`'
-/// headless resolvers and this one cannot disagree about what a label says.
-impl dereth_ui::text::StringResolver for DatStringResolver {
-    fn resolve_raw(&self, table: DataId, string_id: u32) -> Option<String> {
-        self.load(table);
-        let t = self.tables.borrow();
-        t.get(&table)?.as_ref()?.get(&string_id)?.0.first().cloned()
-    }
-
-    fn resolve_variants_raw(&self, table: DataId, string_id: u32) -> Option<Vec<String>> {
-        self.load(table);
-        let t = self.tables.borrow();
-        t.get(&table)?
-            .as_ref()?
-            .get(&string_id)
-            .map(|r| r.0.clone())
-    }
-
-    /// Variable substitutions straight off the row.
-    fn resolve_variables(&self, table: DataId, string_id: u32) -> Option<Vec<u32>> {
-        self.load(table);
-        let t = self.tables.borrow();
-        t.get(&table)?
-            .as_ref()?
-            .get(&string_id)
-            .map(|r| r.1.clone())
-    }
-}
+/// `StringTable` lookup in the dats: the UI crate's, shared with every interface.
+pub use dereth_ui::text::DatStringResolver;
 
 // String-table escape decoding is [`dereth_ui::text::unescape`], applied by the `StringResolver`
 // contract itself, so every crate that resolves string-table rows runs the same pass -- see

@@ -19,6 +19,7 @@ members = [
     "core/client-net",
     "core/client-model",
     "core/client-contract",
+    "core/presentation",
     "core/client-runtime",
     "core/audio",
     "core/client-sdk",

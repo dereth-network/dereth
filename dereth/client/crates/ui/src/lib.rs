@@ -770,21 +770,7 @@ impl UiSystem {
         string_id: u32,
         values: &[(&str, &str)],
     ) -> Option<String> {
-        let strings = self.strings.as_ref()?;
-        let pieces = strings.resolve_variants_raw(table, string_id)?;
-        let Some(ids) = strings.resolve_variables(table, string_id) else {
-            let owned: Vec<String> = values.iter().map(|(_, v)| (*v).to_owned()).collect();
-            return self.resolve_string_rendered(table, string_id, &owned);
-        };
-        let mut vals: Vec<String> = Vec::with_capacity(ids.len());
-        for id in &ids {
-            // Each variable is matched by its name hash; a missing one fails the resolve.
-            let hit = values
-                .iter()
-                .find(|(name, _)| dereth_primitives::num::hash::str_hash(name.as_bytes()) == *id)?;
-            vals.push(hit.1.to_owned());
-        }
-        Some(text::unescape(text::metalanguage::render(&pieces, &vals)))
+        text::string_table::render_named(self.strings.as_deref()?, table, string_id, values)
     }
 
     /// The meta-language resolve -- the row's
@@ -813,24 +799,7 @@ impl UiSystem {
         string_id: u32,
         values: &[String],
     ) -> Option<String> {
-        let pieces = self
-            .strings
-            .as_ref()?
-            .resolve_variants_raw(table, string_id)?;
-        // String-table lookup builds `values` from the row's **own** variable list, so there
-        // is always exactly one fewer value than fragment. A caller that offers more is offering
-        // a variable the row does not have, and retail's tokeniser would never see it.
-        //
-        // **A caller that offers fewer is not offering "no sentinel".**
-        // The table lookup fills the array from the row's variables and writes the **empty string** for a
-        // variable the caller did not name, which the tokenizer still wraps in its
-        // two `U+0001`s. That empty value is what earns the auto-derived `'b'` flag, and `'b'` is
-        // what `ID_DurationFormat`'s `{ [!b]}` separators test — so padding is not tidiness, it
-        // is the difference between *"5 days"* and *"5 days   "*.
-        let n = pieces.len().saturating_sub(1);
-        let mut vals: Vec<String> = values.iter().take(n).cloned().collect();
-        vals.resize(n, String::new());
-        Some(text::unescape(text::metalanguage::render(&pieces, &vals)))
+        text::string_table::render_positional(self.strings.as_deref()?, table, string_id, values)
     }
 
     /// The font lookup, through [`UiSystem::fonts`].

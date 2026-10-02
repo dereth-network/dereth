@@ -25,7 +25,8 @@ dereth-assets = { path = "../../../../core/assets" }
 dereth-protocol = { path = "../../../../core/protocol" }
 dereth-rules = { path = "../../../../core/rules" }
 dereth-input = { path = "../input" }
-dereth-ui-screens = { path = "../ui-screens" }
+# The game's presentation rules, shared with the retail interface.
+dereth-presentation = { path = "../../../../core/presentation" }
 dereth-ui = { path = "../ui" }
 # The item and spell icons are pictures of the world's own dats, decoded as the scene decodes them.
 dereth-scene = { path = "../scene", default-features = false }

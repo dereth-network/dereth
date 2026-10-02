@@ -21,6 +21,7 @@ pub mod element_text;
 pub mod glyph;
 pub mod linebreak;
 pub mod metalanguage;
+pub mod string_table;
 pub mod tag;
 
 pub use compose::{
@@ -37,6 +38,7 @@ pub use glyph::{
     GlyphList,
 };
 pub use metalanguage::render;
+pub use string_table::{render_named, render_positional, render_token, DatStringResolver};
 pub use tag::{TagKind, TagSpan, TaggedText, TextTag};
 
 use crate::{Box2D, ElemHandle, UiSystem};
