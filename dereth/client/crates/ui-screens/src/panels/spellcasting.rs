@@ -893,7 +893,7 @@ impl SpellcastingPanel {
                         n.region.blit_mode = BlitMode::Alpha3;
                         n.region.image = Some(GraphicRef {
                             op: Some(SurfaceOp::Icon(r)),
-                            ..GraphicRef::opaque_surface(did, 0, 0)
+                            ..GraphicRef::world_surface(did, 0, 0)
                         });
                     }
                 }
@@ -913,7 +913,7 @@ impl SpellcastingPanel {
                     if let Some(did) = r.base() {
                         n.region.image = Some(GraphicRef {
                             op: Some(SurfaceOp::Icon(r)),
-                            ..GraphicRef::opaque_surface(did, 0, 0)
+                            ..GraphicRef::world_surface(did, 0, 0)
                         });
                     }
                 }

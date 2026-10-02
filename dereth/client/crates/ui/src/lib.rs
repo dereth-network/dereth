@@ -55,7 +55,9 @@ pub use layout::{BorderLocation, EdgeMode, Edges, SizeClamps};
 pub use media::MediaEffect;
 pub use msg::{Delivery, ElementMessage, ListenerId, NoticeId, NoticePayload};
 pub use props::{PropertyCollection, PropertyValue};
-pub use region::{BlitMode, Box2D, DrawEvent, DrawStep, GraphicRef, Region, RegionFlags, UiFill};
+pub use region::{
+    BlitMode, Box2D, DrawEvent, DrawStep, GraphicRef, ImageSource, Region, RegionFlags, UiFill,
+};
 
 // ---------------------------------------------------------------------------------------------
 // Identity
@@ -230,6 +232,8 @@ pub struct UiDrawCmd {
     /// than the dat picture. Appearance color spots and composed icons are the only two producers
     /// in the shipped screens. See [`region::SurfaceOp`].
     pub image_op: Option<region::SurfaceOp>,
+    /// Which files [`Self::image`] is read from.
+    pub image_source: ImageSource,
     pub blit_mode: BlitMode,
     pub alpha_blend_mod: f32,
     pub tiling_offset: (i32, i32),
@@ -1657,6 +1661,11 @@ impl UiSystem {
                 } else {
                     n.region.image.as_ref().and_then(|g| g.op)
                 },
+                image_source: n
+                    .region
+                    .image
+                    .as_ref()
+                    .map_or(ImageSource::Interface, |g| g.source),
                 blit_mode: n.region.blit_mode,
                 alpha_blend_mod: alpha,
                 tiling_offset: n.region.tiling_offset,
@@ -1687,6 +1696,7 @@ impl UiSystem {
                         clip,
                         image: None,
                         image_op: None,
+                        image_source: ImageSource::Interface,
                         blit_mode: n.region.blit_mode,
                         alpha_blend_mod: alpha,
                         tiling_offset: (0, 0),
@@ -1738,6 +1748,7 @@ impl UiSystem {
                 clip,
                 image: None,
                 image_op: None,
+                image_source: ImageSource::Interface,
                 blit_mode: n.region.blit_mode,
                 alpha_blend_mod: alpha,
                 tiling_offset: (0, 0),

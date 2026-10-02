@@ -594,11 +594,11 @@ impl ResearchPanel {
 
     fn draw_slot(ui: &mut UiSystem, slot: ElemHandle, icon: Option<DataId>, tip: Option<String>) {
         if let Some(n) = ui.node_mut(slot) {
-            n.region.image = Some(dereth_ui::GraphicRef::opaque_surface(
-                icon.unwrap_or(EMPTY_SLOT),
-                0,
-                0,
-            ));
+            // A component's icon is the world's; the empty slot is the interface's own.
+            n.region.image = Some(match icon {
+                Some(icon) => dereth_ui::GraphicRef::world_surface(icon, 0, 0),
+                None => dereth_ui::GraphicRef::opaque_surface(EMPTY_SLOT, 0, 0),
+            });
         }
         ui.set_tooltip(slot, tip);
     }

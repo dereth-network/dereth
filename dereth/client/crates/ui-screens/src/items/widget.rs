@@ -1012,7 +1012,7 @@ impl ItemSlot {
     fn set_icon(&self, ui: &mut UiSystem, did: Option<DataId>) {
         let Some(icon) = self.icon else { return };
         if let Some(n) = ui.node_mut(icon) {
-            n.region.image = did.map(|d| dereth_ui::GraphicRef::opaque_surface(d, 0, 0));
+            n.region.image = did.map(|d| dereth_ui::GraphicRef::world_surface(d, 0, 0));
         }
     }
 
@@ -1045,6 +1045,7 @@ impl ItemSlot {
             let base = r.base()?;
             Some(dereth_ui::GraphicRef {
                 did: base,
+                source: dereth_ui::ImageSource::World,
                 width: 0,
                 height: 0,
                 opaque: None,
@@ -1170,7 +1171,7 @@ impl ItemSlot {
         if let Some(h) = self.icon {
             if let Some(n) = ui.node_mut(h) {
                 n.region.blit_mode = dereth_ui::region::BlitMode::Alpha3;
-                n.region.image = icon.map(|d| dereth_ui::GraphicRef::opaque_surface(d, 0, 0));
+                n.region.image = icon.map(|d| dereth_ui::GraphicRef::world_surface(d, 0, 0));
             }
         }
         // After the plain image write, because the two are one image write in the client and the

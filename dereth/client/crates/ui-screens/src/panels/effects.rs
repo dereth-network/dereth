@@ -313,7 +313,7 @@ impl EffectsPanel {
             };
             // The row id — the token index, which the client reads back off the row.
             ui.set_attribute_int(h, ATTR_ROW_INDEX, i32::try_from(i).unwrap_or(i32::MAX));
-            super::skills::set_row_icon(ui, h, e.icon);
+            super::skills::set_row_icon(ui, h, e.icon, dereth_ui::ImageSource::World);
             if let Some(t) = ui
                 .get_child_recursive(h, ElementId(row::LABEL))
                 .and_then(|c| ui.text_element_mut(c))

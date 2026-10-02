@@ -886,6 +886,7 @@ fn clicks_pass_through_a_panels_transparent_corners() {
     }
     ui.node_mut(frame).unwrap().region.alpha_image = Some(GraphicRef {
         did: DataId(0x0600_0001),
+        source: crate::ImageSource::Interface,
         width: 4,
         height: 4,
         opaque: Some(mask),

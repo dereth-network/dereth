@@ -37,6 +37,8 @@ pub struct PanelButtonInfo {
     pub element: ElementId,
     pub handle: ElemHandle,
     pub panel_id: u32,
+    /// Where the layout put the button: its box, relative to its parent, at set-up.
+    pub slot: dereth_ui::Box2D,
 }
 
 /// The toolbar panel's button array, filled at set-up.
@@ -59,13 +61,49 @@ impl Toolbar {
             let panel_id = crate::bind::attr_enum(ui, h, attr::PANEL_ID)
                 .or_else(|| crate::bind::attr_int(ui, h, attr::PANEL_ID).map(|v| v as u32))
                 .unwrap_or(0);
+            let slot = ui
+                .node(h)
+                .map_or(dereth_ui::Box2D::empty(), |n| n.region.box_);
             self.buttons.push(PanelButtonInfo {
                 element: id,
                 handle: h,
                 panel_id,
+                slot,
             });
         }
         self.inventory_drag_overlay = ui.get_child_recursive(root, INVENTORY_DRAG_OVERLAY);
+    }
+
+    /// Close each row of panel buttons up over the ones that are hidden: the buttons of a row (the
+    /// same parent, the same height and the same top in the layout) take the row's places in
+    /// order, left to right, so a button the world has no system for leaves no hole between the
+    /// others. The places left over are at the row's end. With every button shown each takes
+    /// its own place back. Returns whether any button moved.
+    pub fn arrange_buttons(&self, ui: &mut UiSystem) -> bool {
+        let mut rows: Vec<Vec<&PanelButtonInfo>> = Vec::new();
+        for b in self.buttons.iter().filter(|b| b.slot.is_valid()) {
+            let key = |o: &PanelButtonInfo| (ui.parent(o.handle), o.slot.y0, o.slot.height());
+            match rows.iter_mut().find(|r| key(r[0]) == key(b)) {
+                Some(row) => row.push(b),
+                None => rows.push(vec![b]),
+            }
+        }
+        let mut moved = false;
+        for mut row in rows {
+            row.sort_by_key(|b| b.slot.x0);
+            let places: Vec<dereth_ui::Box2D> = row.iter().map(|b| b.slot).collect();
+            let shown: Vec<_> = row.iter().filter(|b| ui.is_visible(b.handle)).collect();
+            for (b, place) in shown.into_iter().zip(places) {
+                let at = ui
+                    .node(b.handle)
+                    .map(|n| (n.region.box_.x0, n.region.box_.y0));
+                if at != Some((place.x0, place.y0)) {
+                    ui.move_to(b.handle, place.x0, place.y0);
+                    moved = true;
+                }
+            }
+        }
+        moved
     }
 
     /// The client's **`0x3E` arm**, which is keyed on

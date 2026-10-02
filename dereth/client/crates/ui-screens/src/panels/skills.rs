@@ -791,7 +791,7 @@ fn write_footer_lines(ui: &mut UiSystem, f: &Footer, c: &FooterContent) {
 /// The construction sets the icon (skipped when the `SkillBase` icon id is `INVALID_DID`) and
 /// the label; the update sets the value.
 fn write_row(ui: &mut UiSystem, h: ElemHandle, s: &SkillEntry) {
-    set_row_icon(ui, h, s.icon);
+    set_row_icon(ui, h, s.icon, dereth_ui::ImageSource::World);
     if let Some(t) = ui
         .get_child_recursive(h, ElementId(row::LABEL))
         .and_then(|c| ui.text_element_mut(c))
@@ -823,13 +823,23 @@ fn write_row(ui: &mut UiSystem, h: ElemHandle, s: &SkillEntry) {
 ///
 /// `None` is `INVALID_DID` and writes nothing, which is what leaves an untrained skill with no
 /// art rather than a blank rectangle. `AttributesPanel`'s nine rows use it too.
-pub fn set_row_icon(ui: &mut UiSystem, h: ElemHandle, icon: Option<dereth_primitives::DataId>) {
+///
+/// `source` says whose picture the icon is: a skill's or a spell's is the world's, an
+/// attribute's the interface's own.
+pub fn set_row_icon(
+    ui: &mut UiSystem,
+    h: ElemHandle,
+    icon: Option<dereth_primitives::DataId>,
+    source: dereth_ui::ImageSource,
+) {
     let Some(icon) = icon else { return };
     let Some(c) = ui.get_child_recursive(h, ElementId(row::ICON)) else {
         return;
     };
     if let Some(n) = ui.node_mut(c) {
-        n.region.image = Some(dereth_ui::GraphicRef::opaque_surface(icon, 0, 0));
+        let mut g = dereth_ui::GraphicRef::opaque_surface(icon, 0, 0);
+        g.source = source;
+        n.region.image = Some(g);
     }
 }
 

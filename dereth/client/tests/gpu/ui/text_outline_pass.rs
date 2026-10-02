@@ -207,6 +207,7 @@ fn the_background_sheet_arm_is_driven_by_the_strips_own_font() {
             clip: dereth_ui::region::Box2D::new(0, 0, 799, 599),
             image: None,
             image_op: None,
+            image_source: dereth_ui::ImageSource::Interface,
             blit_mode: dereth_ui::BlitMode::default(),
             alpha_blend_mod: 1.0,
             tiling_offset: (0, 0),

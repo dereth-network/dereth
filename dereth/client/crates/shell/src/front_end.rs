@@ -1783,10 +1783,11 @@ impl<H: Host> Ui<'_, '_, H> {
     fn compose_ui_draw_list(&mut self) {
         if let Some(shell) = self.shell.ui.as_mut() {
             self.shell.ui_draw_list = shell.draw_list();
-            let store = std::sync::Arc::clone(self.cx.store());
+            let interface = std::sync::Arc::clone(&shell.interface);
+            let world = std::sync::Arc::clone(self.cx.store());
             self.cx
                 .present_mut()
-                .prepare_ui(&store, &self.shell.ui_draw_list);
+                .prepare_ui(&interface, &world, &self.shell.ui_draw_list);
         }
     }
 
@@ -2440,13 +2441,18 @@ impl<H: Host> Ui<'_, '_, H> {
         };
         // `None` on a `--no-ui` run, which gates the
         // `SetCursor` and nothing else.
+        // The pointers are the interface's own art.
+        let interface = self.shell.ui.as_ref().map_or_else(
+            || self.cx.store().interface_files(),
+            |s| std::sync::Arc::clone(&s.interface),
+        );
         let mut shell = self.shell.ui.as_mut();
         let ui = shell.as_mut().map(|s| &mut s.ui);
         self.shell
             .cursor
-            .update_cursor_state(&**self.cx.store(), ui, inputs);
+            .update_cursor_state(&*interface, ui, inputs);
         if let Some(s) = self.shell.ui.as_mut() {
-            self.shell.cursor.apply_pending(self.cx.store(), &mut s.ui);
+            self.shell.cursor.apply_pending(&interface, &mut s.ui);
         }
     }
 }

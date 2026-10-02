@@ -59,7 +59,7 @@ mod imp {
         /// physical size that condition cannot be evaluated here at all.
         #[allow(clippy::type_complexity)] // a one-off tuple, named where it is read
         ui_textures: std::collections::BTreeMap<
-            (DataId, Option<dereth_ui::region::SurfaceOp>),
+            crate::ui_draw::ImageKey,
             Option<(OverlayTexture, (u32, u32))>,
         >,
         /// One opaque white texel, so a flat-colour fill can go through the same
@@ -182,18 +182,37 @@ mod imp {
             store: &dereth_dat::RetailDatStore,
             cmds: &[dereth_ui::UiDrawCmd],
         ) {
-            let textures = crate::textures::TextureStore::new(store);
-            for (id, op) in crate::ui_draw::images(cmds) {
-                if self.ui_textures.contains_key(&(id, op)) {
+            self.prepare_ui_from(store, store, cmds);
+        }
+
+        /// [`Self::prepare_ui`] with the interface's pictures and fonts read from `interface`
+        /// and the pictures the world names ([`dereth_ui::ImageSource::World`], and every composed
+        /// icon) from `world`. Beside an older world the two answer one id with different
+        /// pictures: the interface's own art is the later files', the icons the world's.
+        pub fn prepare_ui_from(
+            &mut self,
+            interface: &dereth_dat::RetailDatStore,
+            world: &dereth_dat::RetailDatStore,
+            cmds: &[dereth_ui::UiDrawCmd],
+        ) {
+            let store = interface;
+            let chrome = crate::textures::TextureStore::new(interface);
+            let content = crate::textures::TextureStore::new(world);
+            for (id, op, source) in crate::ui_draw::images(cmds) {
+                if self.ui_textures.contains_key(&(id, op, source)) {
                     continue;
                 }
+                let textures = match source {
+                    dereth_ui::ImageSource::Interface => &chrome,
+                    dereth_ui::ImageSource::World => &content,
+                };
                 // An icon composite is a function of up to five *other* surfaces, so it does not
                 // start from `id`'s pixels the way a `ReplaceColor` or a `Multiply` does: it makes
                 // its own 32x32 local surface. `id`
                 // is still the recipe's base and still part of the cache key.
                 let decoded =
                     if let Some(r) = op.and_then(dereth_ui::region::SurfaceOp::icon_recipe) {
-                        crate::ui_draw::composite(r, &|d| textures.icon_data(d).ok())
+                        crate::ui_draw::composite(r, &|d| content.icon_data(d).ok())
                             .ok_or(crate::textures::TextureError::NotATexture(id))
                     } else {
                         textures.texture_data(id).map(|d| match op {
@@ -210,12 +229,12 @@ mod imp {
                     // palette, so the palette half of the key is 0 and the key is the image id.
                     Ok(data) => match self
                         .device
-                        .overlay_upload(crate::ui_draw::image_texture(id, op), &data)
+                        .overlay_upload(crate::ui_draw::image_texture(id, op, source), &data)
                     {
                         Ok(()) => {
                             self.ui_stats.uploaded += 1;
                             Some((
-                                crate::ui_draw::image_texture(id, op),
+                                crate::ui_draw::image_texture(id, op, source),
                                 (data.width, data.height),
                             ))
                         }
@@ -231,7 +250,7 @@ mod imp {
                         None
                     }
                 };
-                self.ui_textures.insert((id, op), slot);
+                self.ui_textures.insert((id, op, source), slot);
             }
             self.prepare_ui_fonts(store, cmds);
             self.prepare_ui_white(cmds);
@@ -402,7 +421,11 @@ mod imp {
                 // it. Both belong to this element and both precede the next command, which is what
                 // keeps the whole overlay in order.
                 if let Some(id) = cmd.image {
-                    match self.ui_textures.get(&(id, cmd.image_op)).copied() {
+                    match self
+                        .ui_textures
+                        .get(&(id, cmd.image_op, cmd.image_source))
+                        .copied()
+                    {
                         Some(Some((texture, physical))) => {
                             match crate::ui_draw::quad(cmd, fb, physical) {
                                 Some(crate::ui_draw::UiQuad { vertices, wrap }) => {
@@ -687,7 +710,9 @@ mod imp {
         /// a release inside an open frame is parked against that frame's fence and the slot is not
         /// reusable until it passes.
         pub fn set_movie_frame(&mut self, id: DataId, t: &dereth_primitives::TextureData) {
-            if let Some(Some((texture, _))) = self.ui_textures.get(&(id, None)).copied() {
+            // A movie frame is the interface's own picture.
+            const MOVIE: dereth_ui::ImageSource = dereth_ui::ImageSource::Interface;
+            if let Some(Some((texture, _))) = self.ui_textures.get(&(id, None, MOVIE)).copied() {
                 match self.device.overlay_release(texture) {
                     OverlayReleased::Freed => self.ui_release.freed += 1,
                     OverlayReleased::StillLinked => self.ui_release.still_linked += 1,
@@ -695,7 +720,7 @@ mod imp {
                         self.ui_release.unknown += 1;
                     }
                 }
-                self.ui_textures.remove(&(id, None));
+                self.ui_textures.remove(&(id, None, MOVIE));
             }
             // Uncached on purpose: 's table is keyed by a *DataID*
             // pair and every frame of a movie would collide on the same key, handing back the first
@@ -705,12 +730,12 @@ mod imp {
                 Ok(()) => {
                     self.ui_stats.uploaded += 1;
                     self.ui_textures
-                        .insert((id, None), Some((texture, (t.width, t.height))));
+                        .insert((id, None, MOVIE), Some((texture, (t.width, t.height))));
                 }
                 Err(e) => {
                     tracing::warn!("movie frame would not upload: {e}");
                     self.ui_stats.decode_failures += 1;
-                    self.ui_textures.insert((id, None), None);
+                    self.ui_textures.insert((id, None, MOVIE), None);
                 }
             }
         }
@@ -1122,10 +1147,11 @@ mod imp {
 
         fn prepare_ui(
             &mut self,
-            store: &dereth_dat::RetailDatStore,
+            interface: &dereth_dat::RetailDatStore,
+            world: &dereth_dat::RetailDatStore,
             cmds: &[dereth_ui::UiDrawCmd],
         ) {
-            Renderer::prepare_ui(self, store, cmds);
+            Renderer::prepare_ui_from(self, interface, world, cmds);
         }
 
         fn release_ui_textures(&mut self) -> UiReleaseReport {

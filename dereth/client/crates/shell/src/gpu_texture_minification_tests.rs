@@ -16,6 +16,7 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         clip: dereth_ui::Box2D::new(0, 0, 15, 15),
         image: Some(id),
         image_op: None,
+        image_source: dereth_ui::ImageSource::Interface,
         blit_mode: Default::default(),
         alpha_blend_mod: 1.0,
         tiling_offset: (0, 0),
@@ -38,7 +39,7 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         "a capable device is the discriminating negative"
     );
     renderer.prepare_ui(&store, std::slice::from_ref(&cmd));
-    let (image, size) = renderer.ui_textures[&(id, None)].expect("actual UI image upload");
+    let (image, size) = renderer.ui_textures[&(id, None, dereth_ui::ImageSource::Interface)].expect("actual UI image upload");
     let image_slot = renderer.overlay_slot(image).expect("the image is resident");
     assert_eq!(size, (texture.width, texture.height));
     assert_eq!(renderer.gpu.texture_mip_levels(image_slot), Some(1));
@@ -69,7 +70,7 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         levels: vec![[20, 40, 80, 255].repeat(64)],
     };
     renderer.set_movie_frame(id, &movie);
-    let (frame, _) = renderer.ui_textures[&(id, None)].expect("actual movie frame upload");
+    let (frame, _) = renderer.ui_textures[&(id, None, dereth_ui::ImageSource::Interface)].expect("actual movie frame upload");
     let movie_slot = renderer.overlay_slot(frame).expect("the frame is resident");
     assert_eq!(renderer.gpu.texture_mip_levels(movie_slot), Some(1));
     assert_eq!(

@@ -161,8 +161,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                  and drew its own interface over that world.",
         dereth: "Given those two files beside the end-of-retail ones (--world-dat-dir), the \
                  client draws the February 2005 world from them and the end-of-retail screens \
-                 over it: the interface's layouts, strings and fonts come from the later files, \
-                 and any image or other record the older files lack is read from them too. Asked \
+                 over it: the interface's layouts, strings, fonts and its own pictures (panel \
+                 frames, buttons, bars) come from the later files even where the older files \
+                 hold a picture under the same id, while the pictures the world names (item, \
+                 spell, skill and component icons) and any other record are the older files', \
+                 read from the later ones only where the older lack them. Asked \
                  which \
                  iterations its data files hold (the DDD interrogation), it answers \
                  for the world it draws: the older portal and cell files, whose iteration is in \
@@ -181,7 +184,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                  titles no Titles tab, with no cloaks or trinkets no cloak or trinket slot on the \
                  paper doll, with no luminance no luminance section on the character sheet, with \
                  no housing no House tab on the map page and no house purchase window, and with \
-                 no trade, tinkering or chess no secure-trade, salvage or chess window.",
+                 no trade, tinkering or chess no secure-trade, salvage or chess window. A \
+                 toolbar button hidden this way leaves no gap: the buttons after it in its row \
+                 move up into its place.",
         why: "Dereth plays every era over one set of screens until the interface of the time is \
               rebuilt; the world itself is the older files' own.",
     },

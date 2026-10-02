@@ -28,7 +28,7 @@ use dereth_render::font::{FontAtlas, GlyphSheet, TextBatch};
 use dereth_render::ui::{self, ClipRect};
 use dereth_ui::region::{IconRecipe, SurfaceOp};
 use dereth_ui::text::PlacedGlyph;
-use dereth_ui::UiDrawCmd;
+use dereth_ui::{ImageSource, UiDrawCmd};
 
 use dereth_client_contract::overlay::{OverlaySpace, OverlayTexture, OverlayVertex};
 
@@ -309,17 +309,22 @@ fn flat_vertices(rect: &ClipRect, color: u32) -> Vec<u8> {
     out
 }
 
+/// One UI image as the renderer caches it: the id, the operation it is shown through, and which
+/// files it is read from.
+pub type ImageKey = (DataId, Option<SurfaceOp>, ImageSource);
+
 /// Which images the current draw list needs, once each and in first-use order.
 ///
 /// An image shown through a [`SurfaceOp`] is a **different** texture from the same image shown
 /// plain -- the colour-spot generator makes a local surface per spot and recolours it -- so the
-/// pair is the key.
+/// pair is the key. So is the same id read from the world's files rather than the interface's:
+/// beside an older world the two answer one id with different pictures ([`ImageSource`]).
 #[must_use]
-pub fn images(cmds: &[UiDrawCmd]) -> Vec<(DataId, Option<SurfaceOp>)> {
-    let mut out: Vec<(DataId, Option<SurfaceOp>)> = Vec::new();
+pub fn images(cmds: &[UiDrawCmd]) -> Vec<ImageKey> {
+    let mut out: Vec<ImageKey> = Vec::new();
     for c in cmds {
         if let Some(id) = c.image {
-            let k = (id, c.image_op);
+            let k = (id, c.image_op, c.image_source);
             if !out.contains(&k) {
                 out.push(k);
             }
@@ -397,13 +402,31 @@ pub fn image_key(id: DataId, op: Option<SurfaceOp>) -> dereth_render::TextureKey
     dereth_render::TextureKey::ui(dereth_render::combined_texture_key(half, id.0))
 }
 
-/// A UI image and its operation as an overlay texture: [`image_key`]'s payload, in the overlay's
-/// shared image space.
+/// [`image_key`] for an image read from `source`'s files. An interface image keeps its key. A world
+/// image's key sets bit 1 of the operation half: a plain world image has half `2`, which no
+/// operation produces (every operation's half is odd), so it never shares a texture with the
+/// interface's picture under the same id. A composed icon is always read from the world's files,
+/// so its key is its recipe's alone.
 #[must_use]
-pub fn image_texture(id: DataId, op: Option<SurfaceOp>) -> OverlayTexture {
+pub fn image_key_from(
+    id: DataId,
+    op: Option<SurfaceOp>,
+    source: ImageSource,
+) -> dereth_render::TextureKey {
+    let key = image_key(id, op);
+    if source == ImageSource::Interface || matches!(op, Some(SurfaceOp::Icon(_))) {
+        return key;
+    }
+    dereth_render::TextureKey::ui(key.raw() ^ (2u64 << 32))
+}
+
+/// A UI image, its operation and its files as an overlay texture: [`image_key_from`]'s payload,
+/// in the overlay's shared image space.
+#[must_use]
+pub fn image_texture(id: DataId, op: Option<SurfaceOp>, source: ImageSource) -> OverlayTexture {
     OverlayTexture {
         space: OverlaySpace::Image,
-        key: image_key(id, op).raw(),
+        key: image_key_from(id, op, source).raw(),
     }
 }
 
@@ -1128,6 +1151,7 @@ mod tests {
             clip,
             image: Some(DataId(0x0600_0001)),
             image_op: None,
+            image_source: dereth_ui::ImageSource::Interface,
             blit_mode: BlitMode::default(),
             alpha_blend_mod: 1.0,
             tiling_offset: (0, 0),
@@ -1364,7 +1388,10 @@ mod tests {
         d.image = None;
         assert_eq!(
             images(&[a.clone(), c, a.clone(), d]),
-            vec![(DataId(2), None), (DataId(1), None)]
+            vec![
+                (DataId(2), None, ImageSource::Interface),
+                (DataId(1), None, ImageSource::Interface)
+            ]
         );
 
         let mut e = cmd(b, b);
@@ -1382,6 +1409,20 @@ mod tests {
             image_key(DataId(2), None),
             image_key(DataId(2), e.image_op),
             "a derived surface must not collide with its own template in the descriptor cache"
+        );
+
+        // The same id read from the world's files is another picture, and another texture.
+        let mut w = cmd(b, b);
+        w.image = Some(DataId(2));
+        w.image_source = ImageSource::World;
+        assert_eq!(images(&[w.clone(), e.clone(), w]).len(), 2);
+        assert_ne!(
+            image_key_from(DataId(2), None, ImageSource::World),
+            image_key_from(DataId(2), None, ImageSource::Interface),
+        );
+        assert_ne!(
+            image_key_from(DataId(2), None, ImageSource::World),
+            image_key_from(DataId(2), e.image_op, ImageSource::Interface),
         );
     }
 }

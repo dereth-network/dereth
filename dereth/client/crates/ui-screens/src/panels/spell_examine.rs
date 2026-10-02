@@ -434,7 +434,7 @@ impl SpellExamineUi {
             self.rows_drawn += 1;
             if let Some(node) = ui.node_mut(row) {
                 node.region.blit_mode = dereth_ui::BlitMode::Alpha3;
-                node.region.image = Some(dereth_ui::GraphicRef::opaque_surface(*icon, 0, 0));
+                node.region.image = Some(dereth_ui::GraphicRef::world_surface(*icon, 0, 0));
             }
             set_row_component(ui, row, c.scid);
         }
@@ -538,7 +538,7 @@ fn set_icon(ui: &mut UiSystem, h: Option<ElemHandle>, icon: Option<DataId>) {
     node.region.image = None;
     if let Some(icon) = icon {
         node.region.blit_mode = dereth_ui::BlitMode::Alpha3;
-        node.region.image = Some(dereth_ui::GraphicRef::opaque_surface(icon, 0, 0));
+        node.region.image = Some(dereth_ui::GraphicRef::world_surface(icon, 0, 0));
     }
 }
 

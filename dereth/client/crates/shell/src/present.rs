@@ -45,8 +45,15 @@ pub trait ClientPresentation: Presentation {
     /// # Errors
     /// Whatever the device answers.
     fn draw_ui(&mut self, cmds: &[dereth_ui::UiDrawCmd]) -> Result<(), PresentError>;
-    /// Upload whatever this draw list newly references, outside the frame bracket.
-    fn prepare_ui(&mut self, store: &RetailDatStore, cmds: &[dereth_ui::UiDrawCmd]);
+    /// Upload whatever this draw list newly references, outside the frame bracket: its interface
+    /// pictures from `interface`, the interface's own files, and the pictures the world names
+    /// ([`dereth_ui::ImageSource::World`]) from `world`.
+    fn prepare_ui(
+        &mut self,
+        interface: &RetailDatStore,
+        world: &RetailDatStore,
+        cmds: &[dereth_ui::UiDrawCmd],
+    );
     fn release_ui_textures(&mut self) -> UiReleaseReport;
     fn set_movie_frame(&mut self, id: DataId, texture: &dereth_primitives::TextureData);
     /// Where a tracked object projects on screen, for the target reticule.
@@ -66,7 +73,12 @@ impl ClientPresentation for NullPresentation {
         self.counts_mut().draw_ui += 1;
         Ok(())
     }
-    fn prepare_ui(&mut self, _store: &RetailDatStore, _cmds: &[dereth_ui::UiDrawCmd]) {
+    fn prepare_ui(
+        &mut self,
+        _interface: &RetailDatStore,
+        _world: &RetailDatStore,
+        _cmds: &[dereth_ui::UiDrawCmd],
+    ) {
         self.counts_mut().prepare_ui += 1;
     }
     fn release_ui_textures(&mut self) -> UiReleaseReport {

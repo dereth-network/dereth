@@ -251,6 +251,7 @@ fn an_element_wider_than_its_picture_binds_wrap_where_the_same_element_at_its_ow
             clip: dereth_ui::region::Box2D::new(0, 0, 799, 599),
             image: Some(id),
             image_op: None,
+            image_source: dereth_ui::ImageSource::Interface,
             blit_mode: dereth_ui::BlitMode::default(),
             alpha_blend_mod: 1.0,
             tiling_offset: (0, 0),

@@ -534,6 +534,9 @@ impl SurfaceOp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphicRef {
     pub did: DataId,
+    /// Which files the picture is read from: the interface's own, or the world's. See
+    /// [`ImageSource`].
+    pub source: ImageSource,
     pub width: i32,
     pub height: i32,
     /// One entry per texel, row-major, `true` = opaque. `None` = "no mask, every texel hits".
@@ -543,11 +546,38 @@ pub struct GraphicRef {
     pub op: Option<SurfaceOp>,
 }
 
+/// Which files an element's picture is read from.
+///
+/// An interface draws two kinds of picture. Its **chrome** -- the art its layouts name: panel
+/// frames, buttons, bars, the colours of its windows -- is the interface's own and comes from the
+/// interface's files. Its **content** -- the pictures a world names: an item's icon, a spell's, a
+/// skill's, a component's -- comes from the world's files. Both kinds share one id space, and beside
+/// an older world the two sets of files answer the same id with different pictures, so a picture
+/// says which it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum ImageSource {
+    /// The interface's own files: every picture a layout names, and every one a screen sets
+    /// unless it says otherwise.
+    #[default]
+    Interface,
+    /// The world's files: a picture a world's records name.
+    World,
+}
+
 impl GraphicRef {
+    /// [`Self::opaque_surface`] for a picture a world's records name ([`ImageSource::World`]).
+    #[must_use]
+    pub const fn world_surface(did: DataId, width: i32, height: i32) -> Self {
+        let mut g = Self::opaque_surface(did, width, height);
+        g.source = ImageSource::World;
+        g
+    }
+
     #[must_use]
     pub const fn opaque_surface(did: DataId, width: i32, height: i32) -> Self {
         Self {
             did,
+            source: ImageSource::Interface,
             width,
             height,
             opaque: None,
@@ -956,6 +986,7 @@ mod tests {
         let mut r = Region::new(Box2D::new(10, 10, 13, 13));
         r.alpha_image = Some(GraphicRef {
             did: DataId(0x0600_0001),
+            source: ImageSource::Interface,
             width: 4,
             height: 4,
             opaque: Some(mask),

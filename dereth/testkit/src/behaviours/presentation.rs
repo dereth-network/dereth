@@ -52,6 +52,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "presentation.era.the-panel-buttons-close-up-over-a-system-the-world-lacks",
+        says: "When the world has no system for one of the toolbar's panel buttons (no journal on \
+               an Infiltration world), the button is hidden and the buttons after it in its row \
+               move up into the places before, so no gap is left between them; on an \
+               end-of-retail world every button is back in its own place.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-UI-UNIFY-BUTTON-ROW"),
+        station: "dereth-ui-screens::dat::panels::era_panels::on_an_infiltration_world_the_panel_buttons_close_up_over_the_missing_journal_button",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.era.the-retail-interface-draws-its-own-art-over-an-older-world",
+        says: "Over the February 2005 world the retail interface's screens are read from the \
+               end-of-retail files: where both sets of files hold a picture under the same id, \
+               the interface draws the end-of-retail one (its panel frames, buttons, bars and \
+               colours), and the world's own store still answers with the older one, which is \
+               where the pictures the world names (item, spell, skill and component icons) are \
+               drawn from.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-UI-UNIFY-CHROME"),
+        station: "dereth-dat::dat::container::interface_files::the_interface_files_beside_an_older_world_answer_with_the_later_pictures",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.era.the-retail-magic-window-has-a-create-spell-tab-with-spell-research",
         says: "On a world with spell research the retail interface's magic window has a third \
                tab, Create Spell, sharing the tab strip with Spells and Components; on one \

@@ -531,6 +531,9 @@ pub use dereth_client_runtime::interaction::UiMouseEvent;
 pub struct UiShell {
     /// The UI element manager.
     pub ui: UiSystem,
+    /// The files the screens are built from and draw their own art from
+    /// ([`dereth_dat::RetailDatStore::interface_files`]).
+    pub interface: Arc<dereth_dat::RetailDatStore>,
     /// The eight-mode UI flow.
     pub flow: UiFlow,
     /// Every mode actually entered, in order. This is the recording the acceptance test compares
@@ -650,11 +653,17 @@ impl UiShell {
     /// # Errors
     /// [`UiShellError`] for either of the two dat objects without which no layout can be built.
     pub fn new(
-        store: &Arc<dereth_dat::RetailDatStore>,
+        world: &Arc<dereth_dat::RetailDatStore>,
         display: (i32, i32),
     ) -> Result<Self, UiShellError> {
         use dereth_assets::Decode;
         use dereth_primitives::{AssetSource, DataId};
+
+        // The screens are the later interface: everything they are built from -- layouts,
+        // strings, fonts, art -- is read from its own files, and only the world's records (the
+        // creation tables) and the pictures it names from the world's.
+        let interface = world.interface_files();
+        let store = &interface;
 
         // The text tick's caret blink query is the host's, installed before any frame.
         crate::hud::install_shared();
@@ -737,7 +746,7 @@ impl UiShell {
         // and `4` are `CharGen_CharacterData` and `Weenie_SkillTable`. Hard-coding `0x0E000002`
         // would work against this dat build and break on any other.
         let mut stats = UiStats::default();
-        let chargen_tables = load_chargen_tables(assets.as_ref(), store);
+        let chargen_tables = load_chargen_tables(&SharedStore(Arc::clone(world)), world);
         if chargen_tables.is_none() {
             stats.chargen_table_failures += 1;
             tracing::warn!("the char-gen tables did not load; creation is unavailable");
@@ -745,6 +754,7 @@ impl UiShell {
 
         Ok(Self {
             ui,
+            interface: Arc::clone(store),
             flow,
             transitions: Vec::new(),
             last_host: HostState::default(),

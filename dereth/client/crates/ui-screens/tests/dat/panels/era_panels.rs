@@ -219,6 +219,54 @@ fn an_infiltration_world_has_no_journal_button_and_never_opens_the_quest_page() 
     assert!(shown(&ui, quest.handle));
 }
 
+/// Behaviour: presentation.era.the-panel-buttons-close-up-over-a-system-the-world-lacks
+#[test]
+fn on_an_infiltration_world_the_panel_buttons_close_up_over_the_missing_journal_button() {
+    let (mut ui, mut s) = screen();
+    // The row of small panel buttons, as (handle, x) in the layout's own places, left to right.
+    let row = |ui: &UiSystem, s: &GamePlayScreen| -> Vec<(ElemHandle, i32, bool)> {
+        let first = s.toolbar.buttons[0].slot;
+        let mut r: Vec<_> = s
+            .toolbar
+            .buttons
+            .iter()
+            .filter(|b| b.slot.y0 == first.y0 && b.slot.height() == first.height())
+            .map(|b| {
+                let n = ui.node(b.handle).expect("alive");
+                (b.handle, n.region.box_.x0, n.region.flags.visible)
+            })
+            .collect();
+        r.sort_by_key(|(_, x, _)| *x);
+        r
+    };
+    let places: Vec<i32> = row(&ui, &s).iter().map(|(_, x, _)| *x).collect();
+    assert_eq!(places.len(), 6, "six small panel buttons in one row");
+    assert!(row(&ui, &s).iter().all(|(_, _, shown)| *shown));
+
+    assert!(s.apply_era(&mut ui, EraId::Infiltration.features()));
+    let shown: Vec<i32> = row(&ui, &s)
+        .iter()
+        .filter(|(_, _, shown)| *shown)
+        .map(|(_, x, _)| *x)
+        .collect();
+    assert_eq!(shown.len(), 5, "the journal button is hidden");
+    assert_eq!(
+        shown,
+        places[..5],
+        "the five left take the first five places"
+    );
+
+    assert!(s.apply_era(&mut ui, EraId::Eor.features()));
+    let back: Vec<i32> = s
+        .toolbar
+        .buttons
+        .iter()
+        .map(|b| ui.node(b.handle).expect("alive").region.box_.x0)
+        .collect();
+    let own: Vec<i32> = s.toolbar.buttons.iter().map(|b| b.slot.x0).collect();
+    assert_eq!(back, own, "every button is back in its own place");
+}
+
 /// Behaviour: presentation.era.the-screens-leave-out-what-the-worlds-era-lacks
 #[test]
 fn a_world_without_trade_tinkering_housing_or_chess_never_opens_their_windows() {

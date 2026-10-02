@@ -270,6 +270,17 @@ impl RetailDatStore {
         })
     }
 
+    /// The files the later interface's own screens read: their layouts, strings, fonts and art.
+    /// Beside an older world these are the later files ([`Self::later_files`]), so a record both
+    /// sets carry -- a panel's frame, a button's picture -- is the later interface's and not the
+    /// older world's picture under the same id. Otherwise this store itself. The pictures a world
+    /// names (an item's icon, a spell's) stay this store's to answer.
+    #[must_use]
+    pub fn interface_files(self: &Arc<Self>) -> Arc<Self> {
+        self.later_files()
+            .map_or_else(|| Arc::clone(self), Arc::new)
+    }
+
     /// This store with a `portal.dat` from before Throne of Destiny beside it, for presentation
     /// alone: the older regions' ground and sky and what they name, read through
     /// [`Self::legacy_files`]. Every read of this store itself is unchanged, so the world it reads

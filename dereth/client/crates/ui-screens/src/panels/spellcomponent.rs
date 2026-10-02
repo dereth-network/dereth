@@ -541,7 +541,7 @@ fn write_row(ui: &mut UiSystem, h: ElemHandle, r: &ComponentRow) {
     if let Some(icon) = r.icon {
         if let Some(c) = ui.get_child_recursive(h, ElementId(row::ICON)) {
             if let Some(n) = ui.node_mut(c) {
-                n.region.image = Some(dereth_ui::GraphicRef::opaque_surface(icon, 0, 0));
+                n.region.image = Some(dereth_ui::GraphicRef::world_surface(icon, 0, 0));
             }
         }
     }

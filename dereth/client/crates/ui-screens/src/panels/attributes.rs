@@ -228,6 +228,7 @@ impl AttributesPanel {
                     ui.env()
                         .cloned()
                         .and_then(|e| e.did_by_enum(ICON_GROUP, stat)),
+                    dereth_ui::ImageSource::Interface,
                 );
                 set_label(ui, h, name);
                 self.rows.push(AttributeRow {
@@ -248,6 +249,7 @@ impl AttributesPanel {
                     ui.env()
                         .cloned()
                         .and_then(|e| e.did_by_enum(ICON_GROUP_2ND, stat)),
+                    dereth_ui::ImageSource::Interface,
                 );
                 set_label(ui, h, name);
                 self.rows.push(AttributeRow {

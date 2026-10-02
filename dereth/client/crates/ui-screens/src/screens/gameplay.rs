@@ -4120,6 +4120,8 @@ impl GamePlayScreen {
                 ui.set_mouse_visible(b.handle, has);
             }
         }
+        // The buttons left close up over the hidden ones.
+        self.toolbar.arrange_buttons(ui);
         self.era_features = Some(features);
         true
     }
