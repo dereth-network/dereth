@@ -540,9 +540,10 @@ fn send_connect_response_lists_the_last_played_first() {
 }
 
 /// Not ACE: a configured `server.character_screen_message` follows the character list at log-in
-/// as message 0xF65A, the text then an empty string; with none configured nothing is sent.
+/// as message 0xF65A, the text then an empty string; with none configured the text is a welcome
+/// to the world, by its name.
 #[test]
-fn the_character_screen_message_follows_the_character_list_when_configured() {
+fn the_character_screen_message_follows_the_character_list_and_defaults_to_a_welcome() {
     use empyrean_common::config_manager::ConfigManager;
     use empyrean_common::master_configuration::MasterConfiguration;
     use empyrean_world::network::game_messages::game_message;
@@ -571,7 +572,17 @@ fn the_character_screen_message_follows_the_character_list_when_configured() {
     expected.extend([0]);
     expected.extend([0, 0, 0, 0]);
     assert_eq!(sent[1], expected);
-    assert!(sent_after_login("").iter().all(|b| opcode(b) != 0xF65A));
+
+    let sent = sent_after_login("");
+    let order: Vec<u32> = sent.iter().map(|b| opcode(b)).collect();
+    assert_eq!(&order[..2], &[0xF658, 0xF65A]);
+    let welcome = format!(
+        "Welcome to {}!",
+        MasterConfiguration::default().server.world_name
+    );
+    let len = u16::try_from(welcome.len()).expect("short");
+    assert_eq!(&sent[1][4..6], &len.to_le_bytes());
+    assert_eq!(&sent[1][6..6 + welcome.len()], welcome.as_bytes());
 }
 
 fn login_request(account: &str, password: &str) -> PacketInboundLoginRequest {

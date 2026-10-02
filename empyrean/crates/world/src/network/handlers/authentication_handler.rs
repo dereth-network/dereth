@@ -377,16 +377,26 @@ pub fn send_connect_response(
     let ddd_interrogation = game_message_ddd_interrogation(w);
 
     enqueue_send(w, session, character_list_message);
-    // Not ACE: the character screen's message, when one is configured.
-    let text = empyrean_common::config_manager::ConfigManager::config()
+    // Not ACE: the character screen's message, the configured one or else a welcome to the world.
+    let configured = empyrean_common::config_manager::ConfigManager::config()
         .server
         .character_screen_message
         .clone();
-    if !text.is_empty() {
-        enqueue_send(w, session, character_screen_message(&text));
-    }
+    let text = if configured.is_empty() {
+        default_character_screen_message(&sessions::config_server_world_name())
+    } else {
+        configured
+    };
+    enqueue_send(w, session, character_screen_message(&text));
     enqueue_send(w, session, server_name_message);
     enqueue_send(w, session, ddd_interrogation);
+}
+
+/// Not ACE: the character screen's message when none is configured: `Welcome to <world name>!`.
+/// DIVERGE: V431 ACE sends no such message.
+#[must_use]
+pub fn default_character_screen_message(world_name: &str) -> String {
+    format!("Welcome to {world_name}!")
 }
 
 /// Not ACE: the character screen's message (`0xF65A`), which clients of the 2005 era show in

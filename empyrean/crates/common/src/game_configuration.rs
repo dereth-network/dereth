@@ -121,7 +121,8 @@ pub struct GameConfiguration {
     pub interactive_console: bool,
 
     /// Not ACE: the text the character screen's message box shows, sent with the character list
-    /// at log-in. Empty (the default) sends nothing. Only clients of the 2005 era show it.
+    /// at log-in. Empty (the default) sends `Welcome to <world name>!`. The clients of the 2005 era
+    /// and Dereth's interfaces show it; the final retail client ignores it.
     /// DIVERGE: V431 an extra key and message; ACE sends no character-screen message.
     #[serde(rename = "CharacterScreenMessage")]
     pub character_screen_message: String,
