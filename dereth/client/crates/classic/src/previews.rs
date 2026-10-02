@@ -110,8 +110,14 @@ impl Previews {
                     continue;
                 }
                 let bytes = store.read(did).map_err(|e| e.to_string())?;
-                let mesh = dereth_assets::geometry::GfxObj::decode_payload(did, &bytes)
-                    .map_err(|e| e.to_string())?;
+                // In the layout of the files the part came from: the early portal's or the
+                // world's own.
+                let mesh = dereth_assets::geometry::GfxObj::decode_payload_in(
+                    store.era_of(did),
+                    did,
+                    &bytes,
+                )
+                .map_err(|e| e.to_string())?;
                 let pick =
                     dereth_client_runtime::object_physics::drawing_sphere(&mesh).map(|sphere| {
                         let polygons = mesh

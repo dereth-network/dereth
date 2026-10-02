@@ -1948,6 +1948,9 @@ impl ClassicUi {
                                 right_click,
                                 double_click,
                             ));
+                            // The release is the doll's, so the press's hold on its window ends
+                            // here: the next press goes where it lands.
+                            self.desktop.release_pointer(&context);
                             continue;
                         }
                     }
