@@ -10,7 +10,7 @@
 //! |---|---|
 //! | the Create Spell tab | a copy of the Components tab; the three tabs share the strip |
 //! | the two headings | a copy of the spellbook's own heading text |
-//! | the formula and the components grid | plain 32-pixel slots showing the component icons |
+//! | the formula and the components grid | 32-pixel slots showing the component icons, each over the empty item slot's frame |
 //! | the grid's scrollbar | a copy of the component list's scrollbar, one stop per row |
 //! | Test and Clear | copies of the spellbook's text button |
 //!
@@ -61,6 +61,9 @@ pub const GRID: ElementId = ElementId(0x7F00_0009);
 pub const FIRST_FORMULA_SLOT: u32 = 0x7F00_0010;
 /// The first grid slot; the [`GRID_SLOTS`] are consecutive.
 pub const FIRST_GRID_SLOT: u32 = 0x7F00_0020;
+/// The first slot frame: the empty item slot drawn under each slot, the formula's eight then the
+/// grid's, consecutive.
+pub const FIRST_SLOT_FRAME: u32 = 0x7F00_0100;
 
 /// The tab's caption.
 pub const TAB_TEXT: &str = "Create Spell";
@@ -378,10 +381,10 @@ impl ResearchPanel {
         };
         let mut formula = field(FORMULA, (FORMULA_BOX.0, FORMULA_BOX.1, SLOT * 8, SLOT));
         for i in 0..FORMULA_SLOTS {
-            let d = field(
-                slot_id(FIRST_FORMULA_SLOT, i),
-                (small(i) * SLOT, 0, SLOT, SLOT),
-            );
+            let geometry = (small(i) * SLOT, 0, SLOT, SLOT);
+            let frame = field(slot_id(FIRST_SLOT_FRAME, i), geometry);
+            formula.children.insert(frame.element_id, frame);
+            let d = field(slot_id(FIRST_FORMULA_SLOT, i), geometry);
             formula.children.insert(d.element_id, d);
         }
         let mut grid = field(
@@ -395,10 +398,10 @@ impl ResearchPanel {
         );
         for i in 0..GRID_SLOTS {
             let (col, row) = (small(i % COLUMNS), small(i / COLUMNS));
-            let d = field(
-                slot_id(FIRST_GRID_SLOT, i),
-                (col * SLOT, row * SLOT, SLOT, SLOT),
-            );
+            let geometry = (col * SLOT, row * SLOT, SLOT, SLOT);
+            let frame = field(slot_id(FIRST_SLOT_FRAME, FORMULA_SLOTS + i), geometry);
+            grid.children.insert(frame.element_id, frame);
+            let d = field(slot_id(FIRST_GRID_SLOT, i), geometry);
             grid.children.insert(d.element_id, d);
         }
         // The window's own background is translucent; the backdrop covers the whole page so what
@@ -461,6 +464,21 @@ impl ResearchPanel {
             place(ui, bar, SCROLLBAR_BOX);
         }
         settle(ui, page);
+        // Every slot stands on the empty item slot's frame, which shows through around a
+        // component's icon and is the whole of an empty slot; the slots are in front of it.
+        for i in 0..FORMULA_SLOTS + GRID_SLOTS {
+            if let Some(n) = find(ui, slot_id(FIRST_SLOT_FRAME, i)).and_then(|h| ui.node_mut(h)) {
+                n.region.image = Some(dereth_ui::GraphicRef::opaque_surface(EMPTY_SLOT, 0, 0));
+            }
+        }
+        let slots = (0..FORMULA_SLOTS)
+            .map(|i| slot_id(FIRST_FORMULA_SLOT, i))
+            .chain((0..GRID_SLOTS).map(|i| slot_id(FIRST_GRID_SLOT, i)));
+        for id in slots {
+            if let Some(h) = find(ui, id) {
+                ui.bring_to_front(h);
+            }
+        }
         // The slots answer the mouse; the formula row catches a dragged component.
         let slots = (0..FORMULA_SLOTS)
             .map(|i| slot_id(FIRST_FORMULA_SLOT, i))
@@ -632,12 +650,9 @@ impl ResearchPanel {
 
     fn draw_slot(ui: &mut UiSystem, slot: ElemHandle, icon: Option<DataId>, tip: Option<String>) {
         if let Some(n) = ui.node_mut(slot) {
-            // A component's icon is drawn as the Components tab draws it; the empty slot is the
-            // interface's own.
-            n.region.image = Some(match icon {
-                Some(icon) => super::spellcomponent::component_icon(icon),
-                None => dereth_ui::GraphicRef::opaque_surface(EMPTY_SLOT, 0, 0),
-            });
+            // A component's icon is drawn as the Components tab draws it, over the slot's frame;
+            // an empty slot shows the frame alone.
+            n.region.image = icon.map(super::spellcomponent::component_icon);
         }
         ui.set_tooltip(slot, tip);
     }

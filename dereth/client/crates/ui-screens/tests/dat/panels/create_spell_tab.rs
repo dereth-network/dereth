@@ -279,6 +279,31 @@ fn components_laid_on_the_create_spell_page_are_what_test_sends_and_clear_emptie
             .map(|g| g.did)
     };
     assert_eq!(image(&ui, grid[3]), Some(DataId(0x0600_1004)));
+    // Every slot stands in front of the empty item slot's frame: a carried component's icon is
+    // drawn over it, and an empty slot is the frame alone.
+    let window = page.page().expect("the page");
+    for (i, &slot) in grid.iter().enumerate() {
+        let frame = ui
+            .get_child_recursive(
+                window,
+                dereth_ui::ElementId(research::FIRST_SLOT_FRAME + 8 + i as u32),
+            )
+            .expect("a frame behind the slot");
+        assert_eq!(
+            image(&ui, frame),
+            Some(DataId(0x0600_4D20)),
+            "the empty slot"
+        );
+        let parent = ui.parent(slot).expect("the grid");
+        let order = ui.children(parent);
+        let at = |h| order.iter().position(|&c| c == h);
+        assert!(at(frame) < at(slot), "slot {i} is drawn over its frame");
+    }
+    assert_eq!(
+        image(&ui, grid[research::GRID_SLOTS - 1]),
+        None,
+        "an empty slot is its frame"
+    );
 
     // Two double clicks and a drop from the pack, laid in that order.
     double_click(&mut ui, &mut s, &mut page, &view, grid[4]);
