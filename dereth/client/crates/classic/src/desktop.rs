@@ -321,12 +321,19 @@ impl Desktop {
         }
         (right, bottom)
     }
+    /// What the copy key copies: the focused window's selection, else the selection of a
+    /// window that does not take the focus, such as the chat log's.
     pub fn selected_text(&self) -> Option<String> {
-        let window = self.windows.iter().find(|w| Some(w.token) == self.focus)?;
-        window
-            .controls
-            .selected_text()
-            .or_else(|| window.panel.selected_text())
+        let of = |w: &Window| {
+            w.controls
+                .selected_text()
+                .or_else(|| w.panel.selected_text())
+        };
+        self.windows
+            .iter()
+            .find(|w| Some(w.token) == self.focus)
+            .and_then(of)
+            .or_else(|| self.windows.iter().find_map(of))
     }
     pub fn editing(&self) -> bool {
         self.windows
@@ -1109,7 +1116,8 @@ impl Desktop {
                                 return false;
                             }
                             if w.key == "hud" {
-                                return w.controls.contains_control(x - w.x, y - w.y);
+                                return w.controls.contains_control(x - w.x, y - w.y)
+                                    || w.panel.claims(x - w.x, y - w.y);
                             }
                             rect(
                                 w.x,

@@ -358,6 +358,12 @@ impl Panel for Hud {
     fn selected_text(&self) -> Option<String> {
         self.chat.selected_text()
     }
+    /// The chat log is selectable text, so a press on it is the interface's even where no
+    /// control lies under it.
+    fn claims(&self, x: i32, y: i32) -> bool {
+        let chat = regions(self.width, self.height).chat;
+        x >= chat.x && x < chat.x + chat.w - 16 && y >= chat.y + 10 && y < chat.y + chat.h
+    }
     fn input(
         &mut self,
         input: &crate::widgets::Input,
@@ -1734,6 +1740,17 @@ impl Panel for Chat {
 mod tests {
     //! Behaviour: none (classic panel adapter; no retail behaviour claim).
     use super::*;
+    #[test]
+    fn the_chat_log_is_the_interfaces_where_no_control_lies_and_the_world_view_is_not() {
+        let mut hud = make("hud").expect("the interface");
+        hud.resize(800, 600);
+        let chat = regions(800, 600).chat;
+        assert!(
+            hud.claims(chat.x + 20, chat.y + chat.h / 2),
+            "the chat log's text"
+        );
+        assert!(!hud.claims(200, 200), "the 3D view");
+    }
     #[derive(Debug, Default)]
     struct World {
         rows: Vec<RadarEntry>,

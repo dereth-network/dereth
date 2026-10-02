@@ -486,6 +486,14 @@ impl ClassicUi {
         if !help && self.ctrl && pressed && vk == 0x52 && self.chat_recall() {
             return None;
         }
+        // The copy key copies selected text before the key map sees it, so a selection in the
+        // chat log is copied rather than the character strafing.
+        if !help && self.ctrl && pressed && vk == 0x43 {
+            if let Some(text) = self.desktop.selected_text() {
+                clipboard.set(&text);
+                return None;
+            }
+        }
         // The key map follows its own chords from the modifier keys' own transitions.
         let modifiers = 0;
         let repeat = pressed && !self.held_keys.insert(vk);

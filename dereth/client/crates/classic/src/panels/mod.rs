@@ -861,6 +861,11 @@ pub trait Panel: std::fmt::Debug {
         None
     }
     fn resize(&mut self, _width: u32, _height: u32) {}
+    /// Whether a point of a window that lets the pointer through where it has no control (the
+    /// full-screen interface) is still the panel's: text it draws that the pointer can select.
+    fn claims(&self, _x: i32, _y: i32) -> bool {
+        false
+    }
     /// What the window has selected outside its edit fields, for the copy key.
     fn selected_text(&self) -> Option<String> {
         None
