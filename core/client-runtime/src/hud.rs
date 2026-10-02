@@ -2015,6 +2015,9 @@ impl Hud {
         world.scroll.now_unix = wall_clock_unix();
         world.scroll.utc_offset_secs = utc_offset_secs(world.scroll.now_unix);
         self.drain_scroll(world, panels, &mut chat);
+        // The spell component table, before any object of the batch: a component the world meets
+        // without it is filed under no category.
+        world.install_component_catalogue(&self.component_catalogue);
         for e in events {
             match e {
                 // Character startup is gated by the event's enable flag. Handle it in stream order
@@ -2215,9 +2218,7 @@ impl Hud {
 
                     // Player initialization's component drain and the
                     // catalogue it needs.
-                    if world.magic.catalogue.is_empty() && !self.component_catalogue.is_empty() {
-                        world.magic.catalogue = self.component_catalogue.clone();
-                    }
+                    world.install_component_catalogue(&self.component_catalogue);
                     // `school_of_magic_to_wcid`'s mapper, the other half of
                     // `get_appropriate_spell_formula`'s foci test. Without it
                     // `magic_pack_is_owned` is asked about WCID 0 and always refuses.

@@ -1459,6 +1459,20 @@ impl World {
         (offered, changed)
     }
 
+    /// Put the spell component table in this world's hands, when it has none yet. A component
+    /// object the world met before it had the table could not be filed under its category and is
+    /// in no list a panel draws; so the tracker starts again and every component the player
+    /// carries is offered to it under the table. Returns whether the table was installed.
+    pub fn install_component_catalogue(&mut self, catalogue: &ComponentCatalogue) -> bool {
+        if !self.magic.catalogue.is_empty() || catalogue.is_empty() {
+            return false;
+        }
+        self.magic.catalogue = catalogue.clone();
+        self.magic.components = ComponentTracker::default();
+        self.initialize_spell_components();
+        true
+    }
+
     /// Tests whether the player owns the component represented by a formula slot's **SCID**.
     ///
     /// The client first maps SCID to WCID, then tests ownership. Ownership is **not** the object-id
@@ -2281,5 +2295,48 @@ mod tests {
         w.magic.school_pack_wcid.insert(1, 1234);
         assert_eq!(w.school_of_magic_to_wcid(1), 1234);
         assert_eq!(w.school_of_magic_to_wcid(2), 0, "and it is per school");
+    }
+
+    /// A component the world met before it had the spell component table is filed under no
+    /// category; installing the table files it under its own, and a second install changes
+    /// nothing.
+    #[test]
+    fn a_component_met_before_the_table_is_filed_under_its_category_once_the_table_arrives() {
+        use crate::weenie::Weenie;
+        use dereth_protocol::types::PublicWeenieDesc;
+        let mut w = World::new();
+        w.set_player(ObjectId(1));
+        w.tables
+            .weenies
+            .insert(ObjectId(1), Weenie::new(ObjectId(1)));
+        let mut scarab = Weenie::new(ObjectId(5));
+        scarab.pwd = PublicWeenieDesc {
+            wcid: 100,
+            name: "Lead Scarab".into(),
+            obj_type: item_type::SPELL_COMPONENTS,
+            stack_size: Some(3),
+            container_id: Some(ObjectId(1)),
+            ..PublicWeenieDesc::default()
+        };
+        w.tables.weenies.insert(ObjectId(5), scarab);
+        let mut inv = crate::objects::ObjectInventory::default();
+        inv.items.push(ObjectId(5));
+        w.tables.inventories.insert(ObjectId(1), inv);
+
+        w.update_spell_component(ObjectId(5));
+        assert_eq!(w.magic.components.tracked_objects(), 1);
+        assert!(
+            w.magic.components.category(0).is_empty(),
+            "without the table the scarab is in no category"
+        );
+
+        assert!(w.install_component_catalogue(&catalogue()));
+        let scarabs = w.magic.components.category(0);
+        assert_eq!(scarabs.len(), 1, "the scarab is filed with the scarabs");
+        assert_eq!(scarabs[0].num_items(), 3);
+        assert!(
+            !w.install_component_catalogue(&catalogue()),
+            "installed once"
+        );
     }
 }
