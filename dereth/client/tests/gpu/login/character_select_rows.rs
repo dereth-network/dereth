@@ -805,3 +805,80 @@ fn rebuilding_the_character_list_does_not_leak_descriptor_slots() {
     );
     app.shutdown();
 }
+
+// ---------------------------------------------------------------------------------------------
+// 5. The world's message scrolls under the mouse wheel
+// ---------------------------------------------------------------------------------------------
+
+/// One Windows message, through the pump and into the input shell, as the window procedure
+/// delivers it.
+fn send(pump: &mut dereth_client::pump::Pump, app: &mut App, m: dereth_client::pump::Win32Message) {
+    pump.dispatch(m);
+    app.input_manager_mut()
+        .expect("the input shell exists in a UI build")
+        .on_message(m);
+}
+
+/// Behaviour: login.character-select.the-mouse-wheel-scrolls-the-worlds-message
+///
+/// Oracle: the message window's own text element and its scroll offset. The wheel is driven as
+/// Windows drives it, `WM_MOUSEWHEEL` detents with the pointer over the text and nothing focused.
+#[test]
+fn the_mouse_wheel_scrolls_the_worlds_message_with_nothing_focused() {
+    use dereth_client::pump::{Pump, Win32Message};
+    use dereth_ui_screens::screens::screen_message::TEXT;
+
+    let _gpu = gpu_lock();
+    have_dats();
+    let mut app = app_on_character_screen(&LIVE_NAMES).expect("an app on the character screen");
+    let long: String = (1..=60).map(|i| format!("Line {i}.\n")).collect();
+    app.host_state_mut().character_screen_message = Some(long);
+    app.frame();
+    app.frame();
+    let window = screen(&mut app)
+        .message
+        .window
+        .expect("the message window is up");
+    let text = app
+        .ui()
+        .and_then(|u| u.ui.get_child_recursive(window, TEXT))
+        .expect("the window's text");
+    let offset = |app: &mut App| {
+        app.ui_mut()
+            .and_then(|u| u.ui.text_element_mut(text))
+            .map(|t| t.scroll.y)
+            .expect("a text element")
+    };
+    assert!(
+        app.ui().is_some_and(|u| u.ui.focus_element().is_none()),
+        "nothing has the focus"
+    );
+    let before = offset(&mut app);
+
+    let mut pump = Pump::new();
+    pump.state.is_ready = true;
+    pump.state.is_active_app = true;
+    let b = app.ui().expect("shell").ui.screen_box(text);
+    let mut t = 400_000;
+    let at = pump.mouse_move_message(
+        f64::from((b.x0 + b.x1) / 2),
+        f64::from((b.y0 + b.y1) / 2),
+        t,
+    );
+    send(&mut pump, &mut app, at);
+    app.frame();
+    for _ in 0..3 {
+        t += 50;
+        // One detent towards the player: WHEEL_DELTA 120, negative, in the high word.
+        let down = u32::from((-120_i16).cast_unsigned()) << 16;
+        let wheel = Win32Message::new(dereth_input::win32::msg::WM_MOUSEWHEEL, down as usize, 0, t);
+        send(&mut pump, &mut app, wheel);
+        app.frame();
+    }
+    let after = offset(&mut app);
+    assert!(
+        after > before,
+        "three detents down scroll the message: offset {before} -> {after}"
+    );
+    app.shutdown();
+}

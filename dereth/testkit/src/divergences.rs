@@ -351,9 +351,10 @@ pub static DIVERGENCES: &[Divergence] = &[
                  in the character screen's message box. The end-of-retail client has \
                  no such message and ignores it.",
         dereth: "The client reads the message, and the retail interface shows it on the \
-                 character screen in a floating chat window over the right of the screen, titled \
-                 with the world's name, with a scrollbar and a close button; the classic \
-                 interface shows it in its message box, as the clients of its era did.",
+                 character screen in a floating chat window right of the Create Character \
+                 button, titled Announcements, with a scrollbar, a close button and no input \
+                 row; the mouse wheel scrolls it. The classic interface shows it in its message \
+                 box, as the clients of its era did.",
         why: "The owner asked for a world's message to its players to be seen in both \
               interfaces.",
     },

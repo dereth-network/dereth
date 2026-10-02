@@ -1544,14 +1544,12 @@ impl Screen for CharacterManagementScreen {
         if let Some(name) = host.world_name.as_deref() {
             self.update_world_name(ui, name);
         }
-        // The world's message to the players choosing a character, in its own window, titled
-        // with the world's name.
+        // The world's message to the players choosing a character, in its own window.
         if let (Some(text), Some(root)) = (
             host.character_screen_message.as_deref(),
             self.roots.first().copied(),
         ) {
-            self.message
-                .show(ui, root, text, host.world_name.as_deref());
+            self.message.show(ui, root, text);
         }
         // The delete-character dialog's localised phrase, from table enum `0x10000002`. The
         // client resolves it through its string table; the host hands the table over.

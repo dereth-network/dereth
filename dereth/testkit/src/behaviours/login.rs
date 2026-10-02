@@ -49,11 +49,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "login.character-select.the-mouse-wheel-scrolls-the-worlds-message",
+        says: "On the retail interface's character screen the mouse wheel scrolls the world's \
+               message under the pointer with nothing focused: the screen registers the \
+               scrollable controls beside its own keys, where the end-of-retail screen \
+               registered its keys alone.",
+        since: THIS_CLIENT,
+        divergence: "CD-017",
+        evidence: Evidence::Private("AC-EVID-R2-MESSAGE-WHEEL"),
+        station: "dereth-client::gpu::login::character_select_rows::the_mouse_wheel_scrolls_the_worlds_message_with_nothing_focused",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "login.character-select.the-worlds-message-shows-in-a-window-of-its-own",
         says: "When the world sends the character screen's message, the retail interface's \
-               character screen shows it in a floating chat window over the right of the \
-               screen, titled with the world's name, with its scrollbar and close button and no \
-               input line; the close button hides it for the rest of that screen. A world that \
+               character screen shows it in a floating chat window right of the Create \
+               Character button, from the button's top to the bottom of the characters frame, \
+               titled Announcements, with its scrollbar and close button. It has no input row: \
+               the text fills the window down to its frame. A carriage return in the text is a \
+               line break. The close button hides it for the rest of that screen. A world that \
                sends none shows no window.",
         since: THIS_CLIENT,
         divergence: "CD-017",

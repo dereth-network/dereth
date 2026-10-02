@@ -216,9 +216,19 @@ pub const PREGAME_MODE_INPUT_MAPS: &[(UiMode, &[u32])] = &[
     ),
     (
         mode::CHARACTER_MANAGEMENT,
-        &[dereth_ui_screens::screens::charmgmt::INPUT_MAP],
+        &[
+            dereth_ui_screens::screens::charmgmt::INPUT_MAP,
+            CHARACTER_SCREEN_SCROLL_MAP,
+        ],
     ),
 ];
+
+/// The scrollable controls, which the character screen registers beside its own map so that the
+/// mouse wheel scrolls what is under the pointer (the world's message, the character list) with
+/// nothing focused. The retail screen registered map 9 alone; a scrollable registered these only
+/// while it had the focus. Its events are not the screen's: they take the element manager's road,
+/// as a focused scrollable's wheel does.
+pub const CHARACTER_SCREEN_SCROLL_MAP: u32 = crate::input::SCROLLABLE_INPUT_MAP.0;
 
 impl UiInput for crate::input::InputShell {
     fn as_pump(&mut self) -> &mut dyn dereth_ui::InputPump {
@@ -1490,7 +1500,7 @@ impl UiShell {
             .iter()
             .find(|(mm, _)| *mm == m)
             .map(|(_, s)| *s)?;
-        if !maps.contains(&e.input_map.0) {
+        if !maps.contains(&e.input_map.0) || e.input_map.0 == CHARACTER_SCREEN_SCROLL_MAP {
             return None;
         }
         // The screen's own action callback: the intro's (release edges declined), the credits'
