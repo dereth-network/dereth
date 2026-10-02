@@ -314,6 +314,22 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The owner asked for both interfaces over any world, switchable while playing, as \
               the landscape and object looks are.",
     },
+    Divergence {
+        id: "CD-016",
+        title: "The retail interface's Create Spell page",
+        retail: "Spell research had its own page in the magic window of the clients up to early \
+                 2002, the formula laid from carried components and tested on a target. The \
+                 end-of-retail client's magic window has only its Spells and Components tabs, \
+                 and no client after the research page was removed could research a spell.",
+        dereth: "On a world with spell research the retail interface's magic window gains a \
+                 Create Spell tab beside Spells and Components, built by the client from the \
+                 window's own tab, headings, buttons and scrollbar: a formula row of eight slots, \
+                 a grid of the carried components and Test and Clear. It works as the classic \
+                 interface's research page does. A world without spell research shows the \
+                 shipped two tabs.",
+        why: "The owner asked for spell research in the retail interface too, built in code \
+              since the interface's data files are not changed.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

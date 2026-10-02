@@ -52,6 +52,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "presentation.era.the-retail-magic-window-has-a-create-spell-tab-with-spell-research",
+        says: "On a world with spell research the retail interface's magic window has a third \
+               tab, Create Spell, sharing the tab strip with Spells and Components; on one \
+               without it there is no such tab (a window left open on it moves to the Spells \
+               tab). Its page lays carried components into a formula of up to eight, by a double \
+               click on one or by dragging one from the pack onto the formula; a double click \
+               on a laid component takes it out, Test sends the components in the order laid, \
+               and Clear empties the formula.",
+        since: THIS_CLIENT,
+        divergence: "CD-016",
+        evidence: Evidence::Private("AC-EVID-ERA-UI-RETAIL-RESEARCH"),
+        station: "dereth-ui-screens::dat::panels::create_spell_tab::the_create_spell_tab_is_absent_without_spell_research_and_shares_the_strip_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.era.the-screens-leave-out-what-the-worlds-era-lacks",
         says: "On a world whose era has no contract tracker the quest page shows no Contracts \
                tab, and on one with no titles the character page no Titles tab (a page left open \

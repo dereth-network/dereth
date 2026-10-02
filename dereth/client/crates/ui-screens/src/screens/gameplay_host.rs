@@ -742,6 +742,10 @@ fn frame(
             out.salvage_drops += 1;
         }
     }
+    // Deliver components dropped on the Create Spell page's formula, the same hop.
+    for item in screen.take_research_drops() {
+        panels.research.accept_drop(ui, item, view);
+    }
     out.panels_written = panels.update(ui, view);
     // The page visibility callback and its parent environment stack are synchronous in the
     // client. Deliver the parent visibility here too, before this frame's draw list.

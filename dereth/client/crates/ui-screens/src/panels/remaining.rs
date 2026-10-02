@@ -107,6 +107,9 @@ pub struct RemainingPanels {
     /// The spell-component panel — the spell page's other panel. It binds off [`SPELL_PAGE`]
     /// beside [`Self::spellbook`], which is where its one child is found.
     pub spell_components: super::spellcomponent::SpellComponentPanel,
+    /// The spell page's Create Spell tab, built in code on a world with spell research. It binds
+    /// off [`SPELL_PAGE`], whose tab table it joins.
+    pub research: super::research::ResearchPanel,
     /// The spellcasting bar. Like [`Self::vendor`] it is an `<ENVP>` environment element, not a
     /// toolbar page, so it binds off the screen root.
     ///
@@ -241,6 +244,7 @@ impl RemainingPanels {
             // from the root.
             self.spell_components.post_init(ui, page);
             ok |= self.spell_components.bound();
+            self.research.post_init(ui, page);
         }
         // Off the screen **root**, not off a page: the spew strip is HUD chrome
         // positioned over the world, and its list box `0x10000049` sits at (175, 20)-(624, 91) in
@@ -453,6 +457,9 @@ impl RemainingPanels {
             // has not moved it is the same no-op the notice not arriving would be. Same treatment,
             // and the same reason, as `allegiance.refresh_buttons` twenty lines up.
             + u32::from(self.spell_components.on_selection_changed(ui, view));
+        // The Create Spell tab follows the world's spell research; its page redraws when the
+        // formula or the carried components change.
+        let research = u32::from(self.research.update(ui, view));
         // The spell-cast sub-menu's update from the player module: populate actual rows before
         // endowment selection and the queued magic notices read them.
         let spellcasting = u32::from(self.spellcasting.update(ui, view));
@@ -578,6 +585,7 @@ impl RemainingPanels {
             + squelch
             + vendor
             + components
+            + research
             + spellcasting
             + endowment
             + trade
@@ -624,6 +632,9 @@ impl RemainingPanels {
             // The spell component panel's element-message handler's `4` arm — a press on a
             // component row selects the row's object in the world; a header clears it.
             || self.spell_components.on_element_message(ui, m)
+            // The Create Spell page: its slots' presses, Test, Clear and its scrollbar. Every id
+            // it answers is its own, so it shadows no shipped panel.
+            || self.research.on_element_message(ui, m, view)
             || self.attributes.on_element_message(ui, m, view)
             || self.skills.on_element_message(ui, m, view)
             // The character title panel's element-message handler — a press

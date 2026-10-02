@@ -1460,6 +1460,11 @@ pub mod panel {
             Some(self)
         }
 
+        /// A caller that adds a tab of its own ([`Panel::add_tab`]).
+        fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+            Some(self)
+        }
+
         fn on_set_attribute(
             &mut self,
             ctx: &mut ElemCtx<'_>,

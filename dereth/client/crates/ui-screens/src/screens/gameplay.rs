@@ -908,6 +908,9 @@ pub struct GamePlayScreen {
     /// polarity to a pack move's waiting-state set (1) -- the row enters the window at once and
     /// nothing has been asked of the shard yet.
     salvage_drops: Vec<ObjectId>,
+    /// The components dropped on the Create Spell page's formula this frame. The page lives with
+    /// the rest of `RemainingPanels`, so the drop is recorded here and delivered there.
+    research_drops: Vec<ObjectId>,
 }
 
 impl GamePlayScreen {
@@ -1013,6 +1016,12 @@ impl GamePlayScreen {
     /// [`Self::salvage_drops`]. Drained by whoever holds `RemainingPanels`.
     pub fn take_salvage_drops(&mut self) -> Vec<ObjectId> {
         std::mem::take(&mut self.salvage_drops)
+    }
+
+    /// The objects dropped on the Create Spell page's formula this frame; see
+    /// [`Self::research_drops`]. Drained by whoever holds `RemainingPanels`.
+    pub fn take_research_drops(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.research_drops)
     }
 
     /// Apply a parsed layout file to the live tree.
@@ -1743,6 +1752,14 @@ impl GamePlayScreen {
             // alias-list test answers true and clears.
             self.release_item_ghost(ui, item);
             self.salvage_drops.push(item);
+            return None;
+        }
+        // The Create Spell page's formula takes a carried component dragged onto it. Nothing
+        // leaves the pack: the component is only named in the formula, so the pick-up's ghost
+        // comes straight off.
+        if is_under_element(ui, target, crate::panels::research::FORMULA) {
+            self.release_item_ghost(ui, item);
+            self.research_drops.push(item);
             return None;
         }
         // `InventoryPanels::drop_target` is the paper doll panel's drop handling's

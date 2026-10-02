@@ -1,5 +1,6 @@
 mod barber_face_choices;
 mod character_sheet_scroll;
+mod create_spell_tab;
 mod era_panels;
 mod examine_window;
 mod lamp_panels;

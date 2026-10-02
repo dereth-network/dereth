@@ -25,6 +25,7 @@ pub mod numfmt;
 pub mod pagelist;
 pub mod panel_stack;
 pub mod remaining;
+pub mod research;
 pub mod rows;
 pub mod salvage;
 pub mod skills;
