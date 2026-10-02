@@ -20,8 +20,12 @@ struct View {
     era: Option<dereth_client_contract::EraView>,
     friends: Vec<dereth_client_contract::view::FriendEntry>,
     squelches: Vec<dereth_client_contract::view::SquelchEntry>,
+    allegiance_breaks: Option<i32>,
 }
 impl GameView for View {
+    fn int_stat(&self, _: ObjectId, prop: u32) -> Option<i32> {
+        (prop == 0x84).then_some(self.allegiance_breaks).flatten()
+    }
     fn allegiance_roster(&self) -> dereth_client_contract::view::AllegianceRoster {
         self.roster.clone()
     }
@@ -524,22 +528,73 @@ fn partial_own_maintenance_can_pay_and_clears_only_when_sent() {
     assert!(activate(&mut *p, "pay", &v).is_empty());
 }
 
+/// On a world that charges for an oath, a character with a break cannot swear without the cost
+/// (5% of a 20,000 step, a quarter more for the break: 1,250), even by activating the button.
 #[test]
 fn allegiance_insufficient_xp_blocks_even_direct_activation() {
     let v = View {
         xp: Some(dereth_client_contract::statmgmt::XpHeader {
             level_span: 20000,
+            to_level: 100_000,
             ..Default::default()
         }),
-        available: 999,
+        available: 1249,
+        allegiance_breaks: Some(1),
+        era: Some(dereth_client_contract::EraView {
+            era: dereth_primitives::era::EraId::Infiltration,
+            era_announced: true,
+            ..Default::default()
+        }),
         ..Default::default()
     };
     let mut p = make("allegiance").unwrap();
     assert!(activate(&mut *p, "swear", &v).is_empty());
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    assert!(shown.contains(&"xp needed: 1".to_string()), "{shown:?}");
     let v = View {
-        available: 1000,
+        available: 1250,
         ..v
     };
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    assert!(shown.contains(&"xp cost: 1,250".to_string()), "{shown:?}");
+    assert!(matches!(
+        activate(&mut *p, "swear", &v).as_slice(),
+        [PanelAction::Host(HostAction::AllegianceSend {
+            action: AllegianceAction::Swear,
+            ..
+        })]
+    ));
+}
+
+/// A first oath is free, and a world that charges nothing for an oath (the end of retail) shows
+/// no cost line at all.
+#[test]
+fn the_oath_cost_line_is_the_eras_and_a_first_oath_is_free() {
+    let infiltration = dereth_client_contract::EraView {
+        era: dereth_primitives::era::EraId::Infiltration,
+        era_announced: true,
+        ..Default::default()
+    };
+    let v = View {
+        xp: Some(dereth_client_contract::statmgmt::XpHeader {
+            level_span: 20000,
+            ..Default::default()
+        }),
+        era: Some(infiltration),
+        ..Default::default()
+    };
+    let p = make("allegiance").unwrap();
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    assert!(shown.contains(&"xp cost: 0".to_string()), "{shown:?}");
+    let v = View {
+        era: None,
+        allegiance_breaks: Some(3),
+        ..v
+    };
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    assert!(!shown.iter().any(|t| t.contains("xp")), "{shown:?}");
+    // Nor does experience gate the oath there.
+    let mut p = make("allegiance").unwrap();
     assert!(matches!(
         activate(&mut *p, "swear", &v).as_slice(),
         [PanelAction::Host(HostAction::AllegianceSend {

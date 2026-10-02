@@ -71,22 +71,28 @@ fn squelches_shown(game: &dyn GameView) -> Vec<dereth_client_contract::view::Squ
     squelches.sort_by_key(|q| q.name.to_lowercase());
     squelches
 }
-fn swear_cost(level_span: u64, breaks: u32) -> u32 {
-    // The base is clamped before the quarter-per-break penalty is applied.
-    let base = (level_span as f64 * f64::from(0.05_f32)).clamp(100.0, 5000.0);
-    u32::try_from(dereth_primitives::num::to_i64_f64(
-        base * (1.0 + 0.25 * f64::from(breaks)) + 0.5,
-    ))
-    .unwrap_or(u32::MAX)
+/// Whether the world charges experience for an oath; without it the panel shows no cost.
+fn oath_costs_xp(game: &dyn GameView) -> bool {
+    game.era().is_some_and(|e| e.features().swear_xp_cost)
 }
+/// What the world charges for an oath: nothing without the charge or before a first break.
 fn cost(c: &Context<'_>) -> u32 {
+    if !oath_costs_xp(c.game) {
+        return 0;
+    }
     c.game.experience_header().map_or(0, |xp| {
         let breaks = c
             .game
             .player()
             .and_then(|p| c.game.int_stat(p, 0x84))
             .unwrap_or(0) as u32;
-        swear_cost(xp.level_span, breaks)
+        // Past the curve's end the next level counts as the most a count can hold.
+        let span = if xp.level_span == 0 {
+            u64::from(u32::MAX)
+        } else {
+            xp.level_span
+        };
+        dereth_rules::allegiance::swear_xp_cost_after_breaks(span, breaks)
     })
 }
 fn swear_target(c: &Context<'_>) -> Option<ObjectId> {
@@ -365,12 +371,15 @@ impl Social {
                         "15-6",
                     );
                 }
-                centered(
-                    &mut f,
-                    rect(4, 90, 292, 20),
-                    format!("xp cost: {}", comma(u64::from(cost))),
-                    "15-6",
-                );
+                // The cost line is the era's: a world that charges nothing for an oath has none.
+                if oath_costs_xp(c.game) {
+                    centered(
+                        &mut f,
+                        rect(4, 90, 292, 20),
+                        format!("xp cost: {}", comma(u64::from(cost))),
+                        "15-6",
+                    );
+                }
             }
         }
         let heading = if both { 138 } else { 114 };
@@ -1340,12 +1349,7 @@ mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
     #[test]
-    fn allegiance_cost_clamps_before_break_penalty_and_rounds() {
-        assert_eq!(swear_cost(0, 0), 100);
-        assert_eq!(swear_cost(20000, 0), 1000);
-        assert_eq!(swear_cost(20000, 1), 1250);
-        assert_eq!(swear_cost(1_000_000, 4), 10000);
-        assert_eq!(swear_cost(2010, 0), 101);
+    fn counts_are_drawn_with_thousands_separators() {
         assert_eq!(comma(1234567), "1,234,567");
     }
 }

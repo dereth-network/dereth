@@ -191,6 +191,35 @@ pub fn accept_swear_prompt(ui: &UiSystem, name: &str) -> String {
     fill(ui, ID_ACCEPT_SWEAR_CONFIRMATION, &[(var::PLAYER, name)])
 }
 
+/// What an oath costs the player on a world that charges experience for one
+/// ([`dereth_primitives::EraFeatures::swear_xp_cost`]): nothing before a first break from a patron,
+/// otherwise the shared rule over the player's next-level step and its break count. `None` on a
+/// world without the charge.
+#[must_use]
+pub fn oath_xp_cost(view: &dyn GameView) -> Option<u32> {
+    if !view.era().is_some_and(|e| e.features().swear_xp_cost) {
+        return None;
+    }
+    let xp = view.experience_header()?;
+    let breaks = view
+        .player()
+        .and_then(|p| view.int_stat(p, NUM_ALLEGIANCE_BREAKS))
+        .and_then(|b| u32::try_from(b).ok())
+        .unwrap_or(0);
+    // Past the curve's end the next level counts as the most a count can hold.
+    let span = if xp.level_span == 0 {
+        u64::from(u32::MAX)
+    } else {
+        xp.level_span
+    };
+    Some(dereth_rules::allegiance::swear_xp_cost_after_breaks(
+        span, breaks,
+    ))
+}
+
+/// The player's count of breaks from a patron (an int property).
+const NUM_ALLEGIANCE_BREAKS: u32 = 0x84;
+
 /// One row as this panel wrote it, so a test can read back what a player would see without
 /// re-walking the element tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -750,7 +779,17 @@ impl AllegiancePanel {
                 (v, row.full_name.clone(), ID_KICK_CONFIRMATION)
             }
         };
-        let prompt = fill(ui, token, &[(var::PLAYER, &name)]);
+        let mut prompt = fill(ui, token, &[(var::PLAYER, &name)]);
+        // A world that charges experience for an oath (an earlier era's rule) says what this one
+        // costs; the end-of-retail prompt is unchanged.
+        if action == AllegianceAction::Swear {
+            if let Some(cost) = oath_xp_cost(view).filter(|&c| c > 0) {
+                prompt.push_str(&format!(
+                    "\n\nThis oath costs {} unassigned experience.",
+                    super::examination::insert_commas(i32::try_from(cost).unwrap_or(i32::MAX))
+                ));
+            }
+        }
         self.confirmations[slot] += 1;
         ui.requests.emit(UiRequest::AllegianceConfirmation {
             action,
@@ -1241,5 +1280,72 @@ mod tests {
             !p.vassal_chat_enabled,
             "no list box bound, so no row was created"
         );
+    }
+
+    /// On a world that charges experience for an oath, the swear confirmation says what this oath
+    /// costs (5% of a 20,000 step and a quarter more for one break: 1,250); a first oath, and
+    /// every oath at the end of retail, keeps the plain prompt.
+    #[test]
+    fn the_swear_confirmation_names_the_oaths_cost_where_the_world_charges_one() {
+        #[derive(Debug)]
+        struct V {
+            era: Option<dereth_client_contract::EraView>,
+            breaks: Option<i32>,
+        }
+        impl GameView for V {
+            fn era(&self) -> Option<&dereth_client_contract::EraView> {
+                self.era.as_ref()
+            }
+            fn experience_header(&self) -> Option<dereth_client_contract::statmgmt::XpHeader> {
+                Some(dereth_client_contract::statmgmt::XpHeader {
+                    level_span: 20_000,
+                    ..Default::default()
+                })
+            }
+            fn player(&self) -> Option<ObjectId> {
+                Some(ObjectId(1))
+            }
+            fn int_stat(&self, _: ObjectId, prop: u32) -> Option<i32> {
+                (prop == 0x84).then_some(self.breaks).flatten()
+            }
+            fn selected_object(&self) -> Option<ObjectId> {
+                Some(ObjectId(9))
+            }
+            fn name(&self, _: ObjectId) -> Option<&str> {
+                Some("Bob")
+            }
+        }
+        let prompt = |view: &V| {
+            let mut ui = UiSystem::new((800, 600));
+            let mut p = AllegiancePanel::default();
+            assert!(p.make_confirmation_dialog(&mut ui, view, AllegianceAction::Swear));
+            match ui.requests.take().as_slice() {
+                [UiRequest::AllegianceConfirmation { prompt, .. }] => prompt.clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        let infiltration = dereth_client_contract::EraView {
+            era: dereth_primitives::EraId::Infiltration,
+            era_announced: true,
+            ..Default::default()
+        };
+        let plain = prompt(&V {
+            era: None,
+            breaks: Some(1),
+        });
+        assert!(!plain.contains("experience"), "{plain}");
+        let charged = prompt(&V {
+            era: Some(infiltration.clone()),
+            breaks: Some(1),
+        });
+        assert_eq!(
+            charged,
+            format!("{plain}\n\nThis oath costs 1,250 unassigned experience.")
+        );
+        let first = prompt(&V {
+            era: Some(infiltration),
+            breaks: None,
+        });
+        assert_eq!(first, plain, "a first oath is free");
     }
 }
