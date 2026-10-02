@@ -58,7 +58,6 @@ pub mod frame;
 /// The frame's event log. `App`'s ~30 test-only counters are one-line reads over it, and a
 /// replay harness's golden event log is built on it.
 pub mod frame_events;
-/// The performance panel, drawn by the runtime over any interface.
 pub mod perf;
 
 /// Opening the four retail dats: the seam every other module reads assets through.

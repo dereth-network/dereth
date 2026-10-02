@@ -20,7 +20,6 @@ pub mod interface;
 /// This client's own presentation options from another era: the ground's, the sky's and the
 /// objects'.
 pub mod landscape;
-/// The performance panel, which belongs to no interface.
 pub mod performance;
 /// `UiPref` and `UI_PREFERENCES`, moved down out of `dereth_ui_screens::options::preferences`.
 pub mod preferences;

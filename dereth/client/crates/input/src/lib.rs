@@ -35,7 +35,6 @@ pub use dereth_client_contract::actions::ui as action;
 pub mod actionmap;
 pub mod binding;
 pub mod combat;
-/// This client's own actions: their input map, action-map rows and default keys.
 pub mod dereth;
 pub mod dispatch;
 pub mod error;
