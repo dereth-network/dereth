@@ -128,19 +128,30 @@ impl Panel for Shortcuts {
         vec![]
     }
 }
-const NORMAL: [u32; 7] = [
-    0x06001cbb, 0x06001cbc, 0x06001cbd, 0x06001cbe, 0x06001cbf, 0x06002624, 0x06002625,
+/// The tab art: seven in the classic interface's portal; an eighth tab, which a world after it
+/// has, wears the seventh's.
+const NORMAL: [u32; 8] = [
+    0x06001cbb, 0x06001cbc, 0x06001cbd, 0x06001cbe, 0x06001cbf, 0x06002624, 0x06002625, 0x06002625,
 ];
-const SELECTED: [u32; 7] = [
-    0x06001cb6, 0x06001cb7, 0x06001cb8, 0x06001cb9, 0x06001cb5, 0x06002622, 0x06002623,
+const SELECTED: [u32; 8] = [
+    0x06001cb6, 0x06001cb7, 0x06001cb8, 0x06001cb9, 0x06001cb5, 0x06002622, 0x06002623, 0x06002623,
 ];
+
+/// How many spell tabs the world has: seven before Throne of Destiny, eight after.
+fn tab_count(game: &dyn GameView) -> usize {
+    if game.era().is_some_and(|e| e.before_throne_of_destiny()) {
+        7
+    } else {
+        8
+    }
+}
 #[derive(Debug, Default)]
 pub struct Favorites {
     tab: usize,
     selected: Option<u32>,
     endowment: bool,
     offset: usize,
-    tab_state: [(Option<u32>, bool, usize); 7],
+    tab_state: [(Option<u32>, bool, usize); 8],
     /// The bar's width: the 3D view's.
     width: u32,
 }
@@ -163,11 +174,12 @@ impl Favorites {
     fn magic(&mut self, notice: MagicNotice, ctx: &Context<'_>) -> Vec<PanelAction> {
         use MagicNotice::*;
         let g = ctx.game;
+        let count = tab_count(g);
         match notice {
-            PrevSpellTab => self.change_tab((self.tab + 6) % 7),
-            NextSpellTab => self.change_tab((self.tab + 1) % 7),
+            PrevSpellTab => self.change_tab((self.tab + count - 1) % count),
+            NextSpellTab => self.change_tab((self.tab + 1) % count),
             FirstSpellTab => self.change_tab(0),
-            LastSpellTab => self.change_tab(6),
+            LastSpellTab => self.change_tab(count - 1),
             CastCurrentSpell => return self.event(ControlEvent::Activate("cast".into()), ctx),
             CastQuickslotSpell { slot } => {
                 if let Some(spell) = g.spell_tab(self.tab).get(slot).copied() {
@@ -313,7 +325,7 @@ impl Panel for Favorites {
             false,
             false,
         );
-        for i in 0..7 {
+        for i in 0..tab_count(g) {
             art(
                 f.button(
                     format!("tab:{i}"),
@@ -465,7 +477,8 @@ impl Panel for Favorites {
                 }
             }
             ControlEvent::Activate(id) if id.starts_with("tab:") => {
-                if let Some(tab) = id[4..].parse::<usize>().ok().filter(|t| *t < 7) {
+                let count = tab_count(ctx.game);
+                if let Some(tab) = id[4..].parse::<usize>().ok().filter(|t| *t < count) {
                     self.change_tab(tab);
                 }
             }
@@ -521,7 +534,7 @@ impl Panel for Favorites {
                 payload: DragPayload::Spell(spell_id),
                 ..
             } if id.starts_with("tab:") => {
-                if let Some(tab) = id[4..].parse::<usize>().ok().filter(|t| *t < 7) {
+                if let Some(tab) = id[4..].parse::<usize>().ok().filter(|t| *t < tab_count(g)) {
                     if g.is_spell_known(spell_id) {
                         let spells = g.spell_tab(tab);
                         let mut actions = vec![];
@@ -640,8 +653,9 @@ mod magic_tests {
         assert_eq!(panel.choice(&world), Some((None, 20)));
         panel.magic(MagicNotice::PrevSpellTab, &ctx);
         assert_eq!(panel.choice(&world), Some((None, 11)));
+        // A world after the classic interface (no era announced) has eight spell tabs.
         panel.magic(MagicNotice::PrevSpellTab, &ctx);
-        assert_eq!(panel.tab, 6);
+        assert_eq!(panel.tab, 7);
         panel.magic(MagicNotice::FirstSpellTab, &ctx);
         assert_eq!(panel.tab, 0);
         assert_eq!(

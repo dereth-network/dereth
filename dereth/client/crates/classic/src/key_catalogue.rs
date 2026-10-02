@@ -19,7 +19,7 @@ pub const CATEGORIES: [&str; 10] = [
 
 /// `(command id, command name, flags, category, label)`, in command order.
 #[rustfmt::skip]
-pub const COMMANDS: [(u32, &str, u32, usize, &str); 193] = [
+pub const COMMANDS: [(u32, &str, u32, usize, &str); 195] = [
     (1, "HoldRun", 0x85000001, 1, "Hold Run"),
     (2, "HoldSidestep", 0x85000002, 1, "Hold Sidestep"),
     (3, "Ready", 0x41000003, 7, "Stand"),
@@ -215,6 +215,10 @@ pub const COMMANDS: [(u32, &str, u32, usize, &str); 193] = [
     // The spell research panel's command, which clients up to January 2002 had (the early 2005
     // client gave its number to the House panel), under a number of its own.
     (366, "SpellResearchPanel", 0x0900016E, 5, "Spell Research Panel"),
+    // The pages of the systems the game gained after the classic interface: the character's
+    // titles and the contract tracker, under numbers of their own.
+    (367, "CharacterTitlePanel", 0x0900016F, 5, "Character Title Panel"),
+    (368, "ContractsPanel", 0x09000170, 5, "Contracts Panel"),
 ];
 
 /// `(label, key)` for the fixed rows at the end of the list.

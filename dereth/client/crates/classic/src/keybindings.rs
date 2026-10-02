@@ -850,6 +850,8 @@ pub fn runtime_action(name: &str) -> Option<ActionId> {
         "FellowshipPanel" => "ToggleFellowshipPanel",
         "SpellbookPanel" => "ToggleSpellbookPanel",
         "SpellComponentsPanel" => "ToggleSpellComponentsPanel",
+        "CharacterTitlePanel" => "ToggleCharacterTitlePanel",
+        "ContractsPanel" => "ToggleContractsPanel",
         "HousePanel" => "ToggleHousePanel",
         "AttributesPanel" => "ToggleAttributesPanel",
         "SkillsPanel" => "ToggleSkillsPanel",

@@ -17,6 +17,37 @@ const EQUIPMENT: [(i32, i32, u32, u32, usize); 10] = [
     (190, 118, 0x060032c5, 2, 0),
     (190, 151, 0x060032c4, 0x40, 0),
 ];
+/// The slots a world after the classic interface adds to the paper doll, where the doll leaves
+/// room: the cloak and the trinket on the bottom row, the three aetheria sigils beside the head.
+/// The classic portal has no art for them, so they wear the plain slot frame.
+const LATER_EQUIPMENT: [(i32, i32, u32, u32, usize); 5] = [
+    (55, 202, 0x060011f9, 0x0800_0000, 0),
+    (97, 202, 0x060011f9, 0x0400_0000, 0),
+    (156, 33, 0x060011f9, 0x1000_0000, 0),
+    (156, 66, 0x060011f9, 0x2000_0000, 0),
+    (13, 66, 0x060011f9, 0x4000_0000, 0),
+];
+
+/// The paper doll's slots on this world: the classic ones, then the cloak, the trinket and the
+/// sigils where the world has them.
+fn equipment_slots(game: &dyn GameView) -> Vec<(i32, i32, u32, u32, usize)> {
+    let features = game.era().map(dereth_client_contract::EraView::features);
+    let has =
+        |pick: fn(&dereth_primitives::era::EraFeatures) -> bool| features.as_ref().is_none_or(pick);
+    let mut slots = EQUIPMENT.to_vec();
+    for slot in LATER_EQUIPMENT {
+        let wanted = match slot.3 {
+            0x0800_0000 => has(|f| f.cloaks),
+            0x0400_0000 => has(|f| f.trinkets),
+            _ => has(|f| f.aetheria),
+        };
+        if wanted {
+            slots.push(slot);
+        }
+    }
+    slots
+}
+
 pub fn entry(game: &dyn GameView, id: ObjectId) -> ItemEntry {
     if id.0 == 0 {
         return ItemEntry::empty();
@@ -237,7 +268,7 @@ impl Panel for Inventory {
         });
         f.button("paperdoll", rect(59, 23, 80, 212), "", true).paint = false;
         if let Some(player) = g.player() {
-            for (i, (x, y, did, mask, _slot)) in EQUIPMENT.iter().enumerate() {
+            for (i, (x, y, did, mask, _slot)) in equipment_slots(g).iter().enumerate() {
                 let equipped = g
                     .equipment(player)
                     .iter()
@@ -453,14 +484,17 @@ impl Panel for Inventory {
                     .strip_prefix("equip:")
                     .and_then(|s| s.parse::<usize>().ok())
                 {
-                    EQUIPMENT.get(slot).and_then(|(_, _, _, mask, _slot)| {
-                        g.player().and_then(|p| {
-                            g.equipment(p)
-                                .iter()
-                                .find(|(_, loc)| loc & mask != 0)
-                                .map(|r| r.0)
+                    equipment_slots(g)
+                        .get(slot)
+                        .copied()
+                        .and_then(|(_, _, _, mask, _slot)| {
+                            g.player().and_then(|p| {
+                                g.equipment(p)
+                                    .iter()
+                                    .find(|(_, loc)| loc & mask != 0)
+                                    .map(|r| r.0)
+                            })
                         })
-                    })
                 } else {
                     None
                 };
@@ -510,7 +544,8 @@ impl Panel for Inventory {
                     .strip_prefix("equip:")
                     .and_then(|s| s.parse::<usize>().ok())
                 {
-                    if let Some((_, _, _, location, slot)) = EQUIPMENT.get(index) {
+                    if let Some((_, _, _, location, slot)) = equipment_slots(g).get(index).copied()
+                    {
                         // Dropping the held object back on its own slot is refused.
                         if g.player().is_some_and(|player| {
                             g.equipment(player)
@@ -528,8 +563,8 @@ impl Panel for Inventory {
                         }
                         return vec![PanelAction::Host(HostAction::Equip {
                             object: item,
-                            location: *location,
-                            slot: u32_from(*slot),
+                            location,
+                            slot: u32_from(slot),
                         })];
                     }
                 }
@@ -953,5 +988,36 @@ mod slot_tests {
         assert_eq!(control("previous").rect, rect(42, 2, 23, 42));
         assert_eq!(control("close").rect, rect(4781, 2, 25, 23));
         assert_eq!(control("items").rect.x, 485);
+    }
+}
+
+#[cfg(test)]
+mod later_slot_tests {
+    //! Behaviour: none (classic front-end adapter; which systems a world has is the era's).
+    use super::*;
+    #[derive(Debug, Default)]
+    struct World(Option<dereth_client_contract::EraView>);
+    impl GameView for World {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            self.0.as_ref()
+        }
+    }
+    #[test]
+    fn the_paper_doll_has_the_later_slots_only_where_the_world_has_them() {
+        assert_eq!(
+            equipment_slots(&World::default()).len(),
+            EQUIPMENT.len() + 5
+        );
+        let mut era = dereth_client_contract::EraView::default();
+        era.era = dereth_primitives::era::EraId::Infiltration;
+        era.era_announced = true;
+        assert_eq!(
+            equipment_slots(&World(Some(era.clone()))).len(),
+            EQUIPMENT.len()
+        );
+        era.announced_features.set("cloaks", true);
+        let slots = equipment_slots(&World(Some(era)));
+        assert_eq!(slots.len(), EQUIPMENT.len() + 1);
+        assert_eq!(slots.last().map(|s| s.3), Some(0x0800_0000));
     }
 }

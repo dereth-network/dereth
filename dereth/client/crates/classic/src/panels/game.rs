@@ -6,6 +6,7 @@ mod examine;
 mod items;
 mod magic;
 mod research;
+mod systems;
 pub use magic::research_on;
 pub mod shortcut_drop;
 mod shortcuts;
@@ -18,6 +19,8 @@ pub fn make(id: &str) -> Option<Box<dyn Panel>> {
         "spellbook" => Box::new(magic::Spellbook::new(false)),
         "components" => Box::new(magic::Spellbook::new(true)),
         "spell-research" => Box::new(research::SpellResearch::default()),
+        "titles" => Box::new(systems::Titles::default()),
+        "contracts" => Box::new(systems::Contracts::default()),
         "beneficial-effects" => Box::new(magic::Effects::new(true)),
         "harmful-effects" => Box::new(magic::Effects::new(false)),
         "vitae" => Box::new(magic::Vitae),
@@ -171,12 +174,15 @@ mod tests {
         });
     }
     #[test]
-    fn classic_filters_map_school_bits_and_reject_post_classic_levels() {
+    fn filters_map_school_bits_including_void_and_the_eighth_level() {
         assert!(magic::visible_spell(&spell(1, 1, 1), 8 | 0x10));
         assert!(!magic::visible_spell(&spell(1, 1, 1), 1 | 0x10));
         assert!(magic::visible_spell(&spell(1, 4, 7), 1 | 0x400));
-        assert!(!magic::visible_spell(&spell(1, 5, 1), 0xffffffff));
-        assert!(!magic::visible_spell(&spell(1, 1, 8), 0xffffffff));
+        // Void (school 5) and the eighth level have filters of their own.
+        assert!(magic::visible_spell(&spell(1, 5, 1), 0x2000 | 0x10));
+        assert!(!magic::visible_spell(&spell(1, 5, 1), 0x0f | 0x10));
+        assert!(magic::visible_spell(&spell(1, 1, 8), 8 | 0x800));
+        assert!(!magic::visible_spell(&spell(1, 1, 9), 0xffffffff));
     }
     #[test]
     fn filter_checkbox_preserves_unrelated_bits() {

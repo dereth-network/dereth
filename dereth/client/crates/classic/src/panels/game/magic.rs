@@ -18,15 +18,27 @@ const FILTERS: [(&str, u32, i32, i32); 11] = [
     ("6", 0x200, 210, 317),
     ("7", 0x400, 210, 337),
 ];
+/// The filters of the schools and levels a world after the classic interface has: Void magic and
+/// the eighth level, on a row below the others.
+const LATER_FILTERS: [(&str, u32, i32, i32); 2] =
+    [("Void", 0x2000, 10, 357), ("8", 0x800, 210, 357)];
+
+/// Whether the world has Void magic and the eighth spell level, which the classic interface's
+/// spellbook did not list: any world whose era has the Void Magic skill.
+fn later_magic(game: &dyn GameView) -> bool {
+    game.era().is_none_or(|e| e.has_skill(43))
+}
+
 pub fn visible_spell(s: &SpellEntry, mask: u32) -> bool {
     let school = match s.school {
         1 => 8,
         2 => 4,
         3 => 2,
         4 => 1,
+        5 => 0x2000,
         _ => return false,
     };
-    (1..=7).contains(&s.level) && mask & school != 0 && mask & (0x10 << (s.level - 1)) != 0
+    (1..=8).contains(&s.level) && mask & school != 0 && mask & (0x10 << (s.level - 1)) != 0
 }
 fn spells(game: &dyn GameView) -> Vec<&SpellEntry> {
     let mut v: Vec<_> = game
@@ -257,6 +269,10 @@ impl Panel for Spellbook {
             );
         } else {
             let rows = spells(ctx.game);
+            // A world with the later schools and levels lists their filters on one more row,
+            // which the list gives up.
+            let later = later_magic(ctx.game);
+            let dy = if later { dy - 20 } else { dy };
             let offset = self
                 .scroll
                 .clamp(0, (i32_from(rows.len()) * 32 - (224 + dy)).max(0));
@@ -297,9 +313,9 @@ impl Panel for Spellbook {
             image(
                 &mut f,
                 0x06002722,
-                rect(0, 249 + dy, 300, 113),
+                rect(0, 249 + dy, 300, if later { 133 } else { 113 }),
                 None,
-                false,
+                !later,
                 false,
             );
             text(
@@ -328,11 +344,12 @@ impl Panel for Spellbook {
                 "Delete",
                 self.selected.is_some_and(|id| ctx.game.is_spell_known(id)),
             );
-            for (label, bit, x, y) in FILTERS {
+            let later_rows: &[_] = if later { &LATER_FILTERS } else { &[] };
+            for (label, bit, x, y) in FILTERS.iter().chain(later_rows) {
                 f.check(
                     format!("filter:{bit}"),
-                    rect(x, y + dy, 90, 20),
-                    label,
+                    rect(*x, y + dy, 90, 20),
+                    *label,
                     ctx.game.spell_filters() & bit != 0,
                     true,
                 );
@@ -375,7 +392,7 @@ impl Panel for Spellbook {
             }
             ControlEvent::Check { id, checked } if id.starts_with("filter:") => {
                 if let Ok(bit) = id[7..].parse::<u32>() {
-                    if FILTERS.iter().any(|r| r.1 == bit) {
+                    if FILTERS.iter().chain(&LATER_FILTERS).any(|r| r.1 == bit) {
                         let mask = if checked {
                             ctx.game.spell_filters() | bit
                         } else {

@@ -666,6 +666,8 @@ impl Panel for Hud {
                 "TradePanel" => Some("trade-intro"),
                 "ToggleSpellbookPanel" => Some("spellbook"),
                 "ToggleSpellComponentsPanel" => Some("components"),
+                "ToggleCharacterTitlePanel" => Some("titles"),
+                "ToggleContractsPanel" => Some("contracts"),
                 // No final-client action: the classic command arrives under its own name.
                 "SpellResearchPanel" => Some("spell-research"),
                 "ToggleHousePanel" => Some("house"),
