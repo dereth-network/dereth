@@ -47,3 +47,27 @@ pub mod crossbow_wcids;
 pub mod atlatl_wcids;
 #[rustfmt::skip]
 pub mod caster_wcids;
+#[rustfmt::skip]
+pub mod spell_level_chance;
+#[rustfmt::skip]
+pub mod scroll_level_chance;
+#[rustfmt::skip]
+pub mod spell_selection_table;
+#[rustfmt::skip]
+pub mod cantrip_chance;
+#[rustfmt::skip]
+pub mod armor_cantrips;
+#[rustfmt::skip]
+pub mod jewelry_cantrips;
+#[rustfmt::skip]
+pub mod melee_cantrips;
+#[rustfmt::skip]
+pub mod missile_cantrips;
+#[rustfmt::skip]
+pub mod wand_cantrips;
+#[rustfmt::skip]
+pub mod wand_spells;
+#[rustfmt::skip]
+pub mod scroll_wcids;
+#[rustfmt::skip]
+pub mod spell_descriptors;

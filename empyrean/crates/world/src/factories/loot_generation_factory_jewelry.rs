@@ -10,7 +10,7 @@ use empyrean_tables::logic::wcids::jewelry_wcids;
 use crate::factories::entity::treasure_roll::TreasureRoll;
 use crate::factories::loot_generation_factory::tables_logic::tables::gem_count_chance;
 use crate::factories::loot_generation_factory::{
-    gem_code, get_long_desc, get_material_type, mutate_color, mutate_value, roll_gem_type,
+    gem_code, get_long_desc_in, get_material_type, mutate_color, mutate_value, roll_gem_type,
     roll_wield_level_req_t7_t8, world_object_factory_create_new_world_object,
 };
 use crate::factories::loot_generation_factory_clothing::try_mutate_gear_rating;
@@ -97,5 +97,5 @@ pub(crate) fn mutate_jewelry(
     //  if (wo.HasMutateFilter(MutateFilter.Value))     // fixme: data
     mutate_value(w, wo, profile.tier, Some(roll));
 
-    wo.set_long_desc(get_long_desc(wo));
+    wo.set_long_desc(get_long_desc_in(w.era.loot_rules, wo));
 }

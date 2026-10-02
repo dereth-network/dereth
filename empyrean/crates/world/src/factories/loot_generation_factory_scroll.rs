@@ -24,6 +24,19 @@ pub(crate) fn create_random_scroll(
     profile: &TreasureDeath,
     _roll: Option<&TreasureRoll>,
 ) -> Option<WorldObject> {
+    // DIVERGE: the Infiltration era's scrolls are ClassicACE's (`ScrollLevelChance.Roll` and
+    // `ScrollWcids.Roll` outside its end-of-retail ruleset; V416): the era's levels by tier (a
+    // steel chest's always the seventh), and a spell drawn from the era's spells.
+    if w.era.loot_rules == empyrean_common::era::LootRules::Infiltration {
+        let level = empyrean_tables::logic::era::infiltration::roll_scroll_level(
+            profile.tier,
+            profile.treasure_type,
+            profile.loot_quality_mod,
+        );
+        let pick = || empyrean_tables::logic::era::infiltration::roll_scroll_spell(level);
+        return scroll_of(w, profile, pick);
+    }
+
     let spell_level = scroll_level_chance::roll(profile);
 
     // todo: switch to SpellLevelProgression
@@ -37,6 +50,15 @@ pub(crate) fn create_random_scroll(
             break spell_id; // simple way of handling spells that start at level 3 (blasts, volleys)
         }
     };
+    scroll_of(w, profile, pick)
+}
+
+/// The scroll weenie of the spell `pick` draws.
+fn scroll_of(
+    w: &mut World,
+    profile: &TreasureDeath,
+    pick: impl Fn() -> SpellId,
+) -> Option<WorldObject> {
     let mut spell_id = pick();
 
     // DIVERGE: under the era's `LootTables::PackOnly` rule a spell whose scroll the world database

@@ -5,6 +5,7 @@
 //! .NET `HashSet` with no removals enumerates in insertion order, so they are `Vec`s with a
 //! membership check here.
 
+use empyrean_common::era::LootRules;
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::models::world::TreasureDeath;
 use empyrean_entity::enums::{CoverageMask, DamageType, Skill, SpellId, WieldRequirement};
@@ -12,6 +13,7 @@ use empyrean_tables::enums::{TreasureArmorType, TreasureItemType, WeenieClassNam
 use empyrean_tables::logic::cantrips::{
     armor_cantrips, jewelry_cantrips, melee_cantrips, missile_cantrips, wand_cantrips,
 };
+use empyrean_tables::logic::era::infiltration as era_magic;
 use empyrean_tables::logic::tables::{
     spell_level_chance, spell_level_progression, spell_selection_table,
 };
@@ -56,14 +58,14 @@ fn roll_spells(
     // perhaps replace this with wo.ArmorLevel check?
     //if (roll.IsArmor || roll.IsArmorClothing(wo) || roll.IsWeapon)
     if roll.has_armor_level(wo) || roll.is_weapon() {
-        let item_spells = roll_item_spells(wo, profile, roll);
+        let item_spells = roll_item_spells(w, wo, profile, roll);
 
         if let Some(item_spells) = item_spells {
             spells.extend(item_spells);
         }
     }
 
-    let enchantments = roll_enchantments(wo, profile, roll);
+    let enchantments = roll_enchantments(w, wo, profile, roll);
 
     if let Some(enchantments) = enchantments {
         spells.extend_from_slice(&enchantments);
@@ -71,7 +73,15 @@ fn roll_spells(
         roll.item_difficulty += roll_enchantment_difficulty(w, &enchantments);
     }
 
-    let cantrips = roll_cantrips(w, wo, profile, roll);
+    // DIVERGE: in the Infiltration era jewelry and clothing carry no cantrips (ClassicACE's
+    // `RollSpells` outside its end-of-retail ruleset; V416).
+    let cantrips = if w.era.loot_rules == LootRules::Infiltration
+        && (roll.is_jewelry() || roll.is_clothing())
+    {
+        None
+    } else {
+        roll_cantrips(w, wo, profile, roll)
+    };
 
     if let Some(cantrips) = cantrips {
         spells.extend_from_slice(&cantrips);
@@ -84,6 +94,7 @@ fn roll_spells(
 
 // ACE: LootGenerationFactory.RollItemSpells
 fn roll_item_spells(
+    w: &World,
     wo: &WorldObject,
     profile: &TreasureDeath,
     roll: &TreasureRoll,
@@ -96,7 +107,13 @@ fn roll_item_spells(
     } else if roll.is_missile_weapon() {
         missile_spells::roll(profile)
     } else if roll.is_caster() {
-        wand_spells::roll(wo, profile)
+        // DIVERGE: the Infiltration era's casters carry Defender and Hermetic Link by its chances
+        // and no Spirit Drinker (V416).
+        if w.era.loot_rules == LootRules::Infiltration {
+            era_magic::roll_wand_spells(profile.loot_quality_mod)
+        } else {
+            wand_spells::roll(wo, profile)
+        }
     } else {
         log::error!(
             "RollItemSpells({}) - item is not clothing / armor / weapon",
@@ -105,7 +122,28 @@ fn roll_item_spells(
         return None;
     };
 
-    Some(roll_spell_levels(wo, profile, &spells))
+    Some(roll_spell_levels(w, wo, profile, &spells))
+}
+
+/// Not ACE: the level of a spell on an item of `tier`, by the era's chances (V416).
+#[must_use]
+pub(crate) fn roll_spell_level(w: &World, tier: i32) -> i32 {
+    if w.era.loot_rules == LootRules::Infiltration {
+        era_magic::roll_spell_level(tier)
+    } else {
+        spell_level_chance::roll(tier)
+    }
+}
+
+/// Not ACE: a creature or life spell for spell selection code `code`, from the era's groups
+/// (V416).
+#[must_use]
+pub(crate) fn roll_spell_selection(w: &World, code: i32) -> SpellId {
+    if w.era.loot_rules == LootRules::Infiltration {
+        era_magic::roll_spell_selection(code)
+    } else {
+        spell_selection_table::roll(code)
+    }
 }
 
 /// Each spell's level-1 id to a rolled level.
@@ -114,6 +152,7 @@ fn roll_item_spells(
 /// As ACE throws a `NullReferenceException`, when a spell has no level progression.
 // ACE: LootGenerationFactory.RollSpellLevels
 fn roll_spell_levels(
+    w: &World,
     wo: &WorldObject,
     profile: &TreasureDeath,
     spells: &[SpellId],
@@ -121,7 +160,7 @@ fn roll_spell_levels(
     let mut final_spells = Vec::new();
 
     for &spell in spells {
-        let spell_level = spell_level_chance::roll(profile.tier);
+        let spell_level = roll_spell_level(w, profile.tier);
 
         let spell_levels = spell_level_progression::get_spell_levels(spell)
             .expect("NullReferenceException: no spell level progression");
@@ -145,6 +184,7 @@ fn roll_spell_levels(
 /// per enchantment), at rolled levels.
 // ACE: LootGenerationFactory.RollEnchantments
 fn roll_enchantments(
+    w: &World,
     wo: &WorldObject,
     profile: &TreasureDeath,
     roll: &TreasureRoll,
@@ -176,7 +216,7 @@ fn roll_enchantments(
 
     let mut i = 0;
     while i < num_attempts && i32::try_from(spells.len()).expect("small") < num_enchantments {
-        let spell = spell_selection_table::roll(spell_selection_code);
+        let spell = roll_spell_selection(w, spell_selection_code);
 
         if spell != SpellId::Undef && !spells.contains(&spell) {
             spells.push(spell);
@@ -184,7 +224,7 @@ fn roll_enchantments(
         i += 1;
     }
 
-    Some(roll_spell_levels(wo, profile, &spells))
+    Some(roll_spell_levels(w, wo, profile, &spells))
 }
 
 // ACE: LootGenerationFactory.RollNumEnchantments
@@ -330,7 +370,7 @@ fn roll_cantrips(
 
     let mut i = 0;
     while i < num_attempts && i32::try_from(cantrips.len()).expect("small") < num_cantrips {
-        let cantrip = roll_cantrip(wo, profile, roll);
+        let cantrip = roll_cantrip(w, wo, profile, roll);
 
         if cantrip != SpellId::Undef && !cantrips.contains(&cantrip) {
             cantrips.push(cantrip);
@@ -347,6 +387,24 @@ fn roll_cantrips(
 
         let cantrip_levels = spell_level_progression::get_spell_levels(cantrip)
             .expect("NullReferenceException: no cantrip level progression");
+
+        // DIVERGE: the Infiltration era's cantrips are minor and major only (ClassicACE's
+        // `RollCantrips` outside its end-of-retail ruleset; V416).
+        if w.era.loot_rules == LootRules::Infiltration {
+            if cantrip_levels.len() < 2 {
+                log::error!(
+                    "RollCantrips({}, {}, {}) - {cantrip} has {} cantrip levels, expected 2.",
+                    wo_name(wo),
+                    profile.treasure_type,
+                    roll.item_type,
+                    cantrip_levels.len()
+                );
+                continue;
+            }
+            final_cantrips
+                .push(cantrip_levels[usize::try_from(cantrip_level - 1).expect("levels 1-2")]);
+            continue;
+        }
 
         if cantrip_levels.len() != 4 {
             log::error!(
@@ -389,7 +447,15 @@ fn roll_cantrips(
 }
 
 // ACE: LootGenerationFactory.RollCantrip
-fn roll_cantrip(wo: &WorldObject, profile: &TreasureDeath, roll: &TreasureRoll) -> SpellId {
+fn roll_cantrip(
+    w: &World,
+    wo: &WorldObject,
+    profile: &TreasureDeath,
+    roll: &TreasureRoll,
+) -> SpellId {
+    if w.era.loot_rules == LootRules::Infiltration {
+        return roll_era_cantrip(wo, profile, roll);
+    }
     if roll.has_armor_level(wo) || roll.is_clothing() {
         // armor / clothing cantrip
         // this table also applies to crowns (treasureitemtype.jewelry w/ al)
@@ -429,6 +495,34 @@ fn roll_cantrip(wo: &WorldObject, profile: &TreasureDeath, roll: &TreasureRoll) 
         );
         SpellId::Undef
     }
+}
+
+/// Not ACE: a cantrip from the Infiltration era's tables (V416): a shield's from the shield table
+/// and a weapon's skill aptitude made the weapon's own skill's (the era's weapon skills).
+fn roll_era_cantrip(wo: &WorldObject, profile: &TreasureDeath, roll: &TreasureRoll) -> SpellId {
+    use era_magic::CantripItem;
+    let item = if roll.has_armor_level(wo) || roll.is_clothing() {
+        CantripItem::ArmorOrClothing {
+            is_shield: wo.is_shield(),
+        }
+    } else if roll.is_melee_weapon() {
+        CantripItem::MeleeWeapon
+    } else if roll.is_missile_weapon() {
+        CantripItem::MissileWeapon
+    } else if roll.is_caster() {
+        CantripItem::Caster
+    } else if roll.is_jewelry() {
+        CantripItem::Jewelry
+    } else {
+        log::error!(
+            "RollCantrip({}, {}, {}) - unknown item type",
+            wo_name(wo),
+            profile.treasure_type,
+            roll.item_type
+        );
+        return SpellId::Undef;
+    };
+    era_magic::roll_cantrip(item, wo.weapon_skill())
 }
 
 /// A minor cantrip adds `rng(5, 10)`, a higher one `rng(10, 20)`.

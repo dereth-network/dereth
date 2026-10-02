@@ -15,7 +15,7 @@ use crate::factories::entity::treasure_roll::TreasureRoll;
 use crate::factories::loot_generation_factory::tables_logic::tables::gem_count_chance;
 use crate::factories::loot_generation_factory::tables_logic::wcids::weapon_wcids;
 use crate::factories::loot_generation_factory::{
-    gem_code, get_long_desc, get_material_type, mutate_burden, mutate_color, mutate_value,
+    gem_code, get_long_desc_in, get_material_type, mutate_burden, mutate_color, mutate_value,
     roll_gem_type, world_object_factory_create_new_world_object,
 };
 use crate::factories::loot_generation_factory_magic::assign_magic;
@@ -147,7 +147,7 @@ pub(crate) fn mutate_missile_weapon(
     mutate_value(w, wo, profile.tier, Some(roll));
 
     // long description
-    wo.set_long_desc(get_long_desc(wo));
+    wo.set_long_desc(get_long_desc_in(w.era.loot_rules, wo));
 }
 
 // ACE: LootGenerationFactory.GetMissileScript

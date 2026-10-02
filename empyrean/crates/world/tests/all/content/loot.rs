@@ -1619,6 +1619,149 @@ fn an_infiltration_pyreal_drop_is_its_eras_tier_range() {
     }
 }
 
+// ---------------------------------------------------------------------- the Infiltration era's magic
+
+/// The Infiltration era's spell levels: an item's spells by its tier's chances (tier 1 levels 1
+/// to 3 ... tier 8 levels 6 and 7, never the eighth); a scroll's the same way to the fifth tier and
+/// the sixth level above, a steel chest's always the seventh; a scroll's spell is one of the era's
+/// (no void magic, no two-handed or dual-wield mastery) at that level; and an item named for its
+/// spell takes the era's names.
+/// Divergence: V416
+#[test]
+fn the_infiltration_spell_and_scroll_levels_are_its_eras() {
+    use empyrean_entity::enums::SpellId;
+    use empyrean_tables::logic::era::infiltration as era;
+    seed(5);
+    let spell_levels: [&[i32]; 8] = [
+        &[1, 2, 3],
+        &[3, 4, 5],
+        &[4, 5, 6],
+        &[4, 5, 6],
+        &[5, 6],
+        &[5, 6],
+        &[6, 7],
+        &[6, 7],
+    ];
+    let scroll_levels: [&[i32]; 8] = [
+        &[1, 2, 3],
+        &[3, 4, 5],
+        &[4, 5, 6],
+        &[4, 5, 6],
+        &[5, 6],
+        &[6],
+        &[6],
+        &[6],
+    ];
+    for tier in 1..=8 {
+        let allowed = spell_levels[usize::try_from(tier - 1).expect("tier")];
+        let scrolls = scroll_levels[usize::try_from(tier - 1).expect("tier")];
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..400 {
+            let level = era::roll_spell_level(tier);
+            assert!(allowed.contains(&level), "tier {tier}: spell level {level}");
+            seen.insert(level);
+            let level = era::roll_scroll_level(tier, 0, 0.0);
+            assert!(
+                scrolls.contains(&level),
+                "tier {tier}: scroll level {level}"
+            );
+            assert_eq!(era::roll_scroll_level(tier, 338, 0.0), 7, "a steel chest");
+        }
+        assert_eq!(seen.len(), allowed.len(), "tier {tier}: every level drops");
+    }
+
+    let era_spells = era::scroll_spells();
+    for later in [
+        SpellId::NetherBolt1,
+        SpellId::TwoHandedMasterySelf1,
+        SpellId::DualWieldMasterySelf1,
+        SpellId::SpiritDrinkerSelf1,
+    ] {
+        assert!(!era_spells.contains(&later), "{later:?}");
+    }
+    assert!(era_spells.contains(&SpellId::SpearMasterySelf1));
+    for _ in 0..200 {
+        let spell = era::roll_scroll_spell(3);
+        let first = era_spells
+            .iter()
+            .copied()
+            .find(|&s| era::spell_at_level(s, 3) == spell)
+            .unwrap_or_else(|| panic!("{spell:?} is an era spell at level 3"));
+        assert_ne!(first, SpellId::Undef);
+    }
+
+    assert_eq!(
+        era::spell_descriptor(SpellId::BloodDrinkerSelf3),
+        Some("Blood Drinker")
+    );
+    assert_eq!(
+        era::spell_descriptor(SpellId::FlameBolt5),
+        Some("Flame Bolt")
+    );
+    assert_eq!(
+        era::spell_descriptor(SpellId::DirtyFightingMasterySelf2),
+        Some("Dirty Fighting")
+    );
+}
+
+/// The Infiltration era's cantrips: none before the third tier, at most three to an item, and
+/// minor or major only (the end of retail's eighth tier has epic and legendary ones and up to
+/// four); a caster's cantrips and item spells are the era's (War Magic its only magic aptitude,
+/// Defender and Hermetic Link its spells, no Spirit Drinker); a weapon's aptitude is its own old
+/// skill's.
+/// Divergence: V416
+#[test]
+fn infiltration_cantrips_are_minor_or_major_and_its_casters_spells_its_own() {
+    use empyrean_entity::enums::{Skill, SpellId};
+    use empyrean_tables::logic::era::infiltration as era;
+    let mut w = world();
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    seed(9);
+    for tier in 1..=8 {
+        for quality in [0.0f32, 1.0] {
+            let p = profile(tier, quality, 1);
+            for _ in 0..200 {
+                let n = cantrips::cantrip_chance::roll_num_cantrips(&w, &p);
+                let level = cantrips::cantrip_chance::roll_cantrip_level(&w, &p);
+                assert!(n <= 3, "tier {tier}: {n} cantrips");
+                if tier <= 2 {
+                    assert_eq!(n, 0, "tier {tier}");
+                }
+                assert!(
+                    (1..=2).contains(&level),
+                    "tier {tier}: cantrip level {level}"
+                );
+            }
+        }
+    }
+    let eor = world();
+    let top = profile(8, 1.0, 1);
+    assert_eq!(cantrips::cantrip_chance::roll_cantrip_level(&eor, &top), 4);
+
+    for _ in 0..200 {
+        let c = era::roll_caster_cantrip();
+        assert_ne!(c, SpellId::CantripVoidMagicAptitude1);
+        for spell in era::roll_wand_spells(1.0) {
+            assert!(
+                [SpellId::DefenderSelf1, SpellId::HermeticLinkSelf1].contains(&spell),
+                "{spell:?}"
+            );
+        }
+    }
+    assert_eq!(
+        era::weapon_aptitude(Skill::Axe),
+        SpellId::CANTRIPLIGHTWEAPONSAPTITUDE1
+    );
+    assert_eq!(
+        era::weapon_aptitude(Skill::Crossbow),
+        SpellId::CANTRIPCROSSBOWAPTITUDE1
+    );
+    assert_eq!(
+        era::weapon_aptitude(Skill::Spear),
+        SpellId::CANTRIPSPEARAPTITUDE1
+    );
+}
+
 // ---------------------------------------------------------------------- real content (lootgen/)
 
 /// The real-content tier: `lootgen/` replayed over `world.pack` (`EMPYREAN_TEST_WORLD_PACK`, default
@@ -1764,6 +1907,122 @@ mod real_content {
                 }
             }
         }
+    }
+
+    /// Every magic item an Infiltration treasure of tiers 1 to 6 rolls, on the Infiltration world,
+    /// carries the era's magic: each spell at a level the era's tier gives (never the eighth),
+    /// cantrips minor or major only, none on jewelry or clothing, and no later spell (Spirit
+    /// Drinker, void magic, the later skills' masteries); a scroll teaches one of the era's
+    /// spells at one of its tier's levels.
+    /// Divergence: V416
+    #[test]
+    fn every_infiltration_magic_item_carries_its_eras_magic() {
+        use empyrean_entity::enums::SpellId;
+        use empyrean_tables::logic::era::infiltration as era;
+        use empyrean_tables::logic::tables::spell_level_progression;
+        let mut w = real_world();
+        let path = empyrean_common::test_paths::infiltration_pack();
+        w.content = Arc::new(PackContent::open(&path).unwrap_or_else(|e| {
+            panic!(
+                "the real-content tier needs the Infiltration world.pack at {} (set EMPYREAN_TEST_INFILTRATION_PACK): {e}",
+                path.display()
+            )
+        }));
+        w.era = empyrean_common::era::EraId::Infiltration.rules();
+        let max_level = [3, 5, 6, 6, 6, 6];
+        let later = [
+            SpellId::SpiritDrinkerSelf1,
+            SpellId::NetherBolt1,
+            SpellId::CantripVoidMagicAptitude1,
+            SpellId::TwoHandedMasterySelf1,
+            SpellId::DualWieldMasterySelf1,
+        ];
+        seed(21);
+        let (mut spells_seen, mut cantrips_seen) = (0, 0);
+        for tier in 1..=6 {
+            for item_type in [
+                TreasureItemType::Weapon,
+                TreasureItemType::Armor,
+                TreasureItemType::Clothing,
+                TreasureItemType::Jewelry,
+                TreasureItemType::Caster,
+            ] {
+                for _ in 0..30 {
+                    let Some(wo) = lgf::create_random_loot_objects_of_category(
+                        &mut w,
+                        &profile(tier, 1.0, 1),
+                        TreasureItemCategory::MagicItem,
+                        item_type,
+                    ) else {
+                        continue;
+                    };
+                    let book: Vec<SpellId> = wo
+                        .biota
+                        .properties_spell_book
+                        .as_ref()
+                        .map(|b| b.keys().map(|&s| SpellId(s.cast_unsigned())).collect())
+                        .unwrap_or_default();
+                    for spell in book {
+                        let levels = spell_level_progression::get_spell_levels(spell)
+                            .unwrap_or_else(|| panic!("{spell:?} has levels"));
+                        let first = levels.iter().copied().find(|&s| s != SpellId::Undef);
+                        assert!(
+                            !later.iter().any(|&l| Some(l) == first),
+                            "tier {tier} {item_type:?}: {spell:?}"
+                        );
+                        let level = levels
+                            .iter()
+                            .position(|&s| s == spell)
+                            .expect("in its levels")
+                            + 1;
+                        if levels.len() == 4 {
+                            cantrips_seen += 1;
+                            assert!(level <= 2, "tier {tier}: cantrip {spell:?}");
+                            assert!(
+                                !matches!(
+                                    item_type,
+                                    TreasureItemType::Jewelry | TreasureItemType::Clothing
+                                ),
+                                "tier {tier} {item_type:?}: cantrip {spell:?}"
+                            );
+                        } else {
+                            spells_seen += 1;
+                            let max = max_level[usize::try_from(tier - 1).expect("tier")];
+                            assert!(
+                                i32::try_from(level).expect("small") <= max,
+                                "tier {tier} {item_type:?}: {spell:?} is level {level}"
+                            );
+                        }
+                    }
+                }
+            }
+            for _ in 0..20 {
+                let Some(scroll) = lgf::create_random_loot_objects_of_category(
+                    &mut w,
+                    &profile(tier, 0.0, 1),
+                    TreasureItemCategory::Item,
+                    TreasureItemType::Scroll,
+                ) else {
+                    continue;
+                };
+                let spell = SpellId(scroll.spell_did().expect("a scroll's spell"));
+                let levels = spell_level_progression::get_spell_levels(spell).expect("levels");
+                let level = levels
+                    .iter()
+                    .position(|&s| s == spell)
+                    .expect("in its levels")
+                    + 1;
+                assert!(
+                    era::scroll_spells().iter().any(|&s| era::spell_at_level(
+                        s,
+                        i32::try_from(level).expect("small")
+                    ) == spell),
+                    "tier {tier}: scroll of {spell:?}"
+                );
+            }
+        }
+        assert!(spells_seen > 200, "{spells_seen} spells");
+        assert!(cantrips_seen > 0, "{cantrips_seen} cantrips");
     }
 
     /// The `treasure_death` row with primary key `id` (the harness names profiles by id).

@@ -6,14 +6,14 @@ use empyrean_content::models::world::TreasureDeath;
 use empyrean_entity::enums::{MutateFilter, UiEffects, Usable};
 use empyrean_tables::enums::TreasureItemType;
 use empyrean_tables::logic::tables::{
-    gem_class_chance, gem_material_chance, material_table, spell_level_chance,
-    spell_level_progression, spell_selection_table, workmanship_chance,
+    gem_class_chance, gem_material_chance, material_table, spell_level_progression,
+    workmanship_chance,
 };
 
 use crate::entity::spell::Spell;
 use crate::factories::entity::treasure_roll::TreasureRoll;
 use crate::factories::loot_generation_factory::{
-    get_long_desc, has_mutate_filter, mutate_color, mutate_value, wo_name,
+    get_long_desc_in, has_mutate_filter, mutate_color, mutate_value, wo_name,
     world_object_factory_create_new_world_object,
 };
 use crate::factories::loot_generation_factory_magic::roll_item_max_mana;
@@ -85,7 +85,7 @@ pub(crate) fn mutate_gem(
     }
 
     // long desc
-    wo.set_long_desc(get_long_desc(wo));
+    wo.set_long_desc(get_long_desc_in(w.era.loot_rules, wo));
 }
 
 /// A spell from selection code 1 at a rolled level, its spellcraft, mana and mana cost.
@@ -98,9 +98,10 @@ fn assign_magic_gem(
 ) -> bool {
     // TODO: move to standard AssignMagic() pipeline
 
-    let spell = spell_selection_table::roll(1);
+    let spell = crate::factories::loot_generation_factory_spells::roll_spell_selection(w, 1);
 
-    let spell_level = spell_level_chance::roll(profile.tier);
+    let spell_level =
+        crate::factories::loot_generation_factory_spells::roll_spell_level(w, profile.tier);
 
     let spell_levels = spell_level_progression::get_spell_levels(spell);
 

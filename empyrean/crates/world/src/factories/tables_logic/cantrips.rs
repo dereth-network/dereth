@@ -18,7 +18,29 @@ pub mod cantrip_chance {
     use empyrean_tables::logic::cantrips::cantrip_chance::{
         scale_cantrip_levels, scale_num_cantrips,
     };
-    use empyrean_tables::tables::cantrips::cantrip_chance::{_CANTRIP_LEVELS, _NUM_CANTRIPS};
+    use empyrean_tables::tables::cantrips::cantrip_chance as ace_tables;
+
+    type TierTables = [&'static ChanceTable<i32>; 8];
+
+    /// Not ACE: the cantrip counts by tier the world's era rolls: ClassicACE's for the
+    /// Infiltration era (V416), else ACE's.
+    fn num_cantrips_source(w: &World) -> &'static TierTables {
+        if w.era.loot_rules == empyrean_common::era::LootRules::Infiltration {
+            &empyrean_tables::era::infiltration::cantrip_chance::_NUM_CANTRIPS
+        } else {
+            &ace_tables::_NUM_CANTRIPS
+        }
+    }
+
+    /// Not ACE: the cantrip levels by tier the world's era rolls (minor and major only in the
+    /// Infiltration era; V416).
+    fn cantrip_levels_source(w: &World) -> &'static TierTables {
+        if w.era.loot_rules == empyrean_common::era::LootRules::Infiltration {
+            &empyrean_tables::era::infiltration::cantrip_chance::_CANTRIP_LEVELS
+        } else {
+            &ace_tables::_CANTRIP_LEVELS
+        }
+    }
 
     use crate::managers::property_manager;
     use crate::World;
@@ -72,8 +94,8 @@ pub mod cantrip_chance {
                 .unwrap_or_else(PoisonError::into_inner);
             if tables.is_none() {
                 *tables = Some(Tables {
-                    num_cantrips: literal(&_NUM_CANTRIPS),
-                    cantrip_levels: literal(&_CANTRIP_LEVELS),
+                    num_cantrips: literal(num_cantrips_source(w)),
+                    cantrip_levels: literal(cantrip_levels_source(w)),
                 });
             }
         }
@@ -136,13 +158,13 @@ pub mod cantrip_chance {
 
         let new_tables = if cantrip_drop_rate != 1.0 {
             let mut new_table = Vec::new();
-            for entry in _NUM_CANTRIPS {
+            for entry in num_cantrips_source(w) {
                 let new_entry = scale_num_cantrips(entry, cantrip_drop_rate);
                 new_table.push(TierTable::Scaled(new_entry));
             }
             new_table
         } else {
-            literal(&_NUM_CANTRIPS)
+            literal(num_cantrips_source(w))
         };
 
         let mut tables = w
@@ -152,7 +174,7 @@ pub mod cantrip_chance {
             .unwrap_or_else(PoisonError::into_inner);
         let tables = tables.get_or_insert_with(|| Tables {
             num_cantrips: Vec::new(),
-            cantrip_levels: literal(&_CANTRIP_LEVELS),
+            cantrip_levels: literal(cantrip_levels_source(w)),
         });
         tables.num_cantrips = new_tables;
 
@@ -182,7 +204,7 @@ pub mod cantrip_chance {
             || legendary_cantrip_drop_rate != 1.0
         {
             let mut new_table = Vec::new();
-            for entry in _CANTRIP_LEVELS {
+            for entry in cantrip_levels_source(w) {
                 let new_entry = scale_cantrip_levels(
                     entry,
                     minor_cantrip_drop_rate,
@@ -194,7 +216,7 @@ pub mod cantrip_chance {
             }
             new_table
         } else {
-            literal(&_CANTRIP_LEVELS)
+            literal(cantrip_levels_source(w))
         };
 
         let mut tables = w
@@ -203,7 +225,7 @@ pub mod cantrip_chance {
             .write()
             .unwrap_or_else(PoisonError::into_inner);
         let tables = tables.get_or_insert_with(|| Tables {
-            num_cantrips: literal(&_NUM_CANTRIPS),
+            num_cantrips: literal(num_cantrips_source(w)),
             cantrip_levels: Vec::new(),
         });
         tables.cantrip_levels = new_tables;

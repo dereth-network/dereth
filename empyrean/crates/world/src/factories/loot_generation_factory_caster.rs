@@ -6,9 +6,7 @@ use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::models::world::TreasureDeath;
 use empyrean_entity::enums::{DamageType, Skill, Usable, WieldRequirement};
 use empyrean_tables::enums::{TreasureItemType, TreasureWeaponType};
-use empyrean_tables::logic::tables::{
-    spell_level_chance, spell_level_progression, workmanship_chance,
-};
+use empyrean_tables::logic::tables::{spell_level_progression, workmanship_chance};
 use empyrean_tables::logic::weapons::caster_wcids;
 
 use crate::entity::mutations::mutation_cache;
@@ -19,7 +17,7 @@ use crate::factories::loot_generation_factory::tables_logic::tables::{
     caster_slot_spells, gem_count_chance,
 };
 use crate::factories::loot_generation_factory::{
-    gem_code, get_long_desc, get_material_type, mutate_color, mutate_value, roll_gem_type,
+    gem_code, get_long_desc_in, get_material_type, mutate_color, mutate_value, roll_gem_type,
     world_object_factory_create_new_world_object,
 };
 use crate::factories::loot_generation_factory_magic::assign_magic;
@@ -151,7 +149,7 @@ pub(crate) fn mutate_caster(
     mutate_value(w, wo, profile.tier, Some(roll));
 
     // long description
-    wo.set_long_desc(get_long_desc(wo));
+    wo.set_long_desc(get_long_desc_in(w.era.loot_rules, wo));
 }
 
 /// The caster's slot spell at a rolled level, its mana cost and its useability.
@@ -172,7 +170,8 @@ fn mutate_caster_spell_did(w: &World, wo: &mut WorldObject, profile: &TreasureDe
         return;
     }
 
-    let spell_level = spell_level_chance::roll(profile.tier);
+    let spell_level =
+        crate::factories::loot_generation_factory_spells::roll_spell_level(w, profile.tier);
 
     let spell_did = spell_levels[usize::try_from(spell_level - 1).expect("levels 1-8")].0;
     wo.set_spell_did(Some(spell_did));

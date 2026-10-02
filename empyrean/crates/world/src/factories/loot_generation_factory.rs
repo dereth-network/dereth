@@ -1281,15 +1281,23 @@ fn mutate_coins(wo: &mut WorldObject, profile: &TreasureDeath, loot_rules: LootR
 // ACE: LootGenerationFactory.GetLongDesc
 #[must_use]
 pub fn get_long_desc(wo: &WorldObject) -> Option<String> {
+    get_long_desc_in(LootRules::EndOfRetail, wo)
+}
+
+/// [`get_long_desc`] under the era's loot rules: an Infiltration item is named by that era's
+/// descriptors (V416).
+#[must_use]
+pub fn get_long_desc_in(rules: LootRules, wo: &WorldObject) -> Option<String> {
     if let Some(spell_did) = wo.spell_did() {
-        if let Some(long_desc) = try_get_long_desc(wo, SpellId(spell_did)) {
+        if let Some(long_desc) = try_get_long_desc(rules, wo, SpellId(spell_did)) {
             return Some(long_desc);
         }
     }
 
     if let Some(book) = wo.biota.properties_spell_book.as_ref() {
         for &spell_id in book.keys() {
-            if let Some(long_desc) = try_get_long_desc(wo, SpellId(spell_id.cast_unsigned())) {
+            if let Some(long_desc) = try_get_long_desc(rules, wo, SpellId(spell_id.cast_unsigned()))
+            {
                 return Some(long_desc);
             }
         }
@@ -1298,7 +1306,13 @@ pub fn get_long_desc(wo: &WorldObject) -> Option<String> {
 }
 
 // ACE: LootGenerationFactory.TryGetLongDesc
-fn try_get_long_desc(wo: &WorldObject, spell_id: SpellId) -> Option<String> {
+fn try_get_long_desc(rules: LootRules, wo: &WorldObject, spell_id: SpellId) -> Option<String> {
+    // DIVERGE: an Infiltration item is named by ClassicACE's descriptors for that ruleset
+    // (`SpellDescriptors`; V416).
+    if rules == LootRules::Infiltration {
+        let descriptor = empyrean_tables::logic::era::infiltration::spell_descriptor(spell_id)?;
+        return Some(format!("{} of {descriptor}", wo_name(wo)));
+    }
     let spell_levels = spell_level_progression::get_spell_levels(spell_id)?;
 
     let descriptor = DESCRIPTORS.get(&spell_levels[0])?;
