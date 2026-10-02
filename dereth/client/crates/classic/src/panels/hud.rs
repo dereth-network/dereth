@@ -1030,7 +1030,8 @@ impl Panel for Vitals {
                 .paint = false;
             if let Some((cur, max)) = value.filter(|_| self.numeric) {
                 f.text_box(
-                    rect(x, 0, width, 28),
+                    // Centred in the bar, across and down, as the meter's text was.
+                    rect(x, (28 - 16) / 2, width, 16),
                     format!("{title} {cur}/{max}"),
                     "16-7",
                     INK,
