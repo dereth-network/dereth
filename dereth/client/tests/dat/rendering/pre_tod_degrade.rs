@@ -150,3 +150,19 @@ fn an_older_part_without_its_own_record_draws_itself_and_not_the_later_record_un
     assert!(older.read_typed(DbType::DegradeInfo, later_only).is_ok());
     assert_eq!(older.era_of(later_only), ContainerEra::Tod);
 }
+
+/// Behaviour: rendering.degrade.an-older-eras-part-draws-the-levels-its-own-id-reaches
+/// The portal-space tunnel's model has no detail record in the February 2005 files, so on the
+/// February 2005 world it draws itself through log-in and log-out rather than the end-of-retail
+/// record under its implied id, whose levels are other models (with them the tunnel drew black).
+#[test]
+fn the_portal_space_tunnel_draws_its_own_model_on_the_february_2005_world() {
+    /// The tunnel's two parts, setup `0x02000306` in both eras.
+    const TUNNEL: DataId = DataId(0x0100_080B);
+    let older = older_world();
+    assert!(dereth_dat::testing::open_store_or_fail()
+        .portal()
+        .contains(DataId(0x1100_080B)));
+    assert_eq!(record(&older, TUNNEL).map(|(did, _)| did), None);
+    assert!(dereth_client::models::draws_at_near_band(&older, TUNNEL));
+}
