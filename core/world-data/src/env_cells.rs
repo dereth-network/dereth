@@ -136,30 +136,45 @@ impl EnvCellLoader {
         let mut out = Vec::new();
         for i in 0..lbi.num_cells {
             let id = DataId((u32::from(block) << 16) | (FIRST_ENV_CELL + i));
-            let Ok(bytes) = store.read_typed(DbType::Cell, id) else {
-                self.stats.missing += 1;
-                continue;
-            };
-            let Ok(cell) = EnvCell::decode_payload_in(store.era_of(id), id, &bytes) else {
-                self.stats.undecodable += 1;
-                continue;
-            };
-            let Some(env) = self.environment(store, cell.environment) else {
-                self.stats.no_environment += 1;
-                continue;
-            };
-            let Some(structure) = env.cells.get(cell.cell_struct as usize).cloned() else {
-                self.stats.no_environment += 1;
-                continue;
-            };
-            self.stats.loaded += 1;
-            out.push(DecodedCell {
-                id: CellId(id.0),
-                cell,
-                structure,
-            });
+            match self.load_one(store, id) {
+                Ok(d) => {
+                    self.stats.loaded += 1;
+                    out.push(d);
+                }
+                Err(CellMiss::Missing) => self.stats.missing += 1,
+                Err(CellMiss::Undecodable) => self.stats.undecodable += 1,
+                Err(CellMiss::NoEnvironment) => self.stats.no_environment += 1,
+            }
         }
         out
+    }
+
+    /// One interior cell, by full id, from `store`'s cell file and the environment its portal
+    /// holds; `None` when either is missing or will not decode. Not counted: the drawing side
+    /// reads another era's record of a cell the world already loaded with this.
+    pub fn load_cell(&mut self, store: &RetailDatStore, id: CellId) -> Option<DecodedCell> {
+        self.load_one(store, DataId(id.0)).ok()
+    }
+
+    fn load_one(&mut self, store: &RetailDatStore, id: DataId) -> Result<DecodedCell, CellMiss> {
+        let bytes = store
+            .read_typed(DbType::Cell, id)
+            .map_err(|_| CellMiss::Missing)?;
+        let cell = EnvCell::decode_payload_in(store.era_of(id), id, &bytes)
+            .map_err(|_| CellMiss::Undecodable)?;
+        let env = self
+            .environment(store, cell.environment)
+            .ok_or(CellMiss::NoEnvironment)?;
+        let structure = env
+            .cells
+            .get(cell.cell_struct as usize)
+            .cloned()
+            .ok_or(CellMiss::NoEnvironment)?;
+        Ok(DecodedCell {
+            id: CellId(id.0),
+            cell,
+            structure,
+        })
     }
 
     fn environment(&mut self, store: &RetailDatStore, id: DataId) -> Option<Arc<Environment>> {
@@ -178,6 +193,51 @@ impl EnvCellLoader {
             })
             .clone()
     }
+}
+
+/// Why one cell did not load.
+enum CellMiss {
+    Missing,
+    Undecodable,
+    NoEnvironment,
+}
+
+/// The interior cells of each building of a block, in the building list's order: every cell
+/// reached from the building's outdoor portals through the cells' own portals. `cells` are the
+/// block's decoded cells; a cell no building reaches (a dungeon's) is in no list.
+#[must_use]
+pub fn building_cells(
+    block: u16,
+    buildings: &[dereth_assets::world::BuildInfo],
+    cells: &[DecodedCell],
+) -> Vec<Vec<CellId>> {
+    let base = u32::from(block) << 16;
+    let by_id: HashMap<u32, &DecodedCell> = cells.iter().map(|d| (d.id.0, d)).collect();
+    buildings
+        .iter()
+        .map(|b| {
+            let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+            let mut todo: Vec<u32> = b
+                .portals
+                .iter()
+                .map(|p| base | u32::from(p.other_cell_id))
+                .collect();
+            while let Some(id) = todo.pop() {
+                let Some(d) = by_id.get(&id) else {
+                    continue;
+                };
+                if !seen.insert(id) {
+                    continue;
+                }
+                for p in &d.cell.portals {
+                    if p.other_cell_id != 0xFFFF_FFFF {
+                        todo.push(base | (p.other_cell_id & 0xFFFF));
+                    }
+                }
+            }
+            seen.into_iter().map(CellId).collect()
+        })
+        .collect()
 }
 
 /// The vertex positions a polygon names, from its container's own vertex array.

@@ -350,6 +350,11 @@ pub trait Presentation: std::fmt::Debug {
         degrees: dereth_primitives::Vec3,
     );
     fn preview_remove_all_objects(&mut self, id: PreviewSpace);
+    /// Whether the world's objects are drawn with another era's look (`[Render] Objects`), which
+    /// the preview spaces' dressed objects wear too.
+    fn objects_in_other_look(&self) -> bool {
+        false
+    }
     /// # Errors
     /// Whatever the device answers while baking the object's meshes.
     fn preview_add_object(

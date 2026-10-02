@@ -423,6 +423,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.objects.a-bare-body-part-draws-as-the-other-eras-bare-part",
+        says: "With another era's object mode, a bare arm or hand is drawn as that era drew a \
+               bare arm or hand, not as the model that era kept under the same number (for the \
+               end-of-retail arm, the February 2005 armoured arm).",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-FIDELITY-BARE"),
+        station: "dereth-client::dat::rendering::object_look::a_bare_arm_draws_as_the_other_eras_bare_arm_and_not_its_armoured_one",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.a-building-shell-takes-the-look-only-with-the-worlds-geometry",
+        says: "With another era's object mode, a building takes that era's look only where its \
+               shape is the world's, so its doorways still meet the world's interiors; a \
+               reshaped building keeps the world's look.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-FIDELITY-SHELL"),
+        station: "dereth-client::dat::rendering::object_look::a_building_shell_takes_the_older_look_only_where_its_geometry_is_the_worlds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.objects.a-clothing-picture-follows-the-surface-onto-the-other-eras-part",
         says: "With another era's object mode, a garment still shows on the body: the later files \
                painted the body with other pictures, so the picture the world's garment replaces \
@@ -431,6 +453,66 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-014",
         evidence: Evidence::Private("AC-EVID-ERA-VISUALS-SLOT"),
         station: "dereth-client::dat::rendering::object_look::a_clothing_picture_follows_the_surface_onto_the_later_arm",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.a-colour-the-other-era-lacks-is-that-eras-colour-from-the-same-place",
+        says: "With another era's object mode, a colour the other era does not have (a hair, skin \
+               or eye colour, or a dye) is drawn as that era's colour from the same place in the \
+               same choice of colours, so a body the world dressed in a newer colour still takes \
+               the other era's look.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-POLISH-COLOUR"),
+        station: "dereth-client::dat::rendering::object_look::a_new_end_of_retail_body_takes_the_older_look_with_the_older_hair_colour",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.a-head-draws-the-other-eras-head-for-the-same-hair-style",
+        says: "With another era's object mode, a head wearing one of the character-creation hair \
+               styles is drawn as the other era's head for the style in the same place of its \
+               list, with the same face; a style the other era's list lacks, or has bald where \
+               the world's is not, keeps the world's head.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-POLISH-HAIR"),
+        station: "dereth-client::dat::rendering::object_look::a_head_draws_the_other_eras_head_for_the_same_hair_style",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.a-part-draws-wholly-from-one-era",
+        says: "With another era's object mode, each part of an object is drawn wholly in one \
+               era's look, its model with that era's own paint: a model the other era does not \
+               have, or has as something else, keeps the world's look entire, and is never \
+               painted with whatever the other era keeps under the same numbers.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-FIDELITY-ONE-ERA"),
+        station: "dereth-client::dat::rendering::object_look::a_later_model_the_older_files_lack_is_drawn_wholly_from_the_worlds_records",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.a-remodelled-creature-draws-the-other-eras-remodel",
+        says: "With another era's object mode, a creature or object the other era built with other \
+               models is drawn with that era's models, moved by the world's animations, where each \
+               of its parts rests where the world's part of the same place rests; a part the other \
+               era's object lacks is not drawn, and an object the other era built with more parts, \
+               or with parts resting elsewhere, keeps the world's look.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-POLISH-REMODEL"),
+        station: "dereth-client::dat::rendering::object_look::a_remodelled_creature_draws_the_other_eras_remodel_where_it_rests_as_the_worlds_does",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.objects.an-interior-room-draws-from-the-other-eras-record-where-it-is-the-same-room",
+        says: "With another era's object mode, an interior room is drawn from that era's own record \
+               of it, with that era's paint, where that era has the same room in the same place; \
+               a room it lacks, or holds elsewhere or joined otherwise, keeps the world's look.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-INTERIORS-ROOMS"),
+        station: "dereth-client::dat::rendering::object_look::an_interior_takes_the_other_eras_room_only_where_it_is_the_same_room_in_the_same_place",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -469,8 +551,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "rendering.objects.an-object-whose-picture-change-cannot-be-placed-keeps-the-worlds-look",
-        says: "An object whose clothing or paint change has no matching surface on the other \
-               era's part is drawn whole in the world's own look, rather than without the change.",
+        says: "A part whose clothing or paint change has no matching surface on the other \
+               era's part is drawn in the world's own look, rather than without the change.",
         since: THIS_CLIENT,
         divergence: "CD-014",
         evidence: Evidence::Private("AC-EVID-ERA-VISUALS-FALLBACK"),
@@ -486,6 +568,26 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-014",
         evidence: Evidence::Private("AC-EVID-ERA-VISUALS-LATER"),
         station: "dereth-client::gpu::rendering::object_modes::an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.objects.interiors-follow-their-building-in-another-eras-look",
+        says: "With another era's object mode, a town's rooms take that era's look with their \
+               buildings, and switching the mode back draws them in the world's own look again.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-INTERIORS-FOLLOW"),
+        station: "dereth-client::gpu::rendering::object_modes::holtburgs_rooms_take_the_other_eras_look_with_their_buildings_and_go_back_with_them",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.objects.the-paper-doll-wears-the-bodys-look",
+        says: "With another era's object mode, the inventory's paper doll is drawn in the same \
+               look as the player's body in the world, part for part.",
+        since: THIS_CLIENT,
+        divergence: "CD-014",
+        evidence: Evidence::Private("AC-EVID-OBJECT-FIDELITY-DOLL"),
+        station: "dereth-client::gpu::rendering::object_modes::the_paper_doll_wears_the_look_the_body_wears_in_the_world",
         tier: Tier::Gpu,
     },
     behaviour! {

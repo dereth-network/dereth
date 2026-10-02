@@ -914,6 +914,8 @@ impl Config {
             // `[Render] TerrainBlending`, the only control there is for it.
             gpu_terrain_merge: self.terrain_blending != crate::render_prefs::TerrainBlending::Cpu,
             terrain_splat: self.terrain_blending == crate::render_prefs::TerrainBlending::Splat,
+            // The client keeps the object-identity verdicts in its per-user cache folder.
+            object_identity_cache: crate::object_identity::default_cache_dir(),
             ..crate::scene::SceneConfig::default()
         }
     }

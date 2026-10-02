@@ -83,6 +83,7 @@ fn check(surface: DataId, untextured: bool) {
         frame: Frame::default(),
         portals: vec![],
         meshes,
+        from_look: false,
         statics: vec![],
         statics_blended: vec![],
         degrade: vec![],

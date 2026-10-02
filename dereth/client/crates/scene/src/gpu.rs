@@ -597,8 +597,19 @@ mod imp {
             setup: DataId,
             objdesc: Option<&dereth_animation::parts::ObjDesc>,
         ) -> Result<Option<usize>, RenderError> {
+            // The paper doll and the portrait wear the same look as the body in the world.
+            let look = self
+                .world
+                .as_ref()
+                .and_then(crate::world::SceneDraw::object_look);
             match self.previews.get_mut(&id) {
-                Some(space) => space.add_object_dressed(store, &mut self.gpu, setup, objdesc),
+                Some(space) => space.add_object_dressed_in_look(
+                    store,
+                    &mut self.gpu,
+                    setup,
+                    objdesc,
+                    look.as_ref().map(|(f, i)| (&**f, &**i)),
+                ),
                 None => Ok(None),
             }
         }

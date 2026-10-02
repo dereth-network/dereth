@@ -65,6 +65,7 @@ pub use dereth_client_runtime::land_source;
 pub use dereth_client_runtime::models;
 pub use dereth_client_runtime::movement;
 pub use dereth_client_runtime::net;
+pub use dereth_client_runtime::object_identity;
 pub use dereth_client_runtime::object_physics;
 pub use dereth_client_runtime::object_range;
 pub use dereth_client_runtime::object_step;

@@ -258,13 +258,26 @@ pub static DIVERGENCES: &[Divergence] = &[
         dereth: "Object Mode on the client options page (Render.Objects in the profile, \
                  --object-visuals on the command line) draws any world's objects in World \
                  Default, Legacy or Modern look. Every object keeps the world's own parts, how \
-                 they are joined and how they move; each part's model, surfaces, pictures and \
-                 palettes come from the chosen era's files where they hold it, and from the \
-                 world's where they do not. A clothing or paint change the world's server sends is \
-                 put on the same surface of the other era's part, since the eras painted the same \
-                 parts with different pictures; an object whose change has no such surface is \
-                 drawn wholly in the world's look. The landscape's buildings, statics and scenery \
-                 are drawn whole in the chosen look; interiors stay the world's. Collision, motion \
+                 they are joined and how they move; each part is drawn wholly in one era's look: \
+                 the chosen era's model, surfaces, pictures and palettes where that era holds the \
+                 same model, the world's own otherwise, never one era's model with the other's \
+                 paint. A bare arm or hand is drawn as the chosen era's bare arm or hand, and a \
+                 head with a character-creation hair style as that era's head for the style in \
+                 the same place of its list, where it has one. A colour the chosen era lacks is \
+                 its colour from the same place in the same choice of colours. A creature that \
+                 era built with other models is drawn with them, moved by the world's \
+                 animations, where each rests where the world's part rests. A \
+                 clothing or paint change the world's server sends is put on the same surface of \
+                 the other era's part, since the eras painted the same parts with different \
+                 pictures; a part whose change has no such surface keeps the world's look. The \
+                 paper doll wears the body's look. The landscape's statics and scenery are drawn \
+                 whole in the chosen look where that era holds them as the same objects, and \
+                 buildings where their shape is the world's. An interior is drawn room by room \
+                 from the chosen era's own record of it where that era has the same room in the \
+                 same place, with that era's paint and the world's furniture, unless its \
+                 building keeps the world's look; other rooms stay the world's. The chosen \
+                 era's rooms come from its cell file beside the world (cell.dat in the legacy \
+                 folder, the end-of-retail cell file beside an older world). Collision, motion \
                  and everything the server agrees on stay the world's. A change takes effect on \
                  the next frame. An older world's Modern look comes from the end-of-retail files \
                  beside it; the end-of-retail world's Legacy look from the folder given with \

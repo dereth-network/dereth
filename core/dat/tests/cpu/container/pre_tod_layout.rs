@@ -329,10 +329,10 @@ fn an_older_world_is_its_own_legacy_files() {
 }
 
 /// A later world's objects drawn with the older portal beside it: the older file answers every
-/// record it holds, the world's own portal every record it lacks, and an image level is always
-/// the later files'. The world's own reads are untouched, and its own era has no such store.
+/// record, in its own layout, image ids included; a record it lacks is missing, never the
+/// world's. The world's own reads are untouched, and its own era has no such store.
 #[test]
-fn the_object_files_of_a_later_world_read_the_older_portal_first_and_the_world_for_the_rest() {
+fn the_object_files_of_a_later_world_are_the_older_portal_alone() {
     use dereth_dat::write::DatWriter;
     use dereth_dat::DbType;
     let dir = std::env::temp_dir().join(format!("dereth-object-files-{}", std::process::id()));
@@ -389,30 +389,29 @@ fn the_object_files_of_a_later_world_read_the_older_portal_first_and_the_world_f
     // A record both hold is the older file's, in its layout.
     assert_eq!(objects.read_portal(shared).expect("reads"), records[1].1);
     assert_eq!(objects.era_of(shared), ContainerEra::PreTod);
-    // A record the older file lacks is the world's.
-    assert_eq!(
-        objects.read_portal(world_only).expect("reads"),
-        b"world only"
-    );
-    assert_eq!(objects.era_of(world_only), ContainerEra::Tod);
-    // An image level is the later files' even though the older file holds the same id.
+    // A record the older file lacks is not borrowed from the world.
+    assert!(objects.read_portal(world_only).is_err());
+    // An id the older file holds is its own record, whatever the later files hold under it.
     assert_eq!(
         objects
             .read_typed(DbType::RenderSurface, image)
             .expect("reads"),
-        b"later image"
+        records[2].1
     );
-    assert_eq!(objects.era_of(image), ContainerEra::Tod);
+    assert_eq!(objects.era_of(image), ContainerEra::PreTod);
     // The world itself still reads its own.
     assert_eq!(world.read_portal(shared).expect("reads"), b"later copy");
+    // With no older cell file in the folder there are no older interiors.
+    assert!(world.interior_files(ContainerEra::PreTod).is_none());
     drop((objects, world));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// An older world's objects drawn with the later files beside it: the later portal answers what
-/// it holds, the older world's portal what it lacks, and image levels are the later files'.
+/// An older world's objects drawn with the later files beside it: the later portal answers every
+/// record it holds, and a record only the older world holds is missing, never the world's. The
+/// later cell file beside it answers the interiors drawn with the later look, and nothing else.
 #[test]
-fn the_object_files_of_an_older_world_read_the_later_portal_first_and_the_world_for_the_rest() {
+fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
     use dereth_dat::write::DatWriter;
     use dereth_dat::DbType;
     let dir = std::env::temp_dir().join(format!("dereth-object-files-old-{}", std::process::id()));
@@ -445,20 +444,38 @@ fn the_object_files_of_an_older_world_read_the_later_portal_first_and_the_world_
             0x400 + 0x400 * 16,
         )
         .expect("create");
+        let mut c = DatWriter::create(
+            &RetailDat::Cell.in_dir(&later_dir),
+            0x100,
+            2,
+            1,
+            0x400 + 0x100 * 16,
+        )
+        .expect("create");
+        c.save(DataId(0x0101_0100), b"later room", 1, 1, 1)
+            .expect("save");
     }
     let world = RetailDatStore::open_pre_tod_with_later(&dir, &later_dir).expect("opens");
     assert!(world.object_files(ContainerEra::PreTod).is_none());
+    // The later cell file answers the interiors' cell reads, beside the later portal; the
+    // world's own cell reads are untouched.
+    let interiors = world
+        .interior_files(ContainerEra::Tod)
+        .expect("the later interiors");
+    assert_eq!(
+        interiors.read_cell(DataId(0x0101_0100)).expect("reads"),
+        b"later room"
+    );
+    assert_eq!(interiors.read_portal(shared).expect("reads"), b"later copy");
+    assert!(world.read_cell(DataId(0x0101_0100)).is_err());
+    assert!(world.interior_files(ContainerEra::PreTod).is_none());
     let objects = world
         .object_files(ContainerEra::Tod)
         .expect("the later look");
     assert_eq!(objects.era(), ContainerEra::Tod);
     assert_eq!(objects.read_portal(shared).expect("reads"), b"later copy");
     assert_eq!(objects.era_of(shared), ContainerEra::Tod);
-    assert_eq!(
-        objects.read_portal(older_only).expect("reads"),
-        records[0].1
-    );
-    assert_eq!(objects.era_of(older_only), ContainerEra::PreTod);
+    assert!(objects.read_portal(older_only).is_err());
     assert_eq!(
         objects
             .read_typed(DbType::RenderSurface, image)

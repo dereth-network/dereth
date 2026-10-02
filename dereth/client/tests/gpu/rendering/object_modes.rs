@@ -1,9 +1,10 @@
 //! The object modes: the world's objects drawn with another era's look, on any world and switched
 //! while it is drawn.
 //!
-//! An object keeps the world's setup (its parts and how the world's motion data moves them) and
-//! takes the other era's models, surfaces, pictures and palettes for its parts; the landscape's
-//! scenery, buildings and statics are drawn whole from the other era's files. So the end-of-retail
+//! An object keeps the world's setup (its parts and how the world's motion data moves them), and
+//! each part takes the other era's model, surfaces, pictures and palettes where the other era's
+//! model is the same object (a bare body part takes that era's bare part); the landscape's
+//! scenery, buildings and statics are drawn whole from one era each. So the end-of-retail
 //! world is drawn here with the February 2005 look (that set's `portal.dat` beside it for
 //! presentation only) and the February 2005 world with the end-of-retail look (the later files
 //! beside it), and a change of mode rebuilds the town and the body in place. A mode whose files
@@ -129,6 +130,29 @@ const FEBRUARY_2005_BODY: [dereth_primitives::DataId; 17] = ids([
     0x0100_005A,
 ]);
 
+/// What the February 2005 look draws for the end-of-retail body's first 17 parts: the same models,
+/// except that the bare arms and hands are that era's bare arms and hands (the end-of-retail bare
+/// arm is the older files' armoured one).
+const FEBRUARY_2005_LOOK_OF_THE_LATER_BODY: [dereth_primitives::DataId; 17] = ids([
+    0x0100_004E,
+    0x0100_004F,
+    0x0100_004D,
+    0x0100_004C,
+    0x0100_004B,
+    0x0100_0053,
+    0x0100_0051,
+    0x0100_0050,
+    0x0100_0052,
+    0x0100_0054,
+    0x0100_0497,
+    0x0100_0495,
+    0x0100_0076,
+    0x0100_04AD,
+    0x0100_0496,
+    0x0100_0077,
+    0x0100_005A,
+]);
+
 /// What the later files draw for the first sixteen of those at the nearest degrade level.
 const LATER_BODY_NEAREST: [dereth_primitives::DataId; 16] = ids([
     0x0100_1787,
@@ -166,10 +190,11 @@ fn moved(a: &[u8], b: &[u8]) -> usize {
 /// Behaviour: rendering.objects.an-object-mode-switch-redraws-the-town-and-the-body-while-the-world-is-drawn
 /// The end-of-retail world, drawn with its own objects, is switched to the February 2005 look and
 /// back through the same per-frame preference poll the options page reaches. The switch rebuilds
-/// every block (its buildings, statics and scenery take the older look) and the body, which keeps
-/// the world's 34-part setup and draws its parts with the older files' records (the older parts
-/// themselves where the later files draw finer meshes through their degrade records); the frame
-/// moves.
+/// every block (its buildings, statics and scenery take the older look where the older files hold
+/// the same objects) and the body, which keeps the world's 34-part setup and draws its parts
+/// with the older files' records: the same models where they are the same (the older parts
+/// themselves where the later files draw finer meshes through their degrade records), and the
+/// older bare arms and hands for the later bare ones; the frame moves.
 /// Switching back draws exactly the frame the world was first drawn with. The scenery, building
 /// and static counts never change.
 #[test]
@@ -213,10 +238,11 @@ fn an_object_mode_switch_rebuilds_the_town_and_the_body_and_switching_back_resto
     );
     // The body keeps the world's 34 parts. What each draws is the older look's: the later files
     // give the first sixteen a degrade record whose nearest level is a finer mesh, the older
-    // files have no such record, so the parts draw themselves.
+    // files have no such record, so the parts draw themselves, and the bare arms and hands are
+    // the older bare ones.
     let older_body = scene.character_built_from().to_vec();
     assert_eq!(older_body.len(), 34, "the body keeps the world's setup");
-    assert_eq!(&older_body[..17], &FEBRUARY_2005_BODY[..]);
+    assert_eq!(&older_body[..17], &FEBRUARY_2005_LOOK_OF_THE_LATER_BODY[..]);
     assert_eq!(&older_body[17..], &body[17..]);
     let legacy_moved = moved(&own_px, &legacy_px);
     assert!(
@@ -385,4 +411,112 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
     let s = app.world_scene().expect("a world");
     assert!(s.draw.objects_from_other_files());
     assert_eq!(s.draw.objects_style(), Some(RegionStyle::LegacyHardware));
+}
+
+/// Behaviour: rendering.objects.the-paper-doll-wears-the-bodys-look
+/// The paper doll is the player's setup dressed in the player's description in a preview space
+/// of its own. With the end-of-retail world drawn in the February 2005 look, the doll is built
+/// from the same models the body in the world draws, the older bare arms and hands among them;
+/// with the world's own look it is built from the world's.
+#[test]
+fn the_paper_doll_wears_the_look_the_body_wears_in_the_world() {
+    use dereth_client::anim_assets::DatAnimAssets;
+    use dereth_client::preview::PreviewSpace;
+    let store = end_of_retail_with_legacy_files();
+    let mut gpu = crate::common::software_gpu(320, 240);
+    let scene = load(&store, &mut gpu, cfg(Some(RegionStyle::LegacyHardware)));
+    assert!(scene.draw.objects_from_other_files());
+    let body = scene.character_built_from().to_vec();
+    assert_eq!(&body[..17], &FEBRUARY_2005_LOOK_OF_THE_LATER_BODY[..]);
+    let look = scene.draw.object_look().expect("the older look");
+    let assets = Arc::new(DatAnimAssets::new(Arc::clone(&store)));
+    let mut doll = PreviewSpace::new(Arc::clone(&assets));
+    let i = doll
+        .add_object_dressed_in_look(
+            &store,
+            &mut gpu,
+            dereth_primitives::DataId(0x0200_0001),
+            None,
+            Some((&look.0, &look.1)),
+        )
+        .expect("the doll bakes")
+        .expect("the setup loads");
+    assert_eq!(
+        &doll.object(i).expect("the doll").built_from()[..17],
+        &body[..17],
+        "the doll wears what the body wears"
+    );
+    let mut own = PreviewSpace::new(assets);
+    let j = own
+        .add_object_dressed(
+            &store,
+            &mut gpu,
+            dereth_primitives::DataId(0x0200_0001),
+            None,
+        )
+        .expect("the doll bakes")
+        .expect("the setup loads");
+    assert_eq!(
+        &own.object(j).expect("the doll").built_from()[..16],
+        &LATER_BODY_NEAREST[..],
+        "the world's own doll"
+    );
+}
+
+/// Holtburg's resident interior cells, and whether each draws the other era's room.
+fn holtburg_rooms(scene: &WorldScene) -> Vec<(u32, bool)> {
+    scene
+        .draw
+        .interior_looks()
+        .into_iter()
+        .filter(|(c, _)| c.0 >> 16 == 0xA9B4)
+        .map(|(c, l)| (c.0, l))
+        .collect()
+}
+
+/// Behaviour: rendering.objects.interiors-follow-their-building-in-another-eras-look
+/// Holtburg's rooms are drawn with their buildings. The end-of-retail world with its own look draws
+/// every room from its own cell file; switched to the February 2005 look, every room the older
+/// cell file holds as the same room in the same place is drawn from the older record of it (all
+/// but `0xA9B40123`), and switching back draws them all from the world's again. The February 2005
+/// world with the end-of-retail look draws the later rooms except the two cottages' (`0xA9B40180`
+/// to `0xA9B40189`) the later files hold elsewhere.
+#[test]
+fn holtburgs_rooms_take_the_other_eras_look_with_their_buildings_and_go_back_with_them() {
+    let store = end_of_retail_with_legacy_files();
+    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut scene = load(&store, &mut gpu, cfg(None));
+    draw(&mut scene, &store, &mut gpu);
+    let own = holtburg_rooms(&scene);
+    assert_eq!(own.len(), 0x7B, "Holtburg's interior cells");
+    assert!(own.iter().all(|(_, l)| !l), "the world's own look");
+
+    scene.draw.cfg.render.objects = Some(RegionStyle::LegacyHardware);
+    let work = scene
+        .update_from_preferences(&store, &mut gpu)
+        .expect("the poll applies the objects' look");
+    assert!(work.objects_changed);
+    draw(&mut scene, &store, &mut gpu);
+    let older = holtburg_rooms(&scene);
+    assert_eq!(older.len(), own.len());
+    let kept: Vec<u32> = older.iter().filter(|(_, l)| !l).map(|(c, _)| *c).collect();
+    assert_eq!(kept, [0xA9B4_0123], "the rooms kept in the world's look");
+
+    scene.draw.cfg.render.objects = None;
+    scene
+        .update_from_preferences(&store, &mut gpu)
+        .expect("the poll restores the world's own look");
+    draw(&mut scene, &store, &mut gpu);
+    assert_eq!(holtburg_rooms(&scene), own, "switching back");
+    drop(scene);
+
+    let store = older_world();
+    let mut later = load(&store, &mut gpu, cfg(Some(RegionStyle::Modern)));
+    draw(&mut later, &store, &mut gpu);
+    let rooms = holtburg_rooms(&later);
+    let kept: Vec<u32> = rooms.iter().filter(|(_, l)| !l).map(|(c, _)| *c).collect();
+    let mut expected = vec![0xA9B4_0123];
+    expected.extend(0xA9B4_0180..=0xA9B4_0189);
+    assert_eq!(kept, expected, "the rooms the later files hold elsewhere");
+    assert!(rooms.len() > kept.len() + 100, "{} rooms", rooms.len());
 }

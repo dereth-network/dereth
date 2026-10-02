@@ -336,14 +336,21 @@ pub fn creature_calculate_obj_desc(w: &mut World, this: ObjectGuid) -> ObjDesc {
     if setup_table_id > 0 {
         // `ReadFromDat<SetupModel>`: a missing file is ACE's empty setup (no parts).
         if let Some(base_setup) = shims::c_setup(w, setup_table_id) {
+            // A body of the character-creation table wears that table's bare parts where they
+            // are not the setup's own (V430).
+            let bare = bare_body_parts(w, this, setup_table_id);
             // `for (byte i = 0; i < baseSetup.Parts.Count; i++)`
             for (i, part) in base_setup.parts.iter().enumerate() {
                 let i = i as u8;
                 // Don't add body parts for those that are already covered. Also don't add the head, that was already covered by AddCharacterBaseModelData()
                 if !coverage.contains(&u32::from(i)) && i != 0x10 {
+                    let model = bare
+                        .iter()
+                        .find(|(p, _)| *p == i)
+                        .map_or(part.0, |(_, g)| *g);
                     obj_desc.anim_part_changes.push(PropertiesAnimPart {
                         index: i,
-                        animation_id: part.0,
+                        animation_id: model,
                     });
                 }
                 //AddModel(i, baseSetup.Parts[i]);
@@ -364,6 +371,33 @@ pub fn creature_calculate_obj_desc(w: &mut World, this: ObjectGuid) -> ObjDesc {
     }
 
     obj_desc
+}
+
+/// The bare parts the character-creation table gives the body of `this`'s heritage and sex, as
+/// `(part, model)`, where its base description names one: empty for an object of no heritage or
+/// sex, or built on another setup than that body's (V430). The end-of-retail table's are the
+/// setup's own parts but for the female abdomen; the February 2005 table's arms and hands are
+/// bare models the setup does not carry (its own are armoured).
+fn bare_body_parts(w: &World, this: ObjectGuid, setup_table_id: u32) -> Vec<(u8, u32)> {
+    let o = w.objects.get(this).expect("ACE: this is null");
+    let (Some(heritage), Some(gender)) = (o.heritage(), o.gender()) else {
+        return Vec::new();
+    };
+    let cg = w.dats.portal_dat().char_gen();
+    let sex = u32::try_from(heritage)
+        .ok()
+        .and_then(|h| cg.heritage_groups.get(&h))
+        .zip(u32::try_from(gender).ok())
+        .and_then(|(hg, g)| hg.sexes.get(&g));
+    match sex {
+        Some(sex) if sex.setup.0 == setup_table_id => sex
+            .base_objdesc
+            .anim_part_changes
+            .iter()
+            .map(|(p, g)| (*p, g.0))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 // ACE: Creature.AddSetupAsClothingBase

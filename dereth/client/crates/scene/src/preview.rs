@@ -800,6 +800,9 @@ mod imp {
         pub mode: CreatureMode,
         objects: Vec<PreviewObject>,
         cache: BakeCache,
+        /// The surfaces of the parts drawn with another era's look (`[Render] Objects`), apart
+        /// from [`Self::cache`] because the two eras hold different records under the same ids.
+        look_cache: BakeCache,
         assets: Arc<dereth_client_runtime::anim_assets::DatAnimAssets>,
     }
 
@@ -828,6 +831,7 @@ mod imp {
                 mode,
                 objects: Vec::new(),
                 cache: BakeCache::default(),
+                look_cache: BakeCache::default(),
                 assets,
             }
         }
@@ -871,6 +875,28 @@ mod imp {
             setup: DataId,
             objdesc: Option<&dereth_animation::parts::ObjDesc>,
         ) -> Result<Option<usize>, RenderError> {
+            self.add_object_dressed_in_look(store, gpu, setup, objdesc, None)
+        }
+
+        /// [`Self::add_object_dressed`] with the objects' look (`[Render] Objects`): `look` is
+        /// the other era's files and the verdicts of which of their records stand for the
+        /// world's, and each part is drawn wholly from one era exactly as the same object is in
+        /// the world ([`dereth_client_runtime::models::parts_for_look`]). `None` draws the
+        /// world's own.
+        ///
+        /// # Errors
+        /// As [`Self::add_object_dressed`].
+        pub fn add_object_dressed_in_look(
+            &mut self,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            setup: DataId,
+            objdesc: Option<&dereth_animation::parts::ObjDesc>,
+            look: Option<(
+                &RetailDatStore,
+                &dereth_client_runtime::object_identity::ObjectIdentity,
+            )>,
+        ) -> Result<Option<usize>, RenderError> {
             let Some(data) = self.assets.setup(setup) else {
                 return Ok(None);
             };
@@ -909,7 +935,7 @@ mod imp {
             let dressed = objdesc
                 .map(|od| part_array.do_obj_desc_changes_from_default_with(od, &*self.assets));
 
-            let (meshes, built_from) = self.build_part_meshes(store, gpu, &part_array)?;
+            let (meshes, built_from) = self.build_part_meshes(store, gpu, &part_array, look)?;
             self.objects.push(PreviewObject {
                 setup,
                 part_array,
@@ -1248,11 +1274,53 @@ mod imp {
             store: &RetailDatStore,
             gpu: &mut Gpu,
             array: &PartArray,
+            look: Option<(
+                &RetailDatStore,
+                &dereth_client_runtime::object_identity::ObjectIdentity,
+            )>,
         ) -> Result<(Vec<Vec<PartMesh>>, Vec<DataId>), RenderError> {
             let textures = crate::textures::TextureStore::new(store);
+            let chosen = look.map(|(files, identity)| {
+                dereth_client_runtime::models::parts_for_look(
+                    store,
+                    files,
+                    identity,
+                    None,
+                    &array.parts,
+                )
+            });
+            let look_textures = look.map(|(files, _)| crate::textures::TextureStore::new(files));
             let mut out = Vec::with_capacity(array.parts.len());
             let mut ids = Vec::with_capacity(array.parts.len());
-            for part in &array.parts {
+            for (i, part) in array.parts.iter().enumerate() {
+                if let (Some(Some(p)), Some((files, _)), Some(lt)) = (
+                    chosen.as_ref().map(|c| c[i].as_ref()),
+                    look,
+                    look_textures.as_ref(),
+                ) {
+                    // Drawn wholly from the other era's files, through the look's own cache, at
+                    // the look's own nearest level of the part.
+                    let gfxobj = Some(
+                        self.look_cache
+                            .degrade_record(files, p.gfxobj_id)
+                            .map_or(p.gfxobj_id, |d| d.degrades[0].gfxobj_id),
+                    )
+                    .filter(|g| g.0 != 0);
+                    let groups = gfxobj
+                        .map(|g| dereth_client_runtime::models::build_gfxobj(files, g))
+                        .unwrap_or_default();
+                    ids.push(gfxobj.unwrap_or(DataId(0)));
+                    out.push(build_meshes(
+                        files,
+                        &mut self.look_cache,
+                        lt,
+                        gpu,
+                        &groups,
+                        p.surface_overrides.as_ref(),
+                        None,
+                    )?);
+                    continue;
+                }
                 // The part takes its degrade level's gfxobj and returns if there is none — at
                 // the level the pinned flag chose. A part that draws nothing keeps its slot: the
                 // index is the one writes into, and dropping an entry

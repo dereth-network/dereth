@@ -67,6 +67,9 @@ tracing.workspace = true
 # `SystemTime` re-exported unchanged; in a browser, where `std`'s clocks panic, they read the
 # page's `performance.now()` and `Date.now()`.
 web-time = "0.2"
+# object_identity.rs -- the cache of which ids two eras' files share as the same object is keyed
+# by both files' hashes.
+blake3.workspace = true
 
 [dev-dependencies]
 dereth-dat = { path = "../dat", features = ["test-support"] }

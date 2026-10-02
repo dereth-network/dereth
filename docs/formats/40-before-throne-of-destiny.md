@@ -231,31 +231,59 @@ files, in the later layouts; `RetailDatStore::era_of` says which layout a record
 ## Objects drawn with the other era's records
 
 A world's objects can be drawn with the other era's models and pictures (`Render.Objects`). The
-store that reads them (`RetailDatStore::object_files`) answers every portal record the other
-era's portal holds from it, in its layout, and every record that portal lacks from the world's
-own; cell and language reads stay the world's. A later image texture names its image levels
-(`0x06`) by ids the older portal also uses for images of another layout, so a level is always read
-from the later files, whichever portal answered the texture.
+store that reads them (`RetailDatStore::object_files`) is the other era's portal alone, in its
+layout; cell and language reads stay the world's. Which of a world's objects it may draw is
+decided per id, because the two eras keep some kinds of record under the same ids and renumbered
+others. Measured between the February 2005 files and the end of retail:
 
-What carries over between the eras, measured between the February 2005 files and the end of
-retail:
+| record | ids both hold | the same object in both |
+|---|---:|---|
+| GfxObj (`0x01`) | 9,587 | 9,288 the same geometry; 147 another shape named by the same setup or clothing table; 124 a box within a quarter of its size; 28 neither (remodels, kept as the world's) |
+| Setup (`0x02`) | 3,588 | 3,515 the same part list; 21 sharing a part; 52 neither (remodels) |
+| Texture (`0x05`) | 3,925 | all: re-encoded, often re-indexed into the larger palette, never another picture |
+| Palette (`0x04`) | 2,930 | all: the same colours redone with their pictures |
+| Surface (`0x08`) | 2,349 | **none**: 2 are named by a GfxObj of the same id in both eras |
+| Degrade record (`0x11`) | 790 of the 4,131 later ones | **none**: 789 list other GfxObjs |
 
-- **Setups** changed shape: 53 shared setups have another part count and 72 other parent
-  indices. The human body has 17 parts before Throne of Destiny and 34 after (the same 17 first,
-  then 17 placeholder parts the later clothing tables fill with armour layers). An animation
-  addresses parts by index, so an object keeps the world's setup and only what each part draws
-  comes from the other era.
-- **GfxObjs** kept their geometry (214 of 9,587 shared ones changed it) and were pointed at new
-  surfaces; the surfaces at new textures; the textures re-encoded from 256 to 2,048 palette
-  colours, many at twice the size; the palettes redone with them. A record read wholly from one
-  era is therefore self-consistent.
-- **Clothing tables** kept their palette ranges (11,523 of 11,795 shared palette templates are
-  the same), so a world's sub-palette ranges are those the other era sends for the same item.
+So a surface or a degrade record is only ever read in the era of the GfxObj that names it, and
+every object part draws wholly from one era:
+
+- **A part takes the other era's look** when that era holds its GfxObj as the same object, holds
+  every picture and palette the object's description changes it to, and every texture change can
+  be placed (below). Its surfaces, their pictures and palettes, and its degrade record are then
+  the other era's own. Otherwise the part is the world's, entirely.
+- **Setups** changed shape: the human body has 17 parts before Throne of Destiny and 34 after (the
+  same 17 first, then 17 placeholder parts the later clothing tables fill with armour layers). An
+  animation addresses parts by index, so a server object keeps the world's setup and only what
+  each part draws comes from the other era. Scenery and statics, which nothing animates, take the
+  other era's setup whole when it is the same object.
 - **Texture changes** match a part's surfaces by picture id, and the eras painted the same parts
   with different pictures (the 2005 shirt replaces the arm's `0x050002CC`, which the later arm
   draws as `0x050003DD`; the later shirt replaces `0x050003DD`). A change is moved onto the same
   surface slot of the other era's part; where the two parts list a different number of surfaces
-  it cannot be, and the object is drawn with the world's records.
+  it cannot be, and that part is drawn with the world's records.
+- **The bare body** is not the same id in both eras. The arm the later files leave bare,
+  `0x01000055`, is in the older files the armoured arm, painted with mail; the older bare arm is
+  `0x01000497`, which the older character-creation table puts on every new body. Each body of
+  both eras' character-creation tables is compared part by part, and a part wearing the world's
+  bare model draws the other era's bare model with its bare pictures (12 arm and hand parts from
+  the end of retail to February 2005, 8 the other way).
+- **Clothing tables** kept their palette ranges (11,523 of 11,795 shared palette templates are
+  the same), so a world's sub-palette ranges are those the other era sends for the same item.
+- **Building shells** take the other era's look only where every vertex is where the world has
+  it, so their doorways meet the world's interiors: 316 shells (6,468 placements) of the end of
+  retail, 4 reshaped ones (21 placements) and the 78 the older files lack (490) stay the
+  world's.
+- **Interior cells** list surfaces by their own era's numbers, so a room is never drawn from the
+  world's cell record with the other era's surfaces. The February 2005 cell file holds 447,201 of
+  the end-of-retail world's 734,976 cells as the same room in the same place: the same
+  environment and room of it (every vertex where the world has it), frame and portals; all but a
+  handful list other surface ids. 283,660 it lacks (the later dungeons and rebuilt buildings) and
+  4,115 it holds elsewhere or joined otherwise. The other way, the end-of-retail cell file holds
+  447,201 of the February 2005 world's 455,641 cells as the same room. Such a room is drawn from
+  the other era's record of it, read with that era's portal, room by room, unless its building's
+  shell keeps the world's look; its furniture is the world's (2,463 of those rooms were furnished
+  otherwise), each piece by the objects' rule.
 
 ## Ids only these files type
 

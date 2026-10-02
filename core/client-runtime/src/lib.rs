@@ -65,6 +65,9 @@ pub mod assets;
 /// The setup / gfxobj model cache and the placement-frame ids.
 pub mod models;
 
+/// Which records two eras' portal files share by id are the same object in both.
+pub mod object_identity;
+
 /// The dropped-opcode ledger.
 pub mod dropped;
 

@@ -213,61 +213,270 @@ pub fn surface_textures(store: &RetailDatStore, gfxobj: DataId) -> Option<Vec<Op
     )
 }
 
-/// An object's parts as drawn with another era's look (`look`) while its world is `world`: the
-/// same parts, with each texture change carried onto the look's own pictures.
+/// Which of an object's parts draw with another era's look (`look`, an
+/// [`RetailDatStore::object_files`] store) while its world is `world`, and with what: one entry
+/// per part, `Some` with the part as the look draws it, `None` for a part the world's own records
+/// draw.
+///
+/// A part draws wholly from one era, its model and everything the model names, because the eras
+/// number surfaces differently: a later model's surfaces looked up in the older files are other
+/// surfaces. A part takes the look when the look holds its model and `identity` says the look's
+/// model of that id is the same object, when the look holds every picture and palette its
+/// description changes to (those keep their ids across the eras), and when every texture change
+/// can be placed on the look's model.
 ///
 /// A texture change replaces a picture on a part by matching the part's surfaces by their picture
 /// id, and the eras painted the same part with different picture ids (the later files repainted
 /// the human body, so a world's shirt replaces the older arm's picture, which the later arm does
-/// not carry). A change whose old picture the look's part does not carry, but the world's part
-/// does, goes to the same surface slot of the look's part: the slot the world's part has that
-/// picture in. That is what the look's own clothing tables name for the same garment.
+/// not carry). A change whose old picture the look's model does not carry, but the world's does,
+/// goes to the same surface slot of the look's model: the slot the world's model has that picture
+/// in, which is what the look's own clothing tables name for the same garment. When the two list
+/// another number of surfaces the change has no slot, and the part is the world's.
 ///
-/// `None` when a change cannot be placed that way (the two eras' part list another number of
-/// surfaces): the object is then drawn wholly with the world's records. A part either era cannot
-/// read keeps its changes as they are.
+/// A palette the look lacks is the look's palette from the same place in the palette set both
+/// eras pick it from ([`crate::object_identity::ObjectIdentity::palette`]); a part with a palette
+/// nothing translates is the world's. Body parts translate through both eras'
+/// character-creation tables: a bare part draws the look's bare model, a head the look's head
+/// for the same hair style. An object built on `setup`, a setup the look remodelled, draws the
+/// look's parts in place of the setup's own where the look's rest where the world's do
+/// ([`crate::object_identity::ObjectIdentity::remodel`]): every part from the look, a part the
+/// look's setup lacks drawing nothing; any part the description changed keeps the rules above.
 #[must_use]
 pub fn parts_for_look(
     world: &RetailDatStore,
     look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    setup: Option<DataId>,
     parts: &[dereth_animation::parts::PhysicsPart],
-) -> Option<Vec<dereth_animation::parts::PhysicsPart>> {
-    let mut out = parts.to_vec();
-    for p in &mut out {
-        let Some(ov) = p.surface_overrides.as_mut() else {
-            continue;
-        };
-        if ov.texture_maps.is_empty() {
-            continue;
+) -> Vec<Option<dereth_animation::parts::PhysicsPart>> {
+    if let Some(all) = setup.and_then(|s| remodel_for_look(world, look, identity, s, parts)) {
+        return all;
+    }
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            // LINT-OK: a part index; setups have a few dozen parts.
+            #[allow(clippy::cast_possible_truncation)]
+            let i = i as u32;
+            bare_part_for_look(look, identity, i, p)
+                .or_else(|| hair_part_for_look(look, identity, i, p))
+                .or_else(|| part_for_look(world, look, identity, p))
+        })
+        .collect()
+}
+
+/// A part's palettes as the look holds them: each the look lacks, translated
+/// ([`crate::object_identity::ObjectIdentity::palette`]). `false` when one has no translation.
+fn palettes_for_look(
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    ov: &mut dereth_animation::parts::SurfaceOverrides,
+) -> bool {
+    let to_look = |p: DataId| {
+        if look.portal().contains(p) {
+            Some(p)
+        } else {
+            identity.palette(p)
         }
-        let (Some(w), Some(v)) = (
-            surface_textures(world, p.gfxobj_id),
-            surface_textures(look, p.gfxobj_id),
-        ) else {
+    };
+    if let Some(p) = ov.shift_palette {
+        match to_look(p) {
+            Some(q) => ov.shift_palette = Some(q),
+            None => return false,
+        }
+    }
+    for r in &mut ov.subpalettes {
+        match to_look(r.palette_set) {
+            Some(q) => r.palette_set = q,
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Every part of an object built on a setup the look remodelled, as the look's setup draws it,
+/// part by part at the world's part of the same index; `None` when the look cannot stand for the
+/// setup, the description changed one of its parts, or a part's changes do not fit the look's
+/// model (then the object keeps the part-by-part rules).
+fn remodel_for_look(
+    world: &RetailDatStore,
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    setup: DataId,
+    parts: &[dereth_animation::parts::PhysicsPart],
+) -> Option<Vec<Option<dereth_animation::parts::PhysicsPart>>> {
+    let theirs = identity.remodel(setup)?;
+    let bytes = world.read_typed(DbType::Setup, setup).ok()?;
+    let own = Setup::decode_payload_in(world.era_of(setup), setup, &bytes).ok()?;
+    if own.parts.len() != parts.len() {
+        return None;
+    }
+    let held = |id: DataId| look.portal().contains(id);
+    let mut out = Vec::with_capacity(parts.len());
+    for (i, (p, w)) in parts.iter().zip(&own.parts).enumerate() {
+        if p.gfxobj_id != *w {
+            return None;
+        }
+        let mut q = p.clone();
+        // The degrade record named the world's model; the look's is read with its own.
+        q.degrades = None;
+        let Some(&m) = theirs.get(i) else {
+            // The look's setup has no such part: nothing is drawn there.
+            q.gfxobj_id = DataId(0);
+            q.surface_overrides = None;
+            out.push(Some(q));
             continue;
         };
-        let mut maps: Vec<(DataId, DataId)> = Vec::with_capacity(ov.texture_maps.len());
-        for &(old, new) in &ov.texture_maps {
-            if v.contains(&Some(old)) || !w.contains(&Some(old)) {
-                maps.push((old, new));
-                continue;
-            }
-            if w.len() != v.len() {
+        if !held(m) {
+            return None;
+        }
+        let v = surface_textures(look, m)?;
+        q.gfxobj_id = m;
+        if let Some(ov) = q.surface_overrides.as_mut() {
+            if !palettes_for_look(look, identity, ov)
+                || ov
+                    .texture_maps
+                    .iter()
+                    .any(|&(o, n)| !held(n) || !v.contains(&Some(o)))
+            {
                 return None;
             }
-            for (slot, picture) in w.iter().enumerate() {
-                if *picture != Some(old) {
-                    continue;
-                }
-                if let Some(there) = v[slot] {
-                    if !maps.iter().any(|(o, _)| *o == there) {
-                        maps.push((there, new));
-                    }
+        }
+        out.push(Some(q));
+    }
+    Some(out)
+}
+
+/// A head wearing a hair style of the world's character-creation tables, as the look's era draws
+/// the same style: the look's head, with the look style's own picture changes in place of the
+/// world style's and the rest (the face) carried over
+/// ([`crate::object_identity::ObjectIdentity::hair`]). `None` when the part wears no translated
+/// style or a change does not fit the look's head.
+fn hair_part_for_look(
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    index: u32,
+    part: &dereth_animation::parts::PhysicsPart,
+) -> Option<dereth_animation::parts::PhysicsPart> {
+    let maps = part.surface_overrides.as_ref()?.texture_maps.clone();
+    let style = identity.hair(index, part.gfxobj_id, &maps)?;
+    let held = |id: DataId| look.portal().contains(id);
+    if !held(style.model) {
+        return None;
+    }
+    let v = surface_textures(look, style.model)?;
+    let mut out = part.clone();
+    out.gfxobj_id = style.model;
+    out.degrades = None;
+    let ov = out.surface_overrides.as_mut()?;
+    if !palettes_for_look(look, identity, ov) {
+        return None;
+    }
+    let mut changed: Vec<(DataId, DataId)> = Vec::with_capacity(maps.len());
+    for m in &maps {
+        match style.world_maps.iter().position(|w| w == m) {
+            Some(k) => changed.extend(style.look_maps.get(k)),
+            None => changed.push(*m),
+        }
+    }
+    changed.extend(style.look_maps.iter().skip(style.world_maps.len()));
+    if changed
+        .iter()
+        .any(|&(o, n)| !held(n) || !v.contains(&Some(o)))
+    {
+        return None;
+    }
+    ov.texture_maps = changed;
+    Some(out)
+}
+
+/// A body part wearing the world's bare model of it, as the look's era draws that part bare:
+/// the look's own bare model and pictures
+/// ([`crate::object_identity::ObjectIdentity::bare_part`]). `None` when the part wears anything
+/// else, carries texture changes beyond the world's bare ones, or the look lacks a record.
+fn bare_part_for_look(
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    index: u32,
+    part: &dereth_animation::parts::PhysicsPart,
+) -> Option<dereth_animation::parts::PhysicsPart> {
+    let bare = identity.bare_part(index, part.gfxobj_id)?;
+    let held = |id: DataId| look.portal().contains(id);
+    if !held(bare.model) || bare.look_maps.iter().any(|&(_, n)| !held(n)) {
+        return None;
+    }
+    surface_textures(look, bare.model)?;
+    let mut out = part.clone();
+    out.gfxobj_id = bare.model;
+    // The degrade record named the world's model; the look's bare model is drawn as it is.
+    out.degrades = None;
+    if let Some(ov) = out.surface_overrides.as_mut() {
+        if ov.texture_maps.iter().any(|m| !bare.world_maps.contains(m))
+            || !palettes_for_look(look, identity, ov)
+        {
+            return None;
+        }
+        ov.texture_maps.clone_from(&bare.look_maps);
+    } else if !bare.look_maps.is_empty() {
+        out.surface_overrides = Some(dereth_animation::parts::SurfaceOverrides {
+            texture_maps: bare.look_maps.clone(),
+            ..Default::default()
+        });
+    }
+    Some(out)
+}
+
+fn part_for_look(
+    world: &RetailDatStore,
+    look: &RetailDatStore,
+    identity: &crate::object_identity::ObjectIdentity,
+    part: &dereth_animation::parts::PhysicsPart,
+) -> Option<dereth_animation::parts::PhysicsPart> {
+    let g = part.gfxobj_id;
+    if !look.portal().contains(g) || !identity.same(g) {
+        return None;
+    }
+    // The look's model and every surface it names must read there.
+    let v = surface_textures(look, g)?;
+    let mut out = part.clone();
+    // The degrade record the part carries is the world's; the look's own is read with the model.
+    out.degrades = None;
+    let Some(ov) = out.surface_overrides.as_mut() else {
+        return Some(out);
+    };
+    let held = |id: DataId| look.portal().contains(id);
+    if !palettes_for_look(look, identity, ov) || ov.texture_maps.iter().any(|&(_, new)| !held(new))
+    {
+        return None;
+    }
+    if ov.texture_maps.is_empty() {
+        return Some(out);
+    }
+    let w = surface_textures(world, g);
+    let mut maps: Vec<(DataId, DataId)> = Vec::with_capacity(ov.texture_maps.len());
+    for &(old, new) in &ov.texture_maps {
+        let on_world = w.as_ref().is_some_and(|w| w.contains(&Some(old)));
+        if v.contains(&Some(old)) || !on_world {
+            maps.push((old, new));
+            continue;
+        }
+        let w = w.as_ref()?;
+        if w.len() != v.len() {
+            return None;
+        }
+        for (slot, picture) in w.iter().enumerate() {
+            if *picture != Some(old) {
+                continue;
+            }
+            if let Some(there) = v[slot] {
+                if !maps.iter().any(|(o, _)| *o == there) {
+                    maps.push((there, new));
                 }
             }
         }
-        ov.texture_maps = maps;
     }
+    ov.texture_maps = maps;
     Some(out)
 }
 

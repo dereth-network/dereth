@@ -996,6 +996,11 @@ mod imp {
             }
         }
 
+        fn objects_in_other_look(&self) -> bool {
+            self.world()
+                .is_some_and(crate::world::SceneDraw::objects_from_other_files)
+        }
+
         fn preview_add_object(
             &mut self,
             id: PreviewId,

@@ -964,6 +964,7 @@ dependencies = [
 name = "dereth-client-runtime"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "dereth-animation",
  "dereth-assets",
  "dereth-audio",

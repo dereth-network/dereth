@@ -63,14 +63,11 @@ pub struct RetailDatStore {
     /// of this store reaches it; [`Self::legacy_files`] and [`Self::object_files`] are the only
     /// ways in. `None` otherwise.
     legacy_portal: Option<Arc<DatFile>>,
-    /// In the store [`Self::object_files`] makes, the world's own portal, which answers a portal
-    /// read the other era's portal has no record for. `None` otherwise.
-    fallback_portal: Option<Arc<DatFile>>,
-    /// In the store [`Self::object_files`] makes, the later portal file whose image levels
-    /// (`0x06`) a later image texture names: the older files hold images under the same ids that
-    /// are other pictures in another layout, so a later texture's levels are read from its own
-    /// files whichever portal answered the texture. `None` otherwise.
-    levels_from: Option<Arc<DatFile>>,
+    /// The other era's cell file beside the world, for presentation alone: the older `cell.dat`
+    /// in the folder [`Self::with_legacy_portal`] attaches, or the later `client_cell_1.dat` with
+    /// the later files beside an older world. No read of this store reaches it;
+    /// [`Self::interior_files`] is the only way in. `None` when it is not there.
+    other_cell: Option<Arc<DatFile>>,
     /// Where [`Self::grant_highres`] looks for the file; `None` for a store built from files.
     client_dir: Option<PathBuf>,
 }
@@ -126,8 +123,7 @@ impl RetailDatStore {
             highres: OnceLock::new(),
             later_portal: None,
             legacy_portal: None,
-            fallback_portal: None,
-            levels_from: None,
+            other_cell: None,
             client_dir: Some(client_dir.to_path_buf()),
         })
     }
@@ -163,8 +159,7 @@ impl RetailDatStore {
             highres: OnceLock::new(),
             later_portal: None,
             legacy_portal: None,
-            fallback_portal: None,
-            levels_from: None,
+            other_cell: None,
             client_dir: Some(dir.to_path_buf()),
         })
     }
@@ -196,6 +191,8 @@ impl RetailDatStore {
         };
         store.local = later(RetailDat::Local)?;
         store.later_portal = Some(later(RetailDat::Portal)?);
+        // The later interiors, for drawing only; a folder without them still opens.
+        store.other_cell = later(RetailDat::Cell).ok();
         store.client_dir = None;
         Ok(store)
     }
@@ -209,23 +206,14 @@ impl RetailDatStore {
 
     /// The layout of the record `id` as this store reads it: the world files' (the portal and cell
     /// files hold it), else the later files' (a store with the later interface beside an older
-    /// world answers it from those). In an [`Self::object_files`] store an image level is the
-    /// later files', and a record the other era lacks is the world's.
+    /// world answers it from those).
     #[must_use]
     pub fn era_of(&self, id: DataId) -> ContainerEra {
-        if let Some(levels) = &self.levels_from {
-            if divine_type(id) == Some(DbType::RenderSurface) {
-                return levels.era();
-            }
-        }
         if self.portal.contains(id) {
             return self.portal.era();
         }
         if self.cell.contains(id) {
             return self.cell.era();
-        }
-        if let Some(f) = self.fallback_portal.as_ref().filter(|f| f.contains(id)) {
-            return f.era();
         }
         let later = self.later_portal.as_ref().is_some_and(|f| f.contains(id))
             || (!Arc::ptr_eq(&self.local, &self.portal) && self.local.contains(id));
@@ -257,8 +245,7 @@ impl RetailDatStore {
             highres: OnceLock::new(),
             later_portal: None,
             legacy_portal: None,
-            fallback_portal: None,
-            levels_from: None,
+            other_cell: None,
             client_dir: None,
         })
     }
@@ -266,7 +253,8 @@ impl RetailDatStore {
     /// This store with a `portal.dat` from before Throne of Destiny beside it, for presentation
     /// alone: the older regions' ground and sky and what they name, read through
     /// [`Self::legacy_files`]. Every read of this store itself is unchanged, so the world it reads
-    /// is not touched. The folder needs only that one file.
+    /// is not touched. The folder needs only that one file; its `cell.dat`, when there, is the
+    /// older interiors ([`Self::interior_files`]).
     ///
     /// # Errors
     ///
@@ -282,6 +270,10 @@ impl RetailDatStore {
             });
         }
         self.legacy_portal = Some(file);
+        // The older interiors beside it, for drawing only, when the folder holds them.
+        self.other_cell = shared::open(&PreTodDat::Cell.in_dir(dir))
+            .ok()
+            .filter(|f| f.era() == ContainerEra::PreTod);
         Ok(self)
     }
 
@@ -302,8 +294,7 @@ impl RetailDatStore {
             highres: OnceLock::new(),
             later_portal: None,
             legacy_portal: None,
-            fallback_portal: None,
-            levels_from: None,
+            other_cell: None,
             client_dir: None,
         })
     }
@@ -320,11 +311,11 @@ impl RetailDatStore {
     }
 
     /// The files the world's objects draw with when they take the look of the files of `era`:
-    /// that era's portal answers every portal record it holds, and the world's own portal every
-    /// record it lacks, so an object the other era never had still draws as the world has it.
-    /// Cell and language reads stay the world's, and a later image texture's levels are read
-    /// from the later files whichever portal answered the texture. [`Self::era_of`] says which
-    /// layout each record is in.
+    /// that era's portal alone, so every record an object reads through it -- its model, the
+    /// surfaces the model names, their pictures and palettes -- is that era's, and a record it
+    /// lacks is missing rather than borrowed from the world. Which objects may draw from it is
+    /// the caller's to decide (the eras number some records differently). Cell and language
+    /// reads stay the world's.
     ///
     /// The other era's files are the presentation portal beside a later world
     /// ([`Self::with_legacy_portal`]) for the files from before Throne of Destiny, and the later
@@ -335,18 +326,18 @@ impl RetailDatStore {
         if era == self.era() {
             return None;
         }
-        let (other, levels) = match era {
-            ContainerEra::PreTod => (self.legacy_portal.as_ref()?, &self.portal),
-            ContainerEra::Tod => {
-                let later = self.later_portal.as_ref()?;
-                (later, later)
-            }
+        let other = match era {
+            ContainerEra::PreTod => self.legacy_portal.as_ref()?,
+            ContainerEra::Tod => self.later_portal.as_ref()?,
         };
-        // The high-resolution partition holds later image levels only, so a world that was
-        // granted it keeps it for the later textures it still answers.
+        // The high-resolution partition holds later image levels only: a later look keeps it if
+        // it was granted, and an older look, whose files hold other records under those ids,
+        // never reads it.
         let highres = OnceLock::new();
-        if let Some(h) = self.highres.get() {
-            let _ = highres.set(Arc::clone(h));
+        if era == ContainerEra::Tod {
+            if let Some(h) = self.highres.get() {
+                let _ = highres.set(Arc::clone(h));
+            }
         }
         Some(Self {
             portal: Arc::clone(other),
@@ -355,10 +346,20 @@ impl RetailDatStore {
             highres,
             later_portal: None,
             legacy_portal: None,
-            fallback_portal: Some(Arc::clone(&self.portal)),
-            levels_from: Some(Arc::clone(levels)),
+            other_cell: None,
             client_dir: None,
         })
+    }
+
+    /// The files the world's interior cells draw with when they take the look of the files of
+    /// `era`: that era's portal and cell files alone, so a room read from them is that era's room
+    /// with that era's surfaces and pictures. Which rooms may draw from it is the caller's to
+    /// decide. `None` when `era` is the world's own, or when either file is not here.
+    #[must_use]
+    pub fn interior_files(&self, era: ContainerEra) -> Option<Self> {
+        let mut files = self.object_files(era)?;
+        files.cell = Arc::clone(self.other_cell.as_ref()?);
+        Some(files)
     }
 
     /// A store from files already open. A `highres` handed in here counts as granted, which is
@@ -385,8 +386,7 @@ impl RetailDatStore {
             highres: lock,
             later_portal: None,
             legacy_portal: None,
-            fallback_portal: None,
-            levels_from: None,
+            other_cell: None,
             client_dir: None,
         }
     }
@@ -513,14 +513,6 @@ impl RetailDatStore {
     /// is a `QualifiedDataID`.
     pub fn read_typed(&self, kind: DbType, id: DataId) -> Result<Vec<u8>, DatError> {
         match kind.dat() {
-            DatKind::Portal if kind == DbType::RenderSurface && self.levels_from.is_some() => {
-                if let Some(hi) = self.highres.get().filter(|h| h.contains(id)) {
-                    return hi.read(id);
-                }
-                self.levels_from
-                    .as_ref()
-                    .map_or(Err(DatError::NotFound(id)), |f| f.read(id))
-            }
             DatKind::Portal => self.read_portal(id),
             DatKind::Cell => self.cell.read(id),
             DatKind::Local => self.local.read(id),
@@ -538,11 +530,6 @@ impl RetailDatStore {
         if let Some(later) = &self.later_portal {
             if !self.portal.contains(id) && later.contains(id) {
                 return later.read(id);
-            }
-        }
-        if let Some(world) = &self.fallback_portal {
-            if !self.portal.contains(id) && world.contains(id) {
-                return world.read(id);
             }
         }
         self.portal.read(id)
@@ -570,10 +557,6 @@ impl RetailDatStore {
                         f.contains(id)
                             || self.highres.get().is_some_and(|h| h.contains(id))
                             || self.later_portal.as_ref().is_some_and(|l| l.contains(id))
-                            || self
-                                .fallback_portal
-                                .as_ref()
-                                .is_some_and(|l| l.contains(id))
                     }
                     _ => f.contains(id),
                 };

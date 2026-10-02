@@ -401,6 +401,10 @@ pub struct SceneConfig {
     /// never submitted: a coarse ring begins 288 m out and the degrade record's terminator has
     /// already taken them. The test measures that rather than assuming it.
     pub lod_object_guard: bool,
+    /// Where the verdicts of which records two eras' files share as the same object are kept
+    /// between runs ([`crate::object_identity::ObjectIdentity::load_or_build`]); `None` works
+    /// them out in memory each time the other era's look is first drawn.
+    pub object_identity_cache: Option<&'static std::path::Path>,
 }
 
 impl Default for SceneConfig {
@@ -460,6 +464,7 @@ impl Default for SceneConfig {
             indoor_viewpoint_gate: true,
             indoor_z_clear: true,
             lod_object_guard: true,
+            object_identity_cache: None,
         }
     }
 }

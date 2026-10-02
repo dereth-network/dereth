@@ -421,8 +421,10 @@ pub struct ClientShell<H: Host> {
     /// The client keeps the clone for ever and reapplies only descriptor changes when the
     /// appearance changes; here the descriptor is part of the key because the part meshes are
     /// baked from the dressed array (see
-    /// [`crate::preview::PreviewSpace::add_object_dressed`]), so a redress is a rebuild.
-    paper_doll_built: Option<(DataId, dereth_animation::parts::ObjDesc)>,
+    /// [`crate::preview::PreviewSpace::add_object_dressed`]), so a redress is a rebuild. The
+    /// flag is whether it wears another era's look (`[Render] Objects`), so switching the look
+    /// rebuilds it too.
+    paper_doll_built: Option<(DataId, dereth_animation::parts::ObjDesc, bool)>,
     /// The paper-doll panel's flip count, next-flip time, and selection mask —
     /// the doll's selection blink. See [`crate::preview::PaperDollSelectionLighting`].
     paper_doll_lighting: crate::preview::PaperDollSelectionLighting,
@@ -1853,7 +1855,8 @@ impl<H: Host> Ui<'_, '_, H> {
 
         // Rebuild when no preview object exists or its visual descriptor changed, because the
         // meshes are baked from the dressed part array. See [`Self::paper_doll_built`].
-        if self.shell.paper_doll_built.as_ref() != Some(&(setup, objdesc.clone())) {
+        let look = self.cx.present().objects_in_other_look();
+        if self.shell.paper_doll_built.as_ref() != Some(&(setup, objdesc.clone(), look)) {
             self.cx.present_mut().preview_remove_all_objects(id);
             match self.cx.present_mut().preview_add_object_dressed(
                 id,
@@ -1887,7 +1890,7 @@ impl<H: Host> Ui<'_, '_, H> {
                             tracing::warn!("UIASSET PaperDollAnimation does not resolve")
                         }
                     }
-                    self.shell.paper_doll_built = Some((setup, objdesc));
+                    self.shell.paper_doll_built = Some((setup, objdesc, look));
                 }
                 Ok(None) => {
                     tracing::warn!("the paper-doll setup {setup:?} would not load");
