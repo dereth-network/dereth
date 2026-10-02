@@ -284,7 +284,7 @@ mod tests {
     /// 1 on *Restore Defaults*):
     /// different registered/UI values prove that a page seeded itself from the store.
     #[test]
-    fn the_registered_defaults_disagree_with_the_ui_defaults_in_exactly_four_places() {
+    fn the_registered_defaults_disagree_with_the_ui_defaults_in_exactly_three_places() {
         use super::super::config::{CONFIG_PAGE, DEFAULT_DISAGREEMENTS};
         let mut differing = Vec::new();
         for row in CONFIG_PAGE {

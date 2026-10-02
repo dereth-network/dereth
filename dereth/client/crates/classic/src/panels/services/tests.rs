@@ -446,8 +446,8 @@ fn sound_reset_restores_saved_draft_and_defaults_retain_texture_levels() {
         panic!("missing default settings application")
     };
     assert_eq!(s.texture_levels, [1, 2, 3, 1]);
-    assert_eq!(s.resolution, 1);
-    assert_eq!(s.effects_volume, 0.66);
+    assert_eq!(s.resolution, 0, "the size the client starts at, 1024x768");
+    assert_eq!(s.effects_volume, 1.0);
     assert_eq!(s.camera_stiffness, 0.23);
     let f = p.frame(&c);
     assert!(matches!(

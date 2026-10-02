@@ -1,11 +1,12 @@
-//! The Client Options page, its six sections and the three defaults that disagree
-//! with the preference registration.
+//! The Client Options page, its six sections and the defaults that disagree with the
+//! preference registration.
 //!
 //! The trap here is deliberate and must **not** be reconciled: the value the page passes as its
 //! row default — which the page's own *Defaults* button restores — is not always the value the
-//! preference was registered with. Three disagree, and they are the ones a player notices:
-//! restoring defaults drops a 1024×768 client to 800×600, turns automatic degrades off rather
-//! than on, and doubles the mouse sensitivity.
+//! preference was registered with. Three disagree: restoring defaults turns automatic degrades
+//! off rather than on, doubles the mouse sensitivity and picks trilinear filtering. The
+//! resolution is not one of them: *Defaults* puts it at 1024×768, the size the client starts at
+//! (retail's page put it at 800×600).
 
 use crate::view::{PrefValue, UiRequest};
 
@@ -167,7 +168,7 @@ pub const CONFIG_PAGE: [ConfigRow; 27] = [
     row(CAMERA, Check, "Camera.AlignToSlope", Bool(true)),
     // --- Graphics ----------------------------------------------------------------------------
     ConfirmedResolution::ROW,
-    row(GRAPHICS, Check, "Display.FullScreen", Bool(true)),
+    row(GRAPHICS, Check, "Display.FullScreen", Bool(false)),
     row(GRAPHICS, Check, "Display.SyncToRefresh", Bool(false)),
     slider(
         GRAPHICS,
@@ -294,8 +295,8 @@ impl ConfirmedResolution {
         control: Menu,
         preference: "Display.Resolution",
         slider_preference: None,
-        // 0x03200258 = 800 << 16 | 600.
-        ui_default: Int(0x0320_0258),
+        // 0x04000300 = 1024 << 16 | 768, the size the client starts at.
+        ui_default: Int(0x0400_0300),
         slider_ends: None,
         confirm_change: true,
     };
@@ -311,16 +312,11 @@ pub struct DefaultDisagreement {
     pub ui_restore: PrefValueConst,
 }
 
-/// The four preferences whose registered default and page default disagree.
+/// The three preferences whose registered default and page default disagree.
 ///
 /// **Do not reconcile them.** Both values are real: the registered default is what a fresh
-/// `UserPreferences.ini` gets, and the UI value is what *Restore Defaults* writes over it.
-pub const DEFAULT_DISAGREEMENTS: [DefaultDisagreement; 4] = [
-    DefaultDisagreement {
-        preference: "Display.Resolution",
-        registered: Int(0x0400_0300), // 1024x768
-        ui_restore: Int(0x0320_0258), // 800x600
-    },
+/// `UserPreferences.ini` gets, and the UI value is what *Defaults* writes over it.
+pub const DEFAULT_DISAGREEMENTS: [DefaultDisagreement; 3] = [
     DefaultDisagreement {
         preference: "Render.AutomaticDegrades",
         registered: Bool(true),
@@ -539,12 +535,13 @@ mod tests {
         assert_eq!(order, SECTIONS.to_vec());
     }
 
-    /// Oracle: the historical three differences in §2 and the configuration-registration table,
+    /// Oracle: two of the historical differences in §2 and the configuration-registration table,
     /// plus the startup path's quality-3 call into the overall-graphics-quality update. Both values
-    /// are asserted for all four preferences, so neither can quietly become the other.
+    /// are asserted for all three preferences, so neither can quietly become the other. The
+    /// resolution is restored to the size the client starts at.
     #[test]
-    fn the_four_restore_defaults_values_differ_from_the_registered_defaults() {
-        assert_eq!(DEFAULT_DISAGREEMENTS.len(), 4);
+    fn the_three_restore_defaults_values_differ_from_the_registered_defaults() {
+        assert_eq!(DEFAULT_DISAGREEMENTS.len(), 3);
         for d in DEFAULT_DISAGREEMENTS {
             assert_ne!(d.registered, d.ui_restore, "{} must disagree", d.preference);
             let row = CONFIG_PAGE
@@ -558,18 +555,26 @@ mod tests {
             );
         }
         // The specific values, spelled out.
-        assert_eq!(DEFAULT_DISAGREEMENTS[0].registered, Int(0x0400_0300)); // 1024x768
-        assert_eq!(DEFAULT_DISAGREEMENTS[0].ui_restore, Int(0x0320_0258)); // 800x600
-        assert_eq!(DEFAULT_DISAGREEMENTS[1].registered, Bool(true));
-        assert_eq!(DEFAULT_DISAGREEMENTS[1].ui_restore, Bool(false));
-        assert_eq!(DEFAULT_DISAGREEMENTS[2].registered, Float(0.25));
-        assert_eq!(DEFAULT_DISAGREEMENTS[2].ui_restore, Float(0.55));
+        assert_eq!(DEFAULT_DISAGREEMENTS[0].registered, Bool(true));
+        assert_eq!(DEFAULT_DISAGREEMENTS[0].ui_restore, Bool(false));
+        assert_eq!(DEFAULT_DISAGREEMENTS[1].registered, Float(0.25));
+        assert_eq!(DEFAULT_DISAGREEMENTS[1].ui_restore, Float(0.55));
 
-        // The resolution words pack as width<<16 | height, which is what makes 0x03200258 800x600.
-        assert_eq!(0x0320_0258 >> 16, 800);
-        assert_eq!(0x0320_0258 & 0xFFFF, 600);
+        // The resolution is restored to the size the client starts at, 1024x768: the words pack
+        // as width<<16 | height.
+        let resolution = CONFIG_PAGE
+            .iter()
+            .find(|r| r.preference == "Display.Resolution")
+            .unwrap();
+        assert_eq!(resolution.ui_default, Int(0x0400_0300));
         assert_eq!(0x0400_0300 >> 16, 1024);
         assert_eq!(0x0400_0300 & 0xFFFF, 768);
+        // Full screen is off, registered and restored.
+        let full = CONFIG_PAGE
+            .iter()
+            .find(|r| r.preference == "Display.FullScreen")
+            .unwrap();
+        assert_eq!(full.ui_default, Bool(false));
     }
 
     /// Oracle: §2's Camera and Input tables, which give the float defaults as both a decimal and
@@ -652,7 +657,7 @@ mod tests {
             ]
         );
         let get = |p: &str| v.iter().find(|(k, _)| *k == p).map(|(_, x)| x.clone());
-        assert_eq!(get("Display.Resolution"), Some(PrefValue::Int(0x0320_0258)));
+        assert_eq!(get("Display.Resolution"), Some(PrefValue::Int(0x0400_0300)));
         assert_eq!(
             get("Render.AutomaticDegrades"),
             Some(PrefValue::Bool(false))

@@ -1063,10 +1063,18 @@ impl ClassicUi {
                 let own = crate::keyboard_runtime::CLASSIC_ONLY;
                 crate::keyboard_runtime::set_classic_bits(words[0]);
                 let options = &cx.model().player_system.options;
+                let old = [options.options, options.options2];
                 let word = (words[0] & !own) | (options.options & own);
                 // The classic page knows only the low byte of the second word; the rest holds
                 // the final client's settings for the same character and is kept as it is.
                 let word2 = (words[1] & 0xff) | (options.options2 & !0xff);
+                // Each named option the page changed goes through the game's own option change,
+                // as the other interface's page sends it: an option the server acts on at once
+                // (the chat channels, the fellowship and allegiance options) is told to it at
+                // once, and the rest wait for the save below.
+                for (option, on) in changed_options(old, [word, word2]) {
+                    ask(cx, UiRequest::SetPlayerOption(option, on));
+                }
                 self.classic.option_words = words;
                 self.classic.timestamp_format.clone_from(&timestamp_format);
                 ask(
@@ -2955,4 +2963,44 @@ fn world_object(world: &dereth_client_model::World) -> Option<dereth_primitives:
                 && w.current_state != dereth_client_model::weenie::PositionState::InContainer
         })
     })
+}
+
+/// The named character options whose bit differs between the option words `old` and `new`, each
+/// with its new value, in the options' own order.
+fn changed_options(
+    old: [u32; 2],
+    new: [u32; 2],
+) -> Vec<(dereth_client_contract::PlayerOption, bool)> {
+    use dereth_client_model::player::options::{OptionWord, PLAYER_OPTIONS};
+    dereth_client_contract::PlayerOption::ALL
+        .into_iter()
+        .filter_map(|option| {
+            let (_, word, mask) =
+                PLAYER_OPTIONS[dereth_client_runtime::hud::option_ordinal(option)];
+            let i = usize::from(word == OptionWord::Two);
+            let on = new[i] & mask != 0;
+            ((old[i] & mask != 0) != on).then_some((option, on))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod option_change_tests {
+    //! Behaviour: none (which options a whole-word change names; the wire is tested where the
+    //! option change is sent).
+    use super::changed_options;
+    use dereth_client_contract::PlayerOption as P;
+
+    #[test]
+    fn a_word_change_names_each_option_it_moves_and_no_other() {
+        // Allegiance chat (first word bit 30) on, General chat (second word bit 8) off, and the
+        // unnamed first bit (automatic shortcuts) moved too.
+        let old = [0, 0x100];
+        let new = [0x4000_0001, 0];
+        assert_eq!(
+            changed_options(old, new),
+            vec![(P::HearAllegianceChat, true), (P::HearGeneralChat, false)]
+        );
+        assert!(changed_options(new, new).is_empty());
+    }
 }

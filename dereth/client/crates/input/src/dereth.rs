@@ -47,9 +47,6 @@ pub fn name(action: ActionId) -> Option<&'static str> {
         .map(|a| a.name)
 }
 
-/// `DIK_F7`, the performance panel's key: no shipped key map binds it.
-pub const DIK_F7: u16 = 0x41;
-
 /// This client's actions.
 pub const ACTIONS: &[DerethAction] = {
     use dereth_client_contract::actions::dereth as a;
@@ -63,14 +60,12 @@ pub const ACTIONS: &[DerethAction] = {
         }
     }
     &[
-        DerethAction {
-            default_key: Some(DIK_F7),
-            ..one_shot(
-                a::TOGGLE_PERFORMANCE_PANEL,
-                class::INTERFACE,
-                "Performance Panel",
-            )
-        },
+        // The performance panel has no key of its own: the player binds one, or uses its option.
+        one_shot(
+            a::TOGGLE_PERFORMANCE_PANEL,
+            class::INTERFACE,
+            "Performance Panel",
+        ),
         DerethAction {
             toggle: ToggleType::Hold,
             ..one_shot(a::MOVEMENT_HOLD_SIDESTEP, class::MOVEMENT, "Hold Sidestep")

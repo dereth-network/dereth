@@ -232,14 +232,14 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.performance.a-key-or-the-option-shows-the-panel-over-any-interface",
-        says: "F7, on any screen and in either interface, or the Performance Panel option, shows \
-               a panel over the game with the frame rate, the mean and longest frame time and \
-               the time each part of the frame takes; pressing F7 again hides it. No shipped key \
-               map binds F7, and a key the player binds to F7 in a game map still wins.",
+        says: "The Performance Panel option, or a key the player binds to the panel (none is \
+               bound at first), shows a panel over the game on any screen and in either \
+               interface, with the frame rate, the mean and longest frame time and the time each \
+               part of the frame takes; the key pressed again hides it.",
         since: THIS_CLIENT,
         divergence: "CD-018",
         evidence: Evidence::Private("AC-EVID-UI-UNIFY-PERF-PANEL"),
-        station: "dereth-client::dat::ui::performance_panel_key::the_performance_panel_key_is_bound_alone_and_fires_on_every_screen",
+        station: "dereth-client::dat::ui::performance_panel_key::the_performance_panel_has_no_key_until_one_is_bound_and_then_fires_on_every_screen",
         tier: Tier::Dat,
     },
     behaviour! {

@@ -779,7 +779,7 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 /// Give this client's own actions their default keys in a default scheme, where the scheme
-/// leaves the key free: the performance panel's F7, whatever the interface.
+/// leaves the key free, whatever the interface.
 fn own_default_keys(catalogue: &Catalogue, bindings: &mut Vec<Binding>) {
     for a in dereth_input::dereth::ACTIONS {
         let (Some(scan), Some(name)) = (
@@ -1332,12 +1332,18 @@ mod tests {
     #[test]
     fn the_other_interfaces_keys_lay_over_this_interfaces_default_scheme() {
         let mut k = load();
-        // The retail page bound X to walking forward, and F7 is the performance panel's.
+        // The retail page bound X to walking forward, and F7 to the performance panel.
         k.set_shared(&SharedKeys {
-            player: vec![SharedBinding {
-                scan: X,
-                action: 0x29,
-            }],
+            player: vec![
+                SharedBinding {
+                    scan: X,
+                    action: 0x29,
+                },
+                SharedBinding {
+                    scan: 0x41,
+                    action: dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL,
+                },
+            ],
             ..shared()
         });
         assert_eq!(
@@ -1371,7 +1377,7 @@ mod tests {
             bind(&mut k, 5, 0, 0x53).capture,
             CaptureResult::Conflict("Walk Backwards".into())
         );
-        assert_eq!(k.scheme().bindings.len(), 3);
+        assert_eq!(k.scheme().bindings.len(), 2);
         assert_eq!(k.confirm_capture(false).unwrap(), CaptureResult::Waiting);
         k.key(0x53, false, false, 0, true).unwrap();
         assert!(matches!(
@@ -1379,7 +1385,7 @@ mod tests {
             CaptureResult::Conflict(_)
         ));
         k.confirm_capture(true).unwrap();
-        assert_eq!(k.scheme().bindings.len(), 2);
+        assert_eq!(k.scheme().bindings.len(), 1);
         assert!(k
             .scheme()
             .bindings

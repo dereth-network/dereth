@@ -306,7 +306,8 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         help: "ID_Rendering_FullScreen_Help",
         range: None,
         choices: &[],
-        registered_default: Bool(true),
+        // Off at first: the client starts in a window (retail started full screen).
+        registered_default: Bool(false),
     },
     UiPref {
         name: "Display.SyncToRefresh",

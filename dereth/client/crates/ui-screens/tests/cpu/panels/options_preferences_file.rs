@@ -55,7 +55,7 @@ const RETAIL_SHAPED_INI: &str = "[Net]\r\n\
      PlaySoundOnlyWhenActive=False\r\n\
      [Display]\r\n\
      Resolution=1280x1024\r\n\
-     FullScreen=False\r\n\
+     FullScreen=True\r\n\
      RefreshRate=75hz\r\n\
      SyncToRefresh=True\r\n\
      [Camera]\r\n\
@@ -237,7 +237,7 @@ fn each_of_the_matched_keys_moves_off_its_registered_default() {
     );
     assert_eq!(
         store::inq_value("Display.FullScreen"),
-        Some(PrefValue::Bool(false))
+        Some(PrefValue::Bool(true))
     );
     assert_eq!(
         store::inq_value("Misc.TooltipEnable"),

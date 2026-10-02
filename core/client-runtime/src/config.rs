@@ -48,7 +48,8 @@ impl ConfigError {
 /// **800x600**, and the number appears in retail three times.
 pub const FORCED_LOGIN_SIZE: (u32, u32) = (800, 600);
 
-/// The display preferences use the device globals' compiled-in initial values.
+/// The display preferences use the device globals' compiled-in initial values, except that the
+/// client starts in a window: retail's initial value for full screen was on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DisplayPrefs {
     /// Packs `width << 16 | height`; the compiled-in default `0x04000300` is 1024x768.
@@ -67,7 +68,7 @@ impl Default for DisplayPrefs {
     fn default() -> Self {
         Self {
             resolution: 0x0400_0300,
-            full_screen: true,
+            full_screen: false,
             refresh_rate: 0,
             triple_buffering: false,
             sync_to_refresh: false,
@@ -2159,7 +2160,7 @@ mod tests {
             c.display.resolution, 0x0400_0300,
             "the compiled-in default is 1024x768"
         );
-        assert!(c.display.full_screen);
+        assert!(!c.display.full_screen, "the client starts in a window");
         // The login path owns the account/host requirement; the parser only records values.
         assert!(c.require_account_and_host().is_err());
     }

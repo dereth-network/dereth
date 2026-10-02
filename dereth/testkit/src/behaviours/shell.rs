@@ -1513,6 +1513,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.defaults.the-client-starts-in-a-window-and-defaults-keep-its-starting-size",
+        says: "A fresh profile starts the client in a window at 1024 by 768, and the client options \
+               page's Defaults button puts full screen off and the resolution back at 1024 by 768.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-UNIFY-DEFAULTS"),
+        station: "dereth-ui-screens::dat::panels::options_client_page::the_client_starts_in_a_window_at_1024x768_and_defaults_restore_that",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.distance-fog.turns-world-fog-off-and-back",
         says: "Ticking Disable Distance Fog turns the world's distance fog off, and unticking it \
                turns the fog back on.",

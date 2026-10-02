@@ -499,7 +499,13 @@ fn every_root_flagged_element_is_re_anchored_by_the_resize() {
     let _g = gpu_lock();
     let mut app = station();
     go_full_screen(&mut app, (1920, 1080));
-    let (ui, _s) = gameplay(&mut app);
+    let (ui, s) = gameplay(&mut app);
+    // Each drop-down on the Client Options page owns a popup root: the page's own count of them.
+    let popups = s.config_page.menu_popups;
+    assert!(
+        popups >= 8,
+        "the page's eight retail drop-downs at least: {popups}"
+    );
     let root = ui.root();
     let mut stack = vec![root];
     let (mut roots, mut moving, mut stretched_to_display) = (0, 0, 0);
@@ -522,10 +528,15 @@ fn every_root_flagged_element_is_re_anchored_by_the_resize() {
         }
         stack.extend(ui.children(h));
     }
-    // The gameplay tree has eleven: UI root 0x8, gameplay root 0x10000495, chat root 0x1000001C,
-    // and eight 0x10000357 chat floaties. A separately live tooltip 0x10000395 would add a twelfth
-    // root with four Fixed edges. Neither tooltip nor drag proxy is created in this test.
-    assert_eq!(roots, 11, "the root-flagged census of a live gameplay tree");
+    // The gameplay tree has the UI root 0x8, the gameplay root 0x10000495, the chat root
+    // 0x1000001C, and one 0x10000357 popup for each drop-down of the Client Options page. A
+    // separately live tooltip 0x10000395 would add one more root with four Fixed edges. Neither
+    // tooltip nor drag proxy is created in this test.
+    assert_eq!(
+        roots,
+        3 + popups,
+        "the root-flagged census of a live gameplay tree"
+    );
     assert_eq!(
         moving, 3,
         "and only three of them have a non-Fixed edge, i.e. only three follow the display at all: \

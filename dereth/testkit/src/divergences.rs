@@ -364,9 +364,9 @@ pub static DIVERGENCES: &[Divergence] = &[
         title: "The performance panel",
         retail: "The end-of-retail client shows no frame rate. Its benchmark and debug overlays \
                  have actions but no key and no handler.",
-        dereth: "F7, or the Performance Panel option (Debug.PerformancePanel in the profile, a \
-                 check box at the end of the client options page's Graphics section), shows a \
-                 panel in the top left of the game: the frame rate, the mean and longest frame \
+        dereth: "The Performance Panel option (Debug.PerformancePanel in the profile, a check \
+                 box on the client options page), or a key the player binds to it \
+                 (none is bound at first), shows a panel in the top left of the game: the frame rate, the mean and longest frame \
                  time over the last frames, and how long the input and network, interface, \
                  world, drawing and pacing parts of a frame take. The client draws it itself, \
                  over either interface and on any screen.",
@@ -397,6 +397,16 @@ pub static DIVERGENCES: &[Divergence] = &[
         retail: "The end-of-retail client draws the examine window's model where its viewport                  stands among the window's elements, before the attribute list laid over it, so                  the list's translucent rows shade the model where they cover it.",
         dereth: "The model is drawn over the attribute list's rows and under its text, so it is                  as bright behind the numbers as below them.",
         why: "The owner asked for the whole model to be drawn above the list's translucent               ground.",
+    },
+    Divergence {
+        id: "CD-021",
+        title: "One set of options pages for both interfaces",
+        retail: "The end-of-retail client started full screen, and its client options page's \
+                 Defaults button put the resolution at 800 by 600 although the client starts at \
+                 1024 by 768.",
+        dereth: "The client starts in a window at 1024 by 768, and the Defaults button puts full \
+                 screen off and the resolution at 1024 by 768.",
+        why: "The owner asked for a windowed start and for Defaults to keep the starting size.",
     },
 ];
 

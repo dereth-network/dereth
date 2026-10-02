@@ -915,19 +915,21 @@ fn a_changed_preference_is_written_back_on_shutdown() {
         "the saved profile contains no fallback section"
     );
 
-    // Parse and reload the same text into the existing process. All 34 registered values are
-    // accepted, with this client's three options from another era beside them; two of the three values set above are then checked explicitly. This is not a fresh
-    // `App` restart and does not independently assert every reloaded value.
+    // Parse and reload the same text into the existing process. Every registered value is
+    // accepted: retail's 34 and this client's own beside them; two of the three values set above
+    // are then checked explicitly. This is not a fresh `App` restart and does not independently
+    // assert every reloaded value.
     assert_eq!(
         dereth_ui_screens::options::store::init(),
         34,
-        "every variable back to its default"
+        "every retail variable back to its default"
     );
+    let registered = dereth_ui_screens::options::store::len();
     let ini = dereth_ui::persist::preferences::UserPreferences::parse(&text).expect("it parses");
     let (applied, _ignored) = dereth_ui_screens::options::store::load(&ini);
     assert_eq!(
-        applied, 37,
-        "all 34 and the three options from another era came back: {applied} applied"
+        applied, registered,
+        "every registered option came back: {applied} applied of {registered}"
     );
     assert_eq!(
         dereth_ui_screens::options::store::inq_value("Sound.SoundFeatures"),

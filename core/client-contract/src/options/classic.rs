@@ -40,10 +40,14 @@ pub const NAMES: [&str; 6] = [
     SHOW_SQUELCH_TAB,
 ];
 
-/// The option's value before anything sets it: the Friends and Squelch pages on, the rest off.
+/// The option's value before anything sets it: right-click mouse look and the Friends and
+/// Squelch pages on, the rest off.
 #[must_use]
 pub fn default_on(name: &str) -> bool {
-    matches!(name, SHOW_FRIENDS_TAB | SHOW_SQUELCH_TAB)
+    matches!(
+        name,
+        RIGHT_CLICK_MOUSE_LOOK | SHOW_FRIENDS_TAB | SHOW_SQUELCH_TAB
+    )
 }
 
 /// Register the block in the option value store, each option at its default.
@@ -85,9 +89,11 @@ mod tests {
     #[test]
     fn the_block_registers_at_its_defaults_and_holds_what_is_set() {
         super::super::store::init();
-        assert!(NAMES
-            .iter()
-            .all(|n| on(n) == matches!(*n, SHOW_FRIENDS_TAB | SHOW_SQUELCH_TAB)));
+        assert!(NAMES.iter().all(|n| on(n)
+            == matches!(
+                *n,
+                RIGHT_CLICK_MOUSE_LOOK | SHOW_FRIENDS_TAB | SHOW_SQUELCH_TAB
+            )));
         assert!(super::super::store::set_value(
             STRETCH_UI,
             PrefValue::Bool(true)

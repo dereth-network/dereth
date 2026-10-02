@@ -358,8 +358,8 @@ impl Panel for Settings {
                 "reset"=>{self.dirty=false;self.draft=self.saved.clone();vec![PanelAction::Host(HostAction::ResetClassicSettings)]},
                 "defaults"=>{
                     let s=self.draft.as_mut().unwrap();s.effects=s.sound_available;s.ambient=s.sound_available;s.interface=s.sound_available;s.stereo=true;
-                    s.effects_volume=0.66;s.ambient_volume=0.66;s.auto_degrade=true;s.performance=0.5;s.brightness=0.5;s.camera_stiffness=0.23;
-                    if let Some(i)=s.resolutions.iter().position(|r|*r==(800,600)){s.resolution=i;}
+                    s.effects_volume=1.0;s.ambient_volume=1.0;s.auto_degrade=true;s.performance=0.5;s.brightness=0.5;s.camera_stiffness=0.23;s.full_screen=false;
+                    if let Some(i)=s.resolutions.iter().position(|r|*r==(1024,768)){s.resolution=i;}
                     if !s.detail_available{s.landscape_detail=false;s.environment_detail=false;}
                     self.dirty=true;vec![PanelAction::Host(HostAction::DefaultClassicSettings(s.clone()))]
                 },_=>vec![]},

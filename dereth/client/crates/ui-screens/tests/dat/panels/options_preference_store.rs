@@ -155,7 +155,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
     let mut ui = env();
     let s = screen(&mut ui);
 
-    assert_eq!(config::DEFAULT_DISAGREEMENTS.len(), 4);
+    assert_eq!(config::DEFAULT_DISAGREEMENTS.len(), 3);
     for d in config::DEFAULT_DISAGREEMENTS {
         let shown = value(&s, d.preference);
         let registered: PrefValue = d.registered.into();
@@ -188,7 +188,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
     );
     assert_eq!(value(&s, "Render.TextureFiltering"), PrefValue::Int(0));
 
-    // The other 26 controls agree with their `SetDefault`; all 30 still participate.
+    // The other 27 controls agree with their `SetDefault`; all 30 still participate.
     let disagreeing: Vec<&str> = config::DEFAULT_DISAGREEMENTS
         .iter()
         .map(|d| d.preference)
@@ -206,7 +206,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 26, "26 of the 30 controls agree either way");
+    assert_eq!(checked, 27, "27 of the 30 controls agree either way");
 }
 
 /// The **show** arm of the page's visibility hook —
@@ -358,7 +358,7 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
     );
     assert_eq!(
         store::inq_value("Display.Resolution"),
-        Some(PrefValue::Int(0x0320_0258))
+        Some(PrefValue::Int(0x0400_0300))
     );
 
     // **Defaults alone does not stick, and that is retail.** Restore-defaults writes `current`
@@ -392,7 +392,7 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
         value(&s, "Render.AutomaticDegrades"),
         PrefValue::Bool(false)
     );
-    assert_eq!(value(&s, "Display.Resolution"), PrefValue::Int(0x0320_0258));
+    assert_eq!(value(&s, "Display.Resolution"), PrefValue::Int(0x0400_0300));
     assert_eq!(
         store::inq_value("Input.MouseLookSensitivity"),
         Some(PrefValue::Float(0.55))

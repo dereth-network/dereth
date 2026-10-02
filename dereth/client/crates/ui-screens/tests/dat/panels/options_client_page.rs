@@ -914,3 +914,47 @@ mod sound_defaults {
         );
     }
 }
+
+/// Behaviour: options.defaults.the-client-starts-in-a-window-and-defaults-keep-its-starting-size
+/// A fresh profile holds full screen off and 1024x768, and the page's Defaults button writes the
+/// same two back after the player has changed them.
+#[test]
+fn the_client_starts_in_a_window_at_1024x768_and_defaults_restore_that() {
+    let (mut ui, mut s) = screen();
+    assert_eq!(
+        dereth_ui_screens::options::store::inq_value("Display.FullScreen"),
+        Some(PrefValue::Bool(false)),
+        "a fresh profile is windowed"
+    );
+    assert_eq!(
+        dereth_ui_screens::options::store::inq_value("Display.Resolution"),
+        Some(PrefValue::Int(0x0400_0300)),
+        "and 1024x768"
+    );
+    for (name, v) in [
+        ("Display.FullScreen", PrefValue::Bool(true)),
+        ("Display.Resolution", PrefValue::Int(0x0320_0258)),
+    ] {
+        let (i, _) = control(&s.config_page, name);
+        s.config_page.options[i].current = v;
+    }
+    ui.requests.clear();
+    s.config_page.restore_default_values(&mut ui);
+    let written: Vec<(&str, PrefValue)> = ui
+        .requests
+        .take()
+        .into_iter()
+        .filter_map(|r| match r {
+            UiRequest::SetPreference(n, v) if n.starts_with("Display.") => Some((n, v)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        written.contains(&("Display.FullScreen", PrefValue::Bool(false))),
+        "{written:?}"
+    );
+    assert!(
+        written.contains(&("Display.Resolution", PrefValue::Int(0x0400_0300))),
+        "{written:?}"
+    );
+}

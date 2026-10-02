@@ -5,7 +5,19 @@ use crate::{Command, Screen};
 use serde::Deserialize;
 use std::sync::OnceLock;
 
-pub const DEFAULT_WORDS: [u32; 2] = [0x50c4_e56a, 0];
+/// The page's Defaults: the character's default option words, which are the final client's, with
+/// the classic interface's own right-click mouse look on (its bit is the interface's setting,
+/// never the character's; see [`crate::keyboard_runtime::CLASSIC_ONLY`]).
+pub const DEFAULT_WORDS: [u32; 2] = [
+    dereth_client_model::player::options::DEFAULT_OPTIONS
+        | crate::keyboard_runtime::RIGHT_CLICK_LOOK,
+    dereth_client_model::player::options::DEFAULT_OPTIONS2,
+];
+
+/// Ignoring fellowship requests (first word bit 3) and accepting them automatically (bit 29)
+/// cannot both be on: turning one on turns the other off, as the game's own option change does.
+const IGNORE_FELLOWSHIP: u32 = 0x8;
+const AUTO_ACCEPT_FELLOWSHIP: u32 = 0x2000_0000;
 pub const MAX_SCROLL: i32 = 636;
 pub const VIEWPORT: [i32; 4] = [4, 41, 284, 305];
 
@@ -111,6 +123,14 @@ impl OptionsModel {
             return false;
         };
         self.current[r.word] ^= 1 << r.bit;
+        if r.word == 0 {
+            let mask = 1 << r.bit;
+            if mask == IGNORE_FELLOWSHIP && self.current[0] & mask != 0 {
+                self.current[0] &= !AUTO_ACCEPT_FELLOWSHIP;
+            } else if mask == AUTO_ACCEPT_FELLOWSHIP && self.current[0] & mask != 0 {
+                self.current[0] &= !IGNORE_FELLOWSHIP;
+            }
+        }
         // Any change to a control enables all three buttons, even if it is toggled back.
         self.buttons = [true; 3];
         true
@@ -287,6 +307,36 @@ mod tests {
         assert!(!model.button_enabled(1));
         model.reset();
         assert_eq!(model.current_words(), DEFAULT_WORDS);
+    }
+    #[test]
+    fn accepting_fellowship_requests_automatically_and_refusing_them_turn_each_other_off() {
+        let accept = rows()
+            .iter()
+            .position(|r| r.caption == "Accept Fellowship Requests")
+            .unwrap();
+        let auto = rows()
+            .iter()
+            .position(|r| r.caption == "Automatically Accept Fellowship Requests")
+            .unwrap();
+        let mut model = OptionsModel::from_words([0, 0]);
+        assert_eq!(model.checked(accept), Some(true));
+        model.set_checked(auto, true);
+        model.set_checked(accept, false);
+        assert_eq!(
+            model.checked(auto),
+            Some(false),
+            "refusing turns automatic off"
+        );
+        model.set_checked(auto, true);
+        assert_eq!(
+            model.checked(accept),
+            Some(true),
+            "automatic turns refusing off"
+        );
+    }
+    #[test]
+    fn the_defaults_are_the_characters_default_words_with_right_click_mouse_look() {
+        assert_eq!(DEFAULT_WORDS, [0x50c4_a54a | 0x4000, 0x0294_8700]);
     }
     #[test]
     fn all_39_options_have_unique_bindings_and_headings_cannot_toggle() {

@@ -43,11 +43,11 @@
 //!   preferences have no store at all in this build.
 //! * So `PlayerOptionPage` seeded current = saved = default and its own snapshot stood in
 //!   for the store. Within one page visit that is indistinguishable from the client; across a
-//!   visit it is not, and the **three `SetDefault` values that disagree with the registration**
+//!   visit it is not, and the **`SetDefault` values that disagree with the registration**
 //!   (`super::config::DEFAULT_DISAGREEMENTS`) make the difference observable without a running
-//!   client: retail opens the page showing 1024x768, adaptive degrades **on** and mouse
-//!   sensitivity 0.25, and a page that seeds itself from `SetDefault` opens showing 800x600,
-//!   degrades **off** and 0.55.
+//!   client: the client opens the page showing adaptive degrades **on** and mouse sensitivity
+//!   0.25, and a page that seeds itself from `SetDefault` opens showing degrades **off** and
+//!   0.55.
 //!
 //! # What is here, and what is not
 //!
