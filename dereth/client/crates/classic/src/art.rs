@@ -178,6 +178,9 @@ impl ClassicArt {
         if id >> 24 != 6 {
             return None;
         }
+        if crate::composed::is_composed(id) {
+            return self.composed(id);
+        }
         let mut images = self.images.lock().ok()?;
         images
             .entry(id)
@@ -196,6 +199,17 @@ impl ClassicArt {
                 }))
             })
             .clone()
+    }
+
+    /// An image composed from the portal's own pieces ([`crate::composed`]), made once and kept.
+    fn composed(&self, id: u32) -> Option<Arc<Image>> {
+        if let Some(made) = self.images.lock().ok()?.get(&id) {
+            return made.clone();
+        }
+        let made = crate::composed::compose(id, &|piece| self.image(piece).map(|i| (*i).clone()))
+            .map(Arc::new);
+        self.images.lock().ok()?.insert(id, made.clone());
+        made
     }
 
     /// Every font, by name.

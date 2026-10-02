@@ -19,13 +19,14 @@ const EQUIPMENT: [(i32, i32, u32, u32, usize); 10] = [
 ];
 /// The slots a world after the classic interface adds to the paper doll, where the doll leaves
 /// room: the cloak and the trinket on the bottom row, the three aetheria sigils beside the head.
-/// The classic portal has no art for them, so they wear the plain slot frame.
+/// The classic portal has no art for them, so each wears a slot composed from its own pieces in
+/// the classic slots' style: a bevelled frame with a garment's, a flask's or a crystal's outline.
 const LATER_EQUIPMENT: [(i32, i32, u32, u32, usize); 5] = [
-    (55, 202, 0x060011f9, 0x0800_0000, 0),
-    (97, 202, 0x060011f9, 0x0400_0000, 0),
-    (156, 33, 0x060011f9, 0x1000_0000, 0),
-    (156, 66, 0x060011f9, 0x2000_0000, 0),
-    (13, 66, 0x060011f9, 0x4000_0000, 0),
+    (55, 202, crate::composed::CLOAK_SLOT, 0x0800_0000, 0),
+    (97, 202, crate::composed::TRINKET_SLOT, 0x0400_0000, 0),
+    (156, 33, crate::composed::SIGIL_SLOT, 0x1000_0000, 0),
+    (156, 66, crate::composed::SIGIL_SLOT, 0x2000_0000, 0),
+    (13, 66, crate::composed::SIGIL_SLOT, 0x4000_0000, 0),
 ];
 
 /// The paper doll's slots on this world: the classic ones, then the cloak, the trinket and the

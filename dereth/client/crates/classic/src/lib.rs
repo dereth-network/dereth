@@ -23,8 +23,10 @@
 //!
 //! The pieces: [`runtime`] is the front end the shell drives ([`runtime::ClassicUi`]);
 //! [`desktop`] lays the panels out and routes input to them; [`panels`] holds every screen;
-//! [`renderer`] turns them into the overlay; [`art`] reads the early-2005 portal.
+//! [`renderer`] turns them into the overlay; [`art`] reads the early-2005 portal, and [`composed`]
+//! makes the images it lacks from its own pieces.
 pub mod art;
+pub mod composed;
 pub mod control_host;
 pub mod cursor;
 pub mod default_keys;
