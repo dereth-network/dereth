@@ -112,15 +112,33 @@ impl Stored {
 /// sets the other one, and the last step is an eighth (the smallest the shared scene makes). The
 /// detail-texture checkbox for buildings and environment sets the shared one; the shared scene draws
 /// no landscape detail texture, so that checkbox changes nothing. Brightness sets the screen's gamma
-/// (the classic page raised the ambient light and the viewer's own light instead), and the
-/// performance slider sets the degrade bias when automatic degrading is off.
+/// (the classic page raised the ambient light and the viewer's own light instead) on the other
+/// interface's scale, [`brightness_of_slider`], so the slider's middle leaves the picture as it is;
+/// and the performance slider sets the degrade bias when automatic degrading is off.
 pub fn render_preferences(s: &ClassicSettings, prefs: &mut RenderPreferences) {
     prefs.landscape_texture_detail = u32::from(s.texture_levels[0].min(3)) + 1;
     prefs.environment_texture_detail = u32::from(s.texture_levels[2].min(3)) + 1;
     prefs.environment_detail_textures = s.detail_available && s.environment_detail;
-    prefs.screen_brightness = normalized(s.brightness);
+    prefs.screen_brightness = brightness_of_slider(s.brightness);
     prefs.automatic_degrades = s.auto_degrade;
     prefs.graphics_performance = 1.0 - 2.0 * normalized(s.performance);
+}
+/// The screen brightness for the classic Brightness slider's position (0 to 1): the other
+/// interface's brightness slider runs from -1 to 1 with the unchanged picture at 0, and the classic
+/// slider covers the same range, its middle at 0.
+#[must_use]
+pub fn brightness_of_slider(position: f32) -> f32 {
+    2.0 * normalized(position) - 1.0
+}
+/// The classic Brightness slider's position for a screen brightness, the inverse of
+/// [`brightness_of_slider`]: where the slider starts when no classic settings are saved.
+#[must_use]
+pub fn slider_of_brightness(brightness: f32) -> f32 {
+    if brightness.is_finite() {
+        ((brightness + 1.0) / 2.0).clamp(0.0, 1.0)
+    } else {
+        0.5
+    }
 }
 fn preference(name: &'static str, value: PrefValue) -> UiRequest {
     UiRequest::SetPreference(name, value)
@@ -545,6 +563,24 @@ mod tests {
         assert_eq!(d.effects_volume, 0.6);
         assert_eq!(d.camera_stiffness, 0.2);
         assert_eq!(d.brightness, 0.57);
+    }
+    #[test]
+    fn the_brightness_slider_s_middle_leaves_the_world_as_bright_as_the_other_interface_shows_it() {
+        let mut s = settings();
+        let mut prefs = RenderPreferences::default();
+        let unchanged = prefs.screen_brightness;
+        render_preferences(&s, &mut prefs);
+        assert_eq!(prefs.screen_brightness, unchanged);
+        s.brightness = 0.0;
+        render_preferences(&s, &mut prefs);
+        assert_eq!(prefs.screen_brightness, -1.0);
+        s.brightness = 0.75;
+        render_preferences(&s, &mut prefs);
+        assert_eq!(prefs.screen_brightness, 0.5);
+        for b in [-1.0, -0.2, 0.0, 0.5, 1.0] {
+            assert!((brightness_of_slider(slider_of_brightness(b)) - b).abs() < 1e-6);
+        }
+        assert_eq!(slider_of_brightness(f32::NAN), 0.5);
     }
     #[test]
     fn endpoint_settings_do_not_survive_as_stale_capabilities() {

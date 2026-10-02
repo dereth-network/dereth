@@ -1334,7 +1334,9 @@ impl ClassicUi {
         self.settings.stereo = true;
         self.settings.effects_volume = 0.66;
         self.settings.ambient_volume = 0.66;
-        self.settings.brightness = 0.5;
+        // With nothing saved, the slider starts where the world's brightness already is.
+        self.settings.brightness =
+            crate::settings_host::slider_of_brightness(cx.config().render.screen_brightness);
         self.settings.performance = 0.5;
         self.settings.camera_stiffness = 0.23;
         self.settings.auto_degrade = true;
