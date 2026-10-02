@@ -17,6 +17,7 @@
 #![doc(html_no_source)]
 
 pub mod advancement;
+pub mod allegiance;
 pub mod attributes;
 pub mod burden;
 /// A container's item and side-pack slot counts.

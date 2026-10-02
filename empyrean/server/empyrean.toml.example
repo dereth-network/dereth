@@ -456,3 +456,8 @@ profile = "eor"
 # default: the profile's (Empyrean only)
 # Chess on the game boards.
 # chess = true
+
+# default: the profile's (Empyrean only)
+# An oath of allegiance costs unassigned experience once a character has broken from
+# a patron (before Throne of Destiny; on in infiltration).
+# swear_xp_cost = false

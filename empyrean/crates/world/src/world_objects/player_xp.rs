@@ -166,7 +166,11 @@ pub fn update_xp_and_level(w: &mut World, this: ObjectGuid, amount: i64, xp_type
         .expect("InvalidOperationException: Sequence contains no elements");
 
     let level = obj(w, this).level();
-    if level.is_none_or(|l| i64::from(l) != i64::from(max_level)) {
+    // DIVERGE: an era whose experience counts were 32-bit (`EraFormulas::total_xp_cap`) keeps
+    // adding experience at the level cap, each count held to its cap below, so a character at the
+    // cap who spends its unassigned experience earns again. ACE adds nothing at the cap.
+    let total_xp_cap = w.era.formulas.total_xp_cap;
+    if total_xp_cap.is_some() || level.is_none_or(|l| i64::from(l) != i64::from(max_level)) {
         let mut add_amount = amount;
         let era_xp_cap = w.era.formulas.unassigned_xp_cap;
 
@@ -177,7 +181,7 @@ pub fn update_xp_and_level(w: &mut World, this: ObjectGuid, amount: i64, xp_type
         let amount_left_to_end = obj(w, this)
             .total_experience()
             .map_or(0, |t| max_level_xp.wrapping_sub(t));
-        if amount > amount_left_to_end {
+        if total_xp_cap.is_none() && amount > amount_left_to_end {
             add_amount = amount_left_to_end;
         }
 
@@ -191,7 +195,11 @@ pub fn update_xp_and_level(w: &mut World, this: ObjectGuid, amount: i64, xp_type
                 available = available.map(|v| v.min(cap));
             }
             o.set_available_experience(available);
-            let total = o.total_experience().map(|v| v.wrapping_add(add_amount));
+            let mut total = o.total_experience().map(|v| v.wrapping_add(add_amount));
+            // DIVERGE: the era's cap on total experience (`EraFormulas::total_xp_cap`).
+            if let Some(cap) = total_xp_cap {
+                total = total.map(|v| v.min(cap));
+            }
             o.set_total_experience(total);
         }
 

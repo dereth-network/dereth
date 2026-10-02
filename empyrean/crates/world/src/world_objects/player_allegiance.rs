@@ -30,6 +30,7 @@ use crate::network::game_event::events::{
 };
 use crate::network::game_event::game_event_message::session_data;
 use crate::network::game_messages::game_message::{self, GameMessage};
+use crate::network::game_messages::messages::game_message_private_update_property_int::game_message_private_update_property_int;
 use crate::network::game_messages::messages::game_message_system_chat::game_message_system_chat;
 use crate::network::motion::movement_data::Motion;
 use crate::network::structure::allegiance_profile;
@@ -123,6 +124,56 @@ fn is_olthoi_player(w: &World, this: ObjectGuid) -> bool {
         .get(this)
         .and_then(|o| o.player.as_ref())
         .is_some_and(|p| p.player_properties.is_olthoi_player)
+}
+
+/// The experience an oath costs `this` (not ACE's, V435): on a world with
+/// `EraFeatures::swear_xp_cost`, a character that has broken from a patron pays five percent of its
+/// next level's experience, held between 100 and 5,000, a quarter more for each break; past the
+/// curve's end the next level counts as 4,294,967,295. Without the feature, or with no break, 0.
+#[must_use]
+pub fn swear_xp_cost(w: &World, this: ObjectGuid) -> u32 {
+    if !w.era.features.swear_xp_cost {
+        return 0;
+    }
+    let Some(o) = w.objects.get(this) else {
+        return 0;
+    };
+    let breaks = u32::try_from(
+        o.get_property(PropertyInt::NumAllegianceBreaks)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
+    if breaks == 0 {
+        return 0;
+    }
+    let level = o.level().unwrap_or(1);
+    let max_level = crate::world_objects::player_xp::get_max_level(w);
+    let here = crate::world_objects::player_xp::get_total_xp(w, level);
+    let next = if u32::try_from(level).is_ok_and(|l| l < max_level) {
+        crate::world_objects::player_xp::get_total_xp(w, level.wrapping_add(1))
+    } else {
+        u64::from(u32::MAX)
+    };
+    dereth_rules::allegiance::swear_xp_cost_after_breaks(next.saturating_sub(here), breaks)
+}
+
+/// Counts a break from `this`'s own patron (not ACE's, V436), on a world with
+/// `EraFeatures::swear_xp_cost`: the count prices the next oath. Dismissing a vassal is not a
+/// break of the vassal's.
+fn count_break_from_patron(w: &mut World, this: ObjectGuid) {
+    if !w.era.features.swear_xp_cost {
+        return;
+    }
+    let Some(o) = w.objects.get_mut(this) else {
+        return;
+    };
+    let breaks = o
+        .get_property(PropertyInt::NumAllegianceBreaks)
+        .unwrap_or(0)
+        .saturating_add(1);
+    o.set_property(PropertyInt::NumAllegianceBreaks, breaks);
+    let msg = game_message_private_update_property_int(o, PropertyInt::NumAllegianceBreaks, breaks);
+    send(w, this, msg);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -491,6 +542,13 @@ pub fn swear_allegiance(
         return;
     }
 
+    // DIVERGE: V435, the oath's experience cost on a world that charges it (`is_pledgable`
+    // checked the character can pay).
+    let cost = swear_xp_cost(w, this);
+    if cost > 0 && !crate::world_objects::player_xp::spend_xp(w, this, i64::from(cost), true) {
+        return;
+    }
+
     let level = |w: &World, g: ObjectGuid| w.objects.get(g).and_then(WorldObject::level);
     log::info!(
         "[ALLEGIANCE] {} ({}) swearing allegiance to {} ({})",
@@ -673,6 +731,8 @@ pub fn handle_action_break_allegiance(w: &mut World, this: ObjectGuid, target_gu
         i_player::save_biota_to_database(w, target, true);
     } else {
         // vassal breaking from patron
+        // DIVERGE: V436, the break is counted on a world that prices oaths by it.
+        count_break_from_patron(w, this);
         i_player::set_patron_id(w, me, None);
         i_player_update_property_iid(w, me, PropertyInstanceId::Monarch, None, true);
 
@@ -845,6 +905,24 @@ pub fn is_pledgable(w: &mut World, this: ObjectGuid, target: ObjectGuid) -> bool
     {
         send_chat(w, this, "You cannot swear to a lower level character.");
         send_error(w, this, WeenieError::AllegianceIllegalLevel);
+        return false;
+    }
+
+    // DIVERGE: V435, on a world that charges for an oath, a character that cannot pay is refused.
+    let cost = swear_xp_cost(w, this);
+    if cost > 0
+        && w.objects
+            .get(this)
+            .and_then(WorldObject::available_experience)
+            .unwrap_or(0)
+            < i64::from(cost)
+    {
+        send_chat(
+            w,
+            this,
+            "You don't have enough experience available to swear Allegiance.",
+        );
+        send_error(w, this, WeenieError::CantSwearAllegianceInsufficientXp);
         return false;
     }
 

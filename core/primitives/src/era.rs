@@ -177,17 +177,23 @@ era_features! {
     spell_research,
     /// Chess on the game boards.
     chess,
+    /// An oath of allegiance costs unassigned experience once a character has broken from a
+    /// patron: five percent of its next level's experience, held between 100 and 5,000, a quarter
+    /// more for each break. Throne of Destiny removed it, so the end of retail does not have it.
+    swear_xp_cost,
 }
 
 impl EraFeatures {
-    /// The end of retail: every system but spell research.
+    /// The end of retail: every system but spell research and the oath's experience cost.
     pub const END_OF_RETAIL: Self = Self {
         spell_research: false,
+        swear_xp_cost: false,
         ..Self::ALL
     };
 
     /// February 2005: none of the systems from ratings to the journal, nor spell research; trade,
-    /// housing, apartments, tinkering, cantrips and chess, which that world had.
+    /// housing, apartments, tinkering, cantrips, chess and the oath's experience cost, which that
+    /// world had.
     pub const INFILTRATION: Self = Self {
         trade: true,
         housing: true,
@@ -195,6 +201,7 @@ impl EraFeatures {
         tinkering: true,
         cantrips: true,
         chess: true,
+        swear_xp_cost: true,
         ..Self::NONE
     };
 
@@ -327,7 +334,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_era_round_trips_its_name_and_the_end_of_retail_has_every_system_but_research() {
+    fn every_era_round_trips_its_name_and_the_end_of_retail_has_every_system_but_two_early_ones() {
         for e in EraId::ALL {
             assert_eq!(EraId::parse(e.name()), Some(e));
         }
@@ -335,13 +342,17 @@ mod tests {
         assert_eq!(EraId::parse("tod"), None);
         assert!(EraId::Infiltration < EraId::Eor);
         for (name, on) in EraId::Eor.features().iter() {
-            assert_eq!(on, name != "spell_research", "{name}");
+            assert_eq!(
+                on,
+                !["spell_research", "swear_xp_cost"].contains(&name),
+                "{name}"
+            );
         }
         assert_eq!(EraFeatures::default(), EraId::Eor.features());
     }
 
-    /// February 2005 has trade, housing, apartments, tinkering, cantrips and chess, and neither
-    /// spell research nor any of the later systems.
+    /// February 2005 has trade, housing, apartments, tinkering, cantrips, chess and the oath's
+    /// experience cost, and neither spell research nor any of the later systems.
     #[test]
     fn infiltration_has_the_systems_february_2005_had_and_none_of_the_later_ones() {
         let f = EraId::Infiltration.features();
@@ -352,11 +363,12 @@ mod tests {
             "tinkering",
             "cantrips",
             "chess",
+            "swear_xp_cost",
         ];
         for (name, value) in f.iter() {
             assert_eq!(value, on.contains(&name), "{name}");
         }
-        assert_eq!(EraFeatures::NAMES.len(), 23);
+        assert_eq!(EraFeatures::NAMES.len(), 24);
         assert_eq!(f, f.implied());
     }
 
@@ -400,7 +412,7 @@ mod tests {
         let all = EraFeatureOverrides::all_of(EraFeatures::INFILTRATION);
         let text = all.to_string();
         assert!(text.starts_with("ratings=false,"), "{text}");
-        assert!(text.ends_with(",chess=true"), "{text}");
+        assert!(text.ends_with(",chess=true,swear_xp_cost=true"), "{text}");
         assert_eq!(
             EraFeatureOverrides::parse(&text).expect("parses"),
             (all, Vec::new())

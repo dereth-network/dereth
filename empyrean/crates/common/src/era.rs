@@ -186,6 +186,11 @@ pub struct EraFormulas {
     pub death_items_level_divisor: i32,
     /// The most unassigned experience a character can hold; `None`: no cap.
     pub unassigned_xp_cap: Option<i64>,
+    /// The most total experience a character can have. `Some`: experience keeps arriving at the
+    /// level cap, the total and the unassigned counts each held to their caps, so a character at
+    /// the cap who spends its unassigned experience earns again. `None`: nothing arrives past the
+    /// level cap's experience.
+    pub total_xp_cap: Option<i64>,
 }
 
 impl EraFormulas {
@@ -198,6 +203,7 @@ impl EraFormulas {
         shields_without_skill: false,
         death_items_level_divisor: 20,
         unassigned_xp_cap: None,
+        total_xp_cap: None,
     };
 
     /// February 2005, as ClassicACE plays it.
@@ -208,8 +214,9 @@ impl EraFormulas {
         creature_projectiles_halved: true,
         shields_without_skill: true,
         death_items_level_divisor: 10,
-        // Unassigned experience was a 32-bit count.
+        // Total and unassigned experience were 32-bit counts.
         unassigned_xp_cap: Some(u32::MAX as i64),
+        total_xp_cap: Some(u32::MAX as i64),
     };
 }
 

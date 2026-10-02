@@ -208,6 +208,8 @@ fn bare_world() -> World {
     let mut w = World::new(
         now,
         empyrean_testkit::dats::with_stat_tables(FakeDats::new())
+            // levels 1 to 3: an oath's cost reads the character curve
+            .with_xp_table(empyrean_dat::fake::sample::xp_table())
             .build()
             .expect("fake dats"),
     );
@@ -1049,6 +1051,114 @@ fn an_era_refuses_an_oath_to_a_lower_level_patron() {
     let mut w = world();
     swear(&mut w, V, C);
     assert!(allegiance_of(&w, V).is_some(), "ACE's rule: any level");
+}
+
+fn set_available_xp(w: &mut World, g: u32, xp: i64) {
+    w.objects
+        .get_mut(guid(g))
+        .unwrap()
+        .set_property(PropertyInt64::AvailableExperience, xp);
+}
+
+/// Divergence: V435, V436
+/// Before Throne of Destiny an oath costs unassigned experience once the character has broken
+/// from a patron: Vass's first oath is free; breaking from Mona counts a break; the next oath
+/// costs five percent of the next level's experience (past the curve's end here, so the 5,000
+/// ceiling) and a quarter more for the break, and is refused while Vass cannot pay. A patron
+/// dismissing a vassal counts no break for either. At the end of retail no oath costs anything and
+/// no break is counted.
+#[test]
+fn an_era_charges_an_oath_after_a_break_from_a_patron() {
+    let mut w = world();
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    set_available_xp(&mut w, V, 1_000);
+    assert_eq!(pa::swear_xp_cost(&w, guid(V)), 0, "no break yet");
+    swear(&mut w, V, M);
+    assert_eq!(obj(&w, V).patron_id(), Some(M));
+    assert_eq!(
+        obj(&w, V).available_experience(),
+        Some(1_000),
+        "the first oath is free"
+    );
+
+    act(
+        &mut w,
+        SV,
+        &AllegianceBreakAllegiance {
+            target: ObjectId(M),
+        },
+    );
+    assert_eq!(
+        obj(&w, V).get_property(PropertyInt::NumAllegianceBreaks),
+        Some(1)
+    );
+    assert_eq!(pa::swear_xp_cost(&w, guid(V)), 6_250, "5,000 and a quarter");
+
+    let sent = capture(&mut w, |w| {
+        pa::swear_allegiance(w, guid(V), M, true, false);
+    });
+    assert!(chats(&sent, SV)
+        .iter()
+        .any(|c| c == "You don't have enough experience available to swear Allegiance."));
+    assert_eq!(
+        errors(&sent, SV),
+        [we(WeenieError::CantSwearAllegianceInsufficientXp)]
+    );
+    assert_eq!(obj(&w, V).patron_id(), None, "refused");
+
+    set_available_xp(&mut w, V, 10_000);
+    swear(&mut w, V, M);
+    assert_eq!(obj(&w, V).patron_id(), Some(M));
+    assert_eq!(obj(&w, V).available_experience(), Some(3_750), "6,250 paid");
+
+    // On the curve: a level-2 character's next level is 1,500 away (5% is 75, held to 100).
+    w.objects
+        .get_mut(guid(C))
+        .unwrap()
+        .set_property(PropertyInt::NumAllegianceBreaks, 1);
+    w.objects
+        .get_mut(guid(C))
+        .unwrap()
+        .set_property(PropertyInt::Level, 2);
+    assert_eq!(pa::swear_xp_cost(&w, guid(C)), 125);
+
+    // Mona dismissing Vass is no break of either's.
+    act(
+        &mut w,
+        SM,
+        &AllegianceBreakAllegiance {
+            target: ObjectId(V),
+        },
+    );
+    assert_eq!(obj(&w, V).patron_id(), None);
+    assert_eq!(
+        (
+            obj(&w, M).get_property(PropertyInt::NumAllegianceBreaks),
+            obj(&w, V).get_property(PropertyInt::NumAllegianceBreaks)
+        ),
+        (None, Some(1))
+    );
+
+    let mut w = world();
+    set_available_xp(&mut w, V, 1_000);
+    swear(&mut w, V, M);
+    act(
+        &mut w,
+        SV,
+        &AllegianceBreakAllegiance {
+            target: ObjectId(M),
+        },
+    );
+    swear(&mut w, V, M);
+    assert_eq!(obj(&w, V).patron_id(), Some(M));
+    assert_eq!(
+        (
+            obj(&w, V).available_experience(),
+            obj(&w, V).get_property(PropertyInt::NumAllegianceBreaks)
+        ),
+        (Some(1_000), None),
+        "ACE's rule: free, and no count"
+    );
 }
 
 /// The hierarchy record carries the tracked times; swearing starts them at zero and a new oath

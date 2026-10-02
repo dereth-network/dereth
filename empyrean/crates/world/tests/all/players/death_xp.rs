@@ -657,9 +657,9 @@ fn a_player_levels_up_at_the_table_threshold() {
     assert_eq!(h.o(P1).total_experience(), Some(5000));
 }
 
-/// An era's level cap below the table's last level: advancement stops at the cap, the grant is
-/// capped at the cap's XP, and the curve helpers end there. Infiltration caps the 275-level table
-/// at 126.
+/// An era's level cap below the table's last level: advancement stops at the cap and the curve
+/// helpers end there. Infiltration caps the 275-level table at 126; its experience keeps arriving
+/// past the cap's (V434).
 /// Divergence: V390
 #[test]
 fn an_era_level_cap_stops_advancement_below_the_tables_last_level() {
@@ -686,16 +686,13 @@ fn an_era_level_cap_stops_advancement_below_the_tables_last_level() {
     let o = h.o(P1);
     assert_eq!(
         (o.level(), o.total_experience(), o.available_experience()),
-        (Some(126), Some(126_000), Some(126_000))
+        (Some(126), Some(10_125_000), Some(10_125_000)),
+        "level 126 however far past its experience"
     );
     assert!(chats(&sent())[0].starts_with("You have reached the maximum level of 126!"));
     assert!(player_xp::is_max_level(&h.w, P1));
     player_xp::update_xp_and_level(&mut h.w, P1, 10, XpType::Kill);
-    assert_eq!(
-        h.o(P1).total_experience(),
-        Some(126_000),
-        "nothing more at the cap"
-    );
+    assert_eq!(h.o(P1).level(), Some(126), "no level past the cap");
 
     // The same grant on the end of retail's rules reaches the table's levels.
     let mut h = H::with_xp_table(table);
@@ -1727,8 +1724,8 @@ fn an_era_before_the_halving_drops_a_tenth_of_the_level_in_items() {
 }
 
 /// Divergence: V406
-/// Unassigned experience stops at 4,294,967,295 before Throne of Destiny (a 32-bit count); the
-/// total goes on. The end of retail has no such cap.
+/// Unassigned experience stops at 4,294,967,295 before Throne of Destiny (a 32-bit count), and so
+/// does the total (V434). The end of retail has no such cap.
 #[test]
 fn an_era_before_throne_of_destiny_caps_unassigned_experience_at_32_bits() {
     let big = i64::from(u32::MAX) - 10;
@@ -1751,8 +1748,75 @@ fn an_era_before_throne_of_destiny_caps_unassigned_experience_at_32_bits() {
     assert_eq!(o.available_experience(), Some(i64::from(u32::MAX)));
     assert_eq!(
         o.total_experience(),
-        Some(5_000_002_000),
-        "the total is not capped"
+        Some(i64::from(u32::MAX)),
+        "the total is a 32-bit count too"
+    );
+}
+
+/// Divergence: V434
+/// Before Throne of Destiny experience keeps arriving at the level cap: the total and the
+/// unassigned counts each stop at 4,294,967,295, and a character at level 126 who spends its
+/// unassigned experience earns again while the level stays 126. The end of retail adds nothing at
+/// the cap.
+#[test]
+fn an_era_before_throne_of_destiny_keeps_earning_at_the_level_cap_up_to_32_bit_counts() {
+    // The February 2005 curve's last two levels: 125 and 126 (4,286,609,098).
+    let mut level_xp: Vec<u64> = (0..=126u64).map(|n| n * 1_000).collect();
+    level_xp[125] = 4_200_000_000;
+    level_xp[126] = 4_286_609_098;
+    let table = XpTable {
+        level_xp,
+        level_credits: vec![0; 127],
+        ..xp_table()
+    };
+    let max = i64::from(u32::MAX);
+
+    let mut h = H::with_xp_table(table.clone());
+    h.w.era = empyrean_common::era::EraId::Infiltration.rules();
+    h.player(P1, S1, "Tester", 126, 4_286_609_098);
+    h.o_mut(P1)
+        .set_property(PropertyInt64::AvailableExperience, 0);
+    player_xp::update_xp_and_level(&mut h.w, P1, 5_000_000, XpType::Kill);
+    let o = h.o(P1);
+    assert_eq!(
+        (o.level(), o.total_experience(), o.available_experience()),
+        (Some(126), Some(4_291_609_098), Some(5_000_000)),
+        "experience arrives at the cap"
+    );
+    player_xp::update_xp_and_level(&mut h.w, P1, 4_000_000_000, XpType::Kill);
+    let o = h.o(P1);
+    assert_eq!(
+        (o.level(), o.total_experience(), o.available_experience()),
+        (Some(126), Some(max), Some(4_005_000_000)),
+        "the total stops at 32 bits; unassigned is still under its cap"
+    );
+    player_xp::update_xp_and_level(&mut h.w, P1, 1_000_000_000, XpType::Kill);
+    assert_eq!(
+        h.o(P1).available_experience(),
+        Some(max),
+        "unassigned stops at 32 bits"
+    );
+
+    // Spend it all (on Strength, say): the next kill fills it again.
+    assert!(player_xp::spend_xp(&mut h.w, P1, max, false));
+    assert_eq!(h.o(P1).available_experience(), Some(0));
+    player_xp::update_xp_and_level(&mut h.w, P1, 1_000, XpType::Kill);
+    let o = h.o(P1);
+    assert_eq!(
+        (o.level(), o.total_experience(), o.available_experience()),
+        (Some(126), Some(max), Some(1_000))
+    );
+
+    // The end of retail's rule: nothing at the cap.
+    let mut h = H::with_xp_table(table);
+    h.player(P1, S1, "Tester", 126, 4_286_609_098);
+    h.o_mut(P1)
+        .set_property(PropertyInt64::AvailableExperience, 0);
+    player_xp::update_xp_and_level(&mut h.w, P1, 5_000_000, XpType::Kill);
+    let o = h.o(P1);
+    assert_eq!(
+        (o.total_experience(), o.available_experience()),
+        (Some(4_286_609_098), Some(0))
     );
 }
 

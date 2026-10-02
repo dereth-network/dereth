@@ -453,8 +453,8 @@ pub const SECTIONS: &[Section] = &[
                  to start otherwise.",
             ),
             // The systems, in `EraFeatures` order. Each defaults to the profile's value: the end
-            // of retail has every one but spell research; February 2005 has trade, housing,
-            // apartments, tinkering, cantrips and chess.
+            // of retail has every one but spell research and the oath's experience cost; February
+            // 2005 has trade, housing, apartments, tinkering, cantrips, chess and the oath's cost.
             system("ratings", "Ratings", "Damage, critical, healing and the other ratings."),
             system(
                 "consolidated_weapon_skills",
@@ -536,6 +536,12 @@ pub const SECTIONS: &[Section] = &[
                  On, a client's formula test casts the spell it makes and teaches it if it is new.",
             ),
             system("chess", "Chess", "Chess on the game boards."),
+            system_off(
+                "swear_xp_cost",
+                "SwearXpCost",
+                "An oath of allegiance costs unassigned experience once a character has broken from\n\
+                 a patron (before Throne of Destiny; on in infiltration).",
+            ),
         ],
     },
 ];
