@@ -896,6 +896,10 @@ pub mod messages {
     pub const WOULD_REQUIRE_NO_TARGET: &str = "This spell would require no target";
     pub const WOULD_REQUIRE_A_TARGET: &str = "This spell would require a target";
     pub const CANNOT_CAST_ON_SELF: &str = "You cannot cast this spell upon yourself";
+    pub const RESEARCH_NEEDS_MAGIC_MODE: &str =
+        "You must first enter magic mode to test spell formulae";
+    pub const RESEARCH_NEEDS_TARGET: &str = "You must first select a target for the spell";
+    pub const NO_SPELL_RESEARCH: &str = "This world has no spell research.";
     pub const STACK_OF_ITEMS: &str = "Cannot cast spell on a stack of items.";
 
     /// Not `"{name} is not a valid target for this spell"`: **that sentence does not appear
@@ -1158,6 +1162,49 @@ impl World {
         // guarded by `(force != 0) || (selected != id)`,
         // and here `force` is 0 and `id` *is* the selected id. Nothing is done in its place, and this
         // comment exists so that the absence reads as a reading rather than as an omission.
+        Ok(())
+    }
+
+    /// The spell research page's test: the formula's components tried on the selected target.
+    ///
+    /// The early clients refused a test outside magic mode and one with nothing selected, and
+    /// otherwise sent the formula as eight component class ids (unused slots zero) and the
+    /// target, raising the busy count as a cast does; the server answers as it answers a cast.
+    /// `research` is whether the world has spell research at all: a world without it is refused
+    /// before anything is sent.
+    ///
+    /// # Errors
+    /// The refusal text, already emitted on [`crate::chat::REFUSAL_CHANNEL`].
+    pub fn test_spell_formula(
+        &mut self,
+        req: &mut dyn RequestSink,
+        out: &mut dyn NoticeSink,
+        components: &[u32],
+        research: bool,
+    ) -> Result<(), String> {
+        if !research {
+            return self.refuse_cast(out, messages::NO_SPELL_RESEARCH.into());
+        }
+        if components.is_empty() {
+            return Ok(());
+        }
+        if self.combat.combat_mode != crate::combat::CombatMode::Magic {
+            return self.refuse_cast(out, messages::RESEARCH_NEEDS_MAGIC_MODE.into());
+        }
+        let Some(target) = self.selected.filter(|t| t.0 != 0) else {
+            return self.refuse_cast(out, messages::RESEARCH_NEEDS_TARGET.into());
+        };
+        let mut slots = [0u32; 8];
+        for (slot, wcid) in slots.iter_mut().zip(components) {
+            *slot = self.magic.catalogue.wcid_to_scid(*wcid);
+        }
+        req.send(Request::TestSpellFormula(
+            dereth_protocol::combat::MagicTestSpellFormula {
+                components: slots,
+                target,
+            },
+        ));
+        self.magic.busy_count += 1;
         Ok(())
     }
 

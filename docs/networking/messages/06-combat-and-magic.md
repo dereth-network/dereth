@@ -99,6 +99,7 @@ The combat mode is learned back through an ordinary integer
 |---|---|
 | `0x0048` cast untargeted spell | a spell id |
 | `0x004A` cast targeted spell | **target first, spell second** |
+| `0x004B` test spell formula | eight spell component ids (unused slots zero), then the target — clients up to January 2002 only, see below |
 | `0x0224` set desired component level | a component data id and a level |
 | `0x0286` spellbook filter | a filter mask |
 | `0x01E3` add spell favourite | spell id, slot index, spell bar — 16 bytes with the opcode |
@@ -106,6 +107,17 @@ The combat mode is learned back through an ordinary integer
 
 The field order of the targeted cast is the kind of thing that works by accident when both values are
 plausible object-sized integers, and then fails on the first spell id that is not.
+
+### Spell research (clients up to January 2002)
+
+Early clients had a spell research panel: the player laid up to eight carried components into a
+formula and tested it on a selected target, in magic mode. The test is `0x004B`, the formula's eight
+component slots and then the target. There is no reply of its own. A formula that makes no spell is
+refused like any cast, with the casting errors (`0x03FA` an impossible spell path, `0x0400` missing
+components, `0x0402` a fizzle, `0x03FF` a wrong target type); a formula that makes a spell casts it, and
+a spell the character did not know arrives as the ordinary spell-learned message, the one a scroll
+gives. The client treats that message the same whatever caused it: the spell is added, made the
+current spell, and the spellbook page is shown with it selected. The final client has no `0x004B`.
 
 ## 4. Where reimplementations differ
 

@@ -84,6 +84,7 @@ pub mod renderer;
 /// [`view`]'s; the outbox is a plain value
 /// with no per-thread state.
 pub mod requests;
+pub mod research;
 /// `STARTUP_FILTERING`, which `dereth_render_cpu::sampler` re-exports.
 pub mod sampler;
 pub mod snapshot;

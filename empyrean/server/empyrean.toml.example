@@ -444,7 +444,7 @@ profile = "eor"
 
 # default: the profile's (Empyrean only)
 # Learning spells by researching their formulas (gone by 2002; off in every profile).
-# Announced to the client only: the server has no research request to refuse.
+# On, a client's formula test casts the spell it makes and teaches it if it is new.
 # spell_research = false
 
 # default: the profile's (Empyrean only)

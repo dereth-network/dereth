@@ -1667,6 +1667,12 @@ pub enum UiRequest {
         spell_id: u32,
     },
 
+    /// The spell research page's Test: the formula's components (component weenie class ids, in
+    /// the order they were laid) tried on the selected target. See [`crate::research`].
+    TestSpellFormula {
+        components: Vec<u32>,
+    },
+
     /// The combat system's set-requested-attack-height — the arm
     /// that makes the combat window's three attack-height buttons do anything.
     ///

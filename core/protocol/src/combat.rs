@@ -514,6 +514,39 @@ impl Message for MagicCastUntargetedSpell {
     }
 }
 
+/// `0x004B Magic_TestSpellFormula` (C2S): a spell formula tried on a target — the eight
+/// component slots of the formula (spell component ids, unused slots zero), then the target.
+/// Sent by the spell research panel of clients up to January 2002; a server answers with a
+/// cast of the spell the formula makes, or a casting refusal such as an impossible spell path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MagicTestSpellFormula {
+    pub components: [u32; 8],
+    pub target: ObjectId,
+}
+
+impl Message for MagicTestSpellFormula {
+    const OPCODE: Opcode = Opcode::MAGIC_TEST_SPELL_FORMULA;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        let mut components = [0; 8];
+        for c in &mut components {
+            *c = r.u32()?;
+        }
+        Ok(Self {
+            components,
+            target: ObjectId(r.u32()?),
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        for c in self.components {
+            w.u32(c);
+        }
+        w.u32(self.target.0);
+        Ok(())
+    }
+}
+
 /// `0x004A Magic_CastTargetedSpell` (C2S) — **target first, spell second**.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MagicCastTargetedSpell {
@@ -893,6 +926,13 @@ mod tests {
             &write_body(&MagicCastTargetedSpell {
                 target: ObjectId(1),
                 spell_id: 157,
+            })
+            .unwrap(),
+        );
+        let _: MagicTestSpellFormula = round_trip(
+            &write_body(&MagicTestSpellFormula {
+                components: [1, 2, 3, 0, 0, 0, 0, 0],
+                target: ObjectId(0x5000_0001),
             })
             .unwrap(),
         );

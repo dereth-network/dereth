@@ -2303,6 +2303,8 @@ impl<S: Shell> App<S> {
     fn ui_use_time(&mut self, shell: &mut S, now: dereth_primitives::LocalTime) {
         // The previous frame's unclaimed actions expire here, before this frame's are produced.
         self.actions.begin_frame();
+        // The world's systems, as the requests the interaction layer runs this frame see them.
+        self.interaction.era_features = self.hud.era.features();
         self.duties.teleport_ticked = false;
         self.duties.hud_synced = false;
         self.duties.portal_driven = false;

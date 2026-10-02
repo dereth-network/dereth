@@ -2076,4 +2076,36 @@ mod real_content_components {
             "components without a weenie: {missing:?}"
         );
     }
+
+    /// A spell research formula is the account's own formula for a spell: laid in order, it names
+    /// that spell; the same components out of order, or a slot after an empty one, name none.
+    /// Divergence: V432
+    #[test]
+    fn a_research_formula_names_the_spell_whose_formula_it_is() {
+        use empyrean_dat::file_types::spell_table as dat_spell_table;
+        use empyrean_world::world_objects::spell_research::spell_of_formula;
+        let w = world(
+            &dereth_dat::testing::dat_dir(),
+            &empyrean_common::test_paths::world_pack(),
+        );
+        let table = spell_formula::spell_table(&w);
+        let formula = dat_spell_table::get_spell_formula(table, 1, "probe").expect("spell 1");
+        let mut slots = [0u32; 8];
+        for (slot, c) in slots.iter_mut().zip(&formula) {
+            *slot = *c;
+        }
+        let named = spell_of_formula(&w, "probe", &slots).expect("the formula names a spell");
+        assert_eq!(
+            dat_spell_table::get_spell_formula(table, named, "probe").expect("named"),
+            formula
+        );
+        let mut reversed = slots;
+        reversed[..formula.len()].reverse();
+        assert_ne!(spell_of_formula(&w, "probe", &reversed), Some(named));
+        let mut gap = slots;
+        gap.copy_within(1..7, 2);
+        gap[1] = 0;
+        assert_eq!(spell_of_formula(&w, "probe", &gap), None);
+        assert_eq!(spell_of_formula(&w, "probe", &[0; 8]), None);
+    }
 }

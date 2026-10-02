@@ -125,6 +125,7 @@ pub mod skill_formula;
 pub mod slum_lord;
 pub mod spell_component;
 pub mod spell_projectile;
+pub mod spell_research;
 pub mod stackable;
 pub mod storage;
 pub mod switch;

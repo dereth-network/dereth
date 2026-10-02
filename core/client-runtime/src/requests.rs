@@ -185,6 +185,7 @@ pub fn send_request<T: dereth_primitives::Transport>(
         }
         R::CastUntargetedSpell(m) => s.send_action(m),
         R::CastTargetedSpell(m) => s.send_action(m),
+        R::TestSpellFormula(m) => s.send_action(m),
         // The last link of "text typed into the entry box reaches the server".
         R::Talk(m) => s.send_action(m),
         // The emote event uses the same ordered action counter and failure rollback.

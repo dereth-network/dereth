@@ -1263,6 +1263,9 @@ pub struct Interaction {
     /// The running program's name and version, as `@version` prints them after "Client version".
     /// The program sets it at start-up; until then it is this library's own fallback.
     pub client_build_id: &'static str,
+    /// The world's systems, stamped by the application each frame: a request for a system the
+    /// world lacks is refused here.
+    pub era_features: dereth_primitives::era::EraFeatures,
     /// `WorldObjects`'s pick state and the geometry it sweeps.
     pub pick: WorldPicker,
     /// Search reason, reset at the end of every object-found notice.
@@ -2194,6 +2197,7 @@ impl Interaction {
     pub fn new() -> Self {
         Self {
             client_build_id: CLIENT_BUILD_ID,
+            era_features: dereth_primitives::era::EraId::default().features(),
             pick: WorldPicker::new(),
             ..Self::default()
         }
@@ -4789,6 +4793,23 @@ impl Interaction {
                 // decided by the spell-cast command. Its refusal string has **already** been
                 // emitted as a `Notice::DisplayString` on channel `0x1A`, which `absorb` routes to
                 // chat like every other refusal in this file. So the `Err` is only counted.
+                // The spell research page's test. The model refuses it outside magic mode, with
+                // nothing selected, or in a world without spell research; otherwise it is sent.
+                UiRequest::TestSpellFormula { components } => {
+                    match game.test_spell_formula(
+                        &mut req,
+                        &mut out,
+                        &components,
+                        self.era_features.spell_research,
+                    ) {
+                        Ok(()) => {
+                            if !self.controlled_by_server {
+                                self.stop_completely_requested = true;
+                            }
+                        }
+                        Err(_) => self.stats.requests_refused += 1,
+                    }
+                }
                 UiRequest::CastSpell { spell_id } => {
                     let sent = req.0.len();
                     match game.cast_spell(&mut req, &mut out, spell_id) {

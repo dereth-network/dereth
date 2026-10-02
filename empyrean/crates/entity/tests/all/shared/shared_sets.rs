@@ -24,6 +24,7 @@ pub(crate) const KNOWN_OPCODES_ACE_ONLY: &[Known] = &[
 
 /// The values the shared set has and ACE lacks (GameMessageOpcode | GameActionType | GameEventType): value, name, reason.
 pub(crate) const KNOWN_OPCODES_SHARED_ONLY: &[Known] = &[
+    (0x004B, "Magic_TestSpellFormula", "an early clients' request ACE never had; Empyrean answers it"),
     (0x01D1, "Qualities_PrivateRemoveIntEvent", "ACE never removes a quality by message"),
     (0x01D2, "Qualities_RemoveIntEvent", "ACE never removes a quality by message"),
     (0x01D3, "Qualities_PrivateRemoveBoolEvent", "ACE never removes a quality by message"),

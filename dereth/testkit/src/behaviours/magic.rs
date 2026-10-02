@@ -254,6 +254,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "magic.research.a-test-outside-magic-mode-or-without-a-target-is-refused-and-never-sent",
+        says: "A formula test outside magic mode, with nothing selected, or on a world without \
+               spell research is refused by the client in its own words and never sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-RESEARCH-REFUSAL"),
+        station: "dereth-client::cpu::magic::spell_casting::a_test_outside_magic_mode_or_without_a_target_is_refused_and_never_sent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "magic.research.a-tested-formula-goes-out-as-component-ids-and-the-target",
+        says: "On a world with spell research, testing a formula in magic mode with a target \
+               sends the laid components as their component ids, in the order laid, the unused \
+               slots zero, and the target; the player then waits on the answer as on a cast.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-RESEARCH-TEST"),
+        station: "dereth-client::cpu::magic::spell_casting::a_tested_formula_goes_out_as_component_ids_and_the_target",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "magic.resist.a-squelched-magic-channel-drops-the-same-recorded-bytes",
         says: "A player who has squelched the magic channel is not shown the resist at all: the same \
                recorded bytes reach the client and no line appears, and the gate counts that it \

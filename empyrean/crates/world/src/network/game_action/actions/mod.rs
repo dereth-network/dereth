@@ -89,6 +89,7 @@ pub mod game_action_login_complete;
 pub mod game_action_magic_cast_targeted_spell;
 pub mod game_action_magic_cast_untargeted_spell;
 pub mod game_action_magic_remove_spell_id;
+pub mod game_action_magic_test_spell_formula;
 pub mod game_action_modify_account_squelch;
 pub mod game_action_modify_character_squelch;
 pub mod game_action_modify_global_squelch;

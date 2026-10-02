@@ -526,7 +526,7 @@ pub const SECTIONS: &[Section] = &[
                 "spell_research",
                 "SpellResearch",
                 "Learning spells by researching their formulas (gone by 2002; off in every profile).\n\
-                 Announced to the client only: the server has no research request to refuse.",
+                 On, a client's formula test casts the spell it makes and teaches it if it is new.",
             ),
             system("chess", "Chess", "Chess on the game boards."),
         ],

@@ -169,10 +169,11 @@ era_features! {
     tinkering,
     /// Cantrips on generated loot.
     cantrips,
-    /// Learning a spell by researching its formula, as the 1999 research window did. It was gone by
-    /// the middle of 2002, so no era here has it. A character's own spell formulas (the components
-    /// each spell takes for its account) are not this system: every era keeps them. Nothing on the
-    /// server reads the flag: the end-of-retail message set has no research request.
+    /// Learning a spell by researching its formula, as the early clients' research page did: a
+    /// formula of carried components tested on a target in magic mode, which casts the spell it
+    /// makes and teaches it if it is new. It was gone by the middle of 2002, so no era here has it
+    /// unless the world turns it on. A character's own spell formulas (the components each spell
+    /// takes for its account) are not this system: every era keeps them.
     spell_research,
     /// Chess on the game boards.
     chess,

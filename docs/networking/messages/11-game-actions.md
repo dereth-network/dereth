@@ -1,7 +1,8 @@
 # Game actions
 
 **Every message this client sends to the world server is a game action**, and there are about 157 of
-them.
+them, and one more from the early clients' spell research panel (`0x004B`, see
+[combat and magic](06-combat-and-magic.md)).
 
 ```text
 +0x00  u32   0xF7B1

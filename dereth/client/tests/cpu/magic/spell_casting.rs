@@ -1170,3 +1170,62 @@ fn a_server_controlled_body_is_not_stopped_by_a_cast() {
          still sent"
     );
 }
+
+// ------------------------------------------------------------------------------------------
+// 9. The spell research test.
+// ------------------------------------------------------------------------------------------
+
+/// The research page's test in magic mode with a target, on a world with spell research.
+fn research_world() -> (World, Interaction) {
+    let mut w = cast_world(&FULL);
+    w.combat.combat_mode = dereth_client_model::combat::CombatMode::Magic;
+    w.set_selected_object(Some(TARGET), false, &mut RecordingSink::default());
+    let mut inter = Interaction::default();
+    inter.era_features.spell_research = true;
+    (w, inter)
+}
+
+fn test_formula(w: &mut World, inter: &mut Interaction, components: Vec<u32>) -> Vec<Request> {
+    inter.queue(Vec::new(), vec![UiRequest::TestSpellFormula { components }]);
+    assert!(inter.run_ui_requests(w, false, ServerTime(0.0)).is_empty());
+    inter.pending_requests().to_vec()
+}
+
+/// Behaviour: magic.research.a-tested-formula-goes-out-as-component-ids-and-the-target
+/// The laid components go out as their component ids, in the order laid, the unused slots zero,
+/// with the selected target, and the player waits on the answer as on a cast.
+#[test]
+fn a_tested_formula_goes_out_as_component_ids_and_the_target() {
+    let (mut w, mut inter) = research_world();
+    let laid: Vec<u32> = SCID_TO_WCID.iter().take(3).map(|(_, wcid)| *wcid).collect();
+    let sent = test_formula(&mut w, &mut inter, laid);
+    let [Request::TestSpellFormula(m)] = sent.as_slice() else {
+        panic!("expected one 0x004B, got {sent:?}")
+    };
+    let scids: Vec<u32> = SCID_TO_WCID.iter().take(3).map(|(scid, _)| *scid).collect();
+    assert_eq!(&m.components[..3], scids.as_slice());
+    assert_eq!(&m.components[3..], &[0; 5]);
+    assert_eq!(m.target, TARGET);
+    assert_eq!(w.magic.busy_count, 1);
+}
+
+/// Behaviour: magic.research.a-test-outside-magic-mode-or-without-a-target-is-refused-and-never-sent
+/// Outside magic mode, with nothing selected, and on a world without spell research, the test is
+/// refused by the client and nothing goes out.
+#[test]
+fn a_test_outside_magic_mode_or_without_a_target_is_refused_and_never_sent() {
+    let wcid = SCID_TO_WCID[0].1;
+    let (mut w, mut inter) = research_world();
+    w.combat.combat_mode = dereth_client_model::combat::CombatMode::NonCombat;
+    assert!(test_formula(&mut w, &mut inter, vec![wcid]).is_empty());
+
+    let (mut w, mut inter) = research_world();
+    w.set_selected_object(None, false, &mut RecordingSink::default());
+    assert!(test_formula(&mut w, &mut inter, vec![wcid]).is_empty());
+
+    let (mut w, mut inter) = research_world();
+    inter.era_features.spell_research = false;
+    assert!(test_formula(&mut w, &mut inter, vec![wcid]).is_empty());
+    assert_eq!(inter.stats.requests_refused, 1);
+    assert_eq!(w.magic.busy_count, 0);
+}

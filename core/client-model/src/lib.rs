@@ -595,6 +595,8 @@ pub enum Request {
     CastUntargetedSpell(dereth_protocol::combat::MagicCastUntargetedSpell),
     /// `Magic_CastTargetedSpell` — 0x004A.
     CastTargetedSpell(dereth_protocol::combat::MagicCastTargetedSpell),
+    /// `Magic_TestSpellFormula` — 0x004B, the early clients' spell research test.
+    TestSpellFormula(dereth_protocol::combat::MagicTestSpellFormula),
     /// Set the displayed character title — `0x002C`.
     ///
     /// The only caller in retail is the client's *"Set as Display Title"*

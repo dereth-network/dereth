@@ -157,6 +157,10 @@ impl Opcode {
     pub const MAGIC_CAST_UNTARGETED_SPELL: Self = Self(0x0048);
     /// `0x004A` Magic_CastTargetedSpell
     pub const MAGIC_CAST_TARGETED_SPELL: Self = Self(0x004A);
+    /// `0x004B` Magic_TestSpellFormula: a spell formula tried on a target. Clients up to
+    /// January 2002 sent it from their spell research panel; the name is this table's, as the
+    /// final client has no such action.
+    pub const MAGIC_TEST_SPELL_FORMULA: Self = Self(0x004B);
     /// `0x0052` Item_StopViewingObjectContents
     pub const ITEM_STOP_VIEWING_OBJECT_CONTENTS: Self = Self(0x0052);
     /// `0x0053` Combat_ChangeCombatMode
@@ -1126,6 +1130,13 @@ pub static OPCODES: &[OpcodeInfo] = &[
     OpcodeInfo {
         opcode: Opcode(0x004A),
         name: "Magic_CastTargetedSpell",
+        direction: Direction::C2S,
+        send_queue: Some(NetQueue::Weenie),
+        recv_queue: None,
+    },
+    OpcodeInfo {
+        opcode: Opcode(0x004B),
+        name: "Magic_TestSpellFormula",
         direction: Direction::C2S,
         send_queue: Some(NetQueue::Weenie),
         recv_queue: None,
@@ -3269,7 +3280,7 @@ mod tests {
     /// hand has to change it deliberately.
     #[test]
     fn the_table_is_sorted_and_complete() {
-        assert_eq!(OPCODES.len(), 352);
+        assert_eq!(OPCODES.len(), 353);
         for w in OPCODES.windows(2) {
             assert!(
                 w[0].opcode.0 < w[1].opcode.0,

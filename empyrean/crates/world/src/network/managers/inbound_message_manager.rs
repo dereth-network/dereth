@@ -78,13 +78,30 @@ pub fn message_handler(opcode: u32) -> Option<&'static MessageHandlerInfo> {
         .map(|i| &t[i])
 }
 
-/// `actionHandlers.TryGetValue(opcode)`.
+/// `actionHandlers.TryGetValue(opcode)`, then the game actions ACE has no handler for.
 pub fn action_handler(opcode: u32) -> Option<&'static ActionHandlerInfo> {
     let t = dispatch_table::ACTION_HANDLERS;
     t.binary_search_by_key(&opcode, |h| h.attribute.opcode)
         .ok()
         .map(|i| &t[i])
+        .or_else(|| {
+            EMPYREAN_ACTION_HANDLERS
+                .iter()
+                .find(|h| h.attribute.opcode == opcode)
+        })
 }
+
+/// Game actions ACE never dispatches, which Empyrean handles.
+pub static EMPYREAN_ACTION_HANDLERS: &[ActionHandlerInfo] = &[
+    // The early clients' spell research test (V432).
+    ActionHandlerInfo {
+        name: "TestSpellFormula",
+        handler: crate::network::game_action::actions::game_action_magic_test_spell_formula::handle,
+        attribute: crate::network::game_action::game_action_attribute::GameActionAttribute::new(
+            0x004B,
+        ),
+    },
+];
 
 /// The inbound queue and counters. Lives in `World.sessions` (see [`crate::sessions::Sessions`]).
 #[derive(Debug, Default)]

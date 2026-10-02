@@ -206,11 +206,11 @@ mod tests {
     }
 
     /// Oracle: the client has 157 game-action senders
-    /// (`docs/networking/messages/11-game-actions.md`). The master table's Weenie-queue rows are
-    /// exactly that set.
+    /// (`docs/networking/messages/11-game-actions.md`), and the early clients' spell research
+    /// panel one more (`0x004B`). The master table's Weenie-queue rows are exactly that set.
     #[test]
     fn the_master_table_holds_the_documented_number_of_game_actions() {
-        assert_eq!(game_action_opcodes().count(), 157);
+        assert_eq!(game_action_opcodes().count(), 158);
         // And they are all C2S or both-ways.
         for op in game_action_opcodes() {
             assert_eq!(outbound_kind(op), Some(OutboundKind::GameAction), "{op:?}");

@@ -259,6 +259,7 @@ pub static REGISTRY: &[Codec] = &[
     c!(combat::CombatQueryHealthResponse),
     c!(combat::MagicCastUntargetedSpell),
     c!(combat::MagicCastTargetedSpell),
+    c!(combat::MagicTestSpellFormula),
     c!(combat::ComponentLevelRequest),
     c!(combat::CharacterSpellbookFilterEvent),
     c!(combat::CharacterAddSpellFavorite),
