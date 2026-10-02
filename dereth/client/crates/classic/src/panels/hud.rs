@@ -682,6 +682,10 @@ impl Panel for Hud {
                 _ => None,
             };
             if let Some(panel) = panel {
+                // The research page's key does nothing on a world without spell research.
+                if panel == "spell-research" && !super::game::research_on(c.game) {
+                    return vec![];
+                }
                 return vec![PanelAction::Toggle(panel.into())];
             }
             if name == "CombatToggleCombat" {

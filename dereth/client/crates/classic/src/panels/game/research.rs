@@ -69,7 +69,7 @@ impl Panel for SpellResearch {
             true,
             false,
         );
-        super::magic::tabs(&mut f, 2);
+        super::magic::tabs(&mut f, 2, true);
         text(
             &mut f,
             rect(0, TOP + 5, 300, 20),
@@ -153,6 +153,10 @@ impl Panel for SpellResearch {
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        // A world without spell research has no research page: it gives way to the spellbook.
+        if !super::magic::research_on(c.game) && matches!(e, ControlEvent::Tick) {
+            return vec![PanelAction::Open("spellbook".into())];
+        }
         let carried = carried(c.game);
         let at = |index: usize| {
             carried
@@ -218,8 +222,12 @@ mod tests {
     struct Game {
         mode: u32,
         selected: Option<ObjectId>,
+        era: Option<dereth_client_contract::EraView>,
     }
     impl GameView for Game {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            self.era.as_ref()
+        }
         fn combat_mode(&self) -> u32 {
             self.mode
         }
@@ -262,6 +270,7 @@ mod tests {
         let game = Game {
             mode: 8,
             selected: Some(ObjectId(0x5000_0001)),
+            era: None,
         };
         with(&game, |c| {
             // Only carried components show: the second (none carried) is left out.
@@ -309,5 +318,34 @@ mod tests {
             page.add(0x2b1);
         }
         assert_eq!(page.formula.components().len(), FORMULA_SLOTS);
+    }
+
+    /// A world announcing spell research has the research page and its tab; one without gives
+    /// the page up for the spellbook, and the spellbook draws its two tabs.
+    #[test]
+    fn the_research_page_and_its_tab_follow_the_worlds_spell_research() {
+        let mut era = dereth_client_contract::EraView::default();
+        era.announced_features.set("spell_research", true);
+        let researching = Game {
+            era: Some(era),
+            ..Game::default()
+        };
+        let plain = Game::default();
+        let mut page = SpellResearch::default();
+        with(&researching, |c| {
+            assert!(super::super::magic::research_on(c.game));
+            assert!(page.event(ControlEvent::Tick, c).is_empty());
+            let frame = page.frame(c);
+            assert!(frame.controls.iter().any(|b| b.id == "create-spell"));
+        });
+        with(&plain, |c| {
+            assert!(!super::super::magic::research_on(c.game));
+            assert_eq!(
+                page.event(ControlEvent::Tick, c),
+                [PanelAction::Open("spellbook".into())]
+            );
+            let book = super::super::magic::Spellbook::new(false).frame(c);
+            assert!(!book.controls.iter().any(|b| b.id == "create-spell"));
+        });
     }
 }

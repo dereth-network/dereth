@@ -37,21 +37,34 @@ fn spells(game: &dyn GameView) -> Vec<&SpellEntry> {
     v.sort_by_key(|s| s.display_order);
     v
 }
-/// The magic window's tabs, as clients with the spell research page had them: three 92-pixel
-/// tabs and the close button. `page` is the shown one: 0 the spellbook, 1 the components, 2 the
-/// research page.
-pub(super) fn tabs(f: &mut PanelFrame, page: usize) {
-    for (i, (x, id, label)) in [
+/// Whether the world has spell research: the Create Spell page is shown only where it does.
+pub fn research_on(game: &dyn GameView) -> bool {
+    game.era().is_some_and(|e| e.features().spell_research)
+}
+
+/// The magic window's tabs and the close button. `page` is the shown one: 0 the spellbook, 1 the
+/// components, 2 the research page. A world with spell research has the three 92-pixel tabs the
+/// clients with the research page had; one without has the two 138-pixel tabs of the early-2005
+/// window.
+pub(super) fn tabs(f: &mut PanelFrame, page: usize, research: bool) {
+    let all = [
         (0, "spellbook", "Spellbook"),
         (92, "components", "Components"),
         (184, "create-spell", "Create Spell"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ];
+    let width = if research { 92 } else { 138 };
+    for (i, (x, id, label)) in all.into_iter().enumerate() {
+        if i == 2 && !research {
+            continue;
+        }
+        let x = if research {
+            x
+        } else {
+            i32::try_from(i).unwrap_or(0) * 138
+        };
         let selected = i == page;
         art(
-            f.button(id, rect(x, 0, 92, 25), label, true),
+            f.button(id, rect(x, 0, width, 25), label, true),
             if selected { 0x06000f76 } else { 0x06000f77 },
             0x06000f76,
             0x06000f77,
@@ -156,7 +169,7 @@ impl Panel for Spellbook {
             true,
             false,
         );
-        tabs(&mut f, usize::from(self.components));
+        tabs(&mut f, usize::from(self.components), research_on(ctx.game));
         if self.components {
             let rows = component_rows(ctx.game);
             let offset = self
@@ -349,7 +362,7 @@ impl Panel for Spellbook {
                 self.components = id == "components";
                 self.scroll = 0;
             }
-            ControlEvent::Activate(id) if id == "create-spell" => {
+            ControlEvent::Activate(id) if id == "create-spell" && research_on(ctx.game) => {
                 return vec![PanelAction::Open("spell-research".into())];
             }
             ControlEvent::DragStart { id, index } if id == "rows" && !self.components => {
