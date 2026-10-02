@@ -318,9 +318,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                  interface switched to; the journal is one file, written by the interface \
                  switched from and read again by the one switched to. Both interfaces' options \
                  pages edit the same preferences in the profile (the classic interface's own \
-                 three, its inverted vertical mouse look, right-click mouse look and stretched \
-                 layout, are UI.Classic.*), and both bind keys in one key map file: each brings \
-                 its own default scheme, and the player's keys lay over either.",
+                 six, its inverted vertical mouse look, right-click mouse look and stretched \
+                 layout and whether its social window shows the Secure Trade page (off at \
+                 first, on worlds with trade), the Friends page and the Squelch page (on at \
+                 first, on any world), are UI.Classic.*), and both bind keys in one key map \
+                 file: each brings its own default scheme, and the player's keys lay over \
+                 either, those held with Shift, Ctrl or Alt included.",
         why: "The owner asked for both interfaces over any world, switchable while playing, as \
               the landscape and object looks are, and for one set of options and keys behind \
               them.",
