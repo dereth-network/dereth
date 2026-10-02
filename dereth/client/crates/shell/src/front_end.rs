@@ -1847,6 +1847,12 @@ impl<H: Host> Ui<'_, '_, H> {
             );
         }
 
+        // The space's own 45-degree lens, every frame: the space is shared with the classic
+        // interface, whose doll has a lens of its own.
+        self.cx
+            .present_mut()
+            .preview_set_fov(id, dereth_world_render::creature_mode::DEFAULT_FOV_RADIANS);
+
         // Rebuild when no preview object exists or its visual descriptor changed, because the
         // meshes are baked from the dressed part array. See [`Self::paper_doll_built`].
         let look = self.cx.present().objects_in_other_look();
@@ -2241,6 +2247,11 @@ impl<H: Host> Ui<'_, '_, H> {
         let assets = std::sync::Arc::clone(self.cx.anim_assets());
         let id = crate::gpu::PreviewId::CharGen;
         self.cx.present_mut().preview_ensure(id, &assets);
+        // The space's own 45-degree lens, as the paper doll's: the classic interface's creation
+        // model has a lens of its own in the same space.
+        self.cx
+            .present_mut()
+            .preview_set_fov(id, dereth_world_render::creature_mode::DEFAULT_FOV_RADIANS);
         let store = std::sync::Arc::clone(self.cx.store());
 
         // Assemble the character-generation preview's appearance — everything that dresses the model.
@@ -2712,6 +2723,10 @@ impl<H: Host> ClientShell<H> {
                 if let Some(shell) = self.ui.as_mut() {
                     shell.catch_up(cx.pregame());
                 }
+                // The classic interface dressed the shared preview spaces with its own models:
+                // this one builds its own again.
+                self.paper_doll_built = None;
+                self.preview_chargen = None;
                 // The classic interface wrote the journal as it went; the retail one reads it
                 // again rather than keep its older pages.
                 cx.hud_mut().panels.journal.forget();

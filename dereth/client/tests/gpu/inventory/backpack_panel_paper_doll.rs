@@ -1076,3 +1076,34 @@ fn the_live_space_carries_the_camera_the_light_and_the_heading() {
     );
     app.shutdown();
 }
+
+/// Behaviour: inventory.backpack.the-paper-doll-keeps-its-own-lens
+///
+/// Oracle: the client's creature-mode space, whose field of view is 45 degrees from construction
+/// and which the paper doll never changes. The space here is shared with the classic interface,
+/// whose doll has a lens of its own; a frame of the retail interface puts the space's own back.
+#[test]
+fn the_paper_doll_draws_with_its_own_45_degree_lens_whatever_the_space_was_given() {
+    let (mut app, _) = app_with_the_capture();
+    let lens = |app: &mut App| {
+        let space = app
+            .renderer_mut()
+            .preview(PreviewId::PaperDoll)
+            .expect("the doll's space");
+        (space.mode.fov_radians, space.mode.use_world_fov)
+    };
+    assert_eq!(lens(&mut app), (0.785_398_2, false));
+    // Another front end's narrower lens on the same space.
+    app.renderer_mut()
+        .preview_mut(PreviewId::PaperDoll)
+        .expect("the doll's space")
+        .mode
+        .set_fov(0.64);
+    app.frame();
+    assert_eq!(
+        lens(&mut app),
+        (0.785_398_2, false),
+        "the retail doll is drawn with its own lens again"
+    );
+    app.shutdown();
+}

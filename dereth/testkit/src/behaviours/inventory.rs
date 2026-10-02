@@ -283,6 +283,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "inventory.backpack.the-paper-doll-keeps-its-own-lens",
+        says: "The paper doll is drawn with its space's own 45-degree field of view over its \
+               viewport, so the whole figure fits, head to feet; a lens the classic \
+               interface gave the shared space does not carry over to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-R2-DOLL-LENS"),
+        station: "dereth-client::gpu::inventory::backpack_panel_paper_doll::the_paper_doll_draws_with_its_own_45_degree_lens_whatever_the_space_was_given",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "inventory.body.a-click-on-a-bare-region-of-the-picture-selects-the-player",
         says: "A click on a part of the picture of the character where nothing is worn selects \
                the player. That is what makes an undressed character clickable at all, and it is \
