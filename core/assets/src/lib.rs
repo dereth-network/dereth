@@ -65,14 +65,14 @@ pub use subids::{closure, SubDataIds};
 pub use tables::{
     did_by_enum, Attribute2ndTable, BadData, CharGen, ChatPoseTable, CombatManeuverTable,
     ContractTable, DidMapper, DualDidMapper, EnumMapper, NameFilterTable, ObjectHierarchy,
-    QualityFilter, SkillTable, SpellComponentTable, SpellTable, TabooTable, XpTable,
+    QualityFilter, QuestTable, SkillTable, SpellComponentTable, SpellTable, TabooTable, XpTable,
     MASTER_DID_MAPPER,
 };
 pub use ui::{
     ActionMap, Font, LanguageInfo, LanguageString, LayoutDesc, MasterInputMap, MasterProperty,
     PropertyAsset, StringTable,
 };
-pub use verify::{exhaustive_decode, VerifyReport};
+pub use verify::{exhaustive_decode, exhaustive_decode_file, VerifyReport};
 pub use world::{CellLandblock, EnvCell, LandblockInfo, ParticleEmitterInfo, Scene};
 
 /// Every decoder is a pure function of bytes. No clock, no RNG, no I/O, no allocation policy.
@@ -175,6 +175,7 @@ pub enum DecodedAsset {
     NameFilterTable(NameFilterTable),
     BadData(BadData),
     QualityFilter(QualityFilter),
+    QuestTable(QuestTable),
     EnumMapper(EnumMapper),
     DidMapper(DidMapper),
     DualDidMapper(DualDidMapper),
@@ -254,6 +255,7 @@ pub fn decode_any_in(
             NameFilterTable => NameFilterTable(NameFilterTable),
             BadData => BadData(BadData),
             QualityFilter => QualityFilter(QualityFilter),
+            QuestDefDb => QuestTable(QuestTable),
             EnumMapper => EnumMapper(EnumMapper),
             DidMapper => DidMapper(DidMapper),
             DualDidMapper => DualDidMapper(DualDidMapper),
@@ -314,6 +316,7 @@ pub fn decodable_types() -> &'static [DbType] {
         DbType::NameFilterTable,
         DbType::BadData,
         DbType::QualityFilter,
+        DbType::QuestDefDb,
         DbType::EnumMapper,
         DbType::DidMapper,
         DbType::DualDidMapper,

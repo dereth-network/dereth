@@ -180,3 +180,53 @@ pub fn open_pre_tod_store_or_fail() -> RetailDatStore {
         )
     })
 }
+
+/// The test-only variable naming a directory of historical dat captures: one folder per capture,
+/// named by its date, holding the files of that capture (`portal.dat`, `cell.dat`,
+/// `client_portal.dat`, `client_cell_1.dat`, `client_highres.dat`, `client_local_english.dat`,
+/// any subset, the names in lower case).
+pub const DAT_CAPTURES_DIR_VAR: &str = "DERETH_TEST_DAT_CAPTURES_DIR";
+
+/// Every capture file under `DERETH_TEST_DAT_CAPTURES_DIR`, as `(capture folder, file name,
+/// path)`, oldest capture first. The directory is protected for the run, as the retail install
+/// is.
+///
+/// # Panics
+///
+/// When the variable is unset or empty, or names a directory that cannot be read.
+#[must_use]
+pub fn dat_captures_or_fail() -> Vec<(String, String, PathBuf)> {
+    let dir = std::env::var_os(DAT_CAPTURES_DIR_VAR)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            panic!(
+                "the dat captures were not found: {DAT_CAPTURES_DIR_VAR} is unset (set it to the \
+                 directory holding one folder per capture)"
+            )
+        });
+    crate::protect_install(&dir);
+    let read = |d: &std::path::Path| {
+        std::fs::read_dir(d).unwrap_or_else(|e| {
+            panic!(
+                "the dat captures under {} ({DAT_CAPTURES_DIR_VAR}) cannot be read: {e}",
+                d.display()
+            )
+        })
+    };
+    let mut out = Vec::new();
+    for capture in read(&dir).flatten() {
+        if !capture.path().is_dir() {
+            continue;
+        }
+        let folder = capture.file_name().to_string_lossy().into_owned();
+        for file in read(&capture.path()).flatten() {
+            let name = file.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".dat") && file.path().is_file() {
+                out.push((folder.clone(), name, file.path()));
+            }
+        }
+    }
+    out.sort();
+    out
+}

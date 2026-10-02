@@ -7,11 +7,18 @@ type by type, as the reader of the February 2005 files sees it. Each older layou
 same value the later one does, so nothing downstream of a decoder needs to know which files it came
 from, except where this page says so.
 
+Every file held from this era, from the October 1999 retail CD to February 2005, reads whole with
+the layouts below: every record has a type and decodes with nothing left over. Where a layout
+changed within the era, the difference is listed with when it appears; the record itself (its
+length, or a type word it holds) decides which one a reader takes, never the file's date.
+
 **Readers:** `Decode::decode_pre_tod` on each type in `dereth-assets` (the default, for the types
 whose layout did not change, is the later reader), chosen by `Decode::decode_payload_in` and
-`decode_any_in` from the store's `ContainerEra`. Pinned by the public-tier
-`pre_tod_layouts` tests in `core/assets/tests/cpu/` and, over the February 2005 files, by
-`pre_tod_decode` in the `dat` tier, which decodes every record of both files.
+`decode_any_in` from the store's `ContainerEra`; the type of an id is `divine_type_in`. Pinned by
+the public-tier `pre_tod_layouts` and `legacy_tables` tests in `core/assets/tests/cpu/`; in the
+`dat` tier, over the February 2005 files, by `pre_tod_decode`, over every held file of every era
+by `capture_census`, and the per-era contents by `legacy_layouts` (the last two read
+`DERETH_TEST_DAT_CAPTURES_DIR`).
 
 ## Unchanged
 
@@ -65,11 +72,20 @@ bad-data list, landblocks and landblock information all read with the later layo
 
 - **String (`0x31`)**: the text is a padded `u16`-length string (with the `0xFFFF` escape to a
   `u32` length), not a packed-count one.
-- **Region (`0x13000000`)**: a sky object has **eight words** — no particle-script id — and the land
-  surface is **type 1, palette shifting**, not texture merging: a `u32` texture count, then per
+- **Padded strings of the files through 2002 count their terminating NUL.** Their length is one
+  more than the text, the last byte a NUL, and the client reads the string up to that NUL. From
+  January 2004 the length is the text alone. Dropping one trailing NUL reads both.
+- **Region (`0x13000000`)**: a sky object has **eight words** — no particle-script id (the later
+  files keep this until August 2012; see [41](41-older-records-in-the-later-files.md)) — and the
+  land surface is **type 1, palette shifting**, not texture merging (the type word in the record
+  says which): a `u32` texture count, then per
   texture its id, a `u32` count `n` of `(index, length)` sub-palette ranges, a `u32` count of road
   codes each followed by `n` sub-palette types, and a `u32` count of `(terrain type, palette)`
   pairs. Everything else is unchanged.
+- **The second region (`0x130F0000`).** The older files hold a second, complete region of the same
+  world (same name, grid and heights) at `0x130F0000`. The client loads region `n` from
+  `0x13000000 + n` or, under one of its display settings, from `0x130F0000 + n`; the later files
+  have only the first.
 
 ### Palette shifting
 
@@ -97,11 +113,25 @@ every cell finds one.
 
 - **XpTable (`0x0E000018`)**: the character-level list is `u32`, not `u64` (126 levels in February
   2005); it reads widened. The other five lists are unchanged.
-- **SpellTable (`0x0E00000E`)**, in the layout used from January 2004: the spells alone, each in the
-  later layout, with **no spell-set table** after them.
+- **SpellTable (`0x0E00000E`)**: the spells alone (the `u16` count and bucket header, then each
+  key and spell), with **no spell-set table** after them. A spell is the later layout up to and
+  including its recovery amount; what follows grew twice:
+
+  | files | a spell ends with |
+  |---|---|
+  | October 1999 to January 2002 | the recovery amount |
+  | late 2002 | the display order |
+  | January 2004 on, and the later files | the display order, the non-component target type and the per-target mana |
+
+  Nothing in the table says which. The table is read with each ending, the later first, and the
+  one that ends exactly on the record's end is taken; exactly one does for every table held. A
+  field a spell does not carry reads as zero. The meta-spell types run 1 to 8 in these files, with
+  the payloads of the later layout. The October 1999 table has 1,635 spells; February 2005, 3,737.
 - **CharGen (`0x0E000002`)** is a different, pack-style layout: counts are full `u32`s, strings are a
-  `u32` length and bytes (or, when the first word is above `0xFFFF`, a padded `u16`-length string),
-  and heritages and sexes are ordered lists without keys.
+  `u32` length and the bytes, **padded to four** (or, when the first word is above `0xFFFF`, a padded
+  `u16`-length string), and heritages and sexes are ordered lists without keys. The layout is the
+  same in every file of the era, October 1999 included; the files through 2002 write their strings
+  in the `u32`-length form, which is where the padding shows.
 
   | order | field |
   |---|---|
@@ -118,6 +148,17 @@ every cell finds one.
   the largest index and the allowed clothing colours. A template is a name, icon and description id
   followed by a list of profiles, each six attributes and three skill lists.
 
+  The word between the attribute and skill credits is the sex's **starting-spell credits**, and the
+  (string, word, word) list after the skill credits its starting spells; the client offers a
+  starting-spell page only when the credits are above zero. In every file of the era the credits
+  are 0 and the list is empty, so character creation never offered starting spells. The
+  seventeen-word rows are heraldry choices, and every list of them is empty too.
+
+  The contents changed within the era: the October 1999 table has eighteen starter areas (six per
+  heritage, two each in three towns) and eight templates (Adventurer, Archer, Blademaster,
+  Enchanter, Life Mage, Sorcerer, Vagabond, Warrior); from September 2001 the templates are the
+  seven of the later files, and from January 2002 the starter areas are the six above.
+
   It reads into the later shape: heritages keyed 1, 2, 3 in list order; sexes keyed by name (Male 1,
   Female 2); the heritage's credits, skill costs and templates taken from its first sex; a
   template's attributes and first two skill lists from its one profile (a template with more than
@@ -125,6 +166,16 @@ every cell finds one.
   scale and its physics, motion and combat tables, a hair style's alternate setup, a template's
   title — reads as zero, and a consumer that needs one takes it from elsewhere (the sex's setup
   names its default motion and sound tables).
+
+- **Quality filters (`0x0E000010`, `0x0E000017`)**: the later layout without the 64-bit integer
+  list: the id, **seven** property-list counts (integer, then the six the later layout lists after
+  its 64-bit integer list), the lists, then the three attribute lists as later. The int64 list reads
+  empty. The two filters are the later files' `0x0E010001` and `0x0E010002`.
+- **Quest table (`0x0E00001B`)**, which ended at Throne of Destiny: the id, the `u16` count and
+  `u16` bucket header, then per quest a padded string key, an `i32` minimum interval in seconds, an
+  `i32` solve limit (-1 without limit) and the display name, a padded string whose bytes are
+  nibble-swapped as a spell name's are. February 2005 has 190 quests; the table is present from
+  August 2000.
 
 ## The later interface beside an older world
 
@@ -135,7 +186,9 @@ the client's `--world-dat-dir`) answers every record the older portal and cell f
 them, in their layouts, and every other portal record and every language record from the later
 files, in the later layouts; `RetailDatStore::era_of` says which layout a record is in.
 
-## Types with no counterpart
+## Ids only these files type
 
-The quest table `0x0E00001B` ended at Throne of Destiny and has no reader. `0x0E000010`,
-`0x0E000017` and a second region record `0x130F0000` have ids the later type ranges do not name.
+Three ids of these files lie outside every later type range: the two quality filters at
+`0x0E000010` and `0x0E000017` (the later files put them at `0x0E010000` on) and the second region at
+`0x130F0000`. `divine_type_in` types them for a record of these files; `divine_type`, the later
+client's own lookup, does not.

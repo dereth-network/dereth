@@ -141,7 +141,18 @@ pub struct SpellBase {
     pub mana_mod: i32,
 }
 
-fn read_spell_base(c: &mut Cursor<'_>) -> Result<SpellBase, AssetError> {
+/// How a spell record ends. The record grew twice before Throne of Destiny: the oldest ends after
+/// the recovery fields, the next adds the display order, and the later one (kept from then on) adds
+/// the non-component target type and the per-target mana as well. A field a record does not carry
+/// reads as zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpellTail {
+    Recovery,
+    DisplayOrder,
+    Full,
+}
+
+fn read_spell_base(c: &mut Cursor<'_>, tail: SpellTail) -> Result<SpellBase, AssetError> {
     let name_raw = obfuscated_string_bytes(c)?;
     let desc_raw = obfuscated_string_bytes(c)?;
     let school = c.u32()?;
@@ -208,9 +219,13 @@ fn read_spell_base(c: &mut Cursor<'_>) -> Result<SpellBase, AssetError> {
         fizzle_effect: c.u32()?,
         recovery_interval: c.f64()?,
         recovery_amount: c.f32()?,
-        display_order: c.i32()?,
-        non_component_target_type: c.u32()?,
-        mana_mod: c.i32()?,
+        display_order: if tail == SpellTail::Recovery {
+            0
+        } else {
+            c.i32()?
+        },
+        non_component_target_type: if tail == SpellTail::Full { c.u32()? } else { 0 },
+        mana_mod: if tail == SpellTail::Full { c.i32()? } else { 0 },
     })
 }
 
@@ -240,25 +255,63 @@ impl Decode for SpellTable {
     fn declared_id(&self) -> Option<DataId> {
         Some(self.id)
     }
-    /// Before Throne of Destiny (in the layout from January 2004 on) the table is the spells
-    /// alone, each in the same layout: there are no spell sets.
+    /// Before Throne of Destiny the table is the spells alone: there are no spell sets. Its spell
+    /// records end in one of three ways ([`SpellTail`]) and nothing in the table says which, so the
+    /// table is read with each in turn, the later first, and the one whose reading ends exactly on
+    /// the record's end is taken. Exactly one does for each table shipped.
     fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
-        let (spell_buckets, spells) = read_spells(c)?;
-        Ok(Self {
-            id,
-            spell_buckets,
-            spells,
-            spellset_bucket_index: 0,
-            spellsets: BTreeMap::new(),
-        })
+        let start = c.position();
+        let mut first_error = None;
+        for tail in [
+            SpellTail::Full,
+            SpellTail::DisplayOrder,
+            SpellTail::Recovery,
+        ] {
+            c.seek(start)?;
+            let outcome = read_spells(c, tail).and_then(|spells| {
+                c.expect_end()?;
+                Ok(spells)
+            });
+            match outcome {
+                Ok((spell_buckets, spells)) => {
+                    return Ok(Self {
+                        id,
+                        spell_buckets,
+                        spells,
+                        spellset_bucket_index: 0,
+                        spellsets: BTreeMap::new(),
+                    })
+                }
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
+        Err(first_error.unwrap_or(AssetError::Unsupported {
+            what: "spell table layout",
+            value: 0,
+        }))
     }
 
+    /// The spells, then the spell-set table. The first tables of the later files end after the
+    /// spells, with no set table at all (not an empty one), and read with no sets.
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
-        let (spell_buckets, spells) = read_spells(c)?;
-        let (n2, spellset_bucket_index) = count_then_bucket_index(c)?;
+        let (spell_buckets, spells) = read_spells(c, SpellTail::Full)?;
         let mut spellsets = BTreeMap::new();
+        let mut spellset_bucket_index = 0;
+        if c.remaining() == 0 {
+            return Ok(Self {
+                id,
+                spell_buckets,
+                spells,
+                spellset_bucket_index,
+                spellsets,
+            });
+        }
+        let (n2, index) = count_then_bucket_index(c)?;
+        spellset_bucket_index = index;
         for _ in 0..n2 {
             let k = c.u32()?;
             let nt = c.u32()?;
@@ -290,12 +343,15 @@ impl Decode for SpellTable {
 }
 
 /// The spell list: the `u16` count and bucket header, then each key and spell.
-fn read_spells(c: &mut Cursor<'_>) -> Result<(u32, BTreeMap<u32, SpellBase>), AssetError> {
+fn read_spells(
+    c: &mut Cursor<'_>,
+    tail: SpellTail,
+) -> Result<(u32, BTreeMap<u32, SpellBase>), AssetError> {
     let (n, buckets) = count_then_buckets(c)?;
     let mut spells = BTreeMap::new();
     for _ in 0..n {
         let k = c.u32()?;
-        spells.insert(k, read_spell_base(c)?);
+        spells.insert(k, read_spell_base(c, tail)?);
     }
     Ok((buckets, spells))
 }
@@ -703,9 +759,62 @@ impl Decode for CharGen {
     fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         decode_pre_tod_chargen(c)
     }
+    /// The table changed three times in the later files and nothing in it says which layout it
+    /// is in ([`ChargenLayout`]), so it is read in each, the latest first, and the one whose
+    /// reading ends exactly on the record's end is taken. Exactly one does for each table shipped.
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let start = c.position();
+        let mut first = None;
+        for layout in [
+            ChargenLayout::Current,
+            ChargenLayout::NoAlternateSetup,
+            ChargenLayout::NoSexTables,
+            ChargenLayout::Launch,
+        ] {
+            c.seek(start)?;
+            match decode_chargen(c, layout) {
+                Ok(cg) if c.remaining() == 0 => return Ok(cg),
+                outcome => {
+                    first.get_or_insert(outcome.err());
+                }
+            }
+        }
+        // None fits: report the reading in the latest layout.
+        c.seek(start)?;
+        match first.flatten() {
+            Some(e) => Err(e),
+            None => decode_chargen(c, ChargenLayout::Current),
+        }
+    }
+}
+
+/// The layouts of the character-generation table in the later files, oldest last. Each differs
+/// from the next only where it says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChargenLayout {
+    /// From 2012: a hair style has an alternate setup.
+    Current,
+    /// As [`ChargenLayout::Current`] without a hair style's alternate setup (2010).
+    NoAlternateSetup,
+    /// As [`ChargenLayout::NoAlternateSetup`] without a sex's scale and its physics, motion and
+    /// combat tables (2009).
+    NoSexTables,
+    /// As [`ChargenLayout::NoSexTables`] with seven help-text string ids after the two ids, a
+    /// description string id after a heritage's setup, a naming-help string id after a sex's icon,
+    /// and a template's fourth word a description string id rather than a title (June 2005).
+    Launch,
+}
+
+#[allow(clippy::too_many_lines)]
+fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, AssetError> {
+    let launch = layout == ChargenLayout::Launch;
+    {
         let id = c.data_id()?;
         let second_data_id = c.data_id()?;
+        if launch {
+            // Seven help-text string ids.
+            c.skip(7 * 4)?;
+        }
         let n = c.compressed_u32()? as usize;
         let starter_areas = read_n(c, n, |c| {
             let name = c.archive_string()?;
@@ -723,6 +832,10 @@ impl Decode for CharGen {
             let name = c.archive_string()?;
             let icon = c.u32()?;
             let setup = c.data_id()?;
+            if launch {
+                // The heritage's description string id.
+                c.u32()?;
+            }
             let environment_setup = c.data_id()?;
             let attribute_credits = c.u32()?;
             let skill_credits = c.u32()?;
@@ -737,7 +850,13 @@ impl Decode for CharGen {
             for _ in 0..n {
                 let name = c.archive_string()?;
                 let icon = c.u32()?;
-                let title = c.u32()?;
+                // Before 2009 the word is a description string id, not a title.
+                let title = if launch {
+                    c.u32()?;
+                    0
+                } else {
+                    c.u32()?
+                };
                 let mut attributes = [0u32; 6];
                 for a in &mut attributes {
                     *a = c.u32()?;
@@ -760,7 +879,7 @@ impl Decode for CharGen {
             let mut sexes = BTreeMap::new();
             for _ in 0..ns {
                 let sk = c.u32()?;
-                sexes.insert(sk, read_sex(c)?);
+                sexes.insert(sk, read_sex(c, layout)?);
             }
             heritage_groups.insert(
                 key,
@@ -780,7 +899,7 @@ impl Decode for CharGen {
                 },
             );
         }
-        Ok(Self {
+        Ok(CharGen {
             id,
             second_data_id,
             starter_areas,
@@ -798,8 +917,8 @@ impl Decode for CharGen {
 // heritage the same ones, only the template icons differing). What the older table does not have
 // (a sex's scale, physics, motion and combat tables, a hair style's alternate setup) reads as zero.
 
-/// A string of the older table: a `u32` length and the bytes, unless the first word is above
-/// `0xFFFF`, when it is a padded `u16`-length string instead.
+/// A string of the older table: a `u32` length and the bytes, padded to four bytes, unless the
+/// first word is above `0xFFFF`, when it is a padded `u16`-length string instead.
 fn pre_tod_string(c: &mut Cursor<'_>) -> Result<String, AssetError> {
     let start = c.position();
     let n = c.u32()?;
@@ -807,7 +926,9 @@ fn pre_tod_string(c: &mut Cursor<'_>) -> Result<String, AssetError> {
         c.seek(start)?;
         return Ok(c.packobj_string()?);
     }
-    Ok(cp1252_to_string(c.bytes(n as usize)?))
+    let s = cp1252_to_string(c.bytes(n as usize)?);
+    c.align_ptr();
+    Ok(s)
 }
 
 /// A `u32` count, then that many items.
@@ -1068,17 +1189,27 @@ fn read_gear(c: &mut Cursor<'_>) -> Result<Vec<GearItem>, AssetError> {
     Ok(v)
 }
 
-fn read_sex(c: &mut Cursor<'_>) -> Result<SexCg, AssetError> {
+fn read_sex(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<SexCg, AssetError> {
+    let tables = matches!(
+        layout,
+        ChargenLayout::Current | ChargenLayout::NoAlternateSetup
+    );
     let name = c.archive_string()?;
-    let scale = c.u32()?;
+    let scale = if tables { c.u32()? } else { 0 };
     let setup = c.data_id()?;
     let sound_table = c.data_id()?;
     let icon = c.u32()?;
+    if layout == ChargenLayout::Launch {
+        // The naming-help string id.
+        c.u32()?;
+    }
     let base_palette = c.data_id()?;
     let skin_palset = c.data_id()?;
-    let physics_table = c.data_id()?;
-    let motion_table = c.data_id()?;
-    let combat_table = c.data_id()?;
+    let (physics_table, motion_table, combat_table) = if tables {
+        (c.data_id()?, c.data_id()?, c.data_id()?)
+    } else {
+        (DataId(0), DataId(0), DataId(0))
+    };
     let base_objdesc = read_objdesc(c)?;
     let n = c.compressed_u32()? as usize;
     let hair_colors = read_n(c, n, Cursor::u32)?;
@@ -1088,7 +1219,11 @@ fn read_sex(c: &mut Cursor<'_>) -> Result<SexCg, AssetError> {
         hair_styles.push(HairStyle {
             icon: c.u32()?,
             bald: c.u8()?,
-            alternate_setup: c.data_id()?,
+            alternate_setup: if layout == ChargenLayout::Current {
+                c.data_id()?
+            } else {
+                DataId(0)
+            },
             objdesc: read_objdesc(c)?,
         });
     }
@@ -1144,6 +1279,59 @@ fn read_sex(c: &mut Cursor<'_>) -> Result<SexCg, AssetError> {
         footwear,
         clothing_colors,
     })
+}
+
+// ---------------------------------------------------------------------------------------------
+// 0x0E00001B QuestTable (before Throne of Destiny)
+// ---------------------------------------------------------------------------------------------
+
+/// One quest of the [`QuestTable`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestDef {
+    /// The quest's key, matched without regard to case.
+    pub key: String,
+    /// The shortest time, in seconds, before the quest may be solved again.
+    pub min_delta: i32,
+    /// How many times the quest may be solved; -1 is without limit.
+    pub max_solves: i32,
+    /// The quest's display name, de-obfuscated.
+    pub full_name: String,
+}
+
+/// `QuestTable` — `0x0E00001B`, the quest definitions the files held until Throne of Destiny (the
+/// later files have no such record). A packed-string-keyed hash: the `u16` count and bucket
+/// header, then per quest its key, minimum interval, solve limit and nibble-swapped name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestTable {
+    pub id: DataId,
+    pub buckets: u32,
+    /// In file order.
+    pub quests: Vec<QuestDef>,
+}
+
+impl Decode for QuestTable {
+    const TYPE: DbType = DbType::QuestDefDb;
+    fn declared_id(&self) -> Option<DataId> {
+        Some(self.id)
+    }
+    fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let id = c.data_id()?;
+        let (n, buckets) = count_then_buckets(c)?;
+        let mut quests = Vec::new();
+        for _ in 0..n {
+            quests.push(QuestDef {
+                key: c.packobj_string()?,
+                min_delta: c.i32()?,
+                max_solves: c.i32()?,
+                full_name: obfuscated_string(c)?,
+            });
+        }
+        Ok(Self {
+            id,
+            buckets,
+            quests,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1488,20 +1676,50 @@ impl Decode for QualityFilter {
         for (l, n) in property_lists.iter_mut().zip(counts) {
             *l = read_n(c, n, Cursor::u32)?;
         }
-        let mut counts2 = [0usize; 3];
-        for n in &mut counts2 {
+        Ok(Self {
+            id,
+            property_lists,
+            attribute_lists: read_quality_attribute_lists(c)?,
+        })
+    }
+
+    /// Before Throne of Destiny there are no 64-bit integer properties, so the filter has seven
+    /// property lists, not eight: the int64 list is absent and reads as empty.
+    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        let id = c.data_id()?;
+        let mut counts = [0usize; 7];
+        for n in &mut counts {
             *n = c.u32()? as usize;
         }
-        let mut attribute_lists: [Vec<u32>; 3] = Default::default();
-        for (l, n) in attribute_lists.iter_mut().zip(counts2) {
+        let mut property_lists: [Vec<u32>; 8] = Default::default();
+        for (l, n) in property_lists
+            .iter_mut()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, l)| l)
+            .zip(counts)
+        {
             *l = read_n(c, n, Cursor::u32)?;
         }
         Ok(Self {
             id,
             property_lists,
-            attribute_lists,
+            attribute_lists: read_quality_attribute_lists(c)?,
         })
     }
+}
+
+/// The filter's attribute, secondary-attribute and skill lists: three counts, then the lists.
+fn read_quality_attribute_lists(c: &mut Cursor<'_>) -> Result<[Vec<u32>; 3], AssetError> {
+    let mut counts = [0usize; 3];
+    for n in &mut counts {
+        *n = c.u32()? as usize;
+    }
+    let mut attribute_lists: [Vec<u32>; 3] = Default::default();
+    for (l, n) in attribute_lists.iter_mut().zip(counts) {
+        *l = read_n(c, n, Cursor::u32)?;
+    }
+    Ok(attribute_lists)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1709,7 +1927,7 @@ mod tests {
             b
         }
         for t in [0u32, 16, 17, 0xFFFF_FFFF] {
-            let r = read_spell_base(&mut Cursor::new(&record(t)));
+            let r = read_spell_base(&mut Cursor::new(&record(t)), SpellTail::Full);
             assert!(
                 matches!(
                     r,
@@ -1722,7 +1940,8 @@ mod tests {
             );
         }
         for t in 1..=15u32 {
-            let base = read_spell_base(&mut Cursor::new(&record(t))).expect("a readable type");
+            let base = read_spell_base(&mut Cursor::new(&record(t)), SpellTail::Full)
+                .expect("a readable type");
             assert_eq!(base.meta_spell_type, t);
         }
     }

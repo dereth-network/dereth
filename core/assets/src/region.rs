@@ -256,19 +256,42 @@ impl Decode for Region {
         Some(self.id)
     }
 
+    /// A sky object has a particle-script id only from August 2012; the regions of the later
+    /// files before then have eight-word sky objects, as the older files do. Nothing else in the
+    /// record says which, so the record is read with the particle-script id first and, when that
+    /// does not end exactly on the record's end, without it.
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_region(c, ContainerEra::Tod)
+        let start = c.position();
+        if let Ok(r) = decode_region(c, ContainerEra::Tod, true) {
+            if c.remaining() == 0 {
+                return Ok(r);
+            }
+        }
+        c.seek(start)?;
+        if let Ok(r) = decode_region(c, ContainerEra::Tod, false) {
+            if c.remaining() == 0 {
+                return Ok(r);
+            }
+        }
+        // Neither fits: report the reading with the particle-script id.
+        c.seek(start)?;
+        decode_region(c, ContainerEra::Tod, true)
     }
 
     /// Before Throne of Destiny a sky object has no particle-script id (eight words), and the land
     /// surface is the palette-shift technique ([`PalShift`], type 1) rather than texture merging.
     fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_region(c, ContainerEra::PreTod)
+        decode_region(c, ContainerEra::PreTod, false)
     }
 }
 
+/// `sky_particles`: whether a sky object carries a particle-script id (nine words, not eight).
 #[allow(clippy::too_many_lines)]
-fn decode_region(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Region, AssetError> {
+fn decode_region(
+    c: &mut Cursor<'_>,
+    era: ContainerEra,
+    sky_particles: bool,
+) -> Result<Region, AssetError> {
     let pre_tod = era == ContainerEra::PreTod;
     {
         let id = c.data_id()?;
@@ -342,8 +365,12 @@ fn decode_region(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Region, AssetE
                         end_angle: c.f32()?,
                         tex_velocity: (c.f32()?, c.f32()?),
                         default_gfx_object: c.data_id()?,
-                        // No particle script before Throne of Destiny: eight words.
-                        default_pes_object: if pre_tod { DataId(0) } else { c.data_id()? },
+                        // No particle script before August 2012: eight words.
+                        default_pes_object: if sky_particles {
+                            c.data_id()?
+                        } else {
+                            DataId(0)
+                        },
                         properties: c.u32()?,
                     };
                     c.align_ptr();

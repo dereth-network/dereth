@@ -255,8 +255,8 @@ fn every_february_2005_environment_gfxobj_and_envcell_decodes_whole() {
     }
 }
 
-/// The census: every record of both files decodes in the older layouts, except the one quest
-/// table, a type that ended at Throne of Destiny and that nothing reads.
+/// The census: every record of both files decodes in the older layouts, the quest table and the
+/// ids only the older files type (two quality filters and a second region) among them.
 #[test]
 fn every_february_2005_record_decodes() {
     let r = exhaustive_decode(&store()).expect("the census runs");
@@ -272,26 +272,16 @@ fn every_february_2005_record_decodes() {
         r.entries,
         r.per_type,
     );
-    assert_eq!(r.no_decoder, BTreeMap::from([(DbType::QuestDefDb, 1)]));
+    assert!(r.no_decoder.is_empty(), "{:?}", r.no_decoder);
+    assert!(r.untyped.is_empty(), "{:?}", r.untyped);
     assert_eq!(r.entries, 51_001 + 524_954);
-    assert_eq!(
-        r.decoded + 1 + r.untyped.len(),
-        r.entries,
-        "untyped: {:?}",
-        r.untyped
-    );
+    assert_eq!(r.decoded, r.entries);
     assert_eq!(r.per_type[&DbType::GfxObj], 10_065);
     assert_eq!(r.per_type[&DbType::RenderSurface], 9_930);
     assert_eq!(r.per_type[&DbType::SurfaceTexture], 5_118);
     assert_eq!(r.per_type[&DbType::Surface], 4_334);
     assert_eq!(r.per_type[&DbType::Cell], 455_641);
-    // Two tables and a second region whose ids the later type ranges do not name.
-    assert_eq!(
-        r.untyped,
-        [
-            DataId(0x0E00_0010),
-            DataId(0x0E00_0017),
-            DataId(0x130F_0000)
-        ]
-    );
+    assert_eq!(r.per_type[&DbType::QuestDefDb], 1);
+    assert_eq!(r.per_type[&DbType::QualityFilter], 2);
+    assert_eq!(r.per_type[&DbType::Region], 2);
 }

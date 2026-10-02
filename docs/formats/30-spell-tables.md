@@ -28,6 +28,10 @@ Both mechanisms are given in full below.
 | spell-set hash header | `u32` — count in the low **24** bits, a bucket-size *index* in the high 8 |
 | spell sets | count × { `u32 set_id` ; spell set } |
 
+The first tables of the later files (2005 and 2006) end after the spells, with no set header at
+all, and the files before Throne of Destiny never have one; their spell records also end earlier.
+See [40](40-before-throne-of-destiny.md) and [41](41-older-records-in-the-later-files.md).
+
 **The two headers are not the same shape.** The first is the packable form; the second is the
 intrusive form with an index into the bucket-size table, as described in
 [03-serialisation-primitives.md](03-serialisation-primitives.md). Reading the second as the first

@@ -10,7 +10,7 @@
 //! the engine map, which is why [`divine_type`] searches the game
 //! table first.
 
-use dereth_primitives::{DataId, DataType};
+use dereth_primitives::{ContainerEra, DataId, DataType};
 
 /// Which container a type is routed to. The cache classifies with the portal, cell and local
 /// type tests.
@@ -280,6 +280,29 @@ pub fn divine_type(id: DataId) -> Option<DbType> {
         .chain(ENGINE_RANGES)
         .find(|(base, top, _)| v >= *base && v <= *top)
         .map(|(_, _, t)| *t)
+}
+
+/// Ids the files from before Throne of Destiny hold outside the later ranges: the quality filters
+/// had their own two ids (the later files put them at `0x0E010000` on), and a second set of
+/// regions sat at `0x130F0000` beside the first at `0x13000000`, the client loading region `n`
+/// from one or the other by a display setting.
+const PRE_TOD_RANGES: &[Row] = &[
+    (0x0E00_0010, 0x0E00_0010, DbType::QualityFilter),
+    (0x0E00_0017, 0x0E00_0017, DbType::QualityFilter),
+    (0x130F_0000, 0x130F_FFFF, DbType::Region),
+];
+
+/// [`divine_type`] for a record of a dat set of `era`: before Throne of Destiny a few ids outside
+/// the later ranges also have a type.
+#[must_use]
+pub fn divine_type_in(era: ContainerEra, id: DataId) -> Option<DbType> {
+    divine_type(id).or_else(|| match era {
+        ContainerEra::Tod => None,
+        ContainerEra::PreTod => PRE_TOD_RANGES
+            .iter()
+            .find(|(base, top, _)| id.raw() >= *base && id.raw() <= *top)
+            .map(|(_, _, t)| *t),
+    })
 }
 
 /// Which dat a type is routed to.

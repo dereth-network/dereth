@@ -124,6 +124,9 @@ weighted.
 
 ### 5.1 Sky object (36 bytes)
 
+Until July 2012 a sky object is eight words, without the particle-script id; see
+[41](41-older-records-in-the-later-files.md).
+
 | offset | size | field | meaning |
 |---:|---:|---|---|
 | `+0` | 4 | `begin_time` | Day fraction at which the object appears. |

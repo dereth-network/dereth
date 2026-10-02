@@ -53,7 +53,9 @@ pub use archive::{HashHeader, VersionRow};
 pub use btree::{BtEntry, BtNode};
 pub use container::{ContainerEra, DatFile, DatStorage, DiskFileInfo, StructureReport};
 pub use cursor::Cursor;
-pub use divine::{classify_cell_id, dat_for_type, divine_type, DatKind, DbType, ITERATION_LIST};
+pub use divine::{
+    classify_cell_id, dat_for_type, divine_type, divine_type_in, DatKind, DbType, ITERATION_LIST,
+};
 pub use error::DatError;
 pub use inflate::{inflate_raw, inflate_zlib};
 pub use locate::{

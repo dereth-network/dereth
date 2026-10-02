@@ -615,14 +615,15 @@ fn every_object_in_all_four_dats_decodes_with_nothing_left_over() {
         containers.iter().map(|f| f.len()).sum::<usize>(),
         "every directory entry is examined"
     );
+    // Each file's iteration list reads whole; every other id has a type and decodes.
     assert_eq!(
-        r.untyped.len(),
+        r.iteration_lists,
         containers
             .iter()
             .filter(|f| f.entry(dereth_dat::ITERATION_LIST).is_some())
             .count()
     );
-    assert!(r.untyped.iter().all(|i| *i == dereth_dat::ITERATION_LIST));
-    assert_eq!(r.decoded, r.entries - r.untyped.len());
+    assert!(r.untyped.is_empty(), "untyped: {:?}", r.untyped);
+    assert_eq!(r.decoded, r.entries - r.iteration_lists);
     assert!(r.is_clean());
 }

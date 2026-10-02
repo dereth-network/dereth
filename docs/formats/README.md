@@ -26,7 +26,8 @@ Read the first three in order; the rest stand alone.
 | [22-degrade-info.md](22-degrade-info.md) | Level-of-detail chains and the frame-rate feedback loop that drives them. |
 | [30-spell-tables.md](30-spell-tables.md) | Spells, spell sets and components — including the obfuscation and the per-account formula randomisation. |
 | [31-skill-xp-tables.md](31-skill-xp-tables.md) | Skills, the vital formulas and the experience curves. |
-| [40-before-throne-of-destiny.md](40-before-throne-of-destiny.md) | The record layouts of the two data files from before Throne of Destiny, type by type. |
+| [40-before-throne-of-destiny.md](40-before-throne-of-destiny.md) | The record layouts of the two data files from before Throne of Destiny, type by type, from October 1999 to February 2005. |
+| [41-older-records-in-the-later-files.md](41-older-records-in-the-later-files.md) | The three record types whose layout changed inside the later files, and how a reader tells the layouts apart. |
 
 ## Conventions used on these pages
 
