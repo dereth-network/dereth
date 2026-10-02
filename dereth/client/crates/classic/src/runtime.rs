@@ -1727,6 +1727,14 @@ impl ClassicUi {
             String::new()
         };
         for notice in notices.salvage {
+            // Using a salvaging tool opens the salvage window on it; the window then takes the
+            // notice, as it takes the items added and removed.
+            if let dereth_client_contract::panels::salvage::SalvageNotice::Open(tool) = notice {
+                self.panel_actions.push(PanelAction::OpenObject {
+                    id: "salvage".into(),
+                    object: tool,
+                });
+            }
             self.panel_events
                 .push(("salvage".into(), ControlEvent::Salvage(notice)));
         }
