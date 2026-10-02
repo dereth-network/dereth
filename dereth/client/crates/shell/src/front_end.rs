@@ -453,6 +453,12 @@ impl<H: Host> ClientShell<H> {
         Self::with_window_events(hwnd, crate::platform::window::WindowEvents::default())
     }
 
+    /// Queue a host event as the window would, to be routed with the next frame's: the way an
+    /// in-process driver gives the client real input.
+    pub fn queue_window_event(&self, event: crate::platform::window::HostEvent) {
+        self.window_events.borrow_mut().push(event);
+    }
+
     /// A front end that routes the events the window queues on `window_events`.
     #[must_use]
     pub fn with_window_events(

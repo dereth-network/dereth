@@ -252,6 +252,12 @@ impl<H: Host> App<H> {
         route_host_event(&mut self.core.ui_context(), &mut self.shell, event, time_ms);
     }
 
+    /// Queue a host event as the window would; the next frame routes it to whichever interface
+    /// is shown. For in-process drivers and tests.
+    pub fn queue_window_event(&mut self, event: crate::platform::window::HostEvent) {
+        self.shell.queue_window_event(event);
+    }
+
     /// The device input, for the tests and the console's state line.
     pub fn input_manager_mut(&mut self) -> Option<&mut crate::input::InputShell> {
         self.shell.input.as_mut()

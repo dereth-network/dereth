@@ -1540,6 +1540,17 @@ impl ClassicUi {
     pub fn hand_on_actions(&mut self, actions: &mut dereth_client_runtime::actions::ActionQueue) {
         actions.submit(std::mem::take(&mut self.actions));
     }
+    /// The 3D previews this frame shows, and where.
+    #[must_use]
+    pub fn shown_previews(
+        &self,
+    ) -> &[(
+        dereth_client_contract::overlay::PreviewSpace,
+        crate::widgets::Rect,
+    )] {
+        self.previews.shown()
+    }
+
     pub fn set_display(&mut self, size: (i32, i32)) {
         self.pending_size = Some((size.0.max(1).unsigned_abs(), size.1.max(1).unsigned_abs()));
         self.screen.width = size.0.max(1).unsigned_abs();
