@@ -100,7 +100,9 @@ pub fn shell_error_text(result: i32, url: &str) -> String {
 /// from the file; any other registered option is read through the option store's own load, as the
 /// file would be. `None` for a name no option has, or a value it cannot take.
 fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_contract::PrefValue)> {
-    use dereth_client_contract::options::{interface, landscape, performance, preferences, store};
+    use dereth_client_contract::options::{
+        classic, interface, landscape, performance, preferences, store,
+    };
     let (key, value) = setting.split_once('=')?;
     let key = key.trim();
     let name: &'static str = preferences::UI_PREFERENCES
@@ -113,6 +115,7 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
             interface::INTERFACE,
             performance::PERFORMANCE_PANEL,
         ])
+        .chain(classic::NAMES)
         .find(|n| n.eq_ignore_ascii_case(key))?;
     if let Some(v) =
         landscape::parse_value(name, value).or_else(|| interface::parse_value(name, value))

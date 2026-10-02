@@ -20,21 +20,46 @@ pub const MUTE_INACTIVE: u32 = 0x100_0000;
 /// The classic interface's own settings among the character's option bits: inverted mouse look,
 /// right-click mouse look, the stretched interface and muting when the window loses the focus.
 /// The same bits of the character's word mean other things to the final client, which shares the
-/// character, so they are kept as this client's own settings and never written to the word.
+/// character, so they are never written to the word: they are preferences in the shared store.
 pub const CLASSIC_ONLY: u32 = INVERT_LOOK | RIGHT_CLICK_LOOK | STRETCH_UI | MUTE_INACTIVE;
 
-static CLASSIC_BITS: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(crate::screens::DEFAULT_WORDS[0] & CLASSIC_ONLY);
+/// Each of [`CLASSIC_ONLY`]'s bits and the preference that holds it: the classic interface's
+/// own three (`UI.Classic.*`), and muting when inactive, which is the shared
+/// `Sound.PlaySoundOnlyWhenActive` both interfaces' pages edit.
+pub const BIT_PREFERENCES: [(u32, &str); 4] = [
+    (
+        INVERT_LOOK,
+        dereth_client_contract::options::classic::INVERT_MOUSE_LOOK,
+    ),
+    (
+        RIGHT_CLICK_LOOK,
+        dereth_client_contract::options::classic::RIGHT_CLICK_MOUSE_LOOK,
+    ),
+    (
+        STRETCH_UI,
+        dereth_client_contract::options::classic::STRETCH_UI,
+    ),
+    (MUTE_INACTIVE, "Sound.PlaySoundOnlyWhenActive"),
+];
 
-/// This client's own settings, as the bits of [`CLASSIC_ONLY`].
+/// This client's own settings, as the bits of [`CLASSIC_ONLY`], read from the shared store.
 #[must_use]
 pub fn classic_bits() -> u32 {
-    CLASSIC_BITS.load(std::sync::atomic::Ordering::Relaxed)
+    BIT_PREFERENCES
+        .iter()
+        .filter(|(_, name)| dereth_client_contract::options::classic::on(name))
+        .fold(0, |bits, (bit, _)| bits | bit)
 }
 
-/// Set this client's own settings from the bits of [`CLASSIC_ONLY`] in `bits`.
+/// Set this client's own settings from the bits of [`CLASSIC_ONLY`] in `bits`, in the shared
+/// store.
 pub fn set_classic_bits(bits: u32) {
-    CLASSIC_BITS.store(bits & CLASSIC_ONLY, std::sync::atomic::Ordering::Relaxed);
+    for (bit, name) in BIT_PREFERENCES {
+        let _ = dereth_client_contract::options::store::set_value(
+            name,
+            PrefValue::Bool(bits & bit != 0),
+        );
+    }
 }
 
 /// Whether the interface is stretched to the window's height.

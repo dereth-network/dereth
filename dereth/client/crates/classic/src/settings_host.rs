@@ -1,11 +1,21 @@
-//! The classic settings pages carried onto the host. UI values are normalized; saved values use
-//! the classic interface's packed words.
+//! The classic settings pages carried onto the host. UI values are normalized.
+//!
+//! **One store.** Every row of the Sound/Graphics page is a shared preference, the same one the
+//! retail interface's Client Options page edits: the page opens on the store's values and Apply
+//! writes them back, so the profile (`UserPreferences.ini`) holds both interfaces' settings and
+//! either page shows what the other set. The page keeps its own steps (tenths for the volumes,
+//! hundredths for the brightness) by packing a value into the classic interface's words before
+//! it is written, as the early client saved it.
+//!
+//! The classic interface once kept these in a file of its own, `classic/settings.json`;
+//! [`migrate_settings_file`] carries a file left from then into the store, once.
 use crate::{panels::ClassicSettings, runtime::Cx};
+use dereth_client_contract::options::store;
 use dereth_client_contract::{PrefValue, UiRequest};
 use dereth_client_runtime::render_prefs::RenderPreferences;
 use dereth_client_runtime::{present::Presentation, shell::Shell};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct Stored {
@@ -30,15 +40,6 @@ fn digit(v: f32, scale: f32) -> u32 {
     .unwrap_or(0)
 }
 impl Stored {
-    fn save(&self, path: &Path) -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
-        let temp = path.with_extension("json.tmp");
-        std::fs::write(&temp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&temp, path).map_err(|e| e.to_string())
-    }
     fn from_settings(s: &ClassicSettings) -> Self {
         let (w, h) = s
             .resolutions
@@ -198,6 +199,150 @@ fn sound_requests(s: &ClassicSettings) -> Vec<UiRequest> {
         ),
     ]
 }
+/// The page's values as the shared preferences they are, the Display ones included. The camera's
+/// stiffness is left out at zero, where the page leaves the live stiffness alone.
+fn shared_values(s: &ClassicSettings) -> Vec<(&'static str, PrefValue)> {
+    let mut out: Vec<(&'static str, PrefValue)> = sound_requests(s)
+        .into_iter()
+        .chain(render_requests(
+            s,
+            (s.camera_stiffness > 0.0).then(|| camera_stiffness(s.camera_stiffness)),
+        ))
+        .filter_map(|r| match r {
+            UiRequest::SetPreference(name, v) => Some((name, v)),
+            _ => None,
+        })
+        .collect();
+    if let Some((w, h)) = s.resolutions.get(s.resolution) {
+        out.push(("Display.Resolution", resolution_value((*w, *h))));
+    }
+    out.push(("Display.FullScreen", PrefValue::Bool(s.full_screen)));
+    out
+}
+
+/// Write the page's values into the shared store.
+fn write_shared(s: &ClassicSettings) {
+    for (name, v) in shared_values(s) {
+        let _ = store::set_value(name, v);
+    }
+}
+
+/// The page's values read out of the shared store, over `capabilities` (what this machine can
+/// do, and the window's size, which the window already took from the store when it opened).
+/// A preference the store does not hold keeps the capability's value.
+#[must_use]
+pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
+    let mut s = capabilities.clone();
+    let bool_of = |name: &str| match store::inq_value(name) {
+        Some(PrefValue::Bool(b)) => Some(b),
+        _ => None,
+    };
+    let float_of = |name: &str| match store::inq_value(name) {
+        Some(PrefValue::Float(f)) => Some(f),
+        _ => None,
+    };
+    let int_of = |name: &str| match store::inq_value(name) {
+        Some(PrefValue::Int(i)) => Some(i),
+        _ => None,
+    };
+    if let Some(v) = bool_of("Sound.SoundDisabled") {
+        s.effects = v;
+    }
+    if let Some(v) = bool_of("Sound.AmbientSoundDisabled") {
+        s.ambient = v;
+    }
+    if let Some(v) = bool_of("Sound.InterfaceSoundDisabled") {
+        s.interface = v;
+    }
+    if let Some(v) = int_of("Sound.SoundFeatures") {
+        s.stereo = v == 0;
+    }
+    if let Some(v) = float_of("Sound.SoundVolume") {
+        s.effects_volume = normalized(v);
+    }
+    if let Some(v) = float_of("Sound.AmbientSoundVolume") {
+        s.ambient_volume = normalized(v);
+    }
+    use dereth_client_runtime::render_prefs as names;
+    if let Some(v) = int_of(names::LANDSCAPE_TEXTURE_DETAIL) {
+        s.texture_levels[0] = level_of(v);
+    }
+    if let Some(v) = int_of(names::ENVIRONMENT_TEXTURE_DETAIL) {
+        s.texture_levels[2] = level_of(v);
+    }
+    if let Some(v) = bool_of(names::BUILDING_DETAIL_TEXTURES) {
+        s.environment_detail = v && s.detail_available;
+    }
+    if let Some(v) = float_of(names::SCREEN_BRIGHTNESS) {
+        s.brightness = slider_of_brightness(v);
+    }
+    if let Some(v) = bool_of(names::AUTOMATIC_DEGRADES) {
+        s.auto_degrade = v;
+    }
+    if let Some(v) = float_of(names::GRAPHICS_PERFORMANCE) {
+        s.performance = normalized((1.0 - v) / 2.0);
+    }
+    if let Some(v) = float_of("Camera.Stiffness") {
+        s.camera_stiffness = normalized(v / 0.714_285_73 - 0.4);
+    }
+    if let Some(v) = bool_of("Display.FullScreen") {
+        s.full_screen = v;
+    }
+    s
+}
+
+/// A texture-detail preference (1 full size .. 4 an eighth) as the page's step (0 .. 3).
+fn level_of(v: i32) -> u8 {
+    u8::try_from((v - 1).clamp(0, 3)).unwrap_or(0)
+}
+
+/// Carry a `settings.json` the classic interface kept in its own folder into the shared store,
+/// once: each setting the player had moved from the page's own first values (`defaults`) is
+/// written to its shared preference, and the file is removed. A setting left at the page's first
+/// value is not written, so it does not override what the shared store holds. Returns how many
+/// settings were carried, or why the file could not be read (it is then left in place).
+///
+/// # Errors
+/// The file is there and cannot be read or is not the page's.
+pub fn migrate_settings_file(path: &Path, defaults: &ClassicSettings) -> Result<usize, String> {
+    if !path.is_file() {
+        return Ok(0);
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let stored = serde_json::from_slice::<Stored>(&bytes).map_err(|e| e.to_string())?;
+    let mut file = stored.decode(defaults)?;
+    // The file named a size, not a place in this machine's list of sizes.
+    file.full_screen = defaults.full_screen;
+    let mut carried = 0;
+    // The page's first values as the file would have held them (tenths, hundredths).
+    let before = shared_values(&Stored::from_settings(defaults).decode(defaults)?);
+    let mut after = shared_values(&file);
+    if !defaults
+        .resolutions
+        .contains(&(stored.resolution[0], stored.resolution[1]))
+    {
+        after.retain(|(n, _)| *n != "Display.Resolution");
+        after.push((
+            "Display.Resolution",
+            resolution_value((stored.resolution[0], stored.resolution[1])),
+        ));
+    }
+    for (name, v) in after {
+        if before.iter().any(|(n, d)| *n == name && *d == v) {
+            continue;
+        }
+        if store::set_value(name, v) {
+            carried += 1;
+        }
+    }
+    std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    Ok(carried)
+}
+
+fn resolution_value(size: (u32, u32)) -> PrefValue {
+    PrefValue::Int(((size.0 << 16) | size.1) as i32)
+}
+
 /// A resolution change first offers a test; the test's acceptance dialog times out after 15
 /// seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -215,15 +360,11 @@ pub struct ResolutionChange {
     persist: bool,
 }
 fn resolution_request(size: (u32, u32)) -> UiRequest {
-    preference(
-        "Display.Resolution",
-        PrefValue::Int(((size.0 << 16) | size.1) as i32),
-    )
+    preference("Display.Resolution", resolution_value(size))
 }
 /// The capability fields are supplied by the actual endpoint/renderer/display, never by the file.
 #[derive(Debug)]
 pub struct SettingsHost {
-    path: PathBuf,
     current: ClassicSettings,
     saved: ClassicSettings,
     camera_value: Option<f32>,
@@ -237,20 +378,12 @@ pub struct SettingsHost {
 /// the answer.
 const RESIZE_REPORT_SECONDS: f64 = 2.0;
 impl SettingsHost {
-    pub fn load(path: impl AsRef<Path>, capabilities: ClassicSettings) -> Result<Self, String> {
-        let path = path.as_ref().to_owned();
-        let current = if path.exists() {
-            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-            serde_json::from_slice::<Stored>(&bytes)
-                .map_err(|e| e.to_string())?
-                .decode(&capabilities)?
-        } else {
-            capabilities
-        };
+    /// The page over the shared store's values ([`from_shared`]).
+    pub fn load(capabilities: ClassicSettings) -> Result<Self, String> {
+        let current = from_shared(&capabilities);
         let camera_value =
             (current.camera_stiffness > 0.0).then(|| camera_stiffness(current.camera_stiffness));
         Ok(Self {
-            path,
             saved: current.clone(),
             current,
             camera_value,
@@ -261,6 +394,16 @@ impl SettingsHost {
     }
     pub fn snapshot(&self) -> ClassicSettings {
         self.current.clone()
+    }
+    /// Open the page again on the shared store's values: the other interface's page may have
+    /// changed them while this one was put away. A size choice under way is left as it is.
+    pub fn reload(&mut self) {
+        let current = from_shared(&self.current);
+        self.saved = current.clone();
+        self.current = current;
+        if self.current.camera_stiffness > 0.0 {
+            self.camera_value = Some(camera_stiffness(self.current.camera_stiffness));
+        }
     }
     /// Call once after start_shell; sound is then available and loaded preferences can take effect.
     pub fn initialize<S: Shell>(&mut self, cx: &mut Cx<'_, S>) -> Result<Vec<UiRequest>, String> {
@@ -335,11 +478,13 @@ impl SettingsHost {
             self.current.resolution = i;
         }
     }
+    /// Commit the page's values to the shared store, with `size` as the window's size.
     fn persist_resolution(&mut self, size: (u32, u32)) -> Result<(), String> {
         let mut stored = Stored::from_settings(&self.current);
         stored.resolution = [size.0, size.1];
-        stored.save(&self.path)?;
         self.saved = stored.decode(&self.current)?;
+        write_shared(&self.saved);
+        let _ = store::set_value("Display.Resolution", resolution_value(size));
         Ok(())
     }
     /// First dialog: Yes tests; No applies permanently. Second: Yes keeps; No reverts.
@@ -671,50 +816,107 @@ mod tests {
         assert_eq!(actual.performance, 0.8);
         assert_eq!(actual.camera_stiffness, 0.7);
     }
+    /// Behaviour: presentation.settings.both-interfaces-edit-one-store
     #[test]
-    fn persistent_state_replaces_an_existing_file_and_reloads_current_capabilities() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir()
-            .join("dereth-classic-settings-tests")
-            .join(format!("{}-{nonce}.json", std::process::id()));
-        let mut s = settings();
-        Stored::from_settings(&s).save(&path).unwrap();
-        s.effects_volume = 0.3;
-        Stored::from_settings(&s).save(&path).unwrap();
+    fn the_page_opens_on_the_shared_store_and_commits_to_it() {
+        store::init();
+        // What the retail page set, in the shared store.
+        assert!(store::set_value("Sound.SoundVolume", PrefValue::Float(0.4)));
+        assert!(store::set_value(
+            "Render.ScreenBrightness",
+            PrefValue::Float(0.0)
+        ));
+        assert!(store::set_value(
+            "Render.LandscapeTextureDetail",
+            PrefValue::Int(3)
+        ));
+        assert!(store::set_value("Camera.Stiffness", PrefValue::Float(0.45)));
         let mut capabilities = settings();
         capabilities.sound_available = false;
-        let loaded = SettingsHost::load(&path, capabilities).unwrap().snapshot();
-        assert_eq!(loaded.effects_volume, 0.3);
-        assert!(!loaded.sound_available);
-        assert!(!path.with_extension("json.tmp").exists());
-        std::fs::remove_file(path).unwrap();
+        let mut host = SettingsHost::load(capabilities).unwrap();
+        let s = host.snapshot();
+        assert_eq!(s.effects_volume, 0.4);
+        assert_eq!(
+            s.brightness, 0.5,
+            "the slider's middle: the world's brightness as the other page left it"
+        );
+        assert_eq!(s.texture_levels[0], 2);
+        assert!((s.camera_stiffness - 0.23).abs() < 0.001);
+        assert!(
+            !s.sound_available,
+            "capabilities are the machine's, not the store's"
+        );
+        // What this page commits, the retail page reads.
+        host.current.ambient_volume = 0.7;
+        host.current.performance = 1.0;
+        host.persist_resolution((800, 600)).unwrap();
+        assert_eq!(
+            store::inq_value("Sound.AmbientSoundVolume"),
+            Some(PrefValue::Float(0.7))
+        );
+        assert_eq!(
+            store::inq_value("Render.GraphicsPerformance"),
+            Some(PrefValue::Float(-1.0))
+        );
     }
-    fn resolution_host() -> SettingsHost {
+    /// Behaviour: presentation.settings.both-interfaces-edit-one-store
+    #[test]
+    fn a_settings_file_left_by_the_classic_interface_is_carried_into_the_store_once() {
+        store::init();
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir()
+        let dir = std::env::temp_dir()
             .join("dereth-classic-settings-tests")
-            .join(format!("resolution-{}-{nonce}.json", std::process::id()));
-        let mut host = SettingsHost::load(path, settings()).unwrap();
+            .join(format!("{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let mut s = settings();
+        s.effects_volume = 0.3;
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&Stored::from_settings(&s)).unwrap(),
+        )
+        .unwrap();
+        assert!(migrate_settings_file(&path, &settings()).unwrap() >= 1);
+        assert_eq!(
+            store::inq_value("Sound.SoundVolume"),
+            Some(PrefValue::Float(0.3)),
+            "the setting the player moved"
+        );
+        assert_eq!(
+            store::inq_value("Render.ScreenBrightness"),
+            Some(PrefValue::Float(0.0)),
+            "a setting left at the page's own first value does not override the store"
+        );
+        assert!(!path.exists(), "the file is gone");
+        assert_eq!(migrate_settings_file(&path, &settings()).unwrap(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    fn resolution_host() -> SettingsHost {
+        store::init();
+        let mut host = SettingsHost::load(settings()).unwrap();
         host.current.brightness = 0.8;
         host.current.resolution = 1;
         host.persist_resolution((800, 600)).unwrap();
         host.stage_resolution((800, 600), (1024, 768), true);
         host
     }
-    fn saved_size(host: &SettingsHost) -> (u32, u32) {
-        let loaded = SettingsHost::load(&host.path, settings()).unwrap();
-        assert_eq!(
-            loaded.snapshot().brightness,
-            0.8,
+    fn saved_size(_host: &SettingsHost) -> (u32, u32) {
+        let Some(PrefValue::Float(b)) = store::inq_value("Render.ScreenBrightness") else {
+            panic!("a brightness");
+        };
+        assert!(
+            (b - 0.6).abs() < 1e-6,
             "other applied settings remain committed"
         );
-        loaded.current.resolutions[loaded.current.resolution]
+        let Some(PrefValue::Int(v)) = store::inq_value("Display.Resolution") else {
+            panic!("a saved size");
+        };
+        #[allow(clippy::cast_sign_loss)]
+        let v = v as u32;
+        (v >> 16, v & 0xFFFF)
     }
     #[test]
     fn tested_resolution_is_saved_only_after_explicit_acceptance() {
@@ -733,7 +935,6 @@ mod tests {
         assert!(host.answer_resolution(true).unwrap().is_empty());
         assert_eq!(saved_size(&host), (1024, 768));
         assert!(host.pending_resolution().is_none());
-        std::fs::remove_file(host.path).unwrap();
     }
     #[test]
     fn failed_or_rejected_resolution_keeps_previous_size_and_other_applied_settings() {
@@ -756,7 +957,6 @@ mod tests {
             assert!(host.pending_resolution().is_none());
             assert_eq!(host.snapshot().resolution, 0);
             assert_eq!(saved_size(&host), (800, 600));
-            std::fs::remove_file(host.path).unwrap();
         }
     }
     #[test]
@@ -769,7 +969,6 @@ mod tests {
             ResolutionStage::Applying { test: true }
         );
         assert_eq!(host.pending_resolution().unwrap().target, (1024, 768));
-        std::fs::remove_file(host.path).unwrap();
     }
     #[test]
     fn an_unanswered_resize_is_overdue_after_two_seconds() {
@@ -783,7 +982,6 @@ mod tests {
         host.resolution_applied(false, 12.0).unwrap();
         assert!(!host.resolution_report_overdue(13.0));
         assert_eq!(host.awaited_size(), None);
-        std::fs::remove_file(host.path).unwrap();
     }
     #[test]
     fn declining_the_test_saves_only_after_successful_resize() {
@@ -801,7 +999,6 @@ mod tests {
                 if success { (1024, 768) } else { (800, 600) }
             );
             assert!(host.pending_resolution().is_none());
-            std::fs::remove_file(host.path).unwrap();
         }
     }
 }

@@ -472,8 +472,8 @@ fn register_all_fills_the_registry() {
     );
     assert_eq!(
         dereth_ui_screens::options::store::len(),
-        39,
-        "…over 34 registered variables, this client's three options from another era, its          interface choice and its performance panel"
+        42,
+        "…over 34 registered variables, this client's three options from another era, its          interface choice, its performance panel and the classic interface's three"
     );
     let (table, label, _) =
         preferences::inq_preference("Camera.AlignToSlope").expect("inq_preference answers");

@@ -286,6 +286,7 @@ pub fn init() -> usize {
     super::landscape::register();
     super::interface::register();
     super::performance::register();
+    super::classic::register();
     n
 }
 
@@ -1088,9 +1089,9 @@ mod tests {
     #[test]
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
-        // ...beside this client's three presentation options from another era, its interface and
-        // its performance panel.
-        assert_eq!(len(), 39);
+        // ...beside this client's three presentation options from another era, its interface, its
+        // performance panel and the classic interface's three.
+        assert_eq!(len(), 42);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

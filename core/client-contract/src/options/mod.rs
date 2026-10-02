@@ -13,6 +13,8 @@
 //! `dereth_ui_screens::options::store::display_choice` and its siblings resolve.
 
 /// `PrefValueConst`, moved down out of `dereth_ui_screens::options::config`.
+/// The classic interface's own block of options.
+pub mod classic;
 pub mod config;
 pub mod interface;
 /// This client's own presentation options from another era: the ground's, the sky's and the

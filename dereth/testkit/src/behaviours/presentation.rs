@@ -260,6 +260,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.settings.both-interfaces-edit-one-store",
+        says: "The classic interface's Sound/Graphics page opens on the same preferences the \
+               retail interface's Client Options page edits, and what it applies the retail page \
+               shows: the volumes, the sound switches, brightness, the camera's stiffness, \
+               graphics performance, automatic degrading, the texture sizes, the detail \
+               textures, the window's size and full screen. A settings file the classic \
+               interface kept in its own folder is carried into the shared preferences once, \
+               each setting the player had moved, and removed.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-UNIFY-ONE-STORE"),
+        station: "dereth-classic-ui::lib::settings_host::tests::the_page_opens_on_the_shared_store_and_commits_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "presentation.settings.the-client-keeps-its-files-in-a-folder-of-its-own",
         says: "The client keeps its preferences, key maps and other files in a folder named for \
                this client rather than for the original game: Dereth's client folder in the \

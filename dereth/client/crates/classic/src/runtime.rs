@@ -1251,12 +1251,6 @@ impl ClassicUi {
             {
                 self.pending_size = Some(cx.present().size());
             }
-            if self.stretch_saved.is_some() {
-                let _ = std::fs::write(
-                    self.paths.state.join("classic-options"),
-                    format!("{bits:08x}"),
-                );
-            }
             self.stretch_saved = Some(bits);
         }
         if let Some(code) = cx.hud_mut().classic_panels().abuse.take() {
@@ -1300,17 +1294,19 @@ impl ClassicUi {
                 crate::help::install(&help_path)?;
             }
         }
-        // The character screen's welcome text: servers of this interface's era sent one, and a
-        // player may keep their own in the settings folder for the servers that send none.
-        self.classic.welcome = std::env::var("DERETH_CLASSIC_WELCOME")
-            .ok()
-            .or_else(|| std::fs::read_to_string(self.paths.state.join("welcome.txt")).ok())
-            .unwrap_or_default();
-        if let Some(bits) = std::fs::read_to_string(self.paths.state.join("classic-options"))
+        // The character screen's welcome text for a server that sends none: the world's own
+        // message, when it sends one, is shown first (the pre-game view's).
+        self.classic.welcome = std::env::var("DERETH_CLASSIC_WELCOME").unwrap_or_default();
+        // This interface's own settings are in the shared store; a file of them left in its old
+        // folder is carried there once.
+        let retired = &self.paths.state;
+        if let Some(bits) = std::fs::read_to_string(retired.join("classic-options"))
             .ok()
             .and_then(|s| u32::from_str_radix(s.trim(), 16).ok())
         {
             crate::keyboard_runtime::set_classic_bits(bits);
+            let _ = std::fs::remove_file(retired.join("classic-options"));
+            tracing::info!("the classic interface's own options moved into the profile");
         }
         let catalogue = crate::key_catalogue::classic();
         // The default key map: the one named in the environment, else the installation's own
@@ -1364,10 +1360,18 @@ impl ClassicUi {
             .iter()
             .position(|s| *s == size)
             .unwrap_or(0);
-        let host = crate::settings_host::SettingsHost::load(
-            self.paths.state.join("settings.json"),
-            self.settings.clone(),
-        )?;
+        match crate::settings_host::migrate_settings_file(
+            &self.paths.state.join("settings.json"),
+            &self.settings,
+        ) {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("{n} classic sound and graphics setting(s) moved into the profile")
+            }
+            Err(e) => tracing::warn!("the classic interface's old settings file: {e}"),
+        }
+        retire_folder(&self.paths.state);
+        let host = crate::settings_host::SettingsHost::load(self.settings.clone())?;
         self.settings = host.snapshot();
         self.settings_host = Some(host);
         let in_world = cx.pregame().in_world;
@@ -1571,6 +1575,14 @@ impl ClassicUi {
         self.previews.shown()
     }
 
+    /// The interface is shown again: its settings page reads the shared store again, which the
+    /// other interface may have changed meanwhile.
+    pub fn shown_again(&mut self) {
+        if let Some(host) = &mut self.settings_host {
+            host.reload();
+            self.settings = host.snapshot();
+        }
+    }
     pub fn set_display(&mut self, size: (i32, i32)) {
         self.pending_size = Some((size.0.max(1).unsigned_abs(), size.1.max(1).unsigned_abs()));
         self.screen.width = size.0.max(1).unsigned_abs();
@@ -2453,6 +2465,24 @@ impl ClassicUi {
             present.draw_overlay(canvas.items())?;
         }
         Ok(())
+    }
+}
+
+/// The classic interface's old settings folder, once everything in it has moved into the shared
+/// store and key map: removed when nothing is left in it, and left with what is otherwise.
+fn retire_folder(folder: &std::path::Path) {
+    let Ok(mut entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    if entries.next().is_none() {
+        if std::fs::remove_dir(folder).is_ok() {
+            tracing::info!("the classic interface's old settings folder is retired");
+        }
+    } else {
+        tracing::info!(
+            "the classic interface's old settings folder {} still holds files this client no longer reads",
+            folder.display()
+        );
     }
 }
 

@@ -2522,6 +2522,9 @@ impl<H: Host> ClientShell<H> {
         };
         match want {
             Interface::Classic => {
+                if let Some(ui) = self.classic.ui.as_mut() {
+                    ui.shown_again();
+                }
                 if self.classic.ui.is_none() {
                     match build_classic(cx) {
                         Ok(ui) => self.classic.ui = Some(ui),
@@ -2570,6 +2573,19 @@ impl<H: Host> ClientShell<H> {
                 // The classic interface wrote the journal as it went; the retail one reads it
                 // again rather than keep its older pages.
                 cx.hud_mut().panels.journal.forget();
+                // The classic interface set two shared preferences live for itself alone (its own
+                // field of view, and the camera's inversion off while it inverts the vertical
+                // itself); the shared store's values take over again.
+                let now = dereth_primitives::LocalTime(cx.now());
+                for name in ["Input.InvertMouseLookYAxis", "Render.FieldOfView"] {
+                    if let Some(v) = dereth_client_contract::options::store::inq_value(name) {
+                        let _ = cx.run_request(
+                            dereth_client_contract::UiRequest::SetPreference(name, v),
+                            now,
+                            &mut |_, _| false,
+                        );
+                    }
+                }
                 // This interface's chat takes the lines it missed.
                 let missed: Vec<_> = self.classic.take_missed();
                 for line in missed {
