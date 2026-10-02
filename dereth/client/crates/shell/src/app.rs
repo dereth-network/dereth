@@ -164,6 +164,80 @@ enum PregameDrive {
     Entering,
 }
 
+/// The object `--cast` selects before casting `spell_id`: none for a spell cast on the caster or
+/// on no one, else the player when the client's target test takes it, else the first worn, then
+/// carried, item it takes.
+fn scripted_cast_target(
+    world: &dereth_client_model::world::World,
+    spell_id: u32,
+) -> Option<dereth_primitives::ObjectId> {
+    let table = world.magic.spell_table.as_ref()?;
+    let base = table.spells.get(&spell_id)?;
+    let target_type = dereth_client_model::magic::spell_target_type(base);
+    if base.bitfield & dereth_client_model::magic::spell_index::SELF_TARGETED != 0
+        || target_type == 0
+    {
+        return None;
+    }
+    let player = world.player?;
+    let mut candidates = vec![player];
+    if let Some(inv) = world.inventory(player) {
+        candidates.extend(inv.placements.iter().map(|p| p.iid));
+        candidates.extend(inv.items.iter().copied());
+    }
+    candidates.into_iter().find(|&id| {
+        world
+            .object_compatible_with_spell_target_type(
+                &mut dereth_client_model::NullSink,
+                Some(id),
+                target_type,
+                true,
+            )
+            .is_ok()
+    })
+}
+
+/// The first caster (wand, staff or orb) the player carries, which `--cast` wields to enter
+/// magic mode as a player would.
+fn scripted_caster(
+    world: &dereth_client_model::world::World,
+) -> Option<dereth_primitives::ObjectId> {
+    let inv = world.inventory(world.player?)?;
+    inv.items.iter().copied().find(|&id| {
+        world
+            .weenie(id)
+            .is_some_and(|w| w.inq_type() & dereth_client_model::weenie::item_type::CASTER != 0)
+    })
+}
+
+/// How far `--cast` has driven the world screen: the backpack opened, a caster wielded, magic
+/// mode entered, the target selected, the spell cast, peace again, then the closest compass item
+/// used.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum WorldDrive {
+    /// Not in the world yet.
+    #[default]
+    Idle,
+    /// In the world since this time; the inventory and the materialization settle first.
+    Arrived(f64),
+    /// The backpack button was pressed at this time.
+    BackpackOpened(f64),
+    /// The carried caster was used (wielded) at this time.
+    CasterWielded(f64),
+    /// The combat toggle was pressed at this time.
+    MagicMode(f64),
+    /// The target, if the spell needs one, was selected at this time.
+    TargetChosen(f64),
+    /// The cast was asked for at this time.
+    Cast(f64),
+    /// The combat toggle was pressed again (back to peace) at this time.
+    Peace(f64),
+    /// The closest compass item (the nearest person) was selected at this time.
+    Approaching(f64),
+    /// Walking up to it; nothing more to do.
+    Done,
+}
+
 /// Complete every implemented request owner in order, at BOTH input-listener and HUD-update
 /// boundaries. The presentation is a live field-disjoint borrow: the scene needs no copy and no
 /// extra advancement, and the device-owned preference names land through the same handle.
@@ -296,6 +370,8 @@ fn dispatch_ui_owner_requests(
 pub struct ClientShell<H: Host> {
     /// How far `--enter-world` has driven the pre-game screens. See `App::drive_pregame_screens`.
     pregame: PregameDrive,
+    /// How far `--cast` has driven the world screen. See `App::drive_world_script`.
+    world_drive: WorldDrive,
     /// The client UI cursor half: the current cursor id, the built
     /// `HCURSOR`s, and the window they are installed on. See [`crate::cursor`].
     cursor: crate::cursor::CursorSystem,
@@ -407,6 +483,7 @@ impl<H: Host> ClientShell<H> {
             devices: crate::pump::DeviceMessages::default(),
             window_events,
             pregame: PregameDrive::default(),
+            world_drive: WorldDrive::default(),
             cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
             clipboard: crate::clipboard::ClipboardBridge::default(),
             host_clipboard: H::clipboard(),
@@ -1758,6 +1835,132 @@ impl<H: Host> Ui<'_, H> {
             _ => {}
         }
         self.shell.pregame = pregame;
+    }
+
+    /// `--cast`, pressed into the world screen: the backpack button, the carried caster used
+    /// (which wields it), the combat toggle (magic mode, with a caster in hand), a selection when
+    /// the spell wants a target, the spell bar's cast, the toggle back to peace, and then a walk
+    /// up to the closest compass item, used.
+    ///
+    /// The backpack is opened by the element message its toolbar button takes from a click, the
+    /// caster by the use request a double-click raises, the mode by the toggle's action, and the
+    /// cast is the request the spell bar's Cast button raises, so the client's own component
+    /// check runs before anything goes to the server. The waits let the world settle: the
+    /// inventory arrives with the player description and the body materializes after it.
+    fn drive_world_script(&mut self, now: f64) {
+        use dereth_ui::framework::mode;
+        use dereth_ui::msg::element::id::BUTTON_CLICKED;
+        use dereth_ui_screens::toolbar::INVENTORY_BUTTON;
+
+        let Some(spell_id) = self.core.cfg.cast else {
+            return;
+        };
+        let in_world = self.core.host_state.in_world;
+        let drive = self.shell.world_drive;
+        let Some(shell) = self.shell.ui.as_mut() else {
+            return;
+        };
+        if !in_world || shell.flow.current_mode() != Some(mode::GAME_PLAY) {
+            return;
+        }
+        self.shell.world_drive = match drive {
+            WorldDrive::Idle => WorldDrive::Arrived(now),
+            WorldDrive::Arrived(t) if now - t >= 5.0 => {
+                let root = match shell.flow.current() {
+                    Some(s) if !s.roots().is_empty() => s.roots()[0],
+                    _ => return,
+                };
+                let Some(h) = shell.ui.get_child_recursive(root, INVENTORY_BUTTON) else {
+                    return;
+                };
+                tracing::info!("opening the backpack");
+                shell.ui.broadcast_element_message(h, BUTTON_CLICKED, 7, 0);
+                WorldDrive::BackpackOpened(now)
+            }
+            WorldDrive::BackpackOpened(t) if now - t >= 2.0 => {
+                // Spells are cast in magic mode, and magic mode wants a caster in hand.
+                if let Some(caster) = scripted_caster(&self.core.objects.world) {
+                    tracing::info!("wielding the caster {caster:?}");
+                    shell
+                        .ui
+                        .requests
+                        .emit(dereth_ui_screens::view::UiRequest::Use(caster));
+                }
+                WorldDrive::CasterWielded(now)
+            }
+            WorldDrive::CasterWielded(t) if now - t >= 3.0 => {
+                tracing::info!("entering combat (magic) mode");
+                self.core
+                    .actions
+                    .inject(dereth_client_contract::actions::Action {
+                        id: dereth_client_contract::actions::ActionId(0x1000_005A),
+                        phase: dereth_client_contract::actions::ActionPhase::Begin,
+                        extent: 1.0,
+                        repeats: 0,
+                    });
+                WorldDrive::MagicMode(now)
+            }
+            WorldDrive::MagicMode(t) if now - t >= 3.0 => {
+                // A spell cast at another needs a selection, as a player's would: the player,
+                // else the first worn or carried item the client's own target test accepts.
+                if let Some(target) = scripted_cast_target(&self.core.objects.world, spell_id) {
+                    tracing::info!("selecting {target:?} for spell {spell_id}");
+                    shell
+                        .ui
+                        .requests
+                        .emit(dereth_ui_screens::view::UiRequest::Select(target));
+                }
+                WorldDrive::TargetChosen(now)
+            }
+            WorldDrive::TargetChosen(t) if now - t >= 1.0 => {
+                tracing::info!("casting spell {spell_id}");
+                shell
+                    .ui
+                    .requests
+                    .emit(dereth_ui_screens::view::UiRequest::CastSpell { spell_id });
+                WorldDrive::Cast(now)
+            }
+            WorldDrive::Cast(t) if now - t >= 4.0 => {
+                tracing::info!("leaving combat (peace) mode");
+                self.core
+                    .actions
+                    .inject(dereth_client_contract::actions::Action {
+                        id: dereth_client_contract::actions::ActionId(0x1000_005A),
+                        phase: dereth_client_contract::actions::ActionPhase::Begin,
+                        extent: 1.0,
+                        repeats: 0,
+                    });
+                WorldDrive::Peace(now)
+            }
+            WorldDrive::Peace(t) if now - t >= 3.0 => {
+                // Then go up to the nearest person or thing, as the frame's close-up.
+                tracing::info!("selecting the closest compass item");
+                self.core
+                    .actions
+                    .inject(dereth_client_contract::actions::Action {
+                        id: dereth_client_contract::actions::ActionId(0x1000_002F),
+                        phase: dereth_client_contract::actions::ActionPhase::Begin,
+                        extent: 1.0,
+                        repeats: 0,
+                    });
+                WorldDrive::Approaching(now)
+            }
+            WorldDrive::Approaching(t) if now - t >= 1.0 => {
+                let world = &self.core.objects.world;
+                if let Some(id) = world.selected {
+                    let name = world
+                        .weenie(id)
+                        .map(|w| w.object_name(dereth_client_model::weenie::NameType::Appropriate));
+                    tracing::info!("walking up to {id:?} {name:?}");
+                    shell
+                        .ui
+                        .requests
+                        .emit(dereth_ui_screens::view::UiRequest::Use(id));
+                }
+                WorldDrive::Done
+            }
+            other => other,
+        };
     }
 
     /// **The key-binding page's three host calls.**
@@ -3168,6 +3371,14 @@ impl<H: Host> Shell for ClientShell<H> {
             shell: self,
         }
         .drive_pregame_screens();
+    }
+
+    fn drive_world_script(&mut self, app: &mut CoreApp<H>, now: dereth_primitives::LocalTime) {
+        Ui {
+            core: app,
+            shell: self,
+        }
+        .drive_world_script(now.0);
     }
 
     fn ui_frame(

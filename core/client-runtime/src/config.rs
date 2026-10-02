@@ -307,6 +307,11 @@ pub struct Config {
     /// lands sees a still photograph. Zero (log off at once) stays the default. Like `--frames`, this
     /// is this rebuild's switch and not one the retail client has.
     pub linger: f64,
+    /// `--cast <spell id>`: once `--enter-world` is in the world, open the backpack and cast this
+    /// spell as the spell bar's Cast button does, through the client's own component check and
+    /// request. It proves a login can play, not just arrive; like `--linger` it is this rebuild's
+    /// switch and not one the retail client has.
+    pub cast: Option<u32>,
 
     // ---- the shell ----
     /// Bring up the UI element tree and flow controller, run the mode machine, and draw the current screen
@@ -399,6 +404,7 @@ impl Default for Config {
             connect: true,
             enter_world: false,
             linger: 0.0,
+            cast: None,
             ui: true,
             sound: true,
             ui_mode: None,
@@ -662,6 +668,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // The populated slice.
     Switch {
         long: "linger",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "cast",
         short: None,
         arity: Arity::Required,
     },
@@ -1250,6 +1261,12 @@ impl Config {
                     .map_err(|_| ConfigError::new(format!("bad --linger value {v:?}")))?
                     .clamp(0.0, 3600.0);
             }
+            "cast" => {
+                self.cast = Some(
+                    v.parse::<u32>()
+                        .map_err(|_| ConfigError::new(format!("bad --cast value {v:?}")))?,
+                );
+            }
             "time-of-day" => {
                 let f = v
                     .parse::<f32>()
@@ -1639,6 +1656,14 @@ mod tests {
         assert_eq!(c.era, Some(dereth_primitives::EraId::Infiltration));
         assert_eq!(parse(&[]).expect("parses").era, None);
         assert!(parse(&["--era", "tod"]).is_err());
+    }
+
+    /// `--cast` names the spell a scripted world entry casts; it takes a spell id.
+    #[test]
+    fn the_cast_switch_names_the_spell_a_scripted_entry_casts() {
+        assert_eq!(parse(&["--cast", "35"]).expect("parses").cast, Some(35));
+        assert_eq!(parse(&[]).expect("parses").cast, None);
+        assert!(parse(&["--cast", "blood"]).is_err());
     }
 
     // Oracle: the complete supported switch table and its per-switch behavior.

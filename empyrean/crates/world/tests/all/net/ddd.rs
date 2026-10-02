@@ -1,6 +1,7 @@
 //! Vectors: fixtures/vectors/ddd/
 //! DDDManager vs ACE vectors; client iteration list parsed as the client writes runs;
 //! DDDDataMessage framing; iteration file sent with client's type key.
+//! Divergence: V414
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state, retail dats or world.pack in the real-content tier.
 
 use std::collections::{BTreeMap, HashMap};
@@ -740,6 +741,112 @@ mod real_content {
                 .sessions
                 .get(session)
                 .is_some_and(|s| !s.begin_ddd_sent && s.ddd_data_queue.is_none()));
+        }
+    }
+
+    /// The iteration list a client sends for `f`: its `0xFFFF0001` record, or, for a file from
+    /// before Throne of Destiny, one run of its header iteration (`n`, then `-n, 1`).
+    fn list_of(f: &dereth_dat::DatFile) -> dereth_protocol::admin::MostlyConsecutiveIntSet {
+        use dereth_protocol::admin::MostlyConsecutiveIntSet;
+        if let Some(n) = f.header_iteration() {
+            let n = i32::try_from(n).expect("an iteration");
+            return MostlyConsecutiveIntSet {
+                iterations: n,
+                ints: vec![-n, 1],
+            };
+        }
+        let raw = f
+            .read(dereth_dat::divine::ITERATION_LIST)
+            .expect("an iteration list");
+        let ints: Vec<i32> = raw
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes(c.try_into().expect("4 bytes")))
+            .collect();
+        MostlyConsecutiveIntSet {
+            iterations: ints[0],
+            ints: ints[1..].to_vec(),
+        }
+    }
+
+    fn response(lists: &[(u32, u32, &dereth_dat::DatFile)]) -> DddInterrogationResponse {
+        DddInterrogationResponse {
+            client_language: 1,
+            iters_with_keys: lists
+                .iter()
+                .map(|&(dat_file_type, dat_file_id, f)| {
+                    dereth_protocol::admin::TaggedIterationList {
+                        dat_file_type,
+                        dat_file_id,
+                        iterations: list_of(f),
+                    }
+                })
+                .collect(),
+            iters_without_keys: Vec::new(),
+            flags: 0,
+        }
+    }
+
+    /// Divergence: V414
+    /// A server on the February 2005 dats compares a client's portal and cell iterations with its
+    /// own and not the language list (those files have no language file): the Dereth client
+    /// drawing that world (its portal and cell from February 2005, its language file the end of
+    /// retail's) goes on to `DDD_EndDDD` (`0xF7EA`); a client with the end-of-retail portal and
+    /// cell is still booted (`Login_AccountBooted`, `0xF7DC`), as is one that sent only the
+    /// end-of-retail language list before, which the server once booted as incomplete.
+    #[test]
+    fn a_server_on_the_february_2005_dats_admits_a_client_drawing_that_world() {
+        let old_dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+            panic!(
+                "{}",
+                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            )
+        });
+        let old = dereth_dat::RetailDatStore::open_pre_tod_dir(&old_dir).expect("2005 dats");
+        let later = dereth_dat::RetailDatStore::open_dir(&dereth_dat::testing::dat_dir())
+            .expect("the end-of-retail dats");
+        let dats: Arc<DatManager> =
+            DatManager::initialize(Arc::new(RealDats::open(&old_dir).expect("2005 dats")))
+                .expect("2005 dats");
+
+        let hybrid = response(&[
+            (0, 1, old.portal()),
+            (1, 2, old.cell()),
+            (1, 3, later.local()),
+        ]);
+        let language_only = response(&[(1, 3, later.local())]);
+        let end_of_retail = response(&[
+            (0, 1, later.portal()),
+            (1, 2, later.cell()),
+            (1, 3, later.local()),
+        ]);
+        for (what, answer, admitted) in [
+            ("the February 2005 world", hybrid, true),
+            ("the language list alone", language_only, true),
+            ("the end-of-retail world", end_of_retail, false),
+        ] {
+            let mut ts = TestServer::with_dats(Arc::clone(&dats));
+            ts.auth()
+                .create_account(
+                    "acct",
+                    "pw",
+                    AccessLevel::Player,
+                    std::net::Ipv4Addr::LOCALHOST.into(),
+                )
+                .expect("created");
+            let id = ts.connect("acct", "pw");
+            assert!(
+                ts.run_until(1.0, |ts| !ts.received::<DddInterrogation>(id).is_empty()),
+                "{what}: interrogation"
+            );
+            ts.send_message(id, NetQueue::ClientCache, &answer);
+            ts.run_until(1.0, |_| false);
+            let got: Vec<u32> = ts.received_raw(id).iter().map(|m| m.opcode).collect();
+            assert_eq!(got.contains(&0xF7EA), admitted, "{what}: EndDDD {got:04X?}");
+            assert_eq!(
+                got.contains(&0xF7DC),
+                !admitted,
+                "{what}: booted {got:04X?}"
+            );
         }
     }
 }

@@ -79,6 +79,82 @@ fn the_february_2005_skill_table_has_the_old_weapon_skills() {
     }
 }
 
+/// A physics script table from February 2005 answers in the later script-type numbering: the
+/// types from 30 on were one lower then, so the human body's hide and unhide scripts (the
+/// materialize at login) sit under the types the later file lists them under, and a type below
+/// 30 is unmoved.
+#[test]
+fn a_february_2005_physics_script_table_answers_in_the_later_script_types() {
+    use dereth_assets::PhysicsScriptTable;
+    const HUMAN: u32 = 0x3400_0004;
+    const UNHIDE: u32 = 117;
+    const HIDE: u32 = 118;
+    let old: PhysicsScriptTable = read(&store(), HUMAN);
+    let later_store =
+        RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).expect("the end-of-retail dats");
+    let bytes = later_store.read_portal(DataId(HUMAN)).expect("present");
+    let later = PhysicsScriptTable::decode_payload(DataId(HUMAN), &bytes).expect("decodes");
+    let scripts = |t: &PhysicsScriptTable, key: u32| -> Vec<u32> {
+        t.script_table[&key].iter().map(|r| r.script_id.0).collect()
+    };
+    for key in [UNHIDE, HIDE] {
+        assert_eq!(
+            scripts(&old, key),
+            scripts(&later, key),
+            "script type {key}"
+        );
+    }
+    assert!(
+        !old.script_table.contains_key(&30),
+        "type 30 is later than 2005"
+    );
+    let low: Vec<u32> = old
+        .script_table
+        .keys()
+        .copied()
+        .filter(|&k| k < 30)
+        .collect();
+    assert!(!low.is_empty());
+    for key in low {
+        assert_eq!(
+            scripts(&old, key),
+            scripts(&later, key),
+            "script type {key}"
+        );
+    }
+}
+
+/// A February 2005 clothing table's sub-palette ranges counted the colours of a 256-colour
+/// palette; read into the later count they are the ranges the later file gives the same
+/// clothing (a shirt's dye range 40 colours on, 24 long, is entries 320 to 512).
+#[test]
+fn a_february_2005_clothing_table_dyes_the_ranges_the_later_file_does() {
+    use dereth_assets::ClothingTable;
+    let old = store();
+    let later =
+        RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).expect("the end-of-retail dats");
+    let mut compared = 0;
+    for id in [0x1000_0001, 0x1000_0002, 0x1000_0004, 0x1000_0006] {
+        let o: ClothingTable = read(&old, id);
+        let bytes = later.read_portal(DataId(id)).expect("present");
+        let l = ClothingTable::decode_payload(DataId(id), &bytes).expect("decodes");
+        for (key, template) in &o.palette_templates {
+            let Some(later_template) = l.palette_templates.get(key) else {
+                continue;
+            };
+            assert_eq!(
+                template.subpalette_effects, later_template.subpalette_effects,
+                "{id:#010X} template {key}"
+            );
+            compared += 1;
+        }
+    }
+    assert!(compared >= 4, "{compared} templates compared");
+    let shirt: ClothingTable = read(&old, 0x1000_0001);
+    let ranges = &shirt.palette_templates[&1].subpalette_effects[0].ranges;
+    assert_eq!((ranges[0].offset, ranges[0].length), (320, 192));
+}
+
 /// Six outdoor starter areas, three heritages each with a male and a female, 330 attribute and
 /// 50 skill credits, and seven templates.
 #[test]

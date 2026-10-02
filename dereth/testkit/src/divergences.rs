@@ -162,7 +162,17 @@ pub static DIVERGENCES: &[Divergence] = &[
         dereth: "Given those two files beside the end-of-retail ones (--world-dat-dir), the \
                  client draws the February 2005 world from them and the end-of-retail screens \
                  over it: the interface's layouts, strings, fonts and images come from the later \
-                 files, and a record the older files lack is read from them too.",
+                 files, and a record the older files lack is read from them too. Asked which \
+                 iterations its data files hold (the DDD interrogation), it answers \
+                 for the world it draws: the older portal and cell files, whose iteration is in \
+                 their headers, as one run of it (2112 and 1593), and the later language file's \
+                 own list. The older physics script tables are read in the later numbering of \
+                 script types (those from 30 on were one lower then), so the scripts the later \
+                 client plays by type, the materialize at login among them, find their rows; \
+                 their clothing tables' dye ranges, which counted the colours of a 256-colour \
+                 palette, are read in the later count of eight entries a colour; and their \
+                 images, which carry no alpha, are transparent where they are pure black, as the \
+                 later files' copies of the same icons are.",
         why: "Dereth plays every era over one set of screens until the interface of the time is \
               rebuilt; the world itself is the older files' own.",
     },

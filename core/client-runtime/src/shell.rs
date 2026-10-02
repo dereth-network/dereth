@@ -178,6 +178,8 @@ pub trait Shell: Sized {
     fn control_notice(&mut self, notice: ControlNotice) {}
     /// Press the pre-game screens' own buttons for a scripted world entry.
     fn drive_pregame_screens(&mut self, app: &mut App<Self>) {}
+    /// Press the world screen's own buttons for a scripted run once in the world (`--cast`).
+    fn drive_world_script(&mut self, app: &mut App<Self>, now: LocalTime) {}
     /// The UI's own step: the screen update, the mode switch, the HUD and the panels, the preview
     /// spaces, and the requests the screens raised.
     fn ui_frame(&mut self, app: &mut App<Self>, now: LocalTime, notices: UiNotices) {}

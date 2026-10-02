@@ -4567,7 +4567,8 @@ mod imp {
                 // the region's: colour `0x00AAAAAA`, 400..2000, disabled.
                 fog: dereth_render::camera::FogParams::default(),
                 degrade: DegradeState::new(cfg.auto_degrades),
-                terrain_splat: cfg.terrain_splat && gpu.terrain_splat_supported(),
+                // The palette-shift landscape has no splat form (`splat` already says so).
+                terrain_splat: splat,
                 stats: SceneStats::default(),
             };
 

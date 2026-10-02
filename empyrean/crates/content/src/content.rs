@@ -48,6 +48,11 @@ macro_rules! world_database_api {
             fn era(&self) -> EraId {
                 EraId::Eor
             }
+
+            /// Not ACE: the class ids of every weenie of one type, in class id order.
+            fn weenie_class_ids_of_type(&self, _weenie_type_id: i32) -> Vec<u32> {
+                Vec::new()
+            }
         }
 
         impl WorldDatabase for WorldDatabaseWithEntityCache {
@@ -64,6 +69,17 @@ macro_rules! world_database_api {
             fn era(&self) -> EraId {
                 self.base().pack().era()
             }
+
+            fn weenie_class_ids_of_type(&self, weenie_type_id: i32) -> Vec<u32> {
+                let mut ids: Vec<u32> = self.base()
+                    .weenie_index()
+                    .into_iter()
+                    .filter(|(_, i)| i.r#type == weenie_type_id)
+                    .map(|(k, _)| k)
+                    .collect();
+                ids.sort_unstable();
+                ids
+            }
         }
 
         impl WorldDatabase for MemContent {
@@ -79,6 +95,17 @@ macro_rules! world_database_api {
 
             fn era(&self) -> EraId {
                 self.db().base().pack().era()
+            }
+
+            fn weenie_class_ids_of_type(&self, weenie_type_id: i32) -> Vec<u32> {
+                let mut ids: Vec<u32> = self.db().base()
+                    .weenie_index()
+                    .into_iter()
+                    .filter(|(_, i)| i.r#type == weenie_type_id)
+                    .map(|(k, _)| k)
+                    .collect();
+                ids.sort_unstable();
+                ids
             }
         }
     };

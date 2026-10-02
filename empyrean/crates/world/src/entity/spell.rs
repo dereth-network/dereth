@@ -16,9 +16,12 @@ use empyrean_common::dotnet::{math, CsCast};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::models::world::Spell as DbSpell;
 use empyrean_dat::file_types::DualDidMapper;
-use empyrean_entity::enums::properties::{PropertyAttribute, PropertyAttribute2nd, PropertyInt};
+use empyrean_entity::enums::properties::{
+    PropertyAttribute, PropertyAttribute2nd, PropertyDataId, PropertyInt,
+};
 use empyrean_entity::enums::{
     EnchantmentTypeFlags, MagicSchool, Skill, SpellCategory, SpellFlags, SpellId, SpellType,
+    WeenieType,
 };
 use empyrean_entity::ObjectGuid;
 
@@ -332,17 +335,57 @@ impl Spell {
             .read_from_dat::<DualDidMapper>(Spell::SPELL_COMPONENT_DIDS);
 
         // ClientEnumToID is the mapper's first table.
-        let wcid = dual_dids.as_ref().and_then(|m| {
-            m.0.enum_to_id
-                .iter()
-                .find(|(k, _)| *k == comp_id)
-                .map(|(_, v)| *v)
-        });
+        let wcid = match dual_dids.as_ref() {
+            Some(m) => {
+                m.0.enum_to_id
+                    .iter()
+                    .find(|(k, _)| *k == comp_id)
+                    .map(|(_, v)| *v)
+            }
+            // DIVERGE: dats from before Throne of Destiny have no component mapper; the world's
+            // own spell component weenies name their components instead (V415).
+            None => Spell::component_wcids_from_content(w)
+                .get(&comp_id)
+                .copied(),
+        };
         let Some(wcid) = wcid else {
             log::info!("GetComponentWCID({comp_id}): couldn't find component ID");
             return 0;
         };
         wcid
+    }
+
+    /// Not ACE: the spell component weenies whose stored component id is not the one the
+    /// end-of-retail dats map them from, with that one: Quicksilver stores 1555 for 155, and Moo
+    /// Juice stores 113 (another component's id) for 187.
+    const MISNUMBERED_COMPONENT_WEENIES: [(u32, u32); 2] = [(8308, 155), (9148, 187)];
+
+    /// Not ACE: each spell component's weenie class id as the world's content names it: every
+    /// spell component weenie with a component id, the lowest class id where several share one,
+    /// and the two stored under another id under their own. Built once per world.
+    pub fn component_wcids_from_content(w: &World) -> &std::collections::HashMap<u32, u32> {
+        w.loot_tables.spell_component_wcids.get_or_init(|| {
+            let mut map = std::collections::HashMap::new();
+            let spell_component = i32::try_from(WeenieType::SpellComponent.0).expect("fits");
+            for wcid in w.content.weenie_class_ids_of_type(spell_component) {
+                let Some(weenie) = w.content.get_cached_weenie(wcid) else {
+                    continue;
+                };
+                let stored = weenie
+                    .properties_did
+                    .as_ref()
+                    .and_then(|d| d.get(&PropertyDataId::SpellComponent).copied());
+                let component = Spell::MISNUMBERED_COMPONENT_WEENIES
+                    .iter()
+                    .find(|(misnumbered, _)| *misnumbered == wcid)
+                    .map_or(stored, |(_, component)| Some(*component));
+                if let Some(component) = component {
+                    // Class ids arrive in order, so the first is the lowest.
+                    map.entry(component).or_insert(wcid);
+                }
+            }
+            map
+        })
     }
 
     // ACE: Spell.GetMagicSkill

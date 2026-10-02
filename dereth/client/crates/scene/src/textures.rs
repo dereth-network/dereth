@@ -223,7 +223,21 @@ impl<'a> TextureStore<'a> {
                 .map_err(|e| TextureError::Decode(rsid, e));
         }
         let src = self.source_pixels(format, payload, palette, clip_map)?;
-        decode_surface(src, rs.width, rs.height).map_err(|e| TextureError::Decode(rsid, e))
+        let mut data =
+            decode_surface(src, rs.width, rs.height).map_err(|e| TextureError::Decode(rsid, e))?;
+        // The images of the dat set before Throne of Destiny carry no alpha: pure black is their
+        // transparent colour (an icon's surround, a panel's cut-outs), which the later files store
+        // as alpha instead.
+        if format == PixelFormatId::CustomB8G8R8 && data.format == TextureFormat::Bgra8 {
+            for level in &mut data.levels {
+                for px in level.as_chunks_mut::<4>().0 {
+                    if px[..3] == [0, 0, 0] {
+                        px[3] = 0;
+                    }
+                }
+            }
+        }
+        Ok(data)
     }
 
     /// The CPU-readable form the terrain compositor needs: always BGRA8.
@@ -323,6 +337,44 @@ impl<'a> TextureStore<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A February 2005 image carries no alpha, and its pure black is its transparent colour: an
+    /// item icon's surround is transparent where the end-of-retail file's copy of the same icon
+    /// is, and an item-type background tile, which has no black, stays opaque.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the February 2005 and end-of-retail dats: --features retail-dats"
+    )]
+    fn a_february_2005_image_is_transparent_where_it_is_black() {
+        let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+            panic!(
+                "{}",
+                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            )
+        });
+        let hybrid = RetailDatStore::open_pre_tod_with_later(&old, &dereth_dat::testing::dat_dir())
+            .expect("the February 2005 dats beside the end-of-retail ones");
+        let later =
+            RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).expect("the retail dats");
+        let clear = |store: &RetailDatStore, id: u32| -> Vec<bool> {
+            let d = TextureStore::new(store)
+                .texture_data(DataId(id))
+                .expect("the image decodes");
+            assert_eq!(d.format, TextureFormat::Bgra8);
+            d.levels[0]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| p[3] == 0)
+                .collect()
+        };
+        let icon = 0x0600_1375;
+        let old_clear = clear(&hybrid, icon);
+        assert!(old_clear.iter().filter(|&&c| c).count() > 100);
+        assert_eq!(old_clear, clear(&later, icon));
+        assert!(clear(&hybrid, 0x0600_11CB).iter().all(|&c| !c));
+    }
 
     /// A 256-colour image of the February 2005 files takes colour `i` of its 256-entry palette
     /// for index `i` (an Aluvian body part: indices 64-79, skin tones), not colour `i / 8`.

@@ -33,7 +33,8 @@ fn the_february_2005_holtburg_draws_under_todays_screens() {
     std::fs::create_dir_all(&home).expect("a scratch home");
     let exe = env!("CARGO_BIN_EXE_dereth-client");
     let output = Command::new(exe)
-        .args(["--headless", "--frames", "1", "--capture"])
+        // Several frames: the landscape a later frame draws is the one a player sees.
+        .args(["--headless", "--frames", "3", "--capture"])
         .arg(&out)
         .arg("--dat-dir")
         .arg(&dat_dir)
@@ -80,5 +81,18 @@ fn the_february_2005_holtburg_draws_under_todays_screens() {
         .map(|p| [p[0], p[1], p[2]])
         .collect();
     assert!(colours.len() > 1000, "{} colours", colours.len());
+
+    // The ground in front, either side of the body, is the textured landscape and not one
+    // shaded colour: the bottom quarter's outer halves hold thousands of colours.
+    let (w, h) = (info.width as usize, info.height as usize);
+    let ground: std::collections::BTreeSet<[u8; 3]> = (h * 3 / 4..h)
+        .flat_map(|y| {
+            (0..w / 4)
+                .chain(w * 3 / 4..w)
+                .map(move |x| (y * w + x) * bpp)
+        })
+        .map(|i| [buf[i], buf[i + 1], buf[i + 2]])
+        .collect();
+    assert!(ground.len() > 2000, "{} ground colours", ground.len());
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -30,6 +30,9 @@ pub struct LootTablesState {
     /// Not ACE: the loot tables' weenies this world's database was found to lack, each logged
     /// once (the era's `LootTables::PackOnly` rule).
     pub(crate) missing_weenies: std::sync::Mutex<std::collections::BTreeSet<u32>>,
+    /// Not ACE: each spell component's weenie class id, read from this world's spell component
+    /// weenies, for dats without the component mapper (`Spell::get_component_wcid`).
+    pub(crate) spell_component_wcids: std::sync::OnceLock<std::collections::HashMap<u32, u32>>,
 }
 
 /// C#'s `list[i]` for an `int` index; .NET throws `ArgumentOutOfRangeException` when `i` is out

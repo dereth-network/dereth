@@ -143,6 +143,12 @@ pub fn ddd_interrogation_response_with(
     // message.Payload.ReadUInt32(); // the flags - We don't need this
 
     let dats = std::sync::Arc::clone(&w.dats);
+    // DIVERGE: on the dat set from before Throne of Destiny there is no language file (the
+    // portal file holds the strings) and no patching (those files have no iteration lists to
+    // patch from): the portal and cell iterations are compared, the language list is not, and a
+    // client missing iterations is booted as when patching is off.
+    let pre_tod = dats.portal_dat().container_era() == dereth_primitives::ContainerEra::PreTod;
+    let enable_dat_patching = enable_dat_patching && !pre_tod;
     let portal_iteration = dats.portal_dat().iteration();
     let cell_iteration = dats.cell_dat().iteration();
     let language_iteration = dats.language_dat().iteration();
@@ -221,6 +227,9 @@ pub fn ddd_interrogation_response_with(
             3 => {
                 // LANGUAGE
                 client_language_dat_int_set = entry.list.clone();
+                if pre_tod {
+                    continue;
+                }
                 if entry.list.iterations < language_iteration {
                     if show_dat_warning {
                         set_dat_warn(w, session, DatWarn::Language);

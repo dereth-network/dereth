@@ -296,7 +296,18 @@ pub fn ddd_interrogation_response(
     const HIFI: u32 = u32::from_le_bytes(*b"HiFi");
 
     /// The file's `0xFFFF0001` payload as `(count, the run-length dwords that follow)`.
+    ///
+    /// A file from before Throne of Destiny has no such record; its iteration is in its header,
+    /// and it answers as one run of that many (`count n`, then `-n, 1`), the shape a file patched
+    /// from its first iteration to its last has.
     fn set_of(f: &dereth_dat::DatFile) -> Option<MostlyConsecutiveIntSet> {
+        if let Some(n) = f.header_iteration() {
+            let n = i32::try_from(n).ok()?;
+            return Some(MostlyConsecutiveIntSet {
+                iterations: n,
+                ints: vec![-n, 1],
+            });
+        }
         let raw = f.read(dereth_dat::divine::ITERATION_LIST).ok()?;
         let (head, rest) = raw.split_at_checked(4)?;
         let iterations = i32::from_le_bytes([head[0], head[1], head[2], head[3]]);
@@ -1926,6 +1937,7 @@ impl<S: Shell> App<S> {
         let trade_for_dummies = self.interaction.take_trade_for_dummies();
         self.build_host_state();
         shell.drive_pregame_screens(self);
+        shell.drive_world_script(self, now);
         // Before the pointer events are dispatched: a click reaches smart-box object
         // search from inside `dispatch` below, and it must be measured against
         // the rectangle `<SBOX>` occupies *this* frame.
@@ -6865,6 +6877,39 @@ mod tests {
         assert_eq!(style::WINDOWED & WS_MAXIMIZEBOX, 0);
         assert_eq!(style::EX_STYLE, 0);
         assert_eq!(RETAIL_WINDOW_CLASS, "Turbine Device Class");
+    }
+
+    /// Drawing the February 2005 world beside the later interface files, the client answers the
+    /// DDD interrogation (`0xF7E6`) with the world it draws: the 2005 portal and cell files as one
+    /// run of their header iterations (2112 and 1593), and the later language file's own list.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn a_client_drawing_the_february_2005_world_answers_ddd_with_that_worlds_iterations() {
+        let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+            panic!(
+                "{}",
+                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            )
+        });
+        let store = dereth_dat::RetailDatStore::open_pre_tod_with_later(
+            &old,
+            &dereth_dat::testing::dat_dir(),
+        )
+        .expect("the two dat sets");
+        let r = ddd_interrogation_response(&store, 0);
+        let by = |ty: u32, id: u32| {
+            r.iters_with_keys
+                .iter()
+                .find(|l| (l.dat_file_type, l.dat_file_id) == (ty, id))
+                .map(|l| (l.iterations.iterations, l.iterations.ints.clone()))
+        };
+        assert_eq!(by(0, 1), Some((2112, vec![-2112, 1])), "portal");
+        assert_eq!(by(1, 2), Some((1593, vec![-1593, 1])), "cell");
+        let local = by(1, 3).expect("the language file");
+        assert!(local.0 > 0, "the later language file's own list");
     }
 
     /// A store the platform opened itself is the one the application reads: bring-up never looks

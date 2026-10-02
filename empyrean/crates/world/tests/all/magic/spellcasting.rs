@@ -1973,3 +1973,107 @@ fn an_era_halves_a_creatures_war_projectile() {
     }
     assert!(halved > 0, "some creature bolt landed without a critical");
 }
+
+// ------------------------------------------------------------------ real content (component weenies)
+
+#[cfg(feature = "real-content")]
+mod real_content_components {
+    //! The retail dats and the world packs; fails, never skips, when they are absent.
+
+    use super::*;
+    use empyrean_content::PackContent;
+    use empyrean_dat::{DatManager, RealDats};
+    use empyrean_world::entity::spell_formula;
+
+    fn world(dir: &std::path::Path, pack: &std::path::Path) -> World {
+        let real = RealDats::open(dir).unwrap_or_else(|e| {
+            panic!(
+                "the real-content tier needs the retail dats under {}: {e}",
+                dir.display()
+            )
+        });
+        let dats = DatManager::initialize(Arc::new(real)).expect("the dats initialize");
+        let clock = VirtualClock::default();
+        let mut w = World::new(ClockSnapshot::take(&clock, 0.0), dats);
+        w.content = Arc::new(PackContent::open(pack).unwrap_or_else(|e| {
+            panic!(
+                "the real-content tier needs the world pack at {}: {e}",
+                pack.display()
+            )
+        }));
+        w
+    }
+
+    /// On the end-of-retail world every component the dats map to a weenie is the weenie the
+    /// world's own spell component weenies name for it (two of them, Quicksilver and Moo Juice,
+    /// stored under another component id and read under their own), so reading the weenies
+    /// stands in for the map where a dat set has none.
+    /// Divergence: V415
+    #[test]
+    fn the_worlds_component_weenies_name_the_same_weenies_the_dats_map() {
+        let w = world(
+            &dereth_dat::testing::dat_dir(),
+            &empyrean_common::test_paths::world_pack(),
+        );
+        let from_content = Spell::component_wcids_from_content(&w);
+        let mut compared = 0;
+        let mut differ = Vec::new();
+        for &component in spell_formula::spell_components_table(&w).components.keys() {
+            let mapped = Spell::get_component_wcid(&w, component);
+            if mapped == 0 {
+                continue;
+            }
+            if from_content.get(&component).copied() != Some(mapped) {
+                differ.push(component);
+            }
+            compared += 1;
+        }
+        assert!(
+            differ.is_empty(),
+            "components naming another weenie: {differ:?}"
+        );
+        assert!(compared > 100, "only {compared} components compared");
+    }
+
+    /// On the February 2005 dats, which carry no component map, every component a spell's formula
+    /// names is found as the Infiltration world's weenie for it (a Lead Scarab is weenie 691), so
+    /// a caster carrying the components can cast, and so is every other component in the table.
+    /// Divergence: V415
+    #[test]
+    fn on_the_february_2005_dats_each_component_a_spell_uses_is_found_as_its_weenie() {
+        let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+            panic!(
+                "{}",
+                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            )
+        });
+        let mut w = world(&dir, &empyrean_common::test_paths::infiltration_pack());
+        w.era = empyrean_common::era::EraId::Infiltration.rules();
+        assert_eq!(Spell::get_component_wcid(&w, 1), 691, "Lead Scarab");
+
+        let used: std::collections::BTreeSet<u32> = spell_formula::spell_table(&w)
+            .spells
+            .values()
+            .flat_map(|s| s.comps.iter().copied())
+            .collect();
+        assert!(used.len() > 50, "only {} components used", used.len());
+        for &component in &used {
+            assert_ne!(
+                Spell::get_component_wcid(&w, component),
+                0,
+                "component {component}"
+            );
+        }
+
+        let missing: Vec<u32> = spell_formula::spell_components_table(&w)
+            .components
+            .keys()
+            .copied()
+            .filter(|&c| Spell::get_component_wcid(&w, c) == 0)
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "components without a weenie: {missing:?}"
+        );
+    }
+}
