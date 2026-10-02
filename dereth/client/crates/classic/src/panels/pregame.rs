@@ -629,10 +629,11 @@ impl Pregame {
             f.image_native(&format!("{did:08X}"), 649, y, rect(649, y, 157, 55), false);
         }
         let chars = presentation::characters(c.pregame);
-        // The panel's art frames five character slots, 16 pixels apart from y 136, and each slot
-        // is drawn with the panel behind it. A server that allows more characters than five gets
-        // the same five slots and a scroll bar beside them.
-        let list = rect(50, 136, 160, 5 * SLOT);
+        // The panel's art frames six character slots, 16 pixels apart from y 136, and each slot
+        // is drawn with the panel behind it. A server that allows more characters than six gets
+        // the same six slots and, beside them, a scroll bar drawn as the message box's is.
+        // The list and its bar keep left of the Enter button, whose picture would cover the bar.
+        let list = rect(50, 136, 144, 6 * SLOT);
         let max = (crate::int::i32_from(chars.len()) * SLOT - list.h).max(0);
         let offset = self.character_scroll.clamp(0, max);
         f.control(
@@ -674,7 +675,7 @@ impl Pregame {
         if max > 0 {
             f.control(
                 "characters-scroll",
-                rect(list.x + list.w + 2, list.y, 16, list.h),
+                rect(list.x + list.w + 1, list.y, 20, list.h),
                 ControlKind::ScrollBar {
                     min: 0,
                     max,
@@ -682,8 +683,8 @@ impl Pregame {
                     page: list.h,
                     step: SLOT,
                     vertical: true,
-                    arrow_size: 16,
-                    thumb_size: 16,
+                    arrow_size: 20,
+                    thumb_size: 20,
                 },
                 true,
             );

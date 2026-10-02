@@ -271,7 +271,7 @@ fn deletion_waits_only_after_confirmation_and_releases_on_character_set_notice()
 }
 
 #[test]
-fn more_characters_than_the_five_slots_scroll_in_the_five() {
+fn more_characters_than_the_six_slots_scroll_in_the_six() {
     context(|base| {
         use dereth_client_contract::persist::{CharacterIdentity, CharacterSet};
         let mut view = base.pregame.clone();
@@ -310,7 +310,7 @@ fn more_characters_than_the_five_slots_scroll_in_the_five() {
                 .commands
                 .iter()
                 .filter_map(|cmd| match cmd {
-                    Command::Text { text, y, .. } if (136..216).contains(y) => Some(text.clone()),
+                    Command::Text { text, y, .. } if (136..232).contains(y) => Some(text.clone()),
                     _ => None,
                 })
                 .filter(|t| names.contains(&t.as_str()))
@@ -319,17 +319,24 @@ fn more_characters_than_the_five_slots_scroll_in_the_five() {
             (list.map(|r| r.h), names, scroll)
         };
         let (h, first, scroll) = shown(&p);
-        assert_eq!(h, Some(80), "five slots");
-        assert_eq!(first, ["Ann", "Bea", "Cid", "Dot", "Eve"]);
+        assert_eq!(h, Some(96), "six slots, every one the art frames");
+        assert_eq!(first, ["Ann", "Bea", "Cid", "Dot", "Eve", "Fay"]);
         assert!(scroll);
+        // The bar is the message box's width, and nothing is drawn over it.
+        let f = p.frame(&c);
+        let rect_of = |id: &str| f.controls.iter().find(|k| k.id == id).map(|k| k.rect);
+        let bar = rect_of("characters-scroll").unwrap();
+        let enter = rect_of("enter").unwrap();
+        assert_eq!(bar.w, rect_of("message-scroll").map_or(20, |r| r.w));
+        assert!(bar.x + bar.w <= enter.x, "{bar:?} under {enter:?}");
         p.event(
             ControlEvent::Scroll {
                 id: "characters-scroll".into(),
-                value: 48,
+                value: 32,
             },
             &c,
         );
-        assert_eq!(shown(&p).1, ["Dot", "Eve", "Fay", "Gus", "Hal"]);
+        assert_eq!(shown(&p).1, ["Cid", "Dot", "Eve", "Fay", "Gus", "Hal"]);
     });
 }
 
