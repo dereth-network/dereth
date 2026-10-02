@@ -86,11 +86,30 @@ pub fn announced_era(name: &str) -> Option<dereth_primitives::EraId> {
     era
 }
 
+/// The systems a server's status lists (`name=true,...`, as `--era-features` reads them); empty,
+/// malformed or naming no system this client knows, the era's own table stands.
+#[must_use]
+pub fn announced_features(text: &str) -> dereth_primitives::EraFeatureOverrides {
+    match dereth_primitives::EraFeatureOverrides::parse(text) {
+        Ok((features, unknown)) => {
+            if !unknown.is_empty() {
+                tracing::warn!("the server names systems this client does not know: {unknown:?}");
+            }
+            features
+        }
+        Err(e) => {
+            tracing::warn!("the server's systems do not read: {e}");
+            dereth_primitives::EraFeatureOverrides::default()
+        }
+    }
+}
+
 impl Play {
     /// Bring the client up over `store` in a `width` by `height` canvas, on the device
     /// `dereth_render::wgpu::install` prepared, and start logging in to `host` as `account`.
     /// `era` is the era the server's status announces, as the launcher passes the desktop client
-    /// `--era`; without one the client reads it from the data files.
+    /// `--era`; without one the client reads it from the data files. `era_features` are the
+    /// systems the status lists, as the launcher passes `--era-features`.
     ///
     /// # Errors
     /// A startup step the client treats as fatal, no prepared device, or a host the connection
@@ -105,6 +124,7 @@ impl Play {
         width: u32,
         height: u32,
         era: Option<dereth_primitives::EraId>,
+        era_features: dereth_primitives::EraFeatureOverrides,
     ) -> Result<Self, String> {
         let preferences_file = crate::settings::preferences_file();
         let mut cfg = Config {
@@ -121,6 +141,7 @@ impl Play {
             height,
             preferences_file: preferences_file.clone(),
             era,
+            era_features,
             ..Config::default()
         };
         // The saved profile, read where the host keeps the client's files, as the desktop client
@@ -372,6 +393,12 @@ mod tests {
         use dereth_primitives::EraId;
         assert_eq!(announced_era("infiltration"), Some(EraId::Infiltration));
         assert_eq!(announced_era("Infiltration"), Some(EraId::Infiltration));
+        let f = announced_features("trade=false,later_system=true");
+        assert_eq!((f.get("trade"), f.get("chess")), (Some(false), None));
+        assert!(
+            announced_features("trade").is_empty(),
+            "malformed: the era's table"
+        );
         assert_eq!(announced_era(""), None);
         assert_eq!(announced_era("tod"), None);
     }
@@ -418,6 +445,7 @@ mod tests {
             width,
             height,
             None,
+            Default::default(),
         )
         .expect("bring-up");
         for _ in 0..10 {
@@ -468,8 +496,18 @@ mod tests {
             }
         }
         let server: SocketAddr = host.parse().expect("an address");
-        let mut play =
-            Play::new(store, &host, &account, &password, 1, width, height, None).expect("bring-up");
+        let mut play = Play::new(
+            store,
+            &host,
+            &account,
+            &password,
+            1,
+            width,
+            height,
+            None,
+            Default::default(),
+        )
+        .expect("bring-up");
         let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
         udp.set_nonblocking(true).expect("non-blocking");
         let mut buf = vec![0u8; 65_536];
@@ -547,8 +585,18 @@ mod tests {
             }
         }
         let server: SocketAddr = host.parse().expect("an address");
-        let mut play =
-            Play::new(store, &host, &account, &password, 1, width, height, None).expect("bring-up");
+        let mut play = Play::new(
+            store,
+            &host,
+            &account,
+            &password,
+            1,
+            width,
+            height,
+            None,
+            Default::default(),
+        )
+        .expect("bring-up");
         let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
         udp.set_nonblocking(true).expect("non-blocking");
         let mut buf = vec![0u8; 65_536];
@@ -663,8 +711,18 @@ mod tests {
             }
         }
         let server: SocketAddr = host.parse().expect("an address");
-        let mut play =
-            Play::new(store, &host, &account, &password, 1, 800, 600, None).expect("bring-up");
+        let mut play = Play::new(
+            store,
+            &host,
+            &account,
+            &password,
+            1,
+            800,
+            600,
+            None,
+            Default::default(),
+        )
+        .expect("bring-up");
         let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
         udp.set_nonblocking(true).expect("non-blocking");
         let mut buf = vec![0u8; 65_536];

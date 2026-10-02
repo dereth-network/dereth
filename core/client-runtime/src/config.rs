@@ -212,6 +212,10 @@ pub struct Config {
     /// launcher reads it from the world's status. It wins over the era read from the data files;
     /// `None`: the data files decide.
     pub era: Option<dereth_primitives::EraId>,
+    /// `--era-features <name=true,...>`: the systems the server says its world has, as the
+    /// launcher reads them from the world's status. Each one named wins over the era's table; a
+    /// name this client does not know is skipped.
+    pub era_features: dereth_primitives::EraFeatureOverrides,
 
     // ---- the static scene ----
     /// `--landblock <hex>`: which landblock the camera starts over. Holtburg by default, the
@@ -436,6 +440,7 @@ impl Default for Config {
             dat_dir: default_dat_dir(),
             world_dat_dir: None,
             era: None,
+            era_features: dereth_primitives::EraFeatureOverrides::default(),
         }
     }
 }
@@ -590,6 +595,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "era",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "era-features",
         short: None,
         arity: Arity::Required,
     },
@@ -1241,6 +1251,16 @@ impl Config {
                         .ok_or_else(|| ConfigError::new(format!("unknown --era {v:?}")))?,
                 );
             }
+            "era-features" => {
+                let (features, unknown) = dereth_primitives::EraFeatureOverrides::parse(v)
+                    .map_err(|e| ConfigError::new(format!("bad --era-features: {e}")))?;
+                if !unknown.is_empty() {
+                    tracing::warn!(
+                        "--era-features names systems this client does not know: {unknown:?}"
+                    );
+                }
+                self.era_features = features;
+            }
             "landblock" => {
                 self.landblock = u16::from_str_radix(v.trim_start_matches("0x"), 16)
                     .map_err(|_| ConfigError::new(format!("bad --landblock value {v:?}")))?;
@@ -1691,6 +1711,22 @@ mod tests {
         assert_eq!(c.era, Some(dereth_primitives::EraId::Infiltration));
         assert_eq!(parse(&[]).expect("parses").era, None);
         assert!(parse(&["--era", "tod"]).is_err());
+    }
+
+    /// `--era-features` names the systems the server's world has; a system this client does not
+    /// know is skipped, and a malformed list is refused.
+    #[test]
+    fn the_era_features_switch_names_the_servers_systems() {
+        let c = parse(&[
+            "--era-features",
+            "trade=false,aetheria=true,spell_credits=true",
+        ])
+        .expect("parses");
+        assert_eq!(c.era_features.get("trade"), Some(false));
+        assert_eq!(c.era_features.get("aetheria"), Some(true));
+        assert_eq!(c.era_features.get("chess"), None);
+        assert!(parse(&[]).expect("parses").era_features.is_empty());
+        assert!(parse(&["--era-features", "trade"]).is_err());
     }
 
     /// `--cast` names the spell a scripted world entry casts; it takes a spell id.

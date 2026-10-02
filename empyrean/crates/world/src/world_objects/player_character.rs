@@ -489,6 +489,12 @@ pub fn add_title(w: &mut World, this: ObjectGuid, title_id: u32, set_as_display_
         return;
     }
 
+    // DIVERGE: a world without titles (`EraFeatures::titles`) grants none and sets none as the
+    // one shown, whether an emote, character creation or the player's choice asks (V427).
+    if !w.era.features.titles {
+        return;
+    }
+
     let (send_msg, notify_new_title) = with_character(w, this, |o, character| {
         add_title_registry(o, character, title_id, set_as_display_title)
     });

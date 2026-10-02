@@ -11,7 +11,8 @@
 //!   version, where the server's source is, uptime, whether the world is open or shutting down, connections, players online and
 //!   loaded landblocks (the counts `serverstatus` reports), the world pack's content hash and the
 //!   corrections digest (which together name the world data served), the era the world plays
-//!   (`[era] profile`), the iterations of the dats it compares a client's against and whether it
+//!   (`[era] profile`) and the systems it has (`features`: every system by name, the era's table
+//!   with the world's `[era]` settings over it), the iterations of the dats it compares a client's against and whether it
 //!   patches them, the client versions it admits, the WebSocket endpoint's URL (`null` when it is
 //!   off), and the unported ACE members this process has reached so far with their hit counts
 //!   (`empyrean_common::not_ported::global_snapshot`).
@@ -91,6 +92,8 @@ pub struct StatusSnapshot {
     pub corrections_digest: String,
     /// The era the world plays (`[era] profile`), by its configuration name.
     pub era: String,
+    /// The systems the world has: the era's table with the world's `[era]` settings over it.
+    pub features: empyrean_common::era::EraFeatures,
     /// The iterations of the server's dats, which it compares a client's against.
     pub dats: DatIterations,
     /// Whether the server patches a client's dats from its own (`ddd.enable_dat_patching`).
@@ -121,6 +124,7 @@ impl StatusSnapshot {
             content_hash: w.content.content_hash(),
             corrections_digest: empyrean_content::corrections::digest().to_owned(),
             era: w.era.id.name().to_owned(),
+            features: w.era.features,
             dats: DatIterations::of(&w.dats),
             dat_patching: empyrean_common::config_manager::ConfigManager::try_config()
                 .is_some_and(|c| c.ddd.enable_dat_patching),
@@ -152,13 +156,18 @@ impl StatusSnapshot {
             iteration(self.dats.highres),
             self.dat_patching
         );
+        let features: Vec<String> = self
+            .features
+            .iter()
+            .map(|(name, on)| format!("{}:{on}", json_string(name)))
+            .collect();
         let client_versions: Vec<String> = self
             .client_versions
             .iter()
             .map(|v| json_string(v))
             .collect();
         format!(
-            "{{\"world_name\":{},\"version\":{},\"source_url\":{},\"uptime_seconds\":{},\"world_open\":{},\"shutting_down\":{},\"connections\":{},\"authenticated_connections\":{},\"players_online\":{},\"landblocks_loaded\":{},\"content_hash\":{},\"corrections_digest\":{},\"era\":{},\"dats\":{dats},\"client_versions\":[{}],\"websocket_url\":{},\"not_ported\":{{{}}}}}\n",
+            "{{\"world_name\":{},\"version\":{},\"source_url\":{},\"uptime_seconds\":{},\"world_open\":{},\"shutting_down\":{},\"connections\":{},\"authenticated_connections\":{},\"players_online\":{},\"landblocks_loaded\":{},\"content_hash\":{},\"corrections_digest\":{},\"era\":{},\"features\":{{{}}},\"dats\":{dats},\"client_versions\":[{}],\"websocket_url\":{},\"not_ported\":{{{}}}}}\n",
             json_string(&self.world_name),
             json_string(&self.version),
             json_string(&self.source_url),
@@ -172,6 +181,7 @@ impl StatusSnapshot {
             self.content_hash.as_deref().map_or_else(|| "null".to_owned(), json_string),
             json_string(&self.corrections_digest),
             json_string(&self.era),
+            features.join(","),
             client_versions.join(","),
             self.websocket_url.as_deref().map_or_else(|| "null".to_owned(), json_string),
             not_ported.join(","),

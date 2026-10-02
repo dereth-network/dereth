@@ -76,6 +76,12 @@ pub fn grant_luminance(
         return;
     }
 
+    // DIVERGE: a world without luminance (`EraFeatures::luminance`) awards none, by kill, quest
+    // or fellowship share (V425).
+    if !w.era.features.luminance {
+        return;
+    }
+
     let fellowship = crate::world_objects::player_fellowship::fellowship(w, this);
     match fellowship {
         Some(fellowship)
@@ -128,6 +134,12 @@ fn add_luminance(w: &mut World, this: ObjectGuid, amount: i64, xp_type: XpType) 
 // ACE: Player.SpendLuminance
 /// Spends the amount of luminance specified, deducting it from available luminance.
 pub fn spend_luminance(w: &mut World, this: ObjectGuid, amount: i64) -> bool {
+    // DIVERGE: a world without luminance (`EraFeatures::luminance`) spends none, so every
+    // luminance augmentation's purchase fails as an unaffordable one does (V425).
+    if !w.era.features.luminance {
+        return false;
+    }
+
     let available = obj(w, this).available_luminance().unwrap_or(0);
 
     if amount > available {

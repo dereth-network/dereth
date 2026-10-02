@@ -653,3 +653,23 @@ fn every_unknown_key_gets_a_warning_line_naming_it() {
         ]
     );
 }
+
+/// Divergence: V418
+/// `[era]` takes a key per system over the profile's table; a key left out is written commented
+/// out, and the settings survive the trip.
+#[test]
+fn the_era_section_turns_systems_on_and_off() {
+    let parsed = toml("[era]\nprofile = \"infiltration\"\naetheria = true\ntrade = false\n");
+    assert_eq!(parsed.unknown_keys, Vec::<String>::new());
+    let era = &parsed.config.era;
+    assert_eq!(era.features.get("aetheria"), Some(true));
+    assert_eq!(era.features.get("trade"), Some(false));
+    assert_eq!(era.features.get("chess"), None);
+    let rules = era.rules();
+    assert!(rules.features.aetheria && !rules.features.trade && rules.features.chess);
+    assert_eq!(via_toml(&parsed.config), parsed.config);
+    let text = toml_config::to_toml_string(&MasterConfiguration::default());
+    assert!(text.contains("\n# spell_research = false\n"), "{text}");
+    assert!(text.contains("\n# trade = true\n"), "{text}");
+    assert!(toml_config::from_toml_str("[era]\nchess = \"yes\"\n").is_err());
+}

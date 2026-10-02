@@ -90,6 +90,15 @@ pub fn slum_lord_act_on_use(w: &mut World, this: ObjectGuid, activator: ObjectGu
     }
     let player = activator;
 
+    // DIVERGE: a world without the house's kind (`EraFeatures::housing`, `apartments`) shows no
+    // house profile, so no purchase or maintenance window opens (V420).
+    let kind = house(w, this).map_or(empyrean_entity::enums::HouseType::Undef, |h| {
+        obj(w, h).house_type()
+    });
+    if !crate::world_objects::era_gates::has_house(w, player, kind) {
+        return;
+    }
+
     // sent house profile
     let house_profile = get_house_profile(w, this);
 

@@ -4038,11 +4038,9 @@ impl GamePlayScreen {
     /// the panel-visibility notice handler and they reach every registered handler, not only the
     /// server-side record. Without the second call the button of the *covered* page stays lit.
     pub fn recv_set_panel_visibility(&mut self, ui: &mut UiSystem, panel: u32, show: bool) {
-        // An era without the journal never shows the quest page, whichever key or button asks.
-        if show
-            && self.era_features.is_some_and(|f| !f.journal)
-            && self.quest_panel() == Some(panel)
-        {
+        // A page of a system the world lacks (the journal's quest page, the trade window, ...)
+        // never shows, whichever key, button or server notice asks.
+        if show && self.era_refuses(panel) {
             return;
         }
         let out = [
@@ -4061,21 +4059,25 @@ impl GamePlayScreen {
         }
     }
 
-    /// The quest page's panel id, read off the page at set-up; `None` when the layout has no
-    /// quest page or the page carries no id.
-    fn quest_panel(&self) -> Option<u32> {
-        self.panels
-            .pages
-            .iter()
-            .find(|p| p.element == crate::panels::journal::PAGE)
-            .map(|p| p.panel_id)
-            .filter(|&id| id != 0)
+    /// Whether a page of the world's systems is refused: its panel id names a page, of the toolbar
+    /// stack or the environment stack, whose system the world lacks ([`era_lacks_page`]).
+    fn era_refuses(&self, panel: u32) -> bool {
+        let Some(features) = self.era_features else {
+            return false;
+        };
+        panel != 0
+            && self
+                .panels
+                .pages
+                .iter()
+                .chain(self.env_panel.pages.iter())
+                .any(|p| p.panel_id == panel && era_lacks_page(features, p.element))
     }
 
-    /// Take off the toolbar what the world's era lacks: without the journal the quest page is
-    /// closed, its toolbar button hidden, and [`Self::recv_set_panel_visibility`] refuses to show
-    /// it. The rest of what an era lacks is the panels' ([`crate::panels::era`]). Applied once each
-    /// time the features change; returns whether anything was applied.
+    /// Take off the screen the pages of the systems the world lacks ([`era_lacks_page`]): each
+    /// open one is closed, its toolbar button hidden, and [`Self::recv_set_panel_visibility`]
+    /// refuses to show it. The rest of what an era lacks is the panels' ([`crate::panels::era`]).
+    /// Applied once each time the features change; returns whether anything was applied.
     pub fn apply_era(
         &mut self,
         ui: &mut UiSystem,
@@ -4084,13 +4086,21 @@ impl GamePlayScreen {
         if self.era_features == Some(features) {
             return false;
         }
-        if let Some(panel) = self.quest_panel() {
-            if !features.journal {
+        let pages: Vec<(u32, bool)> = self
+            .panels
+            .pages
+            .iter()
+            .chain(self.env_panel.pages.iter())
+            .filter(|p| p.panel_id != 0)
+            .map(|p| (p.panel_id, !era_lacks_page(features, p.element)))
+            .collect();
+        for (panel, has) in pages {
+            if !has {
                 self.recv_set_panel_visibility(ui, panel, false);
             }
             for b in self.toolbar.buttons.iter().filter(|b| b.panel_id == panel) {
-                ui.set_visible(b.handle, features.journal);
-                ui.set_mouse_visible(b.handle, features.journal);
+                ui.set_visible(b.handle, has);
+                ui.set_mouse_visible(b.handle, has);
             }
         }
         self.era_features = Some(features);
@@ -6209,6 +6219,23 @@ impl Screen for GamePlayScreen {
 
     fn roots(&self) -> &[ElemHandle] {
         &self.roots
+    }
+}
+
+/// Whether the page `element` (of the toolbar stack or the environment stack) belongs to a system
+/// `features` lacks: the quest page without the journal, the secure-trade window without trade,
+/// the salvage window without tinkering, the house purchase window without housing, and the chess
+/// window without chess.
+#[must_use]
+pub fn era_lacks_page(features: dereth_primitives::EraFeatures, element: ElementId) -> bool {
+    use crate::panels::{journal, minigame, salvage, slumlord, trade};
+    match element {
+        e if e == journal::PAGE => !features.journal,
+        e if e == trade::WINDOW => !features.trade,
+        e if e == salvage::PANEL => !features.tinkering,
+        e if e == slumlord::PANEL => !features.housing,
+        e if e == minigame::PANEL => !features.chess,
+        _ => false,
     }
 }
 

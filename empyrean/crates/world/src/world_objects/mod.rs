@@ -40,6 +40,7 @@ pub mod creature_tick;
 pub mod creature_vitals;
 pub mod door;
 pub mod entity;
+pub mod era_gates;
 pub mod food;
 pub mod game;
 pub mod game_piece;

@@ -37,6 +37,8 @@ pub struct Key {
     pub in_ace: bool,
     /// What the key does, one comment line per `\n`.
     pub help: &'static str,
+    /// The value the writer shows, commented out, for a key that is not set.
+    pub unset: &'static str,
 }
 
 /// One TOML table: its dotted path, the serde object it stands for, and its keys.
@@ -61,6 +63,7 @@ const fn k(toml: &'static str, ace: &'static str, help: &'static str) -> Key {
         ace,
         in_ace: true,
         help,
+        unset: "\"\"",
     }
 }
 
@@ -71,6 +74,27 @@ const fn e(toml: &'static str, ace: &'static str, help: &'static str) -> Key {
         ace,
         in_ace: false,
         help,
+        unset: "\"\"",
+    }
+}
+
+/// An `[era]` system key: on or off over the profile's value, which it has when not set. The
+/// writer shows it commented out at its end-of-retail value.
+const fn system(toml: &'static str, ace: &'static str, help: &'static str) -> Key {
+    Key {
+        toml,
+        ace,
+        in_ace: false,
+        help,
+        unset: "true",
+    }
+}
+
+/// [`system`] for a system the end of retail lacks.
+const fn system_off(toml: &'static str, ace: &'static str, help: &'static str) -> Key {
+    Key {
+        unset: "false",
+        ..system(toml, ace, help)
     }
 }
 
@@ -410,14 +434,102 @@ pub const SECTIONS: &[Section] = &[
         array: false,
         help: "The era the world plays. Every era speaks the end-of-retail client protocol; the era\n\
                selects the world's rules (start positions, level cap, what the character list tells\n\
-               the client).",
-        keys: &[e(
-            "profile",
-            "Profile",
-            "\"eor\" (the end of retail, ACE's rules) or \"infiltration\" (February 2005). world.pack\n\
-             must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
-             to start otherwise.",
-        )],
+               the client). The keys after `profile` turn the era's systems on or off for this world;\n\
+               a key left out keeps the profile's value. The server refuses what the world lacks, and\n\
+               its status document announces the whole set to the client.",
+        keys: &[
+            e(
+                "profile",
+                "Profile",
+                "\"eor\" (the end of retail, ACE's rules) or \"infiltration\" (February 2005). world.pack\n\
+                 must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
+                 to start otherwise.",
+            ),
+            // The systems, in `EraFeatures` order. Each defaults to the profile's value: the end
+            // of retail has every one but spell research; February 2005 has trade, housing,
+            // apartments, tinkering, cantrips and chess.
+            system("ratings", "Ratings", "Damage, critical, healing and the other ratings."),
+            system(
+                "consolidated_weapon_skills",
+                "ConsolidatedWeaponSkills",
+                "The 2012 weapon skills (Heavy, Light, Finesse, Missile Weapons) in place of the old ones.",
+            ),
+            system(
+                "item_spell_auras",
+                "ItemSpellAuras",
+                "Weapon item spells that are auras on the wielder.",
+            ),
+            system(
+                "assessed_armor_and_ratings",
+                "AssessedArmorAndRatings",
+                "Assessing a player shows its armour levels and ratings.",
+            ),
+            system(
+                "swear_to_lower_level",
+                "SwearToLowerLevel",
+                "Swearing allegiance to a patron of lower level.",
+            ),
+            system(
+                "pre_order_items_and_rares",
+                "PreOrderItemsAndRares",
+                "The pre-order gifts at login, and rares dropped by creatures.",
+            ),
+            system("dual_wield", "DualWield", "A weapon in the off hand."),
+            system(
+                "weapon_masteries",
+                "WeaponMasteries",
+                "The heritage weapon masteries.",
+            ),
+            system(
+                "innate_augmentations",
+                "InnateAugmentations",
+                "The augmentation each heritage is born with.",
+            ),
+            system(
+                "aetheria",
+                "Aetheria",
+                "Aetheria: wielding it in the sigil slots, and making it from coalesced aetheria.",
+            ),
+            system(
+                "luminance",
+                "Luminance",
+                "Luminance: earning it, and spending it on luminance augmentations.",
+            ),
+            system("contracts", "Contracts", "The contract tracker: taking and abandoning contracts."),
+            system("titles", "Titles", "Character titles: being granted one, and choosing the one shown."),
+            system("cloaks", "Cloaks", "Wearing a cloak in the cloak slot."),
+            system("trinkets", "Trinkets", "Wearing a trinket in the trinket slot."),
+            system(
+                "journal",
+                "Journal",
+                "The client's journal (a file on the player's machine; the server only announces it).",
+            ),
+            system("trade", "Trade", "Secure trade between players."),
+            system(
+                "housing",
+                "Housing",
+                "Cottages, villas and mansions: buying, renting and entering them. Off turns\n\
+                 apartments off too unless apartments is set.",
+            ),
+            system(
+                "apartments",
+                "Apartments",
+                "Apartments, house recalls and allegiance storage. On turns housing on.",
+            ),
+            system(
+                "tinkering",
+                "Tinkering",
+                "Salvaging into salvage bags, and the tinkering and salvage recipes.",
+            ),
+            system("cantrips", "Cantrips", "Cantrips on generated loot."),
+            system_off(
+                "spell_research",
+                "SpellResearch",
+                "Learning spells by researching their formulas (gone by 2002; off in every profile).\n\
+                 Announced to the client only: the server has no research request to refuse.",
+            ),
+            system("chess", "Chess", "Chess on the game boards."),
+        ],
     },
 ];
 
@@ -866,14 +978,18 @@ fn push_key(
         out,
         &format!(
             "default: {} ({})",
-            default_text(default),
+            if key.unset == "\"\"" || default.is_some_and(|d| !d.is_null()) {
+                default_text(default)
+            } else {
+                "the profile's".to_owned()
+            },
             origin(key, ace_path)
         ),
     );
     push_comment(out, key.help);
     match value.and_then(toml_literal) {
         Some(literal) => out.push_str(&format!("{} = {literal}\n", key.toml)),
-        None => out.push_str(&format!("# {} = \"\"\n", key.toml)),
+        None => out.push_str(&format!("# {} = {}\n", key.toml, key.unset)),
     }
 }
 

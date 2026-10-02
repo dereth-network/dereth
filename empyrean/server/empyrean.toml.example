@@ -347,10 +347,106 @@ precache_compressed_dat_files = false
 [era]
 # The era the world plays. Every era speaks the end-of-retail client protocol; the era
 # selects the world's rules (start positions, level cap, what the character list tells
-# the client).
+# the client). The keys after `profile` turn the era's systems on or off for this world;
+# a key left out keeps the profile's value. The server refuses what the world lacks, and
+# its status document announces the whole set to the client.
 
 # default: "eor" (Empyrean only)
 # "eor" (the end of retail, ACE's rules) or "infiltration" (February 2005). world.pack
 # must have been built for the same era (`empyrean-import --era <era>`); the server refuses
 # to start otherwise.
 profile = "eor"
+
+# default: the profile's (Empyrean only)
+# Damage, critical, healing and the other ratings.
+# ratings = true
+
+# default: the profile's (Empyrean only)
+# The 2012 weapon skills (Heavy, Light, Finesse, Missile Weapons) in place of the old ones.
+# consolidated_weapon_skills = true
+
+# default: the profile's (Empyrean only)
+# Weapon item spells that are auras on the wielder.
+# item_spell_auras = true
+
+# default: the profile's (Empyrean only)
+# Assessing a player shows its armour levels and ratings.
+# assessed_armor_and_ratings = true
+
+# default: the profile's (Empyrean only)
+# Swearing allegiance to a patron of lower level.
+# swear_to_lower_level = true
+
+# default: the profile's (Empyrean only)
+# The pre-order gifts at login, and rares dropped by creatures.
+# pre_order_items_and_rares = true
+
+# default: the profile's (Empyrean only)
+# A weapon in the off hand.
+# dual_wield = true
+
+# default: the profile's (Empyrean only)
+# The heritage weapon masteries.
+# weapon_masteries = true
+
+# default: the profile's (Empyrean only)
+# The augmentation each heritage is born with.
+# innate_augmentations = true
+
+# default: the profile's (Empyrean only)
+# Aetheria: wielding it in the sigil slots, and making it from coalesced aetheria.
+# aetheria = true
+
+# default: the profile's (Empyrean only)
+# Luminance: earning it, and spending it on luminance augmentations.
+# luminance = true
+
+# default: the profile's (Empyrean only)
+# The contract tracker: taking and abandoning contracts.
+# contracts = true
+
+# default: the profile's (Empyrean only)
+# Character titles: being granted one, and choosing the one shown.
+# titles = true
+
+# default: the profile's (Empyrean only)
+# Wearing a cloak in the cloak slot.
+# cloaks = true
+
+# default: the profile's (Empyrean only)
+# Wearing a trinket in the trinket slot.
+# trinkets = true
+
+# default: the profile's (Empyrean only)
+# The client's journal (a file on the player's machine; the server only announces it).
+# journal = true
+
+# default: the profile's (Empyrean only)
+# Secure trade between players.
+# trade = true
+
+# default: the profile's (Empyrean only)
+# Cottages, villas and mansions: buying, renting and entering them. Off turns
+# apartments off too unless apartments is set.
+# housing = true
+
+# default: the profile's (Empyrean only)
+# Apartments, house recalls and allegiance storage. On turns housing on.
+# apartments = true
+
+# default: the profile's (Empyrean only)
+# Salvaging into salvage bags, and the tinkering and salvage recipes.
+# tinkering = true
+
+# default: the profile's (Empyrean only)
+# Cantrips on generated loot.
+# cantrips = true
+
+# default: the profile's (Empyrean only)
+# Learning spells by researching their formulas (gone by 2002; off in every profile).
+# Announced to the client only: the server has no research request to refuse.
+# spell_research = false
+
+# default: the profile's (Empyrean only)
+# Chess on the game boards.
+# chess = true

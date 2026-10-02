@@ -1200,3 +1200,46 @@ fn a_capture_takes_the_piece() {
         "Black's d-pawn is taken"
     );
 }
+
+/// Divergence: V423
+/// A world without chess refuses joining a board's game: no match starts, no piece appears, and
+/// the player is told why; February 2005 had chess, so the same join seats the player.
+#[test]
+fn a_world_without_chess_refuses_joining_a_game() {
+    use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+    let (mut ts, a, _b, board) = setup_two_players();
+    let eor = EraId::Eor.rules();
+    ts.world.era = with_features(
+        eor,
+        EraFeatures {
+            chess: false,
+            ..eor.features
+        },
+    );
+    let from = ts.received_raw(a).len();
+    ts.send_game_action(
+        a,
+        &GameJoin {
+            game_id: board.full(),
+            which_team: u32::MAX,
+        },
+    );
+    ts.advance(5.0);
+    let g = got(&ts, a, from);
+    assert!(all(&g, JOIN_RESPONSE).is_empty());
+    assert!(game::chess_match(&ts.world, board).is_none(), "no match");
+    assert!(player_chess::chess_match(&ts.world, ObjectGuid::new(ALPHA)).is_none());
+    let chat: Vec<String> = all(&g, 0xF7E0)
+        .into_iter()
+        .map(|m| {
+            m.decode::<dereth_protocol::comms::CommunicationTextboxString>()
+                .text
+        })
+        .collect();
+    assert_eq!(chat, ["This world has no chess."]);
+
+    ts.world.era = EraId::Infiltration.rules();
+    let g = join_board(&mut ts, a, board);
+    let r: GameJoinGameResponse = one(&g, JOIN_RESPONSE);
+    assert_eq!(r.game_id, board.full());
+}

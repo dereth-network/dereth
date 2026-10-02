@@ -271,6 +271,26 @@ pub fn house_portal_check_use_requirements(
 /// The actual portal process is wrapped to the base portal class ActOnUse, after ACL check are performed
 // ACE: HousePortal.ActOnUse
 pub fn house_portal_act_on_use(w: &mut World, this: ObjectGuid, world_object: ObjectGuid) {
+    // DIVERGE: a world without the house's kind (`EraFeatures::housing`, `apartments`) refuses
+    // entering it through its portal (V420).
+    if w.objects
+        .get(world_object)
+        .is_some_and(WorldObject::is_player)
+    {
+        let kind = house(w, this).and_then(|h| house::root_house(w, h)).map_or(
+            empyrean_entity::enums::HouseType::Undef,
+            |h| {
+                w.objects.get(h).map_or(
+                    empyrean_entity::enums::HouseType::Undef,
+                    WorldObject::house_type,
+                )
+            },
+        );
+        if !crate::world_objects::era_gates::has_house(w, world_object, kind) {
+            return;
+        }
+    }
+
     // if house portal in dungeon,
     // set destination to outdoor house slumlord
     if let Some(lb) = w.objects.get(this).and_then(|o| o.current_landblock) {

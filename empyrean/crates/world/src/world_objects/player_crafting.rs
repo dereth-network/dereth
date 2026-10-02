@@ -193,6 +193,12 @@ fn tool_is_valid_ust(w: &mut World, this: ObjectGuid, tool: u32) -> bool {
 /// the items are consumed, the bags are added to the inventory, then one result message per skill
 /// (unless the player squelches Salvaging).
 pub fn handle_salvaging(w: &mut World, this: ObjectGuid, tool: u32, salvage_items: Vec<u32>) {
+    // DIVERGE: a world without tinkering (`EraFeatures::tinkering`) refuses salvaging: no item
+    // is consumed and no salvage bag made (V421).
+    if !crate::world_objects::era_gates::has(w, this, w.era.features.tinkering, "tinkering") {
+        return;
+    }
+
     if !tool_is_valid_ust(w, this, tool) {
         return;
     }

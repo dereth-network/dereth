@@ -1209,3 +1209,88 @@ fn house_select_keeps_one_house_and_writes_nothing_to_the_console() {
         vec![guid(HOUSE_GUID)]
     );
 }
+
+/// Divergence: V420
+/// A world without housing shows no house profile at the slumlord and refuses buying the cottage
+/// (the pyreals stay, nobody owns it); one with housing but no apartments sells the cottage but
+/// refuses the house recall, which goes with apartments. Each refusal tells the player why.
+#[test]
+fn a_world_without_housing_refuses_the_cottage_and_one_without_apartments_the_recall() {
+    use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+    let mut ts = server();
+    let owner = login(&mut ts, "owneracct", OWNER);
+    ts.advance(1.0);
+    let coins = give(&mut ts, OWNER, COINSTACK, Some(500));
+    let eor = EraId::Eor.rules();
+    ts.world.era = with_features(
+        eor,
+        EraFeatures {
+            housing: false,
+            apartments: false,
+            ..eor.features
+        },
+    );
+
+    let from = mark(&ts, owner);
+    empyrean_world::world_objects::slum_lord::slum_lord_act_on_use(
+        &mut ts.world,
+        guid(SLUMLORD_GUID),
+        guid(OWNER),
+    );
+    ts.send_game_action(
+        owner,
+        &HouseBuyHouse {
+            slumlord: ObjectId(SLUMLORD_GUID),
+            items: vec![ObjectId(coins.full())],
+        },
+    );
+    ts.advance(4.0);
+    let profiles: Vec<HouseProfileMessage> = events(&ts, owner, from, HOUSE_PROFILE);
+    assert!(profiles.is_empty(), "no purchase window");
+    assert_eq!(
+        chat(&ts, owner, from),
+        ["This world has no housing.", "This world has no housing."]
+    );
+    assert_eq!(ts.world.objects.get(coins).unwrap().stack_size(), Some(500));
+    assert_eq!(
+        ts.world
+            .objects
+            .get(guid(HOUSE_GUID))
+            .unwrap()
+            .house_owner(),
+        None
+    );
+
+    // Housing without apartments: the cottage sells, the recall is refused.
+    ts.world.era = with_features(
+        eor,
+        EraFeatures {
+            apartments: false,
+            ..eor.features
+        },
+    );
+    ts.send_game_action(
+        owner,
+        &HouseBuyHouse {
+            slumlord: ObjectId(SLUMLORD_GUID),
+            items: vec![ObjectId(coins.full())],
+        },
+    );
+    ts.advance(4.0);
+    assert_eq!(
+        ts.world
+            .objects
+            .get(guid(HOUSE_GUID))
+            .unwrap()
+            .house_owner(),
+        Some(OWNER)
+    );
+    step_away(&mut ts, OWNER);
+    let from = mark(&ts, owner);
+    assert!(!recalls_home(&mut ts, OWNER));
+    assert_eq!(chat(&ts, owner, from), ["This world has no house recall."]);
+
+    // February 2005 had apartments and their recalls.
+    ts.world.era = EraId::Infiltration.rules();
+    assert!(recalls_home(&mut ts, OWNER));
+}

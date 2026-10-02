@@ -276,6 +276,19 @@ pub fn use_object_on_target(
         return;
     };
 
+    // DIVERGE: a world without tinkering (`EraFeatures::tinkering`) refuses a tinkering recipe
+    // (salvage applied to an item) and any recipe on a salvage bag (combining salvage) (V421).
+    let salvage = |w: &World, g: ObjectGuid| {
+        obj(w, g).item_type() == empyrean_entity::enums::ItemType::TinkeringMaterial
+    };
+    if !w.era.features.tinkering
+        && (is_tinkering(&recipe) || salvage(w, source) || salvage(w, target))
+    {
+        crate::world_objects::era_gates::has(w, player, false, "tinkering");
+        shims::send_use_done_event(w, player, WeenieError::None);
+        return;
+    }
+
     // verify requirements
     if !verify_requirements(w, &recipe, player, source, target) {
         shims::send_use_done_event(w, player, WeenieError::YouDoNotPassCraftingRequirements);

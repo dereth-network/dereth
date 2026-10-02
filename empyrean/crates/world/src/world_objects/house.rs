@@ -773,10 +773,14 @@ pub fn has_permission(w: &World, this: ObjectGuid, player: ObjectGuid, storage: 
     }
 
     // handle allegiance permissions
+    // DIVERGE: allegiance storage goes with apartments (`EraFeatures::apartments`); in a world
+    // without them an allegiance's storage access opens no chest (V420).
     if let Some(monarch_id) = h.monarch_id() {
         if player_house::allegiance::monarch_id(w, player) == Some(monarch_id) {
             if storage {
-                if storage_access(w, this).contains(&ObjectGuid::new(monarch_id)) {
+                if w.era.features.apartments
+                    && storage_access(w, this).contains(&ObjectGuid::new(monarch_id))
+                {
                     return true;
                 }
             } else if fields(w, this)

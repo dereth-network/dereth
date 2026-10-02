@@ -1,7 +1,7 @@
 //! A world's live status, from Empyrean's public status document (`GET /v1/world`).
 //!
-//! The document is small and public: whether the world is open, how many are on, the era it plays,
-//! and what its dats are. The dats matter most. They are what the server will compare, so when the document says them
+//! The document is small and public: whether the world is open, how many are on, the era it plays
+//! and the systems it has, and what its dats are. The dats matter most. They are what the server will compare, so when the document says them
 //! they win over the registry's published numbers.
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,22 @@ pub struct LiveStatus {
     /// The era the world plays (`"eor"`, `"infiltration"`, ...).
     #[serde(default)]
     pub era: Option<String>,
+    /// The systems the world has, as the document's `features` object lists them, in the form the
+    /// Dereth client's `--era-features` reads (`ratings=false,trade=true,...`).
+    #[serde(default)]
+    pub era_features: Option<String>,
+}
+
+/// The document's `features` object (`{"ratings":false,"trade":true,...}`) in the `--era-features`
+/// form, by name. Entries that are not booleans are skipped; `None` for no object
+/// or an empty one.
+fn era_features(v: &Value) -> Option<String> {
+    let list: Vec<String> = v
+        .as_object()?
+        .iter()
+        .filter_map(|(name, on)| Some(format!("{name}={}", on.as_bool()?)))
+        .collect();
+    (!list.is_empty()).then(|| list.join(","))
 }
 
 /// Read the document. `None` if it is not one.
@@ -68,6 +84,7 @@ pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
             .and_then(Value::as_str)
             .filter(|e| !e.is_empty())
             .map(str::to_owned),
+        era_features: v.get("features").and_then(era_features),
     })
 }
 
@@ -106,6 +123,22 @@ mod tests {
         assert_eq!(s.client_versions, ["1802"]);
         let s = parse_world_document(br#"{"world_open":true}"#).unwrap();
         assert_eq!(s.era, None, "a document without an era says nothing");
+        assert_eq!(s.era_features, None);
+    }
+
+    #[test]
+    fn empyrean_lists_the_systems_its_world_has() {
+        let s = parse_world_document(
+            br#"{"world_open":true,"era":"infiltration",
+            "features":{"ratings":false,"aetheria":true,"trade":true,"chess":false,"later":7}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            s.era_features.as_deref(),
+            Some("aetheria=true,chess=false,ratings=false,trade=true")
+        );
+        let s = parse_world_document(br#"{"world_open":true,"features":{}}"#).unwrap();
+        assert_eq!(s.era_features, None);
     }
 
     #[test]

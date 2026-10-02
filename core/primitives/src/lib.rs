@@ -41,7 +41,7 @@ pub use asset::{
     AssetError, AssetSource, ContainerEra, MeshData, MeshHandle, TextureData, TextureFormat,
     TextureHandle,
 };
-pub use era::{EraFeatures, EraId, VitaeRecovery};
+pub use era::{EraFeatureOverrides, EraFeatures, EraId, VitaeRecovery};
 pub use host::{HostEncoding, TextSink};
 pub use ids::{CellId, DataId, DataType, LandblockId, ObjectId, PropertyId};
 pub use motion::{MotionPhysicsState, MotionSource};

@@ -612,6 +612,33 @@ fn run_with(cfg: Config) -> Result<(), String> {
             app.interaction().stats.house_lord_queries
         );
     }
+    {
+        // The era the client plays and the systems it takes the world to lack (the server's
+        // announcement over the era's table), and what the screens last took away for them.
+        let h = app.hud();
+        let lacks = |f: dereth_primitives::EraFeatures| {
+            f.iter()
+                .filter(|(_, on)| !on)
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        tracing::info!(
+            "era -- {} ({}), {} system(s) announced; the world lacks [{}]; the screens hide [{}]",
+            h.era.era,
+            if h.era.era_announced {
+                "announced"
+            } else {
+                "from the data files"
+            },
+            h.era.announced_features.iter().count(),
+            lacks(h.era.features()),
+            h.panels
+                .era
+                .applied()
+                .map_or_else(|| "nothing yet".to_owned(), lacks)
+        );
+    }
     if want_ui {
         let t = app.renderer_mut().ui_stats;
         tracing::info!(

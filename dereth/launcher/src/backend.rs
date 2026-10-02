@@ -372,6 +372,9 @@ impl Backend {
             if l.era.is_some() {
                 w.era.clone_from(&l.era);
             }
+            if l.era_features.is_some() {
+                w.era_features.clone_from(&l.era_features);
+            }
             if w.account_model == AccountModel::Unknown && l.auto_create_accounts == Some(true) {
                 w.account_model = AccountModel::AutoCreateOnFirstLogin;
             }

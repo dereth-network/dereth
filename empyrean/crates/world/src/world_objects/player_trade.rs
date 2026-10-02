@@ -208,6 +208,11 @@ pub fn handle_action_open_trade_negotiations(
     trade_partner_guid: u32,
     initiator: bool,
 ) {
+    // DIVERGE: a world without secure trade (`EraFeatures::trade`) refuses opening one (V419).
+    if !crate::world_objects::era_gates::has(w, this, w.era.features.trade, "secure trade") {
+        return;
+    }
+
     if is_olthoi_player(w, this) {
         send(w, this, game_message_system_chat("As a mindless engine of destruction an Olthoi cannot participate in trade negotiations!", ChatMessageType::Magic));
         return;

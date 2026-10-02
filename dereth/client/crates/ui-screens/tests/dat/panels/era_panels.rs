@@ -2,7 +2,8 @@
 //! no Contracts tab and the character page no Titles tab (a page left open on one moves to the
 //! next tab), the paper doll no cloak or trinket slot, the character sheet no luminance section,
 //! and the toolbar no journal button (the quest page never opens); on an end-of-retail world all
-//! are there.
+//! are there. A world the server announces without trade, tinkering, housing or chess never opens
+//! the secure-trade, salvage, house purchase or chess window, and has no House tab on the map page.
 //! Fixture: shipped layouts and strings loaded from the retail DATs.
 
 use crate::common::layout::RegistrationOrder;
@@ -216,4 +217,103 @@ fn an_infiltration_world_has_no_journal_button_and_never_opens_the_quest_page() 
     assert!(shown(&ui, button));
     s.recv_set_panel_visibility(&mut ui, quest.panel_id, true);
     assert!(shown(&ui, quest.handle));
+}
+
+/// Behaviour: presentation.era.the-screens-leave-out-what-the-worlds-era-lacks
+#[test]
+fn a_world_without_trade_tinkering_housing_or_chess_never_opens_their_windows() {
+    use dereth_ui_screens::panels::{minigame, salvage, slumlord, trade};
+    let (mut ui, mut s) = screen();
+    let page = |s: &GamePlayScreen, element| {
+        s.panels
+            .pages
+            .iter()
+            .chain(s.env_panel.pages.iter())
+            .find(|p| p.element == element)
+            .copied()
+            .expect("a page of one of the stacks")
+    };
+    let shown = |ui: &UiSystem, h| ui.node(h).expect("alive").region.flags.visible;
+    let windows = [
+        ("trade", trade::WINDOW),
+        ("tinkering", salvage::PANEL),
+        ("housing", slumlord::PANEL),
+        ("chess", minigame::PANEL),
+    ];
+    // Announced by the server over an end-of-retail world.
+    let mut view = EraView {
+        era: EraId::Eor,
+        era_announced: true,
+        ..EraView::default()
+    };
+    view.announced_features = dereth_primitives::EraFeatureOverrides::parse(
+        "trade=false,tinkering=false,housing=false,chess=false",
+    )
+    .expect("parses")
+    .0;
+    let lacking = view.features();
+    assert!(!lacking.apartments, "housing off takes apartments with it");
+    for (system, element) in windows {
+        let p = page(&s, element);
+        assert_ne!(p.panel_id, 0, "{system}");
+        s.recv_set_panel_visibility(&mut ui, p.panel_id, true);
+        assert!(shown(&ui, p.handle), "{system}: opens before any era");
+        s.apply_era(&mut ui, lacking);
+        assert!(!shown(&ui, p.handle), "{system}: the open window closes");
+        s.recv_set_panel_visibility(&mut ui, p.panel_id, true);
+        assert!(!shown(&ui, p.handle), "{system}: nothing opens it");
+        assert!(s.apply_era(&mut ui, EraId::Eor.features()));
+        s.recv_set_panel_visibility(&mut ui, p.panel_id, true);
+        assert!(shown(&ui, p.handle), "{system}: opens at the end of retail");
+        s.recv_set_panel_visibility(&mut ui, p.panel_id, false);
+    }
+    // The chess window's toolbar lamp goes with it.
+    let chess = page(&s, minigame::PANEL);
+    let lamps: Vec<ElemHandle> = s
+        .toolbar
+        .buttons
+        .iter()
+        .filter(|b| b.panel_id == chess.panel_id)
+        .map(|b| b.handle)
+        .collect();
+    s.apply_era(&mut ui, lacking);
+    assert!(lamps.iter().all(|&h| !shown(&ui, h)));
+    // Infiltration had every one of them.
+    let infiltration = EraId::Infiltration.features();
+    assert!(
+        infiltration.trade && infiltration.tinkering && infiltration.housing && infiltration.chess
+    );
+}
+
+/// Behaviour: presentation.era.the-screens-leave-out-what-the-worlds-era-lacks
+#[test]
+fn a_world_without_housing_has_no_house_tab_on_the_map_page() {
+    let (mut ui, mut s) = screen();
+    let root = s.roots()[0];
+    let house = ui
+        .get_child_recursive(root, dereth_ui_screens::panels::house::TAB)
+        .expect("the House tab");
+    ui.broadcast_element_message(house, dereth_ui::msg::element::id::MOUSE_CLICK, 0, 0);
+    pump(&mut ui, &mut s);
+    assert_eq!(
+        open_tab(&ui, house),
+        Some(dereth_ui_screens::panels::house::TAB)
+    );
+    let mut view = world(EraId::Infiltration);
+    view.0.announced_features = dereth_primitives::EraFeatureOverrides::parse("housing=false")
+        .expect("parses")
+        .0;
+    let mut era = EraPanels::default();
+    era.post_init(&ui, root);
+    assert!(era.update(&mut ui, &view));
+    pump(&mut ui, &mut s);
+    assert!(!ui.node(house).expect("alive").region.flags.visible);
+    assert_ne!(
+        open_tab(&ui, house),
+        Some(dereth_ui_screens::panels::house::TAB),
+        "the map page left the House tab"
+    );
+    // February 2005 had houses.
+    assert!(era.update(&mut ui, &world(EraId::Infiltration)));
+    assert!(ui.node(house).expect("alive").region.flags.visible);
 }

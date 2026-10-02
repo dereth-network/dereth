@@ -1840,4 +1840,41 @@ mod luminance {
         assert!(player_luminance::spend_luminance(&mut h.w, A, 400));
         assert_eq!(available_luminance(&h), Some(600));
     }
+
+    /// Divergence: V425
+    /// A world without luminance awards none, by kill or quest, and spends none, so a luminance
+    /// augmentation's purchase fails as an unaffordable one does.
+    #[test]
+    fn a_world_without_luminance_awards_and_spends_none() {
+        use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+        let mut h = H::small();
+        let _sa = h.player(A, "Alpha", 3);
+        h.w.objects
+            .get_mut(A)
+            .unwrap()
+            .set_property(PropertyInt64::MaximumLuminance, 1000);
+        h.w.objects
+            .get_mut(A)
+            .unwrap()
+            .set_property(PropertyInt64::AvailableLuminance, 500);
+        let eor = EraId::Eor.rules();
+        h.w.era = with_features(
+            eor,
+            EraFeatures {
+                luminance: false,
+                ..eor.features
+            },
+        );
+        start_capture();
+        player_luminance::earn_luminance(&mut h.w, A, 60, XpType::Kill, ShareType::All);
+        player_luminance::earn_luminance(&mut h.w, A, 60, XpType::Quest, ShareType::All);
+        player_luminance::grant_luminance(&mut h.w, A, 60, XpType::Kill, ShareType::All);
+        assert!(sent().is_empty());
+        assert!(!player_luminance::spend_luminance(&mut h.w, A, 100));
+        assert_eq!(available_luminance(&h), Some(500));
+
+        h.w.era = eor;
+        assert!(player_luminance::spend_luminance(&mut h.w, A, 100));
+        assert_eq!(available_luminance(&h), Some(400));
+    }
 }

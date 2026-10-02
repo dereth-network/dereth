@@ -175,11 +175,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                  item icons, which carry no alpha, are transparent where they are pure black, as \
                  the later files' copies of the same icons are (their other images keep black \
                  opaque). The screens leave out what the \
-                 world's era lacks (the server's announced era, else the one the files imply): \
-                 with no journal there is no journal button and no quest page, with no contract \
-                 tracker no Contracts tab, with no titles no Titles tab, with no cloaks or \
-                 trinkets no cloak or trinket slot on the paper doll, and with no luminance no \
-                 luminance section on the character sheet.",
+                 world lacks (the systems the server announces, over the table of its announced \
+                 era, else of the era the files imply): with no journal there is no journal \
+                 button and no quest page, with no contract tracker no Contracts tab, with no \
+                 titles no Titles tab, with no cloaks or trinkets no cloak or trinket slot on the \
+                 paper doll, with no luminance no luminance section on the character sheet, with \
+                 no housing no House tab on the map page and no house purchase window, and with \
+                 no trade, tinkering or chess no secure-trade, salvage or chess window.",
         why: "Dereth plays every era over one set of screens until the interface of the time is \
               rebuilt; the world itself is the older files' own.",
     },

@@ -247,6 +247,12 @@ pub fn add_int(w: &mut World, player: ObjectGuid, contract_id: i32) -> bool {
 // ACE: ContractManager.Add
 /// Adds a new contract to the player's registry
 pub fn add(w: &mut World, player: ObjectGuid, contract_id: u32) -> bool {
+    // DIVERGE: a world without the contract tracker (`EraFeatures::contracts`) takes no contract
+    // on; the emote that asks fails as a full tracker's does, without its message (V426).
+    if !w.era.features.contracts {
+        return false;
+    }
+
     let Some(dat_contract) = get_contract_from_dat(w, contract_id) else {
         if DEBUG {
             empyrean_common::console_write_line!(debug: "ContractManager.Add({contract_id}): Contract not found in DAT file.");

@@ -1338,6 +1338,8 @@ impl<S: Shell> App<S> {
             self.hud.era.era = era;
             self.hud.era.era_announced = true;
         }
+        // And so do the systems it announces for its world, each over the era's table.
+        self.hud.era.announced_features = self.cfg.era_features;
         self.hud.load_tables(&self.store, &self.objects.world);
         // The same table computes the maximum a received current vital is clamped to, which the
         // world's quality-update paths apply before storing.

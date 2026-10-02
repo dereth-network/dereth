@@ -32,6 +32,16 @@ pub fn craft_tool_handle_action_use_on_target(
     if aetheria::is_aetheria_mana_stone(obj(w, this))
         && aetheria::is_aetheria(obj(w, target).biota.weenie_class_id)
     {
+        // DIVERGE: a world without aetheria (`EraFeatures::aetheria`) refuses making aetheria
+        // from coalesced aetheria (V424).
+        if !crate::world_objects::era_gates::has(w, player, w.era.features.aetheria, "aetheria") {
+            crate::world_objects::player_use::send_use_done_event(
+                w,
+                player,
+                empyrean_entity::enums::WeenieError::None,
+            );
+            return;
+        }
         aetheria_use_object_on_target(w, player, this, target);
         return;
     }

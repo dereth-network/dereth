@@ -339,6 +339,44 @@ mod uses {
         );
     }
 
+    /// Divergence: V424
+    /// A world without aetheria refuses the mana stone on coalesced aetheria: no sigil rises, the
+    /// aetheria keeps its name and no slot, the player is told why and the use ends.
+    #[test]
+    fn a_world_without_aetheria_reveals_no_sigil() {
+        use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+        let mut ts = server();
+        let eor = EraId::Eor.rules();
+        ts.world.era = with_features(
+            eor,
+            EraFeatures {
+                aetheria: false,
+                ..eor.features
+            },
+        );
+        let (alpha, _) = join(&mut ts, "alpha", ALPHA, "Alpha", at(20.0, 20.0));
+        let stone = in_pack(&mut ts, 42645);
+        let aetheria = in_pack(&mut ts, 42635);
+        ts.advance(0.5);
+        let name = obj(&ts, aetheria).get_property(PropertyString::Name);
+
+        let a = during(&mut ts, alpha, 3.0, |ts| {
+            ts.send_game_action(
+                alpha,
+                &InventoryUseWithTargetEvent {
+                    object: ObjectId(stone.full()),
+                    target: ObjectId(aetheria.full()),
+                },
+            );
+        });
+        assert_eq!(chats(&a), ["This world has no aetheria."]);
+        assert_eq!(use_dones(&a), [0]);
+        let o = obj(&ts, aetheria);
+        assert_eq!(o.get_property(PropertyString::Name), name);
+        assert_eq!(o.get_property(PropertyInt::EquipmentSetId), None);
+        assert!(ts.world.objects.get(stone).is_some(), "the stone is kept");
+    }
+
     /// A tableless pk players use waits as aces does until the next use.
     #[test]
     fn a_tableless_pk_players_use_waits_as_aces_does_until_the_next_use() {

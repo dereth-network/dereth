@@ -101,7 +101,7 @@ async function start(msg) {
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   play = await dereth.WebPlay.create(
     canvas, msg.width, msg.height, msg.account, msg.password, sequence,
-    params.get('gpu') === 'webgl', msg.era || '',
+    params.get('gpu') === 'webgl', msg.era || '', msg.features || '',
   );
   marks.up = performance.now();
   log(`client up on ${play.backend()} in ${(marks.up - marks.dats).toFixed(0)} ms`);

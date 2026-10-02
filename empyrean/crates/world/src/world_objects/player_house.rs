@@ -324,6 +324,12 @@ pub fn handle_action_buy_house(
         return;
     };
 
+    // DIVERGE: a world without the house's kind (`EraFeatures::housing`, `apartments`) refuses
+    // buying it (V420).
+    if !era_has_house_of(w, this, slumlord) {
+        return;
+    }
+
     if let Some(min_level) = obj(w, slumlord).min_level() {
         let player_level = obj(w, this).level().unwrap_or(1);
         if player_level < min_level {
@@ -473,6 +479,13 @@ pub fn handle_action_buy_house(
 }
 
 // ACE: Player.GiveDeed
+/// Not ACE: whether the world has the kind of house `slumlord` sells, telling the player when it
+/// does not (V420).
+fn era_has_house_of(w: &mut World, this: ObjectGuid, slumlord: ObjectGuid) -> bool {
+    let kind = slum_lord::house(w, slumlord).map_or(HouseType::Undef, |h| obj(w, h).house_type());
+    crate::world_objects::era_gates::has_house(w, this, kind)
+}
+
 pub fn give_deed(w: &mut World, this: ObjectGuid, slum_lord: ObjectGuid) {
     let deed = w
         .content
@@ -567,6 +580,12 @@ pub fn handle_action_rent_house(
         );
         return;
     };
+
+    // DIVERGE: a world without the house's kind (`EraFeatures::housing`, `apartments`) refuses
+    // paying its maintenance (V420).
+    if !era_has_house_of(w, this, slumlord) {
+        return;
+    }
 
     if slum_lord::is_rent_paid(w, slumlord) {
         //Session.Network.EnqueueSend(new GameEventWeenieError(Session, WeenieError.HouseRentFailed));  // WeenieError.HouseRentFailed == blank message
@@ -2393,6 +2412,16 @@ pub fn handle_action_modify_allegiance_storage_permission(
     this: ObjectGuid,
     add: bool,
 ) {
+    // DIVERGE: allegiance storage goes with apartments (`EraFeatures::apartments`); a world
+    // without them refuses changing it (V420).
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.apartments,
+        "allegiance storage",
+    ) {
+        return;
+    }
     //Console.WriteLine($"{Name}.HandleActionModifyAllegianceStoragePermission({add})");
     let house_instance = get_house_instance(w, this);
 
@@ -2540,6 +2569,15 @@ pub fn handle_action_do_allegiance_house_action(
         AllegianceHouseAction::GuestClose => {
             handle_action_do_allegiance_house_action_guest_close(w, this, allegiance_house)
         }
+        // DIVERGE: allegiance storage goes with apartments (`EraFeatures::apartments`); a world
+        // without them refuses opening or closing it (V420).
+        AllegianceHouseAction::StorageOpen | AllegianceHouseAction::StorageClose
+            if !crate::world_objects::era_gates::has(
+                w,
+                this,
+                w.era.features.apartments,
+                "allegiance storage",
+            ) => {}
         AllegianceHouseAction::StorageOpen => {
             handle_action_do_allegiance_house_action_storage_open(w, this, allegiance_house)
         }

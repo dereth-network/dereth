@@ -357,6 +357,12 @@ fn recall_chain(
 // ACE: Player.HandleActionTeleToHouse
 /// `/house recall`: to the player's (or the account's) house, after the house recall animation.
 pub fn handle_action_tele_to_house(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: house recalls go with apartments (`EraFeatures::apartments`); a world without
+    // them refuses this one (V420).
+    if !crate::world_objects::era_gates::has(w, this, w.era.features.apartments, "house recall") {
+        return;
+    }
+
     if !recall_checks(w, this, true) {
         return;
     }
@@ -535,6 +541,12 @@ fn verify_recall_allegiance_hometown(w: &mut World, this: ObjectGuid) -> bool {
 // ACE: Player.HandleActionTeleToMansion
 /// Recalls you to your allegiance's Mansion or Villa.
 pub fn handle_action_tele_to_mansion(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: house recalls go with apartments (`EraFeatures::apartments`); a world without
+    // them refuses this one (V420).
+    if !crate::world_objects::era_gates::has(w, this, w.era.features.apartments, "house recall") {
+        return;
+    }
+
     //Console.WriteLine($"{Name}.HandleActionTeleToMansion()");
 
     if !recall_checks(w, this, true) {

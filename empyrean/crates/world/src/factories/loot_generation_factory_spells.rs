@@ -74,9 +74,10 @@ fn roll_spells(
     }
 
     // DIVERGE: in the Infiltration era jewelry and clothing carry no cantrips (ClassicACE's
-    // `RollSpells` outside its end-of-retail ruleset; V416).
-    let cantrips = if w.era.loot_rules == LootRules::Infiltration
-        && (roll.is_jewelry() || roll.is_clothing())
+    // `RollSpells` outside its end-of-retail ruleset; V416), and a world without cantrips
+    // (`EraFeatures::cantrips`) rolls none on any item (V422).
+    let cantrips = if !w.era.features.cantrips
+        || w.era.loot_rules == LootRules::Infiltration && (roll.is_jewelry() || roll.is_clothing())
     {
         None
     } else {

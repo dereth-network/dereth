@@ -13,5 +13,10 @@ pub fn handle_action_abandon_contract(
     this: empyrean_entity::ObjectGuid,
     contract_id: u32,
 ) {
+    // DIVERGE: a world without the contract tracker (`EraFeatures::contracts`) refuses
+    // abandoning a contract (V426).
+    if !crate::world_objects::era_gates::has(w, this, w.era.features.contracts, "contracts") {
+        return;
+    }
     crate::world_objects::managers::contract_manager::abandon(w, this, contract_id);
 }

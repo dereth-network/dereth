@@ -192,6 +192,10 @@ pub struct World {
     /// `None` when neither says.
     #[serde(default)]
     pub era: Option<String>,
+    /// The systems the world has (`ratings=false,trade=true,...`), from its status document when
+    /// it answers; each one over the era's table. `None` when it does not say.
+    #[serde(default)]
+    pub era_features: Option<String>,
     pub emulator: Emulator,
     pub endpoint: Option<Endpoint>,
     /// Client ids the world accepts. Empty means "the end-of-retail wire protocol"; see

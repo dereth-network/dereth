@@ -37,6 +37,7 @@ fn sample() -> StatusSnapshot {
         content_hash: Some("ab12".to_owned()),
         corrections_digest: "v1:0123456789abcdef".to_owned(),
         era: "infiltration".to_owned(),
+        features: empyrean_common::era::EraFeatures::INFILTRATION,
         dats: DatIterations {
             portal: Some(2072),
             cell: Some(982),
@@ -105,7 +106,7 @@ fn snapshot_of_a_fresh_world_then_opened() {
 fn status_json_is_exact_and_escaped() {
     assert_eq!(
         sample().to_json(),
-        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
+        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"features\":{\"ratings\":false,\"consolidated_weapon_skills\":false,\"item_spell_auras\":false,\"assessed_armor_and_ratings\":false,\"swear_to_lower_level\":false,\"pre_order_items_and_rares\":false,\"dual_wield\":false,\"weapon_masteries\":false,\"innate_augmentations\":false,\"aetheria\":false,\"luminance\":false,\"contracts\":false,\"titles\":false,\"cloaks\":false,\"trinkets\":false,\"journal\":false,\"trade\":true,\"housing\":true,\"apartments\":true,\"tinkering\":true,\"cantrips\":true,\"spell_research\":false,\"chess\":true},\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
     );
 }
 
@@ -132,8 +133,9 @@ fn get_status_answers_the_snapshot() {
 
 /// The era, the dats and the client versions: what a launcher reads to choose a client and a dat
 /// set, at `/v1/world` as at `/status`.
+/// Divergence: V418
 #[test]
-fn the_status_names_the_era_the_dats_and_the_client_versions() {
+fn the_status_names_the_era_its_systems_the_dats_and_the_client_versions() {
     let mut w = world();
     let s = StatusSnapshot::take(&w, "Dereth", 1);
     assert_eq!(s.era, "eor");
@@ -145,6 +147,20 @@ fn the_status_names_the_era_the_dats_and_the_client_versions() {
     let json = s.to_json();
     assert!(json.contains(",\"era\":\"infiltration\","), "{json}");
     assert!(json.contains(",\"client_versions\":[\"1802\"],"), "{json}");
+    assert_eq!(s.features, empyrean_common::era::EraFeatures::INFILTRATION);
+    assert!(
+        json.contains(",\"features\":{\"ratings\":false,") && json.contains(",\"chess\":true},"),
+        "{json}"
+    );
+    // A system the world's configuration turns on is announced as on.
+    let features = empyrean_common::era::EraFeatures {
+        aetheria: true,
+        ..empyrean_common::era::EraFeatures::INFILTRATION
+    };
+    w.era = empyrean_common::era::with_features(w.era, features);
+    let s = StatusSnapshot::take(&w, "Dereth", 1);
+    assert_eq!((s.era.as_str(), s.features), ("infiltration", features));
+    assert!(s.to_json().contains(",\"aetheria\":true,"));
 
     let v1 = text(&respond("GET /v1/world HTTP/1.1", || Some(sample())));
     let status = text(&respond("GET /status HTTP/1.1", || Some(sample())));

@@ -12,7 +12,18 @@
 //! | `cloaks` | the paper doll's cloak slot |
 //! | `trinkets` | the paper doll's trinket slot |
 //! | `luminance` | the character sheet's luminance section (see [`super::characterinfo`]) |
-//! | `journal` | the whole quest page and its toolbar button (the gameplay screen's, see `GamePlayScreen::apply_era`) |
+//! | `housing` | the map page's House tab (the page opens on its Map tab instead) |
+//!
+//! The gameplay screen takes away whole pages and their toolbar buttons, and refuses to show them
+//! whatever asks (`GamePlayScreen::apply_era`, `era_lacks_page`):
+//!
+//! | feature | what goes |
+//! |---|---|
+//! | `journal` | the quest page and its toolbar button |
+//! | `trade` | the secure-trade window |
+//! | `tinkering` | the salvage window a tinkering tool opens |
+//! | `housing` | the house purchase and maintenance window a deed's slumlord opens |
+//! | `chess` | the chess window |
 //!
 //! The aetheria sigil slots need nothing here: the paper doll hides them for every era, and a
 //! character with no aetheria slots never has them restored.
@@ -44,6 +55,8 @@ pub struct EraPanels {
     contracts_tab: Option<Tab>,
     /// The character page's Titles tab: the tab of [`super::titles::PANEL`].
     titles_tab: Option<Tab>,
+    /// The map page's House tab: the tab of [`super::house::PANEL`].
+    house_tab: Option<Tab>,
     /// [`CLOAK_SLOT`].
     cloak_slot: Option<ElemHandle>,
     /// [`TRINKET_SLOT`].
@@ -73,6 +86,7 @@ impl EraPanels {
                 })
             });
         self.titles_tab = Self::tab_of(ui, root, super::titles::PANEL);
+        self.house_tab = Self::tab_of(ui, root, super::house::PANEL);
         self.cloak_slot = ui.get_child_recursive(root, CLOAK_SLOT);
         self.trinket_slot = ui.get_child_recursive(root, TRINKET_SLOT);
         self.applied = None;
@@ -109,6 +123,7 @@ impl EraPanels {
         for (tab, has) in [
             (self.contracts_tab, features.contracts),
             (self.titles_tab, features.titles),
+            (self.house_tab, features.housing),
         ] {
             let Some(tab) = tab else { continue };
             ui.set_visible(tab.tab, has);

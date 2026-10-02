@@ -126,17 +126,25 @@ $('source').onchange = () => {
 $('source').onchange();
 
 // The era the world plays: the one its status names, else `?era=<name>`, else none (the client
-// reads it from the data files).
+// reads it from the data files). With it, the systems the world has: its status's `features`
+// object as `name=true,...`, else `?features=<name=true,...>`, else none (the era's own table).
 let era = params.get('era') || '';
+let features = params.get('features') || '';
 
-// The WebSocket URL a status address reports, filled into the server field; the era it names is
-// kept for the client.
+// The WebSocket URL a status address reports, filled into the server field; the era and the
+// systems it names are kept for the client.
 async function fromStatus(address) {
   const url = new URL(address);
   if (url.pathname === '/' || url.pathname === '') url.pathname = '/status';
   const status = await (await fetch(url, { cache: 'no-store' })).json();
   if (!status.websocket_url) throw new Error(`${url}: the server has no WebSocket endpoint`);
   if (status.era) era = status.era;
+  if (status.features && typeof status.features === 'object') {
+    features = Object.entries(status.features)
+      .filter(([, on]) => typeof on === 'boolean')
+      .map(([name, on]) => `${name}=${on}`)
+      .join(',');
+  }
   return status.websocket_url;
 }
 
@@ -177,6 +185,7 @@ async function launch(ev) {
     account: $('account').value.trim(),
     password: $('password').value,
     era,
+    features,
   });
   view.focus();
 }

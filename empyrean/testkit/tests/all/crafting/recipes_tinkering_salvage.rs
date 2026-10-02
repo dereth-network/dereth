@@ -794,3 +794,65 @@ fn salvaging_an_item_yields_aces_salvage_amount_in_a_bag() {
     );
     assert!(ts.world.objects.get(other).is_some());
 }
+
+/// Divergence: V421
+/// A world without tinkering refuses salvaging with the Ust (the item is kept and no bag made) and
+/// a tinkering recipe (the bag and the sword are kept, nothing rolls): each tells the player
+/// why, and the recipe answers `UseDone`.
+#[test]
+fn a_world_without_tinkering_refuses_salvaging_and_tinkering_recipes() {
+    use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+    let mut ts = server();
+    ts.world.era = with_features(
+        EraId::Eor.rules(),
+        EraFeatures {
+            tinkering: false,
+            ..EraId::Eor.features()
+        },
+    );
+    let (id, session) = join(&mut ts, "alpha", ALPHA, 10_000);
+    let alpha = ObjectGuid::new(ALPHA);
+    let ust = give(&mut ts, UST);
+    let sword = give(&mut ts, SWORD);
+    {
+        let o = ts.world.objects.get_mut(sword).unwrap();
+        o.set_item_workmanship(Some(5));
+        o.set_property(
+            PropertyInt::MaterialType,
+            i32::try_from(MaterialType::Steel.0).unwrap(),
+        );
+    }
+    let bag = give(&mut ts, IRON_BAG);
+    {
+        let o = ts.world.objects.get_mut(bag).unwrap();
+        o.set_item_workmanship(Some(10));
+        o.set_num_items_in_material(Some(10));
+        o.set_structure(Some(100));
+    }
+    ts.advance(0.1);
+
+    let salvage = InventoryCreateTinkeringTool {
+        tool: ObjectId(ust.full()),
+        items: vec![ObjectId(sword.full())],
+    };
+    let (sent, g) = exchange(&mut ts, id, session, 0.3, |ts| {
+        ts.send_game_action(id, &salvage)
+    });
+    assert_eq!(sent, [CHAT], "{sent:04X?}");
+    assert_eq!(chats(&g), ["This world has no tinkering."]);
+
+    let (sent, g) = exchange(&mut ts, id, session, 0.3, |ts| {
+        rm::use_object_on_target(&mut ts.world, alpha, bag, sword, false)
+    });
+    assert_eq!(sent, [CHAT, USE_DONE], "{sent:04X?}");
+    assert_eq!(chats(&g), ["This world has no tinkering."]);
+    assert!(ts.world.objects.get(sword).is_some() && ts.world.objects.get(bag).is_some());
+    assert_eq!(ts.world.objects.get(sword).unwrap().num_times_tinkered(), 0);
+
+    // February 2005 had tinkering: the same recipe asks for its confirmation.
+    ts.world.era = EraId::Infiltration.rules();
+    let (sent, _) = exchange(&mut ts, id, session, 0.3, |ts| {
+        rm::use_object_on_target(&mut ts.world, alpha, bag, sword, false)
+    });
+    assert_eq!(sent, [MOTION, CONFIRM, USE_DONE], "{sent:04X?}");
+}

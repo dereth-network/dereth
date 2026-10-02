@@ -2610,6 +2610,22 @@ fn do_handle_action_get_and_wield_item(
         return false;
     }
 
+    // DIVERGE: a world without aetheria, cloaks or trinkets (`EraFeatures::aetheria`, `cloaks`,
+    // `trinkets`) refuses wielding into the sigil slots, the cloak slot or the trinket slot, as
+    // a sigil slot the character has not unlocked is refused (V424, V428).
+    for (slots, has, what) in [
+        (EquipMask::Sigil, w.era.features.aetheria, "aetheria"),
+        (EquipMask::Cloak, w.era.features.cloaks, "cloaks"),
+        (EquipMask::TrinketOne, w.era.features.trinkets, "trinkets"),
+    ] {
+        if !(wielded_location & slots).is_empty()
+            && !crate::world_objects::era_gates::has(w, this, has, what)
+        {
+            save_failed(w, this, item.full(), WeenieError::None);
+            return false;
+        }
+    }
+
     // verify Aetheria slot, client doesn't handle this
     if !(wielded_location & EquipMask::Sigil).is_empty() {
         let aetheria_flags = obj(w, this).aetheria_flags();
@@ -5649,6 +5665,56 @@ pub fn audit_equipped_items(w: &mut World, this: ObjectGuid) {
             dequip_item
         );
         handle_action_put_item_in_container(w, this, dequip_item.full(), this.full(), 0);
+    }
+
+    // DIVERGE: an item worn in a slot the world lacks (a sigil slot without aetheria, the cloak
+    // slot without cloaks, the trinket slot without trinkets) comes off at login, as an unwield
+    // does, through the same put-in-container this audit uses: into the main pack, else the first
+    // side pack with a free slot. ACE's put into a full pack takes the item off and then cannot
+    // place it anywhere, so with no free slot at all the unwield is not attempted: the item stays
+    // worn, as ACE leaves an item a player cannot take off for want of room, and the player is
+    // told to make room; the next login tries again (V429).
+    let lacking: Vec<(EquipMask, &str)> = [
+        (EquipMask::Sigil, w.era.features.aetheria, "aetheria"),
+        (EquipMask::Cloak, w.era.features.cloaks, "cloaks"),
+        (EquipMask::TrinketOne, w.era.features.trinkets, "trinkets"),
+    ]
+    .into_iter()
+    .filter(|&(_, has, _)| !has)
+    .map(|(slots, _, what)| (slots, what))
+    .collect();
+    if lacking.is_empty() {
+        return;
+    }
+    let worn: Vec<(ObjectGuid, &str)> = creature_equipment::equipped_objects_values(w, this)
+        .into_iter()
+        .filter_map(|i| {
+            let at = obj(w, i).current_wielded_location()?;
+            lacking
+                .iter()
+                .find(|(slots, _)| !(at & *slots).is_empty())
+                .map(|&(_, what)| (i, what))
+        })
+        .collect();
+    for (item, what) in worn {
+        let target = if container::get_free_inventory_slots(w, this, false) > 0 {
+            Some(this)
+        } else {
+            container::inventory_values(w, this).into_iter().find(|&g| {
+                obj(w, g).is_container() && container::get_free_inventory_slots(w, g, false) > 0
+            })
+        };
+        if let Some(target) = target {
+            handle_action_put_item_in_container(w, this, item.full(), target.full(), 0);
+        }
+        let still_worn = obj(w, item).current_wielded_location().is_some();
+        let item_name = name(w, item);
+        let line = if still_worn {
+            format!("This world has no {what}. Make room in your pack to take off the {item_name}.")
+        } else {
+            format!("This world has no {what}. The {item_name} is in your pack.")
+        };
+        crate::world_objects::player::send_message(w, this, &line, ChatMessageType::Broadcast);
     }
 }
 

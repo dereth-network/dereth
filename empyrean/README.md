@@ -14,6 +14,12 @@ February 2005, Infiltration, is the first). The rules of that era are ported fro
 character creation, combat and death formulas, starter gear and first login. Each such rule names
 ClassicACE's source file beside it, and `DIVERGENCES.md` lists them as the era rows.
 
+An era also names the systems its world has (ratings, aetheria, luminance, trade, housing,
+tinkering, chess, ...). The era's table is only the default: `empyrean.toml`'s `[era]` section
+turns any of them on or off for the world (`aetheria = true`, `trade = false`, ...). The server
+refuses what the world lacks whatever a client asks, and its status document lists the whole set,
+which the Dereth client's screens follow.
+
 - **Setting up a server**, running it, keeping it up to date or moving over from ACE:
   [SETUP.md](SETUP.md).
 - **Where Empyrean deliberately behaves differently from ACE**, and why:
@@ -170,12 +176,15 @@ address. It has no authentication: keep it on loopback or a private network.
  "uptime_seconds":73,"world_open":true,
  "shutting_down":false,"connections":1,"authenticated_connections":1,"players_online":1,
  "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:aea10e6ae7317bfe",
- "era":"eor","dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
+ "era":"eor","features":{"ratings":true,"consolidated_weapon_skills":true,…,"spell_research":false,
+ "chess":true},"dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
  "client_versions":["1802"],"websocket_url":null,
  "not_ported":{"ACE: EventManager.Initialize":1}}
 ```
 
-`content_hash` is `null` without a pack; `era` is the configured `[era] profile`; `dats` are the
+`content_hash` is `null` without a pack; `era` is the configured `[era] profile`; `features` is
+every system by name and whether the world has it (the profile's table with the `[era]` settings
+over it); `dats` are the
 iterations of the server's dats, which it compares a client's against, and whether it patches them;
 `not_ported` lists each unported ACE member this process has reached, with how often.
 

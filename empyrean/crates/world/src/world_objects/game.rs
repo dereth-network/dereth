@@ -96,6 +96,12 @@ pub fn game_act_on_use(w: &mut World, this: ObjectGuid, activator: ObjectGuid) {
 
 // ACE: Game.ActOnJoin
 pub fn act_on_join(w: &mut World, this: ObjectGuid, player: ObjectGuid) {
+    // DIVERGE: a world without chess (`EraFeatures::chess`) refuses joining a board's game, so
+    // no match starts and no move, pass, stalemate or resignation follows (V423).
+    if !crate::world_objects::era_gates::has(w, player, w.era.features.chess, "chess") {
+        return;
+    }
+
     if !player_manager::property_manager_get_bool(w, "chess_enabled") {
         act_on_join_legacy(w, this, player);
         return;

@@ -58,7 +58,10 @@ pub static ROWS: &[Behaviour] = &[
                on such a tab moves to its next tab); an era with no cloaks or trinkets has no \
                cloak or trinket slot on the paper doll, and one with no luminance no luminance \
                section on the character sheet; one with no journal has no journal button, and its \
-               quest page never opens; on an end-of-retail world all are there.",
+               quest page never opens; a world the server announces without trade, tinkering, \
+               housing or chess never opens the secure-trade, salvage, house purchase or chess \
+               window and has no House tab on the map page; on an end-of-retail world all are \
+               there.",
         since: THIS_CLIENT,
         divergence: "CD-010",
         evidence: Evidence::Private("AC-EVID-ERA-2005-PANELS"),

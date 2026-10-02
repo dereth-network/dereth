@@ -1797,6 +1797,54 @@ mod real_content {
         w
     }
 
+    /// A world without cantrips rolls none onto loot: tier-8 magical jewelry and weapons rolled
+    /// with the same seed carry cantrips at the end of retail and none without them.
+    /// Divergence: V422
+    #[test]
+    fn a_world_without_cantrips_rolls_none_onto_loot() {
+        use empyrean_common::era::{with_features, EraFeatures, EraId};
+        let cantrips = |w: &mut World| {
+            seed(17);
+            let mut n = 0;
+            for kind in [TreasureItemType::Jewelry, TreasureItemType::Weapon] {
+                for _ in 0..60 {
+                    let wo = lgf::create_random_loot_objects_of_category(
+                        w,
+                        &profile(8, 1.0, 1),
+                        TreasureItemCategory::MagicItem,
+                        kind,
+                    )
+                    .expect("an item");
+                    n += wo
+                        .biota
+                        .properties_spell_book
+                        .as_ref()
+                        .map(|book| book.iter().map(|(id, _)| *id).collect::<Vec<i32>>())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|id| {
+                            format!("{:?}", empyrean_entity::enums::SpellId(id.cast_unsigned()))
+                                .to_lowercase()
+                                .contains("cantrip")
+                        })
+                        .count();
+                }
+            }
+            n
+        };
+        let mut w = real_world();
+        assert!(cantrips(&mut w) > 0, "the end of retail rolls cantrips");
+        let eor = EraId::Eor.rules();
+        w.era = with_features(
+            eor,
+            EraFeatures {
+                cantrips: false,
+                ..eor.features
+            },
+        );
+        assert_eq!(cantrips(&mut w), 0);
+    }
+
     /// Every weapon an Infiltration treasure of tiers 1 to 6 rolls, on the Infiltration world
     /// (`EMPYREAN_TEST_INFILTRATION_PACK`), is a weenie that world has, mutated by the era's
     /// scripts: a melee or thrown weapon of an old weapon skill whose wield requirement (when it has

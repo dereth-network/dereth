@@ -2273,14 +2273,18 @@ pub struct EraView {
     pub era: dereth_primitives::EraId,
     /// Whether [`Self::era`] is the server's announcement rather than read from the data files.
     pub era_announced: bool,
+    /// The systems the server announces for its world (the launcher passes them with the era).
+    /// Each one announced wins over the era's table; empty: the era's table alone.
+    pub announced_features: dereth_primitives::EraFeatureOverrides,
 }
 
 impl EraView {
-    /// The later systems the world's era has: a front end hides the panels of those it lacks
-    /// (ratings, aetheria, luminance, dual wield, ...) before any state arrives.
+    /// The systems the world has: the server's announcement over the era's table. A front end
+    /// hides the panels of those it lacks (ratings, aetheria, luminance, trade, ...) before any
+    /// state arrives.
     #[must_use]
     pub fn features(&self) -> dereth_primitives::EraFeatures {
-        self.era.features()
+        self.announced_features.apply(self.era.features())
     }
 
     /// The era a world drawn from `world_dats` plays when the server names none.

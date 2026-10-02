@@ -32,6 +32,11 @@ dereth-transport.workspace = true
 [dev-dependencies]
 # Where the tests find the retail dats, when a run has them: one test reads their iterations.
 dereth-dat = { workspace = true, features = ["test-support"] }
+# The command line the launcher builds is read back by the Dereth client's own parser into the
+# client's era view: one test follows a world's announced era and systems that far.
+dereth-client-runtime = { path = "../../../../core/client-runtime" }
+dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-primitives.workspace = true
 
 [features]
 # Builders for synthetic dats and installs, for other crates' tests. Never in a release build.

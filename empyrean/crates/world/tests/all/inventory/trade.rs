@@ -907,3 +907,32 @@ fn responses_route_by_type_and_context() {
         [WeenieError::YouChickenOut.0.cast_unsigned()]
     );
 }
+
+/// Divergence: V419
+/// A world without secure trade refuses opening one: no trade registers on either side and the
+/// player is told why; February 2005 had trade, so an Infiltration world opens it.
+#[test]
+fn a_world_without_trade_refuses_opening_one() {
+    use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+    let mut h = H::new();
+    let sa = h.player(A, "Alpha", 20.0);
+    let sb = h.player(B, "Bravo", 20.5);
+    h.w.era = with_features(
+        EraId::Eor.rules(),
+        EraFeatures {
+            trade: false,
+            ..EraFeatures::ALL
+        },
+    );
+    start_capture();
+    player_trade::handle_action_open_trade_negotiations(&mut h.w, A, B.full(), true);
+    let msgs = sent();
+    assert!(events_to(&msgs, sa).is_empty() && events_to(&msgs, sb).is_empty());
+    assert_eq!(chats_to(&msgs, sa), ["This world has no secure trade."]);
+    assert!(!player_trade::is_trading(&h.w, A) && !player_trade::is_trading(&h.w, B));
+
+    h.w.era = EraId::Infiltration.rules();
+    player_trade::handle_action_open_trade_negotiations(&mut h.w, B, A.full(), false);
+    assert_eq!(events_to(&sent(), sb), [GameEventType::RegisterTrade]);
+    assert!(player_trade::is_trading(&h.w, A));
+}

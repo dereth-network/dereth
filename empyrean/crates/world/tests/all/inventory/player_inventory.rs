@@ -1087,3 +1087,127 @@ fn an_era_without_dual_wield_refuses_a_weapon_in_the_off_hand() {
         }
     }
 }
+
+/// Divergence: V424, V428
+/// A world without aetheria, cloaks or trinkets refuses wielding into the sigil slot, the cloak
+/// slot or the trinket slot, telling the player why; a world with them wields there as ACE does.
+#[test]
+fn a_world_without_aetheria_cloaks_or_trinkets_refuses_their_slots() {
+    use empyrean_common::era::{with_features, EraFeatures, EraId};
+    for (slot, system) in [
+        (EquipMask::SigilOne, "aetheria"),
+        (EquipMask::Cloak, "cloaks"),
+        (EquipMask::TrinketOne, "trinkets"),
+    ] {
+        for has in [true, false] {
+            let mut w = world();
+            let mut features = EraFeatures::ALL;
+            features.set(system, has);
+            w.era = with_features(EraId::Eor.rules(), features);
+            // The first sigil slot unlocked, as the aetheria quest leaves it.
+            w.objects
+                .get_mut(player())
+                .expect("the player")
+                .set_property(PropertyInt::AetheriaBitfield, 1);
+            let item = give(&mut w, ITEM);
+            w.objects.get_mut(item).expect("the item").set_property(
+                PropertyInt::ValidLocations,
+                i32::try_from(slot.0).expect("mask"),
+            );
+            start_capture();
+            pi::handle_action_get_and_wield_item(&mut w, player(), item.full(), slot);
+            let sent = kinds(&take_sent());
+            assert_eq!(
+                obj(&w, item).current_wielded_location() == Some(slot),
+                has,
+                "{system} {has}: {sent:?}"
+            );
+            assert_eq!(sent.contains(&WIELD_ITEM), has, "{system} {has}: {sent:?}");
+            if !has {
+                assert!(sent.contains(&SAVE_FAILED), "{system}: {sent:?}");
+            }
+        }
+    }
+}
+
+/// Divergence: V429
+/// At login an item worn in a slot the world lacks comes off into the pack, as an unwield does;
+/// with no room in the pack the unwield is refused, the item stays worn and the player is told
+/// to make room. A full main pack sends it to a side pack with room. A world with the slot leaves
+/// it worn.
+#[test]
+fn at_login_an_item_in_a_slot_the_world_lacks_goes_to_the_pack() {
+    use empyrean_common::era::{with_features, EraFeatures, EraId};
+    let eor = EraId::Eor.rules();
+    let no_cloaks = with_features(
+        eor,
+        EraFeatures {
+            cloaks: false,
+            ..eor.features
+        },
+    );
+    let wear_cloak = |w: &mut World| {
+        let cloak = give(w, ITEM);
+        obj_mut(w, cloak).set_property(
+            PropertyInt::ValidLocations,
+            i32::try_from(EquipMask::Cloak.0).expect("mask"),
+        );
+        pi::handle_action_get_and_wield_item(w, player(), cloak.full(), EquipMask::Cloak);
+        assert_eq!(
+            obj(w, cloak).current_wielded_location(),
+            Some(EquipMask::Cloak)
+        );
+        cloak
+    };
+
+    // The world has cloaks: the audit leaves it on.
+    let mut w = world();
+    let cloak = wear_cloak(&mut w);
+    pi::audit_equipped_items(&mut w, player());
+    assert_eq!(
+        obj(&w, cloak).current_wielded_location(),
+        Some(EquipMask::Cloak)
+    );
+
+    // Restarted without cloaks: the next login's audit puts it in the pack.
+    w.era = no_cloaks;
+    start_capture();
+    pi::audit_equipped_items(&mut w, player());
+    let sent = take_sent();
+    assert_eq!(obj(&w, cloak).current_wielded_location(), None);
+    assert!(container::inventory_values(&w, player()).contains(&cloak));
+    assert!(!ce::equipped_objects_values(&w, player()).contains(&cloak));
+    assert!(
+        kinds(&sent).contains(&0x0022),
+        "the client is told where it went: {sent:?}"
+    );
+
+    // A full pack: the unwield is refused and the cloak stays on.
+    let mut w = world();
+    let cloak = wear_cloak(&mut w);
+    while container::get_free_inventory_slots(&w, player(), true) > 0 {
+        give(&mut w, ITEM);
+    }
+    w.era = no_cloaks;
+    pi::audit_equipped_items(&mut w, player());
+    assert_eq!(
+        obj(&w, cloak).current_wielded_location(),
+        Some(EquipMask::Cloak)
+    );
+    assert!(
+        ce::equipped_objects_values(&w, player()).contains(&cloak),
+        "not lost"
+    );
+
+    // A full main pack and a side pack with room: it goes to the side pack.
+    let mut w = world();
+    let pack = give(&mut w, PACK);
+    let cloak = wear_cloak(&mut w);
+    while container::get_free_inventory_slots(&w, player(), false) > 0 {
+        give(&mut w, ITEM);
+    }
+    w.era = no_cloaks;
+    pi::audit_equipped_items(&mut w, player());
+    assert_eq!(obj(&w, cloak).current_wielded_location(), None);
+    assert!(container::inventory_values(&w, pack).contains(&cloak));
+}

@@ -1084,7 +1084,10 @@ version = "0.0.0"
 name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
+ "dereth-client-contract",
+ "dereth-client-runtime",
  "dereth-dat",
+ "dereth-primitives",
  "dereth-transport",
  "ed25519-dalek",
  "serde",

@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use dereth_primitives::era::{EraFeatures, EraId, VitaeRecovery};
+pub use dereth_primitives::era::{EraFeatureOverrides, EraFeatures, EraId, VitaeRecovery};
 
 /// The server's side of an era: its rules, and the code `world.pack` stores for it.
 pub trait EraExt: Sized {
@@ -125,7 +125,8 @@ pub struct EraRules {
     pub creation_skills: Option<&'static [u32]>,
     /// The heritages a new character may be. `None`: any the dat character-generation table has.
     pub heritages: Option<&'static [u32]>,
-    /// The systems the era has, each a gate at ACE's sites.
+    /// The systems the world has, each a gate at ACE's sites: the era's table
+    /// ([`EraId::features`]) with the world's `[era]` settings over it ([`with_features`]).
     pub features: EraFeatures,
     /// Server properties whose default the era changes (ClassicACE's per-ruleset defaults); a
     /// value the operator has set still wins.
@@ -253,7 +254,7 @@ pub static EOR: EraRules = EraRules {
     loot: LootTables::AsTables,
     creation_skills: None,
     heritages: None,
-    features: EraFeatures::ALL,
+    features: EraFeatures::END_OF_RETAIL,
     property_defaults: &[],
     formulas: EraFormulas::END_OF_RETAIL,
     starter_gear: StarterGearSet::EndOfRetail,
@@ -334,7 +335,7 @@ pub static INFILTRATION: EraRules = EraRules {
     loot: LootTables::PackOnly,
     creation_skills: Some(&INFILTRATION_SKILLS),
     heritages: Some(&INFILTRATION_HERITAGES),
-    features: EraFeatures::NONE,
+    features: EraFeatures::INFILTRATION,
     property_defaults: &INFILTRATION_PROPERTY_DEFAULTS,
     formulas: EraFormulas::INFILTRATION,
     starter_gear: StarterGearSet::Infiltration,
@@ -372,14 +373,110 @@ pub struct EraConfiguration {
     /// The era this world plays; its `world.pack` must have been built for the same era.
     #[serde(rename = "Profile", with = "era_name")]
     pub profile: EraId,
+    /// The systems the world turns on or off over its era's table: one key per system, named as
+    /// [`EraFeatures::NAMES`] spells it (`Aetheria`, `SpellResearch`, ... in the serde form).
+    #[serde(flatten, with = "feature_settings")]
+    pub features: EraFeatureOverrides,
 }
 
-/// The configured era's rules: `[era] profile`, or end of retail before a configuration is loaded.
+impl EraConfiguration {
+    /// The world's rules: the profile's, with the configured systems over its table.
+    #[must_use]
+    pub fn rules(&self) -> &'static EraRules {
+        let rules = self.profile.rules();
+        with_features(rules, self.features.apply(rules.features))
+    }
+}
+
+/// `serde` for the `[era]` system keys: each a bool under its name in `PascalCase`, `null` (or left
+/// out) for the profile's value.
+pub mod feature_settings {
+    use super::{EraFeatureOverrides, EraFeatures};
+    use serde::de::{MapAccess, Visitor};
+    use serde::ser::SerializeMap;
+    use serde::{Deserializer, Serializer};
+
+    /// A system's name in the serde form: `spell_research` is `SpellResearch`.
+    #[must_use]
+    pub fn key(name: &str) -> String {
+        name.split('_')
+            .map(|w| {
+                let mut c = w.chars();
+                c.next()
+                    .map(|f| f.to_ascii_uppercase().to_string() + c.as_str())
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    /// The system a serde key names (any case, underscores ignored).
+    fn system(key: &str) -> Option<&'static str> {
+        let plain = |s: &str| s.replace('_', "").to_ascii_lowercase();
+        let k = plain(key);
+        EraFeatures::NAMES.iter().copied().find(|n| plain(n) == k)
+    }
+
+    /// # Errors
+    /// The serializer's.
+    pub fn serialize<S: Serializer>(o: &EraFeatureOverrides, s: S) -> Result<S::Ok, S::Error> {
+        let mut map = s.serialize_map(Some(EraFeatures::COUNT))?;
+        for name in EraFeatures::NAMES {
+            map.serialize_entry(&key(name), &o.get(name))?;
+        }
+        map.end()
+    }
+
+    /// # Errors
+    /// A system key whose value is not a bool. Keys that are no system's are left alone.
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<EraFeatureOverrides, D::Error> {
+        struct Keys;
+        impl<'de> Visitor<'de> for Keys {
+            type Value = EraFeatureOverrides;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("the era's system settings")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut o = EraFeatureOverrides::default();
+                while let Some(k) = map.next_key::<String>()? {
+                    if let Some(name) = system(&k) {
+                        if let Some(on) = map.next_value::<Option<bool>>()? {
+                            o.set(name, on);
+                        }
+                    } else {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                Ok(o)
+            }
+        }
+        d.deserialize_map(Keys)
+    }
+}
+
+/// `rules` with `features` in place of its own. The same arguments answer the same table, made
+/// once for the life of the process.
+#[must_use]
+pub fn with_features(rules: &'static EraRules, features: EraFeatures) -> &'static EraRules {
+    if rules.features == features {
+        return rules;
+    }
+    static MADE: std::sync::Mutex<Vec<&'static EraRules>> = std::sync::Mutex::new(Vec::new());
+    let mut made = MADE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let want = EraRules { features, ..*rules };
+    if let Some(r) = made.iter().find(|r| ***r == want) {
+        return r;
+    }
+    let r: &'static EraRules = Box::leak(Box::new(want));
+    made.push(r);
+    r
+}
+
+/// The configured world's rules: `[era]`, or end of retail before a configuration is loaded.
 #[must_use]
 pub fn current() -> &'static EraRules {
-    crate::config_manager::ConfigManager::try_config()
-        .map_or(EraId::Eor, |c| c.era.profile)
-        .rules()
+    crate::config_manager::ConfigManager::try_config().map_or(EraId::Eor.rules(), |c| c.era.rules())
 }
 
 #[cfg(test)]
@@ -481,5 +578,34 @@ mod tests {
         let c: EraConfiguration = serde_json::from_str("{}").unwrap();
         assert_eq!(c.profile, EraId::Eor);
         assert!(serde_json::from_str::<EraConfiguration>(r#"{"Profile":"tod"}"#).is_err());
+    }
+
+    /// Divergence: V418
+    /// A world's `[era]` system keys replace its profile's values, and the rules it plays are the
+    /// profile's with them.
+    #[test]
+    fn the_era_configuration_turns_systems_on_and_off_over_the_profile() {
+        let c: EraConfiguration = serde_json::from_str(
+            r#"{"Profile":"infiltration","Aetheria":true,"Trade":false,"SpellResearch":false}"#,
+        )
+        .unwrap();
+        assert_eq!(c.features.get("aetheria"), Some(true));
+        assert_eq!(c.features.get("spell_research"), Some(false));
+        let r = c.rules();
+        assert_eq!(r.id, EraId::Infiltration);
+        assert!(r.features.aetheria && !r.features.trade && r.features.housing);
+        assert_eq!(r.max_level, Some(126), "the rest is the profile's");
+        assert!(std::ptr::eq(r, c.rules()), "made once");
+        let back: EraConfiguration =
+            serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back, c);
+        // No settings: the profile's own table.
+        let c: EraConfiguration = serde_json::from_str(r#"{"Profile":"infiltration"}"#).unwrap();
+        assert!(std::ptr::eq(c.rules(), &INFILTRATION));
+        assert!(serde_json::from_str::<EraConfiguration>(r#"{"Chess":"no"}"#).is_err());
+        assert_eq!(
+            feature_settings::key("pre_order_items_and_rares"),
+            "PreOrderItemsAndRares"
+        );
     }
 }

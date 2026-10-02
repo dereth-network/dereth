@@ -1879,3 +1879,46 @@ mod kill_tasks_and_portals {
         );
     }
 }
+
+/// Divergence: V426, V427
+/// A world without the contract tracker takes no contract on (an emote's add fails, nothing is
+/// sent) and refuses abandoning one, telling the player why; a world without titles grants none
+/// and sets none as the one shown. An end-of-retail world has both.
+#[test]
+fn a_world_without_contracts_or_titles_takes_none_on_and_grants_none() {
+    use empyrean_common::era::{with_features, EraExt as _, EraFeatures, EraId};
+    let mut w = world();
+    let eor = EraId::Eor.rules();
+    w.era = with_features(
+        eor,
+        EraFeatures {
+            contracts: false,
+            titles: false,
+            ..eor.features
+        },
+    );
+    w.objects
+        .get_mut(player())
+        .unwrap()
+        .set_first_enter_world_done(true);
+    start_capture();
+    assert!(!cm::add(&mut w, player(), 7));
+    pc::add_title_enum(&mut w, player(), CharacterTitle::Adventurer, true);
+    pc::handle_action_set_title(&mut w, player(), CharacterTitle::Archer.0);
+    assert!(take_sent().is_empty(), "nothing is sent");
+    assert!(!cm::has_contract(&w, player(), 7));
+    assert!(character(&w).character_properties_title_book.is_empty());
+    assert_eq!(w.objects.get(player()).unwrap().character_title_id(), None);
+    start_capture();
+    empyrean_world::world_objects::player_contracts::handle_action_abandon_contract(
+        &mut w,
+        player(),
+        7,
+    );
+    assert_eq!(chats(&take_sent()), ["This world has no contracts."]);
+
+    w.era = eor;
+    assert!(cm::add(&mut w, player(), 7));
+    pc::add_title_enum(&mut w, player(), CharacterTitle::Adventurer, true);
+    assert_eq!(character(&w).character_properties_title_book.len(), 1);
+}

@@ -9,13 +9,14 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--era <era>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--era <era>] [--era-features <systems>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
 //! A retail client runs from its own folder and reads the dats beside it. The Dereth client runs
 //! from its own folder too, and reads the dat set it is given. When the world names the era it
-//! plays, the Dereth client is told it, so its screens show that era's systems from the start.
+//! plays, the Dereth client is told it, and the systems the world has with it, so its screens show
+//! that world's systems from the start.
 
 use std::path::PathBuf;
 
@@ -100,6 +101,9 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
             ]);
             if let Some(era) = req.world.era.as_deref().filter(|e| !e.is_empty()) {
                 args.extend([plain("--era"), plain(era)]);
+            }
+            if let Some(f) = req.world.era_features.as_deref().filter(|f| !f.is_empty()) {
+                args.extend([plain("--era-features"), plain(f)]);
             }
         }
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
@@ -248,6 +252,18 @@ mod tests {
         w.era = Some("infiltration".into());
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(argv[argv.len() - 2..], ["--era", "infiltration"]);
+        // And the systems its status lists.
+        w.era_features = Some("trade=false,aetheria=true".into());
+        let argv = plan(&req(&w, &i)).unwrap().argv("pw");
+        assert_eq!(
+            argv[argv.len() - 4..],
+            [
+                "--era",
+                "infiltration",
+                "--era-features",
+                "trade=false,aetheria=true"
+            ]
+        );
 
         // A retail client has no such switch.
         let i = inst(ClientKind::Retail);
@@ -255,6 +271,49 @@ mod tests {
             .unwrap()
             .argv("pw")
             .contains(&"--era".to_owned()));
+    }
+
+    /// A world's status document, read as the launcher reads it, reaches the Dereth client's era
+    /// view through the command line: the era, and every system the document lists over that
+    /// era's table.
+    #[test]
+    fn the_era_and_systems_a_status_announces_reach_the_dereth_clients_era_view() {
+        use dereth_primitives::{EraFeatures, EraId};
+        // An Infiltration world whose configuration turns aetheria on and trade off.
+        let world_has = EraFeatures {
+            aetheria: true,
+            trade: false,
+            ..EraId::Infiltration.features()
+        };
+        let listed: Vec<String> = world_has
+            .iter()
+            .map(|(name, on)| format!("\"{name}\":{on}"))
+            .collect();
+        let doc = format!(
+            "{{\"world_open\":true,\"era\":\"infiltration\",\"features\":{{{}}}}}",
+            listed.join(",")
+        );
+        let live = crate::status::parse_world_document(doc.as_bytes()).unwrap();
+        let (mut w, i) = (world(Emulator::Empyrean), inst(ClientKind::Dereth));
+        // As the launcher's world list takes them from the live status.
+        w.era.clone_from(&live.era);
+        w.era_features.clone_from(&live.era_features);
+        let argv = plan(&req(&w, &i)).unwrap().argv("pw");
+        let cfg = dereth_client_runtime::config::Config::from_args_and_prefs_with(
+            &argv,
+            &dereth_client_runtime::config::Preferences::default(),
+        )
+        .unwrap();
+        // As the client's start-up hands them to its era view.
+        let view = dereth_client_contract::EraView {
+            era: cfg.era.expect("an announced era"),
+            era_announced: true,
+            announced_features: cfg.era_features,
+            ..Default::default()
+        };
+        assert_eq!(view.era, EraId::Infiltration);
+        assert_eq!(view.features(), world_has);
+        assert_ne!(view.features(), EraId::Infiltration.features());
     }
 
     #[test]
