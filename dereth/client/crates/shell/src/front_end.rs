@@ -1268,7 +1268,8 @@ impl<H: Host> Ui<'_, '_, H> {
     /// `--say`, submitted from the world screen: five seconds after arriving, then one line every
     /// two seconds, each as the chat window's Send submits it. Each line is sent once. Then each
     /// `--use` target, six seconds apart, used as a double-click uses it; `closest` is first
-    /// selected by the closest-compass-item key's action and used a second later.
+    /// selected by the closest-compass-item key's action and used a second later, and `logout`
+    /// ends the character session as the confirmed logout button does.
     fn drive_say(&mut self, now: f64) {
         use dereth_ui::framework::mode;
 
@@ -1310,6 +1311,16 @@ impl<H: Host> Ui<'_, '_, H> {
                     .ui
                     .requests
                     .emit(dereth_ui_screens::view::UiRequest::Use(id));
+            } else if target == "logout" {
+                if now - last < 6.0 {
+                    return;
+                }
+                self.shell.say_drive.used += 1;
+                tracing::info!("logging out, as the confirmed logout button does");
+                shell
+                    .ui
+                    .requests
+                    .emit(dereth_ui_screens::view::UiRequest::EndCharacterSession { ask: false });
             } else if drive.selected {
                 if now - last < 1.0 {
                     return;

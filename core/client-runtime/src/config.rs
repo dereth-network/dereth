@@ -345,10 +345,11 @@ pub struct Config {
     /// line in turn as the chat window's Send does (so `@` and `/` commands are commands). Like
     /// `--cast` it is this rebuild's switch and not one the retail client has.
     pub say: Vec<String>,
-    /// `--use <object id | closest>`, any number of times: after any `--say` lines, use each in
-    /// turn, six seconds apart, as a double-click uses it (a door's id twice opens and closes
-    /// it); `closest` is the closest compass item, selected by its key's action. This rebuild's
-    /// switch.
+    /// `--use <object id | closest | logout>`, any number of times: after any `--say` lines, use
+    /// each in turn, six seconds apart, as a double-click uses it (a door's id twice opens and
+    /// closes it); `closest` is the closest compass item, selected by its key's action, and
+    /// `logout` logs the character out to character select as the confirmed logout button does,
+    /// departure and all. This rebuild's switch.
     pub use_targets: Vec<String>,
 
     // ---- the shell ----
@@ -1473,9 +1474,9 @@ impl Config {
             "say" => self.say.push(v.to_owned()),
             "use" => {
                 let id = v.strip_prefix("0x").map(|h| u32::from_str_radix(h, 16));
-                if v != "closest" && !matches!(id, Some(Ok(_))) {
+                if v != "closest" && v != "logout" && !matches!(id, Some(Ok(_))) {
                     return Err(ConfigError::new(format!(
-                        "--use takes an object id (0x...) or closest, not {v:?}"
+                        "--use takes an object id (0x...), closest or logout, not {v:?}"
                     )));
                 }
                 self.use_targets.push(v.to_owned());
@@ -2060,8 +2061,9 @@ mod tests {
             ["@level 2"],
             "the command line is read twice, the line kept once"
         );
-        let c = parse(&["--use", "0x7A9B0000", "--use", "closest"]).expect("parses");
-        assert_eq!(c.use_targets, ["0x7A9B0000", "closest"]);
+        let c =
+            parse(&["--use", "0x7A9B0000", "--use", "closest", "--use", "logout"]).expect("parses");
+        assert_eq!(c.use_targets, ["0x7A9B0000", "closest", "logout"]);
         assert!(parse(&["--use", "door"]).is_err());
     }
 
