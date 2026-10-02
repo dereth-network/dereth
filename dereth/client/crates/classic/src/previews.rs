@@ -36,6 +36,9 @@ type BuiltPreview = (DataId, ObjDesc, u32);
 
 /// The paper doll's camera, looking straight ahead from in front of the doll.
 const DOLL_CAMERA: Vec3 = Vec3::new(0.24, -2.7, 0.88);
+/// The paper doll's and the creation model's focal lengths.
+const DOLL_FOCAL: f32 = 0.075;
+const CREATION_FOCAL: f32 = 0.1;
 
 #[derive(Default)]
 pub struct Previews {
@@ -173,7 +176,6 @@ impl Previews {
                 });
             }
         }
-        let focal = normalized_focal(0.075, view.rect.h);
         let camera = dereth_primitives::Frame {
             origin: DOLL_CAMERA,
             ..Default::default()
@@ -183,7 +185,7 @@ impl Previews {
             (x - view.rect.x) as f32,
             (y - view.rect.y) as f32,
             (view.rect.w as u32, view.rect.h as u32),
-            2. * math::atanf(1. / focal),
+            fov_of_focal(DOLL_FOCAL, view.rect.h),
         );
         let (object, part_index) = find_object(camera.origin, direction, &picked).result();
         if object.0 == 0 {
@@ -293,7 +295,14 @@ impl Previews {
                 }
                 self.built.insert(id, descriptor);
             }
-            present.preview_use_world_fov(id);
+            // The classic previews have a lens of their own: the doll's and the creation model's
+            // focal lengths over the window's height, whatever the world camera's zoom.
+            let focal = if view.kind == PreviewKind::PaperDoll {
+                DOLL_FOCAL
+            } else {
+                CREATION_FOCAL
+            };
+            present.preview_set_fov(id, fov_of_focal(focal, view.rect.h));
             match view.kind {
                 PreviewKind::PaperDoll => {
                     present.preview_set_camera_position(id, DOLL_CAMERA);
@@ -593,6 +602,11 @@ pub fn equipment_mask(object_index: usize, part_index: i32) -> u32 {
 // Convert the equivalent vertical projection to the shared normalized distance.
 fn normalized_focal(focal: f32, height: i32) -> f32 {
     8000. * focal / (height - 1).max(1) as f32
+}
+
+/// The vertical field of view a focal length gives a window `height` pixels high.
+fn fov_of_focal(focal: f32, height: i32) -> f32 {
+    2. * math::atanf(1. / normalized_focal(focal, height))
 }
 
 fn decode_descriptor(hex: &str) -> Result<ObjDesc, String> {

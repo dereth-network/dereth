@@ -967,6 +967,12 @@ mod imp {
             }
         }
 
+        fn preview_set_fov(&mut self, id: PreviewId, radians: f32) {
+            if let Some(s) = self.preview_mut(id) {
+                s.mode.set_fov(radians);
+            }
+        }
+
         fn preview_set_camera_position(
             &mut self,
             id: PreviewId,

@@ -347,6 +347,9 @@ pub trait Presentation: std::fmt::Debug {
     );
     fn preview_use_sharp_mode(&mut self, id: PreviewSpace);
     fn preview_use_world_fov(&mut self, id: PreviewSpace);
+    /// Give the space a field of view of its own, `radians` high, whatever the world's camera
+    /// does: a front end whose previews have their own lens.
+    fn preview_set_fov(&mut self, id: PreviewSpace, radians: f32);
     fn preview_set_camera_position(&mut self, id: PreviewSpace, position: dereth_primitives::Vec3);
     fn preview_set_camera_direction(
         &mut self,
@@ -577,6 +580,9 @@ impl Presentation for NullPresentation {
         self.counts.preview_calls += 1;
     }
     fn preview_use_world_fov(&mut self, _id: PreviewSpace) {
+        self.counts.preview_calls += 1;
+    }
+    fn preview_set_fov(&mut self, _id: PreviewSpace, _radians: f32) {
         self.counts.preview_calls += 1;
     }
     fn preview_set_camera_position(

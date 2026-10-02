@@ -225,9 +225,15 @@ impl CreatureMode {
         ));
     }
 
-    /// One-way: nothing clears it.
+    /// One-way: nothing clears it but [`Self::set_fov`].
     pub fn use_world_fov(&mut self) {
         self.use_world_fov = true;
+    }
+
+    /// A field of view of the space's own, `radians` high, in place of the world's.
+    pub fn set_fov(&mut self, radians: f32) {
+        self.use_world_fov = false;
+        self.fov_radians = radians;
     }
 
     /// Switch to sharp mode. Also one-way.

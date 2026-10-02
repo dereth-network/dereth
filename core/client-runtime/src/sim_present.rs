@@ -258,6 +258,9 @@ impl Presentation for SimPresentation {
     fn preview_use_world_fov(&mut self, id: dereth_client_contract::overlay::PreviewSpace) {
         self.device.preview_use_world_fov(id)
     }
+    fn preview_set_fov(&mut self, id: dereth_client_contract::overlay::PreviewSpace, radians: f32) {
+        self.device.preview_set_fov(id, radians)
+    }
     fn preview_set_camera_position(
         &mut self,
         id: dereth_client_contract::overlay::PreviewSpace,
