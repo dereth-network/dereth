@@ -1017,6 +1017,18 @@ fn friends_and_squelch_are_pages_of_the_social_window_after_the_classic_world() 
             .collect::<Vec<_>>()
     };
     assert!(!ids(&classic, &*p).contains(&"tab3".to_string()));
+    // Nor do their buttons do anything there.
+    let mut q = make("friends").unwrap();
+    event(
+        &mut *q,
+        ControlEvent::Edit {
+            id: "entry".into(),
+            text: "Bob".into(),
+        },
+        &classic,
+    );
+    assert!(activate(&mut *q, "add-friend", &classic).is_empty());
+    assert!(activate(&mut *q, "tab3", &classic).is_empty());
     let later = View {
         friends: vec![
             dereth_client_contract::view::FriendEntry {

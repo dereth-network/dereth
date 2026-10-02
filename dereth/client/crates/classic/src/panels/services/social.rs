@@ -1002,11 +1002,11 @@ impl Panel for Social {
         let later = friends_and_squelch(c.game);
         let mut f = translated(
             match self.tab {
-                0 => self.allegiance(c),
                 1 => self.fellowship(c),
+                2 => self.trade(c),
                 3 if later => self.friends(c),
                 4 if later => self.squelch(c),
-                _ => self.trade(c),
+                _ => self.allegiance(c),
             },
             25,
             self.height,
@@ -1111,11 +1111,22 @@ impl Panel for Social {
             }
             ControlEvent::Activate(id) => match id.as_str() {
                 "tab0" | "tab1" | "tab2" | "tab3" | "tab4" => {
-                    self.tab = id.as_bytes()[3] as usize - b'0' as usize;
+                    let tab = id.as_bytes()[3] as usize - b'0' as usize;
+                    if tab > 2 && !friends_and_squelch(c.game) {
+                        return vec![];
+                    }
+                    self.tab = tab;
                     self.selected = None;
                     self.list_scroll = 0;
                     self.mode = Mode::None;
                     self.subscription()
+                }
+                // The Friends and Squelch pages' buttons, on the worlds that have the pages.
+                "add-friend" | "remove-friend" | "tell-friend" | "squelch-character"
+                | "squelch-account" | "unsquelch"
+                    if !friends_and_squelch(c.game) =>
+                {
+                    vec![]
                 }
                 "add-friend" => {
                     let name = std::mem::take(&mut self.entry).trim().to_owned();
