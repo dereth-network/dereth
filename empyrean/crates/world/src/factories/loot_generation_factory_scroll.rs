@@ -12,6 +12,10 @@ use crate::factories::loot_generation_factory::world_object_factory_create_new_w
 use crate::world_objects::world_object::WorldObject;
 use crate::World;
 
+/// Not ACE: how many spells the era's `LootTables::PackOnly` rule picks again for a scroll the world
+/// database lacks.
+const PACK_ONLY_SCROLL_PICKS: usize = 64;
+
 /// A spell scroll: a level for the tier, then random spells of the scroll table until one exists
 /// at that level, then that spell's scroll weenie.
 // ACE: LootGenerationFactory.CreateRandomScroll
@@ -24,7 +28,7 @@ pub(crate) fn create_random_scroll(
 
     // todo: switch to SpellLevelProgression
     let table = &*scroll_spells::TABLE;
-    let spell_id = loop {
+    let pick = || loop {
         let spell_idx = ThreadSafeRandom::next(0, scroll_spells::num_spells() - 1);
 
         let row = &table[usize::try_from(spell_idx).expect("an index into the table")];
@@ -33,6 +37,18 @@ pub(crate) fn create_random_scroll(
             break spell_id; // simple way of handling spells that start at level 3 (blasts, volleys)
         }
     };
+    let mut spell_id = pick();
+
+    // DIVERGE: under the era's `LootTables::PackOnly` rule a spell whose scroll the world database
+    // lacks is picked again (ACE drops nothing).
+    if w.era.loot == empyrean_common::era::LootTables::PackOnly {
+        for _ in 0..PACK_ONLY_SCROLL_PICKS {
+            if w.content.get_scroll_weenie(spell_id.0).is_some() {
+                break;
+            }
+            spell_id = pick();
+        }
+    }
 
     let Some(weenie) = w.content.get_scroll_weenie(spell_id.0) else {
         log::debug!(

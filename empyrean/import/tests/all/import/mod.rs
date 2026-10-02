@@ -5,6 +5,7 @@ pub(crate) mod gdle_loaders;
 pub(crate) mod import_json;
 mod overlay_publish;
 pub(crate) mod pack_backups;
+mod pack_era;
 pub(crate) mod patch_applier;
 #[cfg(feature = "real-content")]
 pub(crate) mod real_dump;

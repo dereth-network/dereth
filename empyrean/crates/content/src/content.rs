@@ -8,6 +8,7 @@
 use std::sync::{Arc, OnceLock};
 
 use empyrean_common::dotnet::DotNetDict;
+use empyrean_common::era::EraId;
 
 use crate::entity::HouseListResults;
 use crate::import::WorldContent;
@@ -42,6 +43,11 @@ macro_rules! world_database_api {
             fn content_hash(&self) -> Option<String> {
                 None
             }
+
+            /// Not ACE: the era the content was built for (the pack's header).
+            fn era(&self) -> EraId {
+                EraId::Eor
+            }
         }
 
         impl WorldDatabase for WorldDatabaseWithEntityCache {
@@ -54,6 +60,10 @@ macro_rules! world_database_api {
             fn content_hash(&self) -> Option<String> {
                 Some(crate::pack::hex(&self.base().pack().header().content_hash))
             }
+
+            fn era(&self) -> EraId {
+                self.base().pack().era()
+            }
         }
 
         impl WorldDatabase for MemContent {
@@ -65,6 +75,10 @@ macro_rules! world_database_api {
 
             fn content_hash(&self) -> Option<String> {
                 Some(crate::pack::hex(&self.db().base().pack().header().content_hash))
+            }
+
+            fn era(&self) -> EraId {
+                self.db().base().pack().era()
             }
         }
     };
@@ -219,6 +233,14 @@ impl MemContent {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The era the content is built for (end of retail unless set).
+    #[must_use]
+    pub fn era(mut self, era: EraId) -> Self {
+        self.content.era = era;
+        self.db = OnceLock::new();
+        self
     }
 
     /// A database over already-assembled content (the importer's output, for example).

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::database_configuration::DatabaseConfiguration;
 use crate::ddd_configuration::DDDConfiguration;
+use crate::era::EraConfiguration;
 use crate::game_configuration::GameConfiguration;
 use crate::offline_configuration::OfflineConfiguration;
 
@@ -34,4 +35,9 @@ pub struct MasterConfiguration {
     /// `DDD`.
     #[serde(rename = "DDD")]
     pub ddd: DDDConfiguration,
+
+    /// Not ACE: the era the world plays (`[era]`).
+    /// DIVERGE: an extra section; ACE has one set of rules.
+    #[serde(rename = "Era")]
+    pub era: EraConfiguration,
 }

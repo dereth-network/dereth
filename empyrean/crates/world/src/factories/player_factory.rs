@@ -21,6 +21,8 @@
 use std::sync::Arc;
 
 use empyrean_common::dotnet::CsCast;
+use empyrean_common::era::{StartPositions, TownStart};
+use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_dat::file_types::palette_set::PaletteSetExt;
 use empyrean_dat::file_types::sex_cg::SexCgExt;
 use empyrean_dat::file_types::PaletteSet;
@@ -739,6 +741,74 @@ pub fn create(
 
     let starter_area = index(&char_gen.starter_areas, start_area);
 
+    // DIVERGE: the era's rule (`World.era`) chooses the start position; end of retail is ACE's.
+    let (location, instantiation, recalls_disabled) = match w.era.start_positions {
+        StartPositions::FromCharGen => {
+            let (location, instantiation) = char_gen_start(w, starter_area);
+            (location, instantiation, true)
+        }
+        StartPositions::Towns(towns) => {
+            let location = town_start(towns, &starter_area.name);
+            (location, location, false)
+        }
+    };
+    p.player
+        .set_position(PositionType::Location, Some(location));
+
+    p.player
+        .set_position(PositionType::Instantiation, Some(instantiation));
+
+    if !p.is_olthoi_player() {
+        p.player
+            .set_position(PositionType::Sanctuary, Some(location));
+        if recalls_disabled {
+            p.player.set_property(PropertyBool::RecallsDisabled, true);
+        }
+
+        if property_manager_get_bool(w, "pk_server") {
+            p.player.set_property(
+                PropertyInt::PlayerKillerStatus,
+                CsCast::<i32>::cs_cast(PlayerKillerStatus::PK.0),
+            );
+        } else if property_manager_get_bool(w, "pkl_server") {
+            p.player.set_property(
+                PropertyInt::PlayerKillerStatus,
+                CsCast::<i32>::cs_cast(PlayerKillerStatus::NPK.0),
+            );
+        }
+
+        if (property_manager_get_bool(w, "pk_server") || property_manager_get_bool(w, "pkl_server"))
+            && property_manager_get_bool(w, "pk_server_safe_training_academy")
+        {
+            p.player.set_property(
+                PropertyFloat::MinimumTimeSincePk,
+                -property_manager_get_double(w, "pk_new_character_grace_period"),
+            );
+            p.player.set_property(
+                PropertyInt::PlayerKillerStatus,
+                CsCast::<i32>::cs_cast(PlayerKillerStatus::NPK.0),
+            );
+        }
+    }
+
+    if p.player.is_sentinel() || p.player.is_admin() {
+        p.character_mut().is_plussed = true;
+        p.player.set_cloak_status(CloakStatus::Off);
+        let channels_active = p.player.channels_active();
+        p.player.set_channels_allowed(channels_active);
+    }
+
+    character_create_set_default_character_options(w, &mut p);
+
+    (CreateResult::Success, p)
+}
+
+/// ACE's start: the starter area's first location, and the town's "Free Ride" spell (or, for the
+/// Olthoi lair, the location itself) as the instantiation point.
+fn char_gen_start(
+    w: &World,
+    starter_area: &dereth_assets::tables::StarterArea,
+) -> (Position, Position) {
     let loc = starter_area
         .locations
         .first()
@@ -754,8 +824,6 @@ pub fn create(
         loc.frame.rotation.w,
         false,
     );
-    p.player
-        .set_position(PositionType::Location, Some(location));
 
     let mut instantiation = Position::from_components(
         0xA9B4_0019,
@@ -798,50 +866,17 @@ pub fn create(
         );
     }
 
-    p.player
-        .set_position(PositionType::Instantiation, Some(instantiation));
+    (location, instantiation)
+}
 
-    if !p.is_olthoi_player() {
-        p.player
-            .set_position(PositionType::Sanctuary, Some(location));
-        p.player.set_property(PropertyBool::RecallsDisabled, true);
-
-        if property_manager_get_bool(w, "pk_server") {
-            p.player.set_property(
-                PropertyInt::PlayerKillerStatus,
-                CsCast::<i32>::cs_cast(PlayerKillerStatus::PK.0),
-            );
-        } else if property_manager_get_bool(w, "pkl_server") {
-            p.player.set_property(
-                PropertyInt::PlayerKillerStatus,
-                CsCast::<i32>::cs_cast(PlayerKillerStatus::NPK.0),
-            );
-        }
-
-        if (property_manager_get_bool(w, "pk_server") || property_manager_get_bool(w, "pkl_server"))
-            && property_manager_get_bool(w, "pk_server_safe_training_academy")
-        {
-            p.player.set_property(
-                PropertyFloat::MinimumTimeSincePk,
-                -property_manager_get_double(w, "pk_new_character_grace_period"),
-            );
-            p.player.set_property(
-                PropertyInt::PlayerKillerStatus,
-                CsCast::<i32>::cs_cast(PlayerKillerStatus::NPK.0),
-            );
-        }
-    }
-
-    if p.player.is_sentinel() || p.player.is_admin() {
-        p.character_mut().is_plussed = true;
-        p.player.set_cloak_status(CloakStatus::Off);
-        let channels_active = p.player.channels_active();
-        p.player.set_channels_allowed(channels_active);
-    }
-
-    character_create_set_default_character_options(w, &mut p);
-
-    (CreateResult::Success, p)
+/// Not ACE: an era's listed start (ClassicACE's rule): the town the chosen starter area names (the
+/// first town for any other area), then one of its areas, chosen evenly.
+fn town_start(towns: &'static [TownStart], starter_area_name: &str) -> Position {
+    let town = StartPositions::town(towns, starter_area_name);
+    let area = &town.areas[usize::from(ThreadSafeRandom::next(0, 1) == 1)];
+    let [x, y, z] = area.origin;
+    let [rx, ry, rz, rw] = area.rotation;
+    Position::from_components(area.cell, x, y, z, rx, ry, rz, rw, false)
 }
 
 /// The starter items of one gear list (a skill's, then its heritage entry's): the two identical

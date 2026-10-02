@@ -37,6 +37,7 @@ pub(crate) fn base_inputs() -> BaseInputs {
     BaseInputs {
         sql: base_sql(),
         patches: Vec::new(),
+        era: empyrean_common::era::EraId::Eor,
     }
 }
 

@@ -854,7 +854,7 @@ impl WorldDatabaseWithEntityCache {
         let mut cache = lock(&self.c.spell_cache);
         for mut result in results {
             // Not ACE: the retail corrections to the stored data (`crate::corrections`).
-            crate::corrections::apply_spell(&mut result);
+            crate::corrections::apply_spell_for(&mut result, self.base().pack().era());
             cache.insert(result.id, Some(Arc::new(result)));
         }
     }
@@ -888,7 +888,7 @@ impl WorldDatabaseWithEntityCache {
             .get::<Spell>(TableId::SPELL, u64::from(spell_id))
             .map(|mut s| {
                 // Not ACE: the retail corrections to the stored data (`crate::corrections`).
-                crate::corrections::apply_spell(&mut s);
+                crate::corrections::apply_spell_for(&mut s, self.base.pack().era());
                 s
             })
             .map(Arc::new);

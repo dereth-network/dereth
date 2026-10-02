@@ -22,12 +22,19 @@
 //! Individual entries stay individually evidenced, and neither bulk entries nor a new rule are
 //! added here without a deliberate, reviewed decision.
 //!
+//! The individual entries are scoped to the eras whose content they were evidenced on
+//! ([`ENTRY_ERAS`]: the end of retail). On a pack built for another era ([`crate::pack::Pack::era`])
+//! none applies, and none is reported stale or absent. The two rules correct how ACE's world data
+//! numbers the client's enums, which every era's content shares and every era's client reads with
+//! the end-of-retail enums, so they apply to every pack.
+//!
 //! Since the pack's content hash covers only what is stored, [`digest`] names this build's
 //! corrections (every entry and each rule's full definition, [`canonical_listing`]); the server
 //! logs it beside the content hash and reports both in `@empversion` and its status JSON.
 //! [`report::CorrectionsReport`] lists what each entry and rule does to one content
 //! (`empyrean-import --corrections`).
 
+use empyrean_common::era::EraId;
 use empyrean_entity::enums::{
     MotionCommand, PlayScript, PropertyBool, PropertyDataId, PropertyInt, WeenieType,
 };
@@ -305,6 +312,25 @@ fn spell_corrections_of(spell_id: u32) -> impl Iterator<Item = &'static SpellCor
         .filter(move |c| c.spell_id == spell_id)
 }
 
+/// The eras whose content the weenie and spell entries apply to: every entry's evidence is the
+/// end-of-retail world.
+pub const ENTRY_ERAS: &[EraId] = &[EraId::Eor];
+
+/// Whether the entries apply to content built for `era`.
+#[must_use]
+pub fn entries_apply_to(era: EraId) -> bool {
+    ENTRY_ERAS.contains(&era)
+}
+
+/// [`apply_spell`] for content built for `era`: nothing applies outside [`ENTRY_ERAS`].
+pub fn apply_spell_for(s: &mut Spell, era: EraId) -> usize {
+    if entries_apply_to(era) {
+        apply_spell(s)
+    } else {
+        0
+    }
+}
+
 /// Applies the corrections for `s` whose stored value it still holds; returns how many applied.
 pub fn apply_spell(s: &mut Spell) -> usize {
     let mut applied = 0;
@@ -437,11 +463,19 @@ fn of(weenie_class_id: u32) -> impl Iterator<Item = &'static WeenieCorrection> {
 /// Applies the corrections for `w` whose stored value it still holds, then the
 /// [`play_script_shift`] and [`emote_motion_shift`] rules; returns how many values changed.
 pub fn apply(w: &mut Weenie) -> usize {
+    apply_for(w, EraId::Eor)
+}
+
+/// [`apply`] for content built for `era`: the entries only within [`ENTRY_ERAS`], the rules
+/// always.
+pub fn apply_for(w: &mut Weenie, era: EraId) -> usize {
     let mut applied = 0;
-    for c in of(w.class_id) {
-        if holds(w, c.stored) {
-            set(w, c.corrected);
-            applied += 1;
+    if entries_apply_to(era) {
+        for c in of(w.class_id) {
+            if holds(w, c.stored) {
+                set(w, c.corrected);
+                applied += 1;
+            }
         }
     }
     if let Some(corrected) = play_script_shift(w) {
@@ -720,7 +754,7 @@ pub fn current(w: &Weenie, v: Value) -> Option<Value> {
 
 /// The first line of the canonical listing [`digest`] hashes; its version changes when the
 /// listing's layout does.
-pub const DIGEST_FORMAT: &str = "empyrean corrections v1";
+pub const DIGEST_FORMAT: &str = "empyrean corrections v2";
 
 fn opt_text<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map_or_else(|| "none".to_owned(), |v| v.to_string())
@@ -759,9 +793,10 @@ pub fn emote_motion_shift_mapping() -> Vec<(u32, u32)> {
     out
 }
 
-/// The canonical listing of every correction this build applies: [`DIGEST_FORMAT`], then one
-/// line per weenie and spell entry (with its DIVERGENCES row and evidence), then each rule with
-/// its full definition (the default-script cases; the emote motion mapping).
+/// The canonical listing of every correction this build applies: [`DIGEST_FORMAT`], the eras the
+/// entries apply to, then one line per weenie and spell entry (with its DIVERGENCES row and
+/// evidence), then each rule with its full definition (the default-script cases; the emote motion
+/// mapping).
 #[must_use]
 pub fn canonical_listing() -> String {
     listing_of(
@@ -781,6 +816,8 @@ pub fn listing_of(
     motion_mapping: &[(u32, u32)],
 ) -> String {
     let mut s = format!("{DIGEST_FORMAT}\n");
+    let eras: Vec<&str> = ENTRY_ERAS.iter().map(|e| e.name()).collect();
+    s += &format!("entries for eras {}\n", eras.join(" "));
     for c in weenies {
         s += &format!(
             "weenie {} {} -> {} {} {}\n",
@@ -872,6 +909,74 @@ mod tests {
         assert_eq!(apply(&mut w), 0, "an edited value is left alone");
         assert_eq!(w, edited);
         assert_eq!(stale_corrections(&edited).len(), 1);
+    }
+
+    /// Divergence: V388
+    #[test]
+    fn the_entries_apply_only_to_end_of_retail_content_and_the_rules_to_every_era() {
+        let ring = || {
+            Weenie::new(33862, "flamewave", WeenieType::ProjectileSpell)
+                .with_int(PropertyInt::PhysicsState, AFTER_IMPACT)
+        };
+        let shifted = || {
+            Weenie::new(9000, "shifted", WeenieType::Generic)
+                .with_did(PropertyDataId::PhysicsScript, 83)
+        };
+        let nether = || Spell {
+            id: 5332,
+            wcid: Some(NETHER_STREAK_WCID),
+            ..Spell::default()
+        };
+        for (era, entries_apply) in [(EraId::Eor, true), (EraId::Infiltration, false)] {
+            let content = crate::MemContent::new()
+                .era(era)
+                .weenie(ring())
+                .weenie(shifted())
+                .spell(nether());
+            let db = content.db();
+            let w = db.base().get_weenie(33862).expect("weenie");
+            let expected = if entries_apply {
+                RING_PIECE_IN_FLIGHT
+            } else {
+                AFTER_IMPACT
+            };
+            assert_eq!(
+                int_row(&w, PropertyInt::PhysicsState),
+                Some(expected),
+                "{era}"
+            );
+            let w = db.base().get_weenie(9000).expect("weenie");
+            assert_eq!(
+                did_row(&w, PropertyDataId::PhysicsScript),
+                Some(84),
+                "{era}: the rule applies"
+            );
+            let s = db.get_cached_spell(5332).expect("spell");
+            let expected = if entries_apply {
+                NETHER_ARC_WCID
+            } else {
+                NETHER_STREAK_WCID
+            };
+            assert_eq!(s.wcid, Some(expected), "{era}");
+
+            let report = report::CorrectionsReport::of(db.base());
+            let s = report.summary();
+            assert_eq!(report.era, era);
+            if entries_apply {
+                assert_eq!(s.other_era, 0);
+                assert!(
+                    s.stale + s.absent > 0,
+                    "a sparse eor content lacks most entries"
+                );
+            } else {
+                assert_eq!(
+                    (s.other_era, s.applies, s.stale, s.absent),
+                    (s.entries, 0, 0, 0)
+                );
+                assert!(report.render().contains("no entry is for this era"));
+            }
+            assert_eq!(s.play_script_shifts, 1, "{era}");
+        }
     }
 
     #[test]
@@ -1528,7 +1633,7 @@ mod tests {
     #[test]
     fn the_digest_is_stable_and_follows_every_entry_and_rule() {
         let listing = canonical_listing();
-        assert!(listing.starts_with("empyrean corrections v1\n"));
+        assert!(listing.starts_with("empyrean corrections v2\nentries for eras eor\n"));
         assert_eq!(
             listing,
             canonical_listing(),
@@ -1543,7 +1648,7 @@ mod tests {
         let lines = listing.lines().count();
         assert_eq!(
             lines,
-            1 + WEENIE_CORRECTIONS.len()
+            2 + WEENIE_CORRECTIONS.len()
                 + SPELL_CORRECTIONS.len()
                 + 2
                 + PLAY_SCRIPT_SHIFT_CASES.len()

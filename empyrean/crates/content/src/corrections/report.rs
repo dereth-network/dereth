@@ -2,8 +2,9 @@
 //! --corrections` and the server's start-up log.
 //!
 //! Each weenie and spell entry either applies (the content still stores the value it names),
-//! is stale (the content stores something else: an upstream fix, or an edit), or is absent (the
-//! content has no such weenie or spell). Each rule lists the values it changes. Everything is in
+//! is stale (the content stores something else: an upstream fix, or an edit), is absent (the
+//! content has no such weenie or spell), or is for another era (the content was built for an era
+//! the entries are not scoped to, [`super::ENTRY_ERAS`]). Each rule lists the values it changes. Everything is in
 //! class id (spell id) order, so two runs over the same content print the same report.
 
 use std::collections::BTreeMap;
@@ -11,9 +12,9 @@ use std::collections::BTreeMap;
 use empyrean_entity::enums::{MotionCommand, PlayScript};
 
 use super::{
-    current, digest, emote_motion_shifts, play_script_shifts, spell_holds, EmoteMotionField,
-    EmoteMotionShift, PlayScriptShift, SpellCorrection, SpellValue, Value, WeenieCorrection,
-    DIGEST_FORMAT, EMOTE_MOTION_SHIFT_DIVERGENCE, EMOTE_MOTION_SHIFT_EVIDENCE,
+    current, digest, emote_motion_shifts, entries_apply_to, play_script_shifts, spell_holds,
+    EmoteMotionField, EmoteMotionShift, PlayScriptShift, SpellCorrection, SpellValue, Value,
+    WeenieCorrection, DIGEST_FORMAT, EMOTE_MOTION_SHIFT_DIVERGENCE, EMOTE_MOTION_SHIFT_EVIDENCE,
     PLAY_SCRIPT_SHIFT_DIVERGENCE, PLAY_SCRIPT_SHIFT_EVIDENCE, SPELL_CORRECTIONS,
     WEENIE_CORRECTIONS,
 };
@@ -30,6 +31,8 @@ pub enum EntryState {
     Stale(String),
     /// The content has no such weenie or spell.
     Absent,
+    /// The content was built for an era the entries do not apply to.
+    OtherEra,
 }
 
 impl EntryState {
@@ -39,6 +42,7 @@ impl EntryState {
             Self::Applies => "applies",
             Self::Stale(_) => "stale",
             Self::Absent => "absent",
+            Self::OtherEra => "other era",
         }
     }
 }
@@ -62,6 +66,8 @@ pub struct SpellEntry {
 pub struct CorrectionsReport {
     /// This build's corrections digest.
     pub digest: String,
+    /// The era the content was built for.
+    pub era: empyrean_common::era::EraId,
     pub weenie_entries: Vec<WeenieEntry>,
     pub spell_entries: Vec<SpellEntry>,
     pub play_script_shifts: Vec<PlayScriptShift>,
@@ -78,6 +84,8 @@ pub struct Summary {
     pub applies: usize,
     pub stale: usize,
     pub absent: usize,
+    /// Entries for another era than the content's.
+    pub other_era: usize,
     pub play_script_shifts: usize,
     pub emote_motion_shifts: usize,
 }
@@ -86,10 +94,13 @@ impl CorrectionsReport {
     /// The report over `db` as stored (its overlay included).
     #[must_use]
     pub fn of(db: &WorldDatabaseBase) -> Self {
+        let era = db.pack().era();
+        let in_scope = entries_apply_to(era);
         let weenie_entries = WEENIE_CORRECTIONS
             .iter()
             .map(|c| {
                 let state = match db.get_stored_weenie(c.weenie_class_id) {
+                    _ if !in_scope => EntryState::OtherEra,
                     None => EntryState::Absent,
                     Some(w) => match current(&w, c.stored) {
                         Some(v) if v == c.stored => EntryState::Applies,
@@ -107,6 +118,7 @@ impl CorrectionsReport {
             .iter()
             .map(|c| {
                 let state = match db.get::<Spell>(TableId::SPELL, u64::from(c.spell_id)) {
+                    _ if !in_scope => EntryState::OtherEra,
                     None => EntryState::Absent,
                     Some(s) if spell_holds(&s, c.stored) => EntryState::Applies,
                     Some(s) => EntryState::Stale(spell_value_text(SpellValue::Wcid(s.wcid))),
@@ -135,6 +147,7 @@ impl CorrectionsReport {
             .collect();
         Self {
             digest: digest().to_owned(),
+            era,
             weenie_entries,
             spell_entries,
             play_script_shifts,
@@ -161,6 +174,7 @@ impl CorrectionsReport {
                 EntryState::Applies => s.applies += 1,
                 EntryState::Stale(_) => s.stale += 1,
                 EntryState::Absent => s.absent += 1,
+                EntryState::OtherEra => s.other_era += 1,
             }
         }
         s
@@ -182,6 +196,12 @@ impl CorrectionsReport {
             "entries: {} apply, {} stale, {} absent (of {}); rules: {} default scripts, {} emote motions\n",
             s.applies, s.stale, s.absent, s.entries, s.play_script_shifts, s.emote_motion_shifts
         );
+        if s.other_era > 0 {
+            out += &format!(
+                "the content is for era {}: the {} entries are for other eras and none applies\n",
+                self.era, s.other_era
+            );
+        }
         out += &format!("\nweenie entries ({}):\n", self.weenie_entries.len());
         for e in &self.weenie_entries {
             let c = e.correction;
@@ -241,10 +261,12 @@ impl CorrectionsReport {
                 motion_text(c.corrected)
             );
         }
+        let skipped =
+            |state: &EntryState| matches!(state, EntryState::Applies | EntryState::OtherEra);
         let stale: Vec<String> = self
             .weenie_entries
             .iter()
-            .filter(|e| e.state != EntryState::Applies)
+            .filter(|e| !skipped(&e.state))
             .map(|e| {
                 format!(
                     "{} ({})",
@@ -255,11 +277,13 @@ impl CorrectionsReport {
             .chain(
                 self.spell_entries
                     .iter()
-                    .filter(|e| e.state != EntryState::Applies)
+                    .filter(|e| !skipped(&e.state))
                     .map(|e| format!("spell {} ({})", e.correction.spell_id, e.state.label())),
             )
             .collect();
-        if stale.is_empty() {
+        if stale.is_empty() && s.other_era > 0 {
+            out += "\nno entry is for this era\n";
+        } else if stale.is_empty() {
             out += "\nevery entry applies\n";
         } else {
             out += &format!("\n{} entries do not apply:\n", stale.len());
@@ -283,11 +307,13 @@ impl CorrectionsReport {
             "format": "empyrean corrections report v1",
             "digest": self.digest,
             "digest_format": DIGEST_FORMAT,
+            "era": self.era.name(),
             "summary": {
                 "entries": s.entries,
                 "applies": s.applies,
                 "stale": s.stale,
                 "absent": s.absent,
+                "other_era": s.other_era,
                 "play_script_shifts": s.play_script_shifts,
                 "emote_motion_shifts": s.emote_motion_shifts,
             },

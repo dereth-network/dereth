@@ -5,7 +5,7 @@
 //!
 //! | region | size | contents |
 //! |---|---|---|
-//! | header | 128 | magic `"ERE_PACK"`, versions, flags, counts, region offsets, BLAKE3-256 content hash of bytes `0x60..EOF`, BLAKE3-128 dataset id of the input, importer version |
+//! | header | 128 | magic `"ERE_PACK"`, versions, flags, counts, region offsets, BLAKE3-256 content hash of bytes `0x60..EOF`, BLAKE3-128 dataset id of the input, importer version, era |
 //! | table directory | 32 per table | id, record schema, record count, first index entry, 16-byte name |
 //! | index | 32 per record | table id, length, `u64` key, blob offset, 64-bit digest; sorted by `(table, key)` |
 //! | blobs | | records back to back, each starting 8-aligned |
@@ -76,6 +76,9 @@ pub struct PackHeader {
     pub dataset_id: [u8; 16],
     /// Inside the hash coverage, so an importer bump changes the hash.
     pub importer_version: u32,
+    /// The era the content was built for, as `empyrean_common::era::EraId::pack_code` numbers it.
+    /// End of retail is 0, which is also what a pack written before the field existed holds.
+    pub era: u32,
 }
 
 impl PackHeader {
@@ -110,7 +113,8 @@ impl PackHeader {
         let mut dataset_id = [0u8; 16];
         dataset_id.copy_from_slice(c.bytes(16)?);
         let importer_version = c.u32()?;
-        if c.bytes(12)?.iter().any(|&b| b != 0) {
+        let era = c.u32()?;
+        if c.bytes(8)?.iter().any(|&b| b != 0) {
             return Err(PackError::HeaderField {
                 field: "reserved",
                 expected: 0,
@@ -132,6 +136,7 @@ impl PackHeader {
             content_hash,
             dataset_id,
             importer_version,
+            era,
         })
     }
 
@@ -153,7 +158,8 @@ impl PackHeader {
         debug_assert_eq!(w.len() - start, HASH_COVERAGE_START);
         w.extend_from_slice(&self.dataset_id);
         w.put_u32(self.importer_version);
-        w.extend_from_slice(&[0u8; 12]);
+        w.put_u32(self.era);
+        w.extend_from_slice(&[0u8; 8]);
         debug_assert_eq!(w.len() - start, HEADER_LEN as usize);
     }
 }

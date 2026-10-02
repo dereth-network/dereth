@@ -29,6 +29,8 @@ pub struct BaseInputs {
     pub sql: PathBuf,
     /// Content inputs applied over it, in order (empty for a plain import).
     pub patches: Vec<Input>,
+    /// The era the pack is built for (`--era`).
+    pub era: empyrean_common::era::EraId,
 }
 
 /// The dataset id `empyrean-import` gives a build of `loaded` (see `import::build`).

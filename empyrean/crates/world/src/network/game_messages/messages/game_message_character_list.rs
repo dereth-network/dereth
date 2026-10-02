@@ -94,7 +94,8 @@ pub fn game_message_character_list(
         num_allowed_characters: slot_count.cast_signed(),
         account: ace_str(session.account.as_deref()),
         use_turbine_chat,
-        has_throne_of_destiny: 1, /*hasThroneOfDestiny*/
+        // DIVERGE: the era's Throne of Destiny flag (`EraRules.account_has_tod`); ACE always sends 1.
+        has_throne_of_destiny: u32::from(w.era.account_has_tod), /*hasThroneOfDestiny*/
     };
     let mut strings: Vec<&str> = characters
         .iter()

@@ -358,8 +358,10 @@ With `status_address` set (or `--status <ip>:<port>`), the server answers:
 
 - `GET /health`: `200 ok` while the world responds, otherwise `503`, for a monitor or a health
   check;
-- `GET /status`: the same, with a JSON body (world name, version, uptime, connections, players
-  online, the world data's content hash and corrections digest).
+- `GET /status` (also `GET /v1/world`, the address a launcher's world registry names): the same,
+  with a JSON body (world name, version, uptime, connections, players online, the world data's
+  content hash and corrections digest, the era, the dats' iterations and whether the server patches
+  them, and the client versions it admits).
 
 It has **no authentication**. Bind it to `127.0.0.1` (or a private network) and do not open its port
 in the firewall.

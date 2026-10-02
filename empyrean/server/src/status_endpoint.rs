@@ -10,9 +10,12 @@
 //! - `GET /status`: the same check, with a JSON body ([`StatusSnapshot::to_json`]): the world name,
 //!   version, where the server's source is, uptime, whether the world is open or shutting down, connections, players online and
 //!   loaded landblocks (the counts `serverstatus` reports), the world pack's content hash and the
-//!   corrections digest (which together name the world data served), the WebSocket endpoint's URL
-//!   (`null` when it is off), and the unported ACE members this process has reached so far with
-//!   their hit counts (`empyrean_common::not_ported::global_snapshot`).
+//!   corrections digest (which together name the world data served), the era the world plays
+//!   (`[era] profile`), the iterations of the dats it compares a client's against and whether it
+//!   patches them, the client versions it admits, the WebSocket endpoint's URL (`null` when it is
+//!   off), and the unported ACE members this process has reached so far with their hit counts
+//!   (`empyrean_common::not_ported::global_snapshot`).
+//! - `GET /v1/world`: the same document, at the address a launcher's world registry names.
 //!
 //! The snapshot is taken on the world thread (a command through the world queue), so the
 //! endpoint never reads the world from another thread. Anything else is `404`, or `405` for a method
@@ -35,6 +38,28 @@ use empyrean_world::World;
 
 /// How long a request waits for the world thread's snapshot before answering 503.
 pub const WORLD_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The iteration of each dat the server opened (`None`: not opened).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DatIterations {
+    pub portal: Option<i32>,
+    pub cell: Option<i32>,
+    pub local: Option<i32>,
+    pub highres: Option<i32>,
+}
+
+impl DatIterations {
+    /// The iterations of `dats`, as their headers give them.
+    #[must_use]
+    pub fn of(dats: &empyrean_dat::DatManager) -> Self {
+        Self {
+            portal: Some(dats.portal_dat().iteration()),
+            cell: Some(dats.cell_dat().iteration()),
+            local: Some(dats.language_dat().iteration()),
+            highres: dats.high_res_dat().map(|d| d.iteration()),
+        }
+    }
+}
 
 /// What `GET /status` reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +89,14 @@ pub struct StatusSnapshot {
     pub content_hash: Option<String>,
     /// This build's corrections digest (`empyrean_content::corrections::digest`).
     pub corrections_digest: String,
+    /// The era the world plays (`[era] profile`), by its configuration name.
+    pub era: String,
+    /// The iterations of the server's dats, which it compares a client's against.
+    pub dats: DatIterations,
+    /// Whether the server patches a client's dats from its own (`ddd.enable_dat_patching`).
+    pub dat_patching: bool,
+    /// The client (logon) versions the server admits.
+    pub client_versions: Vec<String>,
     /// The WebSocket endpoint's URL (`server.websocket`), `None` when it is off.
     pub websocket_url: Option<String>,
     /// Each `not_ported!` site reached in this process, with its hits, by name.
@@ -87,6 +120,13 @@ impl StatusSnapshot {
             landblocks_loaded: landblock_manager::get_loaded_landblocks(w).len(),
             content_hash: w.content.content_hash(),
             corrections_digest: empyrean_content::corrections::digest().to_owned(),
+            era: w.era.id.name().to_owned(),
+            dats: DatIterations::of(&w.dats),
+            dat_patching: empyrean_common::config_manager::ConfigManager::try_config()
+                .is_some_and(|c| c.ddd.enable_dat_patching),
+            client_versions: vec![
+                empyrean_net::handlers::authentication_handler::CLIENT_VERSION.to_owned(),
+            ],
             websocket_url: None,
             not_ported: empyrean_common::not_ported::global_snapshot()
                 .into_iter()
@@ -103,8 +143,22 @@ impl StatusSnapshot {
             .iter()
             .map(|(name, hits)| format!("{}:{hits}", json_string(name)))
             .collect();
+        let iteration = |i: Option<i32>| i.map_or_else(|| "null".to_owned(), |i| i.to_string());
+        let dats = format!(
+            "{{\"portal\":{},\"cell\":{},\"local\":{},\"highres\":{},\"patching\":{}}}",
+            iteration(self.dats.portal),
+            iteration(self.dats.cell),
+            iteration(self.dats.local),
+            iteration(self.dats.highres),
+            self.dat_patching
+        );
+        let client_versions: Vec<String> = self
+            .client_versions
+            .iter()
+            .map(|v| json_string(v))
+            .collect();
         format!(
-            "{{\"world_name\":{},\"version\":{},\"source_url\":{},\"uptime_seconds\":{},\"world_open\":{},\"shutting_down\":{},\"connections\":{},\"authenticated_connections\":{},\"players_online\":{},\"landblocks_loaded\":{},\"content_hash\":{},\"corrections_digest\":{},\"websocket_url\":{},\"not_ported\":{{{}}}}}\n",
+            "{{\"world_name\":{},\"version\":{},\"source_url\":{},\"uptime_seconds\":{},\"world_open\":{},\"shutting_down\":{},\"connections\":{},\"authenticated_connections\":{},\"players_online\":{},\"landblocks_loaded\":{},\"content_hash\":{},\"corrections_digest\":{},\"era\":{},\"dats\":{dats},\"client_versions\":[{}],\"websocket_url\":{},\"not_ported\":{{{}}}}}\n",
             json_string(&self.world_name),
             json_string(&self.version),
             json_string(&self.source_url),
@@ -117,6 +171,8 @@ impl StatusSnapshot {
             self.landblocks_loaded,
             self.content_hash.as_deref().map_or_else(|| "null".to_owned(), json_string),
             json_string(&self.corrections_digest),
+            json_string(&self.era),
+            client_versions.join(","),
             self.websocket_url.as_deref().map_or_else(|| "null".to_owned(), json_string),
             not_ported.join(","),
         )
@@ -177,7 +233,7 @@ pub fn respond(request_line: &str, snapshot: impl FnOnce() -> Option<StatusSnaps
             Some(_) => response(200, "text/plain", "ok\n", head_only),
             None => response(503, "text/plain", "unavailable\n", head_only),
         },
-        "/status" => match snapshot() {
+        "/status" | "/v1/world" => match snapshot() {
             Some(s) => response(200, "application/json", &s.to_json(), head_only),
             None => response(
                 503,

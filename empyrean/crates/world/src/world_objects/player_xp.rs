@@ -158,8 +158,11 @@ pub fn grant_xp(
 pub fn update_xp_and_level(w: &mut World, this: ObjectGuid, amount: i64, xp_type: XpType) {
     // until we are max level we must make sure that we send
     let max_level = get_max_level(w);
+    // DIVERGE: the XP of the era's last level (`EraRules.max_level`); ACE's is the table's last
+    // entry, which it is whenever the era sets no lower cap.
     let max_level_xp = *level_xp_list(w)
-        .last()
+        .get(usize::try_from(max_level).unwrap_or(usize::MAX))
+        .or_else(|| level_xp_list(w).last())
         .expect("InvalidOperationException: Sequence contains no elements");
 
     let level = obj(w, this).level();
@@ -295,7 +298,13 @@ pub fn update_xp_vitae(w: &mut World, this: ObjectGuid, amount: i64) {
 #[must_use]
 pub fn get_max_level(w: &World) -> u32 {
     let count = u32::try_from(level_xp_list(w).len()).unwrap_or(u32::MAX);
-    count.wrapping_sub(1)
+    let table_max = count.wrapping_sub(1);
+    // DIVERGE: the era's level cap (`EraRules.max_level`), when it is below the table's last level;
+    // ACE's cap is always the table's.
+    match w.era.max_level {
+        Some(cap) if cap < table_max => cap,
+        _ => table_max,
+    }
 }
 
 // ACE: Player.IsMaxLevel
@@ -369,7 +378,12 @@ pub fn max_level_xp(w: &World) -> i64 {
     let xp_table = level_xp_list(w);
 
     let count = i64::try_from(xp_table.len()).unwrap_or(i64::MAX);
-    at(xp_table, count - 1).cs_cast()
+    // DIVERGE: the era's last level (`EraRules.max_level`) when it caps below the table's.
+    let last = match w.era.max_level {
+        Some(cap) if i64::from(cap) < count - 1 => i64::from(cap),
+        _ => count - 1,
+    };
+    at(xp_table, last).cs_cast()
 }
 
 // ACE: Player.GetXPBetweenLevels

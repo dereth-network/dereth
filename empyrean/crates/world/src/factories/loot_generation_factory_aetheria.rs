@@ -22,6 +22,14 @@ pub(crate) fn create_aetheria(
 ) -> Option<WorldObject> {
     let wcid = aetheria_wcids::roll(profile.tier);
 
+    // DIVERGE: under the era's `LootTables::PackOnly` rule, aetheria the world database lacks is
+    // not dropped (ACE fails creating it).
+    if w.era.loot == empyrean_common::era::LootTables::PackOnly
+        && !crate::factories::loot_generation_factory::world_has_weenie(w, wcid.0.cast_unsigned())
+    {
+        return None;
+    }
+
     let mut wo = world_object_factory_create_new_world_object(w, wcid.0.cast_unsigned());
 
     if mutate {
@@ -52,6 +60,14 @@ pub(crate) fn mutate_aetheria(wo: &mut WorldObject, profile: &TreasureDeath) {
 // ACE: LootGenerationFactory.CreateCoalescedMana
 pub(crate) fn create_coalesced_mana(w: &mut World, profile: &TreasureDeath) -> Option<WorldObject> {
     let wcid = coalesced_mana_wcids::roll(profile);
+
+    // DIVERGE: under the era's `LootTables::PackOnly` rule, coalesced mana the world database
+    // lacks is not dropped (ACE fails creating it).
+    if w.era.loot == empyrean_common::era::LootTables::PackOnly
+        && !crate::factories::loot_generation_factory::world_has_weenie(w, wcid.0.cast_unsigned())
+    {
+        return None;
+    }
 
     world_object_factory_create_new_world_object(w, wcid.0.cast_unsigned())
 }

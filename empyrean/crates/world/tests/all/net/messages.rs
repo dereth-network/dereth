@@ -884,6 +884,50 @@ fn character_list_serializes_deletion_times_and_server_options() {
     );
 }
 
+/// `Login_LoginCharacterSet` (`0xF658`) ends with the era's Throne of Destiny flag: 1 on the end
+/// of retail, 0 on Infiltration (the client then shows at most level 126 and offers only the
+/// original heritages).
+/// Divergence: V389
+#[test]
+fn character_list_sends_the_eras_throne_of_destiny_flag() {
+    let ses = SessionData {
+        account: Some("acct".into()),
+        ..Default::default()
+    };
+    let characters = vec![CharacterSummary {
+        id: 0x5000_0001,
+        name: "Aa".into(),
+        ..Default::default()
+    }];
+    for (era, flag) in [
+        (empyrean_common::era::EraId::Eor, "01000000"),
+        (empyrean_common::era::EraId::Infiltration, "00000000"),
+    ] {
+        let mut w = world();
+        w.era = era.rules();
+        let _ = take_local();
+        let m = game_message_character_list::game_message_character_list(&w, &characters, &ses);
+        let data = hex(&m.data);
+        assert!(data.starts_with("58F60000"), "{data}");
+        assert_eq!(&data[data.len() - 8..], flag, "{era}");
+        assert_eq!(
+            &data[..data.len() - 8],
+            {
+                let mut eor = world();
+                eor.era = empyrean_common::era::EraId::Eor.rules();
+                let d = hex(&game_message_character_list::game_message_character_list(
+                    &eor,
+                    &characters,
+                    &ses,
+                )
+                .data);
+                d[..d.len() - 8].to_owned()
+            },
+            "only the flag differs"
+        );
+    }
+}
+
 #[test]
 fn ddd_interrogation_and_data_messages_use_the_dat_headers() {
     let _ = take_local();

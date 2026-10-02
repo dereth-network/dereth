@@ -5,6 +5,9 @@
 //! the two constants below: the tag, and the SHA-256 of the release's `.sql.zip`
 //! (`empyrean-import fetch --latest` prints both for the newest release).
 //!
+//! Each world database `fetch` knows is a [`WorldLine`]: [`PATCHES`] (the end of retail, the
+//! default) and [`SIXTEEN_PY`] (ACE-World-16PY, the February 2005 world, pinned the same way).
+//!
 //! The cache is a per-user folder, not a place in the workspace, so it survives `cargo clean` and
 //! every checkout of the workspace on the machine shares one download:
 //!
@@ -20,6 +23,8 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use crate::era::EraId;
+
 /// The GitHub repository whose releases carry ACE's world database.
 pub const REPOSITORY: &str = "ACEmulator/ACE-World-16PY-Patches";
 
@@ -29,6 +34,85 @@ pub const PINNED_TAG: &str = "v0.9.295";
 /// The SHA-256 of [`PINNED_TAG`]'s `.sql.zip` asset, lowercase hex.
 pub const PINNED_ZIP_SHA256: &str =
     "fd35cff8b2cea8408ae13839b9b1862c30452a1013f43eb62ec83c25349bd148";
+
+/// A world database `empyrean-import fetch` can download: the SQL asset of a GitHub repository's
+/// releases, pinned to one release and its SHA-256.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldLine {
+    /// The name `fetch --world` takes.
+    pub id: &'static str,
+    /// The GitHub repository whose releases carry the dump.
+    pub repository: &'static str,
+    /// The asset is `<prefix><tag>.sql.zip`, and the dump is cached as `<prefix><tag>.sql`.
+    pub asset_prefix: &'static str,
+    /// The release this build is tested against.
+    pub pinned_tag: &'static str,
+    /// The SHA-256 of the pinned release's `.sql.zip`, lowercase hex.
+    pub pinned_zip_sha256: &'static str,
+    /// The era the world is, which a pack built from it records.
+    pub era: EraId,
+}
+
+/// ACE-World with its patches: the end-of-retail world.
+pub const PATCHES: WorldLine = WorldLine {
+    id: "patches",
+    repository: REPOSITORY,
+    asset_prefix: "ACE-World-Database-",
+    pinned_tag: PINNED_TAG,
+    pinned_zip_sha256: PINNED_ZIP_SHA256,
+    era: EraId::Eor,
+};
+
+/// ACE-World-16PY without the patches: the world as of February 2005 (Infiltration).
+pub const SIXTEEN_PY: WorldLine = WorldLine {
+    id: "16py",
+    repository: "ACEmulator/ACE-World-16PY",
+    asset_prefix: "ACE-World-16PY-db-",
+    pinned_tag: "v0.8.8",
+    pinned_zip_sha256: "bbd0396e4382c555388d89e2f341fd79cf3647e78a9ef34e5f8717ddd3d9cb49",
+    era: EraId::Infiltration,
+};
+
+/// Every world `fetch` knows, the default first.
+pub const WORLDS: [WorldLine; 2] = [PATCHES, SIXTEEN_PY];
+
+impl WorldLine {
+    /// The world named `id` (any case).
+    #[must_use]
+    pub fn by_id(id: &str) -> Option<&'static WorldLine> {
+        WORLDS.iter().find(|w| w.id.eq_ignore_ascii_case(id.trim()))
+    }
+
+    /// The release's SQL asset: `<prefix><tag>.sql.zip`.
+    #[must_use]
+    pub fn zip_name(&self, tag: &str) -> String {
+        format!("{}{tag}.sql.zip", self.asset_prefix)
+    }
+
+    /// The cached dump: `<prefix><tag>.sql`.
+    #[must_use]
+    pub fn sql_name(&self, tag: &str) -> String {
+        format!("{}{tag}.sql", self.asset_prefix)
+    }
+
+    /// The asset's stable download address (GitHub redirects it to the file).
+    #[must_use]
+    pub fn download_url(&self, tag: &str) -> String {
+        format!(
+            "https://github.com/{}/releases/download/{tag}/{}",
+            self.repository,
+            self.zip_name(tag)
+        )
+    }
+
+    /// The cached dump of `tag`, when a fetch has put it in the cache.
+    #[must_use]
+    pub fn cached_sql(&self, tag: &str) -> Option<PathBuf> {
+        cache_dir()
+            .map(|d| d.join(self.sql_name(tag)))
+            .filter(|p| p.is_file())
+    }
+}
 
 /// A release tag from what a user types: `0.9.295` or `v0.9.295` (three dot-separated numbers)
 /// gives `v0.9.295`; anything else is `None`.
@@ -44,22 +128,19 @@ pub fn parse_tag(s: &str) -> Option<String> {
 /// The release's SQL asset: `ACE-World-Database-<tag>.sql.zip`.
 #[must_use]
 pub fn zip_name(tag: &str) -> String {
-    format!("ACE-World-Database-{tag}.sql.zip")
+    PATCHES.zip_name(tag)
 }
 
 /// The dump inside the asset: `ACE-World-Database-<tag>.sql`.
 #[must_use]
 pub fn sql_name(tag: &str) -> String {
-    format!("ACE-World-Database-{tag}.sql")
+    PATCHES.sql_name(tag)
 }
 
 /// The asset's stable download address (GitHub redirects it to the file).
 #[must_use]
 pub fn download_url(tag: &str) -> String {
-    format!(
-        "https://github.com/{REPOSITORY}/releases/download/{tag}/{}",
-        zip_name(tag)
-    )
+    PATCHES.download_url(tag)
 }
 
 /// The host family the cache folder follows.
@@ -114,9 +195,7 @@ pub fn cache_dir() -> Option<PathBuf> {
 /// The cached dump of `tag`, when a fetch has put it in the cache.
 #[must_use]
 pub fn cached_sql(tag: &str) -> Option<PathBuf> {
-    cache_dir()
-        .map(|d| d.join(sql_name(tag)))
-        .filter(|p| p.is_file())
+    PATCHES.cached_sql(tag)
 }
 
 #[cfg(test)]
@@ -162,6 +241,39 @@ mod tests {
         assert!(PINNED_ZIP_SHA256
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    }
+
+    #[test]
+    fn each_world_is_pinned_to_a_tag_and_a_sha256_of_its_era() {
+        for w in WORLDS {
+            assert_eq!(
+                parse_tag(w.pinned_tag).as_deref(),
+                Some(w.pinned_tag),
+                "{}",
+                w.id
+            );
+            assert_eq!(w.pinned_zip_sha256.len(), 64, "{}", w.id);
+            assert!(w
+                .pinned_zip_sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+            assert_eq!(WorldLine::by_id(w.id), Some(&w));
+        }
+        assert_eq!(WORLDS[0], PATCHES, "the default world comes first");
+        assert_eq!(
+            WorldLine::by_id("16PY").map(|w| w.era),
+            Some(EraId::Infiltration)
+        );
+        assert_eq!(PATCHES.era, EraId::Eor);
+        assert_eq!(WorldLine::by_id("tod"), None);
+        assert_eq!(
+            SIXTEEN_PY.download_url("v0.8.8"),
+            "https://github.com/ACEmulator/ACE-World-16PY/releases/download/v0.8.8/ACE-World-16PY-db-v0.8.8.sql.zip"
+        );
+        assert_eq!(
+            SIXTEEN_PY.sql_name("v0.8.8"),
+            "ACE-World-16PY-db-v0.8.8.sql"
+        );
     }
 
     #[test]

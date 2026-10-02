@@ -1,4 +1,5 @@
 //! Vectors: local synthetic packs and configured boot-path cases in this module
+//! Divergence: V388
 //! World.pack path from config else default; a pack on disk is the world DB; start-up corrections
 //! line; missing/corrupt pack boots empty; another release's pack is refused with its rebuild
 //! command; default found beside the exe; overlay opened in front and resolves beside config.
@@ -128,6 +129,21 @@ fn the_start_up_corrections_line_counts_what_applies() {
             "corrections {}: 1 of {entries} entries apply (1 stale, {} absent); the rules change 1 default scripts and 0 emote motions",
             digest(),
             entries - 2
+        )
+    );
+
+    // Content built for another era: no entry applies, none is stale or absent; the rule still
+    // applies.
+    let line = world_pack::corrections_summary(&CorrectionsReport::of(
+        mem.era(empyrean_common::era::EraId::Infiltration)
+            .db()
+            .base(),
+    ));
+    assert_eq!(
+        line,
+        format!(
+            "corrections {}: 0 of {entries} entries apply (0 stale, 0 absent); the rules change 1 default scripts and 0 emote motions; the pack is for era infiltration, and {entries} entries are for other eras",
+            digest(),
         )
     );
 }

@@ -105,6 +105,9 @@ pub struct World {
     /// `World::new` gives it an empty `MemAuth`; the server binary installs `auth.db`.
     pub auth: AuthHandle,
     // Not held here: ACE's `ConfigManager.Config` (`MasterConfiguration`).
+    /// Not ACE: the rules of the era the world plays (`[era] profile`). `World::new` reads the
+    /// configuration's era (end of retail before one is loaded); a test sets its own.
+    pub era: &'static empyrean_common::era::EraRules,
 }
 
 /// `DatabaseManager.Authentication` and `DatabaseManager.AutoPromoteNextAccountToAdmin`.
@@ -199,6 +202,7 @@ impl World {
             content: Arc::new(MemContent::new()),
             shard: ShardHandle::synchronous(Box::new(MemShard::new()), Arc::clone(&clock)),
             auth: AuthHandle::new(Box::new(MemAuth::new(AccountDefaults::default(), clock))),
+            era: empyrean_common::era::current(),
         }
     }
 }

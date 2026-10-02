@@ -495,6 +495,9 @@ pub(crate) mod real {
     pub(crate) fn create_character(skills: &[usize]) -> Loop {
         let ts = TestServer::with_setup(dats(), |w| {
             w.content = Arc::new(pack());
+            // The server refuses a pack built for another era than its own, so the world plays
+            // the pack's.
+            w.era = w.content.era().rules();
             guid_manager::initialize(w, &mut EmptyShard);
             w.auth
                 .lock()

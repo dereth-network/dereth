@@ -5,7 +5,9 @@ use empyrean_common::dotnet::CsCast;
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::models::world::TreasureDeath;
 use empyrean_tables::enums::ext::to_melee_weapon_skill;
-use empyrean_tables::enums::{MeleeWeaponSkill, TreasureItemType, TreasureWeaponType};
+use empyrean_tables::enums::{
+    MeleeWeaponSkill, TreasureItemType, TreasureWeaponType, WeenieClassName,
+};
 use empyrean_tables::logic::tables::workmanship_chance;
 use empyrean_tables::tables::weapon_type_chance::MELEE_CHANCES;
 
@@ -62,7 +64,15 @@ pub(crate) fn mutate_melee_weapon(
     // thanks to 4eyebiped for helping with the data analysis of magloot retail logs
     // that went into reversing these mutation scripts
 
-    let weapon_skill = to_melee_weapon_skill(wo.weapon_skill());
+    let mut weapon_skill = to_melee_weapon_skill(wo.weapon_skill());
+    // DIVERGE: under the era's `LootTables::PackOnly` rule a weapon whose weenie still carries a
+    // skill retired in 2012 (Axe, Sword, ...) is mutated as the loot table that named it (heavy,
+    // light, finesse or two-handed); ACE finds no mutation script for it and throws.
+    if weapon_skill == MeleeWeaponSkill::Undef
+        && w.era.loot == empyrean_common::era::LootTables::PackOnly
+    {
+        weapon_skill = melee_table_skill(WeenieClassName(wo.weenie_class_id().cast_signed()));
+    }
 
     // mutate Damage / WieldDifficulty / Variance
     let script_name = get_damage_script(weapon_skill, roll.weapon_type);
@@ -142,6 +152,24 @@ fn get_damage_script(weapon_skill: MeleeWeaponSkill, weapon_type: TreasureWeapon
         weapon_skill.get_script_name_combined().unwrap_or_default(),
         weapon_type.get_script_name().unwrap_or_default()
     )
+}
+
+/// Not ACE: the melee skill of the loot table that names `wcid`; `Undef` when none does.
+fn melee_table_skill(wcid: WeenieClassName) -> MeleeWeaponSkill {
+    use empyrean_tables::logic::weapons::{
+        finesse_weapon_wcids, heavy_weapon_wcids, light_weapon_wcids, two_handed_weapon_wcids,
+    };
+    if heavy_weapon_wcids::try_get_value(wcid).is_some() {
+        MeleeWeaponSkill::HeavyWeapons
+    } else if light_weapon_wcids::try_get_value(wcid).is_some() {
+        MeleeWeaponSkill::LightWeapons
+    } else if finesse_weapon_wcids::try_get_value(wcid).is_some() {
+        MeleeWeaponSkill::FinesseWeapons
+    } else if two_handed_weapon_wcids::try_get_value(wcid).is_some() {
+        MeleeWeaponSkill::TwoHandedCombat
+    } else {
+        MeleeWeaponSkill::Undef
+    }
 }
 
 // ACE: LootGenerationFactory.GetOffenseDefenseScript

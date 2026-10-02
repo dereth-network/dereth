@@ -404,6 +404,21 @@ pub const SECTIONS: &[Section] = &[
             ),
         ],
     },
+    Section {
+        toml: &["era"],
+        ace: &["Era"],
+        array: false,
+        help: "The era the world plays. Every era speaks the end-of-retail client protocol; the era\n\
+               selects the world's rules (start positions, level cap, what the character list tells\n\
+               the client).",
+        keys: &[e(
+            "profile",
+            "Profile",
+            "\"eor\" (the end of retail, ACE's rules) or \"infiltration\" (February 2005). world.pack\n\
+             must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
+             to start otherwise.",
+        )],
+    },
 ];
 
 /// An ACE setting (a key or a whole section) that Empyrean's configuration no longer has.

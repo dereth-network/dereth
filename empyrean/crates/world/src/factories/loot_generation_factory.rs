@@ -24,6 +24,7 @@ use std::sync::LazyLock;
 
 use empyrean_common::dotnet::math::round;
 use empyrean_common::dotnet::CsCast;
+use empyrean_common::era::LootTables;
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::models::world::{TreasureDeath, TreasureMaterialColor};
 use empyrean_dat::file_types::ClothingTable;
@@ -175,6 +176,31 @@ pub fn create_random_loot_objects(w: &mut World, profile: &TreasureDeath) -> Vec
     //ServerPerformanceMonitor.AddToCumulativeEvent(ServerPerformanceMonitor.CumulativeEventHistoryType.LootGenerationFactory_CreateRandomLootObjects, stopwatch.Value.Elapsed.TotalSeconds);
 }
 
+/// Not ACE: how many times the era's `LootTables::PackOnly` rule rolls again for a weenie the world
+/// database lacks, before the roll is left to fail as ACE's does.
+const PACK_ONLY_REROLLS: usize = 64;
+
+/// Not ACE: whether the world database has the weenie `wcid`. The first time a wcid is found
+/// missing it is logged, once for the world.
+pub(crate) fn world_has_weenie(w: &World, wcid: u32) -> bool {
+    if wcid != 0 && w.content.get_cached_weenie(wcid).is_some() {
+        return true;
+    }
+    let first = w
+        .loot_tables
+        .missing_weenies
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(wcid);
+    if first {
+        log::info!(
+            "Loot: the world database has no weenie {wcid}; loot that rolls it rolls again (era {})",
+            w.era.id
+        );
+    }
+    false
+}
+
 /// `CreateRandomLootObjects(TreasureDeath, TreasureItemCategory, TreasureItemType = Undef)`: one
 /// item of the category (or of the given type), created and mutated.
 pub fn create_random_loot_objects_of_category(
@@ -184,6 +210,20 @@ pub fn create_random_loot_objects_of_category(
     treasure_item_type: TreasureItemType,
 ) -> Option<WorldObject> {
     let mut treasure_roll = roll_wcid(treasure_death, category, treasure_item_type)?;
+
+    // DIVERGE: under the era's `LootTables::PackOnly` rule a rolled weenie the world database lacks
+    // is rolled again, so a world older than the loot tables drops what it has. ACE (and the end
+    // of retail, whose world has every weenie the tables name) creates nothing and logs an error.
+    if w.era.loot == LootTables::PackOnly {
+        let mut rerolls = 0;
+        while treasure_roll.item_type != TreasureItemType::Scroll
+            && rerolls < PACK_ONLY_REROLLS
+            && !world_has_weenie(w, treasure_roll.wcid.0.cast_unsigned())
+        {
+            treasure_roll = roll_wcid(treasure_death, category, treasure_item_type)?;
+            rerolls += 1;
+        }
+    }
 
     create_and_mutate_wcid(
         w,

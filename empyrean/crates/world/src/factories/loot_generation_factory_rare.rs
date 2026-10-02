@@ -108,6 +108,17 @@ pub fn try_create_rare(w: &mut World, luck: i32) -> Option<WorldObject> {
 
     let rare_wcid = tier_rares[usize::try_from(rng).expect("in range")];
 
+    // DIVERGE: under the era's `LootTables::PackOnly` rule, a rare the world database lacks is not
+    // dropped (ACE fails creating it and logs an error).
+    if w.era.loot == empyrean_common::era::LootTables::PackOnly
+        && !crate::factories::loot_generation_factory::world_has_weenie(
+            w,
+            rare_wcid.cast_unsigned(),
+        )
+    {
+        return None;
+    }
+
     let wo = world_object_factory_create_new_world_object(w, rare_wcid.cast_unsigned());
 
     if wo.is_none() {

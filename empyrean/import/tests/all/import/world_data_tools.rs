@@ -1,4 +1,4 @@
-//! Divergence: V313, V337
+//! Divergence: V313, V337, V388
 //! Empyrean-import --corrections lists applying/stale/absent entries and exits 1 on stale;
 //! --check --fields lists field changes; --check --overlap lists upstream changes our content
 //! touches; library and binary.
@@ -126,7 +126,7 @@ fn the_corrections_report_lists_applying_stale_and_absent_entries_and_rule_chang
     let text = r.render();
     assert!(
         text.starts_with(&format!(
-            "corrections {} (empyrean corrections v1)\n",
+            "corrections {} (empyrean corrections v2)\n",
             corrections::digest()
         )),
         "{text}"
@@ -204,6 +204,36 @@ fn empyrean_import_corrections_reports_and_exits_1_on_a_stale_entry() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Divergence: V388
+#[test]
+fn empyrean_import_corrections_exits_0_on_content_built_for_another_era() {
+    let dir = temp_dir("corrections-era");
+    let pack = dir.join("world.pack");
+    write_pack(
+        &corrections_content().era(empyrean_common::era::EraId::Infiltration),
+        &pack,
+    );
+    let out = import_bin()
+        .arg("--corrections")
+        .arg(&pack)
+        .output()
+        .unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0), "{text}");
+    let entries = WEENIE_CORRECTIONS.len() + SPELL_CORRECTIONS.len();
+    assert!(
+        text.contains(&format!(
+            "the content is for era infiltration: the {entries} entries are for other eras and none applies\n"
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("rules: 1 default scripts, 1 emote motions"),
+        "the rules still apply: {text}"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

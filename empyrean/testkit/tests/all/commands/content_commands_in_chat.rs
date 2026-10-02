@@ -128,6 +128,7 @@ fn world_database(dir: &Path) -> (PackContent, Arc<ContentOverlay>) {
     let base = BaseInputs {
         sql: base_sql(),
         patches,
+        era: empyrean_common::era::EraId::Eor,
     };
     let overlay = ContentOverlay::open(
         &dir.join("overlay.sqlite"),

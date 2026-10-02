@@ -7,7 +7,9 @@
 
 use empyrean_common::clock::{ClockSnapshot, VirtualClock};
 use empyrean_dat::FakeDats;
-use empyrean_server::status_endpoint::{cors_header, respond, status_address, StatusSnapshot};
+use empyrean_server::status_endpoint::{
+    cors_header, respond, status_address, DatIterations, StatusSnapshot,
+};
 use empyrean_world::managers::world_manager;
 use empyrean_world::World;
 
@@ -33,6 +35,15 @@ fn sample() -> StatusSnapshot {
         landblocks_loaded: 5,
         content_hash: Some("ab12".to_owned()),
         corrections_digest: "v1:0123456789abcdef".to_owned(),
+        era: "infiltration".to_owned(),
+        dats: DatIterations {
+            portal: Some(2072),
+            cell: Some(982),
+            local: Some(994),
+            highres: None,
+        },
+        dat_patching: false,
+        client_versions: vec!["1802".to_owned()],
         websocket_url: Some("wss://play.example.org/ws".to_owned()),
         not_ported: vec![("ACE: A.B".to_owned(), 2), ("ACE: C.D".to_owned(), 1)],
     }
@@ -93,7 +104,7 @@ fn snapshot_of_a_fresh_world_then_opened() {
 fn status_json_is_exact_and_escaped() {
     assert_eq!(
         sample().to_json(),
-        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"websocket_url\":\"wss://play.example.org/ws\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
+        "{\"world_name\":\"Test \\\"Shard\\\"\",\"version\":\"0.0.0\",\"source_url\":\"https://example.org/src\",\"uptime_seconds\":42,\"world_open\":true,\"shutting_down\":false,\"connections\":3,\"authenticated_connections\":2,\"players_online\":1,\"landblocks_loaded\":5,\"content_hash\":\"ab12\",\"corrections_digest\":\"v1:0123456789abcdef\",\"era\":\"infiltration\",\"dats\":{\"portal\":2072,\"cell\":982,\"local\":994,\"highres\":null,\"patching\":false},\"client_versions\":[\"1802\"],\"websocket_url\":\"wss://play.example.org/ws\",\"not_ported\":{\"ACE: A.B\":2,\"ACE: C.D\":1}}\n"
     );
 }
 
@@ -116,6 +127,28 @@ fn get_status_answers_the_snapshot() {
         text(&respond("GET /status?x=1 HTTP/1.0", || Some(sample())))
             .starts_with("HTTP/1.0 200 OK")
     );
+}
+
+/// The era, the dats and the client versions: what a launcher reads to choose a client and a dat
+/// set, at `/v1/world` as at `/status`.
+#[test]
+fn the_status_names_the_era_the_dats_and_the_client_versions() {
+    let mut w = world();
+    let s = StatusSnapshot::take(&w, "Dereth", 1);
+    assert_eq!(s.era, "eor");
+    assert_eq!(s.client_versions, ["1802"]);
+    assert_eq!(s.dats, DatIterations::of(&w.dats));
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    let s = StatusSnapshot::take(&w, "Dereth", 1);
+    assert_eq!(s.era, "infiltration");
+    let json = s.to_json();
+    assert!(json.contains(",\"era\":\"infiltration\","), "{json}");
+    assert!(json.contains(",\"client_versions\":[\"1802\"],"), "{json}");
+
+    let v1 = text(&respond("GET /v1/world HTTP/1.1", || Some(sample())));
+    let status = text(&respond("GET /status HTTP/1.1", || Some(sample())));
+    assert!(v1.starts_with("HTTP/1.0 200 OK\r\n"), "{v1}");
+    assert_eq!(v1, status);
 }
 
 #[test]

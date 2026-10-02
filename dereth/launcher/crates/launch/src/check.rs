@@ -770,6 +770,41 @@ mod tests {
         assert_eq!(r.verdict_of(CheckId::Data), Some(Verdict::Block));
     }
 
+    /// An Infiltration-era world that serves the end-of-retail dats (its status document says so)
+    /// is played with the end-of-retail set, by the retail client as by Dereth; any other set is
+    /// blocked, as on every world.
+    #[test]
+    fn an_infiltration_world_on_the_end_of_retail_dats_matches_them() {
+        let mut w = world();
+        w.era = Some("infiltration".into());
+        let live = crate::status::parse_world_document(
+            br#"{"world_open":true,"era":"infiltration",
+            "dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
+            "client_versions":["1802"]}"#,
+        )
+        .unwrap();
+        assert_eq!(live.era, w.era);
+        let eor = set(DatOrigin::Shared, Iterations::END_OF_RETAIL);
+        let r = check(&CheckInput {
+            world: &w,
+            install: &retail(),
+            dats: Some(&eor),
+            live_expected: live.dats,
+            running: &[],
+        });
+        assert!(r.is_clear(), "{r:#?}");
+        let mut older = Iterations::END_OF_RETAIL;
+        older.portal = Some(2050);
+        let r = check(&CheckInput {
+            world: &w,
+            install: &retail(),
+            dats: Some(&set(DatOrigin::Shared, older)),
+            live_expected: live.dats,
+            running: &[],
+        });
+        assert_eq!(r.verdict_of(CheckId::Data), Some(Verdict::Block));
+    }
+
     #[test]
     fn an_unlisted_client_is_blocked_with_a_way_out() {
         let mut w = world();

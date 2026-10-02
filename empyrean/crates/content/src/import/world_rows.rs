@@ -334,6 +334,7 @@ impl WorldRows {
             treasure_material_groups: self.treasure_material_groups,
             treasure_wielded: self.treasure_wielded,
             versions: self.version,
+            era: empyrean_common::era::EraId::Eor,
         };
         (content, orph)
     }

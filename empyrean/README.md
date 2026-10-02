@@ -91,8 +91,8 @@ shows the stored value is wrong. They live in the server binary, not the pack, s
 alone does not say what players see; at start-up the server logs both:
 
 ```
-World database: content hash 1b260e4e…a8a8 (verified), corrections v1:3c0472e38881b2cf
-World database: corrections v1:3c0472e38881b2cf: 51 of 51 entries apply (0 stale, 0 absent); the rules change 132 default scripts and 4 emote motions
+World database: content hash 1b260e4e…a8a8 (verified), corrections v1:aea10e6ae7317bfe
+World database: corrections v1:aea10e6ae7317bfe: 51 of 51 entries apply (0 stale, 0 absent); the rules change 132 default scripts and 4 emote motions
 ```
 
 `@empversion` and the status endpoint report the same two values; two servers serve the same world
@@ -157,18 +157,21 @@ ACE has none; this one is for monitoring, off unless `--status` or `server.statu
 address. It has no authentication: keep it on loopback or a private network.
 
 - `GET /health`: `200 ok` while the world thread answers within 2 seconds, otherwise `503`.
-- `GET /status`: the same check, with a JSON body:
+- `GET /status` (also at `GET /v1/world`): the same check, with a JSON body:
 
 ```
 {"world_name":"Empyrean","version":"0.0.0","source_url":"https://github.com/dereth-network/dereth",
  "uptime_seconds":73,"world_open":true,
  "shutting_down":false,"connections":1,"authenticated_connections":1,"players_online":1,
- "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:3c0472e38881b2cf",
+ "landblocks_loaded":9,"content_hash":"1b260e4e…a8a8","corrections_digest":"v1:aea10e6ae7317bfe",
+ "era":"eor","dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
+ "client_versions":["1802"],"websocket_url":null,
  "not_ported":{"ACE: EventManager.Initialize":1}}
 ```
 
-`content_hash` is `null` without a pack; `not_ported` lists each unported ACE member this process
-has reached, with how often.
+`content_hash` is `null` without a pack; `era` is the configured `[era] profile`; `dats` are the
+iterations of the server's dats, which it compares a client's against, and whether it patches them;
+`not_ported` lists each unported ACE member this process has reached, with how often.
 
 ## Licence
 

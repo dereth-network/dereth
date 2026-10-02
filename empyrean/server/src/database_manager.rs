@@ -162,8 +162,20 @@ pub fn initialize<S: ShardDatabase + 'static>(
             return true;
         }
 
+        // DIVERGE: the pack must be built for the configured era, since the era's rules assume
+        // its content (ACE has one era).
+        let pack_era = w.content.era();
+        if pack_era != w.era.id {
+            log::error!(
+                "World database was built for era \"{pack_era}\", but the server is configured for era \"{}\" ([era] profile in empyrean.toml). Build world.pack for this era (empyrean-import --era {}) or set the profile to \"{pack_era}\".",
+                w.era.id,
+                w.era.id
+            );
+            return true;
+        }
+
         // Not ACE (which logs nothing here): the evidence that the checks ran.
-        log::info!("World database: start-up checks passed (instance GUIDs in the static range, the human weenie exists)");
+        log::info!("World database: start-up checks passed (instance GUIDs in the static range, the human weenie exists, built for era \"{pack_era}\")");
     } else {
         log::warn!("World database has no content: the start-up checks (instance GUID range, the human weenie) are skipped");
     }

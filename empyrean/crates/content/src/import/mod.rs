@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::io::Read;
 
 use empyrean_common::dotnet::DotNetDateTime;
+use empyrean_common::era::EraId;
 
 use crate::error::ImportError;
 use crate::models::world::*;
@@ -47,6 +48,8 @@ pub struct WorldContent {
     pub treasure_material_groups: Vec<TreasureMaterialGroups>,
     pub treasure_wielded: Vec<TreasureWielded>,
     pub versions: Vec<Version>,
+    /// The era the content is for, recorded in the pack's header (not a world table).
+    pub era: EraId,
 }
 
 /// `PropertyString.Name` and `PropertyDataId.Spell`, as the ids the dump stores.
@@ -82,7 +85,7 @@ fn grouped<T: Clone>(rows: &[T], key: impl Fn(&T) -> u64) -> BTreeMap<u64, Vec<T
 impl WorldContent {
     /// Lay the content out as a pack in memory. The table layout is [`TableId`]'s documentation.
     pub fn to_pack(&self, dataset_id: [u8; 16]) -> Result<(Vec<u8>, BuildStats), ImportError> {
-        let mut w = PackWriter::new(dataset_id, IMPORTER_VERSION);
+        let mut w = PackWriter::new(dataset_id, IMPORTER_VERSION).era(self.era);
         for &t in TableId::ALL {
             w.declare(t);
         }
@@ -181,8 +184,13 @@ pub struct Imported {
     pub now: Option<String>,
 }
 
-/// Import a dump from any reader into pack bytes.
+/// Import a dump from any reader into pack bytes, for the end of retail.
 pub fn import<R: Read>(dump: R) -> Result<(Vec<u8>, Imported), ImportError> {
+    import_for(dump, EraId::Eor)
+}
+
+/// Import a dump from any reader into pack bytes for `era`, which the pack's header records.
+pub fn import_for<R: Read>(dump: R, era: EraId) -> Result<(Vec<u8>, Imported), ImportError> {
     let mut hashing = Hashing {
         inner: dump,
         hasher: blake3::Hasher::new(),
@@ -209,7 +217,8 @@ pub fn import<R: Read>(dump: R) -> Result<(Vec<u8>, Imported), ImportError> {
     let counts = rows.counts();
     let unknown_tables = std::mem::take(&mut rows.unknown_tables);
     let unread_columns = std::mem::take(&mut rows.unread_columns);
-    let (content, orphans) = rows.assemble();
+    let (mut content, orphans) = rows.assemble();
+    content.era = era;
     let (bytes, stats) = content.to_pack(dataset_id)?;
     Ok((
         bytes,
@@ -244,21 +253,37 @@ pub fn default_now() -> DotNetDateTime {
     DotNetDateTime::new_hms(2000, 1, 1, 0, 0, 0)
 }
 
-/// Build pack bytes from a base dump and content inputs. Without inputs this is exactly
-/// [`import`] of the dump.
+/// Build pack bytes from a base dump and content inputs, for the end of retail. Without inputs
+/// this is exactly [`import`] of the dump.
 pub fn build(b: &Build) -> Result<(Vec<u8>, Imported), ImportError> {
-    let file = std::fs::File::open(&b.sql).map_err(|e| ImportError::io(&b.sql, e))?;
-    if b.inputs.is_empty() {
-        return import(file);
-    }
-    build_from(file, patch::sources(&b.inputs), b.now)
+    build_for(b, EraId::Eor)
 }
 
-/// Build pack bytes from a base dump read from `dump` and content files applied in order.
+/// [`build`] for `era`, which the pack's header records.
+pub fn build_for(b: &Build, era: EraId) -> Result<(Vec<u8>, Imported), ImportError> {
+    let file = std::fs::File::open(&b.sql).map_err(|e| ImportError::io(&b.sql, e))?;
+    if b.inputs.is_empty() {
+        return import_for(file, era);
+    }
+    build_from_for(file, patch::sources(&b.inputs), b.now, era)
+}
+
+/// Build pack bytes from a base dump read from `dump` and content files applied in order, for the
+/// end of retail.
 pub fn build_from<R: Read>(
     dump: R,
     sources: impl IntoIterator<Item = Result<patch::Source, ImportError>>,
     now: DotNetDateTime,
+) -> Result<(Vec<u8>, Imported), ImportError> {
+    build_from_for(dump, sources, now, EraId::Eor)
+}
+
+/// [`build_from`] for `era`, which the pack's header records.
+pub fn build_from_for<R: Read>(
+    dump: R,
+    sources: impl IntoIterator<Item = Result<patch::Source, ImportError>>,
+    now: DotNetDateTime,
+    era: EraId,
 ) -> Result<(Vec<u8>, Imported), ImportError> {
     let Loaded {
         store,
@@ -279,7 +304,8 @@ pub fn build_from<R: Read>(
     let counts = rows.counts();
     let unknown_tables = std::mem::take(&mut rows.unknown_tables);
     let unread_columns = std::mem::take(&mut rows.unread_columns);
-    let (content, orphans) = rows.assemble();
+    let (mut content, orphans) = rows.assemble();
+    content.era = era;
     let (bytes, stats) = content.to_pack(dataset_id)?;
     Ok((
         bytes,
@@ -519,6 +545,7 @@ impl Imported {
             "schema_version": crate::pack::format::SCHEMA_VERSION,
             "content_hash": crate::pack::hex(&self.stats.content_hash),
             "dataset_id": crate::pack::hex(&self.stats.dataset_id),
+            "era": self.stats.era.name(),
             "dump_bytes": self.dump_bytes,
             "pack_bytes": self.stats.file_len,
             "index_entries": self.stats.index_count,

@@ -31,7 +31,7 @@ use empyrean_common::dotnet::DotNetDateTime;
 
 use crate::error::{ImportError, PackError};
 use crate::import::patch::{self, Applied, Input, InputKind, Source};
-use crate::import::{build_from, Imported};
+use crate::import::{build_from_for, Imported};
 use crate::pack::{hex, PackHeader};
 
 use author::Author;
@@ -232,7 +232,7 @@ impl ContentOverlay {
             std::fs::File::open(&self.base.sql).map_err(|e| ImportError::io(&self.base.sql, e))?;
         let journal = self.journal_sources()?;
         let sources = patch::sources(&self.base.patches).chain(journal.into_iter().map(Ok));
-        Ok(build_from(dump, sources, self.now)?)
+        Ok(build_from_for(dump, sources, self.now, self.base.era)?)
     }
 
     /// Publish: [`publish`] of this overlay's file over its base inputs.
@@ -326,7 +326,12 @@ pub fn build_with_overlay(
             bytes: e.sql.clone(),
         })
     });
-    let (bytes, imported) = build_from(dump, patch::sources(&base.patches).chain(entries), now)?;
+    let (bytes, imported) = build_from_for(
+        dump,
+        patch::sources(&base.patches).chain(entries),
+        now,
+        base.era,
+    )?;
     let n_base = imported.applied.len() - journal.len();
     let base_id = if n_base == 0 {
         let mut id = [0u8; 16];

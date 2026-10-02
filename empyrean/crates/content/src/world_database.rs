@@ -211,7 +211,7 @@ impl WorldDatabaseBase {
         let mut weenie = self.weenie_row(weenie_class_id)?;
         mysql_index_order(&mut weenie);
         // Not ACE: the retail corrections to the stored data (`crate::corrections`).
-        crate::corrections::apply(&mut weenie);
+        crate::corrections::apply_for(&mut weenie, self.pack.era());
 
         #[allow(clippy::cast_sign_loss)]
         let weenie_type = WeenieType(weenie.r#type as u32);
@@ -248,8 +248,9 @@ impl WorldDatabaseBase {
     pub fn get_all_weenies(&self) -> Vec<Weenie> {
         let mut all = self.all::<Weenie>(TableId::WEENIE);
         // Not ACE: the retail corrections to the stored data (`crate::corrections`).
+        let era = self.pack.era();
         for w in &mut all {
-            crate::corrections::apply(w);
+            crate::corrections::apply_for(w, era);
         }
         all
     }

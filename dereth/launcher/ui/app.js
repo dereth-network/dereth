@@ -457,13 +457,21 @@ function syncWorld() {
   }
 }
 
+// The era a world plays, for the world's facts; nothing for the end of retail, which is every
+// world's unless it says otherwise.
+function eraLabel(era) {
+  if (!era || era === "eor") return null;
+  const names = { infiltration: "Infiltration era (February 2005)" };
+  return names[era] ?? `${era} era`;
+}
+
 function worldPage() {
   const w = ui.world;
   if (!w) return home();
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   const f = w.form;
 
-  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : null, world.ruleset].filter(Boolean);
+  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : null, world.ruleset, eraLabel(world.era)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 

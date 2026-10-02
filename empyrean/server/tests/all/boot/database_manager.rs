@@ -117,6 +117,25 @@ fn a_pack_without_the_human_weenie_aborts() {
     assert!(!installed_shard_has(&w, 0x5000_0001));
 }
 
+/// Divergence: V388
+#[test]
+fn a_pack_built_for_another_era_aborts_and_one_built_for_the_configured_era_passes() {
+    use empyrean_common::era::EraId;
+    for (pack, server, fails) in [
+        (EraId::Infiltration, EraId::Eor, true),
+        (EraId::Eor, EraId::Infiltration, true),
+        (EraId::Infiltration, EraId::Infiltration, false),
+        (EraId::Eor, EraId::Eor, false),
+    ] {
+        let mut w = world_with(good_content().era(pack));
+        w.era = server.rules();
+        let failed =
+            database_manager::initialize(&mut w, auth(), shard_with(0x5000_0001), &options(true));
+        assert_eq!(failed, fails, "a {pack} pack on an {server} server");
+        assert_eq!(installed_shard_has(&w, 0x5000_0001), !fails);
+    }
+}
+
 #[test]
 fn empty_content_skips_the_checks() {
     let mut w = world_with(MemContent::new());

@@ -1,7 +1,7 @@
 //! A world's live status, from Empyrean's public status document (`GET /v1/world`).
 //!
-//! The document is small and public: whether the world is open, how many are on, and what its dats
-//! are. The dats matter most. They are what the server will compare, so when the document says them
+//! The document is small and public: whether the world is open, how many are on, the era it plays,
+//! and what its dats are. The dats matter most. They are what the server will compare, so when the document says them
 //! they win over the registry's published numbers.
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,9 @@ pub struct LiveStatus {
     pub client_versions: Vec<String>,
     pub auto_create_accounts: Option<bool>,
     pub version: Option<String>,
+    /// The era the world plays (`"eor"`, `"infiltration"`, ...).
+    #[serde(default)]
+    pub era: Option<String>,
 }
 
 /// Read the document. `None` if it is not one.
@@ -60,6 +63,11 @@ pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
             .and_then(|a| a.get("auto_create"))
             .and_then(Value::as_bool),
         version: v.get("version").and_then(Value::as_str).map(str::to_owned),
+        era: v
+            .get("era")
+            .and_then(Value::as_str)
+            .filter(|e| !e.is_empty())
+            .map(str::to_owned),
     })
 }
 
@@ -82,6 +90,22 @@ mod tests {
         assert_eq!(s.patching, Some(false));
         assert_eq!(s.client_versions, ["1802"]);
         assert_eq!(s.auto_create_accounts, Some(true));
+    }
+
+    #[test]
+    fn empyrean_names_the_era_its_world_plays() {
+        let s = parse_world_document(
+            br#"{"world_name":"Test","world_open":true,"shutting_down":false,"players_online":0,
+            "content_hash":"x","corrections_digest":"v1:0","era":"infiltration",
+            "dats":{"portal":2072,"cell":982,"local":994,"highres":497,"patching":false},
+            "client_versions":["1802"],"websocket_url":null,"not_ported":{}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.era.as_deref(), Some("infiltration"));
+        assert_eq!(s.dats, Some(Iterations::END_OF_RETAIL));
+        assert_eq!(s.client_versions, ["1802"]);
+        let s = parse_world_document(br#"{"world_open":true}"#).unwrap();
+        assert_eq!(s.era, None, "a document without an era says nothing");
     }
 
     #[test]

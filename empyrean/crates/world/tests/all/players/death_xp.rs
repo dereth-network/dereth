@@ -1,4 +1,5 @@
 //! Vectors: fixtures/vectors/death/
+//! Divergence: V390
 //! XP/levelling, death, corpses, damage history, death string tables and DeathItems follow ACE.
 //! Fixture: ACE vectors and explicit expected values, synthetic dats, isolated world state.
 
@@ -175,11 +176,15 @@ struct H {
 
 impl H {
     fn new() -> Self {
+        Self::with_xp_table(xp_table())
+    }
+
+    fn with_xp_table(xp_table: XpTable) -> Self {
         let clock = VirtualClock::default();
         let timers = TimersState::new(&clock);
         let now = ClockSnapshot::take(&clock, timers.portal_year_ticks);
         let dats = FakeDats::new()
-            .with_xp_table(xp_table())
+            .with_xp_table(xp_table)
             .with_portal(file_id::SECONDARY_ATTRIBUTE_TABLE, secondary())
             .with_spell_table(spell_table())
             // the death animation (`ExecuteMotion`) reads the run rate, so the Run skill's table
@@ -649,6 +654,53 @@ fn a_player_levels_up_at_the_table_threshold() {
     // at max level nothing more is added
     player_xp::update_xp_and_level(&mut h.w, P1, 10, XpType::Kill);
     assert_eq!(h.o(P1).total_experience(), Some(5000));
+}
+
+/// An era's level cap below the table's last level: advancement stops at the cap, the grant is
+/// capped at the cap's XP, and the curve helpers end there. Infiltration caps the 275-level table
+/// at 126.
+/// Divergence: V390
+#[test]
+fn an_era_level_cap_stops_advancement_below_the_tables_last_level() {
+    // levels 0..=275, level n at n * 1,000 XP, a credit every level
+    let table = XpTable {
+        id: DataId(file_id::XP_TABLE),
+        level_xp: (0..=275u64).map(|n| n * 1_000).collect(),
+        level_credits: (0..=275u32).map(|n| u32::from(n > 1)).collect(),
+        ..empyrean_dat::fake::sample::xp_table()
+    };
+    let mut h = H::with_xp_table(table.clone());
+    assert_eq!(
+        player_xp::get_max_level(&h.w),
+        275,
+        "the end of retail: the table's"
+    );
+    h.w.era = empyrean_common::era::EraId::Infiltration.rules();
+    assert_eq!(player_xp::get_max_level(&h.w), 126);
+    assert_eq!(player_xp::max_level_xp(&h.w), 126_000);
+
+    h.player(P1, S1, "Tester", 125, 125_000);
+    start_capture();
+    player_xp::update_xp_and_level(&mut h.w, P1, 10_000_000, XpType::Kill);
+    let o = h.o(P1);
+    assert_eq!(
+        (o.level(), o.total_experience(), o.available_experience()),
+        (Some(126), Some(126_000), Some(126_000))
+    );
+    assert!(chats(&sent())[0].starts_with("You have reached the maximum level of 126!"));
+    assert!(player_xp::is_max_level(&h.w, P1));
+    player_xp::update_xp_and_level(&mut h.w, P1, 10, XpType::Kill);
+    assert_eq!(
+        h.o(P1).total_experience(),
+        Some(126_000),
+        "nothing more at the cap"
+    );
+
+    // The same grant on the end of retail's rules reaches the table's levels.
+    let mut h = H::with_xp_table(table);
+    h.player(P1, S1, "Tester", 125, 125_000);
+    player_xp::update_xp_and_level(&mut h.w, P1, 10_000, XpType::Kill);
+    assert_eq!(h.o(P1).level(), Some(135));
 }
 
 /// The curve helpers against the table (see also the `death/xp_curve` vectors).

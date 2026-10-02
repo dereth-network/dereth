@@ -172,6 +172,7 @@ pub fn configured_overlay(
         BaseInputs {
             sql: base.resolve(&s.world_base_sql),
             patches,
+            era: config.era.profile,
         },
     ))
 }
@@ -301,7 +302,7 @@ fn report_corrections(content: Arc<PackContent>) {
             for e in r
                 .weenie_entries
                 .iter()
-                .filter(|e| e.state != EntryState::Applies)
+                .filter(|e| !matches!(e.state, EntryState::Applies | EntryState::OtherEra))
             {
                 let c = e.correction;
                 log::warn!(
@@ -319,7 +320,7 @@ fn report_corrections(content: Arc<PackContent>) {
             for e in r
                 .spell_entries
                 .iter()
-                .filter(|e| e.state != EntryState::Applies)
+                .filter(|e| !matches!(e.state, EntryState::Applies | EntryState::OtherEra))
             {
                 log::warn!(
                     "World database: correction {} for spell {} is {}",
@@ -334,14 +335,22 @@ fn report_corrections(content: Arc<PackContent>) {
     }
 }
 
-/// One line: the digest, the entries that apply, and what each rule changes.
+/// One line: the digest, the entries that apply, and what each rule changes; and, for content
+/// built for an era the entries are not for, that none applies.
 #[must_use]
 pub fn corrections_summary(r: &CorrectionsReport) -> String {
     let s = r.summary();
-    format!(
+    let mut line = format!(
         "corrections {}: {} of {} entries apply ({} stale, {} absent); the rules change {} default scripts and {} emote motions",
         r.digest, s.applies, s.entries, s.stale, s.absent, s.play_script_shifts, s.emote_motion_shifts
-    )
+    );
+    if s.other_era > 0 {
+        line += &format!(
+            "; the pack is for era {}, and {} entries are for other eras",
+            r.era, s.other_era
+        );
+    }
+    line
 }
 
 fn open_verified(path: &Path) -> Result<PackContent, PackError> {

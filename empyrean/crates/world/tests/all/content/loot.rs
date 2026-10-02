@@ -780,6 +780,127 @@ fn a_profile_with_no_chances_draws_three_times_and_drops_nothing() {
     );
 }
 
+/// The gem wcids a tier-1 gem roll can give (found by rolling), and the wcid the roll after
+/// `seed(first_seed)` gives.
+fn tier_1_gems(first_seed: i64) -> (std::collections::BTreeSet<u32>, u32) {
+    let p = profile(1, 0.0, 0);
+    let gem = |_: usize| {
+        lgf::roll_wcid(&p, TreasureItemCategory::Item, TreasureItemType::Gem)
+            .expect("a gem roll")
+            .wcid
+            .0
+            .cast_unsigned()
+    };
+    seed(4);
+    let gems = (0..4000).map(gem).collect();
+    seed(first_seed);
+    (gems, gem(0))
+}
+
+/// A world whose content has the given gem weenies, under `rules`.
+fn gem_world(
+    gems: &std::collections::BTreeSet<u32>,
+    rules: &'static empyrean_common::era::EraRules,
+) -> World {
+    let mut w = world();
+    let content = gems.iter().fold(MemContent::new(), |c, &g| {
+        c.weenie(
+            empyrean_content::models::world::Weenie::new(g, "gem", WeenieType::Gem)
+                .with_string(PropertyString::Name, "Gem"),
+        )
+    });
+    w.content = Arc::new(content);
+    w.era = rules;
+    empyrean_world::managers::guid_manager::initialize(&mut w, &mut EmptyShard);
+    w
+}
+
+/// Under the end-of-retail rule (ACE's), a rolled weenie the world database lacks creates nothing;
+/// under the pack-only rule it is rolled again, and the item is one the world has.
+/// Divergence: V387
+#[test]
+fn a_rolled_weenie_the_world_lacks_is_rolled_again_only_under_the_pack_only_rule() {
+    use empyrean_common::era::EraId;
+    let (mut gems, first) = tier_1_gems(3);
+    assert!(gems.len() > 1, "{gems:?}");
+    gems.remove(&first);
+
+    let mut w = gem_world(&gems, EraId::Eor.rules());
+    seed(3);
+    let dropped = lgf::create_random_loot_objects_of_category(
+        &mut w,
+        &profile(1, 0.0, 0),
+        TreasureItemCategory::Item,
+        TreasureItemType::Gem,
+    );
+    assert!(
+        dropped.is_none(),
+        "ACE's rule: the missing gem {first} drops nothing"
+    );
+
+    let mut w = gem_world(&gems, EraId::Infiltration.rules());
+    seed(3);
+    let dropped = lgf::create_random_loot_objects_of_category(
+        &mut w,
+        &profile(1, 0.0, 0),
+        TreasureItemCategory::Item,
+        TreasureItemType::Gem,
+    )
+    .expect("the pack-only rule rolls a gem the world has");
+    assert_ne!(dropped.weenie_class_id(), first);
+    assert!(gems.contains(&dropped.weenie_class_id()));
+
+    // With every gem present the rule rolls exactly as ACE's does.
+    gems.insert(first);
+    for rules in [EraId::Eor.rules(), EraId::Infiltration.rules()] {
+        let mut w = gem_world(&gems, rules);
+        seed(3);
+        let dropped = lgf::create_random_loot_objects_of_category(
+            &mut w,
+            &profile(1, 0.0, 0),
+            TreasureItemCategory::Item,
+            TreasureItemType::Gem,
+        )
+        .expect("a gem");
+        assert_eq!(dropped.weenie_class_id(), first);
+        assert_eq!(post(), {
+            seed(3);
+            let mut w = gem_world(&gems, EraId::Eor.rules());
+            let _ = lgf::create_random_loot_objects_of_category(
+                &mut w,
+                &profile(1, 0.0, 0),
+                TreasureItemCategory::Item,
+                TreasureItemType::Gem,
+            );
+            post()
+        });
+    }
+}
+
+/// Under the pack-only rule, a world with none of a type's weenies drops nothing for it, and
+/// neither fails nor panics (ACE's aetheria creation panics on a missing weenie).
+/// Divergence: V387
+#[test]
+fn a_world_without_a_types_weenies_drops_nothing_of_it_under_the_pack_only_rule() {
+    let mut w = world();
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    for tier in 1..=8 {
+        for item_type in [
+            TreasureItemType::Gem,
+            TreasureItemType::PetDevice,
+            TreasureItemType::Cloak,
+        ] {
+            assert!(lgf::create_random_loot_objects_of_category(
+                &mut w,
+                &profile(tier, 0.0, 0),
+                TreasureItemCategory::MagicItem,
+                item_type,
+            )
+            .is_none());
+        }
+    }
+}
+
 /// A 100% item group of exactly two pyreal stacks (item profile 8: coins only? no, the explicit
 /// type path): two coinstacks, each with its constructor draw and its range draw, in order.
 #[test]
@@ -1338,6 +1459,60 @@ mod real_content {
         if excluded > 0 {
             eprintln!("lootgen/{name}: {excluded} scroll LongDesc value(s) excluded (scroll descriptions omitted)");
         }
+    }
+
+    /// Every tier 1-6 death-treasure profile of the pack, rolled under the rules of the era the
+    /// pack was built for, creates every item it rolls: no roll is left naming a weenie the world
+    /// database lacks.
+    /// Divergence: V387
+    #[test]
+    fn loot_rolled_under_the_packs_era_creates_every_item_of_tiers_1_to_6() {
+        let _tables = crate::cantrip_tables_read();
+        let mut w = real_world();
+        w.era = w.content.era().rules();
+        seed(20_260_929);
+        let mut profiles: Vec<TreasureDeath> = w
+            .content
+            .get_all_treasure_death()
+            .values()
+            .filter(|p| (1..=6).contains(&p.tier))
+            .cloned()
+            .collect();
+        profiles.sort_by_key(|p| p.id);
+        assert!(!profiles.is_empty(), "the pack has tier 1-6 profiles");
+        let mut created = 0;
+        let mut failed = Vec::new();
+        for p in &profiles {
+            for (category, chance) in [
+                (TreasureItemCategory::Item, p.item_chance),
+                (TreasureItemCategory::MagicItem, p.magic_item_chance),
+                (TreasureItemCategory::MundaneItem, p.mundane_item_chance),
+            ] {
+                if chance <= 0 {
+                    continue;
+                }
+                for _ in 0..12 {
+                    match lgf::create_random_loot_objects_of_category(
+                        &mut w,
+                        p,
+                        category,
+                        TreasureItemType::Undef,
+                    ) {
+                        Some(_) => created += 1,
+                        None => failed.push((p.id, category)),
+                    }
+                }
+            }
+        }
+        assert!(created > 0);
+        assert!(
+            failed.is_empty(),
+            "era {}: {} of {} rolls created nothing, first {:?}",
+            w.era.id,
+            failed.len(),
+            created + failed.len(),
+            &failed[..failed.len().min(8)]
+        );
     }
 
     /// `SpellLevelCache.GetSpellLevel` is the client (scarab) level: Strength Other I-VIII are

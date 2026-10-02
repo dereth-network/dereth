@@ -10,9 +10,9 @@
 //! to set it (no environment variable is read), so a build is reproducible.
 //!
 //! ```text
-//! empyrean-import fetch [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]
+//! empyrean-import fetch [--world <world>] [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]
 //! empyrean-import --sql <dump.sql> [--patches <dir|file>]... [--json <dir|file>]...
-//!             [--now <YYYY-MM-DD HH:MM:SS>] [--allow-skipped] [--allow-unknown-tables]
+//!             [--now <YYYY-MM-DD HH:MM:SS>] [--era <era>] [--allow-skipped] [--allow-unknown-tables]
 //!             [--allow-unknown-columns] --out <world.pack> [--report <report.json>]
 //! empyrean-import --check <old.pack> <new.pack> [--fields] [--overlap [<dir|file>]]... [--overlap-json <dir|file>]...
 //!             [--overlap-overlay <overlay.sqlite>] [--sql <new dump.sql>] [--report <diff.json>]
@@ -20,13 +20,19 @@
 //!             [--report <diff.json>]
 //! empyrean-import --corrections <world.pack> [--report <corrections.json>]
 //! empyrean-import --version
-//! empyrean-import --sql <dump.sql> [--patches …] [--json …] --overlay <overlay.sqlite>
+//! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
 //! ```
 //!
+//! `--era` names the era the content is for (`eor`, the default, or `infiltration`); the pack's
+//! header records it, and the server refuses a pack whose era is not its configured `[era]
+//! profile`.
+//!
 //! `fetch` downloads the ACE-World release this build pins (or `--version <n>`, or `--latest`)
 //! from GitHub, checks its SHA-256, and caches the dump in the per-user cache folder the
-//! real-dump tests also read; `--pack` then builds `world.pack` from it. See [`fetch`].
+//! real-dump tests also read; `--pack` then builds `world.pack` from it, for the world's era.
+//! `--world` picks the world database: `patches` (the default: the end of retail) or `16py` (the
+//! February 2005 world). See [`fetch`].
 //!
 //! The base is a full `mysqldump` of ACE's world database. `--patches` and `--json` inputs apply
 //! over it in command-line order: ACE-style per-object SQL files (`DELETE` + `INSERT`, and
@@ -72,6 +78,7 @@ use std::process::ExitCode;
 use empyrean_common::backups;
 use empyrean_common::clock::{Clock, SystemClock};
 use empyrean_common::dotnet::DotNetDateTime;
+use empyrean_common::era::EraId;
 use empyrean_common::world_release;
 use empyrean_content::corrections::report::CorrectionsReport;
 use empyrean_content::import::check::{fields, overlap};
@@ -82,10 +89,10 @@ use empyrean_content::PackContent;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: empyrean-import fetch [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]\n\
+        "usage: empyrean-import fetch [--world patches|16py] [--version <n> | --latest] [--dir <folder>] [--pack [--out <world.pack>] [--report <report.json>]]\n\
          \x20                  (downloads ACE-World {pin} by default into {cache})\n\
          \x20      empyrean-import --sql <dump.sql> [--patches <dir|file>]... [--json <dir|file>]...\n\
-         \x20                  [--now <YYYY-MM-DD HH:MM:SS>] [--allow-skipped] [--allow-unknown-tables]\n\
+         \x20                  [--now <YYYY-MM-DD HH:MM:SS>] [--era eor|infiltration] [--allow-skipped] [--allow-unknown-tables]\n\
          \x20                  [--allow-unknown-columns] --out <world.pack> [--report <report.json>]\n\
          \x20                  (--now defaults to 2000-01-01 00:00:00)\n\
          \x20      empyrean-import --check <old.pack> <new.pack> [--fields] [--overlap [<dir|file>]]... [--overlap-json <dir|file>]...\n\
@@ -94,8 +101,9 @@ fn usage() -> ExitCode {
          \x20                  [--report <diff.json>]\n\
          \x20      empyrean-import --corrections <world.pack> [--report <corrections.json>]\n\
          \x20      empyrean-import --version\n\
-         \x20      empyrean-import --sql <dump.sql> [--patches ...] [--json ...] --overlay <overlay.sqlite> [--overlay-journal <dir>]\n\
+         \x20      empyrean-import --sql <dump.sql> [--patches ...] [--json ...] [--era ...] --overlay <overlay.sqlite> [--overlay-journal <dir>]\n\
          \x20                  --out <world.pack> [--report <report.json>]\n\
+         \x20  --era      the era the pack is for, recorded in it: eor (default, the end of retail) or infiltration\n\
          \x20  --fields   under each changed record, the fields that changed (old -> new)\n\
          \x20  --overlap  the changed records our corrections (always) and the given content files or overlay also touch\n\
          \x20  --allow-skipped, --allow-unknown-tables, --allow-unknown-columns\n\
@@ -152,6 +160,7 @@ fn main() -> ExitCode {
     let mut overlay: Option<PathBuf> = None;
     let mut overlay_journal: Option<PathBuf> = None;
     let mut allow = Allow::default();
+    let mut era: Option<EraId> = None;
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.first().is_some_and(|a| a == "--version") {
         print!(
@@ -223,6 +232,13 @@ fn main() -> ExitCode {
                 extras.overlap_overlay = Some(PathBuf::from(v));
             }
             "--corrections" => corrections = Some(PathBuf::from(v)),
+            "--era" => match EraId::parse(&v) {
+                Some(e) => era = Some(e),
+                None => {
+                    eprintln!("empyrean-import: --era wants eor or infiltration, got {v:?}");
+                    return ExitCode::from(2);
+                }
+            },
             "--now" => match parse_now(&v) {
                 Some(d) => now = Some(d),
                 None => {
@@ -244,7 +260,7 @@ fn main() -> ExitCode {
         return usage();
     }
     if let Some(pack) = corrections {
-        let (None, None, None, None, true, None, true) = (
+        let (None, None, None, None, true, None, true, None) = (
             sql,
             out,
             &check_packs,
@@ -252,6 +268,7 @@ fn main() -> ExitCode {
             inputs.is_empty(),
             &overlay,
             allow == Allow::default(),
+            era,
         ) else {
             return usage();
         };
@@ -266,6 +283,7 @@ fn main() -> ExitCode {
         return run_publish(
             sql,
             inputs,
+            era.unwrap_or_default(),
             &overlay,
             &out,
             report.as_deref(),
@@ -278,7 +296,7 @@ fn main() -> ExitCode {
     let now = now.unwrap_or_else(import::default_now);
 
     if let Some(packs) = check_packs {
-        if out.is_some() {
+        if out.is_some() || era.is_some() {
             return usage();
         }
         return run_check(&packs, sql, inputs, now, allow, report, &extras);
@@ -287,7 +305,13 @@ fn main() -> ExitCode {
         return usage();
     };
 
-    run_build(&Build { sql, inputs, now }, allow, &out, report.as_deref())
+    run_build(
+        &Build { sql, inputs, now },
+        era.unwrap_or_default(),
+        allow,
+        &out,
+        report.as_deref(),
+    )
 }
 
 /// `empyrean-import fetch …`: fetches the release, then builds the pack when `--pack` asks.
@@ -313,6 +337,7 @@ fn run_fetch(args: &[String]) -> ExitCode {
                 inputs: Vec::new(),
                 now: import::default_now(),
             },
+            opts.world.era,
             Allow::default(),
             out,
             report.as_deref(),
@@ -344,9 +369,9 @@ fn keep_old_pack(out: &Path) -> Result<Option<PathBuf>, String> {
 
 /// Builds the pack and says what went in, and what was left unread where `allow` let it be. A pack
 /// already at `out` is kept as a backup first; the newest [`backups::KEEP_BACKUPS`] are kept.
-fn run_build(b: &Build, allow: Allow, out: &Path, report: Option<&Path>) -> ExitCode {
+fn run_build(b: &Build, era: EraId, allow: Allow, out: &Path, report: Option<&Path>) -> ExitCode {
     let t0 = std::time::Instant::now();
-    let built = import::build(b).and_then(|(bytes, imported)| {
+    let built = import::build_for(b, era).and_then(|(bytes, imported)| {
         imported.verify(allow)?;
         Ok((bytes, imported))
     });
@@ -376,8 +401,9 @@ fn run_build(b: &Build, allow: Allow, out: &Path, report: Option<&Path>) -> Exit
         Ok(imported) => {
             let rows: u64 = imported.rows.iter().map(|(_, n)| n).sum();
             println!(
-                "wrote {} ({} bytes, {} records from {} rows) in {:.1}s; content hash {}",
+                "wrote {} for era {} ({} bytes, {} records from {} rows) in {:.1}s; content hash {}",
                 out.display(),
+                imported.stats.era,
                 imported.stats.file_len,
                 imported.stats.index_count,
                 rows,
@@ -430,13 +456,14 @@ fn run_build(b: &Build, allow: Allow, out: &Path, report: Option<&Path>) -> Exit
 fn run_publish(
     sql: PathBuf,
     patches: Vec<Input>,
+    era: EraId,
     overlay: &Path,
     out: &Path,
     report: Option<&Path>,
     journal: Option<&Path>,
 ) -> ExitCode {
     let t0 = std::time::Instant::now();
-    let base = empyrean_content::overlay::BaseInputs { sql, patches };
+    let base = empyrean_content::overlay::BaseInputs { sql, patches, era };
     match empyrean_content::overlay::publish(&base, overlay, out, report, journal) {
         Ok(imported) => {
             println!(

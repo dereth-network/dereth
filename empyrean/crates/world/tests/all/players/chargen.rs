@@ -1384,6 +1384,61 @@ fn the_olthoi_lair_starts_and_instantiates_in_the_same_place() {
     assert_eq!((inst.pos(), inst.rotation()), (loc.pos(), loc.rotation()));
 }
 
+// ---- an era's listed start positions ----------------------------------------------------------------
+
+fn recalls_disabled(p: &CreatedPlayer) -> Option<bool> {
+    p.player
+        .biota
+        .properties_bool
+        .as_ref()
+        .and_then(|d| d.get(&PropertyBool::RecallsDisabled).copied())
+}
+
+/// Divergence: V386
+#[test]
+fn an_infiltration_character_starts_outdoors_in_its_town_with_recalls_enabled() {
+    let rules = empyrean_common::era::EraId::Infiltration.rules();
+    let mut seen = std::collections::BTreeSet::new();
+    for start_area in [0, 1] {
+        for _ in 0..24 {
+            let mut w = world();
+            w.era = rules;
+            let mut m = request("Aldric", 1, ABILITIES, standard_sacs());
+            m.result.start_area = start_area;
+            let (result, p) = create(&mut w, &m);
+            assert_eq!(result, CreateResult::Success);
+            let loc = p.player.get_position(PositionType::Location).unwrap();
+            let landblock = loc.landblock_id().raw() >> 16;
+            // "Holtburg" is Holtburg's; the Olthoi lair, which the era has no start for, is too.
+            assert!(
+                [0xA9B0, 0xA5B4].contains(&landblock),
+                "area {start_area} starts in {landblock:04X}"
+            );
+            seen.insert(landblock);
+            let inst = p.player.get_position(PositionType::Instantiation).unwrap();
+            let sanctuary = p.player.get_position(PositionType::Sanctuary).unwrap();
+            for other in [inst, sanctuary] {
+                assert_eq!(other.landblock_id(), loc.landblock_id());
+                assert_eq!((other.pos(), other.rotation()), (loc.pos(), loc.rotation()));
+            }
+            assert_eq!(recalls_disabled(&p), None, "recalls are enabled");
+        }
+    }
+    assert_eq!(seen.len(), 2, "both Holtburg areas are used: {seen:04X?}");
+}
+
+/// Divergence: V386
+#[test]
+fn an_end_of_retail_character_starts_in_the_starter_area_with_recalls_disabled() {
+    let mut w = world();
+    assert_eq!(w.era.id, empyrean_common::era::EraId::Eor);
+    let m = request("Aldric", 1, ABILITIES, standard_sacs());
+    let (_, p) = create(&mut w, &m);
+    let loc = p.player.get_position(PositionType::Location).unwrap();
+    assert_eq!(loc.landblock_id().raw(), sample::START_CELL.0);
+    assert_eq!(recalls_disabled(&p), Some(true));
+}
+
 // ---- ACE's own values (the vector harness) -------------------------------------------------------------
 
 #[test]
@@ -1836,6 +1891,62 @@ mod real_content {
             created += 1;
         }
         assert_eq!(created, char_gen.heritage_groups.len());
+    }
+
+    /// A character created in each starter area starts where the pack's era says: on the end of
+    /// retail in the area's first location with recalls disabled; on an era with listed towns
+    /// outdoors in the town's landblocks, on a cell the dats have, with recalls enabled.
+    /// Divergence: V386
+    #[test]
+    fn a_character_created_in_each_town_starts_where_the_packs_era_says() {
+        let mut w = real_world(ACCOUNT);
+        w.era = w.content.era().rules();
+        let char_gen = w.dats.portal_dat().char_gen().clone();
+        let weenie = w
+            .content
+            .get_cached_weenie_by_class_name("human")
+            .expect("human weenie");
+        for (index, area) in char_gen.starter_areas.iter().enumerate() {
+            let mut m = request(
+                "Towntest",
+                1,
+                [10; 6],
+                sacs(&[(22, TRAINED), (24, TRAINED), (21, TRAINED)]),
+            );
+            m.result.start_area = u32::try_from(index).unwrap();
+            let guid = guid_manager::new_player_guid(&mut w);
+            let (result, p) = player_factory::create(
+                &mut w,
+                &info_of(&m),
+                Arc::clone(&weenie),
+                guid,
+                ACCOUNT_ID,
+                WeenieType::Creature,
+            );
+            assert_eq!(result, CreateResult::Success, "{}", area.name);
+            let loc = p.player.get_position(PositionType::Location).unwrap();
+            let cell = loc.landblock_id().raw();
+            assert!(cell_is_valid(&w, cell), "{}: {cell:08X}", area.name);
+            match w.era.start_positions {
+                empyrean_common::era::StartPositions::FromCharGen => {
+                    assert_eq!(cell, area.locations[0].cell.0, "{}", area.name);
+                }
+                empyrean_common::era::StartPositions::Towns(towns) => {
+                    let town = empyrean_common::era::StartPositions::town(towns, &area.name);
+                    let landblocks = town.areas.map(|a| a.cell >> 16);
+                    assert!(
+                        landblocks.contains(&(cell >> 16)),
+                        "{} starts in {cell:08X}, not in {}",
+                        area.name,
+                        town.town
+                    );
+                    assert_eq!(recalls_disabled(&p), None, "{}", area.name);
+                    let inst = p.player.get_position(PositionType::Instantiation).unwrap();
+                    assert_eq!(inst.landblock_id(), loc.landblock_id());
+                    assert_eq!(inst.pos(), loc.pos());
+                }
+            }
+        }
     }
 
     #[test]

@@ -187,6 +187,11 @@ pub struct World {
     pub name: String,
     pub description: Option<String>,
     pub ruleset: Option<String>,
+    /// The era the world plays (`"eor"`, the end of retail, or an earlier one such as
+    /// `"infiltration"`), from the registry row or, when it answers, the world's status document.
+    /// `None` when neither says.
+    #[serde(default)]
+    pub era: Option<String>,
     pub emulator: Emulator,
     pub endpoint: Option<Endpoint>,
     /// Client ids the world accepts. Empty means "the end-of-retail wire protocol"; see
@@ -306,6 +311,7 @@ pub fn parse_world(row: &Value) -> Option<World> {
         .unwrap_or(1);
     w.description = string_at(row, &["description"]);
     w.ruleset = string_at(row, &["ruleset"]);
+    w.era = string_at(row, &["era"]);
     w.emulator = str_at(row, &["emulator"])
         .map(Emulator::parse)
         .unwrap_or_default();
@@ -467,6 +473,13 @@ mod tests {
         assert_eq!(w.account_model, AccountModel::AutoCreateOnFirstLogin);
         assert_eq!(w.status_method, StatusMethod::EmpyreanHttp);
         assert_eq!(w.operator.unwrap().key_id.as_deref(), Some("ed25519:abc"));
+        assert_eq!(w.era, None, "a row that names no era");
+        let era = world(&EULMORE.replacen(
+            "\"ruleset\": \"PvE\",",
+            "\"ruleset\": \"PvE\", \"era\": \"infiltration\",",
+            1,
+        ));
+        assert_eq!(era.era.as_deref(), Some("infiltration"));
     }
 
     #[test]

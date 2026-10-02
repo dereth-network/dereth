@@ -99,6 +99,7 @@ fn empyrean_import_overlay_publishes_the_file_and_checks_its_base() {
             kind: InputKind::Sql,
             path: fixtures().join("sql/3 update.sql"),
         }],
+        era: empyrean_common::era::EraId::Eor,
     };
     let err =
         empyrean_content::overlay::publish(&wrong, &file, &dir.join("wrong.pack"), None, None)

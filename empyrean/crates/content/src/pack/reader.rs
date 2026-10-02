@@ -7,6 +7,8 @@
 
 use std::path::Path;
 
+use empyrean_common::era::EraId;
+
 use crate::error::PackError;
 use crate::pack::cursor::{decode, Codec, Cursor};
 use crate::pack::format::{
@@ -120,6 +122,9 @@ impl Pack {
         if header.flags & !FLAGS_KNOWN != 0 {
             return Err(PackError::UnknownFlags(header.flags));
         }
+        if EraId::from_pack_code(header.era).is_none() {
+            return Err(PackError::UnknownEra(header.era));
+        }
         for (region, off) in [("index", header.index_off), ("blobs", header.blob_off)] {
             if off % format::REGION_ALIGN != 0 {
                 return Err(PackError::Misaligned { region, off });
@@ -205,6 +210,12 @@ impl Pack {
     #[must_use]
     pub fn header(&self) -> &PackHeader {
         &self.header
+    }
+
+    /// The era the content was built for (`empyrean-import --era`).
+    #[must_use]
+    pub fn era(&self) -> EraId {
+        EraId::from_pack_code(self.header.era).expect("checked at open")
     }
 
     #[must_use]

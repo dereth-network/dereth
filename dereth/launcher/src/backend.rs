@@ -369,6 +369,9 @@ impl Backend {
             if l.patching.is_some() {
                 w.dats.patches_over_wire = l.patching;
             }
+            if l.era.is_some() {
+                w.era.clone_from(&l.era);
+            }
             if w.account_model == AccountModel::Unknown && l.auto_create_accounts == Some(true) {
                 w.account_model = AccountModel::AutoCreateOnFirstLogin;
             }

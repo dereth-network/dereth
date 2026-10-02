@@ -51,6 +51,9 @@ pub enum PackError {
     #[error("header flags {0:#010x} set a bit this build does not define")]
     UnknownFlags(u32),
 
+    #[error("the pack was built for era {0}, which this build does not know")]
+    UnknownEra(u32),
+
     #[error("{region} at {off:#x} is not 8-byte aligned")]
     Misaligned { region: &'static str, off: u64 },
 

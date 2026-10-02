@@ -33,6 +33,7 @@ fn the_overlay_seam_costs_nothing_without_an_overlay() {
         BaseInputs {
             sql: dir.join("none.sql"),
             patches: Vec::new(),
+            era: empyrean_common::era::EraId::Eor,
         },
         with.base().pack().header(),
         default_now(),

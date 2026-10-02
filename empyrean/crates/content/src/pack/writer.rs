@@ -8,6 +8,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use empyrean_common::era::EraId;
+
 use crate::error::ImportError;
 use crate::pack::cursor::Codec;
 use crate::pack::format::{
@@ -32,6 +34,8 @@ pub struct BuildStats {
     pub deduplicated_records: u64,
     pub content_hash: [u8; 32],
     pub dataset_id: [u8; 16],
+    /// The era recorded in the header.
+    pub era: EraId,
     /// `(name, record_count, total_record_bytes)` per table, ascending by table id.
     pub tables: Vec<(String, u32, u64)>,
 }
@@ -44,9 +48,11 @@ pub struct PackWriter {
     tables: BTreeMap<u16, &'static str>,
     dataset_id: [u8; 16],
     importer_version: u32,
+    era: EraId,
 }
 
 impl PackWriter {
+    /// A writer for end-of-retail content ([`Self::era`] changes the era).
     #[must_use]
     pub fn new(dataset_id: [u8; 16], importer_version: u32) -> Self {
         Self {
@@ -54,7 +60,15 @@ impl PackWriter {
             tables: BTreeMap::new(),
             dataset_id,
             importer_version,
+            era: EraId::Eor,
         }
+    }
+
+    /// The era the content is built for, recorded in the header.
+    #[must_use]
+    pub fn era(mut self, era: EraId) -> Self {
+        self.era = era;
+        self
     }
 
     /// Declare a table even if it ends up with no records, so the directory documents the shape.
@@ -153,6 +167,7 @@ impl PackWriter {
             content_hash: [0u8; 32],
             dataset_id: self.dataset_id,
             importer_version: self.importer_version,
+            era: self.era.pack_code(),
         };
 
         let mut out = Vec::with_capacity(usize_of(blob_off + blob_len));
@@ -193,6 +208,7 @@ impl PackWriter {
             deduplicated_records,
             content_hash,
             dataset_id: self.dataset_id,
+            era: self.era,
             tables: stats_tables,
         };
         Ok((out, stats))

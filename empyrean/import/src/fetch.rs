@@ -2,10 +2,13 @@
 //! and keeps the dump in the per-user cache the tests also look in.
 //!
 //! ```text
-//! empyrean-import fetch [--version <n> | --latest] [--dir <folder>]
+//! empyrean-import fetch [--world <world>] [--version <n> | --latest] [--dir <folder>]
 //!             [--pack [--out <world.pack>] [--report <report.json>]]
 //! ```
 //!
+//! - `--world` names the world database (`empyrean_common::world_release::WORLDS`): `patches`, the
+//!   end-of-retail world and the default, or `16py`, the February 2005 world. Each has its own
+//!   repository and pin.
 //! - With no version it fetches the pinned release (`empyrean_common::world_release`) from its
 //!   stable download address and checks the zip against the committed SHA-256.
 //! - `--version <n>` (`0.9.294` or `v0.9.294`) fetches another release; `--latest` the newest.
@@ -15,7 +18,8 @@
 //! - A SHA-256 that does not match fails the fetch, and nothing is cached.
 //! - `--dir` caches somewhere else than the per-user cache folder.
 //! - A release already in the cache is not downloaded again.
-//! - `--pack` then builds `world.pack` from the dump, as `--sql <dump> --out <world.pack>` does.
+//! - `--pack` then builds `world.pack` from the dump, as `--sql <dump> --era <the world's era>
+//!   --out <world.pack>` does.
 //!
 //! The zip is held in memory (about 20 MB); the dump (about 150 MB) is written beside its final
 //! name and renamed into place only when it is complete, so the cache never holds a partial dump.
@@ -24,7 +28,7 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use empyrean_common::world_release::{self, PINNED_TAG, PINNED_ZIP_SHA256, REPOSITORY};
+use empyrean_common::world_release::{self, WorldLine, PATCHES};
 use sha2::{Digest, Sha256};
 
 /// Which release to fetch.
@@ -41,6 +45,8 @@ pub enum Version {
 /// `fetch`'s options.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
+    /// The world database.
+    pub world: &'static WorldLine,
     pub version: Version,
     /// Where to cache the dump instead of the per-user cache folder.
     pub dir: Option<PathBuf>,
@@ -50,6 +56,7 @@ pub struct Options {
 
 /// Reads `fetch`'s options (the arguments after `fetch`).
 pub fn parse_args(args: &[String]) -> Result<Options, String> {
+    let mut world = &PATCHES;
     let mut version = Version::Pinned;
     let mut dir = None;
     let mut pack = false;
@@ -74,6 +81,13 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                 })?;
                 version = Version::Tag(tag);
             }
+            "--world" => {
+                let v = value()?;
+                world = WorldLine::by_id(&v).ok_or_else(|| {
+                    let known: Vec<&str> = world_release::WORLDS.iter().map(|w| w.id).collect();
+                    format!("--world wants one of {known:?}, got {v:?}")
+                })?;
+            }
             "--dir" => dir = Some(PathBuf::from(value()?)),
             "--pack" => pack = true,
             "--out" => out = Some(PathBuf::from(value()?)),
@@ -85,7 +99,12 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
         return Err("--out and --report go with --pack".into());
     }
     let pack = pack.then(|| (out.unwrap_or_else(|| PathBuf::from("world.pack")), report));
-    Ok(Options { version, dir, pack })
+    Ok(Options {
+        world,
+        version,
+        dir,
+        pack,
+    })
 }
 
 /// The SHA-256 a downloaded zip must have, and where that value comes from.
@@ -116,13 +135,14 @@ pub struct Release {
     pub expected: Expected,
 }
 
-/// The pinned release: its stable download address and the committed SHA-256, with no API call.
+/// The world's pinned release: its stable download address and the committed SHA-256, with no API
+/// call.
 #[must_use]
-pub fn pinned() -> Release {
+pub fn pinned(world: &WorldLine) -> Release {
     Release {
-        tag: PINNED_TAG.to_owned(),
-        url: world_release::download_url(PINNED_TAG),
-        expected: Expected::Pinned(PINNED_ZIP_SHA256.to_owned()),
+        tag: world.pinned_tag.to_owned(),
+        url: world.download_url(world.pinned_tag),
+        expected: Expected::Pinned(world.pinned_zip_sha256.to_owned()),
     }
 }
 
@@ -132,9 +152,9 @@ fn sha256_hex(s: &str) -> Option<String> {
     (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then_some(hex)
 }
 
-/// The SQL asset of one release from GitHub's releases API response (`releases/latest` or
+/// The world's SQL asset of one release from GitHub's releases API response (`releases/latest` or
 /// `releases/tags/<tag>`).
-pub fn parse_release(json: &str) -> Result<Release, String> {
+pub fn parse_release(world: &WorldLine, json: &str) -> Result<Release, String> {
     let v: serde_json::Value = serde_json::from_str(json)
         .map_err(|e| format!("GitHub's release answer is not JSON: {e}"))?;
     let raw_tag = v["tag_name"]
@@ -142,7 +162,7 @@ pub fn parse_release(json: &str) -> Result<Release, String> {
         .ok_or("GitHub's release answer has no tag_name")?;
     let tag = world_release::parse_tag(raw_tag)
         .ok_or_else(|| format!("the release tag {raw_tag:?} is not a version such as v0.9.295"))?;
-    let name = world_release::zip_name(&tag);
+    let name = world.zip_name(&tag);
     let asset = v["assets"]
         .as_array()
         .and_then(|a| a.iter().find(|a| a["name"].as_str() == Some(name.as_str())))
@@ -170,8 +190,9 @@ pub fn sha256_of(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Checks the zip against what it must be. A mismatch is an error naming both values.
-pub fn verify(release: &Release, actual: &str) -> Result<(), String> {
+/// Checks the zip (the asset `zip_name`) against what it must be. A mismatch is an error naming both
+/// values.
+pub fn verify(release: &Release, zip_name: &str, actual: &str) -> Result<(), String> {
     let Some(want) = release.expected.hex() else {
         return Ok(());
     };
@@ -183,8 +204,7 @@ pub fn verify(release: &Release, actual: &str) -> Result<(), String> {
         _ => "the SHA-256 GitHub publishes",
     };
     Err(format!(
-        "{} does not match {whose}: expected {want}, downloaded {actual}. Nothing was cached.",
-        world_release::zip_name(&release.tag)
+        "{zip_name} does not match {whose}: expected {want}, downloaded {actual}. Nothing was cached."
     ))
 }
 
@@ -250,7 +270,7 @@ fn agent() -> ureq::Agent {
 }
 
 /// A failed request, said for someone who has to act on it.
-fn http_error(what: &str, url: &str, e: &ureq::Error) -> String {
+fn http_error(world: &WorldLine, what: &str, url: &str, e: &ureq::Error) -> String {
     let why = match e {
         ureq::Error::StatusCode(404) => {
             format!("{url} was not found (HTTP 404): is there such a release?")
@@ -264,36 +284,40 @@ fn http_error(what: &str, url: &str, e: &ureq::Error) -> String {
         ),
     };
     format!(
-        "{what}: {why}\n  By hand: download the release's ACE-World-Database-<tag>.sql.zip from \
-         https://github.com/{REPOSITORY}/releases, unzip it, and build with --sql <dump> --out world.pack"
+        "{what}: {why}\n  By hand: download the release's {}<tag>.sql.zip from \
+         https://github.com/{}/releases, unzip it, and build with --sql <dump> --era {} --out world.pack",
+        world.asset_prefix, world.repository, world.era
     )
 }
 
-fn get_json(agent: &ureq::Agent, url: &str) -> Result<String, String> {
+fn get_json(world: &WorldLine, agent: &ureq::Agent, url: &str) -> Result<String, String> {
     agent
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .call()
         .and_then(|mut r| r.body_mut().read_to_string())
-        .map_err(|e| http_error("asking GitHub for the release", url, &e))
+        .map_err(|e| http_error(world, "asking GitHub for the release", url, &e))
 }
 
-fn get_bytes(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
+fn get_bytes(world: &WorldLine, agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
     agent
         .get(url)
         .call()
         .and_then(|mut r| r.body_mut().with_config().limit(ZIP_LIMIT).read_to_vec())
-        .map_err(|e| http_error("downloading the release", url, &e))
+        .map_err(|e| http_error(world, "downloading the release", url, &e))
 }
 
-/// Which release `version` names: the pin needs no network; the others ask GitHub's API.
-fn resolve(agent: &ureq::Agent, version: &Version) -> Result<Release, String> {
-    let api = format!("https://api.github.com/repos/{REPOSITORY}/releases");
+/// Which release of `world` `version` names: the pin needs no network; the others ask GitHub's
+/// API.
+fn resolve(world: &WorldLine, agent: &ureq::Agent, version: &Version) -> Result<Release, String> {
+    let api = format!("https://api.github.com/repos/{}/releases", world.repository);
     match version {
-        Version::Pinned => Ok(pinned()),
-        Version::Tag(t) if t == PINNED_TAG => Ok(pinned()),
-        Version::Tag(t) => parse_release(&get_json(agent, &format!("{api}/tags/{t}"))?),
-        Version::Latest => parse_release(&get_json(agent, &format!("{api}/latest"))?),
+        Version::Pinned => Ok(pinned(world)),
+        Version::Tag(t) if t == world.pinned_tag => Ok(pinned(world)),
+        Version::Tag(t) => {
+            parse_release(world, &get_json(world, agent, &format!("{api}/tags/{t}"))?)
+        }
+        Version::Latest => parse_release(world, &get_json(world, agent, &format!("{api}/latest"))?),
     }
 }
 
@@ -306,9 +330,10 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
             "no per-user cache folder: set LOCALAPPDATA (Windows) or HOME, or pass --dir <folder>",
         )?,
     };
+    let world = opts.world;
     let agent = agent();
-    let release = resolve(&agent, &opts.version)?;
-    let sql_name = world_release::sql_name(&release.tag);
+    let release = resolve(world, &agent, &opts.version)?;
+    let sql_name = world.sql_name(&release.tag);
     let dest = dir.join(&sql_name);
     let sha = if dest.is_file() {
         println!("{} is already cached: {}", release.tag, dest.display());
@@ -316,9 +341,9 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
     } else {
         println!("downloading {}", release.url);
         let t0 = std::time::Instant::now();
-        let zip = get_bytes(&agent, &release.url)?;
+        let zip = get_bytes(world, &agent, &release.url)?;
         let actual = sha256_of(&zip);
-        verify(&release, &actual)?;
+        verify(&release, &world.zip_name(&release.tag), &actual)?;
         match &release.expected {
             Expected::Pinned(_) => println!("zip SHA-256 {actual} matches the pin"),
             Expected::Published(_) => println!("zip SHA-256 {actual} matches GitHub's digest"),
@@ -339,12 +364,12 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
         let sha = sha.as_deref().unwrap_or("(not published)");
         println!("latest release: {}", release.tag);
         println!("zip SHA-256:    {sha}");
-        if release.tag == PINNED_TAG {
+        if release.tag == world.pinned_tag {
             println!("this is the pinned release");
         } else {
             println!(
-                "to pin it, set PINNED_TAG = \"{}\" and PINNED_ZIP_SHA256 = \"{sha}\" in empyrean/crates/common/src/world_release.rs",
-                release.tag
+                "to pin it, set the {} world's pinned_tag = \"{}\" and pinned_zip_sha256 = \"{sha}\" in empyrean/crates/common/src/world_release.rs",
+                world.id, release.tag
             );
         }
     }
@@ -382,6 +407,7 @@ mod tests {
         assert_eq!(
             parse_args(&[]).unwrap(),
             Options {
+                world: &PATCHES,
                 version: Version::Pinned,
                 dir: None,
                 pack: None
@@ -390,10 +416,17 @@ mod tests {
         assert_eq!(
             parse_args(&args(&["--version", "0.9.294", "--dir", "d"])).unwrap(),
             Options {
+                world: &PATCHES,
                 version: Version::Tag("v0.9.294".into()),
                 dir: Some("d".into()),
                 pack: None
             }
+        );
+        assert_eq!(
+            parse_args(&args(&["--world", "16py", "--pack"]))
+                .unwrap()
+                .world,
+            &world_release::SIXTEEN_PY
         );
         assert_eq!(
             parse_args(&args(&["--latest", "--pack"])).unwrap().pack,
@@ -412,6 +445,8 @@ mod tests {
             &["--version", "0.9.1", "--latest"],
             &["--out", "w.pack"],
             &["--sql", "x"],
+            &["--world", "tod"],
+            &["--world"],
         ] {
             assert!(parse_args(&args(bad)).is_err(), "{bad:?}");
         }
@@ -419,10 +454,16 @@ mod tests {
 
     #[test]
     fn the_pin_needs_no_api_call_and_carries_the_committed_hash() {
-        let p = pinned();
-        assert_eq!(p.tag, PINNED_TAG);
-        assert_eq!(p.url, world_release::download_url(PINNED_TAG));
-        assert_eq!(p.expected, Expected::Pinned(PINNED_ZIP_SHA256.into()));
+        for world in world_release::WORLDS.iter() {
+            let p = pinned(world);
+            assert_eq!(p.tag, world.pinned_tag);
+            assert_eq!(p.url, world.download_url(world.pinned_tag));
+            assert_eq!(p.expected, Expected::Pinned(world.pinned_zip_sha256.into()));
+        }
+        assert_eq!(
+            pinned(&world_release::SIXTEEN_PY).url,
+            "https://github.com/ACEmulator/ACE-World-16PY/releases/download/v0.8.8/ACE-World-16PY-db-v0.8.8.sql.zip"
+        );
     }
 
     #[test]
@@ -437,16 +478,23 @@ mod tests {
             ]
         }"#;
         assert_eq!(
-            parse_release(json).unwrap(),
+            parse_release(&PATCHES, json).unwrap(),
             Release {
                 tag: "v0.9.295".into(),
                 url: "https://x/ACE-World-Database-v0.9.295.sql.zip".into(),
-                expected: Expected::Published(PINNED_ZIP_SHA256.into()),
+                expected: Expected::Published(PATCHES.pinned_zip_sha256.into()),
             }
         );
+        // The 16PY world reads its own asset name, and not the patches world's.
+        let sixteen = json.replace(
+            "ACE-World-Database-v0.9.295.sql.zip",
+            "ACE-World-16PY-db-v0.9.295.sql.zip",
+        );
+        assert!(parse_release(&world_release::SIXTEEN_PY, &sixteen).is_ok());
+        assert!(parse_release(&world_release::SIXTEEN_PY, json).is_err());
         let undigested = json.replace(r#""digest""#, r#""other""#);
         assert_eq!(
-            parse_release(&undigested).unwrap().expected,
+            parse_release(&PATCHES, &undigested).unwrap().expected,
             Expected::Unknown
         );
         for bad in [
@@ -456,7 +504,7 @@ mod tests {
             r#"{"tag_name": "v1.0.0", "assets": [{"name": "ACE-World-Database-v1.0.0.sql.zip", "browser_download_url": "u", "digest": "md5:abc"}]}"#,
             "<html>",
         ] {
-            assert!(parse_release(bad).is_err(), "{bad}");
+            assert!(parse_release(&PATCHES, bad).is_err(), "{bad}");
         }
     }
 
@@ -468,20 +516,24 @@ mod tests {
             sha256_of(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        let mut r = pinned();
-        let err = verify(&r, &actual).unwrap_err();
+        let mut r = pinned(&PATCHES);
+        let zip = PATCHES.zip_name(&r.tag);
+        let err = verify(&r, &zip, &actual).unwrap_err();
         assert!(
-            err.contains(PINNED_ZIP_SHA256) && err.contains(&actual),
+            err.contains(PATCHES.pinned_zip_sha256) && err.contains(&actual) && err.contains(&zip),
             "{err}"
         );
         r.expected = Expected::Pinned(actual.to_ascii_uppercase());
-        assert!(verify(&r, &actual).is_ok(), "hex case does not matter");
-        r.expected = Expected::Published(PINNED_ZIP_SHA256.into());
-        assert!(verify(&r, &actual)
+        assert!(
+            verify(&r, &zip, &actual).is_ok(),
+            "hex case does not matter"
+        );
+        r.expected = Expected::Published(PATCHES.pinned_zip_sha256.into());
+        assert!(verify(&r, &zip, &actual)
             .unwrap_err()
             .contains("GitHub publishes"));
         r.expected = Expected::Unknown;
-        assert!(verify(&r, &actual).is_ok());
+        assert!(verify(&r, &zip, &actual).is_ok());
     }
 
     #[test]
@@ -544,25 +596,37 @@ mod tests {
     #[test]
     fn a_failed_request_names_the_address_and_the_way_to_do_it_by_hand() {
         let url = "https://example.invalid/x.zip";
-        let offline = http_error("downloading the release", url, &ureq::Error::HostNotFound);
+        let offline = http_error(
+            &PATCHES,
+            "downloading the release",
+            url,
+            &ureq::Error::HostNotFound,
+        );
         assert!(
             offline.contains(url) && offline.contains("network"),
             "{offline}"
         );
         assert!(offline.contains("--sql"), "{offline}");
         let missing = http_error(
+            &PATCHES,
             "downloading the release",
             url,
             &ureq::Error::StatusCode(404),
         );
         assert!(missing.contains("404"), "{missing}");
         let limited = http_error(
+            &world_release::SIXTEEN_PY,
             "asking GitHub for the release",
             url,
             &ureq::Error::StatusCode(403),
         );
         assert!(
             limited.contains("403") && limited.contains("limit"),
+            "{limited}"
+        );
+        assert!(
+            limited.contains("ACEmulator/ACE-World-16PY/releases")
+                && limited.contains("--era infiltration"),
             "{limited}"
         );
     }

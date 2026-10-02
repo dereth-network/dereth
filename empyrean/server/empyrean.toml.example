@@ -342,3 +342,15 @@ enable_dat_patching = false
 # default: false (ACE Config.js: DDD.PrecacheCompressedDATFiles)
 # At startup, precache every dat file that would be sent compressed.
 precache_compressed_dat_files = false
+
+# ----------------------------------------------------------------------------------------------
+[era]
+# The era the world plays. Every era speaks the end-of-retail client protocol; the era
+# selects the world's rules (start positions, level cap, what the character list tells
+# the client).
+
+# default: "eor" (Empyrean only)
+# "eor" (the end of retail, ACE's rules) or "infiltration" (February 2005). world.pack
+# must have been built for the same era (`empyrean-import --era <era>`); the server refuses
+# to start otherwise.
+profile = "eor"

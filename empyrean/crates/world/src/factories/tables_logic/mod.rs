@@ -27,6 +27,9 @@ pub struct LootTablesState {
     pub(crate) cantrips: std::sync::RwLock<Option<cantrips::cantrip_chance::Tables>>,
     // ACE: SpellLevelCache.spellLevels
     pub(crate) spell_levels: std::sync::Mutex<std::collections::HashMap<i32, i32>>,
+    /// Not ACE: the loot tables' weenies this world's database was found to lack, each logged
+    /// once (the era's `LootTables::PackOnly` rule).
+    pub(crate) missing_weenies: std::sync::Mutex<std::collections::BTreeSet<u32>>,
 }
 
 /// C#'s `list[i]` for an `int` index; .NET throws `ArgumentOutOfRangeException` when `i` is out
