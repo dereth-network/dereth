@@ -1725,13 +1725,29 @@ impl Panel for Chat {
                         "chat:input".into(),
                     ))];
                 }
-                "IssueSlashCommand" => {
+                "IssueSlashCommand" | "START_COMMAND" => {
                     self.text = "/".into();
                     return vec![PanelAction::Host(HostAction::FocusControl(
                         "chat:input".into(),
                     ))];
                 }
-                "EnterChat" | "ChatMode" | "Chat" => {
+                // A tell to the selected character begun in the entry.
+                "TellSelected" => {
+                    let Some(name) = c
+                        .game
+                        .selected_object()
+                        .filter(|id| Some(*id) != c.game.player())
+                        .and_then(|id| c.game.name(id))
+                        .filter(|n| !n.is_empty())
+                    else {
+                        return vec![];
+                    };
+                    self.text = format!("@tell {name}, ");
+                    return vec![PanelAction::Host(HostAction::FocusControl(
+                        "chat:input".into(),
+                    ))];
+                }
+                "EnterChat" | "ChatMode" | "Chat" | "EnterChatMode" | "ToggleChatEntry" => {
                     return vec![PanelAction::Host(HostAction::FocusControl(
                         "chat:input".into(),
                     ))];

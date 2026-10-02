@@ -2513,6 +2513,20 @@ fn shared_keys(
             .map(|n| stem(n))
             .collect(),
         current: input.keymap_file_name().map(|n| stem(&n)),
+        chorded: input
+            .chorded_bindings()
+            .into_iter()
+            .filter_map(|(scan, meta, action)| {
+                let modifiers = dereth_classic_ui::keystore::modifiers_of_meta(meta)?;
+                Some((
+                    dereth_classic_ui::keystore::SharedBinding {
+                        scan,
+                        action: action.0,
+                    },
+                    modifiers,
+                ))
+            })
+            .collect(),
     }
 }
 

@@ -4819,6 +4819,9 @@ impl Interaction {
                         self.stats.requests_refused += 1;
                     }
                 }
+                UiRequest::GiveTo { item, target } => {
+                    self.place_in_3d(item, Some(target), game, &mut req, &mut out, now);
+                }
                 UiRequest::SetCombatMode(raw) => {
                     let mode = if raw == 0 {
                         let (mode, refusal) = game.get_default_combat_mode(false);

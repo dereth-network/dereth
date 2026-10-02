@@ -157,7 +157,7 @@ impl KeyBindings {
     /// the default scheme with the player's own keys laid over it.
     pub fn set_shared(&mut self, shared: &SharedKeys) {
         let base = self.schemes[0].name.clone();
-        let mine = self.overlay(&shared.player, &shared.removed);
+        let mine = self.overlay(&shared.player, &shared.removed, &shared.chorded);
         let mut files = shared.files.clone();
         if let Some(current) = &shared.current {
             if !files.iter().any(|f| f.eq_ignore_ascii_case(current)) {
@@ -199,12 +199,15 @@ impl KeyBindings {
     }
 
     /// The default scheme with the player's own keys laid over it: each key the player bound
-    /// takes the classic command its action is, in place of whatever the key did. Keys with
-    /// modifiers, keys the interface keeps for itself and actions no command is are left out.
+    /// takes the classic command its action is, in place of whatever the key did. The key map's
+    /// keys held with Shift, Ctrl or Alt are laid over as chorded rows (the chord is the
+    /// modifiers' bits), which the default scheme has none of. Keys the interface keeps for
+    /// itself and actions no command is are left out.
     fn overlay(
         &self,
         player: &[crate::keystore::SharedBinding],
         removed: &[crate::keystore::SharedBinding],
+        chorded: &[(crate::keystore::SharedBinding, u8)],
     ) -> Vec<Binding> {
         let mut bindings = self.defaults.clone();
         for b in removed {
@@ -240,7 +243,51 @@ impl KeyBindings {
                 analog_type: 0,
             });
         }
+        for (b, chord) in chorded.iter().filter(|(_, chord)| *chord != 0) {
+            let (Some(command), Some(vk)) = (
+                self.command_of_action(b.action),
+                crate::default_keys::virtual_key(b.scan).filter(|vk| !reserved(*vk)),
+            ) else {
+                continue;
+            };
+            if bindings
+                .iter()
+                .any(|x| x.map == 0 && x.key == vk && x.chord == *chord && x.action == command)
+            {
+                continue;
+            }
+            bindings.push(Binding {
+                map: 0,
+                key: vk,
+                chord: *chord,
+                action: command,
+                command_type: 0,
+                analog_type: 0,
+            });
+        }
         bindings
+    }
+
+    /// Whether `vk` held with `modifiers` is bound as a chord of its own.
+    pub fn chorded(&self, vk: u16, modifiers: u8) -> bool {
+        self.chord_for(0, vk, modifiers) != 0
+    }
+
+    /// The chord a key press is looked up under: the modifiers held, when some binding of the key
+    /// is held with exactly those; else none, so a modifier held for its own sake (Shift to run)
+    /// does not take a plain key away.
+    fn chord_for(&self, map: u32, vk: u16, modifiers: u8) -> u8 {
+        if modifiers != 0
+            && self
+                .scheme()
+                .bindings
+                .iter()
+                .any(|b| b.map == map && b.key == vk && b.chord == modifiers)
+        {
+            modifiers
+        } else {
+            0
+        }
     }
 
     /// The classic command (by id) a shared action is.
@@ -551,6 +598,7 @@ impl KeyBindings {
         }
         let mut result = KeyOutcome::default();
         if !pressed {
+            let chord = self.chord_for(1, vk, modifiers);
             if let Some(commands) = self.held_legacy.remove(&vk) {
                 result.legacy_commands.extend(
                     commands
@@ -569,7 +617,7 @@ impl KeyBindings {
                             .scheme()
                             .bindings
                             .iter()
-                            .any(|b| b.map == 1 && b.key == vk && b.chord == modifiers)
+                            .any(|b| b.map == 1 && b.key == vk && b.chord == chord)
                     {
                         result.actions.push(Action::end(action));
                     }
@@ -577,27 +625,26 @@ impl KeyBindings {
             }
             // An explicit up entry overrides the automatic end in the old dispatcher.
             if allow_actions {
-                result
-                    .actions
-                    .extend(self.resolve(1, vk, modifiers, repeat));
+                result.actions.extend(self.resolve(1, vk, chord, repeat));
                 result
                     .legacy_commands
-                    .extend(self.resolve_legacy(1, vk, modifiers, repeat));
+                    .extend(self.resolve_legacy(1, vk, chord, repeat));
             }
             return Ok(result);
         }
         if !allow_actions || vk > 255 {
             return Ok(result);
         }
-        result.actions = self.resolve(0, vk, modifiers, repeat);
-        result.legacy_commands = self.resolve_legacy(0, vk, modifiers, repeat);
+        let chord = self.chord_for(0, vk, modifiers);
+        result.actions = self.resolve(0, vk, chord, repeat);
+        result.legacy_commands = self.resolve_legacy(0, vk, chord, repeat);
         if !repeat {
             let held: Vec<_> = self
                 .scheme()
                 .bindings
                 .iter()
                 .filter(|b| {
-                    b.map == 0 && b.key == vk && b.chord == modifiers && b.command_type & 9 == 0
+                    b.map == 0 && b.key == vk && b.chord == chord && b.command_type & 9 == 0
                 })
                 .filter_map(|b| self.command(b.action))
                 .filter(|c| c.flags & 0x04000000 != 0)
@@ -611,7 +658,7 @@ impl KeyBindings {
                 .bindings
                 .iter()
                 .filter(|b| {
-                    b.map == 0 && b.key == vk && b.chord == modifiers && b.command_type & 9 == 0
+                    b.map == 0 && b.key == vk && b.chord == chord && b.command_type & 9 == 0
                 })
                 .filter_map(|b| self.command(b.action))
                 .filter(|c| {
@@ -1240,6 +1287,42 @@ mod tests {
             .is_empty());
         assert_eq!(
             k.key(0x51, true, false, 0, true).unwrap().actions,
+            vec![Action::begin(ActionId(41))]
+        );
+    }
+    /// Behaviour: keys.shared.one-key-map-for-every-interface
+    #[test]
+    fn a_key_bound_with_a_modifier_fires_held_with_it_and_plain_keys_still_work_with_one_held() {
+        use crate::keystore::{modifiers_of_meta, CTRL, SHIFT};
+        let mut k = load();
+        // The key map binds Ctrl+W to backing up.
+        assert_eq!(modifiers_of_meta(0x4000_0000), Some(CTRL));
+        assert_eq!(modifiers_of_meta(0x1000_0000), None);
+        k.set_shared(&SharedKeys {
+            chorded: vec![(
+                SharedBinding {
+                    scan: W,
+                    action: 0x2A,
+                },
+                CTRL,
+            )],
+            ..shared()
+        });
+        assert!(k.chorded(0x57, CTRL) && !k.chorded(0x57, SHIFT));
+        assert_eq!(
+            k.key(0x57, true, false, CTRL, true).unwrap().actions,
+            vec![Action::begin(ActionId(0x2A))],
+            "Ctrl+W backs up, and does not walk forward too"
+        );
+        k.key(0x57, false, false, CTRL, true).unwrap();
+        assert_eq!(
+            k.key(0x57, true, false, SHIFT, true).unwrap().actions,
+            vec![Action::begin(ActionId(41))],
+            "W with Shift held (to run) still walks forward"
+        );
+        k.key(0x57, false, false, SHIFT, true).unwrap();
+        assert_eq!(
+            k.key(0x57, true, false, 0, true).unwrap().actions,
             vec![Action::begin(ActionId(41))]
         );
     }

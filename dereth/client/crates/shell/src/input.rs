@@ -816,6 +816,24 @@ impl InputShell {
         out
     }
 
+    /// Every keyboard binding of the key map held with a modifier, shipped or the player's, as
+    /// `(scan code, meta mode, action)`.
+    #[must_use]
+    pub fn chorded_bindings(&self) -> Vec<(u16, u32, ActionId)> {
+        let keymap = &self.manager.keymap;
+        let mut out = Vec::new();
+        for section in &keymap.sections {
+            for (qc, action) in section.bindings() {
+                if qc.meta_mode != 0
+                    && keymap.device_type_of(qc.control) == Some(dereth_input::DeviceType::Keyboard)
+                {
+                    out.push((qc.control.offset(), qc.meta_mode, *action));
+                }
+            }
+        }
+        out
+    }
+
     /// The input map an action's keys go in: the one the shipped defaults bind it in, else the
     /// first the action map allows it in, else this client's own map.
     #[must_use]

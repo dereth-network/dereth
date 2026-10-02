@@ -33,6 +33,31 @@ pub struct SharedKeys {
     pub files: Vec<String>,
     /// The key map file in use, by name without the extension.
     pub current: Option<String>,
+    /// Every keyboard binding of the key map held with Shift, Ctrl or Alt, the shipped ones and
+    /// the player's alike: `(binding, modifiers)`, the modifiers as [`SHIFT`], [`CTRL`] and
+    /// [`ALT`] bits.
+    pub chorded: Vec<(SharedBinding, u8)>,
+}
+
+/// A key's modifiers as this interface keeps them: Shift.
+pub const SHIFT: u8 = 1;
+/// Ctrl.
+pub const CTRL: u8 = 2;
+/// Alt.
+pub const ALT: u8 = 4;
+
+/// The modifiers of a shared key map binding's meta mode (Shift `0x80000000`, Ctrl `0x40000000`,
+/// Alt `0x20000000`); `None` for a meta mode with any other bit.
+#[must_use]
+pub fn modifiers_of_meta(meta: u32) -> Option<u8> {
+    if meta & !0xE000_0000 != 0 {
+        return None;
+    }
+    Some(
+        (u8::from(meta & 0x8000_0000 != 0) * SHIFT)
+            | (u8::from(meta & 0x4000_0000 != 0) * CTRL)
+            | (u8::from(meta & 0x2000_0000 != 0) * ALT),
+    )
 }
 
 /// What the classic interface's key page asks of the shared key map.

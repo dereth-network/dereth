@@ -508,8 +508,11 @@ impl ClassicUi {
                 return None;
             }
         }
-        // The key map follows its own chords from the modifier keys' own transitions.
-        let modifiers = 0;
+        // The modifiers held: a key bound with them takes their chord; a key bound only plainly
+        // still works with them held.
+        let modifiers = (u8::from(self.shift) * crate::keystore::SHIFT)
+            | (u8::from(self.ctrl) * crate::keystore::CTRL)
+            | (u8::from(self.alt) * crate::keystore::ALT);
         let repeat = pressed && !self.held_keys.insert(vk);
         if !pressed {
             self.held_keys.remove(&vk);
@@ -630,7 +633,10 @@ impl ClassicUi {
             && pressed
             && !repeat
             && (0x30..=0x39).contains(&vk)
-            && modifiers == 0
+            && !self
+                .bindings
+                .as_ref()
+                .is_some_and(|b| b.chorded(vk, modifiers))
             && !self.desktop.modal_open()
             && !self.bindings.as_ref().is_some_and(|b| b.is_capturing())
         {
@@ -836,6 +842,21 @@ impl ClassicUi {
                 }
                 continue;
             }
+            // The select-self command selects the player.
+            if name == "SelectionSelf" {
+                if let Some(me) = cx.model().player.filter(|_| action.is_start()) {
+                    self.desktop.requests.push(UiRequest::Select(me));
+                }
+                continue;
+            }
+            // The give-selected command gives the selected item to the creature or character
+            // selected before it, and selects them.
+            if name == "SelectionGive" {
+                if action.is_start() {
+                    self.give_selected(cx);
+                }
+                continue;
+            }
             if is_ui_action(&name) {
                 if action.is_start() {
                     self.ui_actions.push(name);
@@ -864,6 +885,32 @@ impl ClassicUi {
         }
         if let Some(bindings) = &self.bindings {
             self.keyboard = bindings.snapshot();
+        }
+    }
+    /// Give the selected item to the creature or character selected before it: nothing with
+    /// either missing or the two the same, a complaint when the one before is no creature.
+    fn give_selected<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
+        let world = cx.model();
+        let (Some(item), Some(target)) = (
+            world.selected.filter(|s| s.0 != 0),
+            world.prev_selected.filter(|s| s.0 != 0),
+        ) else {
+            return;
+        };
+        if item == target {
+            return;
+        }
+        if world.weenie(target).is_some_and(|w| w.is_creature()) {
+            self.desktop
+                .requests
+                .push(UiRequest::GiveTo { item, target });
+            self.desktop.requests.push(UiRequest::Select(target));
+        } else {
+            self.desktop.host_actions.push(HostAction::LocalFeedback {
+                text: "You must select a creature or a character to give that to".into(),
+                severity: crate::panels::FeedbackSeverity::Warning,
+            });
+            self.desktop.host_origins.push(0);
         }
     }
     fn host_action<S: Host>(
@@ -2569,11 +2616,11 @@ fn is_ui_action(name: &str) -> bool {
             name,
             "EnterChatMode"
                 | "ToggleChatEntry"
-                | "StartCommand"
+                | "START_COMMAND"
                 | "Reply"
                 | "PatronReply"
                 | "MonarchReply"
-                | "TellToSelected"
+                | "TellSelected"
                 | "SelectionSplitStack"
         )
 }

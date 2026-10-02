@@ -1676,6 +1676,12 @@ pub enum UiRequest {
     /// Put `item`, one of the player's own, on the ground: the drop-selection key and a drag out
     /// of a pack onto the world.
     PutInWorld(ObjectId),
+    /// Give `item` to `target`, a creature or character, as dropping it on them in the world does:
+    /// the classic interface's give-selected key.
+    GiveTo {
+        item: ObjectId,
+        target: ObjectId,
+    },
     /// Enter a combat mode (`1` peace, `2` melee, `4` missile, `8` magic), or with `0` the mode
     /// the wielded weapon calls for; refused, with the world's own words, when the player cannot
     /// change mode now.
