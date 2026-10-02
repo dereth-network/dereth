@@ -271,6 +271,69 @@ fn deletion_waits_only_after_confirmation_and_releases_on_character_set_notice()
 }
 
 #[test]
+fn more_characters_than_the_five_slots_scroll_in_the_five() {
+    context(|base| {
+        use dereth_client_contract::persist::{CharacterIdentity, CharacterSet};
+        let mut view = base.pregame.clone();
+        let names = ["Ann", "Bea", "Cid", "Dot", "Eve", "Fay", "Gus", "Hal"];
+        view.character_set = Some(CharacterSet {
+            set: names
+                .iter()
+                .zip(1..)
+                .map(|(name, id)| CharacterIdentity {
+                    id: ObjectId(id),
+                    name: (*name).into(),
+                    seconds_grace_period: 0,
+                })
+                .collect(),
+            num_allowed_characters: 8,
+            ..Default::default()
+        });
+        let c = Context {
+            game: base.game,
+            pregame: &view,
+            keyboard: base.keyboard,
+            settings: base.settings,
+            map_teleport_allowed: base.map_teleport_allowed,
+            classic: base.classic,
+        };
+        let mut p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+        let shown = |p: &Pregame| {
+            let f = p.frame(&c);
+            let list = f
+                .controls
+                .iter()
+                .find(|k| k.id == "characters")
+                .map(|k| k.rect);
+            let names: Vec<String> = f
+                .screen
+                .commands
+                .iter()
+                .filter_map(|cmd| match cmd {
+                    Command::Text { text, y, .. } if (136..216).contains(y) => Some(text.clone()),
+                    _ => None,
+                })
+                .filter(|t| names.contains(&t.as_str()))
+                .collect();
+            let scroll = f.controls.iter().any(|k| k.id == "characters-scroll");
+            (list.map(|r| r.h), names, scroll)
+        };
+        let (h, first, scroll) = shown(&p);
+        assert_eq!(h, Some(80), "five slots");
+        assert_eq!(first, ["Ann", "Bea", "Cid", "Dot", "Eve"]);
+        assert!(scroll);
+        p.event(
+            ControlEvent::Scroll {
+                id: "characters-scroll".into(),
+                value: 48,
+            },
+            &c,
+        );
+        assert_eq!(shown(&p).1, ["Dot", "Eve", "Fay", "Gus", "Hal"]);
+    });
+}
+
+#[test]
 fn character_list_refresh_keeps_wire_slot_when_display_sort_order_changes() {
     context(|base| {
         use dereth_client_contract::persist::{CharacterIdentity, CharacterSet};

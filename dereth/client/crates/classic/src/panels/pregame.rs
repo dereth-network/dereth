@@ -44,6 +44,8 @@ const ATTRS: [&str; 6] = [
 ];
 const COLOR: u32 = 0xffd2d2c8;
 const WHITE: u32 = 0xffff_ffff;
+/// A character slot's height on the character screen.
+const SLOT: i32 = 16;
 
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     let &external = IDS
@@ -87,6 +89,9 @@ struct Pregame {
     skill_help_scroll: i32,
     /// How far the character screen's message box is scrolled, in pixels.
     message_scroll: i32,
+    /// How far the character list is scrolled, in pixels, when the server allows more
+    /// characters than the panel's five slots.
+    character_scroll: i32,
     /// How far each clothing colour strip is scrolled, in pixels.
     color_scroll: [i32; 4],
     help_scroll: i32,
@@ -288,6 +293,7 @@ impl Pregame {
             profession_scroll: 0,
             skill_help_scroll: 0,
             message_scroll: 0,
+            character_scroll: 0,
             color_scroll: [0; 4],
             help_scroll: 0,
             keyboard_scroll: 0,
@@ -623,36 +629,65 @@ impl Pregame {
             f.image_native(&format!("{did:08X}"), 649, y, rect(649, y, 157, 55), false);
         }
         let chars = presentation::characters(c.pregame);
-        // The panel's art frames five character slots, 16 pixels apart from y 136. A server that
-        // allows more characters gets a frame for each further slot, copied from the first one,
-        // down to the list's twentieth row.
-        let panel = format!(
-            "{:08X}",
-            crate::art::installed().map_or(crate::art::CHARACTER_PANEL, |a| a.character_panel())
-        );
-        for row in 5..chars.len().min(20) {
-            let y = 136 + 16 * crate::int::i32_from(row);
-            f.image_native(&panel, 0, y - 136, rect(40, y, 180, 16), false);
-        }
-        f.list(
+        // The panel's art frames five character slots, 16 pixels apart from y 136, and each slot
+        // is drawn with the panel behind it. A server that allows more characters than five gets
+        // the same five slots and a scroll bar beside them.
+        let list = rect(50, 136, 160, 5 * SLOT);
+        let max = (crate::int::i32_from(chars.len()) * SLOT - list.h).max(0);
+        let offset = self.character_scroll.clamp(0, max);
+        f.control(
             "characters",
-            rect(50, 136, 160, 320),
-            chars
-                .iter()
-                .map(|v| ListRow {
-                    text: v.character.map_or(String::new(), |ch| ch.name.clone()),
-                    icon: None,
-                    color: if v.character.is_some_and(|ch| ch.seconds_grace_period > 0) {
-                        0xffff0046
-                    } else {
-                        COLOR
-                    },
-                })
-                .collect(),
-            self.selected,
-            16,
-        )
-        .font = "14-6".into();
+            list,
+            ControlKind::HitList {
+                row_count: chars.len(),
+                row_height: SLOT,
+                selected: self.selected,
+                offset,
+            },
+            true,
+        );
+        let clip = [list.x, list.y, list.x + list.w, list.y + list.h];
+        for (i, v) in chars.iter().enumerate() {
+            let y = list.y + crate::int::i32_from(i) * SLOT - offset;
+            if y + SLOT <= list.y || y >= list.y + list.h {
+                continue;
+            }
+            if self.selected == Some(i) {
+                if let Some(b) = rect(list.x, y, list.w, SLOT).intersect(list) {
+                    f.fill(b, 0xff27_4657);
+                }
+            }
+            let color = if v.character.is_some_and(|ch| ch.seconds_grace_period > 0) {
+                0xffff_0046
+            } else {
+                COLOR
+            };
+            f.label(
+                list.x + 2,
+                y,
+                v.character.map_or("", |ch| ch.name.as_str()),
+                "14-6",
+                color,
+                Some(clip),
+            );
+        }
+        if max > 0 {
+            f.control(
+                "characters-scroll",
+                rect(list.x + list.w + 2, list.y, 16, list.h),
+                ControlKind::ScrollBar {
+                    min: 0,
+                    max,
+                    value: offset,
+                    page: list.h,
+                    step: SLOT,
+                    vertical: true,
+                    arrow_size: 16,
+                    thumb_size: 16,
+                },
+                true,
+            );
+        }
         let selected = self
             .selected
             .and_then(|i| chars.get(i))
@@ -1383,6 +1418,7 @@ impl Panel for Pregame {
                 "skill-help" | "skill-help-scroll" => self.skill_help_scroll = value.max(0),
                 "help" | "help-scroll" => self.help_scroll = value.max(0),
                 "message" | "message-scroll" => self.message_scroll = value.max(0),
+                "characters" | "characters-scroll" => self.character_scroll = value.max(0),
                 "bindings" | "bindings-scroll" => self.keyboard_scroll = value.max(0),
                 _ => {
                     // A colour strip scrolls a whole swatch at a time.
