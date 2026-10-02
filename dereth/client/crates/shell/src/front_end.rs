@@ -2854,6 +2854,24 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn drive_world_script(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
+        // `--action-at`: each action as its key would give it, on the input map the interface's
+        // own keys are on.
+        for action in cx.take_scripted_actions() {
+            if let Some(ui) = self.classic.active_mut() {
+                ui.press_action(action);
+            } else if let Some(input) = self.input.as_mut() {
+                input.inject_action(dereth_input::InputEvent {
+                    action,
+                    input_map: crate::ui::UI_INPUT_MAP,
+                    toggle: dereth_input::ToggleType::OneShot,
+                    extent: 1.0,
+                    start: true,
+                    repeat_delta: 1,
+                    repeat_total: 0,
+                    from_key_down: false,
+                });
+            }
+        }
         if self.classic.active {
             return;
         }

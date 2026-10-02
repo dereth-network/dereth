@@ -831,6 +831,8 @@ pub struct App<S: Shell> {
     pub unowned_suppressed: u64,
     /// Preferences `--set-at` set this frame, handed to their owners with the options page's.
     scripted_preferences: Vec<(&'static str, dereth_client_contract::PrefValue)>,
+    /// Actions `--action-at` presses this frame, for the front end to press as its keys would.
+    pub(crate) scripted_actions: Vec<dereth_client_contract::actions::ActionId>,
     /// How many frames [`Self::frame`] has begun, which is what `--set-at` and `--capture-at`
     /// count.
     frames_begun: u64,
@@ -1359,6 +1361,7 @@ impl<S: Shell> App<S> {
             unowned_gate: crate::report_gate::ReportGate::default(),
             unowned_suppressed: 0,
             scripted_preferences: Vec::new(),
+            scripted_actions: Vec::new(),
             frames_begun: 0,
             playable_at: None,
             // The reporter seeds `last_sent_position_time` with the clock start, not zero.
@@ -2586,7 +2589,10 @@ impl<S: Shell> App<S> {
     /// way an options page's change is, and its owner applies it in this frame's drains.
     fn scripted_use_time(&mut self) {
         self.frames_begun += 1;
-        if self.cfg.capture_at.is_empty() && self.cfg.set_at.is_empty() {
+        if self.cfg.capture_at.is_empty()
+            && self.cfg.set_at.is_empty()
+            && self.cfg.action_at.is_empty()
+        {
             return;
         }
         // Frames are counted from one, as `--frames` counts them; the one before this is the one
@@ -2604,6 +2610,18 @@ impl<S: Shell> App<S> {
                 Ok(()) => tracing::info!("frame {drawn} captured to {}", path.display()),
                 Err(e) => tracing::warn!("--capture-at {drawn}: {e}"),
             }
+        }
+        let actions: Vec<u32> = self
+            .cfg
+            .action_at
+            .iter()
+            .filter(|(f, _)| *f == drawn + 1)
+            .map(|(_, a)| *a)
+            .collect();
+        for action in actions {
+            tracing::info!("frame {}: action {action:#X}", drawn + 1);
+            self.scripted_actions
+                .push(dereth_client_contract::actions::ActionId(action));
         }
         let settings: Vec<String> = self
             .cfg

@@ -240,6 +240,12 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.deliver_selection_notices(now);
     }
 
+    /// The actions `--action-at` presses this frame, taken: the front end presses each as its
+    /// key would be, through its own input.
+    pub fn take_scripted_actions(&mut self) -> Vec<dereth_client_contract::actions::ActionId> {
+        std::mem::take(&mut self.app.scripted_actions)
+    }
+
     /// Queue an action for the next frame, as a device would produce it: a scripted run presses
     /// the game's keys through this. See [`App::inject_action`].
     pub fn inject_action(&mut self, action: crate::actions::Action) {

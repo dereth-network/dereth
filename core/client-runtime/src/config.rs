@@ -201,6 +201,10 @@ pub struct Config {
     /// run can change an option part way through. The value is spelled as the preferences file
     /// spells it.
     pub set_at: Vec<(u64, String)>,
+    /// `--action-at <frame>:<ActionName>`, any number of times: as that frame starts, the action
+    /// (a key-map name, such as `ToggleAllegiancePanel`) happens as if its key had been pressed, so
+    /// a run can open a window or work a toggle part way through.
+    pub action_at: Vec<(u64, u32)>,
     /// `--no-console`: do not borrow the console of the terminal the client was started from, so
     /// the run is silent even there. (A console is never created, with or without it.)
     ///
@@ -465,6 +469,7 @@ impl Default for Config {
             capture: None,
             capture_at: Vec::new(),
             set_at: Vec::new(),
+            action_at: Vec::new(),
             console: true,
             dat_dir: default_dat_dir(),
             world_dat_dir: None,
@@ -645,6 +650,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "capture-at",
+        short: None,
+        arity: Arity::Required,
+    },
+    // An action part way through a run, as if its key had been pressed.
+    Switch {
+        long: "action-at",
         short: None,
         arity: Arity::Required,
     },
@@ -1178,6 +1189,7 @@ impl Config {
         // the same command line leaves it as the first did.
         self.say.clear();
         self.set_at.clear();
+        self.action_at.clear();
         self.capture_at.clear();
         self.use_targets.clear();
         let mut i = 0usize;
@@ -1386,6 +1398,22 @@ impl Config {
                         ))
                     })?;
                 self.set_at.push((frame, setting.to_string()));
+            }
+            "action-at" => {
+                let (frame, action) = v
+                    .split_once(':')
+                    .and_then(|(f, rest)| {
+                        let id = dereth_client_contract::actions::names::action_for_enum_name(
+                            rest.trim(),
+                        )?;
+                        Some((f.trim().parse::<u64>().ok()?, id.0))
+                    })
+                    .ok_or_else(|| {
+                        ConfigError::new(format!(
+                            "bad --action-at value {v:?}: expected <frame>:<ActionName>"
+                        ))
+                    })?;
+                self.action_at.push((frame, action));
             }
             "capture-at" => {
                 let (frame, path) = v
@@ -2008,6 +2036,16 @@ mod tests {
         assert!(parse(&["--set-at", "five:Render.Ground=PaletteShift"]).is_err());
         assert!(parse(&["--set-at", "5:Render.Ground"]).is_err());
         assert!(parse(&["--capture-at", "5:"]).is_err());
+    }
+
+    /// `--action-at` collects a frame and an action named as a key map names it; a name no action
+    /// has is refused.
+    #[test]
+    fn a_run_can_press_an_action_part_way_through() {
+        let c = parse(&["--action-at", "7:ToggleAllegiancePanel"]).expect("parses");
+        assert_eq!(c.action_at, [(7, 0x1000_000E)]);
+        assert!(parse(&["--action-at", "7:NoSuchAction"]).is_err());
+        assert!(parse(&["--action-at", "seven:ToggleAllegiancePanel"]).is_err());
     }
 
     /// `--era` names the era the server's world plays; an unknown name is refused.

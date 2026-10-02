@@ -747,6 +747,19 @@ impl ClassicUi {
             self.key_outcome(cx, result);
         }
     }
+    /// An action as if its key had been pressed and let go: a window toggle or a chat command to
+    /// the interface's own windows, everything else to the game.
+    pub fn press_action(&mut self, id: dereth_client_contract::actions::ActionId) {
+        use dereth_client_contract::actions::{names, Action};
+        let name = names::enum_name_for_action(id);
+        if is_ui_action(&name) {
+            self.ui_actions.push(name);
+        } else {
+            self.actions.push(Action::begin(id));
+            self.actions.push(Action::end(id));
+        }
+    }
+
     fn key_outcome<S: Host>(
         &mut self,
         cx: &mut Cx<'_, S>,
