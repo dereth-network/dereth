@@ -23,6 +23,8 @@ pub mod landscape;
 pub mod performance;
 /// `UiPref` and `UI_PREFERENCES`, moved down out of `dereth_ui_screens::options::preferences`.
 pub mod preferences;
+/// The options both interfaces show: four pages of headings and rows.
+pub mod sheet;
 /// `UserPreferences`'s value store, verbatim from `dereth_ui_screens::options::store`.
 pub mod store;
 
