@@ -916,7 +916,7 @@ fn a_changed_preference_is_written_back_on_shutdown() {
     );
 
     // Parse and reload the same text into the existing process. All 34 registered values are
-    // accepted; two of the three values set above are then checked explicitly. This is not a fresh
+    // accepted, with this client's two landscape options beside them; two of the three values set above are then checked explicitly. This is not a fresh
     // `App` restart and does not independently assert every reloaded value.
     assert_eq!(
         dereth_ui_screens::options::store::init(),
@@ -925,7 +925,10 @@ fn a_changed_preference_is_written_back_on_shutdown() {
     );
     let ini = dereth_ui::persist::preferences::UserPreferences::parse(&text).expect("it parses");
     let (applied, _ignored) = dereth_ui_screens::options::store::load(&ini);
-    assert_eq!(applied, 34, "all 34 came back: {applied} applied");
+    assert_eq!(
+        applied, 36,
+        "all 34 and the two landscape options came back: {applied} applied"
+    );
     assert_eq!(
         dereth_ui_screens::options::store::inq_value("Sound.SoundFeatures"),
         Some(dereth_ui_screens::PrefValue::Int(1)),

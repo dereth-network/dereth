@@ -185,6 +185,68 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "Dereth plays every era over one set of screens until the interface of the time is \
               rebuilt; the world itself is the older files' own.",
     },
+    Divergence {
+        id: "CD-011",
+        title: "Landscape Detail Textures draws the ground's detail texture",
+        retail: "The end-of-retail client keeps the Landscape Detail Textures preference in the \
+                 profile but never reads it, so no detail texture is ever drawn over the ground. \
+                 The clients before it, from at least February 2005 through 2012, read it, and \
+                 the 2012 client's medium and higher graphics quality settings turned it on.",
+        dereth: "With Render.LandscapeDetailTextures on, the region's landscape detail texture is \
+                 drawn over the ground of the blocks around the player, as those earlier clients \
+                 drew it: repeated across each square as often as the region says (four times at \
+                 the end of retail), strongest within 10 metres of the eye and gone by 50. It is \
+                 off by default, so a default profile draws what the end-of-retail client draws.",
+        why: "The texture is in the data and the earlier clients drew it; the preference was \
+              left behind when the end-of-retail client stopped reading it, so it is the \
+              player's choice here.",
+    },
+    Divergence {
+        id: "CD-012",
+        title: "The ground and the sky of any world are a live choice of three eras' styles",
+        retail: "A client from before Throne of Destiny drew its world with one of the two regions \
+                 its files carry, and the choice followed its renderer: drawing with 3D hardware it \
+                 used the region whose ground blends textures (with detail textures and a fuller \
+                 sky), and drawing in software the one whose ground recolours a few shared ground \
+                 pictures for each square, with a sky and light of its own. The end-of-retail \
+                 client has one region. No client drew a world with another era's ground or sky, \
+                 and none changed either while running.",
+        dereth: "Terrain Mode and Sky Mode on the client options page (Render.Ground and \
+                 Render.Sky in the profile) choose the ground and the sky separately, for any \
+                 world: Palette Shift and Legacy Software are the older software region's, Legacy \
+                 Blend and Legacy Hardware the older hardware region's, Modern Blend and Modern the \
+                 end-of-retail region's. World Default is the world's own: the hardware region for \
+                 an older world, as those clients drew on 3D hardware, and the end-of-retail region \
+                 for the end-of-retail world. The terrain numbering is the same in every region, so \
+                 each square takes the chosen style's texture for its own terrain; the world's \
+                 land, scenery, buildings and sounds never change. A change takes effect on the \
+                 next frame, rebuilding the ground or the sky in place. The detail textures, when                  turned on, are drawn under every ground style: the style's own where its region                  names them, else the world's own region's, else the end-of-retail region's. An older world's later \
+                 styles come from the end-of-retail files beside it; the end-of-retail world's \
+                 older styles from a folder holding an older portal.dat, given with \
+                 --legacy-dat-dir or Render.LegacyDatDir, which nothing else reads. A style whose \
+                 files are not there is refused with a message in the chat window, and the world \
+                 keeps what it had.",
+        why: "Every era can be played with the ground and sky its players saw on 3D hardware, the \
+              software renderer's, or the end-of-retail ones; which one is a presentation choice, \
+              not a rule of the era.",
+    },
+    Divergence {
+        id: "CD-013",
+        title: "A terrain type the chosen region does not name is drawn as its neighbours",
+        retail: "A region's land surface lists a texture for every terrain number up to 31, but a \
+                 number past the region's own terrain list is a filler there, another type's \
+                 picture: the regions before Throne of Destiny name 27 types in 1999 and 31 from \
+                 Dark Majesty on, and draw an unnamed type with Argila's tile (blended ground) or \
+                 Semi-Barren Rock's colours (recoloured ground). The 1999 world uses type 31 for a \
+                 road grid laid over deep sea; the end-of-retail region names type 31 (Desolate \
+                 Lands) and its world uses it at three spots.",
+        dereth: "Where a square's corner has a terrain type the region drawing the ground does not \
+                 name, that corner is drawn as the terrain most common among its neighbours that \
+                 the region does name, so the ground around it continues across it. Roads, water, \
+                 heights and scenery are unchanged.",
+        why: "A filler picture is not the ground that belongs there; the surrounding ground is \
+              the closest thing the region has.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

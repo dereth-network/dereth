@@ -94,6 +94,35 @@ pub fn shell_error_text(result: i32, url: &str) -> String {
     )
 }
 
+/// One `--set-at` setting, `Section.Name=value`, as the preference it names and the value the
+/// preferences file's spelling stands for. The landscape options read every spelling they read
+/// from the file; any other registered option is read through the option store's own load, as the
+/// file would be. `None` for a name no option has, or a value it cannot take.
+fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_contract::PrefValue)> {
+    use dereth_client_contract::options::{landscape, preferences, store};
+    let (key, value) = setting.split_once('=')?;
+    let key = key.trim();
+    let name: &'static str = preferences::UI_PREFERENCES
+        .iter()
+        .map(|p| p.name)
+        .chain([landscape::GROUND, landscape::SKY])
+        .find(|n| n.eq_ignore_ascii_case(key))?;
+    if let Some(v) = landscape::parse_value(name, value) {
+        return Some((name, dereth_client_contract::PrefValue::Int(v)));
+    }
+    let (section, bare) = name.rsplit_once('.')?;
+    let ini = dereth_client_contract::persist::preferences::UserPreferences::parse(&format!(
+        "[{section}]\n{bare}={}\n",
+        value.trim()
+    ))
+    .ok()?;
+    let (applied, _) = store::load(&ini);
+    (applied == 1)
+        .then(|| store::inq_value(name))
+        .flatten()
+        .map(|v| (name, v))
+}
+
 /// Consume `UiRequest::OpenUrl` requests from the two support-ticket buttons.
 ///
 /// Each URL is passed to the desktop's registered handler. A signed result greater than `32`
@@ -792,6 +821,11 @@ pub struct App<S: Shell> {
     pub unowned_gate: crate::report_gate::ReportGate,
     /// Unowned requests not printed because the gate was shut, reported with the next one.
     pub unowned_suppressed: u64,
+    /// Preferences `--set-at` set this frame, handed to their owners with the options page's.
+    scripted_preferences: Vec<(&'static str, dereth_client_contract::PrefValue)>,
+    /// How many frames [`Self::frame`] has begun, which is what `--set-at` and `--capture-at`
+    /// count.
+    frames_begun: u64,
     /// Time when `0x0013` made the session playable, used by `--linger`.
     pub playable_at: Option<f64>,
     /// Movement-command position reporting: `0xF753` on the client's own 1.0 s schedule and
@@ -1064,9 +1098,10 @@ impl<S: Shell> App<S> {
         // Step 10: open the data files.
         let store = match store {
             Some(store) => store,
-            None => std::sync::Arc::new(crate::assets::open_data_files_with(
+            None => std::sync::Arc::new(crate::assets::open_data_files_for(
                 &cfg.dat_dir,
                 cfg.world_dat_dir.as_deref(),
+                cfg.legacy_dat_dir.as_deref(),
             )?),
         };
 
@@ -1197,6 +1232,8 @@ impl<S: Shell> App<S> {
             object_report_gate: crate::report_gate::ReportGate::default(),
             unowned_gate: crate::report_gate::ReportGate::default(),
             unowned_suppressed: 0,
+            scripted_preferences: Vec::new(),
+            frames_begun: 0,
             playable_at: None,
             // The reporter seeds `last_sent_position_time` with the clock start, not zero.
             position: dereth_client_net::client_session::PositionReporter::new(clock_start),
@@ -2049,6 +2086,86 @@ impl<S: Shell> App<S> {
             .unwrap_or_else(|| name(99_999))
     }
 
+    /// `--capture-at` and `--set-at`, at the top of a frame. A picture is taken once its frame has
+    /// been drawn, so it is the last presented frame; a setting is made as its frame starts, the
+    /// way an options page's change is, and its owner applies it in this frame's drains.
+    fn scripted_use_time(&mut self) {
+        self.frames_begun += 1;
+        if self.cfg.capture_at.is_empty() && self.cfg.set_at.is_empty() {
+            return;
+        }
+        // Frames are counted from one, as `--frames` counts them; the one before this is the one
+        // just drawn.
+        let drawn = self.frames_begun - 1;
+        let pictures: Vec<std::path::PathBuf> = self
+            .cfg
+            .capture_at
+            .iter()
+            .filter(|(f, _)| *f == drawn)
+            .map(|(_, p)| p.clone())
+            .collect();
+        for path in pictures {
+            match self.present.capture_png(&path) {
+                Ok(()) => tracing::info!("frame {drawn} captured to {}", path.display()),
+                Err(e) => tracing::warn!("--capture-at {drawn}: {e}"),
+            }
+        }
+        let settings: Vec<String> = self
+            .cfg
+            .set_at
+            .iter()
+            .filter(|(f, _)| *f == drawn + 1)
+            .map(|(_, s)| s.clone())
+            .collect();
+        for setting in settings {
+            match scripted_preference(&setting) {
+                Some((name, value)) => {
+                    tracing::info!("frame {}: {name} = {value:?}", drawn + 1);
+                    let _ = dereth_client_contract::options::store::set_value(name, value.clone());
+                    self.scripted_preferences.push((name, value));
+                }
+                None => {
+                    tracing::warn!("--set-at {setting:?} names no preference this client sets");
+                }
+            }
+        }
+    }
+
+    /// The landscape styles the scene refused this poll: the options value goes back to the style
+    /// still drawn, so a page shows what is on screen, and the player is told why in the chat
+    /// window, on the channel the client's own refusals use.
+    fn report_landscape_refusals(&mut self, w: &crate::frame_events::RenderPrefWork) {
+        use dereth_client_contract::options::landscape::{Landscape, RegionStyle, WORLD_DEFAULT};
+        for (which, refused) in [
+            (Landscape::Ground, w.ground_refused),
+            (Landscape::Sky, w.sky_refused),
+        ] {
+            let Some((files, kept)) = refused else {
+                continue;
+            };
+            let kept_value = dereth_client_contract::PrefValue::Int(
+                kept.map_or(WORLD_DEFAULT, RegionStyle::value),
+            );
+            let _ =
+                dereth_client_contract::options::store::set_value(which.name(), kept_value.clone());
+            // The next login's scene keeps what is drawn too.
+            for scene in [self.pending_scene.as_mut(), self.scene_config.as_mut()]
+                .into_iter()
+                .flatten()
+            {
+                scene.render.set_named(which.name(), &kept_value);
+            }
+            let text = which.notice(files);
+            tracing::warn!("{text}");
+            self.objects.world.scroll.add_text_to_scroll(
+                text,
+                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                true,
+                0,
+            );
+        }
+    }
+
     /// Capture the screenshot through the presentation, the half that requires the device.
     ///
     /// On success the client formats the chosen path into its confirmation line, so the player
@@ -2166,6 +2283,12 @@ impl<S: Shell> App<S> {
                 name, value,
             ));
         }
+        // `--set-at`'s settings take the same road.
+        for (name, value) in std::mem::take(&mut self.scripted_preferences) {
+            unowned.push(dereth_client_contract::UiRequest::SetPreference(
+                name, value,
+            ));
+        }
         // The component-fill operation raises its notice synchronously; the vendor-panel
         // receiver opens buying tab `0x100000BA`. The command/model half above
         // owns the basket but not this live tree. Take the edge every frame even without a shell,
@@ -2265,7 +2388,29 @@ impl<S: Shell> App<S> {
         // Apply a display request at that same boundary; the event-loop poll remains for
         // Alt+Enter, startup and live window events that do not originate in this drain.
         self.apply_changed_display_presentation(shell);
+        // The landscape options are also the next world's: a choice made before the world is
+        // drawn (at character select) or kept for the next login is recorded in the scene that
+        // will be loaded. A drawn world takes the change live, below.
+        for r in &unowned {
+            if let dereth_client_contract::UiRequest::SetPreference(name, value) = r {
+                if dereth_client_contract::options::landscape::Landscape::of(name).is_some() {
+                    for scene in [self.pending_scene.as_mut(), self.scene_config.as_mut()]
+                        .into_iter()
+                        .flatten()
+                    {
+                        scene.render.set_named(name, value);
+                    }
+                }
+            }
+        }
         let unowned = self.present.apply_render_preference_requests(unowned);
+        let unowned: Vec<dereth_client_contract::UiRequest> = unowned
+            .into_iter()
+            .filter(|r| {
+                !matches!(r, dereth_client_contract::UiRequest::SetPreference(name, _)
+                    if dereth_client_contract::options::landscape::Landscape::of(name).is_some())
+            })
+            .collect();
         // The three `Camera.*` names reach the body's camera controller, with
         // a live stiffness update for `Camera.Stiffness`.
         let unowned = crate::camera::apply_preference_requests(
@@ -3018,6 +3163,9 @@ impl<S: Shell> App<S> {
         let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
         self.events.drain_frame();
         self.teleport_ticked = false;
+        // `--capture-at` and `--set-at`: a picture of the frame just drawn, then the settings for
+        // the one about to be.
+        self.scripted_use_time();
 
         // Explicit component adapter: ObjectStream::apply_event may have already accepted
         // local calls before App began. Complete that old journal before simulation or a
@@ -3909,9 +4057,10 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
-        match crate::assets::open_data_files_with(
+        match crate::assets::open_data_files_for(
             &self.cfg.dat_dir,
             self.cfg.world_dat_dir.as_deref(),
+            self.cfg.legacy_dat_dir.as_deref(),
         ) {
             Ok(fresh) => {
                 self.store = std::sync::Arc::new(fresh);
@@ -3959,7 +4108,11 @@ impl<S: Shell> App<S> {
             // The patch is on disk; the land source is still reading through the handle it took
             // at world entry. `invalidate_after_ddd` replaced `App::store` for the *patch* phase;
             // a run-time answer arrives with no `0xF7EA` behind it, so the reopen happens here.
-            match crate::assets::open_data_files_with(&self.cfg.dat_dir, self.cfg.world_dat_dir.as_deref()) {
+            match crate::assets::open_data_files_for(
+                &self.cfg.dat_dir,
+                self.cfg.world_dat_dir.as_deref(),
+                self.cfg.legacy_dat_dir.as_deref(),
+            ) {
                 Ok(fresh) => {
                     let fresh = std::sync::Arc::new(fresh);
                     self.store = std::sync::Arc::clone(&fresh);
@@ -4304,15 +4457,23 @@ impl<S: Shell> App<S> {
                 // The poll itself, whether or not it moved anything: this event's payload is
                 // what `last_render_pref_work` reads.
                 self.events.push(FrameEvent::RenderPreferencesPolled(w));
-                if w.flushed || w.mid_radius_changed || w.detail_texturing_changed {
+                self.report_landscape_refusals(&w);
+                if w.flushed
+                    || w.mid_radius_changed
+                    || w.detail_texturing_changed
+                    || w.ground_changed
+                    || w.sky_changed
+                {
                     self.events.push(FrameEvent::RenderPreferencesApplied);
                     tracing::info!(
                         "render preferences changed -- flush {}, mid_radius {}, \
-                         detail textures {} (no consumer in this build), {} block(s) queued, \
+                         detail textures {}, ground {}, sky {}, {} block(s) queued, \
                          {} resident",
                         w.flushed,
                         w.mid_radius_changed,
                         w.detail_texturing_changed,
+                        w.ground_changed,
+                        w.sky_changed,
                         w.blocks_queued,
                         w.blocks_rebuilt,
                     );
@@ -4410,6 +4571,10 @@ impl<S: Shell> App<S> {
                 blocks_queued: 0,
                 blocks_rebuilt: 0,
                 detail_surfaces: 0,
+                ground_changed: false,
+                sky_changed: false,
+                ground_refused: None,
+                sky_refused: None,
             },
         }
     }

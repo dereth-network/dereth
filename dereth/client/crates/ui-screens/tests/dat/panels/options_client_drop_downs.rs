@@ -123,8 +123,7 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
         ("UI.ChatFontSize", 5),
     ];
     let menus: Vec<&str> = p
-        .options
-        .iter()
+        .retail_options()
         .filter(|o| o.control == OptionControl::Menu)
         .map(|o| o.preference)
         .collect();
@@ -164,11 +163,22 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
         );
     }
     assert_eq!(total, 32);
+    // This client's two landscape rows list the world's own and the three styles each, as literal
+    // text.
+    for o in p.landscape_options() {
+        let texts = rows(&mut ui, o.element);
+        assert_eq!(texts.len(), 4, "{}: {texts:?}", o.preference);
+        assert_eq!(
+            o.entries.iter().map(|e| e.1).collect::<Vec<_>>(),
+            [0, 1, 2, 3]
+        );
+    }
     assert_eq!(
-        p.menu_entries, 32,
-        "the page's own counter agrees with the eight list boxes"
+        p.menu_entries,
+        32 + 8,
+        "the page's own counter agrees with the ten list boxes"
     );
-    assert_eq!(p.menu_popups, 8);
+    assert_eq!(p.menu_popups, 10, "the eight and the two landscape rows");
 
     for (pref, n) in want {
         let menu = control(p, pref);
@@ -498,15 +508,20 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
     s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
         .expect("the gameplay screen still builds");
     let p = &s.config_page;
-    assert_eq!(p.options.len(), 30, "all 30 controls are still bound");
-    assert_eq!(p.menu_entries, 0, "and not one drop-down has a row");
     assert_eq!(
-        p.menu_popups, 8,
-        "…while all eight popups exist: make_popup does not ask the registry"
+        p.retail_options().count(),
+        30,
+        "all 30 controls are still bound"
+    );
+    // This client's two landscape rows ask the option value store, not this registry, so they
+    // keep their four literal entries each.
+    assert_eq!(p.menu_entries, 8, "and not one retail drop-down has a row");
+    assert_eq!(
+        p.menu_popups, 10,
+        "…while all ten popups exist: make_popup does not ask the registry"
     );
     for o in p
-        .options
-        .iter()
+        .retail_options()
         .filter(|o| o.control == OptionControl::Menu)
     {
         assert_eq!(
@@ -519,4 +534,111 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
     }
     // Put the registry back for whatever runs next in this thread.
     preferences::init_ui_preferences();
+}
+
+/// Behaviour: options.client-page.the-terrain-and-sky-modes-are-chosen-on-the-graphics-section
+/// This client's Terrain Mode and Sky Mode close the Graphics section, after its retail rows: each
+/// lists the world's own and the three named styles as literal text, opens on the stored choice,
+/// and a real press on a row writes the landscape option, which survives a save and reload of the
+/// preferences file in its one-word spelling; Restore Defaults puts both back to World Default.
+#[test]
+fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_one() {
+    use dereth_client_contract::options::landscape;
+    let (mut ui, mut s) = screen();
+    // The two rows sit between the Graphics section's last retail row and the Textures header.
+    let order: Vec<&str> = s.config_page.options.iter().map(|o| o.preference).collect();
+    let at = |p: &str| order.iter().position(|o| *o == p).expect("on the page");
+    assert_eq!(at(landscape::GROUND), at("Render.DegradeDistance") + 1);
+    assert_eq!(at(landscape::SKY), at(landscape::GROUND) + 1);
+    assert_eq!(at("Render.LandscapeTextureDetail"), at(landscape::SKY) + 1);
+
+    let menu = control(&s.config_page, landscape::GROUND);
+    let texts: Vec<String> = rows(&mut ui, menu).into_iter().map(|(t, _)| t).collect();
+    assert_eq!(
+        texts,
+        [
+            "World Default",
+            "Palette Shift",
+            "Legacy Blend",
+            "Modern Blend"
+        ]
+    );
+    let sky = control(&s.config_page, landscape::SKY);
+    let texts: Vec<String> = rows(&mut ui, sky).into_iter().map(|(t, _)| t).collect();
+    assert_eq!(
+        texts,
+        [
+            "World Default",
+            "Legacy Software",
+            "Legacy Hardware",
+            "Modern"
+        ]
+    );
+    assert_eq!(
+        store::inq_value(landscape::GROUND),
+        Some(PrefValue::Int(landscape::WORLD_DEFAULT))
+    );
+
+    // Scroll the row into the option box's window, then press as a player does.
+    let row = s.config_page.options[index_of(&s.config_page, landscape::GROUND)].row;
+    let list = s
+        .config_page
+        .option_box
+        .as_ref()
+        .expect("option box")
+        .handle;
+    reveal(&mut ui, menu);
+    dereth_ui::widgets::listbox::scroll_item_to_view(&mut ui, list, row);
+    pump(&mut ui, &mut s);
+    let press = |ui: &mut UiSystem, s: &mut GamePlayScreen, h: ElemHandle| {
+        let b = ui.screen_box(h);
+        let (cx, cy) = ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+        assert_eq!(ui.hit_test_screen(cx, cy), Some(h), "the press lands");
+        ui.mouse_down(dereth_ui::focus::action::PRIMARY_CLICK, cx, cy);
+        ui.mouse_up(dereth_ui::focus::action::PRIMARY_CLICK, cx, cy, false);
+        pump(ui, s);
+    };
+    press(&mut ui, &mut s, menu);
+    let palette = dereth_ui::widgets::menu::get_item(&ui, menu, 1).expect("row 1");
+    assert_eq!(text_of(&mut ui, palette), "Palette Shift");
+    ui.requests.clear();
+    press(&mut ui, &mut s, palette);
+    assert_eq!(
+        store::inq_value(landscape::GROUND),
+        Some(PrefValue::Int(1)),
+        "the choice reached the option store"
+    );
+    let reqs = ui.requests.take();
+    assert!(
+        reqs.contains(&UiRequest::SetPreference(
+            landscape::GROUND,
+            PrefValue::Int(1)
+        )),
+        "the scene is told: {reqs:?}"
+    );
+    let text = store::save().to_text();
+    assert!(text.contains("Ground=PaletteShift\r\n"), "{text}");
+    assert!(text.contains("Sky=World\r\n"), "{text}");
+    store::init();
+    let ini = dereth_ui::persist::preferences::UserPreferences::parse(&text).expect("parses");
+    store::load(&ini);
+    assert_eq!(store::inq_value(landscape::GROUND), Some(PrefValue::Int(1)));
+
+    // Restore Defaults puts both back to World Default.
+    ui.requests.clear();
+    s.config_page.restore_default_values(&mut ui);
+    let reqs = ui.requests.take();
+    for name in [landscape::GROUND, landscape::SKY] {
+        assert!(
+            reqs.contains(&UiRequest::SetPreference(
+                name,
+                PrefValue::Int(landscape::WORLD_DEFAULT)
+            )),
+            "{name} not restored: {reqs:?}"
+        );
+    }
+    assert_eq!(
+        store::inq_value(landscape::GROUND),
+        Some(PrefValue::Int(landscape::WORLD_DEFAULT))
+    );
 }

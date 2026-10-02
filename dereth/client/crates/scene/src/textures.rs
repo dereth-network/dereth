@@ -63,6 +63,21 @@ pub struct TextureStore<'a> {
     bgra: HashMap<DataId, Option<Bgra8>>,
 }
 
+/// Three colour planes of `width` by `height` bytes, red, green and blue one after another, as
+/// one interleaved blue-green-red image. `None` when the planes are short.
+#[must_use]
+pub fn interleave_rgb_planes(planes: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+    let n = width as usize * height as usize;
+    let (r, rest) = planes.split_at_checked(n)?;
+    let (g, rest) = rest.split_at_checked(n)?;
+    let b = rest.get(..n)?;
+    let mut out = Vec::with_capacity(n * 3);
+    for i in 0..n {
+        out.extend_from_slice(&[b[i], g[i], r[i]]);
+    }
+    Some(out)
+}
+
 impl<'a> TextureStore<'a> {
     /// A store at the registered `Render.EnvironmentTextureDetail` default, which is not the
     /// highest setting, so a two-level `SurfaceTexture` resolves to its original art.
@@ -250,6 +265,17 @@ impl<'a> TextureStore<'a> {
             return decode_surface(src, rs.width, rs.height)
                 .map_err(|e| TextureError::Decode(rsid, e));
         }
+        // A 24-bit landscape image of the dat set before Throne of Destiny stores its colour as
+        // three planes one after another, red, green, then blue; the later files interleave each
+        // pixel's blue, green and red. The planes are interleaved here into the later order.
+        if format == PixelFormatId::CustomLscapeR8G8B8
+            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::PreTod
+        {
+            let bgr = interleave_rgb_planes(payload, rs.width, rs.height)
+                .ok_or(TextureError::NotATexture(rsid))?;
+            return decode_surface(SourcePixels::LandscapeRgb(&bgr), rs.width, rs.height)
+                .map_err(|e| TextureError::Decode(rsid, e));
+        }
         let src = self.source_pixels(format, payload, palette, clip_map)?;
         decode_surface(src, rs.width, rs.height).map_err(|e| TextureError::Decode(rsid, e))
     }
@@ -351,6 +377,49 @@ impl<'a> TextureStore<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Three planes become one image whose pixels are blue, green, red, each taken from the same
+    /// place in the three planes; short planes are refused.
+    #[test]
+    fn three_colour_planes_interleave_into_blue_green_red_pixels() {
+        let planes = [1, 2, 10, 20, 100, 200];
+        assert_eq!(
+            interleave_rgb_planes(&planes, 2, 1),
+            Some(vec![100, 10, 1, 200, 20, 2])
+        );
+        assert_eq!(interleave_rgb_planes(&planes[..5], 2, 1), None);
+    }
+
+    /// A February 2005 landscape image reads as its three planes: the grass is green over brown,
+    /// the barren rock brown, as their names say. Read as interleaved pixels they would be grey
+    /// noise.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the February 2005 and end-of-retail dats: --features retail-dats"
+    )]
+    fn a_february_2005_landscape_image_reads_as_three_colour_planes() {
+        let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+            panic!(
+                "{}",
+                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            )
+        });
+        let hybrid = RetailDatStore::open_pre_tod_with_later(&old, &dereth_dat::testing::dat_dir())
+            .expect("the February 2005 dats beside the end-of-retail ones");
+        let textures = TextureStore::new(&hybrid);
+        let mean = |id: u32| {
+            let img = textures.bgra8(DataId(id)).expect("decodes");
+            assert_eq!((img.width, img.height), (128, 128));
+            let n = img.pixels.len() as u64;
+            let sum = |c: usize| img.pixels.iter().map(|p| u64::from(p[c])).sum::<u64>() / n;
+            (sum(2), sum(1), sum(0))
+        };
+        let (r, g, b) = mean(0x0500_1459);
+        assert!(g > r && r > b, "grassland {r} {g} {b}");
+        let (r, g, b) = mean(0x0500_145C);
+        assert!(r > g && g > b, "barren rock {r} {g} {b}");
+    }
 
     /// A February 2005 icon image carries no alpha, and its pure black is its transparent colour:
     /// drawn as an icon, its surround is transparent where the end-of-retail file's copy of the

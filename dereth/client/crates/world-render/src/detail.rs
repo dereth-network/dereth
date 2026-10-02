@@ -5,10 +5,21 @@
 //!
 //! # Observable behavior
 //!
-//! Exactly three paths configure detail texturing. All three disable the landscape and object
-//! surfaces and give the same preference value to the environment and building surfaces. Thus the
-//! shipped client never creates landscape or object detail surfaces; the preference affects only
-//! **buildings** and **environment cells**.
+//! Exactly three paths configure detail texturing. In the end-of-retail client all three disable
+//! the landscape and object surfaces and give the same preference value to the environment and
+//! building surfaces, so it never creates a landscape or object detail surface: its preference
+//! reaches only **buildings** and **environment cells**, and `Render.LandscapeDetailTextures` is
+//! registered and read by nothing. The clients before it (from the February 2005 client through
+//! 2012) passed `Render.LandscapeDetailTextures` as the landscape flag, and their middle and higher
+//! quality presets turned it on. This client does as they did: the landscape flag is that
+//! preference, which is off by default, so a default profile draws what the end-of-retail client
+//! draws.
+//!
+//! Every class bottoms out in the region's texture-merge land surface, so a region that
+//! palette-shifts its land (the software region a dat set from before Throne of Destiny carries)
+//! yields no detail surface of any class, whatever the preferences say. The hardware region the
+//! same dat set carries texture-merges and names detail textures, so a client of that time drawing
+//! with 3D hardware had them.
 //!
 //! Configuration follows this order:
 //!
@@ -81,8 +92,9 @@ use dereth_primitives::DataId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum DetailClass {
-    /// The landscape's detail surface and tiling.
-    /// Read by the landscape draw and **never set**: see the module note.
+    /// The landscape's detail surface and tiling, selected by the landscape draw for a block
+    /// drawn at full detail. Set only when `Render.LandscapeDetailTextures` is on: see the
+    /// module note.
     Landscape = 0,
     /// The building detail surface and tiling, selected by the building draw.
     Building = 1,
@@ -188,11 +200,35 @@ impl DetailTexturing {
         environment: bool,
         object: bool,
     ) -> bool {
+        self.set_with_ground(region, region, landscape, building, environment, object)
+    }
+
+    /// [`Self::set`], with the landscape class read from `ground`, the region whose land surface
+    /// draws the ground, and the other three from `region`. The two are the same region except
+    /// when an older world's ground is drawn with the later files' land surface, whose landscape
+    /// detail texture is the later region's.
+    pub fn set_with_ground(
+        &mut self,
+        region: Option<&Region>,
+        ground: Option<&Region>,
+        landscape: bool,
+        building: bool,
+        environment: bool,
+        object: bool,
+    ) -> bool {
         let Some(region) = region else { return false };
+        let ground = ground.unwrap_or(region);
         self.applies += 1;
         self.cleanup();
+        let of = |cls: DetailClass| {
+            if cls == DetailClass::Landscape {
+                ground
+            } else {
+                region
+            }
+        };
         for cls in DetailClass::TILING_ORDER {
-            self.tiling[cls.index()] = detail_tiling(region, cls);
+            self.tiling[cls.index()] = detail_tiling(of(cls), cls);
         }
         // In the client's own order: landscape, environment, building,
         // object. The order is unobservable — the four write four different globals — and is kept
@@ -204,7 +240,7 @@ impl DetailTexturing {
             (DetailClass::Object, object),
         ] {
             if want {
-                self.surfaces[cls.index()] = generate_detail_surface(region, cls);
+                self.surfaces[cls.index()] = generate_detail_surface(of(cls), cls);
             }
         }
         true
@@ -314,10 +350,9 @@ pub fn generate_detail_surface(region: &Region, cls: DetailClass) -> Option<Deta
 /// return trunc_u8((1.0f - (z - 10.0f) * 0.025) * 255.0f)
 /// ```
 ///
-/// `0.025` is `1 / (far - near)`. This is the only
-/// distance term the whole subsystem has, and because a successor that revives the landscape arm
-/// needs it — **nothing in the shipped client reaches it**, since the landscape's detail surface is
-/// never set (see the module note).
+/// `0.025` is `1 / (far - near)`. This is the only distance term the whole subsystem has, and
+/// only the landscape's detail pass reads it: the detail texture fades out between 10 and 50 m
+/// from the eye.
 #[must_use]
 #[allow(clippy::neg_cmp_op_on_partial_ord)] // a NaN depth takes the far arm, as the client's compare does
 #[allow(clippy::cast_possible_truncation)] // truncation toward zero is the client's; clamped to a byte
@@ -343,8 +378,7 @@ pub fn get_alpha_for_z(z: f32) -> u8 {
 /// ```
 ///
 /// i.e. **only a block drawn at the full 8x8 cell grid** takes the landscape detail surface; a
-/// LOD'd ring block does not. Dead alongside the rest of the landscape arm, and recorded because
-/// a successor reviving it must not skip it.
+/// LOD'd ring block does not.
 #[must_use]
 pub const fn block_takes_landscape_detail(cell_grid_side: u32) -> bool {
     cell_grid_side == 8
@@ -453,6 +487,66 @@ mod tests {
             assert!((d.tiling(cls) - 4.0).abs() < f32::EPSILON, "{cls:?}");
         }
         assert_eq!(d.applies(), 1);
+    }
+
+    #[test]
+    fn the_landscape_preference_generates_the_landscape_class_from_row_zero() {
+        let r = region();
+        let mut d = DetailTexturing::new();
+        assert!(d.set(Some(&r), true, true, true, false));
+        let land = d
+            .current(DetailClass::Landscape)
+            .expect("a landscape surface");
+        assert_eq!(land.surface.texture, DataId(0x0500_1786));
+        assert!((land.tiling - 4.0).abs() < f32::EPSILON);
+        assert_eq!((land.src_blend, land.dst_blend), (5, 6));
+        assert_eq!(d.surface(DetailClass::Object), None);
+    }
+
+    /// A region that palette-shifts its land (an older dat set's software region) has no
+    /// texture-merge rows, so no class yields a surface and every tiling is zero, whatever the
+    /// flags.
+    #[test]
+    fn a_palette_shift_region_yields_no_detail_surface() {
+        let mut r = region();
+        r.land_surf = LandSurf {
+            surf_type: 1,
+            tex_merge: None,
+            pal_shift: Some(dereth_assets::region::PalShift {
+                textures: Vec::new(),
+            }),
+        };
+        let mut d = DetailTexturing::new();
+        assert!(d.set(Some(&r), true, true, true, true));
+        assert_eq!(d.generated(), 0);
+        for cls in DetailClass::TILING_ORDER {
+            assert!(d.tiling(cls).abs() < f32::EPSILON, "{cls:?}");
+        }
+    }
+
+    /// With a separate ground region the landscape class is read from it and the other three
+    /// from the world's own region.
+    #[test]
+    fn the_landscape_class_comes_from_the_ground_region_and_the_rest_from_the_world() {
+        let ground = region();
+        let mut own = region();
+        own.land_surf = LandSurf {
+            surf_type: 1,
+            tex_merge: None,
+            pal_shift: Some(dereth_assets::region::PalShift {
+                textures: Vec::new(),
+            }),
+        };
+        let mut d = DetailTexturing::new();
+        assert!(d.set_with_ground(Some(&own), Some(&ground), true, true, true, false));
+        assert_eq!(
+            d.surface(DetailClass::Landscape).map(|s| s.texture),
+            Some(DataId(0x0500_1786))
+        );
+        assert_eq!(d.surface(DetailClass::Building), None);
+        assert_eq!(d.surface(DetailClass::Environment), None);
+        assert!((d.tiling(DetailClass::Landscape) - 4.0).abs() < f32::EPSILON);
+        assert!(d.tiling(DetailClass::Building).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -1,10 +1,10 @@
-//! The detail-texture pass and its preference, Environment Detail Textures
-//! (`Render.BuildingDetailTextures`). Every selection site uses the call shape
-//! `(landscape, building, environment, object) = (0, v, v, 0)`, so the preference generates the
-//! region's building and environment detail surfaces (never landscape or object ones), the
-//! building and environment-cell draws bind the detail surface in texture stage 1, and with the
-//! preference off the frame is byte-identical between independent clients while an on client
-//! moves pixels. The preference is still polled and counted, so "the poll noticed" and "the
+//! The detail-texture pass and its two preferences. Environment Detail Textures
+//! (`Render.BuildingDetailTextures`) generates the region's building and environment detail
+//! surfaces (never an object one), the building and environment-cell draws bind the detail
+//! surface in texture stage 1, and with the preference off the frame is byte-identical between
+//! independent clients while an on client moves pixels. Landscape Detail Textures
+//! (`Render.LandscapeDetailTextures`, off by default) generates the landscape one, drawn over the
+//! near ground in a second pass and faded out by 50 m. The preference is still polled and counted, so "the poll noticed" and "the
 //! subsystem acted" stay two separate measurements. Fixture: the Holtburg yard from the retail
 //! dats in a headless `App` (live, and a still scene with no body, particles or UI). No datagram
 //! leaves the process; a station returns with a printed reason when the device or the scene
@@ -396,4 +396,121 @@ fn the_preference_is_still_polled_and_counted() {
     let work = app.last_render_pref_work();
     assert!(work.detail_texturing_changed);
     assert_eq!(work.detail_surfaces, 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// 5. The landscape detail texture
+// ---------------------------------------------------------------------------------------------
+
+/// One frame of a still Holtburg (no body, no particles, a pinned clock) with only
+/// `Render.LandscapeDetailTextures` set as asked and the building detail texture off, from a
+/// camera over the middle of the block, `height` metres above its highest ground and looking
+/// steeply down at it. Returns `(the frame's draws, its RGBA, the landscape detail surface)`.
+fn landscape_frame(
+    on: bool,
+    height: f32,
+) -> (
+    u64,
+    Vec<u8>,
+    Option<dereth_world_render::detail::DetailSurface>,
+) {
+    use dereth_client::objects::ObjectStream;
+    use dereth_client::world::WorldScene;
+    use dereth_primitives::LocalTime;
+    let store = crate::common::dats();
+    let mut gpu = crate::common::software_gpu(640, 480);
+    let base = scene();
+    let cfg = SceneConfig {
+        character: false,
+        particles: false,
+        time_of_day: Some(0.5),
+        game_time: Some(0.0),
+        camera_height: 0.0,
+        render: dereth_client::render_prefs::RenderPreferences {
+            landscape_detail_textures: on,
+            environment_detail_textures: false,
+            ..base.render
+        },
+        ..base
+    };
+    let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the scene loads");
+    let surface = scene.detail_texturing().surface(DetailClass::Landscape);
+    // The load camera stands at the block's highest ground, a third of a block south of it; this
+    // one stands over the block's middle and looks down at it.
+    let p = scene.camera.position;
+    scene.camera.position = dereth_primitives::Vec3::new(p.x, p.y + 0.85 * 192.0, p.z + height);
+    scene.camera.yaw = 0.0;
+    scene.camera.pitch = -1.2;
+    let mut out = (0, Vec::new());
+    for i in 0..4 {
+        let mut stream = ObjectStream::new();
+        scene
+            .sync_objects(&store, &mut gpu, &mut stream)
+            .expect("sync_objects");
+        scene.update(
+            dereth_client::camera::CameraInput::default(),
+            dereth_client::character::CharacterInput::default(),
+            LocalTime(f64::from(i) / 30.0),
+            1.0 / 30.0,
+        );
+        scene.stream(&store, &mut gpu).expect("stream");
+        scene
+            .reserve_upload_arena(&mut gpu)
+            .expect("reserve the arena");
+        let before = gpu.draw_calls();
+        gpu.begin_frame().expect("begin");
+        scene.draw(&mut gpu).expect("draw");
+        gpu.end_frame().expect("end");
+        out = (
+            gpu.draw_calls() - before,
+            gpu.capture().expect("capture").to_rgba(),
+        );
+    }
+    (out.0, out.1, surface)
+}
+
+/// Behaviour: rendering.landscape.the-landscape-detail-preference-draws-a-fading-detail-texture
+/// With `Render.LandscapeDetailTextures` on, the region's landscape detail texture
+/// (`SurfaceTexture 0x05001786`, tiling 4) is drawn over the ground in a second pass of every
+/// full-detail cell: near the eye it moves the ground's pixels, and from 50 m on it fades to
+/// nothing, so a camera high over the land draws the extra pass and changes not one pixel. Off,
+/// two independent loads draw the same frame byte for byte.
+#[test]
+fn the_landscape_detail_texture_covers_the_near_ground_and_fades_out_by_fifty_metres() {
+    // Near: the camera fifteen metres over the block's highest ground.
+    let (draws_off, px_off, none) = landscape_frame(false, 15.0);
+    let (_, px_off2, _) = landscape_frame(false, 15.0);
+    let (draws_on, px_on, surface) = landscape_frame(true, 15.0);
+    assert_eq!(none, None, "off generates no landscape detail surface");
+    let surface = surface.expect("on generates the landscape detail surface");
+    assert_eq!(surface.texture, dereth_primitives::DataId(0x0500_1786));
+    assert!((surface.tiling - 4.0).abs() < f32::EPSILON);
+    assert_eq!(
+        px_off.iter().zip(&px_off2).filter(|(a, b)| a != b).count(),
+        0,
+        "two loads of the same off configuration already differ, so this test cannot see"
+    );
+    assert!(
+        draws_on > draws_off,
+        "the detail pass drew nothing: {draws_on} draws on, {draws_off} off"
+    );
+    let near_moved = px_off.iter().zip(&px_on).filter(|(a, b)| a != b).count();
+    assert!(
+        near_moved > 1000,
+        "only {near_moved} bytes moved under a camera fifteen metres up"
+    );
+
+    // Far: three hundred metres up, every piece of ground is beyond the fade.
+    let (far_draws_off, far_off, _) = landscape_frame(false, 300.0);
+    let (far_draws_on, far_on, _) = landscape_frame(true, 300.0);
+    assert!(
+        far_draws_on > far_draws_off,
+        "the pass must still be drawn for the identical frame to mean anything"
+    );
+    let far_moved = far_off.iter().zip(&far_on).filter(|(a, b)| a != b).count();
+    assert_eq!(far_moved, 0, "the detail texture shows beyond 50 m");
+    eprintln!(
+        "landscape detail: near {near_moved} bytes moved ({draws_off} -> {draws_on} draws), \
+         far {far_moved} ({far_draws_off} -> {far_draws_on} draws)"
+    );
 }

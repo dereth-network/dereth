@@ -105,7 +105,7 @@ fn the_profile_s_render_preferences_reach_the_projection_and_the_device() {
     );
     assert!(
         r.landscape_detail_textures,
-        "registered, round-trips, and retail reads it nowhere"
+        "registered and round-trips; the landscape detail texture's switch"
     );
     assert!(r.multi_pass_alpha);
     assert!(!r.automatic_degrades);

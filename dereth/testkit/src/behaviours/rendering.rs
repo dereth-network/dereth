@@ -6,7 +6,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -335,6 +335,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.landscape.the-landscape-detail-preference-draws-a-fading-detail-texture",
+        says: "With Landscape Detail Textures turned on in the player's profile, a fine \
+               repeating detail texture is drawn over the ground near the player, strongest \
+               within 10 metres and gone by 50; seen from high above, the ground looks exactly as \
+               it does with the option off, and with it off two loads of the same view are \
+               identical.",
+        since: THIS_CLIENT,
+        divergence: "CD-011",
+        evidence: Evidence::Private("AC-EVID-LEGACY-TERRAIN-DETAIL"),
+        station: "dereth-client::gpu::rendering::detail_textures::the_landscape_detail_texture_covers_the_near_ground_and_fades_out_by_fifty_metres",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.lighting.interior-station-matches-the-retail-pair-region-by-region",
         says: "Standing at a fixed spot in a training academy room, the lit room the client draws \
                matches a retail screenshot from the same spot region by region: each lit surface's \
@@ -615,6 +628,65 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.terrain.a-ground-style-switch-rebuilds-the-ground-while-the-world-is-drawn",
+        says: "Changing the terrain mode while the world is on screen redraws the ground in the new \
+               style from the next frame, every block around the player, with the same \
+               scenery and buildings; changing back draws exactly the picture the world \
+               started with.",
+        since: THIS_CLIENT,
+        divergence: "CD-012",
+        evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-SWITCH"),
+        station: "dereth-client::gpu::rendering::terrain_modes::a_ground_switch_rebuilds_every_resident_block_and_switching_back_restores_the_frame",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.terrain.a-style-without-its-files-is-refused-and-the-world-keeps-its-own",
+        says: "Choosing an older terrain mode or sky without the older data files leaves the world \
+               drawn as it was, puts the option back, and tells the player in the chat window \
+               that the mode requires legacy DATs.",
+        since: THIS_CLIENT,
+        divergence: "CD-012",
+        evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-REFUSED"),
+        station: "dereth-client::gpu::rendering::terrain_modes::a_style_without_its_files_is_refused_and_the_world_keeps_its_own",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.terrain.a-terrain-type-the-region-does-not-name-takes-its-neighbours-ground",
+        says: "Where the world's land uses a terrain type the chosen ground style has no texture of \
+               its own for, such as Desolate Lands under an older style, that spot is drawn \
+               as the ground most common around it rather than as a stand-in texture.",
+        since: THIS_CLIENT,
+        divergence: "CD-013",
+        evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-FILL"),
+        station: "dereth-client::gpu::rendering::terrain_modes::a_terrain_type_the_ground_region_does_not_name_takes_its_neighbours_ground",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.terrain.an-older-world-draws-the-ground-its-hardware-client-drew",
+        says: "A world from before Throne of Destiny is drawn with the region its own client used \
+               when drawing with 3D hardware: blended ground textures, that region's detail \
+               textures and its sky. Asked for the software region instead, its ground is drawn by \
+               recolouring a few shared ground pictures for each square and no detail texture is \
+               drawn over the ground, because that region names none.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-LEGACY-TERRAIN-PALSHIFT"),
+        station: "dereth-client::gpu::rendering::pre_tod_ground::an_older_world_draws_the_hardware_ground_and_on_request_the_software_one",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.terrain.every-ground-and-sky-style-draws-the-end-of-retail-world",
+        says: "With the older data files given beside it, the end-of-retail world can be drawn with \
+               any of the three terrain modes and any of the three skies, always with its own \
+               scenery and buildings; its own Modern Blend and Modern sky draw exactly what it \
+               draws by default.",
+        since: THIS_CLIENT,
+        divergence: "CD-012",
+        evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-EVERY-STYLE"),
+        station: "dereth-client::gpu::rendering::terrain_modes::every_ground_and_sky_style_draws_the_end_of_retail_world",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.terrain.lod-seams-share-the-coarser-neighbours-edge",
         says: "Where a block of land meets the next, coarser block farther out, its outer edge \
                follows the coarser block's edge exactly, so no crack opens in the ground between \
@@ -633,6 +705,27 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-TERRAIN-BLEND-TERRAIN"),
         station: "dereth-client::dat::rendering::terrain_blend::a_retail_alpha_map_carries_its_mask_in_the_alpha_channel",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.terrain.the-detail-textures-follow-the-drawn-ground-style",
+        says: "With detail textures turned on, every terrain mode draws them over the ground and                buildings, Palette Shift included: they come from the chosen style's own data                where it has them and from the world's own where it does not.",
+        since: THIS_CLIENT,
+        divergence: "CD-012",
+        evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-DETAIL"),
+        station: "dereth-client::gpu::rendering::terrain_modes::the_detail_textures_follow_the_drawn_ground_style_and_palette_shift_draws_them_too",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.terrain.the-later-ground-draws-an-older-world-with-the-later-land-surface",
+        says: "With the later ground chosen in the player's profile, a world from before Throne \
+               of Destiny keeps its own land, scenery, buildings and objects but its ground is \
+               drawn with the end-of-retail ground textures, blends and landscape detail texture; \
+               the end-of-retail world with no older files beside it keeps its own ground.",
+        since: THIS_CLIENT,
+        divergence: "CD-012",
+        evidence: Evidence::Private("AC-EVID-LEGACY-TERRAIN-LATER-GROUND"),
+        station: "dereth-client::gpu::rendering::pre_tod_ground::the_later_ground_draws_an_older_world_with_the_later_land_surface_under_its_own_scenery",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "rendering.texture.a-constant-texel-reads-back-unchanged-through-every-world-pipeline",

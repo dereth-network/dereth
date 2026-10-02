@@ -186,8 +186,8 @@ mod imp {
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is
-                // worth more than the read.
-                let region = crate::world::load_region(store)?;
+                // worth more than the read. It is the world's own region.
+                let region = crate::world::world_region(store)?;
                 scene.attach_character(&mut ws, store, &region, &mut self.gpu)?;
             }
             scene

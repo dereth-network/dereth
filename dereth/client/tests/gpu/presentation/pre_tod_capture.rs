@@ -1,8 +1,8 @@
 //! The world of February 2005 (the `portal.dat` and `cell.dat` from before Throne of Destiny)
 //! draws under today's screens: the client binary, with no window, draws one frame of Holtburg from
 //! the older world set with the end-of-retail files beside it for the interface, and saves it.
-//! The landscape is the older region's palette-shifted terrain, the buildings and scenery the
-//! older art, and the screens the end-of-retail ones.
+//! The landscape is the older files' own (their hardware region's blended ground), the buildings
+//! and scenery the older art, and the screens the end-of-retail ones.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`), the February 2005 dats
 //! (`DERETH_TEST_PRETOD_DAT_DIR`) and a graphics device; a missing input fails.
 
@@ -54,19 +54,12 @@ fn the_february_2005_holtburg_draws_under_todays_screens() {
     );
     assert!(!log.contains("WARN") && !log.contains("ERROR"), "{log}");
 
-    // Holtburg's window of 17x17 blocks, every one meshed, with the palette-shift surfaces.
+    // Holtburg's window of 17x17 blocks, every one meshed.
     let line = log
         .lines()
         .find(|l| l.contains("landblock 0xA9B4"))
         .unwrap_or_else(|| panic!("no scene line\n{log}"));
     assert!(line.contains("289 blocks"), "{line}");
-    let surfaces: u32 = line
-        .rsplit(", ")
-        .next()
-        .and_then(|s| s.split(' ').next())
-        .and_then(|n| n.parse().ok())
-        .unwrap_or_else(|| panic!("{line}"));
-    assert!(surfaces > 50, "{line}");
 
     // The frame is a picture: many distinct colours, not a cleared target.
     let decoder = png::Decoder::new(std::io::BufReader::new(

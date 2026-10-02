@@ -194,7 +194,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
         .map(|d| d.preference)
         .collect();
     let mut checked = 0;
-    for o in &s.config_page.options {
+    for o in s.config_page.retail_options() {
         if disagreeing.contains(&o.preference) {
             continue;
         }
@@ -343,9 +343,10 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
         PrefValue::Float(0.25)
     );
     ui.requests.clear();
-    assert_eq!(s.config_page.restore_default_values(&mut ui), 30);
+    // The 30 retail controls and this client's two landscape rows.
+    assert_eq!(s.config_page.restore_default_values(&mut ui), 32);
     let requests = ui.requests.take().len();
-    assert_eq!(requests, 30, "the outward notification is unchanged");
+    assert_eq!(requests, 32, "the outward notification is unchanged");
     assert_eq!(
         store::inq_value("Input.MouseLookSensitivity"),
         Some(PrefValue::Float(0.55))
@@ -374,7 +375,7 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
     );
 
     // Now do it the way a player makes it stick: Defaults, then Apply, then close and re-open.
-    assert_eq!(s.config_page.restore_default_values(&mut ui), 30);
+    assert_eq!(s.config_page.restore_default_values(&mut ui), 32);
     assert_eq!(
         s.config_page.save_current_values(),
         0,
@@ -510,7 +511,9 @@ fn dragging_the_volume_slider_updates_the_preference_store() {
 #[test]
 fn the_store_holds_the_thirty_four_attached_preferences_and_no_others() {
     let _ui = env();
-    assert_eq!(store::len(), 34);
+    // ...and this client's own two landscape options beside them.
+    assert_eq!(store::len(), 36);
+    assert!(store::is_registered("Render.Ground") && store::is_registered("Render.Sky"));
     for p in dereth_ui_screens::options::preferences::UI_PREFERENCES {
         assert!(store::is_registered(p.name), "{}", p.name);
     }
@@ -563,5 +566,5 @@ fn the_config_page_is_where_the_other_tests_look_for_it() {
         !ui.node(page_el).expect("the page").region.flags.visible,
         "it starts hidden"
     );
-    assert_eq!(s.config_page.row_count(), 38);
+    assert_eq!(s.config_page.row_count(), 40);
 }

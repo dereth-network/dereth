@@ -64,3 +64,68 @@ fn every_february_2005_cell_finds_a_palette_shift_texture_and_rotation() {
         assert!(s.portal().contains(p), "palette {p} is in the portal file");
     }
 }
+
+/// The February 2005 cells read as the end-of-retail region numbers its terrains, so the later
+/// region's texture-merge land surface can draw them: every terrain type the older region names
+/// has the same name and map colour at the same index in the later region (which adds one at the
+/// end), and every terrain type the older cells use has a texture-merge descriptor in the later
+/// region, as the road does.
+#[test]
+fn the_february_2005_cells_read_as_the_later_region_numbers_its_terrains() {
+    let old = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let new = dereth_dat::testing::open_store_or_fail();
+    let id = DataId(0x1300_0000);
+    let DecodedAsset::Region(older) = decode_any_in(
+        ContainerEra::PreTod,
+        DbType::Region,
+        id,
+        &old.read_typed(DbType::Region, id)
+            .expect("the older region"),
+    )
+    .expect("decodes") else {
+        panic!("not a region");
+    };
+    let later = dereth_assets::region::Region::decode_payload(
+        id,
+        &new.read_typed(DbType::Region, id)
+            .expect("the later region"),
+    )
+    .expect("decodes");
+    assert!(later.terrain_types.len() >= older.terrain_types.len());
+    for (i, (a, b)) in older
+        .terrain_types
+        .iter()
+        .zip(&later.terrain_types)
+        .enumerate()
+    {
+        assert_eq!(
+            (&a.terrain_name, a.terrain_color),
+            (&b.terrain_name, b.terrain_color),
+            "terrain type {i}"
+        );
+    }
+    let tm = later
+        .land_surf
+        .tex_merge
+        .as_ref()
+        .expect("the later region texture-merges");
+    let described: BTreeSet<u32> = tm.terrain_desc.iter().map(|d| d.terrain_type).collect();
+    assert!(
+        described.contains(&dereth_world_render::consts::ROAD_TERRAIN_TYPE),
+        "the road"
+    );
+    let mut used = BTreeSet::new();
+    for lb_id in old.ids_of(DbType::LandBlock) {
+        let bytes = old.read_cell(lb_id).expect("reads");
+        let lb =
+            CellLandblock::decode_payload_in(ContainerEra::PreTod, lb_id, &bytes).expect("decodes");
+        used.extend(lb.terrain.iter().map(|w| u32::from((w >> 2) & 0x1F)));
+    }
+    let missing: Vec<u32> = used.difference(&described).copied().collect();
+    assert!(missing.is_empty(), "no later descriptor for {missing:?}");
+    assert!(
+        used.iter()
+            .all(|&t| (t as usize) < older.terrain_types.len()),
+        "the older cells use a terrain type their own region does not name: {used:?}"
+    );
+}

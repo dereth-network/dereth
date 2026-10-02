@@ -82,7 +82,7 @@ mod imp {
     use dereth_render::{Cull, DrawConstants, RenderError, ViewParams, ZFunc};
     use dereth_world_render::consts::BLOCK_LENGTH;
     use dereth_world_render::land::emit::{
-        triangle_vertices, visible_triangles, LAND_VERTEX_STRIDE,
+        detail_vertex, triangle_vertices, visible_triangles, LAND_VERTEX_STRIDE,
     };
     use dereth_world_render::land::lighting::{bake_lighting, LandscapeLighting};
     use dereth_world_render::land::merge::{
@@ -128,11 +128,13 @@ mod imp {
 
     use super::{
         block_xy, load_region, EnvironmentOverrideState, RenderPrefWork, SceneConfig, WorldError,
+        DERETH_REGION,
     };
     #[cfg(test)]
     use super::{landblock_did, lbi_did};
     #[cfg(test)]
     use crate::camera::FreeCamera;
+    use dereth_client_runtime::render_prefs::{RegionStyle, RequiredFiles};
     #[cfg(test)]
     use dereth_client_runtime::world_build::read_lbi;
 
@@ -838,6 +840,9 @@ mod imp {
         /// [`WorldScene::stream`] needs again for every block that enters the window.
         land: LandContext,
         terrain_key: PipelineKey,
+        /// The landscape detail pass's state: [`Self::terrain_key`] with the separate detail
+        /// pass's blend (`SRCALPHA`, `INVSRCALPHA`) and a less-or-equal depth test.
+        terrain_detail_key: PipelineKey,
         /// Two light pools: the static pool is cleared and rebuilt from every
         /// visible cell; the dynamic pool is rebuilt whenever the viewer is set.
         light_pools: LightPools,
@@ -990,8 +995,19 @@ mod imp {
         /// opening being wholly outside that view. `Gpu::portal_stamps` counts both masks across
         /// the whole frame and cannot separate the indoor half from building drawing's.
         frame_portal_stamps: std::cell::Cell<(u64, u64)>,
+        /// Where the detail textures were last taken from ([`Self::detail_source_used`]).
+        detail_from: DetailSource,
         /// The sky objects, and the clock that positions them.
         sky: Option<crate::sky::SkyScene>,
+        /// The region whose sky draws, with its light and fog, when it is not the world's own
+        /// (`[Render] Sky`); the scenery and everything else still read the world's.
+        sky_region: Option<Box<dereth_assets::Region>>,
+        /// The files that sky's objects are read from when they are not the world's.
+        sky_store: Option<RetailDatStore>,
+        /// The surface cache that sky's textures are held in when its files are not the world's,
+        /// so that no id it shares with the world's own files can hand one a picture of the
+        /// other's.
+        sky_cache: Option<BakeCache>,
         /// The device fog state left by the environment tick: the
         /// `D3DRS_FOGENABLE` / `FOGCOLOR` / `FOGSTART` / `FOGEND` quartet, kept as state for the
         /// same reason the client keeps it on the device: it is written on the **tick**,
@@ -2050,9 +2066,22 @@ mod imp {
     /// caches rather than reading them again from disk.
     struct LandContext {
         region: Box<dereth_assets::Region>,
+        /// The region whose land surface draws the ground, when it is not [`Self::region`]'s: the
+        /// world's region with another era's land surface in it (`[Render] Ground`). Mesh
+        /// generation, the cell keys and the surfaces read it; scenery and everything else read
+        /// [`Self::region`].
+        ground: Option<Box<dereth_assets::Region>>,
+        /// The files the ground's textures are read from when they are not the world's: another
+        /// era's, whose texture ids the world's own files may hold different pictures under.
+        ground_store: Option<RetailDatStore>,
+        /// The terrain types the ground's land surface has a picture for, one bit each. A vertex
+        /// of any other type is drawn as its neighbours are
+        /// ([`dereth_world_render::land::fill`]).
+        drawn: u32,
         tex_merge: dereth_assets::region::TexMerge,
-        /// The region's palette-shift land surface (the region before Throne of Destiny), whose
-        /// cells are composed here on the CPU; `None` for texture merging.
+        /// The ground's palette-shift land surface (an older dat set's software region), whose
+        /// cells are composed here on the CPU; `None` for texture merging. Which of the two
+        /// draws is read from the region's own land-surface record, never from the dat set's era.
         pal_shift: Option<dereth_assets::region::PalShift>,
         table: Box<[f32; dereth_world_render::consts::LAND_HEIGHT_TABLE_LEN]>,
         lighting: LandscapeLighting,
@@ -2105,6 +2134,253 @@ mod imp {
         }
     }
 
+    /// The region a dat set from before Throne of Destiny carries for drawing with 3D hardware,
+    /// beside the one at `0x13000000` for drawing in software. The two differ only in their
+    /// sky and their land surface; a later dat set has only the one.
+    pub const HARDWARE_REGION: DataId = DataId(0x130F_0000);
+
+    /// Hand back every texture a surface cache holds, one release per slot it owns, and empty it.
+    /// Returns how many were released.
+    fn release_bake_cache(cache: &mut BakeCache, gpu: &mut Gpu) -> u32 {
+        let mut n = 0;
+        // ORDER-OK: every slot is released exactly once and no release can affect another.
+        for slot in cache.by_slot.keys() {
+            gpu.release_texture(TextureSlot(*slot));
+            n += 1;
+        }
+        cache.surfaces.clear();
+        cache.links.clear();
+        cache.by_slot.clear();
+        cache.key_clip_map.clear();
+        cache.textures_uploaded = 0;
+        n
+    }
+
+    /// Read and decode one region record from `files`.
+    fn read_region(
+        files: &RetailDatStore,
+        id: DataId,
+    ) -> Result<dereth_assets::Region, WorldError> {
+        let bytes = files
+            .read_typed(DbType::Region, id)
+            .map_err(|e| WorldError::Region(id, e.to_string()))?;
+        match dereth_assets::decode_any_in(files.era_of(id), DbType::Region, id, &bytes)
+            .map_err(|e| WorldError::Region(id, e.to_string()))?
+        {
+            dereth_assets::DecodedAsset::Region(r) => Ok(r),
+            other => Err(WorldError::Region(id, format!("decoded as {other:?}"))),
+        }
+    }
+
+    /// The world's own region: the world files' hardware region where they have one, as the
+    /// clients of the world's time loaded it when they drew with 3D hardware, and otherwise the
+    /// region at `0x13000000`. Its ground and sky are what [`SceneConfig::render`]'s `ground` and
+    /// `sky` of `None` draw, and everything else the region decides (scenery, sound, the calendar)
+    /// is read from it whatever they choose.
+    ///
+    /// # Errors
+    /// [`WorldError::Region`] when the record will not read or decode.
+    pub fn world_region(store: &RetailDatStore) -> Result<dereth_assets::Region, WorldError> {
+        if store.portal().contains(HARDWARE_REGION) {
+            read_region(store, HARDWARE_REGION)
+        } else {
+            load_region(store)
+        }
+    }
+
+    /// Why a landscape style could not be drawn.
+    #[derive(Debug)]
+    pub enum StyleError {
+        /// Its files are not present: the world's own are the other era's, and none of its era
+        /// were given beside them.
+        Missing(RequiredFiles),
+        /// Its region would not read or decode.
+        World(WorldError),
+    }
+
+    impl From<WorldError> for StyleError {
+        fn from(e: WorldError) -> Self {
+            Self::World(e)
+        }
+    }
+
+    /// A landscape style's region and the files its pictures and objects are read from; `None`
+    /// files are the world's own.
+    #[derive(Debug)]
+    pub struct StyleSource {
+        pub region: dereth_assets::Region,
+        pub files: Option<RetailDatStore>,
+    }
+
+    /// The region `style` names, from the files of its era: an older world's own files or the
+    /// presentation portal beside a later world for the two older styles, a later world's own
+    /// files or the later files beside an older world for the modern one.
+    ///
+    /// # Errors
+    /// [`StyleError::Missing`] when those files are not present or do not hold the region;
+    /// [`StyleError::World`] when it will not decode.
+    pub fn style_region(
+        store: &RetailDatStore,
+        style: RegionStyle,
+    ) -> Result<StyleSource, StyleError> {
+        let needs = style.required_files();
+        let (files, own) = match needs {
+            RequiredFiles::Legacy => (
+                store.legacy_files(),
+                store.era() == dereth_dat::ContainerEra::PreTod,
+            ),
+            RequiredFiles::Modern => (
+                store.modern_files(),
+                store.era() == dereth_dat::ContainerEra::Tod,
+            ),
+        };
+        let files = files.ok_or(StyleError::Missing(needs))?;
+        let id = match style {
+            RegionStyle::LegacyHardware => HARDWARE_REGION,
+            RegionStyle::LegacySoftware | RegionStyle::Modern => DERETH_REGION,
+        };
+        if !files.portal().contains(id) {
+            return Err(StyleError::Missing(needs));
+        }
+        let region = read_region(&files, id)?;
+        Ok(StyleSource {
+            region,
+            files: (!own).then_some(files),
+        })
+    }
+
+    /// Which region the detail textures are read from.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DetailSource {
+        /// The drawn ground style's region.
+        Ground,
+        /// The world's own region.
+        World,
+        /// The end-of-retail files' region, when neither of the others names any.
+        EndOfRetail,
+    }
+
+    /// The ground a style draws over the world's region.
+    #[derive(Debug)]
+    struct GroundChoice {
+        /// The world's region with the style's land surface in it; `None` for the world's own.
+        ground: Option<dereth_assets::Region>,
+        /// The files its pictures are read from; `None` for the world's.
+        files: Option<RetailDatStore>,
+        /// The terrain types it draws with a picture of its own
+        /// ([`dereth_world_render::land::fill::drawn_terrain_types`]).
+        drawn: u32,
+    }
+
+    /// The ground `style` draws over the world's `region` (`None`: the world's own). The style's
+    /// land surface must be its technique: palette shifting for the older software region, texture
+    /// merging for the other two.
+    ///
+    /// The cells' terrain words index the same terrain types in every region from the first to
+    /// the last (the same names and map colours at the same indices, later regions adding to the
+    /// end), and the road bits mean the same, so any land surface reads any world's cells as they
+    /// are. A type the land surface has no picture for is filled from its neighbours
+    /// ([`dereth_world_render::land::fill`]).
+    ///
+    /// # Errors
+    /// As [`style_region`].
+    fn ground_for(
+        store: &RetailDatStore,
+        region: &dereth_assets::Region,
+        style: Option<RegionStyle>,
+    ) -> Result<GroundChoice, StyleError> {
+        let Some(style) = style else {
+            return Ok(GroundChoice {
+                ground: None,
+                files: None,
+                drawn: dereth_world_render::land::fill::drawn_terrain_types(
+                    &region.land_surf,
+                    region.terrain_types.len(),
+                ),
+            });
+        };
+        let source = style_region(store, style)?;
+        let surf = source.region.land_surf;
+        let technique = match style {
+            RegionStyle::LegacySoftware => surf.pal_shift.is_some(),
+            RegionStyle::LegacyHardware | RegionStyle::Modern => surf.tex_merge.is_some(),
+        };
+        if !technique {
+            return Err(StyleError::Missing(style.required_files()));
+        }
+        // The types the style's own region names, which its land surface draws with pictures of
+        // their own.
+        let drawn = dereth_world_render::land::fill::drawn_terrain_types(
+            &surf,
+            source.region.terrain_types.len(),
+        );
+        if source.files.is_none() && surf == region.land_surf {
+            return Ok(GroundChoice {
+                ground: None,
+                files: None,
+                drawn,
+            });
+        }
+        let mut ground = region.clone();
+        ground.land_surf = surf;
+        Ok(GroundChoice {
+            ground: Some(ground),
+            files: source.files,
+            drawn,
+        })
+    }
+
+    /// The sky `style` draws: the style's region, whose sky, light and fog are read, and the
+    /// files to read its objects from (`None`: the world's). Both `None` for the world's own sky.
+    ///
+    /// # Errors
+    /// As [`style_region`].
+    fn sky_for(
+        store: &RetailDatStore,
+        region: &dereth_assets::Region,
+        style: Option<RegionStyle>,
+    ) -> Result<(Option<dereth_assets::Region>, Option<RetailDatStore>), StyleError> {
+        let Some(style) = style else {
+            return Ok((None, None));
+        };
+        let source = style_region(store, style)?;
+        if source.region.sky_info.is_none() {
+            return Err(StyleError::Missing(style.required_files()));
+        }
+        if source.files.is_none() && source.region.sky_info == region.sky_info {
+            return Ok((None, None));
+        }
+        Ok((Some(source.region), source.files))
+    }
+
+    /// The land surface a region draws its ground with: texture merging, or (the software region
+    /// of an older dat set) palette shifting, which composes each cell on the CPU and has no splat
+    /// form. The record decides; the dat set's era does not.
+    fn land_surface(
+        region: &dereth_assets::Region,
+    ) -> Result<
+        (
+            dereth_assets::region::TexMerge,
+            Option<dereth_assets::region::PalShift>,
+        ),
+        WorldError,
+    > {
+        let surf = &region.land_surf;
+        let pal_shift = surf.pal_shift.clone();
+        let tex_merge = match (&surf.tex_merge, &pal_shift) {
+            (Some(tm), _) => tm.clone(),
+            (None, Some(_)) => dereth_assets::region::TexMerge {
+                base_tex_size: 0,
+                corner_terrain_maps: Vec::new(),
+                side_terrain_maps: Vec::new(),
+                road_maps: Vec::new(),
+                terrain_desc: Vec::new(),
+            },
+            (None, None) => return Err(WorldError::MissingTerrainTexture),
+        };
+        Ok((tex_merge, pal_shift))
+    }
+
     impl LandContext {
         /// Generate one block's mesh and its vertex lighting, then the block's merged
         /// land surfaces.
@@ -2118,21 +2394,31 @@ mod imp {
             lb: &CellLandblock,
             spec: SlotSpec,
         ) -> Result<GeneratedBlock, WorldError> {
+            // A terrain type the ground has no picture for takes its neighbours' for the surfaces
+            // alone; the water stays the cells' own.
+            let filled = dereth_world_render::land::fill::fill_undrawn_terrain(lb, self.drawn);
+            let surface_lb = filled.as_ref().unwrap_or(lb);
             let mut mesh = generate_landblock_with_table(
-                lb,
-                &self.region,
+                surface_lb,
+                self.ground.as_deref().unwrap_or(&self.region),
                 &self.table,
                 spec.block_x,
                 spec.block_y,
                 spec.lod_div,
                 spec.dir,
             );
+            if filled.is_some() {
+                (mesh.cell_water, mesh.water_type) = dereth_world_render::land::water::calc_water(
+                    &lb.terrain,
+                    usize::from(mesh.side_cell_count),
+                );
+            }
             // `generate` recomputes the vertex lighting after every geometry rebuild.
             bake_lighting(&mut mesh, &self.lighting);
 
             let merge_keys: Vec<MergeKey> = mesh.cell_keys.iter().map(|&(k, _)| k).collect();
             if let Some(ps) = self.pal_shift.clone() {
-                let cell_texture = self.pal_shift_composites(store, gpu, &ps, lb, &mesh)?;
+                let cell_texture = self.pal_shift_composites(store, gpu, &ps, surface_lb, &mesh)?;
                 return Ok((
                     mesh,
                     cell_texture,
@@ -2169,6 +2455,8 @@ mod imp {
             gpu: &mut Gpu,
             keys: &[MergeKey],
         ) -> Result<Vec<Option<TextureSlot>>, WorldError> {
+            let ground_store = self.ground_store.clone();
+            let store = ground_store.as_ref().unwrap_or(store);
             // One cached texture per distinct merge key.
             let sources = DatTerrainTextures {
                 textures: TextureStore::with_environment_texture_detail(
@@ -2250,13 +2538,21 @@ mod imp {
         ) -> Result<Vec<Option<TextureSlot>>, WorldError> {
             use dereth_world_render::land::merge::{cell_rotation_keys, cell_x, cell_y};
             use dereth_world_render::land::palshift;
+            let ground_store = self.ground_store.clone();
+            let store = ground_store.as_ref().unwrap_or(store);
             let lookup = dereth_assets::texture_lookup::TextureLookup::new(store, 0);
             let side = usize::from(mesh.side_cell_count);
             let mut out = Vec::with_capacity(side * side);
             let mut error: Option<String> = None;
             for i in 0..side {
                 for j in 0..side {
-                    let (keys, _) = cell_rotation_keys(lb, &self.region, side, i, j);
+                    let (keys, _) = cell_rotation_keys(
+                        lb,
+                        self.ground.as_deref().unwrap_or(&self.region),
+                        side,
+                        i,
+                        j,
+                    );
                     let choice = palshift::select(ps, &keys, cell_x(lb, i), cell_y(lb, j));
                     let Some(texture) = ps.textures.get(choice.texture) else {
                         out.push(None);
@@ -2317,6 +2613,8 @@ mod imp {
             gpu: &mut Gpu,
             keys: &[MergeKey],
         ) -> Result<Vec<Option<Arc<TerrainSplat>>>, WorldError> {
+            let ground_store = self.ground_store.clone();
+            let store = ground_store.as_ref().unwrap_or(store);
             let Self {
                 sources,
                 splat_sources,
@@ -3158,6 +3456,15 @@ mod imp {
         /// How the group that got there first expanded it, and how the second one would have.
         pub first_clip_map: bool,
         pub second_clip_map: bool,
+    }
+
+    impl std::fmt::Debug for BakeCache {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("BakeCache")
+                .field("surfaces", &self.surfaces.len())
+                .field("slots", &self.by_slot.len())
+                .finish_non_exhaustive()
+        }
     }
 
     impl Default for BakeCache {
@@ -4439,21 +4746,30 @@ mod imp {
             gpu: &mut Gpu,
             cfg: SceneConfig,
         ) -> Result<(Self, WorldState), WorldError> {
-            let region = load_region(store)?;
-            // The land surface: texture merging, or (the region before Throne of Destiny)
-            // palette shifting, which composes each cell on the CPU and has no splat form.
-            let pal_shift = region.land_surf.pal_shift.clone();
-            let tex_merge = match (&region.land_surf.tex_merge, &pal_shift) {
-                (Some(tm), _) => tm.clone(),
-                (None, Some(_)) => dereth_assets::region::TexMerge {
-                    base_tex_size: 0,
-                    corner_terrain_maps: Vec::new(),
-                    side_terrain_maps: Vec::new(),
-                    road_maps: Vec::new(),
-                    terrain_desc: Vec::new(),
-                },
-                (None, None) => return Err(WorldError::MissingTerrainTexture),
+            // The world's own region: the world's hardware region where it has one, as a client of
+            // the world's time drawing with 3D hardware loaded it.
+            let region = world_region(store)?;
+            // The ground and the sky: the world's own, or another era's (`[Render] Ground` and
+            // `[Render] Sky`). A style whose files are not here leaves the world's own.
+            let choice = match ground_for(store, &region, cfg.render.ground) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("the ground style is not drawn: {e:?}; the world's own is");
+                    ground_for(store, &region, None).map_err(|e| match e {
+                        StyleError::World(w) => w,
+                        StyleError::Missing(_) => WorldError::MissingTerrainTexture,
+                    })?
+                }
             };
+            let ground = choice.ground.map(Box::new);
+            let ground_store = choice.files;
+            let drawn = choice.drawn;
+            let (sky_region, sky_store) =
+                sky_for(store, &region, cfg.render.sky).unwrap_or_else(|e| {
+                    tracing::warn!("the sky style is not drawn: {e:?}; the world's own is");
+                    (None, None)
+                });
+            let (tex_merge, pal_shift) = land_surface(ground.as_deref().unwrap_or(&region))?;
             let pal_shifted = pal_shift.is_some();
             let splat = cfg.terrain_splat && gpu.terrain_splat_supported() && !pal_shifted;
             let table = height_table(&region);
@@ -4464,6 +4780,9 @@ mod imp {
             merge.shift = land_texture_scale_shift(cfg.render.landscape_texture_detail);
             let land = LandContext {
                 region: Box::new(region),
+                ground,
+                ground_store,
+                drawn,
                 tex_merge,
                 gpu_merge: cfg.gpu_terrain_merge && !pal_shifted,
                 pal_shift,
@@ -4513,6 +4832,10 @@ mod imp {
             terrain_key.cull = Cull::None;
             terrain_key.z_func = ZFunc::Less;
             terrain_key.z_write = true;
+            let terrain_detail_key = PipelineKey::detail_second_pass(
+                terrain_key,
+                dereth_render::pso::DetailContent::Landscape,
+            );
 
             // The world as the scene starts it, clock first: the landscape's own vertex
             // lighting is baked from the sky's light at the current time of day and every block
@@ -4535,6 +4858,7 @@ mod imp {
                 released_blocks: Vec::new(),
                 land,
                 terrain_key,
+                terrain_detail_key,
                 light_pools: LightPools::new(0.0),
                 static_pool_key: None,
                 character_parts: Vec::new(),
@@ -4562,7 +4886,11 @@ mod imp {
                 frame_outside_view_count: std::cell::Cell::new(None),
                 frame_cell_views: std::cell::RefCell::new(BTreeMap::new()),
                 frame_portal_stamps: std::cell::Cell::new((0, 0)),
+                detail_from: DetailSource::World,
                 sky: None,
+                sky_region: sky_region.map(Box::new),
+                sky_store,
+                sky_cache: None,
                 // The default device states' fog quartet, until the first tick writes
                 // the region's: colour `0x00AAAAAA`, 400..2000, disabled.
                 fog: dereth_render::camera::FogParams::default(),
@@ -4637,10 +4965,7 @@ mod imp {
             // Every gfx id any day group can name, built once and before the first
             // frame, for the same reason the terrain's textures are: `Gpu::upload_texture` runs a
             // command list of its own.
-            let sky =
-                crate::sky::SkyScene::load(store, &scene.land.region, gpu, &mut scene.land.bake)
-                    .map_err(|e| WorldError::Render(e.to_string()))?;
-            scene.sky = Some(sky);
+            scene.load_sky(store, gpu)?;
             // dt 0 at load: the first real frame advances the UV totals. A non-zero value here
             // would scroll the sky by a frame's worth before anything had been drawn.
             scene.update_sky(&mut ws, 0.0);
@@ -4685,7 +5010,7 @@ mod imp {
                 ws.clock.present_time_of_day
             };
             let Some(group) = dereth_world_render::sky::present_day_group(
-                &self.land.region,
+                self.sky_region.as_deref().unwrap_or(&self.land.region),
                 ws.clock.current_year,
                 ws.clock.current_day,
             ) else {
@@ -4807,7 +5132,7 @@ mod imp {
                 );
             }
             let Some(group) = dereth_world_render::sky::present_day_group(
-                &self.land.region,
+                self.sky_region.as_deref().unwrap_or(&self.land.region),
                 ws.clock.current_year,
                 ws.clock.current_day,
             ) else {
@@ -4879,7 +5204,13 @@ mod imp {
             if let Some(sky) = self.sky.as_mut() {
                 // `dt` for the sky animation accumulator: the sky's UV scroll is `dt`-scaled and
                 // needs the elapsed time to scale by.
-                sky.use_time(&self.land.region, year, day, t, dt);
+                sky.use_time(
+                    self.sky_region.as_deref().unwrap_or(&self.land.region),
+                    year,
+                    day,
+                    t,
+                    dt,
+                );
                 self.stats.sky_objects = sky.live();
                 self.stats.sky_stats = sky.stats;
             }
@@ -5264,9 +5595,33 @@ mod imp {
             store: &RetailDatStore,
             gpu: &mut Gpu,
         ) -> Result<RenderPrefWork, WorldError> {
-            let live = self.cfg.render;
             let was = self.render_shadow;
             let mut work = RenderPrefWork::default();
+            // This client's landscape options first. A style whose files are not here is refused
+            // and the option goes back to the one drawn.
+            let asked = self.cfg.render;
+            if asked.ground != was.ground {
+                match self.set_ground(ws, store, gpu, asked.ground)? {
+                    Ok(()) => work.ground_changed = true,
+                    Err(files) => {
+                        self.cfg.render.ground = was.ground;
+                        work.ground_refused = Some((files, was.ground));
+                    }
+                }
+            }
+            if asked.sky != was.sky {
+                match self.set_sky(ws, store, gpu, asked.sky)? {
+                    Ok(()) => work.sky_changed = true,
+                    Err(files) => {
+                        self.cfg.render.sky = was.sky;
+                        work.sky_refused = Some((files, was.sky));
+                    }
+                }
+            }
+            if work.ground_changed {
+                work.blocks_rebuilt = self.blocks.len();
+            }
+            let live = self.cfg.render;
             // `Render.AutomaticDegrades` turns the governor on or off from the next frame; off,
             // the detail bias is the manual one.
             if live.automatic_degrades != was.automatic_degrades {
@@ -5279,12 +5634,15 @@ mod imp {
             work.flushed = land_detail || env_detail;
             // The landscape draw-distance comparison, which reaches `set_mid_radius`.
             work.mid_radius_changed = live.landscape_draw_distance != was.landscape_draw_distance;
-            // The environment-detail-textures compare against its shadow.
-            work.detail_texturing_changed =
-                live.environment_detail_textures != was.environment_detail_textures;
+            // The environment-detail-textures compare against its shadow, and the
+            // landscape-detail-textures one, which the clients before the end-of-retail one
+            // made too.
+            work.detail_texturing_changed = live.environment_detail_textures
+                != was.environment_detail_textures
+                || live.landscape_detail_textures != was.landscape_detail_textures;
             self.render_shadow = live;
             if work.detail_texturing_changed {
-                // Call the detail-texturing setter with `(0, v, v, 0)`.
+                // Call the detail-texturing setter with `(landscape, v, v, 0)`.
                 // This arm is what makes the preference more than a counter.
                 self.apply_detail_texturing(store, gpu);
                 work.detail_surfaces = self.detail.generated();
@@ -5333,6 +5691,171 @@ mod imp {
             Ok(work)
         }
 
+        /// Build the sky from its region and files: the world's own through the scene's surface
+        /// cache, another era's through a cache of its own ([`Self::sky_cache`]).
+        fn load_sky(&mut self, store: &RetailDatStore, gpu: &mut Gpu) -> Result<(), WorldError> {
+            let region = self.sky_region.as_deref().unwrap_or(&self.land.region);
+            let sky = match self.sky_store.as_ref() {
+                Some(files) => {
+                    let cache = self.sky_cache.get_or_insert_with(|| BakeCache {
+                        surface_translucency: self.land.bake.surface_translucency,
+                        image_scale: self.land.bake.image_scale,
+                        environment_texture_detail: self.land.bake.environment_texture_detail,
+                        ..BakeCache::default()
+                    });
+                    crate::sky::SkyScene::load(files, region, gpu, cache)
+                }
+                None => crate::sky::SkyScene::load(store, region, gpu, &mut self.land.bake),
+            }
+            .map_err(|e| WorldError::Render(e.to_string()))?;
+            self.sky = Some(sky);
+            Ok(())
+        }
+
+        /// Release the window and build it again around the viewer at `radius`: every slot comes
+        /// back `Fetched` because the array is new, which is the full-reload path the load takes.
+        /// The rebuild runs now, within the streaming budget, so the next frame shows it.
+        fn rebuild_window(
+            &mut self,
+            ws: &mut WorldState,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            radius: u32,
+        ) -> Result<(), WorldError> {
+            let viewer = ws.streamer.window.viewer_block();
+            ws.streamer.window = LandblockWindow::new(radius);
+            if let Some(v) = viewer {
+                let actions = ws.streamer.window.update_block(v);
+                self.queue(ws, &actions);
+            }
+            self.stream(ws, store, gpu)
+        }
+
+        /// `[Render] Ground`, live: draw the ground with `style`'s land surface (`None`: the
+        /// world's own) from the next frame. Every merged surface, decoded source and splat the old
+        /// ground made is released, the landscape detail texture is taken from the new ground, and
+        /// the window is rebuilt around the viewer.
+        ///
+        /// `Ok(Err(files))` when the style's files are not present: nothing changes, and `files`
+        /// says which were wanted.
+        ///
+        /// # Errors
+        /// [`WorldError`] when the style's region will not decode or the rebuild cannot make a
+        /// device resource.
+        pub fn set_ground(
+            &mut self,
+            ws: &mut WorldState,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            style: Option<RegionStyle>,
+        ) -> Result<Result<(), RequiredFiles>, WorldError> {
+            let GroundChoice {
+                ground,
+                files: ground_store,
+                drawn,
+            } = match ground_for(store, &self.land.region, style) {
+                Ok(g) => g,
+                Err(StyleError::Missing(files)) => return Ok(Err(files)),
+                Err(StyleError::World(e)) => return Err(e),
+            };
+            let (tex_merge, pal_shift) =
+                land_surface(ground.as_ref().unwrap_or(&self.land.region))?;
+            // Splatting is what the landscape was doing, or what it was asked to do before a
+            // palette-shift ground (which has no splat form) turned it off.
+            let wanted_splat = if self.land.pal_shift.is_some() {
+                self.cfg.terrain_splat
+            } else {
+                self.terrain_splat
+            };
+            // The old ground's surfaces go first, so no surface of one technique can be handed to
+            // a cell of the other under the same merge key.
+            self.flush_graphics_resources(ws, gpu);
+            for h in self.land.merge.drain() {
+                if h.0 != NO_TEXTURE {
+                    gpu.release_texture(TextureSlot(h.0));
+                }
+            }
+            self.land.splats.clear();
+            let pal_shifted = pal_shift.is_some();
+            let splat_supported = gpu.terrain_splat_supported() && !pal_shifted;
+            let splat = wanted_splat && splat_supported;
+            self.land.ground = ground.map(Box::new);
+            self.land.ground_store = ground_store;
+            self.land.drawn = drawn;
+            self.land.tex_merge = tex_merge;
+            self.land.pal_shift = pal_shift;
+            self.land.gpu_merge = self.cfg.gpu_terrain_merge && !pal_shifted;
+            self.land.splat_supported = splat_supported;
+            self.land.splat_wanted = splat;
+            self.land.composites_wanted = !splat;
+            self.terrain_splat = splat;
+            self.cfg.render.ground = style;
+            // The landscape detail texture is the ground's.
+            self.apply_detail_texturing(store, gpu);
+            let radius = ws.streamer.window.mid_radius();
+            self.rebuild_window(ws, store, gpu, radius)?;
+            self.refresh_land_stats(ws);
+            tracing::info!(
+                "the ground is drawn {} ({})",
+                style.map_or("as the world's own", RegionStyle::ground_label),
+                if self.land.pal_shift.is_some() {
+                    "palette shift"
+                } else {
+                    "texture merge"
+                }
+            );
+            Ok(Ok(()))
+        }
+
+        /// `[Render] Sky`, live: draw `style`'s sky (`None`: the world's own), with its light and
+        /// fog, from the next frame. The old sky's objects go, and their textures with them when
+        /// they were another era's; the landscape is re-lit when the light changed.
+        ///
+        /// `Ok(Err(files))` when the style's files are not present: nothing changes.
+        ///
+        /// # Errors
+        /// [`WorldError`] when the style's region will not decode or a sky texture will not upload.
+        pub fn set_sky(
+            &mut self,
+            ws: &mut WorldState,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            style: Option<RegionStyle>,
+        ) -> Result<Result<(), RequiredFiles>, WorldError> {
+            let (region, files) = match sky_for(store, &self.land.region, style) {
+                Ok(s) => s,
+                Err(StyleError::Missing(files)) => return Ok(Err(files)),
+                Err(StyleError::World(e)) => return Err(e),
+            };
+            let (weather, override_enabled, fog_enabled) =
+                self.sky.as_ref().map_or((true, false, false), |s| {
+                    (s.weather_enabled, s.override_enabled, s.fog_enabled)
+                });
+            self.sky = None;
+            if let Some(mut cache) = self.sky_cache.take() {
+                release_bake_cache(&mut cache, gpu);
+            }
+            self.sky_region = region.map(Box::new);
+            self.sky_store = files;
+            self.cfg.render.sky = style;
+            self.load_sky(store, gpu)?;
+            if let Some(sky) = self.sky.as_mut() {
+                sky.weather_enabled = weather;
+                sky.override_enabled = override_enabled;
+                sky.fog_enabled = fog_enabled;
+            }
+            if self.apply_lighting(ws) {
+                self.relight_blocks(ws);
+            }
+            self.apply_fog(ws);
+            self.update_sky(ws, 0.0);
+            tracing::info!(
+                "the sky is drawn {}",
+                style.map_or("as the world's own", RegionStyle::sky_label)
+            );
+            Ok(Ok(()))
+        }
+
         /// Flush graphics resources:
         /// throw every cached device texture away so the next build re-creates it at the current
         /// texture-detail scale.
@@ -5360,7 +5883,7 @@ mod imp {
         /// still holds keeps the scale it was uploaded at until that consumer is itself rebuilt.
         /// The landscape, the scenery, the buildings and the interior cells — which is everything
         /// `Render.EnvironmentTextureDetail` is named for — all go through a block and are covered.
-        /// Building detail texturing passes `(0, v, v, 0)` to the landscape.
+        /// Building detail texturing passes `(landscape, v, v, 0)` to the landscape.
         ///
         /// The generation half is [`dereth_world_render::detail`], which has the whole chain at the
         /// bytes; this is the half that needs a dat store and a device — and
@@ -5369,8 +5892,12 @@ mod imp {
         /// is in effect the client releasing the custom surface when its texture is missing: the
         /// draw checks the texture, not the surface.
         ///
-        /// **`landscape` and `object` are hard `false`**, in this build as in retail: all three
-        /// callers pass `0` for them: the preference poll and both direct refresh paths.
+        /// **`object` is hard `false`**, as in every client. **`landscape` is
+        /// `Render.LandscapeDetailTextures`**, as the clients before the end-of-retail one passed
+        /// it (that one passes `0` and reads the preference nowhere); the preference is off by
+        /// default, so a default profile draws what the end-of-retail client draws. The landscape
+        /// class is read from the ground's region and its texture from the ground's files, which
+        /// are the world's own unless an older world's ground is drawn with the later files.
         fn apply_detail_texturing(&mut self, store: &RetailDatStore, gpu: &mut Gpu) {
             use dereth_world_render::detail::DetailClass;
             // **The surfaces this is about to replace are released first, which is
@@ -5389,19 +5916,27 @@ mod imp {
             // `release_textures`.
             self.release_detail_textures(gpu);
             let on = self.cfg.render.environment_detail_textures;
+            let landscape = self.cfg.render.landscape_detail_textures;
+            let (detail_region, detail_files, from) = self.detail_source(store);
+            self.detail_from = from;
             self.detail
-                .set(Some(&self.land.region), false, on, on, false);
-            if !on {
+                .set(Some(&detail_region), landscape, on, on, false);
+            if !(on || landscape) {
                 return;
             }
-            let textures = TextureStore::with_environment_texture_detail(
-                store,
-                self.cfg.render.environment_texture_detail,
-            );
-            for cls in [DetailClass::Building, DetailClass::Environment] {
+            for cls in [
+                DetailClass::Landscape,
+                DetailClass::Building,
+                DetailClass::Environment,
+            ] {
                 let Some(s) = self.detail.surface(cls) else {
                     continue;
                 };
+                let files = detail_files.as_ref().unwrap_or(store);
+                let textures = TextureStore::with_environment_texture_detail(
+                    files,
+                    self.cfg.render.environment_texture_detail,
+                );
                 // The combined-texture cache: the two live classes name
                 // the *same* `SurfaceTexture` in the shipped region, so this is one upload and one
                 // `AddRef`, not two images.
@@ -5421,6 +5956,44 @@ mod imp {
                     self.detail_textures[cls.index()] = Some(slot);
                 }
             }
+        }
+
+        /// The region the detail textures (all four classes) are read from, and its files
+        /// (`None`: the world's): the drawn ground style's region when its land surface names
+        /// detail textures (texture merging), else the world's own region when it does, else the
+        /// end-of-retail files' region. The palette-shift land surface names none, so with Palette
+        /// Shift the textures come from the world's own region.
+        fn detail_source(
+            &self,
+            store: &RetailDatStore,
+        ) -> (dereth_assets::Region, Option<RetailDatStore>, DetailSource) {
+            if let Some(g) = self
+                .land
+                .ground
+                .as_deref()
+                .filter(|g| g.land_surf.tex_merge.is_some())
+            {
+                return (
+                    g.clone(),
+                    self.land.ground_store.clone(),
+                    DetailSource::Ground,
+                );
+            }
+            if self.land.region.land_surf.tex_merge.is_some() {
+                return ((*self.land.region).clone(), None, DetailSource::World);
+            }
+            match style_region(store, RegionStyle::Modern) {
+                Ok(s) if s.region.land_surf.tex_merge.is_some() => {
+                    (s.region, s.files, DetailSource::EndOfRetail)
+                }
+                _ => ((*self.land.region).clone(), None, DetailSource::World),
+            }
+        }
+
+        /// Where the detail textures were last taken from.
+        #[must_use]
+        pub fn detail_source_used(&self) -> DetailSource {
+            self.detail_from
         }
 
         /// What detail-texturing setup's four-slot clear opens with:
@@ -5632,6 +6205,10 @@ mod imp {
             // slot live after the scene is gone.
             n += self.release_detail_textures(gpu);
             n += self.release_terrain_sources(gpu);
+            // Another era's sky holds its textures in a cache of its own.
+            if let Some(mut cache) = self.sky_cache.take() {
+                n += release_bake_cache(&mut cache, gpu);
+            }
             n
         }
 
@@ -5686,6 +6263,63 @@ mod imp {
         #[must_use]
         pub fn terrain_splat(&self) -> bool {
             self.terrain_splat
+        }
+
+        /// Whether the ground is palette-shifted, which the ground's region record decides
+        /// (`LandSurf` type non-zero): the software region of an older dat set. `false` is texture
+        /// merging.
+        #[must_use]
+        pub fn ground_palette_shifts(&self) -> bool {
+            self.land.pal_shift.is_some()
+        }
+
+        /// Whether the ground is the world's own (`[Render] Ground` names none, or names the
+        /// world's own style).
+        #[must_use]
+        pub fn ground_is_worlds_own(&self) -> bool {
+            self.land.ground.is_none()
+        }
+
+        /// Whether the ground's pictures are read from another era's files than the world's.
+        #[must_use]
+        pub fn ground_from_other_files(&self) -> bool {
+            self.land.ground_store.is_some()
+        }
+
+        /// The ground style in effect: `None` is the world's own.
+        #[must_use]
+        pub fn ground_style(&self) -> Option<RegionStyle> {
+            self.cfg.render.ground
+        }
+
+        /// The terrain types the ground's land surface has a picture for, one bit each.
+        #[must_use]
+        pub fn ground_drawn_types(&self) -> u32 {
+            self.land.drawn
+        }
+
+        /// Whether the sky is the world's own.
+        #[must_use]
+        pub fn sky_is_worlds_own(&self) -> bool {
+            self.sky_region.is_none()
+        }
+
+        /// Whether the sky's objects are read from another era's files than the world's.
+        #[must_use]
+        pub fn sky_from_other_files(&self) -> bool {
+            self.sky_store.is_some()
+        }
+
+        /// The sky style in effect: `None` is the world's own.
+        #[must_use]
+        pub fn sky_style(&self) -> Option<RegionStyle> {
+            self.cfg.render.sky
+        }
+
+        /// The region whose sky, light and fog are drawn.
+        #[must_use]
+        pub fn sky_region(&self) -> &dereth_assets::Region {
+            self.sky_region.as_deref().unwrap_or(&self.land.region)
         }
 
         /// Flip the landscape between its composites and the splat draw, converting the resident
@@ -8291,7 +8925,11 @@ mod imp {
         fn use_time_sky(&mut self, ws: &mut WorldState, now: f64, dt: f32) {
             world_step::advance_clock(ws, now);
             self.update_sky(ws, dt);
-            let Some(light_tick) = world_step::tick_schedule(ws, &self.land.region, now) else {
+            let Some(light_tick) = world_step::tick_schedule(
+                ws,
+                self.sky_region.as_deref().unwrap_or(&self.land.region),
+                now,
+            ) else {
                 return;
             };
             if light_tick && self.apply_lighting(ws) {
@@ -9164,6 +9802,13 @@ mod imp {
             // --- the landscape -------------------------------------------------------------
             let mid = ws.streamer.window.mid_width();
             let mut vertices: Vec<u8> = Vec::with_capacity(6 * LAND_VERTEX_STRIDE as usize);
+            // The landscape detail surface, when `Render.LandscapeDetailTextures` made one, and the
+            // camera frame its distance fade is measured in: a point's view-space depth is its
+            // distance along the camera's forward (local y) axis.
+            let land_detail =
+                self.current_detail(dereth_world_render::detail::DetailClass::Landscape);
+            let camera = ws.camera.frame();
+            let mut detail_vertices: Vec<u8> = Vec::with_capacity(6 * LAND_VERTEX_STRIDE as usize);
             let order: Vec<(u32, u32)> = block_draw_order(mid)
                 .into_iter()
                 .map(|i| (i / mid, i % mid))
@@ -9246,6 +9891,39 @@ mod imp {
                                 per_frame,
                                 &world,
                                 &vertices,
+                            )?;
+                        }
+                        // The landscape detail pass: a block at full detail draws each cell's
+                        // triangles again with the detail texture right after the ground.
+                        if let (Some((slot, tiling)), true) = (
+                            land_detail,
+                            dereth_world_render::detail::block_takes_landscape_detail(u32::from(n)),
+                        ) {
+                            detail_vertices.clear();
+                            for p in &tris {
+                                for v in triangle_vertices(mesh, p) {
+                                    let eye = dereth_physics::math::globaltolocal(
+                                        &camera,
+                                        Vec3::new(
+                                            block.origin.0 + v.pos[0],
+                                            block.origin.1 + v.pos[1],
+                                            v.pos[2],
+                                        ),
+                                    );
+                                    detail_vertices.extend_from_slice(
+                                        &detail_vertex(v, eye.y, tiling).to_bytes(),
+                                    );
+                                }
+                            }
+                            // Sampler 0 = linear / wrap: the detail texture repeats across the
+                            // cell.
+                            gpu.bind_texture(slot, 0);
+                            gpu.draw_dynamic(
+                                &self.terrain_detail_key,
+                                &DrawConstants::default(),
+                                per_frame,
+                                &world,
+                                &detail_vertices,
                             )?;
                         }
                     }

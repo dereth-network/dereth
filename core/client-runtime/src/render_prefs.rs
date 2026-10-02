@@ -60,6 +60,25 @@ pub fn terrain_blending(prefs: &Preferences) -> TerrainBlending {
         .unwrap_or_default()
 }
 
+/// `[Render] Ground` and `[Render] Sky`: the landscape presentation options, which choose the era
+/// of the ground and of the sky. See [`dereth_client_contract::options::landscape`], which owns the
+/// names, the values and their spellings.
+pub use dereth_client_contract::options::landscape::{RegionStyle, RequiredFiles, GROUND, SKY};
+
+/// `[Render] LegacyDatDir`: a folder holding a `portal.dat` from before Throne of Destiny, read
+/// for the older grounds and skies alone. `--legacy-dat-dir` wins over it.
+pub const LEGACY_DAT_DIR: &str = "Render.LegacyDatDir";
+
+/// One landscape option from the profile: `None` (the world's own) when it is absent or names
+/// nothing this client reads.
+#[must_use]
+pub fn landscape_style(prefs: &Preferences, name: &str) -> Option<RegionStyle> {
+    prefs
+        .get(name)
+        .and_then(dereth_client_contract::options::landscape::parse)
+        .flatten()
+}
+
 /// Decode this preference's registered choice list with
 /// `dereth_client_contract::options::store::EnumChoices::resolve` — the same function the
 /// options page loads the profile through — rather than a second copy of the label table here:
@@ -92,11 +111,12 @@ pub struct RenderPreferences {
     /// Used by sampler-filter setup, scene begin and creature rendering.
     /// Value 2 selects the `-1.4` mipmap LOD bias.
     pub texture_filtering: u32,
-    /// **No reader anywhere in the retail client.** Applying render preferences passes
-    /// a hard-coded false for landscape detail texturing and zeroes the cached value
-    /// unconditionally, so this preference never reaches the landscape detail setter.
-    /// It is also one of the nine
-    /// with no options-page row. Kept because it is registered and therefore round-trips.
+    /// The landscape detail texture. The end-of-retail client reads this nowhere: applying
+    /// render preferences passes a hard-coded false for landscape detail texturing. The clients
+    /// before it (February 2005 through 2012) passed this preference instead, and their middle and
+    /// higher quality presets turned it on; this client does as they did. Off by default, so a
+    /// default profile draws what the end-of-retail client draws. One of the nine with no
+    /// options-page row.
     pub landscape_detail_textures: bool,
     /// Registered as `Render.BuildingDetailTextures`. Applying it updates landscape
     /// detail texturing; two further rendering sites read the value directly.
@@ -131,6 +151,12 @@ pub struct RenderPreferences {
     pub graphics_performance: f32,
     /// The offset subtracted from every degrade distance.
     pub degrade_distance: f32,
+    /// `[Render] Ground`: the region whose land surface draws the ground; `None` is the world's
+    /// own. Not a retail preference. The scene applies a change live.
+    pub ground: Option<RegionStyle>,
+    /// `[Render] Sky`: the region whose sky draws, with its light and fog; `None` is the world's
+    /// own. Not a retail preference. The scene applies a change live.
+    pub sky: Option<RegionStyle>,
 }
 
 impl Default for RenderPreferences {
@@ -150,6 +176,8 @@ impl Default for RenderPreferences {
             automatic_degrades: true,
             graphics_performance: 0.0,
             degrade_distance: dereth_animation::parts::S_R_DEGRADE_DISTANCE,
+            ground: None,
+            sky: None,
         }
     }
 }
@@ -250,6 +278,8 @@ impl RenderPreferences {
         if let Some(v) = prefs.bool(AUTOMATIC_DEGRADES) {
             r.automatic_degrades = v;
         }
+        r.ground = landscape_style(prefs, GROUND);
+        r.sky = landscape_style(prefs, SKY);
         if let Some(v) = prefs.f32(GRAPHICS_PERFORMANCE) {
             r.graphics_performance = v;
         }
@@ -363,6 +393,20 @@ impl RenderPreferences {
         }
         if name.eq_ignore_ascii_case(AUTOMATIC_DEGRADES) {
             take!(automatic_degrades, boolean);
+        }
+        // The two landscape options, which the scene's poll applies live.
+        if let Some(which) = dereth_client_contract::options::landscape::Landscape::of(name) {
+            let PrefValue::Int(_) = value else {
+                return false;
+            };
+            let style = dereth_client_contract::options::landscape::style_of(value);
+            match which {
+                dereth_client_contract::options::landscape::Landscape::Ground => {
+                    self.ground = style;
+                }
+                dereth_client_contract::options::landscape::Landscape::Sky => self.sky = style,
+            }
+            return true;
         }
         false
     }

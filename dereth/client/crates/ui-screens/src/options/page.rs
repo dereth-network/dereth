@@ -688,6 +688,13 @@ impl PlayerOptionPage {
         let (element, row, control, preference) = (o.element, o.row, o.control, o.preference);
         let Some((table_enum, label, tooltip)) = super::preferences::inq_preference(preference)
         else {
+            // This client's landscape options are not in the string tables: their caption and
+            // their choices are literal text.
+            if let Some(which) =
+                dereth_client_contract::options::landscape::Landscape::of(preference)
+            {
+                self.set_literal_preference(ui, i, which.caption());
+            }
             return;
         };
         debug_assert_eq!(table_enum, super::preferences::STRING_TABLE_ENUM);
@@ -732,6 +739,26 @@ impl PlayerOptionPage {
                 self.set_menu_entries(ui, i);
             }
         }
+    }
+
+    /// Caption a menu row with literal text and fill it from the option store's choice rows: the
+    /// binding for an option of this client's own, which has no string-table entries.
+    fn set_literal_preference(&mut self, ui: &mut UiSystem, i: usize, caption: &str) {
+        let Some(o) = self.options.get(i) else { return };
+        if o.control != OptionControl::Menu {
+            return;
+        }
+        let landed = ui
+            .get_child_recursive(o.row, child::MENU_LABEL)
+            .and_then(|h| ui.text_element_mut(h))
+            .map(|t| {
+                t.set_text(caption);
+                caption.to_string()
+            });
+        if let Some(o) = self.options.get_mut(i) {
+            o.label = landed;
+        }
+        self.set_user_preference_entries(ui, i);
     }
 
     /// Fill the drop-down from the client's UI-preference branch.
@@ -1346,7 +1373,8 @@ impl PlayerOptionPage {
     }
 
     /// The Defaults button and global message
-    /// `0x0C`. Unconditional: every control, changed or not.
+    /// `0x0C`. Unconditional: every control, changed or not, this client's landscape rows
+    /// included (back to World Default).
     pub fn restore_default_values(&mut self, ui: &mut UiSystem) -> usize {
         for i in 0..self.options.len() {
             self.options[i].current = self.options[i].default.clone();
@@ -1360,6 +1388,20 @@ impl PlayerOptionPage {
     #[must_use]
     pub fn changed(&self) -> bool {
         self.options.iter().any(UiOption::changed)
+    }
+
+    /// The page's retail controls: every option but this client's own landscape rows.
+    pub fn retail_options(&self) -> impl Iterator<Item = &UiOption> + '_ {
+        self.options.iter().filter(|o| {
+            dereth_client_contract::options::landscape::Landscape::of(o.preference).is_none()
+        })
+    }
+
+    /// This client's own landscape rows ([`super::config::LANDSCAPE_ROWS`]).
+    pub fn landscape_options(&self) -> impl Iterator<Item = &UiOption> + '_ {
+        self.options.iter().filter(|o| {
+            dereth_client_contract::options::landscape::Landscape::of(o.preference).is_some()
+        })
     }
 
     /// The player-option page's visibility-changed handler: `save_current_values` on show,
@@ -1496,7 +1538,8 @@ impl PlayerOptionPage {
         let mut section: Option<&'static str> = None;
         for r in CONFIG_PAGE {
             if section != Some(r.section) {
-                if section.is_some() {
+                if let Some(done) = section {
+                    self.add_closing_rows(ui, done);
                     self.add_separator(ui);
                 }
                 self.add_header(ui, r.section);
@@ -1504,11 +1547,24 @@ impl PlayerOptionPage {
             }
             self.add_config_row(ui, &r);
         }
+        if let Some(done) = section {
+            self.add_closing_rows(ui, done);
+        }
         // Place the rows down the box.
         if let Some(b) = self.option_box.as_mut() {
             b.update_layout(ui);
         }
         self.options.len()
+    }
+
+    /// This client's own rows that close `section`, after its retail rows: the two landscape
+    /// options close the Graphics section.
+    fn add_closing_rows(&mut self, ui: &mut UiSystem, section: &'static str) {
+        if section == super::config::LANDSCAPE_SECTION {
+            for r in super::config::LANDSCAPE_ROWS {
+                self.add_config_row(ui, &r);
+            }
+        }
     }
 
     fn add_config_row(&mut self, ui: &mut UiSystem, r: &ConfigRow) {

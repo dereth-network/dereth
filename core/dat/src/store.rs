@@ -58,6 +58,10 @@ pub struct RetailDatStore {
     /// (layout properties, fonts, the enum and id maps, interface images) that the later client's
     /// screens need and the older files do not have. `None` otherwise.
     later_portal: Option<Arc<DatFile>>,
+    /// Beside a later world, a `portal.dat` from before Throne of Destiny that only presentation
+    /// reads: the older regions' ground and sky, and the pictures and objects they name. No read
+    /// of this store reaches it; [`Self::legacy_files`] is the only way in. `None` otherwise.
+    legacy_portal: Option<Arc<DatFile>>,
     /// Where [`Self::grant_highres`] looks for the file; `None` for a store built from files.
     client_dir: Option<PathBuf>,
 }
@@ -112,6 +116,7 @@ impl RetailDatStore {
             local,
             highres: OnceLock::new(),
             later_portal: None,
+            legacy_portal: None,
             client_dir: Some(client_dir.to_path_buf()),
         })
     }
@@ -146,6 +151,7 @@ impl RetailDatStore {
             cell,
             highres: OnceLock::new(),
             later_portal: None,
+            legacy_portal: None,
             client_dir: Some(dir.to_path_buf()),
         })
     }
@@ -193,8 +199,11 @@ impl RetailDatStore {
     /// world answers it from those).
     #[must_use]
     pub fn era_of(&self, id: DataId) -> ContainerEra {
-        if self.portal.contains(id) || self.cell.contains(id) {
+        if self.portal.contains(id) {
             return self.portal.era();
+        }
+        if self.cell.contains(id) {
+            return self.cell.era();
         }
         let later = self.later_portal.as_ref().is_some_and(|f| f.contains(id))
             || (!Arc::ptr_eq(&self.local, &self.portal) && self.local.contains(id));
@@ -209,6 +218,79 @@ impl RetailDatStore {
     #[must_use]
     pub fn has_later_interface(&self) -> bool {
         self.later_portal.is_some()
+    }
+
+    /// Beside an older world, the later files as a store of their own: the later portal and
+    /// language files answer every portal and language read, including the records the older
+    /// portal file also holds, so a record both sets carry is read as the later set has it. There
+    /// is no later cell file beside an older world, so cell reads still go to the world's.
+    /// `None` for a store with no later files beside it.
+    #[must_use]
+    pub fn later_files(&self) -> Option<Self> {
+        let portal = Arc::clone(self.later_portal.as_ref()?);
+        Some(Self {
+            portal,
+            cell: Arc::clone(&self.cell),
+            local: Arc::clone(&self.local),
+            highres: OnceLock::new(),
+            later_portal: None,
+            legacy_portal: None,
+            client_dir: None,
+        })
+    }
+
+    /// This store with a `portal.dat` from before Throne of Destiny beside it, for presentation
+    /// alone: the older regions' ground and sky and what they name, read through
+    /// [`Self::legacy_files`]. Every read of this store itself is unchanged, so the world it reads
+    /// is not touched. The folder needs only that one file.
+    ///
+    /// # Errors
+    ///
+    /// The file is missing, does not open, or is in the later layout.
+    pub fn with_legacy_portal(mut self, dir: &Path) -> Result<Self, DatError> {
+        let path = PreTodDat::Portal.in_dir(dir);
+        let file = shared::open(&path)?;
+        if file.era() != ContainerEra::PreTod {
+            return Err(DatError::UnexpectedContainerEra {
+                path,
+                found: file.era(),
+                expected: ContainerEra::PreTod,
+            });
+        }
+        self.legacy_portal = Some(file);
+        Ok(self)
+    }
+
+    /// The files from before Throne of Destiny as a store of their own, for the older regions and
+    /// the pictures and objects they name: an older world's own files, or the presentation portal
+    /// beside a later world ([`Self::with_legacy_portal`]). `None` for a later world with none
+    /// beside it.
+    #[must_use]
+    pub fn legacy_files(&self) -> Option<Self> {
+        if self.era() == ContainerEra::PreTod {
+            return Some(self.clone());
+        }
+        let portal = Arc::clone(self.legacy_portal.as_ref()?);
+        Some(Self {
+            local: Arc::clone(&portal),
+            portal,
+            cell: Arc::clone(&self.cell),
+            highres: OnceLock::new(),
+            later_portal: None,
+            legacy_portal: None,
+            client_dir: None,
+        })
+    }
+
+    /// The files from Throne of Destiny on as a store of their own, for the later region and the
+    /// pictures and objects it names: a later world's own files, or the later files beside an
+    /// older world ([`Self::later_files`]). `None` for an older world with none beside it.
+    #[must_use]
+    pub fn modern_files(&self) -> Option<Self> {
+        if self.era() == ContainerEra::Tod {
+            return Some(self.clone());
+        }
+        self.later_files()
     }
 
     /// A store from files already open. A `highres` handed in here counts as granted, which is
@@ -234,6 +316,7 @@ impl RetailDatStore {
             local: Arc::new(local),
             highres: lock,
             later_portal: None,
+            legacy_portal: None,
             client_dir: None,
         }
     }

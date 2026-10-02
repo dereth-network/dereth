@@ -130,7 +130,8 @@ pub fn cell_rotation_keys(
     j: usize,
 ) -> ([MergeKey; 4], bool) {
     let step = crate::consts::BLOCK_SIDE / side_cell_count;
-    // Palette shifting is the land surface of the region before Throne of Destiny (type 1).
+    // Palette shifting (type 1) is the land surface of the software region of a dat set from before
+    // Throne of Destiny.
     let pal_shifted = is_pal_shifted(region);
     let pal_lod = if pal_shifted || step == 1 { 1 } else { 4 };
 

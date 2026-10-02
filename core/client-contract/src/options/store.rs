@@ -268,6 +268,9 @@ pub fn set_value(name: &str, v: PrefValue) -> bool {
 /// manager, the camera manager, the element manager and the client's own preference init. It
 /// resets the registry, so a host that re-creates its
 /// UI shell gets the registered defaults back rather than the previous shell's edits.
+///
+/// It also registers this client's two landscape options ([`super::landscape::register`]), which
+/// are not retail's and are not in the count it returns.
 pub fn init() -> usize {
     REGISTRY.with(|r| r.borrow_mut().clear());
     let mut n = 0;
@@ -280,6 +283,7 @@ pub fn init() -> usize {
         };
         n += usize::from(register_preference(p.name, v, t));
     }
+    super::landscape::register();
     n
 }
 
@@ -374,6 +378,10 @@ pub fn load(ini: &UserPreferences) -> (usize, usize) {
 /// enumerated.
 #[must_use]
 pub fn convert_to_string(name: &str, v: &PrefValue) -> String {
+    // This client's landscape options write one word per choice.
+    if let Some(text) = super::landscape::convert_to_string(name, v) {
+        return text;
+    }
     // The two run-time lists are choice lists too, so once the device has
     // enumerated its modes this arm is reached for `Display.Resolution` and the file holds
     // `1280x720` rather than `83886800`. Before enumeration the list is empty and the numeric arm
@@ -706,6 +714,10 @@ pub fn display_choice(name: &str, text: &str) -> Option<i32> {
 /// no-label-matched fallback, inside [`EnumChoices::resolve`] — then the two runtime-built display
 /// lists, then a plain integer, which is the empty-choice-list arm.
 fn set_from_string_uint(name: &str, text: &str) -> Option<i32> {
+    // This client's landscape options read their words, their captions and the older spellings.
+    if super::landscape::Landscape::of(name).is_some() {
+        return super::landscape::parse_value(name, text);
+    }
     if let Some(c) = enum_choices(name) {
         return Some(c.resolve(text));
     }
@@ -917,6 +929,10 @@ pub fn choice_rows(name: &str) -> Option<Vec<Choice>> {
     if !is_registered_as(name, DataType::UInt) {
         return None;
     }
+    // This client's landscape options list literal captions too.
+    if let Some(rows) = super::landscape::choice_rows(name) {
+        return Some(rows);
+    }
     let runtime = display_choices(name);
     if !runtime.is_empty() {
         return Some(runtime);
@@ -1060,7 +1076,8 @@ mod tests {
     #[test]
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
-        assert_eq!(len(), 34);
+        // ...beside this client's two landscape options.
+        assert_eq!(len(), 36);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

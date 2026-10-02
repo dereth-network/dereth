@@ -218,6 +218,29 @@ pub const CONFIG_PAGE: [ConfigRow; 27] = [
     row(INTERFACE, Menu, "UI.ChatFontSize", Int(1)),
 ];
 
+/// This client's own two rows, the landscape options
+/// ([`dereth_client_contract::options::landscape`]): the ground's era and the sky's. Not retail
+/// rows, and not in [`CONFIG_PAGE`]; the page adds them at the end of the Graphics section, after
+/// its retail rows. Each is a menu of literal captions (the world's own and the three styles), so
+/// it needs no string table, and *Restore Defaults* puts it back to World Default.
+pub const LANDSCAPE_ROWS: [ConfigRow; 2] = [
+    row(
+        GRAPHICS,
+        Menu,
+        dereth_client_contract::options::landscape::GROUND,
+        Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
+    ),
+    row(
+        GRAPHICS,
+        Menu,
+        dereth_client_contract::options::landscape::SKY,
+        Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
+    ),
+];
+
+/// The section [`LANDSCAPE_ROWS`] close.
+pub const LANDSCAPE_SECTION: &str = GRAPHICS;
+
 /// The volume every one of the three sound check+slider pairs defaults its slider to.
 pub const SOUND_SLIDER_DEFAULT: f32 = 1.0;
 
@@ -362,10 +385,20 @@ pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
 #[must_use]
 pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
     let mut out = Vec::new();
-    for r in CONFIG_PAGE {
+    for (i, r) in CONFIG_PAGE.iter().enumerate() {
         out.push((r.preference, r.ui_default.into()));
         if let Some(s) = r.slider_preference {
             out.push((s, PrefValue::Float(SOUND_SLIDER_DEFAULT)));
+        }
+        // This client's landscape rows close the Graphics section, as the page builds them.
+        let closes = r.section == LANDSCAPE_SECTION
+            && CONFIG_PAGE
+                .get(i + 1)
+                .is_none_or(|n| n.section != LANDSCAPE_SECTION);
+        if closes {
+            for l in LANDSCAPE_ROWS {
+                out.push((l.preference, l.ui_default.into()));
+            }
         }
     }
     out
@@ -556,11 +589,22 @@ mod tests {
     /// control on the page, including the slider half of each check+slider pair.
     #[test]
     fn restore_defaults_writes_every_control_including_the_paired_sliders() {
+        let get_landscape = |v: &[(&str, PrefValue)]| {
+            [
+                dereth_client_contract::options::landscape::GROUND,
+                dereth_client_contract::options::landscape::SKY,
+            ]
+            .map(|p| v.iter().find(|(k, _)| *k == p).map(|(_, x)| x.clone()))
+        };
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            27 + 3,
-            "27 rows plus the three paired volume sliders"
+            27 + 3 + 2,
+            "27 rows plus the three paired volume sliders and this client's two landscape rows"
+        );
+        assert_eq!(
+            get_landscape(&v),
+            [Some(PrefValue::Int(0)), Some(PrefValue::Int(0))]
         );
         let get = |p: &str| v.iter().find(|(k, _)| *k == p).map(|(_, x)| x.clone());
         assert_eq!(get("Display.Resolution"), Some(PrefValue::Int(0x0320_0258)));

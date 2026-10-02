@@ -1500,6 +1500,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.client-page.the-terrain-and-sky-modes-are-chosen-on-the-graphics-section",
+        says: "The client options page ends its Graphics section with Terrain Mode and Sky Mode, \
+               each offering World Default and three named styles; picking one applies it at \
+               once, and it is still chosen after the settings are saved and read back.",
+        since: THIS_CLIENT,
+        divergence: "CD-012",
+        evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-OPTIONS"),
+        station: "dereth-ui-screens::dat::panels::options_client_drop_downs::the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_one",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.distance-fog.turns-world-fog-off-and-back",
         says: "Ticking Disable Distance Fog turns the world's distance fog off, and unticking it \
                turns the fog back on.",

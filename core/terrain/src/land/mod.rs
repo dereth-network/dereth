@@ -1,5 +1,6 @@
 //! The landscape: mesh construction, texturing, LOD, lighting, water and ordering.
 
+pub mod fill;
 pub mod lighting;
 pub mod merge;
 pub mod mesh;

@@ -14,6 +14,8 @@
 
 /// `PrefValueConst`, moved down out of `dereth_ui_screens::options::config`.
 pub mod config;
+/// This client's own landscape options: the era of the ground and of the sky.
+pub mod landscape;
 /// `UiPref` and `UI_PREFERENCES`, moved down out of `dereth_ui_screens::options::preferences`.
 pub mod preferences;
 /// `UserPreferences`'s value store, verbatim from `dereth_ui_screens::options::store`.

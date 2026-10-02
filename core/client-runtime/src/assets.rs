@@ -85,6 +85,43 @@ pub fn open_data_files_with(
     })
 }
 
+/// [`open_data_files_with`], with a folder of older files beside a later world for presentation
+/// alone (`--legacy-dat-dir`): its `portal.dat` from before Throne of Destiny answers the older
+/// grounds and skies and nothing else ([`RetailDatStore::with_legacy_portal`]). Beside an older
+/// world it is not needed, since the world's own files are the older ones, and it is not opened.
+/// A folder that will not open is reported and left out: the world still opens, and the older
+/// styles are refused as they are with no folder.
+///
+/// # Errors
+/// [`DataFilesError`] as [`open_data_files`].
+pub fn open_data_files_for(
+    dat_dir: &Path,
+    world_dat_dir: Option<&Path>,
+    legacy_dat_dir: Option<&Path>,
+) -> Result<RetailDatStore, DataFilesError> {
+    let store = open_data_files_with(dat_dir, world_dat_dir)?;
+    let Some(legacy) = legacy_dat_dir else {
+        return Ok(store);
+    };
+    if store.era() != dereth_dat::ContainerEra::Tod {
+        return Ok(store);
+    }
+    match store.clone().with_legacy_portal(legacy) {
+        Ok(with) => {
+            tracing::info!("older grounds and skies are read from {}", legacy.display());
+            Ok(with)
+        }
+        Err(e) => {
+            tracing::warn!(
+                "the legacy dat folder {} will not open ({e}); the older grounds and skies \
+                 are unavailable",
+                legacy.display()
+            );
+            Ok(store)
+        }
+    }
+}
+
 /// Resolve the two-level enum-id map lookup for any group.
 ///
 /// An enum lookup resolves `(enumValue, group, dbType)` in two hops: the master

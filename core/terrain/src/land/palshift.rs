@@ -1,4 +1,5 @@
-//! Palette-shift land texturing: the land surface of the region before Throne of Destiny.
+//! Palette-shift land texturing: the land surface of the software region a dat set from before
+//! Throne of Destiny carries (its hardware region texture-merges).
 //!
 //! The region names a few 256-colour textures. Each texture's palette is cut into ranges, and a
 //! cell is drawn with one of those textures whose ranges are refilled from the palettes of the

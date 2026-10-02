@@ -109,6 +109,48 @@ colours:
 If no texture fits, the cell is drawn with the first texture unrotated. On the February 2005 world
 every cell finds one.
 
+The land-surface type in the region record is what decides between palette shifting and texture
+merging; the container's layout does not.
+
+**A dat set from before Throne of Destiny carries two regions**: `0x13000000`, palette shifting,
+and `0x130F0000`, texture merging. They are otherwise the same record (land definitions, calendar,
+sounds, scenes, terrain types and the trailing block are equal) except the sky. The clients of the
+time chose by renderer: drawing with 3D
+hardware they loaded `0x130F0000 + n`, drawing in software `0x13000000 + n`, for region number `n`.
+The later client loads one region and the later files carry only `0x13000000`. The texture-merge
+region of February 2005 has a base texture size of 128 and names the same texture ids as the later
+region (128×128 and 64×64 terrain images, 64×64 alpha masks, 256×256 detail textures), with its own
+tilings (the landscape detail texture eight times a cell, the building and environment one three).
+
+The detail textures (landscape, building, environment) are read from the texture-merge terrain
+descriptions, so the palette-shift region has none: in software the clients of that time drew no
+detail texture, whatever their options said.
+
+The terrain types are numbered alike in every region from 1999 on: the same name and map colour
+at the same index (27 types in October 1999, 31 in the Dark Majesty and February 2005 files, 32 at
+the end of retail, each adding at the end), and the road is type 32 in both techniques. A cell's
+terrain words therefore read the same under either technique, which is what lets any region's land
+surface draw any world's cells.
+
+Every land surface, of either technique and in every era, lists all 33 rows (types 0 to 31 and the
+road), but a row past the end of the region's own terrain list is a filler: another type's picture.
+The texture-merge regions before Throne of Destiny give the unnamed types Argila's tile
+(`0x0500145C`, type 24's), and their palette-shift textures give them a stand-in palette
+(`0x040004C2`, Semi-Barren Rock's, on the first texture and `0x040004D6` on the second). The
+end-of-retail region names type 31, DesolateLands, and draws it with the same tile id as Argila.
+The October 1999 cells use type 31 at 325 vertices, all of them with road bits 3: a grid of roads
+laid over deep sea, in 25 blocks of columns `0xE1` to `0xE9` and rows `0x05` to `0x08`. The
+end-of-retail cells use it at three vertices, in blocks `0xF930` and `0xECF8`.
+
+**The two skies of a dat set before Throne of Destiny, and the later one.** The software region's
+sky has fewer objects than the hardware region's in every day group (February 2005: 3 to 12
+against 7 to 19), names different dome and cloud objects, and carries its own light and fog: none
+of the twenty day groups has the same sun, ambient light or fog in the two. The February 2005
+hardware sky has the same light and fog in all twenty day groups as the end-of-retail sky; the
+end-of-retail one replaces its clouds and weather with new objects and sets new property bits on
+them. October 1999 has eleven day groups, the later files twenty. The tick and light-tick sizes are
+the same in every region.
+
 ## Game tables
 
 - **XpTable (`0x0E000018`)**: the character-level list is `u32`, not `u64` (126 levels in February

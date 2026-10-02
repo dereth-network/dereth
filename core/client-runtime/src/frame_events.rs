@@ -33,6 +33,12 @@
 use std::collections::VecDeque;
 
 use crate::frame::FrameStep;
+/// A landscape style refused for want of its files: the files it needed and the style kept.
+pub type LandscapeRefusal = (
+    dereth_client_contract::options::landscape::RequiredFiles,
+    Option<dereth_client_contract::options::landscape::RegionStyle>,
+);
+
 /// What one `WorldScene::update_from_preferences` poll actually did.
 ///
 /// Every field is the state of one preference poll's own local
@@ -57,6 +63,15 @@ pub struct RenderPrefWork {
     /// difference between "the poll noticed" ([`Self::detail_texturing_changed`]) and "the
     /// subsystem did something", which the other fields cannot distinguish.
     pub detail_surfaces: usize,
+    /// `[Render] Ground` moved and the ground was rebuilt with the new land surface.
+    pub ground_changed: bool,
+    /// `[Render] Sky` moved and the sky, its light and its fog were rebuilt.
+    pub sky_changed: bool,
+    /// `[Render] Ground` named a style whose files are not present: the files it needed, and the
+    /// style the ground kept (`None` is the world's own). The preference went back to that style.
+    pub ground_refused: Option<LandscapeRefusal>,
+    /// The same for `[Render] Sky`.
+    pub sky_refused: Option<LandscapeRefusal>,
 }
 
 /// Which of `App::apply_input_actions`'s five consumers took an input action.

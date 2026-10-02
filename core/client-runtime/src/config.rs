@@ -192,6 +192,15 @@ pub struct Config {
     pub frames: Option<u64>,
     /// `--capture <path>`: write the last frame as a PNG.
     pub capture: Option<PathBuf>,
+    /// `--capture-at <frame>:<path>`, any number of times: once that many frames have been drawn,
+    /// write the last of them as a PNG, so one run can record a picture before and after a change.
+    /// Like `--capture` it reads the offscreen target and needs `--headless`.
+    pub capture_at: Vec<(u64, PathBuf)>,
+    /// `--set-at <frame>:<Section.Name>=<value>`, any number of times: as that frame starts, set
+    /// the preference as an options page does (the value store, then the change request), so a
+    /// run can change an option part way through. The value is spelled as the preferences file
+    /// spells it.
+    pub set_at: Vec<(u64, String)>,
     /// `--no-console`: do not borrow the console of the terminal the client was started from, so
     /// the run is silent even there. (A console is never created, with or without it.)
     ///
@@ -208,6 +217,12 @@ pub struct Config {
     /// interface and whatever else the older files do not have. `None`: the world is
     /// [`Self::dat_dir`]'s.
     pub world_dat_dir: Option<PathBuf>,
+    /// `--legacy-dat-dir <dir>`, or `[Render] LegacyDatDir`: a folder holding a `portal.dat` from
+    /// before Throne of Destiny, read for the older grounds and skies alone (`[Render] Ground` and
+    /// `[Render] Sky`) beside a later world. The world never reads it. The switch wins over the
+    /// preference. `None`: no older files beside a later world, and choosing an older ground or
+    /// sky there is refused.
+    pub legacy_dat_dir: Option<PathBuf>,
     /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
     /// launcher reads it from the world's status. It wins over the era read from the data files;
     /// `None`: the data files decide.
@@ -436,9 +451,12 @@ impl Default for Config {
             headless: false,
             frames: None,
             capture: None,
+            capture_at: Vec::new(),
+            set_at: Vec::new(),
             console: true,
             dat_dir: default_dat_dir(),
             world_dat_dir: None,
+            legacy_dat_dir: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
         }
@@ -590,6 +608,23 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "world-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The older files the older grounds and skies are read from, beside a later world.
+    Switch {
+        long: "legacy-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    // A preference set part way through a run, and a picture taken part way through.
+    Switch {
+        long: "set-at",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "capture-at",
         short: None,
         arity: Arity::Required,
     },
@@ -967,6 +1002,14 @@ impl Config {
         // `Render.AutomaticDegrades` is the player's switch for the governor, registered true.
         self.auto_degrades = self.render.automatic_degrades;
         self.terrain_blending = crate::render_prefs::terrain_blending(prefs);
+        // `[Render] LegacyDatDir`, which `--legacy-dat-dir` overrides.
+        if self.legacy_dat_dir.is_none() {
+            self.legacy_dat_dir = prefs
+                .get(crate::render_prefs::LEGACY_DAT_DIR)
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from);
+        }
         // `Renderer=vulkan|d3d12`, in `[Render]` or with no section at all.
         // A name this build does not understand leaves the choice where it was, exactly as an
         // unparsable numeric preference leaves its registered default standing.
@@ -1061,6 +1104,8 @@ impl Config {
         // The one switch that collects rather than stores: started afresh, so a second pass over
         // the same command line leaves it as the first did.
         self.say.clear();
+        self.set_at.clear();
+        self.capture_at.clear();
         self.use_targets.clear();
         let mut i = 0usize;
         let fail = |e: ConfigError, slot: &mut Option<ConfigError>| {
@@ -1245,6 +1290,31 @@ impl Config {
             "log-spans" => self.log_spans = true,
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "world-dat-dir" => self.world_dat_dir = Some(PathBuf::from(v)),
+            "legacy-dat-dir" => self.legacy_dat_dir = Some(PathBuf::from(v)),
+            "set-at" => {
+                let (frame, setting) = v
+                    .split_once(':')
+                    .and_then(|(f, rest)| Some((f.trim().parse::<u64>().ok()?, rest)))
+                    .filter(|(_, rest)| rest.contains('='))
+                    .ok_or_else(|| {
+                        ConfigError::new(format!(
+                            "bad --set-at value {v:?}: expected <frame>:<Section.Name>=<value>"
+                        ))
+                    })?;
+                self.set_at.push((frame, setting.to_string()));
+            }
+            "capture-at" => {
+                let (frame, path) = v
+                    .split_once(':')
+                    .and_then(|(f, rest)| Some((f.trim().parse::<u64>().ok()?, rest)))
+                    .filter(|(_, rest)| !rest.is_empty())
+                    .ok_or_else(|| {
+                        ConfigError::new(format!(
+                            "bad --capture-at value {v:?}: expected <frame>:<path>"
+                        ))
+                    })?;
+                self.capture_at.push((frame, PathBuf::from(path)));
+            }
             "era" => {
                 self.era = Some(
                     dereth_primitives::EraId::parse(v)
@@ -1702,6 +1772,91 @@ mod tests {
         assert_eq!(c.dat_dir, PathBuf::from("eor"));
         assert_eq!(c.world_dat_dir, Some(PathBuf::from("feb2005")));
         assert_eq!(parse(&[]).expect("parses").world_dat_dir, None);
+    }
+
+    /// `[Render] Ground` and `[Render] Sky` choose a style each, read in any of their spellings
+    /// (the older `software`, `hardware` and `later` included); absent, or anything else, is the
+    /// world's own.
+    #[test]
+    fn the_ground_and_sky_preferences_choose_a_style_and_default_to_the_worlds_own() {
+        use crate::render_prefs::RegionStyle;
+        let styles = |text: &str| {
+            let s = Config::from_args_and_prefs_with(&[], &Preferences::parse(text))
+                .expect("parses")
+                .scene_config();
+            (s.render.ground, s.render.sky)
+        };
+        assert_eq!(
+            styles("[Render]\nGround=PaletteShift\nSky=Legacy Hardware\n"),
+            (
+                Some(RegionStyle::LegacySoftware),
+                Some(RegionStyle::LegacyHardware)
+            )
+        );
+        assert_eq!(
+            styles("[Render]\nGround=LegacyBlend\nSky=modern\n"),
+            (Some(RegionStyle::LegacyHardware), Some(RegionStyle::Modern))
+        );
+        assert_eq!(
+            styles("[Render]\nGround=LATER\n"),
+            (Some(RegionStyle::Modern), None)
+        );
+        assert_eq!(
+            styles("[Render]\nGround=software\n"),
+            (Some(RegionStyle::LegacySoftware), None)
+        );
+        assert_eq!(styles("[Render]\nGround=hardware\n"), (None, None));
+        assert_eq!(styles("[Render]\nGround=tod\nSky=World\n"), (None, None));
+        assert_eq!(styles(""), (None, None));
+    }
+
+    /// `--legacy-dat-dir` names the older presentation files, and wins over `[Render]
+    /// LegacyDatDir`.
+    #[test]
+    fn the_legacy_dat_dir_comes_from_the_switch_before_the_preference() {
+        let with = |args: &[&str], text: &str| {
+            let argv: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
+            Config::from_args_and_prefs_with(&argv, &Preferences::parse(text))
+                .expect("parses")
+                .legacy_dat_dir
+        };
+        assert_eq!(with(&[], ""), None);
+        assert_eq!(
+            with(&[], "[Render]\nLegacyDatDir=C:\\dats\\2005\n"),
+            Some(PathBuf::from("C:\\dats\\2005"))
+        );
+        assert_eq!(
+            with(
+                &["--legacy-dat-dir", "older"],
+                "[Render]\nLegacyDatDir=C:\\dats\\2005\n"
+            ),
+            Some(PathBuf::from("older"))
+        );
+    }
+
+    /// `--set-at` and `--capture-at` collect a frame and what to do there, in order.
+    #[test]
+    fn a_run_can_set_a_preference_and_take_a_picture_part_way_through() {
+        let c = parse(&[
+            "--capture-at",
+            "4:before.png",
+            "--set-at",
+            "5:Render.Ground=PaletteShift",
+            "--capture-at",
+            "9:after.png",
+        ])
+        .expect("parses");
+        assert_eq!(c.set_at, [(5, "Render.Ground=PaletteShift".to_string())]);
+        assert_eq!(
+            c.capture_at,
+            [
+                (4, PathBuf::from("before.png")),
+                (9, PathBuf::from("after.png"))
+            ]
+        );
+        assert!(parse(&["--set-at", "five:Render.Ground=PaletteShift"]).is_err());
+        assert!(parse(&["--set-at", "5:Render.Ground"]).is_err());
+        assert!(parse(&["--capture-at", "5:"]).is_err());
     }
 
     /// `--era` names the era the server's world plays; an unknown name is refused.

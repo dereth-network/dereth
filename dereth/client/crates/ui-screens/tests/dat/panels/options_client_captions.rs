@@ -58,15 +58,14 @@ fn child_text(ui: &mut UiSystem, row: ElemHandle, id: u32) -> Option<String> {
 fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     let (mut ui, s) = screen(true);
     let p = &s.config_page;
-    assert_eq!(p.options.len(), 30, "30 controls over 27 rows");
+    assert_eq!(p.retail_options().count(), 30, "30 controls over 27 rows");
     assert_eq!(p.failures, 0);
 
     // Every control that has a caption element got a caption.
-    let labelled = p.options.iter().filter(|o| o.label.is_some()).count();
+    let labelled = p.retail_options().filter(|o| o.label.is_some()).count();
     assert_eq!(labelled, 27, "27 of the 30 controls are captioned");
     let token_but_no_text = p
-        .options
-        .iter()
+        .retail_options()
         .filter(|o| o.label_token != 0 && o.label.is_none())
         .count();
     assert_eq!(
@@ -74,19 +73,23 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
         "the three paired sliders have a token and no element"
     );
     assert_eq!(
-        p.options.iter().filter(|o| o.label_token == 0).count(),
+        p.retail_options().filter(|o| o.label_token == 0).count(),
         0,
-        "every control on the page resolved a string id through inq_preference"
+        "every retail control on the page resolved a string id through inq_preference"
     );
 
     // …and every one of the 27 *rows* shows text, counted off the tree rather than off the page's
     // own bookkeeping: a row is captioned when one of the three caption elements has glyphs.
     let rows: Vec<ElemHandle> = p.option_box.as_ref().expect("option box").items.clone();
-    assert_eq!(rows.len(), 38, "27 control rows, 6 headers, 5 separators");
+    assert_eq!(
+        rows.len(),
+        40,
+        "27 control rows, this client's 2 landscape rows, 6 headers, 5 separators"
+    );
     let mut captioned = 0;
     let mut blank: Vec<usize> = Vec::new();
     for (i, r) in rows.iter().enumerate() {
-        let is_control = p.options.iter().any(|o| o.row == *r);
+        let is_control = p.retail_options().any(|o| o.row == *r);
         if !is_control {
             continue;
         }
@@ -163,6 +166,17 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     );
     assert_eq!(cap("UI.ChatFontFace"), "Chat Font Face");
     assert_eq!(cap("UI.ChatFontSize"), "Chat Font Size");
+    // This client's two landscape rows carry literal captions, on the tree as well.
+    assert_eq!(cap("Render.Ground"), "Terrain Mode");
+    assert_eq!(cap("Render.Sky"), "Sky Mode");
+    for o in p.landscape_options() {
+        assert_eq!(
+            child_text(&mut ui, o.row, 0x1000_0223).as_deref(),
+            o.label.as_deref(),
+            "{}",
+            o.preference
+        );
+    }
 }
 
 /// The caption lands on the element the client writes it to.
@@ -338,12 +352,17 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
     let p = &s.config_page;
 
     assert_eq!(
-        p.options.len(),
+        p.retail_options().count(),
         30,
         "the rows still build; only the captions are gone"
     );
-    assert_eq!(p.options.iter().filter(|o| o.label.is_some()).count(), 0);
+    assert_eq!(p.retail_options().filter(|o| o.label.is_some()).count(), 0);
     assert_eq!(p.options.iter().filter(|o| o.label_token != 0).count(), 0);
+    // This client's own rows have no registry entry to lose: their captions are literal.
+    assert_eq!(
+        p.landscape_options().filter(|o| o.label.is_some()).count(),
+        2
+    );
     assert_eq!(
         p.slider_end_captions, 12,
         "set_slider_label's ids are literals, not registry rows"
@@ -363,9 +382,9 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
 fn with_no_string_table_the_page_records_which_string_it_asked_for() {
     let (_ui, s) = screen(false);
     let p = &s.config_page;
-    assert_eq!(p.options.len(), 30);
+    assert_eq!(p.retail_options().count(), 30);
     assert_eq!(
-        p.options.iter().filter(|o| o.label.is_some()).count(),
+        p.retail_options().filter(|o| o.label.is_some()).count(),
         0,
         "nothing resolved"
     );
@@ -452,8 +471,8 @@ fn register_all_fills_the_registry() {
     );
     assert_eq!(
         dereth_ui_screens::options::store::len(),
-        34,
-        "…over 34 registered variables"
+        36,
+        "…over 34 registered variables and this client's two landscape options"
     );
     let (table, label, _) =
         preferences::inq_preference("Camera.AlignToSlope").expect("inq_preference answers");
@@ -485,11 +504,12 @@ fn the_page_under_test_is_the_shipped_one() {
         })
         .expect("configuration panel");
     let built = page::config_post_init(&mut ui, page).expect("the config page's post-init");
-    assert_eq!(built.options.len(), 30);
+    assert_eq!(built.retail_options().count(), 30);
     assert_eq!(
-        built.options.iter().filter(|o| o.label.is_some()).count(),
+        built.retail_options().filter(|o| o.label.is_some()).count(),
         27
     );
+    assert_eq!(built.landscape_options().count(), 2);
     assert_eq!(built.header_captions, 6);
     assert_eq!(built.slider_end_captions, 12);
     assert_eq!(built.failures, 0);

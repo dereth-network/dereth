@@ -43,21 +43,28 @@ pub fn which_side2(plane: &Plane, p: Vec3, adjust: f32, eps: f32) -> Sidedness {
     }
 }
 
-/// Detail-texture fade by view-space depth.
-///
-/// `z < 10 -> 255`, `z > 50 -> 0`, otherwise a linear ramp truncated to an integer;
-/// `255*(50 - z)/40` is the only ramp consistent with the two endpoints.
-/// UNVERIFIED: the exact multiplier remains an open question.
+/// Detail-texture fade by view-space depth: `z < 10 -> 255`, `z > 50 -> 0`, otherwise
+/// `(1 - (z - 10) / 40) * 255` truncated. The one definition is
+/// [`crate::detail::get_alpha_for_z`]; this is it, where the land emitters reach for it.
 #[must_use]
 pub fn get_alpha_for_z(z: f32) -> u8 {
-    if z < 10.0 {
-        return 255;
+    crate::detail::get_alpha_for_z(z)
+}
+
+/// One vertex of the landscape detail pass, made from the ground pass's vertex: the same
+/// position and lit colour, the detail texture's coordinates (the ground's times the detail
+/// tiling) and, in the alpha byte, the fade for the vertex's view-space depth `view_z`.
+///
+/// The pass is the ground's triangles drawn again over themselves with the detail texture,
+/// blended by source alpha (`SRCALPHA`, `INVSRCALPHA`) with a less-or-equal depth test, so the
+/// texture shows only within 50 m of the eye and fully within 10 m.
+#[must_use]
+pub fn detail_vertex(ground: LandVertex, view_z: f32, tiling: f32) -> LandVertex {
+    LandVertex {
+        pos: ground.pos,
+        diffuse: (u32::from(get_alpha_for_z(view_z)) << 24) | (ground.diffuse & 0x00FF_FFFF),
+        uv: [ground.uv[0] * tiling, ground.uv[1] * tiling],
     }
-    if z > 50.0 {
-        return 0;
-    }
-    // LINT-OK: the value is in 0..=255 by the two guards above.
-    dereth_primitives::num::to_i32(6.375 * (50.0 - z)).clamp(0, 255) as u8
 }
 
 /// One emitted land vertex, FVF `0x142` (`XYZ|DIFFUSE|TEX1`), stride 0x18.
@@ -223,6 +230,32 @@ mod tests {
             assert!(a <= prev, "alpha rose at z={}", f32::from(i as u16) * 0.1);
             prev = a;
         }
+    }
+
+    /// The detail vertex keeps the ground vertex's place and lit colour, scales its texture
+    /// coordinates by the tiling and carries the distance fade in its alpha byte.
+    #[test]
+    fn a_detail_vertex_keeps_the_ground_colour_and_fades_with_depth() {
+        let ground = LandVertex {
+            pos: [24.0, 48.0, 10.0],
+            diffuse: 0xFF80_6040,
+            uv: [1.0, 0.5],
+        };
+        let near = detail_vertex(ground, 5.0, 4.0);
+        assert_eq!(near.pos, ground.pos);
+        assert_eq!(near.diffuse, 0xFF80_6040);
+        assert_eq!(near.uv, [4.0, 2.0]);
+        // The alpha byte fades; the lit colour underneath it stays the ground's.
+        let mid = detail_vertex(ground, 30.0, 4.0).diffuse;
+        assert_eq!(
+            (mid >> 24, mid & 0x00FF_FFFF),
+            (0x7F, ground.diffuse & 0x00FF_FFFF)
+        );
+        let far = detail_vertex(ground, 60.0, 4.0).diffuse;
+        assert_eq!(
+            (far >> 24, far & 0x00FF_FFFF),
+            (0, ground.diffuse & 0x00FF_FFFF)
+        );
     }
 
     /// Oracle: the retail comparison — `f > eps` POSITIVE,

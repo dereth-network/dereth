@@ -214,7 +214,117 @@ fn the_later_files_answer_what_an_older_world_lacks() {
     // The language reads are the later language file's.
     assert_eq!(s.local().read(string_table).expect("reads"), b"strings");
     assert_eq!(s.era_of(string_table), ContainerEra::Tod);
+    // The later files on their own read the shared record as the later portal file has it.
+    let later = s.later_files().expect("the later files");
+    assert_eq!(later.era(), ContainerEra::Tod);
+    assert_eq!(later.read_portal(shared).expect("reads"), b"later copy");
+    assert_eq!(later.read_portal(only_later).expect("reads"), b"later only");
+    assert_eq!(later.local().read(string_table).expect("reads"), b"strings");
+    assert!(!later.has_later_interface());
+    drop(later);
     drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A later world with an older portal file beside it for presentation: the world's reads never
+/// reach the older file, and the older file answers only as the legacy files, in its own layout.
+#[test]
+fn an_older_portal_beside_a_later_world_is_read_only_as_the_legacy_files() {
+    use dereth_dat::write::DatWriter;
+    let dir = std::env::temp_dir().join(format!("dereth-legacy-beside-{}", std::process::id()));
+    let legacy_dir = dir.join("legacy");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&legacy_dir).expect("temp dir");
+    let (portal, records) = two_level(0x400, 2112);
+    std::fs::write(PreTodDat::Portal.in_dir(&legacy_dir), &portal).expect("write");
+    let shared = DataId(records[2].0);
+    let only_older = DataId(records[3].0);
+    {
+        let mut p = DatWriter::create(
+            &RetailDat::Portal.in_dir(&dir),
+            0x400,
+            1,
+            0,
+            0x400 + 0x400 * 32,
+        )
+        .expect("create");
+        p.save(shared, b"later copy", 1, 1, 1).expect("save");
+        DatWriter::create(
+            &RetailDat::Cell.in_dir(&dir),
+            0x100,
+            2,
+            1,
+            0x400 + 0x100 * 16,
+        )
+        .expect("create");
+        DatWriter::create(
+            &RetailDat::Local.in_dir(&dir),
+            0x400,
+            3,
+            1,
+            0x400 + 0x400 * 16,
+        )
+        .expect("create");
+    }
+    let world = RetailDatStore::open_dir(&dir).expect("opens");
+    assert!(world.legacy_files().is_none(), "nothing beside it yet");
+    assert_eq!(
+        world.modern_files().map(|m| m.era()),
+        Some(ContainerEra::Tod),
+        "a later world is its own later files"
+    );
+    let world = world.with_legacy_portal(&legacy_dir).expect("attaches");
+    // The world's own reads are unchanged: the shared id is the later copy, and the record only
+    // the older file holds is not there.
+    assert_eq!(world.read_portal(shared).expect("reads"), b"later copy");
+    assert!(world.read_portal(only_older).is_err());
+    assert_eq!(world.era_of(shared), ContainerEra::Tod);
+    // The legacy files read the older file, in its layout.
+    let legacy = world.legacy_files().expect("the legacy files");
+    assert_eq!(legacy.era(), ContainerEra::PreTod);
+    assert_eq!(legacy.read_portal(shared).expect("reads"), records[2].1);
+    assert_eq!(legacy.read_portal(only_older).expect("reads"), records[3].1);
+    assert_eq!(legacy.era_of(shared), ContainerEra::PreTod);
+    drop(legacy);
+    // A later-layout file under the older name is refused as presentation files.
+    std::fs::write(
+        PreTodDat::Portal.in_dir(&legacy_dir),
+        std::fs::read(RetailDat::Portal.in_dir(&dir)).expect("read"),
+    )
+    .expect("write");
+    let err = RetailDatStore::open_dir(&dir)
+        .expect("opens")
+        .with_legacy_portal(&legacy_dir)
+        .expect_err("the later layout under the older name");
+    assert!(matches!(
+        err,
+        DatError::UnexpectedContainerEra {
+            found: ContainerEra::Tod,
+            expected: ContainerEra::PreTod,
+            ..
+        }
+    ));
+    drop(world);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An older world is its own legacy files, and its later files are the ones beside it.
+#[test]
+fn an_older_world_is_its_own_legacy_files() {
+    let dir = std::env::temp_dir().join(format!("dereth-pre-tod-own-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let (portal, records) = two_level(0x400, 2112);
+    let (cell, _) = two_level(0x100, 1593);
+    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
+    let s = RetailDatStore::open_pre_tod_dir(&dir).expect("opens");
+    let legacy = s.legacy_files().expect("its own files");
+    assert_eq!(legacy.era(), ContainerEra::PreTod);
+    let (id, payload) = &records[1];
+    assert_eq!(&legacy.read_portal(DataId(*id)).expect("reads"), payload);
+    assert!(s.modern_files().is_none(), "no later files beside it");
+    drop((s, legacy));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -251,6 +361,7 @@ fn a_pre_tod_dat_set_opens_as_a_store_whose_portal_file_answers_language_reads()
     let (id, payload) = &records[3];
     assert_eq!(&s.local().read(DataId(*id)).expect("reads"), payload);
     assert!(!s.grant_highres().expect("no high-resolution file"));
+    assert!(s.later_files().is_none(), "no later files beside it");
 
     // The same files under the later names are refused as the later dat set.
     for (dat, bytes) in [
