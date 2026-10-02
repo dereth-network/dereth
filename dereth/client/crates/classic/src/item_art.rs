@@ -15,7 +15,7 @@ pub enum Surface {
 
 /// Composite order: background, underlay, icon, overlay, replace opaque white
 /// pixels with corresponding effects pixels, then badge. Badge keeps native size.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Recipe {
     pub background: Option<u32>,
     pub underlay: Option<u32>,

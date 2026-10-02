@@ -10,11 +10,15 @@ use dereth_client_contract::overlay::{
 };
 use dereth_client_runtime::present::Presentation;
 use dereth_primitives::{TextureData, TextureFormat};
-use dereth_ui::{region::Box2D, UiSystem};
-use std::{collections::BTreeMap, error::Error, sync::Arc};
+use dereth_ui::region::Box2D;
+use std::{borrow::Cow, collections::BTreeMap, error::Error, sync::Arc};
 
 /// A texture this canvas uploaded.
 type TextureSlot = OverlayTexture;
+/// An image's colour key and the precision it is compared at.
+type KeyedAs = (Option<[u8; 3]>, [u8; 3]);
+/// A palette-indexed image's colours.
+type Palette = Vec<[u8; 4]>;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -100,35 +104,54 @@ struct Font {
     rgba_file: String,
     baseline: i32,
     line_height: i32,
-    glyphs: BTreeMap<String, Glyph>,
+    /// The characters below U+0100, by code point; every text draw and measure looks here first.
+    low: Vec<Option<Glyph>>,
+    /// The code page's characters above U+00FF.
+    high: BTreeMap<u32, Glyph>,
 }
 impl Font {
     fn from_atlas(name: &str, atlas: &dereth_classic_dat::fonts::FontAtlas) -> Self {
+        let mut low = vec![None; 256];
+        let mut high = BTreeMap::new();
+        for (c, g) in &atlas.glyphs {
+            let glyph = Glyph {
+                x: g.x.unsigned_abs(),
+                y: g.y.unsigned_abs(),
+                width: g.width.unsigned_abs(),
+                height: g.height.unsigned_abs(),
+                advance: g.advance,
+                bearing_x: g.bearing_x,
+                bearing_y: g.bearing_y,
+            };
+            match low.get_mut(*c as usize) {
+                Some(slot) => *slot = Some(glyph),
+                None => {
+                    high.insert(*c, glyph);
+                }
+            }
+        }
         Self {
             width: atlas.width,
             height: atlas.height,
             rgba_file: format!("font:{name}"),
             baseline: atlas.baseline,
             line_height: atlas.line_height,
-            glyphs: atlas
-                .glyphs
-                .iter()
-                .map(|(c, g)| {
-                    (
-                        c.to_string(),
-                        Glyph {
-                            x: g.x.unsigned_abs(),
-                            y: g.y.unsigned_abs(),
-                            width: g.width.unsigned_abs(),
-                            height: g.height.unsigned_abs(),
-                            advance: g.advance,
-                            bearing_x: g.bearing_x,
-                            bearing_y: g.bearing_y,
-                        },
-                    )
-                })
-                .collect(),
+            low,
+            high,
         }
+    }
+    fn exact(&self, c: u32) -> Option<&Glyph> {
+        match self.low.get(c as usize) {
+            Some(slot) => slot.as_ref(),
+            None => self.high.get(&c),
+        }
+    }
+    /// The character's glyph, or the question mark's for a character the font lacks.
+    fn glyph(&self, c: char) -> Option<&Glyph> {
+        self.exact(c as u32).or_else(|| self.exact(63))
+    }
+    fn advance(&self, c: char) -> i32 {
+        self.glyph(c).map_or(0, |g| g.advance)
     }
 }
 /// The images and fonts a screen can name: the classic portal's, and the icons decoded from the
@@ -136,14 +159,14 @@ impl Font {
 struct Manifest {
     art: Arc<ClassicArt>,
     assets: BTreeMap<String, Image>,
-    fonts: BTreeMap<String, Font>,
+    fonts: BTreeMap<String, Arc<Font>>,
 }
 impl Manifest {
     fn new(art: Arc<ClassicArt>) -> Self {
         let fonts = art
             .fonts()
             .iter()
-            .map(|(name, atlas)| (name.clone(), Font::from_atlas(name, atlas)))
+            .map(|(name, atlas)| (name.clone(), Arc::new(Font::from_atlas(name, atlas))))
             .collect();
         Self {
             art,
@@ -199,7 +222,7 @@ pub fn classic_palette(id: u32) -> Option<Vec<[u8; 4]>> {
         .get(&format!("{id:08X}"))
         .cloned()
 }
-static FONT_METRICS: std::sync::RwLock<Option<BTreeMap<String, Font>>> =
+static FONT_METRICS: std::sync::RwLock<Option<BTreeMap<String, Arc<Font>>>> =
     std::sync::RwLock::new(None);
 pub fn font_line_height(font: &str) -> Option<i32> {
     FONT_METRICS
@@ -237,7 +260,14 @@ pub fn measure_rich_text_height(font: &str, runs: &[crate::TextRun], width: i32)
 pub struct Canvas {
     runtime_pixels: BTreeMap<String, Vec<u8>>,
     manifest: Manifest,
-    textures: BTreeMap<String, TextureSlot>,
+    /// Uploaded images and font sheets by file, then by colour key and key precision.
+    textures: BTreeMap<String, BTreeMap<KeyedAs, TextureSlot>>,
+    /// Composed item icons by recipe.
+    item_icons: std::collections::HashMap<crate::item_art::Recipe, TextureSlot>,
+    /// Palette-indexed images by image and palette.
+    indexed: BTreeMap<String, Vec<(Palette, TextureSlot)>>,
+    /// Composed spell icons by icon, level and flags.
+    spells: BTreeMap<(u32, u32, u32), TextureSlot>,
     size: (u32, u32),
     white: Option<TextureSlot>,
     /// The next texture key this canvas hands out.
@@ -347,8 +377,7 @@ impl Canvas {
         gpu: &mut P,
         recipe: &crate::item_art::Recipe,
     ) -> Result<TextureSlot> {
-        let key = format!("item:{recipe:?}");
-        if let Some(slot) = self.textures.get(&key) {
+        if let Some(slot) = self.item_icons.get(recipe) {
             return Ok(*slot);
         }
         let read = |id: u32| -> Result<(u32, u32, Vec<u8>)> {
@@ -407,7 +436,7 @@ impl Canvas {
                 levels: vec![pixels],
             },
         )?;
-        self.textures.insert(key, slot);
+        self.item_icons.insert(recipe.clone(), slot);
         Ok(slot)
     }
     fn indexed_texture<P: Presentation + ?Sized>(
@@ -419,8 +448,11 @@ impl Canvas {
         if palette.len() != 256 {
             return Err("indexed image needs 256 palette entries".into());
         }
-        let key = format!("indexed:{did}:{palette:?}");
-        if let Some(slot) = self.textures.get(&key) {
+        if let Some((_, slot)) = self
+            .indexed
+            .get(did)
+            .and_then(|known| known.iter().find(|(p, _)| p == palette))
+        {
             return Ok(*slot);
         }
         let asset = self
@@ -442,7 +474,10 @@ impl Canvas {
                 levels: vec![pixels],
             },
         )?;
-        self.textures.insert(key, slot);
+        self.indexed
+            .entry(did.to_owned())
+            .or_default()
+            .push((palette.to_vec(), slot));
         Ok(slot)
     }
     fn spell_texture<P: Presentation + ?Sized>(
@@ -452,8 +487,8 @@ impl Canvas {
         level: u32,
         bits: u32,
     ) -> Result<TextureSlot> {
-        let key = format!("spell:{icon:08X}:{level}:{bits:08X}");
-        if let Some(slot) = self.textures.get(&key) {
+        let key = (icon, level, bits);
+        if let Some(slot) = self.spells.get(&key) {
             return Ok(*slot);
         }
         let read = |id: u32| -> Result<Vec<u8>> {
@@ -531,7 +566,7 @@ impl Canvas {
                 levels: vec![pixels],
             },
         )?;
-        self.textures.insert(key, slot);
+        self.spells.insert(key, slot);
         Ok(slot)
     }
     pub fn new(art: Arc<ClassicArt>, size: (u32, u32)) -> Result<Self> {
@@ -552,6 +587,9 @@ impl Canvas {
             runtime_pixels: BTreeMap::new(),
             manifest,
             textures: BTreeMap::new(),
+            item_icons: std::collections::HashMap::new(),
+            indexed: BTreeMap::new(),
+            spells: BTreeMap::new(),
             size,
             white: None,
             next_key: 1,
@@ -604,15 +642,14 @@ impl Canvas {
         previews: &dyn Fn(usize) -> Option<(PreviewSpace, [i32; 4])>,
     ) -> Result<()> {
         self.items.clear();
-        let mut layer = Screen {
-            width: screen.width,
-            height: screen.height,
-            commands: vec![],
-        };
-        for command in &screen.commands {
+        if (screen.width, screen.height) != self.size {
+            return Err("renderer/screen size mismatch".into());
+        }
+        let mut start = 0;
+        for (at, command) in screen.commands.iter().enumerate() {
             if let Command::Preview { index } = command {
-                self.draw_prepared(present, &layer)?;
-                layer.commands.clear();
+                self.draw_prepared(present, &screen.commands[start..at])?;
+                start = at + 1;
                 if let Some((space, [x, y, w, h])) = previews(*index) {
                     self.items.push(OverlayItem::Preview {
                         space,
@@ -624,11 +661,9 @@ impl Canvas {
                         },
                     });
                 }
-            } else {
-                layer.commands.push(command.clone());
             }
         }
-        self.draw_prepared(present, &layer)
+        self.draw_prepared(present, &screen.commands[start..])
     }
     /// Draw preview space `space` into `rect` first, under everything else this frame.
     pub fn prepend_preview(&mut self, space: PreviewSpace, [x, y, w, h]: [i32; 4]) {
@@ -663,8 +698,7 @@ impl Canvas {
         if bits.iter().any(|b| *b == 0 || *b > 8) {
             return Err("invalid key precision".into());
         }
-        let cache_key = format!("{file}:{key:?}:{bits:?}");
-        if let Some(slot) = self.textures.get(&cache_key) {
+        if let Some(slot) = self.textures.get(file).and_then(|k| k.get(&(key, bits))) {
             return Ok(*slot);
         }
         let mut rgba = self.read_pixels(file)?;
@@ -688,40 +722,33 @@ impl Canvas {
                 levels: vec![rgba],
             },
         )?;
-        self.textures.insert(cache_key, slot);
+        self.textures
+            .entry(file.to_owned())
+            .or_default()
+            .insert((key, bits), slot);
         Ok(slot)
     }
 
     fn submit(&mut self, texture: TextureSlot, vertices: &[OverlayVertex], invert: bool) {
-        if vertices.is_empty() {
-            return;
-        }
-        self.items.push(OverlayItem::Triangles {
-            material: if invert {
-                OverlayMaterial::Invert
-            } else {
-                OverlayMaterial::Image
-            },
-            texture,
-            sampler: OverlaySampler::POINT_CLAMP,
-            vertices: vertices.to_vec(),
-        });
+        let material = if invert {
+            OverlayMaterial::Invert
+        } else {
+            OverlayMaterial::Image
+        };
+        push_batch(&mut self.items, material, texture, vertices);
     }
 
     fn draw_prepared<P: Presentation + ?Sized>(
         &mut self,
         gpu: &mut P,
-        screen: &Screen,
+        commands: &[Command],
     ) -> Result<()> {
-        let screen = self.layout(screen)?;
-        if (screen.width, screen.height) != self.size {
-            return Err("renderer/screen size mismatch".into());
-        }
-        // Hollow current-UI regions provide clipping and coordinate conversion. Old event
-        // semantics live in the independent widget layer, not in ToD control classes.
-        let mut ui = UiSystem::new((screen.width as i32, screen.height as i32));
-        let root = ui.root();
-        for command in &screen.commands {
+        let commands = self.layout(commands)?;
+        let (width, height) = (signed(self.size.0), signed(self.size.1));
+        let whole = Box2D::from_xywh(0, 0, width, height);
+        let mut vertices = Vec::new();
+        for command in &commands {
+            let command: &Command = command;
             let (x, y, w, h, clip) = match command {
                 Command::Invert {
                     rect: [x, y, w, h],
@@ -770,27 +797,26 @@ impl Canvas {
                     height,
                     ..
                 } => (*x, *y, *width, *height, None),
-                Command::Text { x, y, clip, .. } => (*x, *y, screen.width, screen.height, *clip),
+                Command::Text { x, y, clip, .. } => (*x, *y, self.size.0, self.size.1, *clip),
             };
-            let clip = clip.unwrap_or([0, 0, screen.width as i32, screen.height as i32]);
-            let parent = ui.create_hollow(Some(root));
-            ui.move_to(parent, clip[0], clip[1]);
-            ui.resize_to(
-                parent,
+            // Each command is clipped to its clip rectangle and the screen, and everything but
+            // text to its own box as well.
+            let clip = clip.unwrap_or([0, 0, width, height]);
+            let parent = Box2D::from_xywh(
+                clip[0],
+                clip[1],
                 (clip[2] - clip[0]).max(0),
                 (clip[3] - clip[1]).max(0),
-            );
-            let element = ui.create_hollow(Some(parent));
-            ui.move_to(element, x - clip[0], y - clip[1]);
-            ui.resize_to(element, w as i32, h as i32);
+            )
+            .intersect(&whole);
             let bounds = if matches!(command, Command::Text { .. }) {
                 // A text pen is not a clip edge: italic/serif glyphs may extend
                 // left of it, above the line, or beyond their advance width.
-                ui.screen_clip_box(parent)
+                parent
             } else {
-                ui.screen_clip_box(element)
+                Box2D::from_xywh(x, y, signed(w), signed(h)).intersect(&parent)
             };
-            let mut vertices = Vec::new();
+            vertices.clear();
             let texture = match command {
                 Command::Invert { .. } => {
                     quad(
@@ -919,18 +945,16 @@ impl Canvas {
                 Command::Text {
                     text, font, color, ..
                 } => {
-                    let font = self
-                        .manifest
-                        .fonts
-                        .get(font)
-                        .ok_or_else(|| format!("missing font {font}"))?
-                        .clone();
+                    let font = Arc::clone(
+                        self.manifest
+                            .fonts
+                            .get(font)
+                            .ok_or_else(|| format!("missing font {font}"))?,
+                    );
                     let mut pen = x;
                     for ch in text.chars() {
                         let glyph = font
-                            .glyphs
-                            .get(&(ch as u32).to_string())
-                            .or_else(|| font.glyphs.get("63"))
+                            .glyph(ch)
                             .ok_or_else(|| format!("missing glyph U+{:04X}", ch as u32))?;
                         quad(
                             &mut vertices,
@@ -971,156 +995,179 @@ impl Canvas {
             .map_or(0, |font| measure(font, text))
     }
 
-    fn layout(&self, source: &Screen) -> Result<Screen> {
-        let mut screen = Screen {
-            width: source.width,
-            height: source.height,
-            commands: vec![],
-        };
-        for command in &source.commands {
-            if let Command::RichTextBox {
-                runs,
-                rect: [x, y, w, h],
-                font,
-                align,
-                wrap,
-                clip,
-            } = command
-            {
-                let metrics = self
-                    .manifest
-                    .fonts
-                    .get(font)
-                    .ok_or_else(|| format!("missing font {font}"))?;
-                let mut bounds = [*x, *y, x + w, y + h];
-                if let Some(c) = clip {
-                    bounds = [
-                        bounds[0].max(c[0]),
-                        bounds[1].max(c[1]),
-                        bounds[2].min(c[2]),
-                        bounds[3].min(c[3]),
-                    ];
-                }
-                for (row, line) in rich_lines(metrics, runs, *w, *wrap).into_iter().enumerate() {
-                    let top = y + i32_from(row) * metrics.line_height;
-                    if top >= y + h {
-                        break;
-                    }
-                    let width: i32 = line
-                        .iter()
-                        .map(|(c, _)| measure(metrics, &c.to_string()))
-                        .sum();
-                    let mut pen = x + match align {
-                        TextAlign::Left => 0,
-                        TextAlign::Center => (w - width) / 2,
-                        TextAlign::Right => w - width,
-                    };
-                    let mut start = 0;
-                    while start < line.len() {
-                        let color = line[start].1;
-                        let mut end = start + 1;
-                        while end < line.len() && line[end].1 == color {
-                            end += 1;
+    /// The commands with every text box broken into lines of text, and every image with no
+    /// size given its own size; the rest are borrowed as they are.
+    fn layout<'a>(&self, source: &'a [Command]) -> Result<Vec<Cow<'a, Command>>> {
+        let mut out = Vec::with_capacity(source.len());
+        for command in source {
+            match command {
+                Command::RichTextBox {
+                    runs,
+                    rect: [x, y, w, h],
+                    font,
+                    align,
+                    wrap,
+                    clip,
+                } => {
+                    let metrics = self
+                        .manifest
+                        .fonts
+                        .get(font)
+                        .ok_or_else(|| format!("missing font {font}"))?;
+                    let bounds = box_bounds([*x, *y, *w, *h], *clip);
+                    for (row, line) in rich_lines(metrics, runs, *w, *wrap).into_iter().enumerate()
+                    {
+                        let top = y + i32_from(row) * metrics.line_height;
+                        if top >= y + h {
+                            break;
                         }
-                        let text: String = line[start..end].iter().map(|(c, _)| *c).collect();
-                        let advance = measure(metrics, &text);
-                        screen.commands.push(Command::Text {
-                            text,
-                            x: pen,
+                        let width: i32 = line.iter().map(|(c, _)| metrics.advance(*c)).sum();
+                        let mut pen = x + match align {
+                            TextAlign::Left => 0,
+                            TextAlign::Center => (w - width) / 2,
+                            TextAlign::Right => w - width,
+                        };
+                        let mut start = 0;
+                        while start < line.len() {
+                            let color = line[start].1;
+                            let mut end = start + 1;
+                            while end < line.len() && line[end].1 == color {
+                                end += 1;
+                            }
+                            let text: String = line[start..end].iter().map(|(c, _)| *c).collect();
+                            let advance = measure(metrics, &text);
+                            out.push(Cow::Owned(Command::Text {
+                                text,
+                                x: pen,
+                                y: top,
+                                font: font.clone(),
+                                color,
+                                clip: Some(bounds),
+                            }));
+                            pen += advance;
+                            start = end;
+                        }
+                    }
+                }
+                Command::TextBox {
+                    text,
+                    rect: [x, y, w, h],
+                    font,
+                    color,
+                    align,
+                    wrap,
+                    clip,
+                } => {
+                    let metrics = self
+                        .manifest
+                        .fonts
+                        .get(font)
+                        .ok_or_else(|| format!("missing font {font}"))?;
+                    let bounds = box_bounds([*x, *y, *w, *h], *clip);
+                    for (row, line) in text_lines(metrics, text, *w, *wrap).into_iter().enumerate()
+                    {
+                        let top = y + i32_from(row) * metrics.line_height;
+                        if top >= y + h {
+                            break;
+                        }
+                        let width = measure(metrics, &line);
+                        let left = x + match align {
+                            TextAlign::Left => 0,
+                            TextAlign::Center => (w - width) / 2,
+                            TextAlign::Right => w - width,
+                        };
+                        out.push(Cow::Owned(Command::Text {
+                            text: line,
+                            x: left,
                             y: top,
                             font: font.clone(),
-                            color,
+                            color: *color,
                             clip: Some(bounds),
-                        });
-                        pen += advance;
-                        start = end;
+                        }));
                     }
                 }
-                continue;
-            }
-            if let Command::TextBox {
-                text,
-                rect: [x, y, w, h],
-                font,
-                color,
-                align,
-                wrap,
-                clip,
-            } = command
-            {
-                let metrics = self
-                    .manifest
-                    .fonts
-                    .get(font)
-                    .ok_or_else(|| format!("missing font {font}"))?;
-                let mut bounds = [*x, *y, x + w, y + h];
-                if let Some(c) = clip {
-                    bounds = [
-                        bounds[0].max(c[0]),
-                        bounds[1].max(c[1]),
-                        bounds[2].min(c[2]),
-                        bounds[3].min(c[3]),
-                    ];
-                }
-                for (row, line) in text_lines(metrics, text, *w, *wrap).into_iter().enumerate() {
-                    let top = y + i32_from(row) * metrics.line_height;
-                    if top >= y + h {
-                        break;
+                Command::Image {
+                    did,
+                    width: 0,
+                    height: 0,
+                    ..
+                } => {
+                    // An image with no size is drawn at its own size.
+                    let mut command = command.clone();
+                    if let (
+                        Some(image),
+                        Command::Image {
+                            width: w,
+                            height: h,
+                            ..
+                        },
+                    ) = (self.manifest.image(did), &mut command)
+                    {
+                        *w = image.width;
+                        *h = image.height;
                     }
-                    let width = measure(metrics, &line);
-                    let left = x + match align {
-                        TextAlign::Left => 0,
-                        TextAlign::Center => (w - width) / 2,
-                        TextAlign::Right => w - width,
-                    };
-                    screen.commands.push(Command::Text {
-                        text: line,
-                        x: left,
-                        y: top,
-                        font: font.clone(),
-                        color: *color,
-                        clip: Some(bounds),
-                    });
+                    out.push(Cow::Owned(command));
                 }
-            } else if let Command::Image {
-                did,
-                width: 0,
-                height: 0,
-                ..
-            } = command
-            {
-                // An image with no size is drawn at its own size.
-                let mut command = command.clone();
-                if let (
-                    Some(image),
-                    Command::Image {
-                        width: w,
-                        height: h,
-                        ..
-                    },
-                ) = (self.manifest.image(did), &mut command)
-                {
-                    *w = image.width;
-                    *h = image.height;
-                }
-                screen.commands.push(command);
-            } else {
-                screen.commands.push(command.clone());
+                _ => out.push(Cow::Borrowed(command)),
             }
         }
-        Ok(screen)
+        Ok(out)
+    }
+}
+
+/// Add one command's triangles to the overlay. A command drawn with the same texture and
+/// material as the one before it joins that batch: the order on the screen is the same, and the
+/// device draws one batch, not two.
+fn push_batch(
+    items: &mut Vec<OverlayItem>,
+    material: OverlayMaterial,
+    texture: TextureSlot,
+    vertices: &[OverlayVertex],
+) {
+    if vertices.is_empty() {
+        return;
+    }
+    if let Some(OverlayItem::Triangles {
+        material: last_material,
+        texture: last_texture,
+        vertices: last_vertices,
+        ..
+    }) = items.last_mut()
+    {
+        if *last_material == material && *last_texture == texture {
+            last_vertices.extend_from_slice(vertices);
+            return;
+        }
+    }
+    items.push(OverlayItem::Triangles {
+        material,
+        texture,
+        sampler: OverlaySampler::POINT_CLAMP,
+        vertices: vertices.to_vec(),
+    });
+}
+
+/// `v` as an `i32`, saturating at `i32::MAX`.
+fn signed(v: u32) -> i32 {
+    i32::try_from(v).unwrap_or(i32::MAX)
+}
+
+/// A text box's clip: its own rectangle, inside the clip it was given.
+fn box_bounds([x, y, w, h]: [i32; 4], clip: Option<[i32; 4]>) -> [i32; 4] {
+    let bounds = [x, y, x + w, y + h];
+    match clip {
+        Some(c) => [
+            bounds[0].max(c[0]),
+            bounds[1].max(c[1]),
+            bounds[2].min(c[2]),
+            bounds[3].min(c[3]),
+        ],
+        None => bounds,
     }
 }
 
 fn measure(font: &Font, text: &str) -> i32 {
-    text.chars()
-        .map(|c| {
-            font.glyphs
-                .get(&(c as u32).to_string())
-                .or_else(|| font.glyphs.get("63"))
-                .map_or(0, |g| g.advance)
-        })
-        .sum()
+    text.chars().map(|c| font.advance(c)).sum()
 }
 
 fn rich_lines(
@@ -1131,6 +1178,8 @@ fn rich_lines(
 ) -> Vec<Vec<(char, u32)>> {
     let mut lines = vec![];
     let mut line: Vec<(char, u32)> = vec![];
+    // The width of `line`, kept as characters are added and taken.
+    let mut used = 0;
     for run in runs {
         for c in run.text.chars() {
             if c == '\r' {
@@ -1138,13 +1187,11 @@ fn rich_lines(
             }
             if c == '\n' {
                 lines.push(std::mem::take(&mut line));
+                used = 0;
                 continue;
             }
-            let used: i32 = line
-                .iter()
-                .map(|(c, _)| measure(font, &c.to_string()))
-                .sum();
-            if wrap && !line.is_empty() && used + measure(font, &c.to_string()) > width {
+            let advance = font.advance(c);
+            if wrap && !line.is_empty() && used + advance > width {
                 if let Some(space) = line.iter().rposition(|(c, _)| c.is_whitespace()) {
                     let tail = line.split_off(space + 1);
                     line.truncate(space);
@@ -1152,9 +1199,11 @@ fn rich_lines(
                 } else {
                     lines.push(std::mem::take(&mut line));
                 }
+                used = line.iter().map(|(c, _)| font.advance(*c)).sum();
             }
             if !(wrap && line.is_empty() && c == ' ') {
                 line.push((c, run.color));
+                used += advance;
             }
         }
     }
@@ -1164,31 +1213,32 @@ fn rich_lines(
 
 fn text_lines(font: &Font, text: &str, width: i32, wrap: bool) -> Vec<String> {
     let mut lines = vec![];
+    let space = font.advance(' ');
     for paragraph in text.split('\n') {
         if !wrap {
             lines.push(paragraph.trim_end_matches('\r').to_owned());
             continue;
         }
         let mut line = String::new();
+        // The width of `line`, kept as characters are added.
+        let mut used = 0;
         for word in paragraph.split_whitespace() {
-            let candidate = if line.is_empty() {
-                word.to_owned()
-            } else {
-                format!("{line} {word}")
-            };
-            if !line.is_empty() && measure(font, &candidate) > width {
+            if !line.is_empty() && used + space + measure(font, word) > width {
                 lines.push(std::mem::take(&mut line));
+                used = 0;
             }
             if !line.is_empty() {
                 line.push(' ');
+                used += space;
             }
             for ch in word.chars() {
-                let mut candidate = line.clone();
-                candidate.push(ch);
-                if !line.is_empty() && measure(font, &candidate) > width {
+                let advance = font.advance(ch);
+                if !line.is_empty() && used + advance > width {
                     lines.push(std::mem::take(&mut line));
+                    used = 0;
                 }
                 line.push(ch);
+                used += advance;
             }
         }
         lines.push(line);
@@ -1240,4 +1290,138 @@ fn quad(
         top_right,
         top_left,
     ]);
+}
+
+#[cfg(test)]
+mod layout_tests {
+    //! Behaviour: none (the classic overlay's own batching and line breaking).
+    use super::*;
+
+    /// A font whose every character is `advance` pixels wide but the space, which is `space`.
+    fn font(advance: i32, space: i32) -> Font {
+        let mut low = vec![None; 256];
+        for (c, slot) in low.iter_mut().enumerate().skip(32) {
+            *slot = Some(Glyph {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                advance: if c == 32 { space } else { advance },
+                bearing_x: 0,
+                bearing_y: 0,
+            });
+        }
+        Font {
+            width: 1,
+            height: 1,
+            rgba_file: String::new(),
+            baseline: 0,
+            line_height: 10,
+            low,
+            high: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn a_character_the_font_lacks_measures_as_its_question_mark() {
+        let f = font(5, 3);
+        assert_eq!(measure(&f, "ab c"), 18);
+        assert_eq!(measure(&f, "\u{4E00}"), 5);
+    }
+
+    #[test]
+    fn text_wraps_at_words_and_breaks_a_word_longer_than_the_line() {
+        let f = font(5, 5);
+        assert_eq!(
+            text_lines(&f, "one two three", 40, true),
+            ["one two", "three"]
+        );
+        assert_eq!(
+            text_lines(&f, "abcdefghij", 20, true),
+            ["abcd", "efgh", "ij"]
+        );
+        assert_eq!(text_lines(&f, "a b\nc", 100, true), ["a b", "c"]);
+        assert_eq!(
+            text_lines(&f, "one two three\r", 10, false),
+            ["one two three"]
+        );
+    }
+
+    #[test]
+    fn coloured_text_wraps_at_its_last_space_and_keeps_each_character_s_colour() {
+        let f = font(5, 5);
+        let runs = [
+            crate::TextRun {
+                text: "red ".into(),
+                color: 1,
+            },
+            crate::TextRun {
+                text: "green blue".into(),
+                color: 2,
+            },
+        ];
+        let lines: Vec<String> = rich_lines(&f, &runs, 50, true)
+            .iter()
+            .map(|l| l.iter().map(|(c, _)| *c).collect())
+            .collect();
+        assert_eq!(lines, ["red green", "blue"]);
+        let first = &rich_lines(&f, &runs, 50, true)[0];
+        assert_eq!(first[0].1, 1);
+        assert_eq!(first[4].1, 2);
+        let lines: Vec<usize> = rich_lines(&f, &runs, 50, false)
+            .iter()
+            .map(Vec::len)
+            .collect();
+        assert_eq!(lines, [14]);
+    }
+
+    #[test]
+    fn neighbouring_commands_with_one_texture_draw_as_one_batch_in_order() {
+        let a = OverlayTexture {
+            space: OverlaySpace::Local,
+            key: 1,
+        };
+        let b = OverlayTexture {
+            space: OverlaySpace::Local,
+            key: 2,
+        };
+        let v = |x: f32| {
+            vec![
+                OverlayVertex {
+                    position: [x, 0.0, 0.5],
+                    color: 0,
+                    uv: [0.0, 0.0],
+                };
+                6
+            ]
+        };
+        let mut items = Vec::new();
+        push_batch(&mut items, OverlayMaterial::Image, a, &v(1.0));
+        push_batch(&mut items, OverlayMaterial::Image, a, &v(2.0));
+        push_batch(&mut items, OverlayMaterial::Image, a, &[]);
+        push_batch(&mut items, OverlayMaterial::Invert, a, &v(3.0));
+        push_batch(&mut items, OverlayMaterial::Image, b, &v(4.0));
+        push_batch(&mut items, OverlayMaterial::Image, a, &v(5.0));
+        let batches: Vec<(u64, Vec<f32>)> = items
+            .iter()
+            .map(|item| match item {
+                OverlayItem::Triangles {
+                    texture, vertices, ..
+                } => (
+                    texture.key,
+                    vertices.iter().step_by(6).map(|v| v.position[0]).collect(),
+                ),
+                OverlayItem::Preview { .. } => unreachable!(),
+            })
+            .collect();
+        assert_eq!(
+            batches,
+            [
+                (1, vec![1.0, 2.0]),
+                (1, vec![3.0]),
+                (2, vec![4.0]),
+                (1, vec![5.0])
+            ]
+        );
+    }
 }
