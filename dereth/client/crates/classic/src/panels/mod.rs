@@ -205,8 +205,6 @@ pub enum HostAction {
     ConfirmResolution(bool),
     CloseVendorForced,
     CloseGroundForced,
-    /// Put the selected item the player owns down on the ground.
-    DropSelected,
     Wear(ObjectId),
     Equip {
         object: ObjectId,

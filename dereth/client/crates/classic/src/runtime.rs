@@ -834,29 +834,6 @@ impl ClassicUi {
         }
         for action in outcome.actions {
             let name = names::enum_name_for_action(action.id);
-            // The drop-selection command puts the selected item on the ground.
-            if name == "SelectionDrop" {
-                if action.is_start() {
-                    self.desktop.host_actions.push(HostAction::DropSelected);
-                    self.desktop.host_origins.push(0);
-                }
-                continue;
-            }
-            // The select-self command selects the player.
-            if name == "SelectionSelf" {
-                if let Some(me) = cx.model().player.filter(|_| action.is_start()) {
-                    self.desktop.requests.push(UiRequest::Select(me));
-                }
-                continue;
-            }
-            // The give-selected command gives the selected item to the creature or character
-            // selected before it, and selects them.
-            if name == "SelectionGive" {
-                if action.is_start() {
-                    self.give_selected(cx);
-                }
-                continue;
-            }
             if is_ui_action(&name) {
                 if action.is_start() {
                     self.ui_actions.push(name);
@@ -887,32 +864,6 @@ impl ClassicUi {
             self.keyboard = bindings.snapshot();
         }
     }
-    /// Give the selected item to the creature or character selected before it: nothing with
-    /// either missing or the two the same, a complaint when the one before is no creature.
-    fn give_selected<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
-        let world = cx.model();
-        let (Some(item), Some(target)) = (
-            world.selected.filter(|s| s.0 != 0),
-            world.prev_selected.filter(|s| s.0 != 0),
-        ) else {
-            return;
-        };
-        if item == target {
-            return;
-        }
-        if world.weenie(target).is_some_and(|w| w.is_creature()) {
-            self.desktop
-                .requests
-                .push(UiRequest::GiveTo { item, target });
-            self.desktop.requests.push(UiRequest::Select(target));
-        } else {
-            self.desktop.host_actions.push(HostAction::LocalFeedback {
-                text: "You must select a creature or a character to give that to".into(),
-                severity: crate::panels::FeedbackSeverity::Warning,
-            });
-            self.desktop.host_origins.push(0);
-        }
-    }
     fn host_action<S: Host>(
         &mut self,
         cx: &mut Cx<'_, S>,
@@ -939,11 +890,6 @@ impl ClassicUi {
                 }
             }
             HostAction::VendorSellAll => ask(cx, UiRequest::VendorSellAll),
-            HostAction::DropSelected => {
-                if let Some(item) = cx.model().selected {
-                    ask(cx, UiRequest::PutInWorld(item));
-                }
-            }
             HostAction::CloseGroundForced => {
                 if let Some(ground) = cx.model().ground_object.filter(|g| g.0 != 0) {
                     ask(cx, UiRequest::CloseExternalContainer(ground));
