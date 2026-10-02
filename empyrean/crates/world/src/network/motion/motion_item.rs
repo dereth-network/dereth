@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use dereth_world_data::command_numbering::{self as numbering, CommandNumbering};
 use empyrean_common::dotnet::binary_reader::{BinaryReader, ReadError};
 use empyrean_entity::enums::MotionCommand;
 use empyrean_entity::ObjectGuid;
@@ -55,9 +56,14 @@ impl MotionItem {
 
     // ACE: MotionItem.MotionItem
     /// `new MotionItem(WorldObject wo, BinaryReader reader)`: a raw command the enum does not
-    /// know leaves `MotionCommand` at 0 (ACE logs it).
-    pub fn read(wo: ObjectGuid, reader: &mut BinaryReader<'_>) -> Result<Self, ReadError> {
-        let raw_command = reader.read_u16()?;
+    /// know leaves `MotionCommand` at 0 (ACE logs it). Not ACE: the raw command is an index in
+    /// `numbering`, the world's files' (ACE's is always the final one).
+    pub fn read(
+        wo: ObjectGuid,
+        reader: &mut BinaryReader<'_>,
+        numbering: CommandNumbering,
+    ) -> Result<Self, ReadError> {
+        let raw_command = numbering::final_index_from_wire(numbering, reader.read_u16()?);
 
         let motion_command = match raw_to_interpreted().get(&raw_command) {
             Some(c) => *c,
@@ -114,9 +120,18 @@ pub fn raw_to_interpreted() -> &'static HashMap<u16, MotionCommand> {
 // ACE: PackedCommandExtensions.Write
 /// `writer.Write(MotionItem mc)`: the command, the object's next `Motion` sequence (with the MSB
 /// set for a client-initiated motion), the speed. `sequences` is `mc.WorldObject.Sequences`.
+/// Not ACE: the command goes out in `numbering`, the world's files'; the caller leaves out a
+/// command that numbering lacks.
 #[allow(clippy::cast_possible_truncation)] // `(ushort)mc.MotionCommand`
-pub fn write(writer: &mut Vec<u8>, mc: &MotionItem, sequences: &mut SequenceManager) {
-    writer.write_u16(mc.motion_command.0 as u16); // verified
+pub fn write(
+    writer: &mut Vec<u8>,
+    mc: &MotionItem,
+    sequences: &mut SequenceManager,
+    numbering: CommandNumbering,
+) {
+    let index =
+        numbering::wire_index(numbering, mc.motion_command.0).unwrap_or(mc.motion_command.0 as u16);
+    writer.write_u16(index); // verified
 
     // should already be masked with 0x7FFF
     let mut next_sequence = sequences.get_next_sequence(SequenceType::Motion);

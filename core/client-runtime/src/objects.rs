@@ -622,6 +622,9 @@ pub struct ObjectStream {
     pub stats: ObjectStats,
     /// The physics bodies of the same objects; see [`crate::object_physics`].
     pub physics: crate::object_physics::ObjectPhysics,
+    /// The numbering the server's motion commands arrive in: the world files', as the client of
+    /// their day numbered its messages. The final numbering without a store.
+    command_numbering: dereth_world_data::command_numbering::CommandNumbering,
 }
 
 /// Calls accepted for the local body. This is a Rust ownership seam, not a new wire message.
@@ -683,6 +686,7 @@ impl ObjectStream {
             use_position_from_server: false,
             stats: ObjectStats::default(),
             physics: crate::object_physics::ObjectPhysics::new(),
+            command_numbering: dereth_world_data::command_numbering::CommandNumbering::Final,
         }
     }
 
@@ -690,9 +694,25 @@ impl ObjectStream {
     /// validate a part array or accept a parent link. App shares its already-open store.
     pub fn with_store(store: Arc<RetailDatStore>) -> Self {
         Self {
+            command_numbering: dereth_world_data::command_numbering::of_store(&store),
             store: Some(store),
             ..Self::new()
         }
+    }
+
+    /// The numbering the server's motion commands arrive in, and the client's go out in: the
+    /// world files' ([`dereth_world_data::command_numbering`]).
+    #[must_use]
+    pub fn command_numbering(&self) -> dereth_world_data::command_numbering::CommandNumbering {
+        self.command_numbering
+    }
+
+    /// Set the wire's command numbering, for a stream whose store does not say it.
+    pub fn set_command_numbering(
+        &mut self,
+        numbering: dereth_world_data::command_numbering::CommandNumbering,
+    ) {
+        self.command_numbering = numbering;
     }
 
     fn resolve_physics_setup(&mut self, setup: u32) {

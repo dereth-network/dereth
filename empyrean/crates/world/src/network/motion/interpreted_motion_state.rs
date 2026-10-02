@@ -4,6 +4,7 @@
 //! ACE keeps a back reference to the owning `MovementData`, which it only assigns (its
 //! `CurrentStyle` is copied at construction); the reference is not kept here.
 
+use dereth_world_data::command_numbering::{self as numbering, CommandNumbering};
 use empyrean_entity::enums::{MotionCommand, MotionStance, MovementStateFlag};
 use empyrean_entity::ObjectGuid;
 
@@ -171,32 +172,48 @@ impl InterpretedMotionState {
 /// `writer.Write(InterpretedMotionState state)`: the flags with the command count in bits 7+, the
 /// flagged fields (stance and commands as `ushort`), the commands, then DWORD alignment.
 /// `sequences` is the sequences of the commands' object (see `motion_item::write`).
+///
+/// Not ACE: the stance and commands go out in `numbering`, the world's files' (ACE's is always the
+/// final one). A stance or command that numbering lacks is sent as the field's default
+/// (`NonCombat`, `Ready`, none), and a queued command it lacks is left out.
 #[allow(clippy::cast_possible_truncation)] // `(ushort)` of the stance and commands
 pub fn write(
     writer: &mut Vec<u8>,
     state: &InterpretedMotionState,
     sequences: &mut SequenceManager,
+    numbering: CommandNumbering,
 ) {
-    let num_commands = state.commands.as_ref().map_or(0, Vec::len);
+    let index = |id: u32, default: u32| {
+        numbering::wire_index(numbering, id)
+            .or_else(|| numbering::wire_index(numbering, default))
+            .unwrap_or(0)
+    };
+    let commands: Vec<&MotionItem> = state
+        .commands
+        .iter()
+        .flatten()
+        .filter(|m| numbering::wire_index(numbering, m.motion_command.0).is_some())
+        .collect();
+    let num_commands = commands.len();
 
     // `(uint)state.Flags | (uint)numCommands << 7`
     writer.write_u32(state.flags.0 | (num_commands as u32) << 7);
 
     // for MotionStance / MotionCommand, write as ushort
     if (state.flags & MovementStateFlag::CurrentStyle).0 != 0 {
-        writer.write_u16(state.current_style.0 as u16);
+        writer.write_u16(index(state.current_style.0, MotionStance::NonCombat.0));
     }
 
     if (state.flags & MovementStateFlag::ForwardCommand).0 != 0 {
-        writer.write_u16(state.forward_command.0 as u16);
+        writer.write_u16(index(state.forward_command.0, MotionCommand::Ready.0));
     }
 
     if (state.flags & MovementStateFlag::SideStepCommand).0 != 0 {
-        writer.write_u16(state.sidestep_command.0 as u16);
+        writer.write_u16(index(state.sidestep_command.0, 0));
     }
 
     if (state.flags & MovementStateFlag::TurnCommand).0 != 0 {
-        writer.write_u16(state.turn_command.0 as u16);
+        writer.write_u16(index(state.turn_command.0, 0));
     }
 
     if (state.flags & MovementStateFlag::ForwardSpeed).0 != 0 {
@@ -211,10 +228,8 @@ pub fn write(
         writer.write_f32(state.turn_speed);
     }
 
-    if num_commands > 0 {
-        for motion in state.commands.iter().flatten() {
-            motion_item::write(writer, motion, sequences);
-        }
+    for motion in commands {
+        motion_item::write(writer, motion, sequences, numbering);
     }
 
     // align to DWORD boundary

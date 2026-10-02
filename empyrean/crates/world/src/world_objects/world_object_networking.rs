@@ -519,12 +519,13 @@ fn serialize_physics_data(
         // data starts 4-aligned in the message (after the object description and three dwords),
         // so written on its own it is the same bytes.
         let mut buffer = Vec::new();
+        let numbering = w.dats.portal_dat().command_numbering();
         let sequences = &mut w
             .objects
             .get_mut(this)
             .expect("ACE: this is null")
             .sequences;
-        movement_data::write(&mut buffer, &movement_data, false, sequences);
+        movement_data::write(&mut buffer, &movement_data, false, sequences, numbering);
         debug_assert_eq!(writer.len() % 4, 0, "the movement data starts aligned");
 
         desc.movement = Some((buffer, u32::from(current_motion_state.is_autonomous)));
@@ -1943,8 +1944,9 @@ pub fn enqueue_broadcast_motion(
 
     // `new GameMessageUpdateMotion(this, motion)`: `new MovementData(wo, motion)` and the send.
     let movement_data = MovementData::from_motion(this, motion);
+    let numbering = w.dats.portal_dat().command_numbering();
     let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let msg = game_message_update_motion::game_message_update_motion(o, &movement_data);
+    let msg = game_message_update_motion::game_message_update_motion(o, &movement_data, numbering);
 
     match max_range {
         None => {

@@ -1046,6 +1046,206 @@ pub fn retail_2013_index_to_current(i: u16) -> Option<u16> {
 }
 
 // -------------------------------------------------------------------------------------------
+// The numbering a world's data files use.
+// -------------------------------------------------------------------------------------------
+
+/// **How a set of data files numbers its motion commands**, which is how the client of their day
+/// numbered them on the wire too.
+///
+/// The command table grew over the game's life. Until 2013 it only ever grew at its end, with
+/// one exception, so a motion table from 1999 reads correctly under the 2013 table; the final
+/// client then inserted three rows at `0x10F` and moved everything above them. The end-of-retail
+/// files are in the final numbering; every older set of files is in one of the two earlier ones:
+///
+/// | numbering | the files it reads |
+/// |---|---|
+/// | [`Self::Final`] | the final client's, June 2015 on (and every file that keeps no command above `0x10E`) |
+/// | [`Self::Before2015`] | October 1999 to December 2013, the files from before Throne of Destiny included |
+/// | [`Self::January2002`] | the client of January 2002, whose emote block was reordered by August 2002 |
+///
+/// The rebuild keeps one numbering inside, [`Self::Final`], which is [`MotionCommand`]'s.
+/// Files and wire words in an older numbering are translated at the edge, through
+/// [`Self::to_final`] and [`Self::command_from_wire`], and back through [`Self::from_final`] and
+/// [`Self::command_to_wire`].
+///
+/// A command keeps its class byte across numberings (only its index moves), so an older
+/// numbering's ids are the final table's class bytes over the older index. The commands the
+/// final table has no row for are listed per numbering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum CommandNumbering {
+    /// The final client's 412 commands: the files from June 2015 on.
+    #[default]
+    Final,
+    /// The 408 commands of the clients up to September 2013, of which every client from
+    /// October 1999 on (but those of [`Self::January2002`]) has a prefix. Identity below `0x10F`,
+    /// three lower from there; the one row the final client dropped (`SideBySideVitals`, a
+    /// screen command no motion table names) has no counterpart.
+    Before2015,
+    /// The 352 commands of the January 2002 client. Below `0x140` it is
+    /// [`Self::Before2015`]; above, the emote block was later reordered, and seventeen commands it
+    /// has were removed (two of them, `PointUpState` and `PointUp`, are played by that winter's
+    /// human motion table). A numbering of its own because the files of that winter are keyed
+    /// by it.
+    January2002,
+}
+
+/// `(first index, last index, shift to the final index)` per numbering. Indices outside every
+/// row have no final counterpart.
+const FINAL_ROWS: [(u16, u16, i16); 1] = [(0x000, 0x19B, 0)];
+const BEFORE_2015_ROWS: [(u16, u16, i16); 3] =
+    [(0x000, 0x10E, 0), (0x10F, 0x15D, 3), (0x15F, 0x197, 3)];
+const JANUARY_2002_ROWS: [(u16, u16, i16); 9] = [
+    (0x000, 0x0D9, 0),
+    (0x0DB, 0x10E, 0),
+    (0x10F, 0x13F, 3),
+    (0x141, 0x145, 2),
+    (0x148, 0x148, 0),
+    (0x14C, 0x14C, -3),
+    (0x14E, 0x151, -4),
+    (0x153, 0x154, -5),
+    (0x15A, 0x15C, -10),
+];
+
+/// The ids an older numbering has that the final table has no row for, by index.
+const BEFORE_2015_ONLY: [(u16, u32); 1] = [(0x15E, RETAIL_2013_SIDE_BY_SIDE_VITALS)];
+const JANUARY_2002_ONLY: [(u16, u32); 17] = [
+    (0x0DA, 0x0900_00DA), // SpellResearchPanel
+    (0x140, 0x4300_0140), // PointUpState
+    (0x146, 0x4300_0146), // HeadStandState
+    (0x147, 0x4300_0147), // DizzyState
+    (0x149, 0x4300_0149), // PatBellyState
+    (0x14A, 0x4300_014A), // JumpingJackState
+    (0x14B, 0x4300_014B), // MimeState
+    (0x14D, 0x4300_014D), // ScanHorizonState
+    (0x152, 0x1300_0152), // PointUp
+    (0x155, 0x1300_0155), // ComeOn
+    (0x156, 0x1300_0156), // Lost
+    (0x157, 0x1300_0157), // WhyIOughta
+    (0x158, 0x1300_0158), // Giggle
+    (0x159, 0x1300_0159), // Puzzlement
+    (0x15D, 0x1300_015D), // Sit
+    (0x15E, 0x1300_015E), // SitCrossLegged
+    (0x15F, 0x1300_015F), // SitBack
+];
+
+impl CommandNumbering {
+    /// Every numbering, in the order [`Self::infer`] tries them.
+    pub const ALL: [Self; 3] = [Self::Final, Self::Before2015, Self::January2002];
+
+    fn rows(self) -> &'static [(u16, u16, i16)] {
+        match self {
+            Self::Final => &FINAL_ROWS,
+            Self::Before2015 => &BEFORE_2015_ROWS,
+            Self::January2002 => &JANUARY_2002_ROWS,
+        }
+    }
+
+    fn only(self) -> &'static [(u16, u32)] {
+        match self {
+            Self::Final => &[],
+            Self::Before2015 => &BEFORE_2015_ONLY,
+            Self::January2002 => &JANUARY_2002_ONLY,
+        }
+    }
+
+    /// How many commands the numbering's table has.
+    #[must_use]
+    pub const fn command_count(self) -> u16 {
+        match self {
+            Self::Final => 412,
+            Self::Before2015 => 408,
+            Self::January2002 => 352,
+        }
+    }
+
+    /// The final table's index of this numbering's index `i`; `None` for a command the final
+    /// table has no row for, and past the end.
+    #[must_use]
+    pub fn to_final_index(self, i: u16) -> Option<u16> {
+        let (_, _, d) = self
+            .rows()
+            .iter()
+            .find(|(lo, hi, _)| (*lo..=*hi).contains(&i))?;
+        i.checked_add_signed(*d)
+    }
+
+    /// This numbering's index of the final table's index `j`; `None` for a command this
+    /// numbering does not have.
+    #[must_use]
+    pub fn from_final_index(self, j: u16) -> Option<u16> {
+        self.rows().iter().find_map(|(lo, hi, d)| {
+            let i = j.checked_add_signed(-*d)?;
+            (*lo..=*hi).contains(&i).then_some(i)
+        })
+    }
+
+    /// This numbering's id at index `i`, or `None` past its end.
+    #[must_use]
+    pub fn id_at(self, i: u16) -> Option<u32> {
+        if let Some(j) = self.to_final_index(i) {
+            return Some(COMMAND_IDS[usize::from(j)] & 0xFFFF_0000 | u32::from(i));
+        }
+        self.only().iter().find(|(k, _)| *k == i).map(|(_, id)| *id)
+    }
+
+    /// Whether `id` is one of this numbering's commands, class byte and all.
+    #[must_use]
+    pub fn holds(self, id: u32) -> bool {
+        u16::try_from(id & 0x00FF_FFFF)
+            .ok()
+            .and_then(|i| self.id_at(i))
+            == Some(id)
+    }
+
+    /// The final command an id of this numbering names; `None` when the id is not this
+    /// numbering's or the final table has no row for it.
+    #[must_use]
+    pub fn to_final(self, id: u32) -> Option<MotionCommand> {
+        if !self.holds(id) {
+            return None;
+        }
+        let j = self.to_final_index(u16::try_from(id & 0xFFFF).ok()?)?;
+        MotionCommand::from_index(j)
+    }
+
+    /// The id this numbering gives a final command; `None` when it does not have it.
+    #[must_use]
+    pub fn from_final(self, c: MotionCommand) -> Option<u32> {
+        self.id_at(self.from_final_index(c.to_index()?)?)
+    }
+
+    /// The command a wire index in this numbering names: the final table's command, or `None`
+    /// for an index with no final counterpart.
+    #[must_use]
+    pub fn command_from_wire(self, i: u16) -> Option<MotionCommand> {
+        MotionCommand::from_index(self.to_final_index(i)?)
+    }
+
+    /// The wire index this numbering gives a final command; `None` when it does not have it.
+    #[must_use]
+    pub fn command_to_wire(self, c: MotionCommand) -> Option<u16> {
+        self.from_final_index(c.to_index()?)
+    }
+
+    /// The numbering a set of files uses, told from the full command ids its human motion table
+    /// carries (its default style, the style defaults and the link destinations): the first of
+    /// [`Self::ALL`] that holds every one of them. Files that keep no command above `0x10E` read
+    /// the same under all three, and come out [`Self::Final`]; ids no numbering holds also come
+    /// out [`Self::Final`].
+    pub fn infer(ids: impl IntoIterator<Item = u32> + Clone) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|n| {
+                ids.clone()
+                    .into_iter()
+                    .filter(|&id| id != 0)
+                    .all(|id| n.holds(id))
+            })
+            .unwrap_or_default()
+    }
+}
+
+// -------------------------------------------------------------------------------------------
 // The client's two parallel arrays, verbatim.
 // -------------------------------------------------------------------------------------------
 
@@ -1704,6 +1904,127 @@ mod tests {
         }
         assert_eq!(seen.len(), 407);
         assert_eq!(RETAIL_2013_SIDE_BY_SIDE_VITALS & 0xFFFF, 0x015E);
+    }
+
+    /// The numbering before 2015 is the 2013 map, both ways, and its ids carry the final table's
+    /// class bytes over the older index: `LogOut` is `0x1000011B`, `SitState` `0x4300013A`,
+    /// `AtlatlCombat` `0x80000138`.
+    #[test]
+    fn the_numbering_before_2015_is_the_2013_table() {
+        let n = CommandNumbering::Before2015;
+        for i in 0..n.command_count() {
+            assert_eq!(
+                n.to_final_index(i),
+                retail_2013_index_to_current(i),
+                "{i:#X}"
+            );
+            if let Some(j) = n.to_final_index(i) {
+                assert_eq!(n.from_final_index(j), Some(i), "{j:#X}");
+            }
+        }
+        for (old, c) in [
+            (0x1000_011B, MotionCommand::LOG_OUT),
+            (0x4300_013A, MotionCommand::SIT_STATE),
+            (0x8000_0138, MotionCommand::ATLATL_COMBAT),
+            (0x1000_011C, MotionCommand::DOUBLE_SLASH_LOW),
+            (0x4100_0003, MotionCommand::READY),
+        ] {
+            assert_eq!(n.to_final(old), Some(c), "{old:#010X}");
+            assert_eq!(n.from_final(c), Some(old), "{c:?}");
+        }
+        assert_eq!(n.command_from_wire(0x11B), Some(MotionCommand::LOG_OUT));
+        assert_eq!(n.command_to_wire(MotionCommand::LOG_OUT), Some(0x11B));
+        // The commands the final client added have no older index, and an id whose class byte
+        // is not the older table's is not one of its commands.
+        assert_eq!(n.from_final(MotionCommand::COMBAT_EAT), None);
+        assert_eq!(n.command_to_wire(MotionCommand::AI_TELEGRAPH_CAST), None);
+        assert_eq!(
+            n.to_final(0x1000_011E),
+            Some(MotionCommand::DOUBLE_SLASH_HIGH)
+        );
+        assert_eq!(n.to_final(0x4300_011B), None, "the final AFKState id");
+        assert_eq!(n.id_at(0x15E), Some(RETAIL_2013_SIDE_BY_SIDE_VITALS));
+        assert_eq!(n.to_final(RETAIL_2013_SIDE_BY_SIDE_VITALS), None);
+        assert_eq!(n.id_at(408), None);
+    }
+
+    /// The final numbering is the table itself.
+    #[test]
+    fn the_final_numbering_is_the_identity() {
+        let n = CommandNumbering::Final;
+        for (i, c, _) in all() {
+            assert_eq!(n.id_at(i), Some(c.0));
+            assert_eq!(n.to_final(c.0), Some(c));
+            assert_eq!(n.from_final(c), Some(c.0));
+            assert_eq!(n.command_from_wire(i), Some(c));
+            assert_eq!(n.command_to_wire(c), Some(i));
+        }
+        assert_eq!(n.id_at(412), None);
+    }
+
+    /// The January 2002 numbering: the older one below its emote block, then a reordered block
+    /// whose survivors land on the rows of the same name, and seventeen commands with no later
+    /// row. Every index maps to a distinct final row or to none.
+    #[test]
+    fn the_january_2002_numbering_reorders_the_emote_block() {
+        let n = CommandNumbering::January2002;
+        for (old, c) in [
+            (0x1000_011B, MotionCommand::LOG_OUT),
+            (0x8000_0138, MotionCommand::ATLATL_COMBAT),
+            (0x4300_013A, MotionCommand::SIT_STATE),
+            (0x4300_0141, MotionCommand::POINT_DOWN_STATE),
+            (0x4300_0148, MotionCommand::HAVE_A_SEAT_STATE),
+            (0x4300_014C, MotionCommand::AT_EASE_STATE),
+            (0x1300_014E, MotionCommand::NUDGE_LEFT),
+            (0x1300_0153, MotionCommand::POINT_DOWN),
+            (0x1300_015C, MotionCommand::HAVE_A_SEAT),
+        ] {
+            assert_eq!(n.to_final(old), Some(c), "{old:#010X}");
+            assert_eq!(n.from_final(c), Some(old), "{c:?}");
+        }
+        assert_eq!(n.to_final(0x4300_0140), None, "PointUpState");
+        assert!(n.holds(0x4300_0140));
+        assert_eq!(n.to_final(0x1300_0152), None, "PointUp");
+        assert_eq!(n.id_at(0x160), None);
+        let mut seen = std::collections::BTreeSet::new();
+        let mut gone = 0;
+        for i in 0..n.command_count() {
+            assert!(n.id_at(i).is_some(), "{i:#X} has an id");
+            match n.to_final_index(i) {
+                Some(j) => assert!(seen.insert(j), "{i:#X} shares {j:#X}"),
+                None => gone += 1,
+            }
+        }
+        assert_eq!(gone, 17);
+    }
+
+    /// The numbering is told by the first table that holds every id: the end-of-retail ids are
+    /// the final table's, the 2005 `LogOut` link is only the older one's, and the January 2002
+    /// emote ids only that winter's. Ids below the insertion read the same everywhere and come
+    /// out final.
+    #[test]
+    fn a_numbering_is_inferred_from_the_ids_a_table_holds() {
+        let ids = |v: &[u32]| v.to_vec();
+        assert_eq!(
+            CommandNumbering::infer(ids(&[0x8000_003D, 0x4100_0003, 0x1000_011E, 0x4300_013D])),
+            CommandNumbering::Final
+        );
+        assert_eq!(
+            CommandNumbering::infer(ids(&[0x8000_003D, 0x4100_0003, 0x1000_011B, 0x4300_013A])),
+            CommandNumbering::Before2015
+        );
+        assert_eq!(
+            CommandNumbering::infer(ids(&[0x8000_003D, 0x1000_011B, 0x1300_0152])),
+            CommandNumbering::January2002
+        );
+        assert_eq!(
+            CommandNumbering::infer(ids(&[0x8000_003D, 0x4100_0003, 0x1000_0087])),
+            CommandNumbering::Final
+        );
+        assert_eq!(
+            CommandNumbering::infer(ids(&[0xDEAD_BEEF])),
+            CommandNumbering::Final
+        );
     }
 
     /// The ids are unique, which is what makes `to_index` well defined, and the names are unique

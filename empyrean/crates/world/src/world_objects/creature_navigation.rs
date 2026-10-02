@@ -497,8 +497,9 @@ pub fn creature_broadcast_move_to(
 
     let movement_data =
         crate::network::motion::movement_data::MovementData::from_motion(this, &motion);
+    let numbering = w.dats.portal_dat().command_numbering();
     let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let msg = crate::network::game_messages::messages::game_message_update_motion::game_message_update_motion(o, &movement_data);
+    let msg = crate::network::game_messages::messages::game_message_update_motion::game_message_update_motion(o, &movement_data, numbering);
     let session = crate::managers::player_manager::player_session(w, player)
         .expect("ACE: Player.Session is null (NullReferenceException)");
     crate::network::game_messages::game_message::enqueue_send(w, session, msg);

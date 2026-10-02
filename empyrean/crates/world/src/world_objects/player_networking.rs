@@ -658,8 +658,11 @@ pub fn broadcast_movement(w: &mut World, this: ObjectGuid, move_to_state: &MoveT
         }
     }
 
+    let numbering = w.dats.portal_dat().command_numbering();
+
     let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let movement_event = game_message_update_motion::game_message_update_motion(o, &movement_data);
+    let movement_event =
+        game_message_update_motion::game_message_update_motion(o, &movement_data, numbering);
     enqueue_broadcast(w, this, true, &[movement_event]); // shouldn't need to go to originating player?
 
     // TODO: use real motion / animation system from physics

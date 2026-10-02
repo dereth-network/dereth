@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use dereth_assets::{self as assets, Decode};
 use dereth_primitives::{ContainerEra, DataId};
+use dereth_world_data::command_numbering::{self as numbering, CommandNumbering};
 
 use crate::source::DatSource;
 
@@ -76,6 +77,13 @@ pub trait DatFileType: Any + Send + Sync + Sized {
         let _ = era;
         Self::unpack(file_id, bytes)
     }
+
+    /// Not ACE: put the motion commands the object names into the final numbering, from the
+    /// numbering of the files it was read from. Only the three record types that name commands
+    /// (motion tables, combat manoeuvre tables, the spell component table) have any.
+    fn renumber(&mut self, from: CommandNumbering) {
+        let _ = from;
+    }
 }
 
 /// Every shared decoder is a `DatFileType` through its `Decode::decode_payload`, which also checks
@@ -97,6 +105,34 @@ macro_rules! shared_file_types {
     };
 }
 
+/// The shared decoders of the records that name motion commands, with their translation into the
+/// final numbering.
+macro_rules! renumbered_file_types {
+    ($($t:ty => $f:path),* $(,)?) => {
+        $(impl DatFileType for $t {
+            fn unpack(file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError> {
+                Ok(<$t as Decode>::decode_payload(DataId(file_id), bytes)?)
+            }
+            fn unpack_in(
+                era: ContainerEra,
+                file_id: u32,
+                bytes: &[u8],
+            ) -> Result<Self, UnpackError> {
+                Ok(<$t as Decode>::decode_payload_in(era, DataId(file_id), bytes)?)
+            }
+            fn renumber(&mut self, from: CommandNumbering) {
+                $f(self, from);
+            }
+        })*
+    };
+}
+
+renumbered_file_types!(
+    assets::CombatManeuverTable => numbering::combat_maneuver_table,
+    assets::MotionTable => numbering::motion_table,
+    assets::SpellComponentTable => numbering::spell_component_table,
+);
+
 shared_file_types!(
     assets::ActionMap,
     assets::Animation,
@@ -106,7 +142,6 @@ shared_file_types!(
     assets::CharGen,
     assets::ChatPoseTable,
     assets::ClothingTable,
-    assets::CombatManeuverTable,
     assets::ContractTable,
     assets::DidMapper,
     assets::DualDidMapper,
@@ -121,7 +156,6 @@ shared_file_types!(
     assets::LanguageString,
     assets::MasterInputMap,
     assets::MasterProperty,
-    assets::MotionTable,
     assets::NameFilterTable,
     assets::ObjectHierarchy,
     assets::Palette,
@@ -137,7 +171,6 @@ shared_file_types!(
     assets::Setup,
     assets::SkillTable,
     assets::SoundTable,
-    assets::SpellComponentTable,
     assets::SpellTable,
     assets::StringTable,
     assets::Surface,
@@ -156,6 +189,9 @@ pub struct DatDatabase {
     /// ACE's `FileCache`. The map only hands out slots; the decode runs outside its lock, once per
     /// id, inside the slot's `OnceLock`.
     file_cache: Mutex<HashMap<u32, Slot>>,
+    /// Not ACE: the numbering the file's records name motion commands in, told from its human
+    /// motion table on first use.
+    command_numbering: OnceLock<CommandNumbering>,
 }
 
 impl fmt::Debug for DatDatabase {
@@ -177,7 +213,36 @@ impl DatDatabase {
             database_type,
             source,
             file_cache: Mutex::new(HashMap::new()),
+            command_numbering: OnceLock::new(),
         }
+    }
+
+    /// Not ACE: the numbering this file's records name motion commands in. ACE reads only the
+    /// end-of-retail files, whose numbering is the final client's; older files key their motion
+    /// tables, combat manoeuvres and spell gestures by an older table, told here from the human
+    /// motion table (the final numbering for a file without one). Every motion command the
+    /// server's logic sees has been put into the final numbering
+    /// ([`DatFileType::renumber`]); this is also the numbering the world's clients expect on the
+    /// wire.
+    #[must_use]
+    pub fn command_numbering(&self) -> CommandNumbering {
+        *self.command_numbering.get_or_init(|| {
+            if self.database_type != DatDatabaseType::Portal {
+                return CommandNumbering::Final;
+            }
+            let id = numbering::HUMAN_MOTION_TABLE.0;
+            self.source
+                .read(self.database_type, id)
+                .and_then(|b| {
+                    <assets::MotionTable as Decode>::decode_payload_in(
+                        self.source.container_era(),
+                        DataId(id),
+                        &b,
+                    )
+                    .ok()
+                })
+                .map_or(CommandNumbering::Final, |t| numbering::of_human_table(&t))
+        })
     }
 
     #[must_use]
@@ -277,7 +342,10 @@ impl DatDatabase {
         }
         let bytes = self.get_reader_for_file(file_id)?;
         match T::unpack_in(self.source.container_era(), file_id, &bytes) {
-            Ok(t) => Some(Arc::new(t) as CachedObject),
+            Ok(mut t) => {
+                t.renumber(self.command_numbering());
+                Some(Arc::new(t) as CachedObject)
+            }
             Err(e) => {
                 log::error!(
                     "{:?} dat: 0x{file_id:08X} does not decode as {}: {e}",

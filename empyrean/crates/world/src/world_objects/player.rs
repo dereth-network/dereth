@@ -1995,8 +1995,10 @@ pub fn handle_run_rate_update(w: &mut crate::World, this: empyrean_entity::Objec
     // if set to autonomous here, the desired effect doesn't happen
     current_movement_data.is_autonomous = false;
 
+    let numbering = w.dats.portal_dat().command_numbering();
+
     let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let movement_event = crate::network::game_messages::messages::game_message_update_motion::game_message_update_motion(o, &current_movement_data);
+    let movement_event = crate::network::game_messages::messages::game_message_update_motion::game_message_update_motion(o, &current_movement_data, numbering);
     if let Some(o) = w.objects.get_mut(this) {
         o.wo.world_object_properties.current_movement_data = current_movement_data;
     }

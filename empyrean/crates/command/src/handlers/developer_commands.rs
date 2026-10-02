@@ -899,7 +899,8 @@ fn current_motion_state(w: &World, wo: ObjectGuid) -> Option<Motion> {
 /// `session.Network.EnqueueSend(new GameMessageUpdateMotion(player, motion))`.
 fn send_update_motion(w: &mut World, session: SessionId, player: ObjectGuid, motion: &Motion) {
     let movement_data = MovementData::from_motion(player, motion);
-    let msg = game_message_update_motion(obj_mut(w, player), &movement_data);
+    let numbering = w.dats.portal_dat().command_numbering();
+    let msg = game_message_update_motion(obj_mut(w, player), &movement_data, numbering);
     enqueue_send(w, session, msg);
 }
 

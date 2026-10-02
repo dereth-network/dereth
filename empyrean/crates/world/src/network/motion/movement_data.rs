@@ -208,11 +208,15 @@ impl MovementData {
 
     // ACE: MovementData.Serialize
     /// Serializes this movement data to a byte array (no header). Currently only used for
-    /// CreateObject messages in ACE's old method.
+    /// CreateObject messages in ACE's old method. Not ACE: in `numbering`, as [`write()`].
     #[must_use]
-    pub fn serialize(&self, sequences: &mut SequenceManager) -> Vec<u8> {
+    pub fn serialize(
+        &self,
+        sequences: &mut SequenceManager,
+        numbering: dereth_world_data::command_numbering::CommandNumbering,
+    ) -> Vec<u8> {
         let mut writer = Vec::new();
-        write(&mut writer, self, false, sequences);
+        write(&mut writer, self, false, sequences, numbering);
         writer
     }
 }
@@ -233,11 +237,15 @@ fn math_clamp(value: f32, min: f32, max: f32) -> f32 {
 /// `motion.WorldObject.Sequences`: the header advances its movement sequence (and its server
 /// control sequence for a server-initiated motion).
 #[allow(clippy::cast_possible_truncation)] // `(ushort)motion.CurrentStyle`
+///
+/// Not ACE: `numbering` is the world's files' command numbering, which the stance and the
+/// interpreted state's commands go out in (ACE's is always the final one).
 pub fn write(
     writer: &mut Vec<u8>,
     motion: &MovementData,
     header: bool,
     sequences: &mut SequenceManager,
+    numbering: dereth_world_data::command_numbering::CommandNumbering,
 ) {
     if header {
         writer.write_bytes(&sequences.get_next_sequence(SequenceType::ObjectMovement));
@@ -255,7 +263,17 @@ pub fn write(
     writer.write_u8(motion.movement_type.0);
     writer.write_u8(motion.motion_flags.0);
 
-    writer.write_u16(motion.current_style.0 as u16); // send MotionStance as ushort
+    // send MotionStance as ushort
+    writer.write_u16(
+        dereth_world_data::command_numbering::wire_index(numbering, motion.current_style.0)
+            .or_else(|| {
+                dereth_world_data::command_numbering::wire_index(
+                    numbering,
+                    MotionStance::NonCombat.0,
+                )
+            })
+            .unwrap_or(0),
+    );
 
     // A null section for its movement type throws in ACE.
     match motion.movement_type {
@@ -264,7 +282,7 @@ pub fn write(
                 .invalid
                 .as_ref()
                 .expect("ACE: motion.Invalid is null");
-            movement_invalid::write(writer, invalid, motion.motion_flags, sequences);
+            movement_invalid::write(writer, invalid, motion.motion_flags, sequences, numbering);
         }
         MovementType::MoveToObject => {
             move_to_object::write(

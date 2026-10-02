@@ -333,8 +333,14 @@ pub fn apply_player_movement<S: AsObjectSim>(
     }
 
     // `unpack_movement`'s pre-switch half, then `case 0`.
-    let state = buf.body.interpreted.as_ref().map(interpreted_state);
-    let style = MotionCommand::from_index(buf.body.current_style)
+    let numbering = stream.command_numbering();
+    let state = buf
+        .body
+        .interpreted
+        .as_ref()
+        .map(|w| interpreted_state_in(w, numbering));
+    let style = numbering
+        .command_from_wire(buf.body.current_style)
         .or_else(|| state.as_ref().map(|s| s.current_style));
     if let Some(c) = character.as_mut() {
         if let Some(style) = style {
@@ -446,10 +452,16 @@ pub fn apply_movement<S: AsObjectSim>(
         m.unstick_from_object(ctx);
     });
 
-    let interpreted = buf.body.interpreted.as_ref().map(interpreted_state);
+    let numbering = stream.command_numbering();
+    let interpreted = buf
+        .body
+        .interpreted
+        .as_ref()
+        .map(|w| interpreted_state_in(w, numbering));
     // the style comes from the buffer's own
     // `style_ix`, which is a separate field from the state's.
-    let style = MotionCommand::from_index(buf.body.current_style)
+    let style = numbering
+        .command_from_wire(buf.body.current_style)
         .or_else(|| interpreted.as_ref().map(|s| s.current_style));
     if let Some(o) = objects.get_mut(&id).map(AsObjectSim::sim_mut) {
         if let Some(style) = style {
@@ -527,12 +539,28 @@ pub fn apply_movement<S: AsObjectSim>(
 ///
 /// Separate from [`apply_movement`] because `apply_player_movement` needs the same conversion
 /// for the **local** player, who never passes through that function.
+///
+/// The indices are read in the final numbering; [`interpreted_state_in`] reads them in a world's.
 pub fn interpreted_state(
     wire: &dereth_protocol::movement::InterpretedMotionState,
 ) -> dereth_animation::motion::InterpretedMotionState {
+    interpreted_state_in(
+        wire,
+        dereth_world_data::command_numbering::CommandNumbering::Final,
+    )
+}
+
+/// [`interpreted_state`] with the indices in `numbering`, the world files' command numbering: a
+/// server for a world of older files numbers its commands as the client of their day did, and
+/// the motion runtime works in the final numbering.
+pub fn interpreted_state_in(
+    wire: &dereth_protocol::movement::InterpretedMotionState,
+    numbering: dereth_world_data::command_numbering::CommandNumbering,
+) -> dereth_animation::motion::InterpretedMotionState {
     use dereth_animation::motion::{ActionNode, InterpretedMotionState};
     let cmd = |i: Option<u16>, fallback: MotionCommand| {
-        i.and_then(MotionCommand::from_index).unwrap_or(fallback)
+        i.and_then(|i| numbering.command_from_wire(i))
+            .unwrap_or(fallback)
     };
     let base = InterpretedMotionState::default();
     InterpretedMotionState {
@@ -548,7 +576,7 @@ pub fn interpreted_state(
             .iter()
             .filter_map(|a| {
                 Some(ActionNode {
-                    action: MotionCommand::from_index(a.command_index)?,
+                    action: numbering.command_from_wire(a.command_index)?,
                     speed: a.speed,
                     stamp: u32::from(a.stamp()),
                     autonomous: a.autonomous(),

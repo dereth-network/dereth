@@ -42,9 +42,14 @@ pub struct MoveToState {
 
 impl MoveToState {
     // ACE: MoveToState.MoveToState
-    /// `new MoveToState(WorldObject wo, BinaryReader reader)`.
-    pub fn read(wo: ObjectGuid, reader: &mut BinaryReader<'_>) -> Result<Self, ReadError> {
-        let raw_motion_state = RawMotionState::read(wo, reader)?;
+    /// `new MoveToState(WorldObject wo, BinaryReader reader)`. Not ACE: `numbering` is the world's
+    /// files' command numbering, which the client wrote its motion state in.
+    pub fn read(
+        wo: ObjectGuid,
+        reader: &mut BinaryReader<'_>,
+        numbering: dereth_world_data::command_numbering::CommandNumbering,
+    ) -> Result<Self, ReadError> {
+        let raw_motion_state = RawMotionState::read(wo, reader, numbering)?;
         let at = reader.position();
         let position = Position::from_reader(reader).ok_or(ReadError::EndOfStream {
             at,

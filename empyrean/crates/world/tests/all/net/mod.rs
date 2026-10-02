@@ -1,6 +1,7 @@
 pub(crate) mod action_decode;
 pub(crate) mod ddd;
 pub(crate) mod dispatch;
+pub(crate) mod era_motion_wire;
 pub(crate) mod messages;
 pub(crate) mod protocol_identity;
 #[cfg(feature = "real-content")]

@@ -9,7 +9,7 @@
 //! Without this cache, the same records would be decoded dozens of times a second.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::anim_convert as convert;
 use dereth_animation::data::{
@@ -27,6 +27,8 @@ type Memo<T> = Mutex<BTreeMap<u32, Option<Arc<T>>>>;
 /// The animation track's asset seam, backed by `client_portal.dat`.
 pub struct DatAnimAssets {
     store: Arc<RetailDatStore>,
+    /// The numbering the files key their motion tables by, told on the first table read.
+    numbering: OnceLock<crate::command_numbering::StoreNumbering>,
     motion_tables: Memo<MotionTableData>,
     animations: Memo<AnimationData>,
     setups: Memo<SetupData>,
@@ -58,6 +60,7 @@ impl DatAnimAssets {
     pub fn new(store: Arc<RetailDatStore>) -> Self {
         Self {
             store,
+            numbering: OnceLock::new(),
             motion_tables: Mutex::new(BTreeMap::new()),
             animations: Mutex::new(BTreeMap::new()),
             setups: Mutex::new(BTreeMap::new()),
@@ -102,13 +105,18 @@ impl DatAnimAssets {
 }
 
 impl AnimAssets for DatAnimAssets {
+    /// Keyed in the final command numbering whatever the files' own is
+    /// ([`crate::command_numbering`]).
     fn motion_table(&self, id: DataId) -> Option<Arc<MotionTableData>> {
-        self.load::<dereth_assets::MotionTable, _>(
-            &self.motion_tables,
-            DbType::MTable,
-            id,
-            convert::motion_table,
-        )
+        let numbering = self
+            .numbering
+            .get_or_init(|| crate::command_numbering::StoreNumbering::of(&self.store))
+            .of_record(&self.store, id);
+        self.load::<dereth_assets::MotionTable, _>(&self.motion_tables, DbType::MTable, id, |t| {
+            let mut t = t.clone();
+            crate::command_numbering::motion_table(&mut t, numbering);
+            convert::motion_table(&t)
+        })
     }
 
     fn animation(&self, id: DataId) -> Option<Arc<AnimationData>> {

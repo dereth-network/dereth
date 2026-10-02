@@ -42,7 +42,7 @@ pub mod script;
 pub mod seq;
 pub mod table;
 
-pub use command::{MotionCommand, STANCES};
+pub use command::{CommandNumbering, MotionCommand, STANCES};
 pub use data::{
     AnimAssets, AnimData, AnimFrame, AnimationData, DegradeInfo, MapAssets, MotionData,
     MotionTableData, NoAssets, ParticleEmitterInfo, ParticleType, PhysicsScriptData,

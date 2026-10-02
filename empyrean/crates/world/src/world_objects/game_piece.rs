@@ -335,8 +335,9 @@ pub fn game_piece_broadcast_move_to(w: &mut World, this: ObjectGuid, player: Obj
         .clone()
         .expect("ACE: GamePiece.LastMoveTo is null (NullReferenceException)");
     let movement_data = MovementData::from_motion(this, &last);
+    let numbering = w.dats.portal_dat().command_numbering();
     let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let msg = game_message_update_motion(o, &movement_data);
+    let msg = game_message_update_motion(o, &movement_data, numbering);
     let session = player_manager::player_session(w, player)
         .expect("ACE: Player.Session is null (NullReferenceException)");
     enqueue_send(w, session, msg);

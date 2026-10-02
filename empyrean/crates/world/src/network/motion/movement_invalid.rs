@@ -70,8 +70,9 @@ pub fn write(
     movement: &MovementInvalid,
     motion_flags: MotionFlags,
     sequences: &mut SequenceManager,
+    numbering: dereth_world_data::command_numbering::CommandNumbering,
 ) {
-    interpreted_motion_state::write(writer, &movement.state, sequences);
+    interpreted_motion_state::write(writer, &movement.state, sequences, numbering);
 
     if (motion_flags & MotionFlags::StickToObject).0 != 0 {
         writer.write_guid(movement.sticky_object);

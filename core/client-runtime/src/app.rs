@@ -2701,6 +2701,7 @@ impl<S: Shell> App<S> {
                     position: pos,
                     timestamps,
                 } => {
+                    let numbering = self.objects.command_numbering();
                     let Some(character) = world.world_mut().character.as_mut() else {
                         self.events.push(FrameEvent::PlayerTeleportBeforeABody {
                             count: 1,
@@ -2723,7 +2724,7 @@ impl<S: Shell> App<S> {
                             if let Some(link) = self.link.as_mut() {
                                 self.position.send_movement_event(
                                     self.timer.cur_time,
-                                    &body_motion(character, timestamps),
+                                    &body_motion_in(character, timestamps, numbering),
                                     &mut link.net.session,
                                 );
                             }
@@ -2916,7 +2917,11 @@ impl<S: Shell> App<S> {
             .and_then(|id| self.objects.presence(id));
         // All four sequences are the client's own, and the mapping is a public
         // free function so that the test which owns the echo can call the same code this does.
-        Some(body_motion(character, player_timestamps(presence)))
+        Some(body_motion_in(
+            character,
+            player_timestamps(presence),
+            self.objects.command_numbering(),
+        ))
     }
 
     /// How many `0xF753` and `0xF61C` blobs this client has produced.
@@ -6625,6 +6630,21 @@ pub fn body_motion(
     character: &crate::character::Character,
     timestamps: dereth_protocol::movement::MoveTimestamps,
 ) -> dereth_client_net::client_session::PlayerMotion {
+    body_motion_in(
+        character,
+        timestamps,
+        dereth_world_data::command_numbering::CommandNumbering::Final,
+    )
+}
+
+/// [`body_motion`] with the motion commands in `numbering`, the world files' command numbering
+/// ([`raw_motion_state_to_wire_in`]).
+#[must_use]
+pub fn body_motion_in(
+    character: &crate::character::Character,
+    timestamps: dereth_protocol::movement::MoveTimestamps,
+    numbering: dereth_world_data::command_numbering::CommandNumbering,
+) -> dereth_client_net::client_session::PlayerMotion {
     let pos = character.position();
     let position = dereth_protocol::types::PositionWire {
         objcell_id: pos.cell.0,
@@ -6664,7 +6684,7 @@ pub fn body_motion(
     let (raw_motion_state, longjump_mode) = {
         let driver = character.driver();
         (
-            raw_motion_state_to_wire(&driver.movement.interp.raw_state),
+            raw_motion_state_to_wire_in(&driver.movement.interp.raw_state, numbering),
             driver.movement.interp.standing_longjump,
         )
     };
@@ -6722,11 +6742,30 @@ pub fn body_motion(
 pub fn raw_motion_state_to_wire(
     s: &dereth_animation::motion::RawMotionState,
 ) -> dereth_protocol::movement::RawMotionState {
+    raw_motion_state_to_wire_in(
+        s,
+        dereth_world_data::command_numbering::CommandNumbering::Final,
+    )
+}
+
+/// [`raw_motion_state_to_wire`] with the commands in `numbering`, the world files' command
+/// numbering: the client of an older world's day wrote its style and commands as its files
+/// numbered them. The presence bits are decided in the final numbering, before the translation;
+/// a command the numbering lacks is left out (its bit clear), as one the table does not name.
+pub fn raw_motion_state_to_wire_in(
+    s: &dereth_animation::motion::RawMotionState,
+    numbering: dereth_world_data::command_numbering::CommandNumbering,
+) -> dereth_protocol::movement::RawMotionState {
     use dereth_animation::command::MotionCommand;
     use dereth_animation::motion::HoldKey;
 
     let opt_key = |k: HoldKey, default: HoldKey| (k != default).then_some(k as u32);
-    let opt_cmd = |c: MotionCommand, default: u32| (c.0 != default).then_some(c.0);
+    let opt_cmd = |c: MotionCommand, default: u32| {
+        (c.0 != default).then_some(c).and_then(|c| match numbering {
+            dereth_world_data::command_numbering::CommandNumbering::Final => Some(c.0),
+            n => n.from_final(c),
+        })
+    };
     let opt_speed = |v: f32| (v != 1.0).then_some(v);
 
     dereth_protocol::movement::RawMotionState {
@@ -6748,16 +6787,16 @@ pub fn raw_motion_state_to_wire(
             .actions
             .iter()
             .filter_map(|a| {
-                a.action
-                    .to_index()
-                    .map(|command_index| dereth_protocol::movement::MotionAction {
+                numbering.command_to_wire(a.action).map(|command_index| {
+                    dereth_protocol::movement::MotionAction {
                         command_index,
                         // `(stamp & 0x7FFF) | (autonomous ? 0x8000 : 0)`; the mask makes the
                         // narrowing total, so the fallback is unreachable rather than a guess.
                         stamp_and_autonomy: u16::try_from(a.stamp & 0x7FFF).unwrap_or(0)
                             | if a.autonomous { 0x8000 } else { 0 },
                         speed: a.speed,
-                    })
+                    }
+                })
             })
             .take(31)
             .collect(),

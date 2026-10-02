@@ -127,11 +127,15 @@ impl RawMotionState {
     // ACE: RawMotionState.RawMotionState
     /// `new RawMotionState(MoveToState moveToState, BinaryReader reader)`; `world_object` is
     /// `moveToState.WorldObject`. Command items that are not a soul emote at speed 1.0 are
-    /// dropped (and logged), after being read.
+    /// dropped (and logged), after being read. Not ACE: the client wrote its stance and commands
+    /// in `numbering`, the world's files' (ACE's is always the final one); they are read into the
+    /// final numbering.
     pub fn read(
         world_object: ObjectGuid,
         reader: &mut BinaryReader<'_>,
+        numbering: dereth_world_data::command_numbering::CommandNumbering,
     ) -> Result<Self, ReadError> {
+        use dereth_world_data::command_numbering::final_id;
         use RawMotionFlags as F;
 
         let mut s = RawMotionState {
@@ -151,10 +155,10 @@ impl RawMotionState {
             s.current_hold_key = HoldKey(reader.read_u32()?);
         }
         if s.flags & F::CurrentStyle != 0 {
-            s.current_style = MotionStance(reader.read_u32()?);
+            s.current_style = MotionStance(final_id(numbering, reader.read_u32()?));
         }
         if s.flags & F::ForwardCommand != 0 {
-            s.forward_command = MotionCommand(reader.read_u32()?);
+            s.forward_command = MotionCommand(final_id(numbering, reader.read_u32()?));
         }
         if s.flags & F::ForwardHoldKey != 0 {
             s.forward_hold_key = HoldKey(reader.read_u32()?);
@@ -163,7 +167,7 @@ impl RawMotionState {
             s.forward_speed = reader.read_f32()?;
         }
         if s.flags & F::SideStepCommand != 0 {
-            s.sidestep_command = MotionCommand(reader.read_u32()?);
+            s.sidestep_command = MotionCommand(final_id(numbering, reader.read_u32()?));
         }
         if s.flags & F::SideStepHoldKey != 0 {
             s.sidestep_hold_key = HoldKey(reader.read_u32()?);
@@ -172,7 +176,7 @@ impl RawMotionState {
             s.sidestep_speed = reader.read_f32()?;
         }
         if s.flags & F::TurnCommand != 0 {
-            s.turn_command = MotionCommand(reader.read_u32()?);
+            s.turn_command = MotionCommand(final_id(numbering, reader.read_u32()?));
         }
         if s.flags & F::TurnHoldKey != 0 {
             s.turn_hold_key = HoldKey(reader.read_u32()?);
@@ -185,7 +189,7 @@ impl RawMotionState {
         if s.command_list_length > 0 {
             let mut commands = Vec::new();
             for _ in 0..s.command_list_length {
-                let motion_item = MotionItem::read(world_object, reader)?;
+                let motion_item = MotionItem::read(world_object, reader, numbering)?;
                 if shims::soul_emote_contains(motion_item.motion_command)
                     && motion_item.speed == 1.0
                 {

@@ -832,8 +832,10 @@ pub fn update_player_physics(w: &mut crate::World, this: empyrean_entity::Object
     if crate::world_objects::player::fields(w, this).pk_logout {
         let motion = Motion::new(MotionStance::NonCombat, MotionCommand::Ready, 1.0);
         let movement_data = MovementData::from_motion(this, &motion);
+        let numbering = w.dats.portal_dat().command_numbering();
         let o = w.objects.get_mut(this).expect("ACE: this is null");
-        let msg = game_message_update_motion::game_message_update_motion(o, &movement_data);
+        let msg =
+            game_message_update_motion::game_message_update_motion(o, &movement_data, numbering);
         world_object_networking::enqueue_broadcast(w, this, true, &[msg]);
         phys_ext::stop_completely(w, h, true);
 

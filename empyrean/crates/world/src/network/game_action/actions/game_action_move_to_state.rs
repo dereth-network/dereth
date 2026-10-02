@@ -33,7 +33,8 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     // broadcasts, so it is not replaced by `dereth-protocol`'s movement record.
     let rest = message.read_bytes(message.remaining());
     let mut reader = BinaryReader::new(&rest);
-    let move_to_state = MoveToState::read(player, &mut reader).map_err(read_error)?;
+    let numbering = w.dats.portal_dat().command_numbering();
+    let move_to_state = MoveToState::read(player, &mut reader, numbering).map_err(read_error)?;
     player_move::fields_mut(w, player).current_move_to_state = move_to_state.clone();
 
     if player_move::is_player_moving_to(w, player) {

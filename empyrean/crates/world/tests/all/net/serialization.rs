@@ -750,45 +750,57 @@ fn readers_match_aces_readers() {
                     ])
                 })
                 .map_err(|e| format!("{e:?}")),
-            "motion_item" => MotionItem::read(wo, &mut r)
-                .map(|m| {
-                    json!([
-                        m.motion_command.0,
-                        m.packed_sequence,
-                        m.server_action_sequence,
-                        m.is_autonomous,
-                        f64::from(m.speed)
-                    ])
-                })
-                .map_err(|e| format!("{e:?}")),
-            "raw_motion_state" => RawMotionState::read(wo, &mut r)
-                .map(|s| json!(raw_json(&s)))
-                .map_err(|e| format!("{e:?}")),
-            "move_to_state" => MoveToState::read(wo, &mut r)
-                .map(|s| {
-                    let p = s.position.expect("read");
-                    json!([
-                        raw_json(&s.raw_motion_state),
-                        [
-                            p.cell(),
-                            f64::from(p.position_x),
-                            f64::from(p.position_y),
-                            f64::from(p.position_z),
-                            f64::from(p.rotation_w),
-                            f64::from(p.rotation_x),
-                            f64::from(p.rotation_y),
-                            f64::from(p.rotation_z)
-                        ],
-                        s.instance_sequence,
-                        s.server_control_sequence,
-                        s.teleport_sequence,
-                        s.force_position_sequence,
-                        s.contact_long_jump,
-                        s.contact,
-                        s.standing_long_jump
-                    ])
-                })
-                .map_err(|e| format!("{e:?}")),
+            "motion_item" => MotionItem::read(
+                wo,
+                &mut r,
+                dereth_world_data::command_numbering::CommandNumbering::Final,
+            )
+            .map(|m| {
+                json!([
+                    m.motion_command.0,
+                    m.packed_sequence,
+                    m.server_action_sequence,
+                    m.is_autonomous,
+                    f64::from(m.speed)
+                ])
+            })
+            .map_err(|e| format!("{e:?}")),
+            "raw_motion_state" => RawMotionState::read(
+                wo,
+                &mut r,
+                dereth_world_data::command_numbering::CommandNumbering::Final,
+            )
+            .map(|s| json!(raw_json(&s)))
+            .map_err(|e| format!("{e:?}")),
+            "move_to_state" => MoveToState::read(
+                wo,
+                &mut r,
+                dereth_world_data::command_numbering::CommandNumbering::Final,
+            )
+            .map(|s| {
+                let p = s.position.expect("read");
+                json!([
+                    raw_json(&s.raw_motion_state),
+                    [
+                        p.cell(),
+                        f64::from(p.position_x),
+                        f64::from(p.position_y),
+                        f64::from(p.position_z),
+                        f64::from(p.rotation_w),
+                        f64::from(p.rotation_x),
+                        f64::from(p.rotation_y),
+                        f64::from(p.rotation_z)
+                    ],
+                    s.instance_sequence,
+                    s.server_control_sequence,
+                    s.teleport_sequence,
+                    s.force_position_sequence,
+                    s.contact_long_jump,
+                    s.contact,
+                    s.standing_long_jump
+                ])
+            })
+            .map_err(|e| format!("{e:?}")),
             k => panic!("unknown kind {k}"),
         };
         match vectors::throws(&case.output) {
@@ -828,7 +840,12 @@ fn a_motion_items_raw_index_reads_as_the_clients_command() {
     ] {
         let mut bytes = raw.to_le_bytes().to_vec();
         bytes.extend_from_slice(&[1, 0, 0, 0, 0xC0, 0x3F]);
-        let item = MotionItem::read(g(0x5000_0001), &mut BinaryReader::new(&bytes)).expect("read");
+        let item = MotionItem::read(
+            g(0x5000_0001),
+            &mut BinaryReader::new(&bytes),
+            dereth_world_data::command_numbering::CommandNumbering::Final,
+        )
+        .expect("read");
         assert_eq!(item.motion_command, want, "raw {raw:#x}");
     }
     assert_eq!(MotionCommand::CombatEat.0, 0x1000_0110);
@@ -906,16 +923,32 @@ fn movement_data_matches_aces_writer() {
                 let motion = motion_of(&case.input["motion"], wo);
                 let data = MovementData::from_motion(wo, &motion);
                 let mut w = Vec::new();
-                movement_data::write(&mut w, &data, b(&case.input["header"]), &mut seq);
+                movement_data::write(
+                    &mut w,
+                    &data,
+                    b(&case.input["header"]),
+                    &mut seq,
+                    dereth_world_data::command_numbering::CommandNumbering::Final,
+                );
                 w
             }
             "move_to_state" => {
                 let bytes = unhex(case.input["hex"].as_str().expect("hex"));
-                let state = MoveToState::read(g(0x5000_0002), &mut BinaryReader::new(&bytes))
-                    .expect("read");
+                let state = MoveToState::read(
+                    g(0x5000_0002),
+                    &mut BinaryReader::new(&bytes),
+                    dereth_world_data::command_numbering::CommandNumbering::Final,
+                )
+                .expect("read");
                 let data = MovementData::from_move_to_state(&mut world(), g(0x5000_0002), &state);
                 let mut w = Vec::new();
-                movement_data::write(&mut w, &data, true, &mut seq);
+                movement_data::write(
+                    &mut w,
+                    &data,
+                    true,
+                    &mut seq,
+                    dereth_world_data::command_numbering::CommandNumbering::Final,
+                );
                 w
             }
             k => panic!("unknown kind {k}"),
@@ -1493,12 +1526,20 @@ fn rule3_movement_data_decodes_as_the_client_reads_it() {
             ),
             _ => {
                 let bytes = unhex(case.input["hex"].as_str().expect("hex"));
-                let state = MoveToState::read(g(0x5000_0001), &mut BinaryReader::new(&bytes))
-                    .expect("read");
+                let state = MoveToState::read(
+                    g(0x5000_0001),
+                    &mut BinaryReader::new(&bytes),
+                    dereth_world_data::command_numbering::CommandNumbering::Final,
+                )
+                .expect("read");
                 MovementData::from_move_to_state(&mut world(), g(0x5000_0001), &state)
             }
         };
-        let msg = game_message_update_motion::game_message_update_motion(&mut o, &data);
+        let msg = game_message_update_motion::game_message_update_motion(
+            &mut o,
+            &data,
+            dereth_world_data::command_numbering::CommandNumbering::Final,
+        );
         let m: dp::movement::MovementSetObjectMovement = rule3_decode(&msg);
         m.decoded_movement()
             .unwrap_or_else(|e| panic!("{}: movement buffer: {e}", case.input));

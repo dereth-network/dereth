@@ -610,8 +610,9 @@ pub fn handle_action_jump(w: &mut World, this: ObjectGuid, jump: &JumpPack) {
     movement_data.is_autonomous = true;
     movement_data.movement_type = MovementType::Invalid;
     movement_data.invalid = Some(MovementInvalid::new(&movement_data));
+    let numbering = w.dats.portal_dat().command_numbering();
     let o = w.objects.get_mut(this).expect("ACE: this is null");
-    let msg = game_message_update_motion::game_message_update_motion(o, &movement_data);
+    let msg = game_message_update_motion::game_message_update_motion(o, &movement_data, numbering);
     world_object_networking::enqueue_broadcast(w, this, true, &[msg]);
 
     // broadcast jump

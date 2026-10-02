@@ -17,6 +17,10 @@ pub mod anim_convert;
 /// A `dereth_animation::AnimAssets` over the retail portal dat, with its record memo.
 pub mod anim_assets;
 
+/// The numbering of the data files' motion commands, and their records translated into the final
+/// numbering as they are loaded.
+pub mod command_numbering;
+
 /// The interior cells of a landblock, converted for physics, and the static objects baked into them.
 pub mod env_cells;
 
