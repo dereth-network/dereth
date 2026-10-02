@@ -38,6 +38,25 @@ pub fn image(
         key_bits: keyed.then_some([5, 6, 5]),
     });
 }
+/// A spell component's icon on its own, as the item pictures draw it: the icon with no kind
+/// background, its edge taking the no-enchantment colour rather than showing as a white outline.
+pub fn component_icon(frame: &mut PanelFrame, icon: u32, r: Rect, clip: Option<[i32; 4]>) {
+    frame.screen.commands.push(Command::ItemIcon {
+        recipe: crate::item_art::Recipe {
+            background: None,
+            underlay: None,
+            icon: Some(icon),
+            overlay: None,
+            effects: crate::item_art::effect_surface(0),
+            badge: None,
+        },
+        x: r.x,
+        y: r.y,
+        width: r.w.max(0) as u32,
+        height: r.h.max(0) as u32,
+        clip,
+    });
+}
 #[allow(clippy::too_many_arguments)] // one field per argument of the drawn command
 pub fn text(
     frame: &mut PanelFrame,

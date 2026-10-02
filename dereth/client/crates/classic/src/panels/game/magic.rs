@@ -101,7 +101,7 @@ fn row(
         false,
     );
     if let Some(icon) = icon {
-        image(f, icon.0, rect(0, y, 32, 32), Some(clip), false, true);
+        component_icon(f, icon.0, rect(0, y, 32, 32), Some(clip));
     }
     text(
         f,

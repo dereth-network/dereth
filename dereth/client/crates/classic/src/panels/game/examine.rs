@@ -203,13 +203,11 @@ impl Panel for Examine {
                 for (i, c) in s.components.iter().enumerate() {
                     if let Some(c) = c {
                         if let Some(icon) = c.icon {
-                            image(
+                            component_icon(
                                 &mut f,
                                 icon.0,
                                 rect(x + i32_from(i) * 32, 319, 32, 32),
                                 None,
-                                false,
-                                true,
                             );
                         }
                         f.button(
