@@ -295,6 +295,45 @@ mod tests {
         });
     }
     #[test]
+    fn a_creature_with_a_face_shows_its_face_and_one_without_its_icon() {
+        let w = World {
+            appraisal: Some(dereth_client_contract::view::AppraisalView {
+                creature: true,
+                success: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut faces = ClassicState::default();
+        faces.portraits.insert(
+            ObjectId(5),
+            ClassicPortrait {
+                textures: [1, 2, 3],
+                palettes: [4, 5, 6],
+            },
+        );
+        let frame = |state: &ClassicState| {
+            let mut p = make("examine").unwrap();
+            p.set_object(ObjectId(5));
+            p.frame(&Context {
+                game: &w,
+                pregame: &Default::default(),
+                keyboard: &Default::default(),
+                settings: &Default::default(),
+                map_teleport_allowed: false,
+                classic: state,
+            })
+        };
+        // The face's frame edge, where a character's is.
+        let face_edge = |f: &PanelFrame| {
+            f.screen.commands.iter().any(
+                |c| matches!(c, crate::Command::Image { did, x: 172, .. } if did == "060012C6"),
+            )
+        };
+        assert!(face_edge(&frame(&faces)));
+        assert!(!face_edge(&frame(&ClassicState::default())));
+    }
+    #[test]
     fn desired_component_count_waits_for_commit_and_rejects_out_of_range() {
         let w = World {
             components: vec![ComponentCategory {

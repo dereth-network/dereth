@@ -259,8 +259,16 @@ impl Panel for Examine {
             return f;
         };
         if a.creature || a.character_title {
+            // A creature with a face (a character, or a person of the world such as a shopkeeper)
+            // shows the face; any other creature its type's icon.
+            let face = ctx.classic.portraits.get(&object);
             if !a.character_title {
-                tile_icon(&mut f, g, object, 190, 40);
+                if let Some(portrait) = face {
+                    draw_portrait(&mut f, portrait);
+                    image(&mut f, 0x060012c6, rect(172, 25, 7, 60), None, true, false);
+                } else {
+                    tile_icon(&mut f, g, object, 190, 40);
+                }
             }
             separator(&mut f, 85);
             separator(&mut f, 291);
@@ -352,7 +360,7 @@ impl Panel for Examine {
             } else {
                 text(
                     &mut f,
-                    rect(2, 52, 176, 20),
+                    rect(2, 52, if face.is_some() { 168 } else { 176 }, 20),
                     a.creature_display_name.clone().unwrap_or_default(),
                     "15-6",
                     CREAM,
