@@ -25,7 +25,7 @@ pub mod audio;
 // The clipboard bridge over the system clipboard.
 pub mod clipboard;
 // The cursor state over the system cursors.
-/// The crash log: a record on disk of every run, written from `main`.
+/// The crash log: a record on disk of every run that goes wrong, written from `main`.
 pub mod crashlog;
 pub mod cursor;
 // Where a product keeps its files on this platform, and the one-time copy of the original game's.

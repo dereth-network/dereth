@@ -1,8 +1,8 @@
 //! A headless run keeps out of the player's settings folder: started with its home folder pointed
 //! at a scratch folder that holds a player's preferences and key map, the client binary runs a few
 //! headless frames and exits, and both files are byte for byte what they were, with nothing added
-//! beside them but the run's own crash log. Naming a file with `--prefs` is the way to ask for one,
-//! and the same run given one writes it on exit.
+//! beside them. Naming a file with `--prefs` is the way to ask for one, and the same run given one
+//! writes it on exit. A run that ends cleanly leaves no crash log either.
 //!
 //! Fixture: the client binary, the retail dats and a graphics device; a missing install, or a
 //! device the client cannot open, fails.
@@ -81,6 +81,8 @@ fn run_headless(home: &Path, dat_dir: &Path, extra: &[&str]) {
         .arg("--dat-dir")
         .arg(dat_dir)
         .args(extra)
+        // The home folder is what decides here, whatever the environment running the test names.
+        .env_remove("DERETH_SETTINGS_DIR")
         .env("USERPROFILE", home)
         .env("APPDATA", home)
         .env("HOME", home)
@@ -167,4 +169,28 @@ fn a_headless_run_leaves_the_players_preferences_and_key_map_untouched() {
         before,
         "a run given its own file still left the player's folder alone"
     );
+}
+
+/// Behaviour: none (tooling: which runs keep a diagnostic log)
+///
+/// A run that ends cleanly removes the crash log it opened at its start: the folder the log was
+/// written into is there, and empty.
+#[test]
+fn a_clean_run_leaves_no_crash_log() {
+    let dat_dir = client_dir();
+    assert!(
+        dereth_dat::testing::have_dats(),
+        "the retail dats are this test's fixture and there are none at {} -- \
+         set DERETH_TEST_DAT_DIR",
+        dat_dir.display()
+    );
+    let home = Scratch::new("clean");
+    run_headless(home.path(), &dat_dir, &[]);
+    let logs = settings_dir_under(home.path()).join("crash-logs");
+    let left: Vec<PathBuf> = std::fs::read_dir(&logs)
+        .unwrap_or_else(|e| panic!("the run never opened its log in {}: {e}", logs.display()))
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert!(left.is_empty(), "a clean run left {left:?}");
 }

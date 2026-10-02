@@ -144,7 +144,10 @@ Everything the player saves (`UserPreferences.ini`, `dereth.keymap`, the UI layo
 and journals) lives in one directory: a `UserPreferences.ini` in the working directory wins (a
 portable install), and `-prefs <file>` (or `--prefs <file>`) moves all of them together. A
 `--headless` run that names no file uses none of them: it reads the defaults and writes nothing
-there, so a capture or a test run never changes the player's settings. Otherwise:
+there, so a capture or a test run never changes the player's settings. The environment variable
+`DERETH_SETTINGS_DIR` names the directory outright (only `-prefs` wins over it): a script, a test
+or a second copy of the client run with it set to a folder of their own leave the player's alone,
+crash logs included. Otherwise:
 
 | platform | directory |
 |---|---|
@@ -155,8 +158,10 @@ there, so a capture or a test run never changes the player's settings. Otherwise
 The launcher keeps its own settings beside it, in `launcher`. On Windows the first run **copies**
 (never moves) the original game's `Documents\Asheron's Call` folder into it, once.
 `Display.FullScreen` applies when the player enters the world; login and character select are
-always windowed. Each run's crash log is `crash-logs/dereth-client-<pid>.log`
-in the directory of the table above, whatever `-prefs` says.
+always windowed. A run that fails, panics or crashes leaves its log in
+`crash-logs/dereth-client-<pid>.log` in that directory, whatever `-prefs` says, with the account,
+password and ticket values hidden; a run that ends cleanly removes its own, and only the newest 20
+are kept.
 
 ## The specification
 

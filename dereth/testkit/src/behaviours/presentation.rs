@@ -43,9 +43,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.crash.every-run-keeps-a-log-that-records-a-panic",
-        says: "Every run of the client appends a record of its start to a log of its own in the \
-               crash-logs folder of the client's settings folder, and a run that panics adds the \
-               panic and a backtrace to it before it dies.",
+        says: "Every run of the client opens a log of its own in the crash-logs folder of the \
+               client's settings folder with a record of its start, and a run that panics adds the \
+               panic and a backtrace to it before it dies and leaves it there.",
         since: TOOLING,
         evidence: Evidence::Private("AC-EVID-CRASH-LOG"),
         station: "dereth-client::cpu::presentation::crash_log::a_run_that_panics_leaves_the_panic_in_its_crash_log",

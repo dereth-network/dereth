@@ -13,8 +13,9 @@
 //!
 //! The crash logs are here too, in [`crash_log_dir`], though they are written before anything else
 //! starts: the directory is computed from the environment alone, so a log about a start-up that
-//! failed does not depend on start-up having succeeded. `@log`'s chat log is the one write that
-//! keeps the original rule and is resolved against the working directory.
+//! failed does not depend on start-up having succeeded. A run that ends cleanly removes its own,
+//! and each start keeps only the newest [`CRASH_LOGS_KEPT`] ([`prune_crash_logs`]). `@log`'s chat
+//! log is the one write that keeps the original rule and is resolved against the working directory.
 //!
 //! # The per-platform place
 //!
@@ -31,6 +32,12 @@
 //! this client's files are not the original's, and a folder of its own keeps them from sharing a
 //! directory with a retail installation. The client keeps nothing large or rebuildable, so it has
 //! no cache folder.
+//!
+//! **`DERETH_SETTINGS_DIR`** ([`SETTINGS_DIR_ENV`]) names the running product's settings directory
+//! outright, in place of every rule in this section and of a `UserPreferences.ini` in the working
+//! directory; only `-prefs` still wins over it. A relative value is taken against the working
+//! directory. It is how a test, a script or a second copy of the client runs with folders of its
+//! own and leaves the player's untouched, crash logs included.
 //!
 //! On Windows `%APPDATA%` is the roaming profile folder, so a player's settings follow them the way
 //! the rest of their profile does; a program that ships as a zip keeps nothing beside itself.
@@ -58,6 +65,13 @@ pub const CLIENT_DIR_NAME: &str = "client";
 /// The folder inside the settings directory that holds the crash logs, one
 /// `dereth-client-<pid>.log` per run.
 pub const CRASH_LOG_DIR_NAME: &str = "crash-logs";
+
+/// How many crash logs [`prune_crash_logs`] keeps at each start.
+pub const CRASH_LOGS_KEPT: usize = 20;
+
+/// The environment variable that names the settings directory outright. See the module
+/// documentation.
+pub const SETTINGS_DIR_ENV: &str = "DERETH_SETTINGS_DIR";
 
 /// The original game's settings directory under `Documents`, which a retail installation writes.
 pub const RETAIL_SETTINGS_DIR_NAME: &str = "Asheron's Call";
@@ -116,12 +130,20 @@ pub fn state_root() -> Option<PathBuf> {
     }
 }
 
-/// **The one directory every setting a product writes lives in**: its folder `dir_name` (for the
-/// Dereth client, [`CLIENT_DIR_NAME`]) in [`state_root`]. See the module documentation for each
-/// platform's answer.
+/// **The one directory every setting a product writes lives in**: [`SETTINGS_DIR_ENV`] when it
+/// is set, otherwise its folder `dir_name` (for the Dereth client, [`CLIENT_DIR_NAME`]) in
+/// [`state_root`]. See the module documentation for each platform's answer.
 #[must_use]
 pub fn default_settings_dir(dir_name: &str) -> Option<PathBuf> {
-    state_root().map(|root| root.join(dir_name))
+    settings_dir_override().or_else(|| state_root().map(|root| root.join(dir_name)))
+}
+
+/// [`SETTINGS_DIR_ENV`]'s directory, made absolute against the working directory; `None` when the
+/// variable is unset or empty.
+fn settings_dir_override() -> Option<PathBuf> {
+    process_env(SETTINGS_DIR_ENV)
+        .filter(|v| !v.is_empty())
+        .and_then(|v| std::path::absolute(v).ok())
 }
 
 /// Where the client binary writes its crash logs: [`CRASH_LOG_DIR_NAME`] in
@@ -130,6 +152,36 @@ pub fn default_settings_dir(dir_name: &str) -> Option<PathBuf> {
 #[must_use]
 pub fn crash_log_dir(dir_name: &str) -> Option<PathBuf> {
     default_settings_dir(dir_name).map(|dir| dir.join(CRASH_LOG_DIR_NAME))
+}
+
+/// Remove all but the newest `keep` crash logs of the binary `binary` (`<binary>-*.log`) in `dir`,
+/// newest by modification time, and return how many were removed. Nothing else in `dir` is
+/// touched, and a file that cannot be read or removed is left where it is: this runs at start-up
+/// and must never stop a run.
+pub fn prune_crash_logs(dir: &Path, binary: &str, keep: usize) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let prefix = format!("{binary}-");
+    let mut logs: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with(&prefix) && name.ends_with(".log")
+        })
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            meta.is_file()
+                .then(|| (meta.modified().unwrap_or(std::time::UNIX_EPOCH), e.path()))
+        })
+        .collect();
+    // Newest first; a tie falls to the name, so the order is the same on every listing.
+    logs.sort_by(|a, b| b.cmp(a));
+    logs.iter()
+        .skip(keep)
+        .filter(|(_, path)| std::fs::remove_file(path).is_ok())
+        .count()
 }
 
 /// `%USERPROFILE%\Documents\Asheron's Call`, the original game's settings directory. Windows only;
@@ -143,8 +195,9 @@ pub fn retail_settings_dir() -> Option<PathBuf> {
     }
 }
 
-/// Choose `<cwd>/UserPreferences.ini` when it exists, otherwise the one in
-/// [`default_settings_dir`]; `None` when there is neither.
+/// Choose the one in [`SETTINGS_DIR_ENV`]'s folder when that is set, else
+/// `<cwd>/UserPreferences.ini` when it exists, otherwise the one in [`default_settings_dir`];
+/// `None` when there is none.
 ///
 /// The cwd probe is the original's first branch and is kept on every platform: it is what makes a
 /// portable install -- drop a `UserPreferences.ini` beside the binary and the whole settings
@@ -152,6 +205,10 @@ pub fn retail_settings_dir() -> Option<PathBuf> {
 /// replaces the answer outright.
 #[must_use]
 pub fn default_preferences_file(dir_name: &str) -> Option<PathBuf> {
+    // A folder named outright is a stronger request than a file that happens to be in the cwd.
+    if let Some(dir) = settings_dir_override() {
+        return Some(dir.join(PREFERENCES_FILE_NAME));
+    }
     let cwd = std::env::current_dir()
         .unwrap_or_default()
         .join(PREFERENCES_FILE_NAME);
@@ -364,8 +421,11 @@ mod tests {
         let env = env_of(&[("HOME", "relative")]);
         assert_eq!(macos_state_root(&env), None);
 
-        // And this host's answer is the client's folder inside its own platform's root.
-        if let Some(dir) = default_settings_dir(CLIENT_DIR_NAME) {
+        // And this host's answer is the client's folder inside its own platform's root, unless the
+        // environment running the test names a folder outright.
+        if let Some(dir) =
+            default_settings_dir(CLIENT_DIR_NAME).filter(|_| settings_dir_override().is_none())
+        {
             assert_eq!(
                 dir.file_name().and_then(|n| n.to_str()),
                 Some(CLIENT_DIR_NAME)
@@ -405,7 +465,13 @@ mod tests {
             .unwrap_or_default()
             .join(PREFERENCES_FILE_NAME);
         let actual = default_preferences_file(CLIENT_DIR_NAME);
-        if cwd_file.exists() {
+        if let Some(dir) = settings_dir_override() {
+            assert_eq!(
+                actual,
+                Some(dir.join(PREFERENCES_FILE_NAME)),
+                "a named folder wins"
+            );
+        } else if cwd_file.exists() {
             assert_eq!(actual, Some(cwd_file), "a cwd UserPreferences.ini wins");
         } else {
             assert_eq!(
@@ -414,6 +480,55 @@ mod tests {
                 "otherwise the settings directory's"
             );
         }
+    }
+
+    /// Only the newest [`CRASH_LOGS_KEPT`] crash logs survive a start, oldest removed first, and
+    /// nothing in the folder that is not one of the binary's crash logs is touched.
+    ///
+    /// Behaviour: none (tooling: how many diagnostic logs the client keeps).
+    #[test]
+    fn pruning_keeps_the_newest_twenty_crash_logs() {
+        let scratch = Scratch::new("prune");
+        let dir = &scratch.0;
+        let base = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        for n in 0..25u64 {
+            let path = dir.join(format!("dereth-client-{}.log", 1000 + n));
+            put(&path, b"[START]");
+            let f = std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .expect("opens");
+            // The pid order is the reverse of the age order, so a name sort would keep the wrong
+            // twenty.
+            f.set_modified(base + std::time::Duration::from_secs(100 - n))
+                .expect("a settable time");
+        }
+        put(&dir.join("notes.txt"), b"not a log");
+        // Another product's log in the same folder is that product's to prune.
+        put(&dir.join("other-product-1.log"), b"[START]");
+        assert_eq!(CRASH_LOGS_KEPT, 20);
+        assert_eq!(prune_crash_logs(dir, "dereth-client", CRASH_LOGS_KEPT), 5);
+        let mut left: Vec<String> = std::fs::read_dir(dir)
+            .expect("listed")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        let mut want: Vec<String> = (0..20u64)
+            .map(|n| format!("dereth-client-{}.log", 1000 + n))
+            .collect();
+        want.push("notes.txt".to_owned());
+        want.push("other-product-1.log".to_owned());
+        want.sort();
+        assert_eq!(
+            left, want,
+            "the five oldest went, and the other files stayed"
+        );
+        assert_eq!(
+            prune_crash_logs(dir, "dereth-client", CRASH_LOGS_KEPT),
+            0,
+            "a second pass removes nothing"
+        );
     }
 
     /// Write `bytes` at `path`, making its folder.

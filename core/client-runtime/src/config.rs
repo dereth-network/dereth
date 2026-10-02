@@ -867,6 +867,37 @@ pub fn no_console_in_argv<S: AsRef<str>>(argv: &[S]) -> bool {
     rebuild_flag_in_argv(argv, "no-console")
 }
 
+/// `argv` as it may be written to a log: the value after each switch that carries a login -- the
+/// account (`-a`), the password (`-v`) and the two tickets (`-z`, `-glsticketdirect`) -- replaced
+/// by `***`, so a log kept or shared never carries one.
+///
+/// A token is resolved as the parser resolves it ([`find`] over the retail switches, after one or
+/// two command characters), and an upper-case short name is hidden too: a spelling the parser
+/// refuses still ends the run with its log kept, and that log must not carry the value either.
+/// `-glsticket` takes no value (the ticket is read elsewhere), so the token after it is left alone.
+#[must_use]
+pub fn argv_for_log<S: AsRef<str>>(argv: &[S]) -> Vec<String> {
+    const SECRET: &[&str] = &["account", "vgpassword", "zoneticket", "glsticketdirect"];
+    let mut out = Vec::with_capacity(argv.len());
+    let mut hide_next = false;
+    for tok in argv {
+        let tok = tok.as_ref();
+        if std::mem::take(&mut hide_next) {
+            out.push("***".to_owned());
+            continue;
+        }
+        if is_switch(tok) {
+            let name = strip_one(strip_one(tok));
+            hide_next = [name.to_owned(), name.to_ascii_lowercase()]
+                .iter()
+                .filter_map(|n| find(SWITCHES, n))
+                .any(|s| SECRET.contains(&s.long));
+        }
+        out.push(tok.to_owned());
+    }
+    out
+}
+
 /// **`--crash-test`, answered from `argv` alone**, for the same reason as [`no_console_in_argv`]:
 /// the crash log's hook is installed before the parse, and the deliberate panic this asks for
 /// proves that hook. The switch is in no help text.
@@ -2212,6 +2243,60 @@ Renderer=glide
         let p = Preferences::parse("[Log]\nLevel=\n");
         let c = Config::from_args_and_prefs_with(&[], &p).unwrap();
         assert_eq!(c.log_filter, None);
+    }
+
+    /// Behaviour: none (tooling: what the crash log may carry of the command line).
+    #[test]
+    fn a_logged_command_line_hides_the_account_password_and_tickets() {
+        let argv = [
+            "dereth-client",
+            "-a",
+            "acct",
+            "-v",
+            "secret",
+            "-h",
+            "host:9000",
+            "--vgpassword",
+            "again",
+            "/z",
+            "ticket",
+            "-glsticketdirect",
+            "gls",
+            "-ACCOUNT",
+            "loud",
+            "-A",
+            "upper",
+            "-glsticket",
+            "--headless",
+            "-u",
+            "-v",
+        ];
+        assert_eq!(
+            argv_for_log(&argv),
+            [
+                "dereth-client",
+                "-a",
+                "***",
+                "-v",
+                "***",
+                "-h",
+                "host:9000",
+                "--vgpassword",
+                "***",
+                "/z",
+                "***",
+                "-glsticketdirect",
+                "***",
+                "-ACCOUNT",
+                "***",
+                "-A",
+                "***",
+                "-glsticket",
+                "--headless",
+                "-u",
+                "-v",
+            ]
+        );
     }
 
     // Client initialization sets the command characters to "-/", so both prefixes are accepted.
