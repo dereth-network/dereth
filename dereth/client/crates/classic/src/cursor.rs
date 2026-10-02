@@ -1,6 +1,7 @@
 //! The classic interface's mouse pointer: which image it shows for the targeting mode, the
 //! combat mode and the object under it, and the busy pointer that stays up while requests are
-//! outstanding. Each image carries its own hotspot; native rendering owns visibility and clipping.
+//! outstanding. Each image carries its own hotspot; the window system shows it as the pointer
+//! ([`SystemPointer`]), as it shows the other interface's.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CursorArt {
@@ -128,6 +129,47 @@ pub fn spell_target_valid(
     world.player.is_some_and(|id| world.weenie(id).is_some())
 }
 
+/// The pointer the window system shows for the classic interface: an image of the early portal
+/// and its hotspot. `keyed` images are drawn with black (compared at 16-bit colour depth) left
+/// transparent, as the interface's pointers are; the others are opaque.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SystemPointer {
+    pub did: u32,
+    pub hot_x: i32,
+    pub hot_y: i32,
+    pub keyed: bool,
+}
+
+impl SystemPointer {
+    /// The pointer for one of the interface's own pointer images.
+    #[must_use]
+    pub const fn of(art: CursorArt) -> Self {
+        Self {
+            did: art.did,
+            hot_x: art.hotspot_x,
+            hot_y: art.hotspot_y,
+            keyed: true,
+        }
+    }
+}
+
+/// `rgba` (rows top first) as the window system's pointer pixels: blue, green, red, alpha, with
+/// a keyed pointer's black pixels made transparent.
+#[must_use]
+pub fn pointer_pixels(rgba: &[u8], keyed: bool) -> Vec<[u8; 4]> {
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&[r, g, b, a]| {
+            if keyed && r >> 3 == 0 && g >> 2 == 0 && b >> 3 == 0 {
+                [0, 0, 0, 0]
+            } else {
+                [b, g, r, a]
+            }
+        })
+        .collect()
+}
+
 /// The pointer shown before the game interface sets any other.
 pub const fn pregame() -> CursorArt {
     CursorArt::new(0x06000086, 15, 28, 0, 0)
@@ -200,6 +242,43 @@ mod tests {
         );
         i.mode = 5;
         assert_eq!(resolve(i).unwrap().did, 0x0600139b);
+    }
+    #[test]
+    fn a_keyed_pointer_leaves_black_transparent_at_sixteen_bit_depth_and_the_rest_opaque() {
+        // Black, near-black that 16-bit colour rounds to black, the darkest non-black, white.
+        let rgba = [0, 0, 0, 255, 7, 3, 7, 255, 8, 0, 0, 255, 255, 255, 255, 255];
+        assert_eq!(
+            pointer_pixels(&rgba, true),
+            [
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 8, 255],
+                [255, 255, 255, 255]
+            ]
+        );
+        assert_eq!(
+            pointer_pixels(&rgba, false),
+            [
+                [0, 0, 0, 255],
+                [7, 3, 7, 255],
+                [0, 0, 8, 255],
+                [255, 255, 255, 255]
+            ]
+        );
+        let art = resolve(CursorInput {
+            mode: 4,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            SystemPointer::of(art),
+            SystemPointer {
+                did: 0x060018e2,
+                hot_x: 14,
+                hot_y: 14,
+                keyed: true
+            }
+        );
     }
     #[test]
     fn alternate_cursor_precedes_combat_and_magic_modes() {

@@ -346,6 +346,10 @@ pub struct CursorInstall {
     pub took: bool,
 }
 
+/// The top bit of an interface picture's key ([`CursorSystem::show_picture`]); no game data id
+/// has it.
+const INTERFACE_PICTURE: u32 = 0x8000_0000;
+
 /// The host's cursor images: built from a cursor's icon bits and put on the window.
 ///
 /// The desktop builds the window system's own cursor from the bits and installs it as the
@@ -391,6 +395,8 @@ pub struct CursorSystem {
     built: HashMap<CursorKey, bool>,
     /// The host's cursor images, which hold the built cursors and the window they go on.
     images: Box<dyn CursorImages>,
+    /// The interface picture last put on the window ([`Self::show_picture`]).
+    picture: Option<CursorKey>,
     pub stats: CursorStats,
 }
 
@@ -426,6 +432,7 @@ impl CursorSystem {
             report_gate: dereth_client_runtime::report_gate::ReportGate::default(),
             built: HashMap::new(),
             images,
+            picture: None,
             stats: CursorStats::default(),
         }
     }
@@ -469,6 +476,51 @@ impl CursorSystem {
             .or_insert_with(|| self.images.build(HIDDEN, &bits))
         {
             self.images.install(HIDDEN);
+        }
+    }
+
+    /// Put an interface's own picture on the window as the pointer: the image of `did` with its
+    /// hotspot, whose pixels (width, height, blue-green-red-alpha rows) `pixels` gives the first
+    /// time it is shown. Built once and kept; showing the pointer already up does nothing.
+    ///
+    /// The picture is kept apart from the game data's cursors by the top bit of its key, so an
+    /// interface whose images share ids with the game data's never shows one for the other.
+    pub fn show_picture(
+        &mut self,
+        did: u32,
+        hot: (i32, i32),
+        pixels: impl FnOnce() -> Option<(u32, u32, Vec<[u8; 4]>)>,
+    ) {
+        let key: CursorKey = (DataId(INTERFACE_PICTURE | did), hot.0, hot.1);
+        if self.current == Some(key.0) && self.picture == Some(key) {
+            return;
+        }
+        self.current = Some(key.0);
+        self.picture = Some(key);
+        if !self.built.contains_key(&key) {
+            let bits = pixels().and_then(|(width, height, pixels)| {
+                dereth_render::cursor::build(
+                    width,
+                    height,
+                    &pixels,
+                    u32::try_from(hot.0).unwrap_or(0),
+                    u32::try_from(hot.1).unwrap_or(0),
+                )
+                .ok()
+            });
+            if bits.is_none() {
+                self.stats.failures += 1;
+            }
+            let ok = bits.is_some_and(|b| self.images.build(key, &b));
+            if ok {
+                self.stats.icons_built += 1;
+            }
+            self.built.insert(key, ok);
+        }
+        if self.built.get(&key) == Some(&true) {
+            if let Some(CursorInstall { took: true, .. }) = self.images.install(key) {
+                self.stats.device_installs += 1;
+            }
         }
     }
 
@@ -1019,5 +1071,67 @@ mod tests {
             ObjectId(7),
             ObjectId(8)
         ));
+    }
+
+    /// The host images an interface picture went to: what was built and what was installed.
+    #[derive(Default)]
+    struct Recording(std::rc::Rc<std::cell::RefCell<(Vec<CursorKey>, Vec<CursorKey>)>>);
+
+    impl CursorImages for Recording {
+        fn build(&mut self, key: CursorKey, _bits: &dereth_render::cursor::IconBits) -> bool {
+            self.0.borrow_mut().0.push(key);
+            true
+        }
+        fn install(&mut self, key: CursorKey) -> Option<CursorInstall> {
+            self.0.borrow_mut().1.push(key);
+            Some(CursorInstall {
+                window: true,
+                icon: true,
+                took: true,
+            })
+        }
+    }
+
+    // Not a retail behaviour: the other interface's own pointer pictures, shown by the window
+    // system. Each is built once, shown again only after another pointer replaced it, and keyed
+    // apart from the game data's cursor of the same id.
+    #[test]
+    fn an_interface_picture_is_built_once_and_installed_only_when_the_pointer_changes() {
+        let log = Recording::default();
+        let seen = std::rc::Rc::clone(&log.0);
+        let mut cursors = CursorSystem::with_images(Box::new(log));
+        let pixels = || Some((2, 1, vec![[255, 255, 255, 255], [0, 0, 0, 0]]));
+        let mut asked = 0;
+        for _ in 0..3 {
+            cursors.show_picture(0x0600_0086, (0, 0), || {
+                asked += 1;
+                pixels()
+            });
+        }
+        assert_eq!(asked, 1);
+        let key = (DataId(0x8600_0086), 0, 0);
+        assert_eq!(cursors.current(), Some(key.0));
+        assert_eq!(seen.borrow().0, [key]);
+        assert_eq!(seen.borrow().1, [key]);
+        // The same picture at another hotspot is another pointer.
+        cursors.show_picture(0x0600_0086, (14, 14), pixels);
+        cursors.hide();
+        cursors.show_picture(0x0600_0086, (0, 0), || {
+            asked += 1;
+            pixels()
+        });
+        assert_eq!(asked, 1, "a picture already built is not asked for again");
+        let installed: Vec<_> = seen.borrow().1.iter().map(|k| (k.0 .0, k.1)).collect();
+        assert_eq!(
+            installed,
+            [
+                (0x8600_0086, 0),
+                (0x8600_0086, 14),
+                (0, 0),
+                (0x8600_0086, 0)
+            ]
+        );
+        assert_eq!(cursors.stats.icons_built, 2);
+        assert_eq!(cursors.stats.device_installs, 3);
     }
 }

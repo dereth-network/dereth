@@ -91,6 +91,9 @@ pub struct ClassicUi {
     game_visible: bool,
     resolution_timed_out: bool,
     cursor_commands: Vec<crate::Command>,
+    /// The pointer the window system shows this frame; `None` hides it (the mouse is looking
+    /// around, or a dragged icon is drawn in its place).
+    system_pointer: Option<crate::cursor::SystemPointer>,
     stack_object: Option<(ObjectId, u32)>,
     selection_queries: hud::SelectionQueries,
     options_seen: Option<u32>,
@@ -179,6 +182,7 @@ impl ClassicUi {
             game_visible: false,
             resolution_timed_out: false,
             cursor_commands: vec![],
+            system_pointer: None,
             stack_object: None,
             selection_queries: Default::default(),
             options_seen: None,
@@ -2250,6 +2254,7 @@ impl ClassicUi {
     }
     pub fn update_cursor<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
         self.cursor_commands.clear();
+        self.system_pointer = None;
         if cx.mouse_look() {
             return;
         }
@@ -2315,25 +2320,44 @@ impl ClassicUi {
         } else {
             Some(crate::cursor::pregame())
         };
-        if let Some(command) = self.desktop.pointer_art(x, y) {
-            self.cursor_commands.push(command);
-        } else if let Some(art) = art {
-            let (x, y) = art.origin(x, y);
-            self.cursor_commands.push(crate::Command::Image {
-                did: format!("{:08X}", art.did),
-                x,
-                y,
-                width: art.width,
-                height: art.height,
-                clip: None,
-                color_key: Some([0, 0, 0]),
-                key_bits: Some([5, 6, 5]),
-                tile: false,
-            });
-        }
+        // The pointer is the window system's, as the other interface's is: it follows the mouse
+        // at the system's rate, not a frame behind it.
+        self.system_pointer =
+            if let Some(crate::Command::Image { did, .. }) = self.desktop.pointer_art(x, y) {
+                u32::from_str_radix(&did, 16)
+                    .ok()
+                    .map(|did| crate::cursor::SystemPointer {
+                        did,
+                        hot_x: 0,
+                        hot_y: 0,
+                        keyed: false,
+                    })
+            } else {
+                art.map(crate::cursor::SystemPointer::of)
+            };
+    }
+    /// The pointer the window system should show, as [`Self::update_cursor`] chose it; `None`
+    /// hides the system's pointer.
+    #[must_use]
+    pub fn system_pointer(&self) -> Option<crate::cursor::SystemPointer> {
+        self.system_pointer
+    }
+    /// The pixels of `pointer` for the window system: its width, its height and its blue, green,
+    /// red and alpha pixels. `None` when the early portal has no such image.
+    #[must_use]
+    pub fn system_pointer_pixels(
+        &self,
+        pointer: crate::cursor::SystemPointer,
+    ) -> Option<(u32, u32, Vec<[u8; 4]>)> {
+        let image = self.art.image(pointer.did)?;
+        Some((
+            image.width,
+            image.height,
+            crate::cursor::pointer_pixels(&image.rgba, pointer.keyed),
+        ))
     }
     /// Build this frame's overlay, outside the frame bracket: the windows, the world overlay, the
-    /// target marks and the pointer, with the previews and the portal swirl in their places.
+    /// target marks and a dragged icon, with the previews and the portal swirl in their places.
     pub fn compose_ui<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
         let sounds = std::mem::take(&mut self.desktop.sounds);
         if self.settings.interface && !sounds.is_empty() {

@@ -3102,9 +3102,18 @@ impl<H: Host> Shell for ClientShell<H> {
 
     fn update_cursor(&mut self, cx: &mut Cx<'_, H>) {
         if let Some(ui) = self.classic.active_mut() {
-            // The classic interface draws its own pointer.
+            // The classic interface chooses its pointer and the window system shows it, as it
+            // shows this interface's; with none chosen the system's pointer is hidden.
             ui.update_cursor(cx);
-            self.cursor.hide();
+            match ui.system_pointer() {
+                Some(pointer) => {
+                    self.cursor
+                        .show_picture(pointer.did, (pointer.hot_x, pointer.hot_y), || {
+                            ui.system_pointer_pixels(pointer)
+                        })
+                }
+                None => self.cursor.hide(),
+            }
             return;
         }
         Ui { cx, shell: self }.update_cursor_state();
