@@ -160,7 +160,9 @@ pub fn setup_geometry_with_parts_at(
         let decoded_part = store
             .read_typed(DbType::GfxObj, *part_id)
             .ok()
-            .and_then(|b| dereth_assets::GfxObj::decode_payload(*part_id, &b).ok());
+            .and_then(|b| {
+                dereth_assets::GfxObj::decode_payload_in(store.era_of(*part_id), *part_id, &b).ok()
+            });
         let (bsp, bound_box, drawing_sphere, degrade_mode) = match decoded_part {
             // The bounding box and the drawing sphere come out of the same decode
             // the physics tree does: bounding-box cell collection reads the mesh's drawing
@@ -235,7 +237,8 @@ pub fn drawing_sphere(g: &dereth_assets::GfxObj) -> Option<dereth_physics::Spher
 pub fn first_degrade_mode(store: &RetailDatStore, g: &dereth_assets::GfxObj) -> Option<i32> {
     let id = g.did_degrade?;
     let bytes = store.read_typed(DbType::DegradeInfo, id).ok()?;
-    let info = dereth_assets::GfxObjDegradeInfo::decode_payload(id, &bytes).ok()?;
+    let info =
+        dereth_assets::GfxObjDegradeInfo::decode_payload_in(store.era_of(id), id, &bytes).ok()?;
     info.degrades.first().map(|d| d.degrade_mode)
 }
 
@@ -266,7 +269,7 @@ pub fn simple_setup_geometry(
     stats: &mut SetupPartStats,
 ) -> Option<SetupGeometry> {
     let bytes = store.read_typed(DbType::GfxObj, gfxobj).ok()?;
-    let g = dereth_assets::GfxObj::decode_payload(gfxobj, &bytes).ok()?;
+    let g = dereth_assets::GfxObj::decode_payload_in(store.era_of(gfxobj), gfxobj, &bytes).ok()?;
     let bsp = crate::env_cells::gfxobj_physics_bsp(&g).map(Arc::new);
     stats.setups += 1;
     stats.parts += 1;

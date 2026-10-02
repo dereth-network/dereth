@@ -1348,8 +1348,9 @@ impl Character {
         let raw = store
             .read_typed(DbType::Setup, ALUVIAN_MALE_SETUP)
             .map_err(|_| CharacterError::NoSetup(ALUVIAN_MALE_SETUP))?;
-        let decoded = Setup::decode_payload(ALUVIAN_MALE_SETUP, &raw)
-            .map_err(|_| CharacterError::NoSetup(ALUVIAN_MALE_SETUP))?;
+        let decoded =
+            Setup::decode_payload_in(store.era_of(ALUVIAN_MALE_SETUP), ALUVIAN_MALE_SETUP, &raw)
+                .map_err(|_| CharacterError::NoSetup(ALUVIAN_MALE_SETUP))?;
         let geometry = Arc::new(setup_geometry(&decoded));
 
         let block = LandblockId(landblock);
@@ -1562,8 +1563,8 @@ impl Character {
             .store
             .read_typed(DbType::Setup, setup_id)
             .map_err(|_| CharacterError::NoSetup(setup_id))?;
-        let decoded =
-            Setup::decode_payload(setup_id, &raw).map_err(|_| CharacterError::NoSetup(setup_id))?;
+        let decoded = Setup::decode_payload_in(self.store.era_of(setup_id), setup_id, &raw)
+            .map_err(|_| CharacterError::NoSetup(setup_id))?;
         let geometry = Arc::new(setup_geometry(&decoded));
         // Resolved here, for the same reason the setup is: `set_motion_table` destroys and
         // recreates the movement manager, so discovering the table is missing *after* `set_setup`

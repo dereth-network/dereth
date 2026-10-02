@@ -164,6 +164,60 @@ fn a_pre_tod_container_walks_its_twelve_byte_directory_and_reads_every_record() 
     assert!(matches!(file.iteration_list(), Err(DatError::NotFound(_))));
 }
 
+/// An older world with the later interface beside it: the older files answer every record they
+/// hold (in their layout), and the later portal and language files every other one.
+#[test]
+fn the_later_files_answer_what_an_older_world_lacks() {
+    use dereth_dat::write::DatWriter;
+    let dir = std::env::temp_dir().join(format!("dereth-pre-tod-later-{}", std::process::id()));
+    let later_dir = dir.join("later");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&later_dir).expect("temp dir");
+    let (portal, records) = two_level(0x400, 2112);
+    let (cell, _) = two_level(0x100, 1593);
+    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
+    let shared = DataId(records[2].0);
+    let only_later = DataId(0x3900_0001);
+    let string_table = DataId(0x2300_0001);
+    {
+        let mut w = DatWriter::create(
+            &RetailDat::Portal.in_dir(&later_dir),
+            0x400,
+            1,
+            0,
+            0x400 + 0x400 * 32,
+        )
+        .expect("create");
+        w.save(only_later, b"later only", 1, 1, 1).expect("save");
+        w.save(shared, b"later copy", 1, 1, 1).expect("save");
+        let mut l = DatWriter::create(
+            &RetailDat::Local.in_dir(&later_dir),
+            0x400,
+            3,
+            1,
+            0x400 + 0x400 * 16,
+        )
+        .expect("create");
+        l.save(string_table, b"strings", 1, 1, 1).expect("save");
+    }
+    let s = RetailDatStore::open_pre_tod_with_later(&dir, &later_dir).expect("opens");
+    assert!(s.has_later_interface());
+    assert_eq!(s.era(), ContainerEra::PreTod);
+    // A record both portal files hold is the older one's.
+    assert_eq!(s.read_portal(shared).expect("reads"), records[2].1);
+    assert_eq!(s.era_of(shared), ContainerEra::PreTod);
+    // One only the later portal file holds is the later one's, in its layout.
+    assert_eq!(s.read_portal(only_later).expect("reads"), b"later only");
+    assert_eq!(s.era_of(only_later), ContainerEra::Tod);
+    assert!(s.resolve(only_later).is_some());
+    // The language reads are the later language file's.
+    assert_eq!(s.local().read(string_table).expect("reads"), b"strings");
+    assert_eq!(s.era_of(string_table), ContainerEra::Tod);
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_file_with_the_magic_at_neither_offset_is_refused() {
     let mut bytes = vec![0u8; 0x800];

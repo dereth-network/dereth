@@ -173,7 +173,7 @@ pub fn resolve_parts_at(store: &RetailDatStore, id: DataId, placement: u32) -> V
             let Ok(bytes) = store.read_typed(DbType::Setup, id) else {
                 return Vec::new();
             };
-            let Ok(setup) = Setup::decode_payload(id, &bytes) else {
+            let Ok(setup) = Setup::decode_payload_in(store.era_of(id), id, &bytes) else {
                 return Vec::new();
             };
             let frames = placement_frames(&setup, placement);
@@ -228,7 +228,7 @@ pub fn draws_at_near_band(store: &RetailDatStore, gfxobj: DataId) -> bool {
     let Ok(bytes) = store.read_typed(DbType::GfxObj, gfxobj) else {
         return true;
     };
-    let Ok(obj) = GfxObj::decode_payload(gfxobj, &bytes) else {
+    let Ok(obj) = GfxObj::decode_payload_in(store.era_of(gfxobj), gfxobj, &bytes) else {
         return true;
     };
     // With no degrade record, the part holds one mesh and always draws it.
@@ -238,7 +238,9 @@ pub fn draws_at_near_band(store: &RetailDatStore, gfxobj: DataId) -> bool {
     let Ok(bytes) = store.read_typed(DbType::DegradeInfo, did) else {
         return true;
     };
-    let Ok(info) = dereth_assets::GfxObjDegradeInfo::decode_payload(did, &bytes) else {
+    let Ok(info) =
+        dereth_assets::GfxObjDegradeInfo::decode_payload_in(store.era_of(did), did, &bytes)
+    else {
         return true;
     };
     // The shipped settings, with the automatic multiplier at its pinned 0: at `d = 0` the first
@@ -265,7 +267,7 @@ pub fn sorting_sphere(store: &RetailDatStore, id: DataId) -> Option<(Vec3, f32)>
         return None;
     }
     let bytes = store.read_typed(DbType::Setup, id).ok()?;
-    let setup = Setup::decode_payload(id, &bytes).ok()?;
+    let setup = Setup::decode_payload_in(store.era_of(id), id, &bytes).ok()?;
     Some((setup.sorting_sphere.center, setup.sorting_sphere.radius))
 }
 
@@ -278,7 +280,7 @@ pub fn build_gfxobj(store: &RetailDatStore, id: DataId) -> Vec<SurfaceGroup> {
     let Ok(bytes) = store.read_typed(DbType::GfxObj, id) else {
         return Vec::new();
     };
-    let Ok(obj) = GfxObj::decode_payload(id, &bytes) else {
+    let Ok(obj) = GfxObj::decode_payload_in(store.era_of(id), id, &bytes) else {
         return Vec::new();
     };
     triangulate(&obj)

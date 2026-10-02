@@ -749,7 +749,7 @@ impl WorldPicker {
         let setup = match store
             .read_typed(DbType::Setup, did)
             .ok()
-            .and_then(|b| Setup::decode_payload(did, &b).ok())
+            .and_then(|b| Setup::decode_payload_in(store.era_of(did), did, &b).ok())
         {
             Some(s) => s,
             None => {
@@ -798,7 +798,7 @@ impl WorldPicker {
         let g = store
             .read_typed(DbType::GfxObj, did)
             .ok()
-            .and_then(|b| GfxObj::decode_payload(did, &b).ok())?;
+            .and_then(|b| GfxObj::decode_payload_in(store.era_of(did), did, &b).ok())?;
         // The drawing sphere comes from the drawing BSP's root, so
         // a mesh with no drawing BSP has no sphere and the selection ray's first test —
         // its drawing-sphere ray test — never passes.

@@ -1030,6 +1030,25 @@ fn a_taboo_name_is_banned() {
     assert!(characters(&w).is_empty());
 }
 
+/// Divergence: V392
+#[test]
+fn an_infiltration_world_answers_a_later_heritage_pending_with_a_popup() {
+    let mut w = world();
+    w.era = empyrean_common::era::EraId::Infiltration.rules();
+    // Viamontian (7), which only Throne of Destiny accounts could choose.
+    let sent = send(&mut w, &request("Aldric", 7, ABILITIES, standard_sacs()));
+    assert_eq!(sent.codes(), [Cgvr::Pending]);
+    assert!(
+        sent.opcodes().contains(&0xF7B0),
+        "the refusal's popup arrives as a game event: {:X?}",
+        sent.opcodes()
+    );
+    assert!(characters(&w).is_empty());
+    // Aluvian (1) is the era's.
+    let sent = send(&mut w, &request("Aldric", 1, ABILITIES, standard_sacs()));
+    assert_eq!(sent.codes(), [Cgvr::Ok]);
+}
+
 #[test]
 fn a_creature_name_is_banned() {
     let mut w = world();
@@ -1425,6 +1444,45 @@ fn an_infiltration_character_starts_outdoors_in_its_town_with_recalls_enabled() 
         }
     }
     assert_eq!(seen.len(), 2, "both Holtburg areas are used: {seen:04X?}");
+}
+
+/// Divergence: V392
+#[test]
+fn an_infiltration_character_may_not_train_a_skill_from_after_the_2012_consolidation() {
+    let rules = empyrean_common::era::EraId::Infiltration.rules();
+    // Dual Wield (49), which the test table has, and Healing (21).
+    for (skill, allowed) in [(49, false), (21, true)] {
+        let mut w = world();
+        w.era = rules;
+        let m = request(
+            "Aldric",
+            1,
+            ABILITIES,
+            sacs(&[(skill, TRAINED), (6, TRAINED)]),
+        );
+        let (result, _) = create(&mut w, &m);
+        if allowed {
+            assert_eq!(result, CreateResult::Success, "skill {skill}");
+        } else {
+            assert_eq!(result, CreateResult::InvalidSkillRequested, "skill {skill}");
+        }
+    }
+    // At the end of retail the same Dual Wield character is ACE's success.
+    let mut w = world();
+    let m = request("Aldric", 1, ABILITIES, sacs(&[(49, TRAINED), (6, TRAINED)]));
+    assert_eq!(create(&mut w, &m).0, CreateResult::Success);
+}
+
+/// Divergence: V391
+#[test]
+fn an_infiltration_starter_area_named_as_a_listed_area_starts_exactly_there() {
+    let rules = empyrean_common::era::EraId::Infiltration.rules();
+    let empyrean_common::era::StartPositions::Towns(towns) = rules.start_positions else {
+        panic!("listed towns");
+    };
+    let area = empyrean_common::era::StartPositions::area(towns, "Shoushi West").expect("listed");
+    assert_eq!(area.cell, 0xD655_0023);
+    assert!(empyrean_common::era::StartPositions::area(towns, "Shoushi").is_none());
 }
 
 /// Divergence: V386

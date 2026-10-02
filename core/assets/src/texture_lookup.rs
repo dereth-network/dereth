@@ -32,6 +32,13 @@ impl<'a> TextureLookup<'a> {
         }
     }
 
+    /// The dat set the record `id` comes from, which decides its layout and how a 256-colour
+    /// image indexes its palette.
+    #[must_use]
+    pub fn era_of(&self, id: DataId) -> ContainerEra {
+        self.store.era_of(id)
+    }
+
     /// Whether a two-level chain retains its high-resolution level.
     #[must_use]
     pub fn keeps_high_detail(&self) -> bool {
@@ -59,7 +66,7 @@ impl<'a> TextureLookup<'a> {
                 self.resolve(next)
             }
             // Before Throne of Destiny an image texture carries its own pixels.
-            DbType::SurfaceTexture if self.store.era() == ContainerEra::PreTod => {
+            DbType::SurfaceTexture if self.store.era_of(id) == ContainerEra::PreTod => {
                 let bytes = self.read(DbType::SurfaceTexture, id)?;
                 let rs = RenderSurface::from_pre_tod_texture(id, &bytes)
                     .map_err(|e| LookupError::Asset(id, e))?;
@@ -94,7 +101,7 @@ impl<'a> TextureLookup<'a> {
             }
             DbType::RenderSurface => {
                 let bytes = self.read(DbType::RenderSurface, id)?;
-                let rs = RenderSurface::decode_payload_in(self.store.era(), id, &bytes)
+                let rs = RenderSurface::decode_payload_in(self.store.era_of(id), id, &bytes)
                     .map_err(|e| LookupError::Asset(id, e))?;
                 Ok((id, rs, bytes))
             }
@@ -110,6 +117,7 @@ impl<'a> TextureLookup<'a> {
 
     fn decode<T: Decode>(&self, kind: DbType, id: DataId) -> Result<T, LookupError> {
         let bytes = self.read(kind, id)?;
-        T::decode_payload_in(self.store.era(), id, &bytes).map_err(|e| LookupError::Asset(id, e))
+        T::decode_payload_in(self.store.era_of(id), id, &bytes)
+            .map_err(|e| LookupError::Asset(id, e))
     }
 }

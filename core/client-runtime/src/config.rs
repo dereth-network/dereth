@@ -203,6 +203,11 @@ pub struct Config {
     pub console: bool,
     /// Where the four retail dats live.
     pub dat_dir: PathBuf,
+    /// `--world-dat-dir <dir>`: an older dat set to draw the world from (`portal.dat` and
+    /// `cell.dat`, from before Throne of Destiny), with [`Self::dat_dir`]'s files answering the
+    /// interface and whatever else the older files do not have. `None`: the world is
+    /// [`Self::dat_dir`]'s.
+    pub world_dat_dir: Option<PathBuf>,
 
     // ---- the static scene ----
     /// `--landblock <hex>`: which landblock the camera starts over. Holtburg by default, the
@@ -408,6 +413,7 @@ impl Default for Config {
             capture: None,
             console: true,
             dat_dir: default_dat_dir(),
+            world_dat_dir: None,
         }
     }
 }
@@ -552,6 +558,11 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "world-dat-dir",
         short: None,
         arity: Arity::Required,
     },
@@ -1177,6 +1188,7 @@ impl Config {
             "log-file" => self.log_file = true,
             "log-spans" => self.log_spans = true,
             "dat-dir" => self.dat_dir = PathBuf::from(v),
+            "world-dat-dir" => self.world_dat_dir = Some(PathBuf::from(v)),
             "landblock" => {
                 self.landblock = u16::from_str_radix(v.trim_start_matches("0x"), 16)
                     .map_err(|_| ConfigError::new(format!("bad --landblock value {v:?}")))?;
@@ -1593,6 +1605,15 @@ mod tests {
     fn parse(args: &[&str]) -> Result<Config, ConfigError> {
         let argv: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
         Config::from_args_and_prefs_with(&argv, &Preferences::default())
+    }
+
+    /// `--world-dat-dir` names the older world's files; without it the world is `--dat-dir`'s.
+    #[test]
+    fn the_world_dat_dir_switch_names_an_older_world_beside_the_dat_dir() {
+        let c = parse(&["--dat-dir", "eor", "--world-dat-dir", "feb2005"]).expect("parses");
+        assert_eq!(c.dat_dir, PathBuf::from("eor"));
+        assert_eq!(c.world_dat_dir, Some(PathBuf::from("feb2005")));
+        assert_eq!(parse(&[]).expect("parses").world_dat_dir, None);
     }
 
     // Oracle: the complete supported switch table and its per-switch behavior.

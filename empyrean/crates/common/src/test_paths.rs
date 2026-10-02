@@ -5,6 +5,7 @@
 //! | input | variable | default (workspace-relative) |
 //! |---|---|---|
 //! | `world.pack` | `EMPYREAN_TEST_WORLD_PACK` | `world.pack` |
+//! | an Infiltration `world.pack` | `EMPYREAN_TEST_INFILTRATION_PACK` | `world.pack.infiltration` |
 //! | ACE world-database dump | `EMPYREAN_WORLD_SQL` | `world-database/ACE-World-Database-<pin>.sql`, else the fetch cache |
 //! | reassembled messages | `DERETH_TEST_NETBLOBS` | `fixtures/message-corpus` |
 //! | recorded sessions | `DERETH_TEST_CAPTURES` | `fixtures/packet-captures` |
@@ -106,6 +107,14 @@ fn present(p: &Path) -> bool {
 #[must_use]
 pub fn world_pack() -> PathBuf {
     env_or_repo("EMPYREAN_TEST_WORLD_PACK", "world.pack")
+}
+
+/// A content pack built for the Infiltration era (ACE-World-16PY: `empyrean-import fetch --world
+/// 16py --pack --out world.pack.infiltration`): `EMPYREAN_TEST_INFILTRATION_PACK`, else
+/// `world.pack.infiltration`. The tests that play the February 2005 dat set read it.
+#[must_use]
+pub fn infiltration_pack() -> PathBuf {
+    env_or_repo("EMPYREAN_TEST_INFILTRATION_PACK", "world.pack.infiltration")
 }
 
 /// ACE's world-database dump: `EMPYREAN_WORLD_SQL`, else `world-database/<the pinned dump>`,

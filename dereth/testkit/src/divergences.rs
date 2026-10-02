@@ -154,6 +154,18 @@ pub static DIVERGENCES: &[Divergence] = &[
               for, and modern graphics interfaces no longer offer a display curve to a windowed \
               program. Inside the game the picture is the same.",
     },
+    Divergence {
+        id: "CD-010",
+        title: "The world of February 2005 under today's screens",
+        retail: "The client of February 2005 read its two data files, portal.dat and cell.dat, \
+                 and drew its own interface over that world.",
+        dereth: "Given those two files beside the end-of-retail ones (--world-dat-dir), the \
+                 client draws the February 2005 world from them and the end-of-retail screens \
+                 over it: the interface's layouts, strings, fonts and images come from the later \
+                 files, and a record the older files lack is read from them too.",
+        why: "Dereth plays every era over one set of screens until the interface of the time is \
+              rebuilt; the world itself is the older files' own.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

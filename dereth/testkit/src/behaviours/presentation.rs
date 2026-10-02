@@ -92,6 +92,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.headless.the-world-before-throne-of-destiny-draws-under-todays-screens",
+        says: "Given the older world's data files (those of February 2005) beside the \
+               end-of-retail ones, the client draws the world as it was then (its landscape, \
+               buildings and scenery) under the end-of-retail screens.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-ERA-2005-CAPTURE"),
+        station: "dereth-client::gpu::presentation::pre_tod_capture::the_february_2005_holtburg_draws_under_todays_screens",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "presentation.intro-movie.every-frame-decodes-at-the-movies-rate-and-it-never-loops",
         says: "Every frame of the opening movie decodes to a full opaque 640 by 480 picture, and \
                after the last frame the movie is over and stays over rather than starting again.",

@@ -100,7 +100,7 @@ impl WorldState {
 pub fn read_landblock(store: &RetailDatStore, bx: i32, by: i32) -> Option<CellLandblock> {
     let id = landblock_did(block_id(bx, by)?);
     let bytes = store.read_typed(DbType::LandBlock, id).ok()?;
-    CellLandblock::decode_payload(id, &bytes).ok()
+    CellLandblock::decode_payload_in(store.era_of(id), id, &bytes).ok()
 }
 
 /// The landblock-information record at block coordinates `(bx, by)`: the block's buildings,
@@ -109,14 +109,14 @@ pub fn read_landblock(store: &RetailDatStore, bx: i32, by: i32) -> Option<CellLa
 pub fn read_lbi(store: &RetailDatStore, bx: i32, by: i32) -> Option<LandblockInfo> {
     let id = lbi_did(block_id(bx, by)?);
     let bytes = store.read_typed(DbType::Lbi, id).ok()?;
-    LandblockInfo::decode_payload(id, &bytes).ok()
+    LandblockInfo::decode_payload_in(store.era_of(id), id, &bytes).ok()
 }
 
 /// A scenery-selection record.
 #[must_use]
 pub fn read_scene(store: &RetailDatStore, id: DataId) -> Option<Scene> {
     let bytes = store.read_typed(DbType::Scene, id).ok()?;
-    Scene::decode_payload(id, &bytes).ok()
+    Scene::decode_payload_in(store.era_of(id), id, &bytes).ok()
 }
 
 /// The 16-bit landblock id of `(bx, by)`, when both are inside the world.

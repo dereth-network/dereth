@@ -1,4 +1,4 @@
-// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/PlayerFactory.cs
+// Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Factories/PlayerFactory.cs, Source/ACE.Entity/Enum/Skill.cs, Source/ACE.Server/Network/Handlers/CharacterHandler.cs
 //! Not ACE: the era a world plays, and the rules that differ by era.
 //!
 //! A world names its era in `empyrean.toml` (`[era] profile`), and its `world.pack` records the
@@ -129,7 +129,24 @@ pub struct EraRules {
     pub max_level: Option<u32>,
     /// How random loot treats a weenie the loot tables name and the world database lacks.
     pub loot: LootTables,
+    /// The skills a new character may train or specialise. `None`: ACE's rule (any skill the dat
+    /// skill table has, the retired weapon skills added to it).
+    pub creation_skills: Option<&'static [u32]>,
+    /// The heritages a new character may be. `None`: any the dat character-generation table has.
+    pub heritages: Option<&'static [u32]>,
 }
+
+/// The February 2005 skills: exactly the 36 of that era's skill table, which ClassicACE's
+/// Infiltration skill list also is: the weapon skills Axe (1) to Unarmed Combat (13) without Sling
+/// (8), and none of the 2010-2013 skills (Two Handed Combat, Void Magic, Heavy, Light, Finesse and
+/// Missile Weapons, Shield, Dual Wield, Recklessness, Sneak Attack, Dirty Fighting, Summoning).
+pub static INFILTRATION_SKILLS: [u32; 36] = [
+    1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30,
+    31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+];
+
+/// The February 2005 heritages: Aluvian, Gharu'ndim and Sho.
+pub static INFILTRATION_HERITAGES: [u32; 3] = [1, 2, 3];
 
 /// How random loot treats the loot tables' weenies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +166,8 @@ pub static EOR: EraRules = EraRules {
     account_has_tod: true,
     max_level: None,
     loot: LootTables::AsTables,
+    creation_skills: None,
+    heritages: None,
 };
 
 const fn at(area: &'static str, cell: u32, origin: [f32; 3], rotation: [f32; 4]) -> StartPosition {
@@ -222,6 +241,8 @@ pub static INFILTRATION: EraRules = EraRules {
     account_has_tod: false,
     max_level: Some(126),
     loot: LootTables::PackOnly,
+    creation_skills: Some(&INFILTRATION_SKILLS),
+    heritages: Some(&INFILTRATION_HERITAGES),
 };
 
 impl StartPositions {
@@ -232,6 +253,17 @@ impl StartPositions {
             .iter()
             .find(|t| t.town.eq_ignore_ascii_case(name))
             .unwrap_or(&towns[0])
+    }
+
+    /// The listed starter area named `name` exactly, when there is one: on the era's own dats the
+    /// character-generation table offers the areas themselves ("Holtburg South", ...) rather than
+    /// the towns the later table names.
+    #[must_use]
+    pub fn area(towns: &'static [TownStart], name: &str) -> Option<&'static StartPosition> {
+        towns
+            .iter()
+            .flat_map(|t| t.areas.iter())
+            .find(|a| a.area.eq_ignore_ascii_case(name))
     }
 }
 
@@ -255,7 +287,8 @@ pub fn current() -> &'static EraRules {
 #[cfg(test)]
 mod tests {
     //! The era table's rules and names.
-    //! Divergence: V386 (start positions), V387 (loot), V389 (the Throne of Destiny flag), V390 (the
+    //! Divergence: V386 (start positions), V387 (loot), V389 (the Throne of Destiny flag), V392
+    //! (creation skills and heritages), V390 (the
     //! level cap)
     use super::*;
 
@@ -271,6 +304,24 @@ mod tests {
         assert_eq!(EraId::from_pack_code(7), None);
         assert_eq!(EraId::default(), EraId::Eor);
         assert_eq!(EraId::Eor.pack_code(), 0);
+    }
+
+    /// Divergence: V392
+    #[test]
+    fn infiltration_creation_rules_are_the_february_2005_tables() {
+        let skills = INFILTRATION.creation_skills.expect("a skill set");
+        assert_eq!(skills.len(), 36);
+        assert!(skills.windows(2).all(|w| w[0] < w[1]));
+        for old in [1, 2, 3, 4, 5, 9, 10, 11, 12, 13, 40] {
+            assert!(skills.contains(&old), "{old}");
+        }
+        for later in [
+            8, 17, 25, 26, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
+        ] {
+            assert!(!skills.contains(&later), "{later}");
+        }
+        assert_eq!(INFILTRATION.heritages, Some(&[1, 2, 3][..]));
+        assert_eq!((EOR.creation_skills, EOR.heritages), (None, None));
     }
 
     #[test]

@@ -192,7 +192,8 @@ fn run() -> Result<(), String> {
     // else the executable's directory. A run that has none says where it looked and how to say
     // where they are. The install is then read-only for the run: a data-patch message that would
     // save into it is refused.
-    if !dereth_dat::holds_retail_dats(&cfg.dat_dir) {
+    if !dereth_dat::holds_retail_dats(&cfg.dat_dir) && !dereth_dat::holds_pre_tod_dats(&cfg.dat_dir)
+    {
         let mut searched = dereth_client::config::dat_dir_candidates();
         if !searched.contains(&cfg.dat_dir) {
             searched = vec![cfg.dat_dir.clone()];

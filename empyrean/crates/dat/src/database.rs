@@ -12,7 +12,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use dereth_assets::{self as assets, Decode};
-use dereth_primitives::DataId;
+use dereth_primitives::{ContainerEra, DataId};
 
 use crate::source::DatSource;
 
@@ -65,6 +65,17 @@ pub trait DatFileType: Any + Send + Sync + Sized {
     ///
     /// The payload does not decode as this type.
     fn unpack(file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError>;
+
+    /// Not ACE: decode in the record layouts of the dat set `era` names. A type with one layout
+    /// reads as [`DatFileType::unpack`].
+    ///
+    /// # Errors
+    ///
+    /// The payload does not decode as this type.
+    fn unpack_in(era: ContainerEra, file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError> {
+        let _ = era;
+        Self::unpack(file_id, bytes)
+    }
 }
 
 /// Every shared decoder is a `DatFileType` through its `Decode::decode_payload`, which also checks
@@ -74,6 +85,13 @@ macro_rules! shared_file_types {
         $(impl DatFileType for $t {
             fn unpack(file_id: u32, bytes: &[u8]) -> Result<Self, UnpackError> {
                 Ok(<$t as Decode>::decode_payload(DataId(file_id), bytes)?)
+            }
+            fn unpack_in(
+                era: ContainerEra,
+                file_id: u32,
+                bytes: &[u8],
+            ) -> Result<Self, UnpackError> {
+                Ok(<$t as Decode>::decode_payload_in(era, DataId(file_id), bytes)?)
             }
         })*
     };
@@ -167,6 +185,12 @@ impl DatDatabase {
         self.database_type
     }
 
+    /// Not ACE: which dat set the file belongs to, and so which record layouts it holds.
+    #[must_use]
+    pub fn container_era(&self) -> ContainerEra {
+        self.source.container_era()
+    }
+
     /// Where the file lives, for log lines (ACE's `FilePath`).
     #[must_use]
     pub fn file_path(&self) -> String {
@@ -252,7 +276,7 @@ impl DatDatabase {
             return Some(obj);
         }
         let bytes = self.get_reader_for_file(file_id)?;
-        match T::unpack(file_id, &bytes) {
+        match T::unpack_in(self.source.container_era(), file_id, &bytes) {
             Ok(t) => Some(Arc::new(t) as CachedObject),
             Err(e) => {
                 log::error!(
@@ -292,6 +316,11 @@ impl DatDatabase {
 
     // ACE: DatDatabase.GetTotalIterations
     fn get_total_iterations(&self) -> i32 {
+        // DIVERGE: a file from before Throne of Destiny has no iteration record; its header
+        // holds the iteration.
+        if let Some(it) = self.source.header_iteration(self.database_type) {
+            return i32::try_from(it).unwrap_or(i32::MAX);
+        }
         let iteration = self
             .read_from_dat::<crate::file_types::Iteration>(crate::file_types::Iteration::FILE_ID);
         match iteration {

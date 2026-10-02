@@ -53,6 +53,11 @@ pub struct RetailDatStore {
     /// because the grant is monotone (retail never closes the file) and the store is shared
     /// behind an `Arc`. Per *handle*, not per file: see the type's note.
     highres: OnceLock<Arc<DatFile>>,
+    /// Beside a dat set from before Throne of Destiny, the later `client_portal.dat`, which
+    /// answers a portal read the older portal file has no record for: the interface's records
+    /// (layout properties, fonts, the enum and id maps, interface images) that the later client's
+    /// screens need and the older files do not have. `None` otherwise.
+    later_portal: Option<Arc<DatFile>>,
     /// Where [`Self::grant_highres`] looks for the file; `None` for a store built from files.
     client_dir: Option<PathBuf>,
 }
@@ -106,6 +111,7 @@ impl RetailDatStore {
             cell,
             local,
             highres: OnceLock::new(),
+            later_portal: None,
             client_dir: Some(client_dir.to_path_buf()),
         })
     }
@@ -139,15 +145,70 @@ impl RetailDatStore {
             portal,
             cell,
             highres: OnceLock::new(),
+            later_portal: None,
             client_dir: Some(dir.to_path_buf()),
         })
     }
 
-    /// The container layout of the store's files: the portal file's, which [`Self::open_dir`] and
-    /// [`Self::open_pre_tod_dir`] each require the others to share.
+    /// A dat set from before Throne of Destiny with the later interface beside it: `portal.dat`
+    /// and `cell.dat` from `dir` answer the world, and the later `client_local_English.dat` and
+    /// `client_portal.dat` from `later_dir` answer the language reads and every portal read the
+    /// older portal file has no record for. This is what lets the later screens run over the
+    /// older world: their layouts, strings, fonts and interface images come from the later files,
+    /// and everything the world draws from the older ones. [`Self::era_of`] says which layout each
+    /// record is in.
+    ///
+    /// # Errors
+    ///
+    /// A file is missing, does not open, or is in the other layout.
+    pub fn open_pre_tod_with_later(dir: &Path, later_dir: &Path) -> Result<Self, DatError> {
+        let mut store = Self::open_pre_tod_dir(dir)?;
+        let later = |dat: RetailDat| -> Result<Arc<DatFile>, DatError> {
+            let path = dat.in_dir(later_dir);
+            let file = shared::open(&path)?;
+            if file.era() != ContainerEra::Tod {
+                return Err(DatError::UnexpectedContainerEra {
+                    path,
+                    found: file.era(),
+                    expected: ContainerEra::Tod,
+                });
+            }
+            Ok(file)
+        };
+        store.local = later(RetailDat::Local)?;
+        store.later_portal = Some(later(RetailDat::Portal)?);
+        store.client_dir = None;
+        Ok(store)
+    }
+
+    /// The container layout of the store's world files: the portal file's, which [`Self::open_dir`]
+    /// and [`Self::open_pre_tod_dir`] each require the others to share.
     #[must_use]
     pub fn era(&self) -> ContainerEra {
         self.portal.era()
+    }
+
+    /// The layout of the record `id` as this store reads it: the world files' (the portal and cell
+    /// files hold it), else the later files' (a store with the later interface beside an older
+    /// world answers it from those).
+    #[must_use]
+    pub fn era_of(&self, id: DataId) -> ContainerEra {
+        if self.portal.contains(id) || self.cell.contains(id) {
+            return self.portal.era();
+        }
+        let later = self.later_portal.as_ref().is_some_and(|f| f.contains(id))
+            || (!Arc::ptr_eq(&self.local, &self.portal) && self.local.contains(id));
+        if later {
+            ContainerEra::Tod
+        } else {
+            self.portal.era()
+        }
+    }
+
+    /// Whether this store answers from the later interface files beside an older world.
+    #[must_use]
+    pub fn has_later_interface(&self) -> bool {
+        self.later_portal.is_some()
     }
 
     /// A store from files already open. A `highres` handed in here counts as granted, which is
@@ -172,6 +233,7 @@ impl RetailDatStore {
             cell: Arc::new(cell),
             local: Arc::new(local),
             highres: lock,
+            later_portal: None,
             client_dir: None,
         }
     }
@@ -312,6 +374,11 @@ impl RetailDatStore {
                 return hi.read(id);
             }
         }
+        if let Some(later) = &self.later_portal {
+            if !self.portal.contains(id) && later.contains(id) {
+                return later.read(id);
+            }
+        }
         self.portal.read(id)
     }
 
@@ -334,7 +401,9 @@ impl RetailDatStore {
             if let Some(f) = self.file(kind) {
                 let member = match kind {
                     DatKind::Portal => {
-                        f.contains(id) || self.highres.get().is_some_and(|h| h.contains(id))
+                        f.contains(id)
+                            || self.highres.get().is_some_and(|h| h.contains(id))
+                            || self.later_portal.as_ref().is_some_and(|l| l.contains(id))
                     }
                     _ => f.contains(id),
                 };
@@ -352,30 +421,36 @@ impl RetailDatStore {
     /// Every id of a `DbType`, ascending. For portal types the high-res partition is included.
     #[must_use]
     pub fn ids_of(&self, kind: DbType) -> Vec<DataId> {
-        let mut v: Vec<DataId> = match kind.dat() {
-            DatKind::Portal => {
-                let mut ids: Vec<DataId> = self
-                    .portal
+        let mut v: Vec<DataId> =
+            match kind.dat() {
+                DatKind::Portal => {
+                    let mut ids: Vec<DataId> = self
+                        .portal
+                        .iter_ids()
+                        .filter(|i| divine_type(*i) == Some(kind))
+                        .collect();
+                    if let Some(hi) = self.highres.get() {
+                        ids.extend(hi.iter_ids().filter(|i| divine_type(*i) == Some(kind)));
+                    }
+                    if let Some(later) = &self.later_portal {
+                        ids.extend(later.iter_ids().filter(|i| {
+                            divine_type(*i) == Some(kind) && !self.portal.contains(*i)
+                        }));
+                    }
+                    ids
+                }
+                DatKind::Local => self
+                    .local
                     .iter_ids()
                     .filter(|i| divine_type(*i) == Some(kind))
-                    .collect();
-                if let Some(hi) = self.highres.get() {
-                    ids.extend(hi.iter_ids().filter(|i| divine_type(*i) == Some(kind)));
-                }
-                ids
-            }
-            DatKind::Local => self
-                .local
-                .iter_ids()
-                .filter(|i| divine_type(*i) == Some(kind))
-                .collect(),
-            DatKind::Cell => self
-                .cell
-                .iter_ids()
-                .filter(|i| classify_cell_id(*i) == Some(kind))
-                .collect(),
-            DatKind::None => Vec::new(),
-        };
+                    .collect(),
+                DatKind::Cell => self
+                    .cell
+                    .iter_ids()
+                    .filter(|i| classify_cell_id(*i) == Some(kind))
+                    .collect(),
+                DatKind::None => Vec::new(),
+            };
         v.sort_unstable();
         v
     }
@@ -461,6 +536,10 @@ impl AssetSource for RetailDatStore {
 
     fn container_era(&self) -> ContainerEra {
         self.era()
+    }
+
+    fn container_era_of(&self, id: DataId) -> ContainerEra {
+        self.era_of(id)
     }
 
     fn iter_type(&self, kind: DataType) -> Box<dyn Iterator<Item = DataId> + '_> {

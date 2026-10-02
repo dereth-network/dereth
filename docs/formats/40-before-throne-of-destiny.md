@@ -57,7 +57,9 @@ bad-data list, landblocks and landblock information all read with the later layo
 
 - **Image (`0x06`)**: id, width, height, then three bytes per pixel in **red, green, blue** order
   (the later format 242), with no category, format, length, palette or padding.
-- **Palettes (`0x04`)** read with the later layout.
+- **Palettes (`0x04`)** read with the later layout, and hold 256 colours (the later ones hold
+  2048: each colour eight times). A 256-colour image indexes its palette directly: index `i` is
+  colour `i`, which is entry `8i` of the palette expanded to 2048.
 
 ## Strings and the region
 
@@ -66,8 +68,30 @@ bad-data list, landblocks and landblock information all read with the later layo
 - **Region (`0x13000000`)**: a sky object has **eight words** — no particle-script id — and the land
   surface is **type 1, palette shifting**, not texture merging: a `u32` texture count, then per
   texture its id, a `u32` count `n` of `(index, length)` sub-palette ranges, a `u32` count of road
-  codes each followed by `n` sub-palette-type ids, and a `u32` count of `(terrain type, palette)`
+  codes each followed by `n` sub-palette types, and a `u32` count of `(terrain type, palette)`
   pairs. Everything else is unchanged.
+
+### Palette shifting
+
+The February 2005 region names two 256×256, 256-colour textures, their palettes cut into ranges
+of 20 colours. A cell is drawn with one texture whose ranges are refilled from the palettes of the
+terrain types at its corners (and of the road), so the picture's regions take the corners'
+colours:
+
+1. The cell's four keys are the ones texture merging computes, one per rotation of its corners.
+2. The first texture tried is `(u32(y·0x6C1AC587 − x·(y·0x622DBEDF + 0x421BE3BD) − 0x791C2B27) ·
+   count) >> 32` for the global cell `(x, y)`; the others follow in order, wrapping.
+3. A texture is used only if its terrain list has a palette for each corner's terrain type, and,
+   when the cell has a road, for the road (terrain type 32).
+4. The rotations are tried from the one whose key is smallest, each in turn; the first whose road
+   pattern (a bit per corner with a road, SW highest) the texture lists is taken. That rotation's key is
+   the surface's cache key, and the cell's texture coordinates are rotated by it.
+5. Range `k` takes its colours from the palette the road entry's type `k` names: 0-3 are the
+   corners counted from the rotation, 4 the road. The colours copied are those at the same indices;
+   indices outside every range keep the texture's own palette.
+
+If no texture fits, the cell is drawn with the first texture unrotated. On the February 2005 world
+every cell finds one.
 
 ## Game tables
 
@@ -101,6 +125,15 @@ bad-data list, landblocks and landblock information all read with the later layo
   scale and its physics, motion and combat tables, a hair style's alternate setup, a template's
   title — reads as zero, and a consumer that needs one takes it from elsewhere (the sex's setup
   names its default motion and sound tables).
+
+## The later interface beside an older world
+
+The two older files have no interface records of the later kind (layout properties, fonts, the
+enum and id maps, interface images, the language file's layouts and strings). A store that opens
+the older world with the end-of-retail files beside it (`RetailDatStore::open_pre_tod_with_later`,
+the client's `--world-dat-dir`) answers every record the older portal and cell files hold from
+them, in their layouts, and every other portal record and every language record from the later
+files, in the later layouts; `RetailDatStore::era_of` says which layout a record is in.
 
 ## Types with no counterpart
 

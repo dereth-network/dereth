@@ -7,6 +7,7 @@ mod headless_capture_determinism;
 mod headless_settings;
 mod long_session_growth;
 mod long_session_mesh_eviction;
+mod pre_tod_capture;
 mod resolution_dropdown;
 mod screens_at_resolution;
 mod screenshot_file;

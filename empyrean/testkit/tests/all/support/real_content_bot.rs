@@ -492,9 +492,42 @@ pub(crate) mod real {
     // ---- the steps ----------------------------------------------------------------------------
 
     /// Step 1: Connect, create a character through chargen, and enter the world at the chargen spawn.
+    /// The February 2005 dat set (`DERETH_TEST_PRETOD_DAT_DIR`).
+    pub(crate) fn pre_tod_dats() -> Arc<DatManager> {
+        if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+            panic!("{msg}");
+        }
+        let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+        let source = RealDats::open(&dir)
+            .unwrap_or_else(|e| panic!("the February 2005 dats under {}: {e}", dir.display()));
+        DatManager::initialize(Arc::new(source)).expect("the February 2005 dats initialize")
+    }
+
+    /// The Infiltration content pack (`EMPYREAN_TEST_INFILTRATION_PACK`).
+    pub(crate) fn infiltration_pack() -> PackContent {
+        let path = empyrean_common::test_paths::infiltration_pack();
+        PackContent::open(&path).unwrap_or_else(|e| {
+            panic!(
+                "the February 2005 tests need an Infiltration world.pack at {} \
+                 (EMPYREAN_TEST_INFILTRATION_PACK; `empyrean-import fetch --world 16py --pack \
+                 --out <it>`): {e}",
+                path.display()
+            )
+        })
+    }
+
     pub(crate) fn create_character(skills: &[usize]) -> Loop {
-        let ts = TestServer::with_setup(dats(), |w| {
-            w.content = Arc::new(pack());
+        create_character_with(dats(), pack(), skills)
+    }
+
+    /// [`create_character`] on the given dats and content.
+    pub(crate) fn create_character_with(
+        dats: Arc<DatManager>,
+        content: PackContent,
+        skills: &[usize],
+    ) -> Loop {
+        let ts = TestServer::with_setup(dats, |w| {
+            w.content = Arc::new(content);
             // The server refuses a pack built for another era than its own, so the world plays
             // the pack's.
             w.era = w.content.era().rules();

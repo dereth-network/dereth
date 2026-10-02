@@ -1053,7 +1053,10 @@ impl<S: Shell> App<S> {
         // Step 10: open the data files.
         let store = match store {
             Some(store) => store,
-            None => std::sync::Arc::new(crate::assets::open_data_files(&cfg.dat_dir)?),
+            None => std::sync::Arc::new(crate::assets::open_data_files_with(
+                &cfg.dat_dir,
+                cfg.world_dat_dir.as_deref(),
+            )?),
         };
 
         // Step 12: UI initialization -> (windowed, title, 800, 600, visible, "").
@@ -3886,7 +3889,10 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
-        match crate::assets::open_data_files(&self.cfg.dat_dir) {
+        match crate::assets::open_data_files_with(
+            &self.cfg.dat_dir,
+            self.cfg.world_dat_dir.as_deref(),
+        ) {
             Ok(fresh) => {
                 self.store = std::sync::Arc::new(fresh);
                 tracing::info!(
@@ -3933,7 +3939,7 @@ impl<S: Shell> App<S> {
             // The patch is on disk; the land source is still reading through the handle it took
             // at world entry. `invalidate_after_ddd` replaced `App::store` for the *patch* phase;
             // a run-time answer arrives with no `0xF7EA` behind it, so the reopen happens here.
-            match crate::assets::open_data_files(&self.cfg.dat_dir) {
+            match crate::assets::open_data_files_with(&self.cfg.dat_dir, self.cfg.world_dat_dir.as_deref()) {
                 Ok(fresh) => {
                     let fresh = std::sync::Arc::new(fresh);
                     self.store = std::sync::Arc::clone(&fresh);

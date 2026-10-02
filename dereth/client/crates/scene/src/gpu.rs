@@ -378,7 +378,7 @@ mod imp {
             let bytes = assets
                 .read(id)
                 .map_err(|e| RenderError::Device(format!("reading {id:?}: {e}")))?;
-            let rs = RenderSurface::decode_payload(id, &bytes)
+            let rs = RenderSurface::decode_payload_in(assets.container_era_of(id), id, &bytes)
                 .map_err(|e| RenderError::Device(format!("decoding {id:?}: {e}")))?;
             let payload = rs
                 .payload(&bytes)

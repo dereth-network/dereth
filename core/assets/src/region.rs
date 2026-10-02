@@ -183,7 +183,8 @@ pub struct TexMerge {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PalShiftRoad {
     pub road_code: u32,
-    pub sub_palette_types: Vec<DataId>,
+    /// Per range: 0-3 a corner counted from the cell's rotation, 4 the road.
+    pub sub_palette_types: Vec<u32>,
 }
 
 /// One texture of the palette-shift land surface: the texture, its `(index, length)` sub-palette
@@ -515,7 +516,7 @@ fn decode_region(c: &mut Cursor<'_>, era: ContainerEra) -> Result<Region, AssetE
                     let road_maps = read_n(c, r, |c| {
                         Ok(PalShiftRoad {
                             road_code: c.u32()?,
-                            sub_palette_types: read_n(c, n, Cursor::data_id)?,
+                            sub_palette_types: read_n(c, n, Cursor::u32)?,
                         })
                     })?;
                     let t = c.u32()? as usize;

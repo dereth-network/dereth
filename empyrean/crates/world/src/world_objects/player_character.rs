@@ -592,7 +592,7 @@ pub fn get_title(w: &World, title: CharacterTitle) -> Option<String> {
     let entry = w
         .dats
         .language_dat()
-        .character_titles()
+        .try_character_titles()?
         .strings
         .iter()
         .find(|(id, _)| *id == hash)

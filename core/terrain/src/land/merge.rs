@@ -78,10 +78,9 @@ impl MergeKey {
 /// The client computes **four** keys, one per rotation of the corner pattern, so that a single
 /// cached surface can serve four orientations of the same terrain arrangement. Only the
 /// palette-shifting path uses more than the first: the texture-merging path takes `keys[0]`
-/// and `ROT_0` unconditionally (no cell rotation), and
-/// **no retail region is palette-shifted** (surface type 0), so that alternate
-/// path is dead on retail data and is deliberately not implemented. [`cell_rotation_keys`] exposes
-/// the full set for the rotation test.
+/// and `ROT_0` unconditionally (no cell rotation). The region from Throne of Destiny on texture
+/// merges; the region before it palette shifts, and [`crate::land::palshift::select`] chooses its
+/// texture and rotation. [`cell_rotation_keys`] exposes the full set for the rotation test.
 #[must_use]
 pub fn cell_rotation(
     lb: &CellLandblock,
@@ -91,7 +90,26 @@ pub fn cell_rotation(
     j: usize,
 ) -> (MergeKey, Rotation, bool) {
     let (keys, uniform) = cell_rotation_keys(lb, region, side_cell_count, i, j);
-    (keys[0], Rotation::Rot0, uniform)
+    match &region.land_surf.pal_shift {
+        // Palette shifting chooses a texture and rotation per cell, at its global cell position.
+        Some(ps) => {
+            let choice = crate::land::palshift::select(ps, &keys, cell_x(lb, i), cell_y(lb, j));
+            (choice.key, choice.rotation, uniform)
+        }
+        None => (keys[0], Rotation::Rot0, uniform),
+    }
+}
+
+/// The global cell column of cell row `i` of a landblock: the block's x times eight, plus `i`.
+#[must_use]
+pub fn cell_x(lb: &CellLandblock, i: usize) -> i32 {
+    i32::try_from((lb.id.raw() >> 24) * 8).unwrap_or(0) + i32::try_from(i).unwrap_or(0)
+}
+
+/// The global cell row of cell column `j` of a landblock: the block's y times eight, plus `j`.
+#[must_use]
+pub fn cell_y(lb: &CellLandblock, j: usize) -> i32 {
+    i32::try_from(((lb.id.raw() >> 16) & 0xFF) * 8).unwrap_or(0) + i32::try_from(j).unwrap_or(0)
 }
 
 /// The full four-key set from `cell_rotation`, in `Rotation` order, plus the `uniform` flag.
@@ -112,9 +130,7 @@ pub fn cell_rotation_keys(
     j: usize,
 ) -> ([MergeKey; 4], bool) {
     let step = crate::consts::BLOCK_SIDE / side_cell_count;
-    // Palette shifting is enabled when the region's terrain-info command list has more than one
-    // element. The shipped region has exactly one (LandSurf.type == 0), so this is always false
-    // on retail data.
+    // Palette shifting is the land surface of the region before Throne of Destiny (type 1).
     let pal_shifted = is_pal_shifted(region);
     let pal_lod = if pal_shifted || step == 1 { 1 } else { 4 };
 
@@ -154,9 +170,8 @@ pub fn cell_rotation_keys(
     (keys, uniform)
 }
 
-/// True when the region's `terrain_info` command list has more than one
-/// element. `LandSurf.type == 0` in the shipped region, so this is
-/// false for retail Dereth and the palette-shift path is dead code.
+/// True when the region's land surface is palette shifting (`LandSurf.type != 0`): the region
+/// before Throne of Destiny. From Throne of Destiny on the region texture merges.
 #[must_use]
 pub fn is_pal_shifted(region: &Region) -> bool {
     region.land_surf.surf_type != 0
@@ -886,15 +901,31 @@ impl TerrainMergeCache {
         k: MergeKey,
         build: &mut dyn FnMut(&MergePlan) -> TextureHandle,
     ) -> TextureHandle {
+        let shift = self.shift;
+        self.get_or_build_keyed(k, &mut || {
+            let plan = merge_plan(tm, k, shift);
+            let handle = build(&plan);
+            (handle, plan.size)
+        })
+    }
+
+    /// The cache's bookkeeping around any surface builder: one reference per call, and on a miss
+    /// `build` makes the texture and answers it with its extent. The palette-shift land surface
+    /// builds through this with its own compositor; texture merging through
+    /// [`Self::get_or_build_with`].
+    pub fn get_or_build_keyed(
+        &mut self,
+        k: MergeKey,
+        build: &mut dyn FnMut() -> (TextureHandle, u32),
+    ) -> TextureHandle {
         self.surface_requests += 1;
         *self.refcounts.entry(k).or_insert(0) += 1;
         if let Some(&(_, h)) = self.surfaces.get(&k) {
             return h;
         }
         self.surfaces_built += 1;
-        let plan = merge_plan(tm, k, self.shift);
-        self.last_built = Some((plan.size, plan.size, self.shift));
-        let handle = build(&plan);
+        let (handle, size) = build();
+        self.last_built = Some((size, size, self.shift));
         // LINT-OK: index arithmetic; the surface array is bounded by the window's cell count.
         let index = self.next_free();
         self.order[index as usize] = Some(k);

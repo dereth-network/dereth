@@ -124,10 +124,13 @@ fn character_create_ex(
         return Ok(());
     }
 
-    if player_factory::property_manager_get_bool(w, "taboo_table") {
+    // A dat set from before Throne of Destiny has no taboo table: nothing is banned by it.
+    if let (true, Some(table)) = (
+        player_factory::property_manager_get_bool(w, "taboo_table"),
+        w.dats.portal_dat().try_taboo_table(),
+    ) {
         // Not ACE's (retail, V227): the shared matcher, retail's plain mode. On the
         // retail table (every pattern `a`-`z` and `*`) it bans the same words as ACE's regex.
-        let table = w.dats.portal_dat().taboo_table();
         if dereth_rules::taboo::contains_taboo_word(
             table,
             &dereth_protocol::cp1252::Cp1252,
@@ -173,6 +176,43 @@ fn character_create_ex(
             "",
         );
         return Ok(());
+    }
+
+    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/Network/Handlers/CharacterHandler.cs
+    // DIVERGE: an era's heritages (`EraRules.heritages`; ClassicACE's `CharacterCreate`): another
+    // heritage is answered Pending with a line saying which the world allows, as ClassicACE does.
+    // On the era's own dats the table has no other heritage to look up.
+    if let Some(allowed) = w.era.heritages {
+        let heritage = u32::try_from(character_create_info.heritage.0).unwrap_or(u32::MAX);
+        if !allowed.contains(&heritage) {
+            send_character_create_response(
+                w,
+                session,
+                Response::Pending,
+                empyrean_entity::ObjectGuid::default(),
+                "",
+            );
+            let names: Vec<&str> = allowed
+                .iter()
+                .filter_map(|h| {
+                    w.dats
+                        .portal_dat()
+                        .char_gen()
+                        .heritage_groups
+                        .get(h)
+                        .map(|g| g.name.as_str())
+                })
+                .collect();
+            let text = format!(
+                "Only {} heritages are allowed on this server.",
+                names.join(", ")
+            );
+            if let Some(data) = w.sessions.get_mut(session) {
+                let msg = crate::network::game_event::events::game_event_popup_string::game_event_popup_string(data, &text);
+                crate::network::game_messages::game_message::enqueue_send(w, session, msg);
+            }
+            return Ok(());
+        }
     }
 
     let access_level = w

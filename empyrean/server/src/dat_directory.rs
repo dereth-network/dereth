@@ -5,7 +5,8 @@
 //! directory, an absolute folder is used as it is, a relative one is relative to the configuration
 //! file's folder (the working directory without a file). An empty `dat_files_directory` (the
 //! default) searches: the configuration file's folder (the working directory without a file),
-//! then the folder the server executable is in; the first that holds `client_portal.dat`. ACE's
+//! then the folder the server executable is in; the first that holds `client_portal.dat` (else the
+//! first holding the older set, `portal.dat` and `cell.dat`). ACE's
 //! default was a Windows drive path, which is wrong on the Linux and macOS builds; the default here
 //! is the same on every platform.
 //!
@@ -35,7 +36,13 @@ pub fn dat_directory(configured: &str, base: &PathBase) -> PathBuf {
     let candidates = dat_directory_candidates(configured, base);
     match dereth_dat::locate_retail_dats(&candidates) {
         Ok(dir) => dir.into_path_buf(),
-        Err(_) => candidates.into_iter().next().unwrap_or_default(),
+        // The dat set from before Throne of Destiny (`portal.dat`, `cell.dat`) marks a folder too.
+        Err(_) => candidates
+            .iter()
+            .find(|d| dereth_dat::holds_pre_tod_dats(d))
+            .or(candidates.first())
+            .cloned()
+            .unwrap_or_default(),
     }
 }
 

@@ -202,8 +202,11 @@ pub fn get_contract_tracker(
 }
 
 fn get_contract_from_dat_in(dats: &DatManager, contract_id: u32) -> Option<&Contract> {
-    let contract_table = dats.portal_dat().contract_table();
-    contract_table.contracts.get(&contract_id)
+    // A dat set from before Throne of Destiny has no contract table: no contract is found.
+    dats.portal_dat()
+        .try_contract_table()?
+        .contracts
+        .get(&contract_id)
 }
 
 // ACE: ContractManager.GetContractFromDat

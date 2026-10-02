@@ -4,6 +4,7 @@ pub mod lighting;
 pub mod merge;
 pub mod mesh;
 pub mod order;
+pub mod palshift;
 pub mod stitch;
 pub mod water;
 

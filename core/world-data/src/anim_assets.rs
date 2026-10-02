@@ -92,7 +92,7 @@ impl DatAnimAssets {
             .store
             .read_typed(kind, id)
             .ok()
-            .and_then(|bytes| T::decode_payload(id, &bytes).ok())
+            .and_then(|bytes| T::decode_payload_in(self.store.era_of(id), id, &bytes).ok())
             .map(|v| Arc::new(convert(&v)));
         if let Ok(mut c) = cache.lock() {
             c.insert(id.0, decoded.clone());
@@ -183,8 +183,9 @@ impl AnimAssets for DatAnimAssets {
             .store
             .read_typed(DbType::GfxObj, id)
             .ok()
-            .and_then(|bytes| dereth_assets::GfxObj::decode_payload(id, &bytes).ok())
-        {
+            .and_then(|bytes| {
+                dereth_assets::GfxObj::decode_payload_in(self.store.era_of(id), id, &bytes).ok()
+            }) {
             Some(o) => GfxObjLookup::Present {
                 did_degrade: o.did_degrade,
             },

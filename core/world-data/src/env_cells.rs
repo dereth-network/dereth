@@ -122,7 +122,11 @@ impl EnvCellLoader {
         let Ok(bytes) = store.read_typed(DbType::Lbi, lbi_id) else {
             return Vec::new();
         };
-        let Ok(lbi) = dereth_assets::world::LandblockInfo::decode_payload(lbi_id, &bytes) else {
+        let Ok(lbi) = dereth_assets::world::LandblockInfo::decode_payload_in(
+            store.era_of(lbi_id),
+            lbi_id,
+            &bytes,
+        ) else {
             return Vec::new();
         };
         if lbi.num_cells == 0 {
@@ -136,7 +140,7 @@ impl EnvCellLoader {
                 self.stats.missing += 1;
                 continue;
             };
-            let Ok(cell) = EnvCell::decode_payload(id, &bytes) else {
+            let Ok(cell) = EnvCell::decode_payload_in(store.era_of(id), id, &bytes) else {
                 self.stats.undecodable += 1;
                 continue;
             };
@@ -168,7 +172,9 @@ impl EnvCellLoader {
             .entry(id)
             .or_insert_with(|| {
                 let bytes = store.read_typed(DbType::Environment, id).ok()?;
-                Environment::decode_payload(id, &bytes).ok().map(Arc::new)
+                Environment::decode_payload_in(store.era_of(id), id, &bytes)
+                    .ok()
+                    .map(Arc::new)
             })
             .clone()
     }
@@ -742,7 +748,7 @@ impl CellStaticObjects {
             store
                 .read_typed(DbType::Setup, id)
                 .ok()
-                .and_then(|b| Setup::decode_payload(id, &b).ok())
+                .and_then(|b| Setup::decode_payload_in(store.era_of(id), id, &b).ok())
                 .map(|s| {
                     Arc::new(if self.mesh_collision {
                         crate::setup::setup_geometry_with_parts(store, &s, &mut self.part_stats)

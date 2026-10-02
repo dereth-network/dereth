@@ -268,7 +268,11 @@ impl DatLandSource {
         let Ok(bytes) = self.store().read_typed(DbType::Lbi, lbi_id) else {
             return;
         };
-        let Ok(lbi) = dereth_assets::world::LandblockInfo::decode_payload(lbi_id, &bytes) else {
+        let Ok(lbi) = dereth_assets::world::LandblockInfo::decode_payload_in(
+            self.store().era_of(lbi_id),
+            lbi_id,
+            &bytes,
+        ) else {
             return;
         };
         let mut stats = BuildingLoadStats::default();
@@ -437,7 +441,9 @@ impl DatLandSource {
             stats.undecodable += 1;
             return None;
         };
-        let Ok(g) = dereth_assets::GfxObj::decode_payload(b.id, &bytes) else {
+        let Ok(g) =
+            dereth_assets::GfxObj::decode_payload_in(self.store().era_of(b.id), b.id, &bytes)
+        else {
             stats.undecodable += 1;
             return None;
         };
@@ -549,7 +555,7 @@ impl DatLandSource {
             }
             Err(_) => return None,
         };
-        let lb = CellLandblock::decode_payload(did, &bytes).ok()?;
+        let lb = CellLandblock::decode_payload_in(self.store().era_of(did), did, &bytes).ok()?;
         // `side_cell_count` is 8 for every physics landblock: the LOD rings are a *rendering*
         // reduction, and `LandblockCollision::build` refuses anything else because a degenerate
         // block carries no physics geometry at all.

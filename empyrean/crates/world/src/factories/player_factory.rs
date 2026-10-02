@@ -20,6 +20,8 @@
 
 use std::sync::Arc;
 
+use dereth_primitives::ContainerEra;
+
 use empyrean_common::dotnet::CsCast;
 use empyrean_common::era::{StartPositions, TownStart};
 use empyrean_common::thread_safe_random::ThreadSafeRandom;
@@ -279,20 +281,31 @@ pub fn create(
         .unwrap_or_else(|| throw(&AceThrow::KeyNotFound(gender_key)));
     let appearance = &character_create_info.appearance;
 
-    p.player
-        .set_property(PropertyDataId::MotionTable, sex.motion_table.0);
+    // DIVERGE: the character-generation table from before Throne of Destiny names no motion,
+    // physics-effect or combat table and no scale for a sex (they read as zero); the player keeps
+    // its weenie's own tables and its full size.
+    let older_table = dats.portal_dat().container_era() == ContainerEra::PreTod;
+    let named = |id: u32| !(older_table && id == 0);
+    if named(sex.motion_table.0) {
+        p.player
+            .set_property(PropertyDataId::MotionTable, sex.motion_table.0);
+    }
     p.player
         .set_property(PropertyDataId::SoundTable, sex.sound_table.0);
-    p.player
-        .set_property(PropertyDataId::PhysicsEffectTable, sex.physics_table.0);
+    if named(sex.physics_table.0) {
+        p.player
+            .set_property(PropertyDataId::PhysicsEffectTable, sex.physics_table.0);
+    }
     p.player.set_property(PropertyDataId::Setup, sex.setup.0);
     p.player
         .set_property(PropertyDataId::PaletteBase, sex.base_palette.0);
-    p.player
-        .set_property(PropertyDataId::CombatTable, sex.combat_table.0);
+    if named(sex.combat_table.0) {
+        p.player
+            .set_property(PropertyDataId::CombatTable, sex.combat_table.0);
+    }
 
     // Check the character scale
-    if sex.scale != 100 {
+    if sex.scale != 100 && named(sex.scale) {
         #[allow(clippy::cast_precision_loss)] // C#'s uint / float
         let scale = sex.scale as f32 / 100.0_f32;
         p.player
@@ -560,6 +573,16 @@ pub fn create(
         {
             if sac != SkillAdvancementClass::Inactive {
                 let i_u32 = u32::try_from(i).unwrap_or(u32::MAX);
+                // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Entity/Enum/Skill.cs
+                // DIVERGE: an era's skill set (`EraRules.creation_skills`, ClassicACE's
+                // `SkillHelper.ValidSkills` for its ruleset): a trained or specialised skill
+                // outside it is refused as a skill the dats do not have is. The list is still the
+                // end-of-retail wire's 55.
+                if sac != SkillAdvancementClass::Untrained
+                    && w.era.creation_skills.is_some_and(|s| !s.contains(&i_u32))
+                {
+                    return (CreateResult::InvalidSkillRequested, p);
+                }
                 let (trained, specialized) =
                     dereth_rules::chargen::skill_costs(char_gen, skill_table, heritage_key, i_u32);
                 if !skill_table.skills.contains_key(&i_u32) {
@@ -869,11 +892,14 @@ fn char_gen_start(
     (location, instantiation)
 }
 
-/// Not ACE: an era's listed start (ClassicACE's rule): the town the chosen starter area names (the
-/// first town for any other area), then one of its areas, chosen evenly.
+/// Not ACE: an era's listed start. The chosen starter area itself when the era lists it (on the
+/// era's own dats, whose table offers the areas); otherwise ClassicACE's rule: the town the
+/// chosen area names (the first town for any other area), then one of its areas, chosen evenly.
 fn town_start(towns: &'static [TownStart], starter_area_name: &str) -> Position {
-    let town = StartPositions::town(towns, starter_area_name);
-    let area = &town.areas[usize::from(ThreadSafeRandom::next(0, 1) == 1)];
+    let area = StartPositions::area(towns, starter_area_name).unwrap_or_else(|| {
+        let town = StartPositions::town(towns, starter_area_name);
+        &town.areas[usize::from(ThreadSafeRandom::next(0, 1) == 1)]
+    });
     let [x, y, z] = area.origin;
     let [rx, ry, rz, rw] = area.rotation;
     Position::from_components(area.cell, x, y, z, rx, ry, rz, rw, false)

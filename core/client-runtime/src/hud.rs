@@ -1501,8 +1501,12 @@ impl<P: HudPanels> Hud<P> {
                 .read(ATTRIBUTE_2ND_TABLE)
                 .map_err(|e| e.to_string())
                 .and_then(|b| {
-                    Attribute2ndTable::decode_payload(ATTRIBUTE_2ND_TABLE, &b)
-                        .map_err(|e| e.to_string())
+                    Attribute2ndTable::decode_payload_in(
+                        store.era_of(ATTRIBUTE_2ND_TABLE),
+                        ATTRIBUTE_2ND_TABLE,
+                        &b,
+                    )
+                    .map_err(|e| e.to_string())
                 }) {
                 Ok(t) => self.vitals_table = Some(t),
                 Err(e) => {
@@ -1517,7 +1521,8 @@ impl<P: HudPanels> Hud<P> {
                 .read(SKILL_TABLE)
                 .map_err(|e| e.to_string())
                 .and_then(|b| {
-                    SkillTable::decode_payload(SKILL_TABLE, &b).map_err(|e| e.to_string())
+                    SkillTable::decode_payload_in(store.era_of(SKILL_TABLE), SKILL_TABLE, &b)
+                        .map_err(|e| e.to_string())
                 }) {
                 Ok(t) => self.skill_table = Some(t),
                 Err(e) => tracing::warn!("SkillTable {SKILL_TABLE:?}: {e}"),
@@ -1528,7 +1533,8 @@ impl<P: HudPanels> Hud<P> {
                 .read(SPELL_TABLE)
                 .map_err(|e| e.to_string())
                 .and_then(|b| {
-                    SpellTable::decode_payload(SPELL_TABLE, &b).map_err(|e| e.to_string())
+                    SpellTable::decode_payload_in(store.era_of(SPELL_TABLE), SPELL_TABLE, &b)
+                        .map_err(|e| e.to_string())
                 }) {
                 Ok(t) => self.spell_table = Some(t),
                 Err(e) => tracing::warn!("SpellTable {SPELL_TABLE:?}: {e}"),
@@ -1635,8 +1641,12 @@ impl<P: HudPanels> Hud<P> {
                 .read(XP_TABLE)
                 .map_err(|e| e.to_string())
                 .and_then(|b| {
-                    dereth_assets::tables::XpTable::decode_payload(XP_TABLE, &b)
-                        .map_err(|e| e.to_string())
+                    dereth_assets::tables::XpTable::decode_payload_in(
+                        store.era_of(XP_TABLE),
+                        XP_TABLE,
+                        &b,
+                    )
+                    .map_err(|e| e.to_string())
                 }) {
                 Ok(t) => self.xp_table = Some(t),
                 Err(e) => tracing::warn!("XpTable {XP_TABLE:?}: {e}"),

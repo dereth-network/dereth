@@ -162,10 +162,10 @@ impl ParticleGeometry {
 /// Read one particle gfxobj's degrade record, if it names one.
 pub(crate) fn read_degrade(store: &RetailDatStore, id: DataId) -> Option<GfxObjDegradeInfo> {
     let bytes = store.read_typed(DbType::GfxObj, id).ok()?;
-    let obj = GfxObj::decode_payload(id, &bytes).ok()?;
+    let obj = GfxObj::decode_payload_in(store.era_of(id), id, &bytes).ok()?;
     let did = obj.did_degrade?;
     let bytes = store.read_typed(DbType::DegradeInfo, did).ok()?;
-    GfxObjDegradeInfo::decode_payload(did, &bytes).ok()
+    GfxObjDegradeInfo::decode_payload_in(store.era_of(did), did, &bytes).ok()
 }
 
 /// Read the point used to measure viewer distance.
@@ -173,7 +173,7 @@ pub(crate) fn read_sort_center(store: &RetailDatStore, id: DataId) -> Vec3 {
     let Ok(bytes) = store.read_typed(DbType::GfxObj, id) else {
         return Vec3::ZERO;
     };
-    GfxObj::decode_payload(id, &bytes).map_or(Vec3::ZERO, |o| o.sort_center)
+    GfxObj::decode_payload_in(store.era_of(id), id, &bytes).map_or(Vec3::ZERO, |o| o.sort_center)
 }
 
 /// A placement whose setup record carries a `default_script`.
@@ -274,7 +274,8 @@ pub(crate) fn has_default_script(store: &RetailDatStore, id: DataId) -> bool {
     let Ok(bytes) = store.read_typed(DbType::Setup, id) else {
         return false;
     };
-    dereth_assets::Setup::decode_payload(id, &bytes).is_ok_and(|s| s.default_script_id != DataId(0))
+    dereth_assets::Setup::decode_payload_in(store.era_of(id), id, &bytes)
+        .is_ok_and(|s| s.default_script_id != DataId(0))
 }
 
 /// One live particle, ready to draw: the emitter's mesh id and everything simulation wrote into

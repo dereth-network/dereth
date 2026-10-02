@@ -52,7 +52,35 @@ pub struct DataFilesError {
 /// missing or unreadable. `client_highres.dat` is optional and is "silently skipped if the file is
 /// absent", which is `RetailDatStore::open_dir`'s behaviour too.
 pub fn open_data_files(dat_dir: &Path) -> Result<RetailDatStore, DataFilesError> {
-    RetailDatStore::open_dir(dat_dir).map_err(|e| DataFilesError {
+    open_data_files_with(dat_dir, None)
+}
+
+/// [`open_data_files`], with the world drawn from an older dat set when `world_dat_dir` names one:
+/// its `portal.dat` and `cell.dat` answer the world, and `dat_dir`'s later files the interface
+/// and every record the older ones lack ([`RetailDatStore::open_pre_tod_with_later`]).
+///
+/// # Errors
+/// [`DataFilesError`] as [`open_data_files`].
+pub fn open_data_files_with(
+    dat_dir: &Path,
+    world_dat_dir: Option<&Path>,
+) -> Result<RetailDatStore, DataFilesError> {
+    if let Some(world) = world_dat_dir {
+        return RetailDatStore::open_pre_tod_with_later(world, dat_dir).map_err(|e| {
+            DataFilesError {
+                cause: format!("{} with {}: {e}", world.display(), dat_dir.display()),
+            }
+        });
+    }
+    // A folder holding the dat set from before Throne of Destiny (`portal.dat`, `cell.dat`) and
+    // no `client_portal.dat` opens as that set.
+    let opened =
+        if !dereth_dat::holds_retail_dats(dat_dir) && dereth_dat::holds_pre_tod_dats(dat_dir) {
+            RetailDatStore::open_pre_tod_dir(dat_dir)
+        } else {
+            RetailDatStore::open_dir(dat_dir)
+        };
+    opened.map_err(|e| DataFilesError {
         cause: format!("{}: {e}", dat_dir.display()),
     })
 }

@@ -2051,6 +2051,9 @@ mod imp {
     struct LandContext {
         region: Box<dereth_assets::Region>,
         tex_merge: dereth_assets::region::TexMerge,
+        /// The region's palette-shift land surface (the region before Throne of Destiny), whose
+        /// cells are composed here on the CPU; `None` for texture merging.
+        pal_shift: Option<dereth_assets::region::PalShift>,
         table: Box<[f32; dereth_world_render::consts::LAND_HEIGHT_TABLE_LEN]>,
         lighting: LandscapeLighting,
         /// The landscape surface cache, shared by every block: two neighbouring blocks with the
@@ -2128,6 +2131,16 @@ mod imp {
             bake_lighting(&mut mesh, &self.lighting);
 
             let merge_keys: Vec<MergeKey> = mesh.cell_keys.iter().map(|&(k, _)| k).collect();
+            if let Some(ps) = self.pal_shift.clone() {
+                let cell_texture = self.pal_shift_composites(store, gpu, &ps, lb, &mesh)?;
+                return Ok((
+                    mesh,
+                    cell_texture,
+                    merge_keys.clone(),
+                    merge_keys,
+                    Vec::new(),
+                ));
+            }
             let (cell_texture, cell_keys) = if self.composites_wanted {
                 (
                     self.composites(store, gpu, &merge_keys)?,
@@ -2221,6 +2234,80 @@ mod imp {
                 return Err(WorldError::Render(e.to_string()));
             }
             Ok(cell_texture)
+        }
+
+        /// Each cell's palette-shift surface, composed on the CPU once per key and shared through
+        /// the same surface cache (one reference per cell). The texture and rotation are chosen
+        /// per cell at its global position, so the first cell to need a key decides its picture,
+        /// as the surface cache's first request does.
+        fn pal_shift_composites(
+            &mut self,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            ps: &dereth_assets::region::PalShift,
+            lb: &CellLandblock,
+            mesh: &dereth_world_render::land::mesh::LandblockMesh,
+        ) -> Result<Vec<Option<TextureSlot>>, WorldError> {
+            use dereth_world_render::land::merge::{cell_rotation_keys, cell_x, cell_y};
+            use dereth_world_render::land::palshift;
+            let lookup = dereth_assets::texture_lookup::TextureLookup::new(store, 0);
+            let side = usize::from(mesh.side_cell_count);
+            let mut out = Vec::with_capacity(side * side);
+            let mut error: Option<String> = None;
+            for i in 0..side {
+                for j in 0..side {
+                    let (keys, _) = cell_rotation_keys(lb, &self.region, side, i, j);
+                    let choice = palshift::select(ps, &keys, cell_x(lb, i), cell_y(lb, j));
+                    let Some(texture) = ps.textures.get(choice.texture) else {
+                        out.push(None);
+                        continue;
+                    };
+                    let h = self.merge.get_or_build_keyed(choice.key, &mut || {
+                        let image = lookup.resolve(texture.tex_gid).ok().and_then(|(_, rs, b)| {
+                            let indices = rs.payload(&b)?.to_vec();
+                            let base = rs
+                                .default_palette_id
+                                .and_then(|p| lookup.palette(p).ok())
+                                .map(|p| p.colors_argb)
+                                .unwrap_or_default();
+                            let subs = palshift::sub_palettes(ps, &choice);
+                            let palette = palshift::compose_palette(&base, &subs, &|id| {
+                                lookup.palette(id).ok().map(|p| p.colors_argb)
+                            });
+                            Some((rs.width, rs.height, palshift::expand(&indices, &palette)))
+                        });
+                        let Some((width, height, pixels)) = image else {
+                            error.get_or_insert(format!(
+                                "the palette-shift texture {} does not resolve",
+                                texture.tex_gid
+                            ));
+                            return (TextureHandle(NO_TEXTURE), 0);
+                        };
+                        let mut backend = TextureUploader {
+                            gpu: &mut *gpu,
+                            error: None,
+                        };
+                        let h = dereth_primitives::RenderBackend::upload_texture(
+                            &mut backend,
+                            &dereth_primitives::TextureData {
+                                width,
+                                height,
+                                format: dereth_primitives::TextureFormat::Bgra8,
+                                levels: vec![pixels],
+                            },
+                        );
+                        if let Some(e) = backend.error.take() {
+                            error.get_or_insert(e.to_string());
+                        }
+                        (h, width)
+                    });
+                    out.push((h.0 != NO_TEXTURE).then_some(TextureSlot(h.0)));
+                }
+            }
+            if let Some(e) = error {
+                return Err(WorldError::Render(e));
+            }
+            Ok(out)
         }
 
         /// Each of `keys`' splat layers, made once per merge key and shared.
@@ -2605,7 +2692,8 @@ mod imp {
         let Ok(bytes) = store.read_typed(DbType::Setup, id) else {
             return Vec::new();
         };
-        let Ok(setup) = dereth_assets::Setup::decode_payload(id, &bytes) else {
+        let Ok(setup) = dereth_assets::Setup::decode_payload_in(store.era_of(id), id, &bytes)
+        else {
             return Vec::new();
         };
         setup
@@ -2790,7 +2878,8 @@ mod imp {
             let Ok(bytes) = store.read_typed(DbType::GfxObj, b.id) else {
                 continue;
             };
-            let Ok(g) = dereth_assets::GfxObj::decode_payload(b.id, &bytes) else {
+            let Ok(g) = dereth_assets::GfxObj::decode_payload_in(store.era_of(b.id), b.id, &bytes)
+            else {
                 continue;
             };
             let Some(bsp) = g.drawing_bsp.clone() else {
@@ -3146,11 +3235,20 @@ mod imp {
                 .entry(gfxobj)
                 .or_insert_with(|| {
                     let bytes = store.read_typed(DbType::GfxObj, gfxobj).ok()?;
-                    let obj = dereth_assets::GfxObj::decode_payload(gfxobj, &bytes).ok()?;
+                    let obj = dereth_assets::GfxObj::decode_payload_in(
+                        store.era_of(gfxobj),
+                        gfxobj,
+                        &bytes,
+                    )
+                    .ok()?;
                     let did = obj.did_degrade?;
                     let bytes = store.read_typed(DbType::DegradeInfo, did).ok()?;
-                    let info =
-                        dereth_assets::GfxObjDegradeInfo::decode_payload(did, &bytes).ok()?;
+                    let info = dereth_assets::GfxObjDegradeInfo::decode_payload_in(
+                        store.era_of(did),
+                        did,
+                        &bytes,
+                    )
+                    .ok()?;
                     (info.degrades.len() > 1).then(|| Arc::new(info))
                 })
                 .clone()
@@ -3164,7 +3262,7 @@ mod imp {
                 let Ok(bytes) = store.read_typed(DbType::GfxObj, gfxobj) else {
                     return Vec3::ZERO;
                 };
-                dereth_assets::GfxObj::decode_payload(gfxobj, &bytes)
+                dereth_assets::GfxObj::decode_payload_in(store.era_of(gfxobj), gfxobj, &bytes)
                     .map_or(Vec3::ZERO, |o| o.sort_center)
             })
         }
@@ -3187,7 +3285,9 @@ mod imp {
         ) -> Option<(Vec3, f32)> {
             *self.drawing_spheres.entry(gfxobj).or_insert_with(|| {
                 let bytes = store.read_typed(DbType::GfxObj, gfxobj).ok()?;
-                let o = dereth_assets::GfxObj::decode_payload(gfxobj, &bytes).ok()?;
+                let o =
+                    dereth_assets::GfxObj::decode_payload_in(store.era_of(gfxobj), gfxobj, &bytes)
+                        .ok()?;
                 dereth_client_runtime::object_physics::drawing_sphere(&o)
                     .map(|s| (s.center, s.radius))
             })
@@ -4340,11 +4440,22 @@ mod imp {
             cfg: SceneConfig,
         ) -> Result<(Self, WorldState), WorldError> {
             let region = load_region(store)?;
-            let tex_merge = region
-                .land_surf
-                .tex_merge
-                .clone()
-                .ok_or(WorldError::MissingTerrainTexture)?;
+            // The land surface: texture merging, or (the region before Throne of Destiny)
+            // palette shifting, which composes each cell on the CPU and has no splat form.
+            let pal_shift = region.land_surf.pal_shift.clone();
+            let tex_merge = match (&region.land_surf.tex_merge, &pal_shift) {
+                (Some(tm), _) => tm.clone(),
+                (None, Some(_)) => dereth_assets::region::TexMerge {
+                    base_tex_size: 0,
+                    corner_terrain_maps: Vec::new(),
+                    side_terrain_maps: Vec::new(),
+                    road_maps: Vec::new(),
+                    terrain_desc: Vec::new(),
+                },
+                (None, None) => return Err(WorldError::MissingTerrainTexture),
+            };
+            let pal_shifted = pal_shift.is_some();
+            let splat = cfg.terrain_splat && gpu.terrain_splat_supported() && !pal_shifted;
             let table = height_table(&region);
             // The landscape surface cache, and `Render.LandscapeTextureDetail`'s
             // shift. Both live for the session, not for one `load`: the scene builds blocks as
@@ -4354,17 +4465,18 @@ mod imp {
             let land = LandContext {
                 region: Box::new(region),
                 tex_merge,
+                gpu_merge: cfg.gpu_terrain_merge && !pal_shifted,
+                pal_shift,
                 table: Box::new(table),
                 lighting: LandscapeLighting::default(),
                 merge,
                 sources: HashMap::new(),
-                gpu_merge: cfg.gpu_terrain_merge,
                 gpu_merge_sources: HashMap::new(),
                 mip_worker: crate::mip_worker::MipWorker::new(),
                 defer_mips: cfg.stream_budget.is_some(),
-                splat_supported: gpu.terrain_splat_supported(),
-                splat_wanted: cfg.terrain_splat && gpu.terrain_splat_supported(),
-                composites_wanted: !(cfg.terrain_splat && gpu.terrain_splat_supported()),
+                splat_supported: gpu.terrain_splat_supported() && !pal_shifted,
+                splat_wanted: splat,
+                composites_wanted: !splat,
                 splat_sources: HashMap::new(),
                 splats: HashMap::new(),
                 bake: BakeCache {
@@ -12353,7 +12465,7 @@ mod imp {
 
     fn read_surface(store: &RetailDatStore, id: DataId) -> Option<dereth_assets::Surface> {
         let bytes = store.read_typed(DbType::Surface, id).ok()?;
-        dereth_assets::Surface::decode_payload(id, &bytes).ok()
+        dereth_assets::Surface::decode_payload_in(store.era_of(id), id, &bytes).ok()
     }
 
     /// What one surface record turns into on the device: a pipeline state, an alpha reference, a

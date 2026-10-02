@@ -15,6 +15,7 @@ use crate::file_types::{
     SpellTable, StringTable, TabooTable, XpTable,
 };
 use crate::source::DatSource;
+use dereth_primitives::ContainerEra;
 
 /// The `FILE_ID`s of the tables ACE's `PortalDatDatabase` and `LanguageDatDatabase` load up front.
 pub mod file_id {
@@ -41,6 +42,10 @@ pub const ITERATION_CELL: i32 = 982;
 pub const ITERATION_PORTAL: i32 = 2072;
 pub const ITERATION_HIRES: i32 = 497;
 pub const ITERATION_LANGUAGE: i32 = 994;
+/// Not ACE: the iterations of the February 2005 dat set (`cell.dat`, `portal.dat`, from before
+/// Throne of Destiny), kept in each file's header.
+pub const ITERATION_CELL_FEBRUARY_2005: i32 = 1593;
+pub const ITERATION_PORTAL_FEBRUARY_2005: i32 = 2112;
 
 /// Why the dats could not be brought up.
 #[derive(Debug, thiserror::Error)]
@@ -134,6 +139,14 @@ impl PortalDatDatabase {
         let region_desc = read(&base, file_id::REGION_DESC);
         let secondary_attribute_table = read(&base, file_id::SECONDARY_ATTRIBUTE_TABLE);
         let skill_table = match base.unpack_uncached::<SkillTable>(file_id::SKILL_TABLE) {
+            // DIVERGE: the table from before Throne of Destiny carries the ten weapon
+            // skills itself (with their costs and names), so nothing is added to it; ACE's
+            // `Dictionary.Add` would throw on the first.
+            Some(t) if base.container_era() == ContainerEra::PreTod => {
+                let t = Arc::new(t);
+                base.insert_cache(file_id::SKILL_TABLE, Arc::clone(&t));
+                Some(t)
+            }
             Some(mut t) => {
                 // DatManager.Initialize: PortalDat.SkillTable.AddRetiredSkills();
                 t.add_retired_skills()
@@ -277,17 +290,35 @@ impl DatManager {
             }
         }
 
+        // DIVERGE: a dat set from before Throne of Destiny is compared with the February 2005
+        // iterations (it has no language or high-resolution file of its own: the portal file
+        // answers language reads).
+        let pre_tod = source.container_era() == ContainerEra::PreTod;
+        let (expected_cell, expected_portal) = if pre_tod {
+            (ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005)
+        } else {
+            (ITERATION_CELL, ITERATION_PORTAL)
+        };
+
         let cell_dat =
             CellDatDatabase::new(DatDatabase::new(DatDatabaseType::Cell, Arc::clone(&source)));
-        log_opened(&cell_dat, ITERATION_CELL);
+        log_opened(&cell_dat, expected_cell);
 
         let portal_dat = PortalDatDatabase::new(DatDatabase::new(
             DatDatabaseType::Portal,
             Arc::clone(&source),
         ))?;
-        log_opened(&portal_dat, ITERATION_PORTAL);
+        log_opened(&portal_dat, expected_portal);
         for name in portal_dat.missing_tables() {
-            log::error!("{} has no {name}", portal_dat.file_path());
+            if pre_tod {
+                // The contract, property, name-filter and taboo tables began at Throne of Destiny.
+                log::info!(
+                    "{} has no {name} (a table the dats before Throne of Destiny do not have)",
+                    portal_dat.file_path()
+                );
+            } else {
+                log::error!("{} has no {name}", portal_dat.file_path());
+            }
         }
 
         // Load the client_highres.dat file. This is not required for ACE operation.
@@ -302,7 +333,9 @@ impl DatManager {
             DatDatabaseType::Language,
             Arc::clone(&source),
         ));
-        log_opened(&language_dat, ITERATION_LANGUAGE);
+        if !pre_tod {
+            log_opened(&language_dat, ITERATION_LANGUAGE);
+        }
 
         Ok(Arc::new(Self {
             cell_dat,
@@ -335,6 +368,11 @@ impl DatManager {
 }
 
 fn log_opened(db: &DatDatabase, expected: i32) {
+    let set = if db.container_era() == ContainerEra::PreTod {
+        "February 2005"
+    } else {
+        "end-of-retail"
+    };
     let count = db.all_files_count();
     let iteration = db.iteration();
     log::info!(
@@ -343,7 +381,7 @@ fn log_opened(db: &DatDatabase, expected: i32) {
     );
     if iteration != expected {
         log::warn!(
-            "{} iteration does not match expected end-of-retail version of {expected}.",
+            "{} iteration does not match expected {set} version of {expected}.",
             db.file_path()
         );
     }

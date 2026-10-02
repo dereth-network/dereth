@@ -44,6 +44,13 @@ pub trait AssetSource {
     fn container_era(&self) -> ContainerEra {
         ContainerEra::Tod
     }
+
+    /// The layout of the one record `id`: a source that mixes the two dat sets (the later
+    /// interface files beside an older world) answers per record; any other answers
+    /// [`AssetSource::container_era`].
+    fn container_era_of(&self, _id: DataId) -> ContainerEra {
+        self.container_era()
+    }
 }
 
 /// Which of the two dat sets a file or record belongs to. The container layout, and the layout of

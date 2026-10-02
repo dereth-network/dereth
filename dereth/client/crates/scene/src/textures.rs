@@ -198,14 +198,22 @@ impl<'a> TextureStore<'a> {
         // calls `decode_surface`. That is very likely why the arm was missing — and the failure was
         // silent, because 101 fell through to `Direct`, which is for formats D3D accepts natively,
         // and produced an all-black image with no error. Every part of a human body is INDEX16.
-        if format == PixelFormatId::Index16 {
+        // A 256-colour image of the dat set before Throne of Destiny indexes that era's 256-entry
+        // palette, which the expanded palette holds eight times over: colour `i` is entry `8i`.
+        let pre_tod_p8 = format == PixelFormatId::P8
+            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::PreTod;
+        if format == PixelFormatId::Index16 || pre_tod_p8 {
             let table = palette.ok_or(TextureError::NotATexture(rsid))?;
-            let indices: Vec<u16> = payload
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|c| u16::from_le_bytes(*c))
-                .collect();
+            let indices: Vec<u16> = if pre_tod_p8 {
+                payload.iter().map(|&i| u16::from(i) << 3).collect()
+            } else {
+                payload
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_le_bytes(*c))
+                    .collect()
+            };
             let src = SourcePixels::Palettised16 {
                 indices: &indices,
                 palette: table,
@@ -315,6 +323,34 @@ impl<'a> TextureStore<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 256-colour image of the February 2005 files takes colour `i` of its 256-entry palette
+    /// for index `i` (an Aluvian body part: indices 64-79, skin tones), not colour `i / 8`.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the February 2005 dats: --features retail-dats"
+    )]
+    fn a_february_2005_palette_image_takes_its_colours_by_index() {
+        let store = dereth_dat::testing::open_pre_tod_store_or_fail();
+        let t = TextureStore::new(&store);
+        let id = DataId(0x0500_0BB0);
+        let (rsid, rs, bytes) = t.resolve(id).expect("the image resolves to itself");
+        assert_eq!((rsid, rs.format), (id, 41));
+        let indices = rs.payload(&bytes).expect("pixels").to_vec();
+        let palette = t
+            .lookup
+            .palette(rs.default_palette_id.expect("a palette"))
+            .expect("the palette decodes");
+        assert_eq!(palette.colors_argb.len(), 256);
+        let data = t.texture_data(id).expect("the image decodes");
+        assert_eq!(data.format, dereth_primitives::TextureFormat::Bgra8);
+        for (k, &i) in indices.iter().enumerate().take(64) {
+            let [b, g, r, _] = palette.colors_argb[usize::from(i)].to_le_bytes();
+            assert_eq!(&data.levels[0][k * 4..k * 4 + 3], &[b, g, r], "pixel {k}");
+        }
+    }
+
     #[test]
     #[cfg_attr(
         not(feature = "retail-dats"),

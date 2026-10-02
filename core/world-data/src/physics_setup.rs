@@ -40,7 +40,7 @@ pub fn resolve(store: &RetailDatStore, wire_id: u32) -> Option<BTreeSet<u32>> {
     let setup = store
         .read_typed(DbType::Setup, did)
         .ok()
-        .and_then(|b| Setup::decode_payload(did, &b).ok())?;
+        .and_then(|b| Setup::decode_payload_in(store.era_of(did), did, &b).ok())?;
     // Part initialization fails for a zero-part setup or any part that cannot be constructed.
     if setup.parts.is_empty() || !setup.parts.iter().all(|id| part_initializes(store, *id)) {
         return None;
@@ -52,7 +52,7 @@ fn part_initializes(store: &RetailDatStore, id: DataId) -> bool {
     let Some(gfx) = store
         .read_typed(DbType::GfxObj, id)
         .ok()
-        .and_then(|b| GfxObj::decode_payload(id, &b).ok())
+        .and_then(|b| GfxObj::decode_payload_in(store.era_of(id), id, &b).ok())
     else {
         return false;
     };
@@ -62,7 +62,7 @@ fn part_initializes(store: &RetailDatStore, id: DataId) -> bool {
         store
             .read_typed(DbType::DegradeInfo, id)
             .ok()
-            .and_then(|b| GfxObjDegradeInfo::decode_payload(id, &b).ok())
+            .and_then(|b| GfxObjDegradeInfo::decode_payload_in(store.era_of(id), id, &b).ok())
     });
     let Some(degrade) = degrade else { return true };
     degrade.degrades.first().is_some_and(|level| {
@@ -70,7 +70,10 @@ fn part_initializes(store: &RetailDatStore, id: DataId) -> bool {
             && store
                 .read_typed(DbType::GfxObj, level.gfxobj_id)
                 .ok()
-                .and_then(|b| GfxObj::decode_payload(level.gfxobj_id, &b).ok())
+                .and_then(|b| {
+                    GfxObj::decode_payload_in(store.era_of(level.gfxobj_id), level.gfxobj_id, &b)
+                        .ok()
+                })
                 .is_some()
     })
 }

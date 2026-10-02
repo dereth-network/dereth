@@ -7,6 +7,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use dereth_dat::{DatError, DatFile, RetailDatStore};
+use dereth_primitives::ContainerEra;
 
 use crate::database::{CachedObject, DatDatabaseType};
 
@@ -41,6 +42,17 @@ pub trait DatSource: Send + Sync + fmt::Debug {
 
     /// A name for log lines: the file path, or what the fake is.
     fn describe(&self, db: DatDatabaseType) -> String;
+
+    /// Which dat set the files belong to: the later four files unless a source says otherwise.
+    fn container_era(&self) -> ContainerEra {
+        ContainerEra::Tod
+    }
+
+    /// The whole file's iteration from its header, which only the files from before Throne of
+    /// Destiny carry; `None` otherwise (the iteration is then the `0xFFFF0001` record).
+    fn header_iteration(&self, _db: DatDatabaseType) -> Option<u32> {
+        None
+    }
 }
 
 /// The retail dats from one directory.
@@ -63,8 +75,15 @@ impl RealDats {
     ///
     /// A required file is missing or does not open.
     pub fn open(dir: &Path) -> Result<Self, DatError> {
-        let store = RetailDatStore::open_dir(dir)?;
-        store.grant_highres()?;
+        // Not ACE: a directory with `portal.dat` and `cell.dat` and no `client_portal.dat` is
+        // the dat set from before Throne of Destiny, whose language reads the portal file answers.
+        let store = if !dereth_dat::holds_retail_dats(dir) && dereth_dat::holds_pre_tod_dats(dir) {
+            RetailDatStore::open_pre_tod_dir(dir)?
+        } else {
+            let store = RetailDatStore::open_dir(dir)?;
+            store.grant_highres()?;
+            store
+        };
         Ok(Self {
             dir: dir.to_path_buf(),
             store,
@@ -128,7 +147,22 @@ impl DatSource for RealDats {
             .map(|e| e.iteration)
     }
 
+    fn container_era(&self) -> ContainerEra {
+        self.store.era()
+    }
+
+    fn header_iteration(&self, db: DatDatabaseType) -> Option<u32> {
+        self.file(db)?.header_iteration()
+    }
+
     fn describe(&self, db: DatDatabaseType) -> String {
+        if self.store.era() == ContainerEra::PreTod {
+            let file = match db {
+                DatDatabaseType::Cell => dereth_dat::PreTodDat::Cell,
+                _ => dereth_dat::PreTodDat::Portal,
+            };
+            return file.in_dir(&self.dir).display().to_string();
+        }
         let file = match db {
             DatDatabaseType::Portal => dereth_dat::RetailDat::Portal,
             DatDatabaseType::Cell => dereth_dat::RetailDat::Cell,

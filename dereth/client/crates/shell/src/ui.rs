@@ -2376,11 +2376,18 @@ fn load_chargen_tables(
     let r = DidMapperResolver::load_group(assets, UNIQUE_DB_GROUP).ok()?;
     let cg_id = r.resolve(LayoutEnum(CHARGEN_ENUM))?;
     let skill_id = r.resolve(LayoutEnum(SKILL_TABLE_ENUM))?;
-    let cg =
-        dereth_assets::tables::CharGen::decode_payload(cg_id, &assets.read(cg_id).ok()?).ok()?;
-    let skills =
-        dereth_assets::tables::SkillTable::decode_payload(skill_id, &assets.read(skill_id).ok()?)
-            .ok()?;
+    let cg = dereth_assets::tables::CharGen::decode_payload_in(
+        assets.container_era_of(cg_id),
+        cg_id,
+        &assets.read(cg_id).ok()?,
+    )
+    .ok()?;
+    let skills = dereth_assets::tables::SkillTable::decode_payload_in(
+        assets.container_era_of(skill_id),
+        skill_id,
+        &assets.read(skill_id).ok()?,
+    )
+    .ok()?;
     // The `ClothingTable` of every gear item the table names, which is what
     // character generation reads to learn a style's palette-template
     // list — the value carried by each of the four generated clothing colours. The client asks
@@ -2541,6 +2548,12 @@ impl dereth_primitives::AssetSource for SharedStore {
         kind: dereth_primitives::DataType,
     ) -> Box<dyn Iterator<Item = dereth_primitives::DataId> + '_> {
         self.0.iter_type(kind)
+    }
+    fn container_era(&self) -> dereth_primitives::ContainerEra {
+        self.0.era()
+    }
+    fn container_era_of(&self, id: dereth_primitives::DataId) -> dereth_primitives::ContainerEra {
+        self.0.era_of(id)
     }
 }
 

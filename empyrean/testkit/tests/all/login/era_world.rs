@@ -1,20 +1,75 @@
-//! Divergence: V386, V389
+//! Divergence: V386, V389, V391, V392
 //! A headless client on the world `EMPYREAN_TEST_WORLD_PACK` names, under the rules of the era
 //! the pack was built for: log in, read the character list's Throne of Destiny flag, create a
-//! character, enter the world where the era starts it, and walk and run there.
-//! Fixture: the retail dats and world.pack of the real-content tier, over the virtual-time server.
+//! character, enter the world where the era starts it, and walk and run there. Then the same on
+//! the February 2005 dat set with an Infiltration pack.
+//! Fixture: the retail dats and world.pack of the real-content tier, over the virtual-time server;
+//! the February 2005 dats (`DERETH_TEST_PRETOD_DAT_DIR`) and an Infiltration world.pack
+//! (`EMPYREAN_TEST_INFILTRATION_PACK`).
 
 #[cfg(feature = "real-content")]
 mod era_real {
-    //! Divergence: V386, V389
+    //! Divergence: V386, V389, V391, V392
     use empyrean_common::era::StartPositions;
+    use empyrean_content::WorldDatabase;
 
     use crate::support::real_content_bot::real::*;
+
+    /// A melee skill, Melee Defense, Healing, Jump and Run: the melee skill is the era's (Heavy
+    /// Weapons at the end of retail, Sword before the 2012 consolidation).
+    fn skills(content: &PackContent) -> [usize; 5] {
+        let melee = if content.era().rules().creation_skills.is_some() {
+            11
+        } else {
+            44
+        };
+        [melee, 6, 21, 22, 24]
+    }
 
     /// Log in, create, enter and move, on whatever era the pack is for.
     #[test]
     fn a_new_character_enters_the_packs_era_world_and_moves() {
-        let mut l = create_character(&[44, 6, 21, 22, 24]);
+        let content = pack();
+        let s = skills(&content);
+        enter_and_move(create_character_with(dats(), content, &s));
+    }
+
+    /// The same on the February 2005 dat set: its character-generation table (three heritages,
+    /// the six outdoor starter areas), its skill table (the old weapon skills), its cells and its
+    /// landscape, with the Infiltration pack. The first starter area is Holtburg South.
+    #[test]
+    fn a_new_character_enters_holtburg_on_the_february_2005_dats_and_moves() {
+        let content = infiltration_pack();
+        assert!(
+            content.era().rules().creation_skills.is_some(),
+            "an Infiltration pack"
+        );
+        let s = skills(&content);
+        let l = enter_and_move(create_character_with(pre_tod_dats(), content, &s));
+        let p = l.ts.world.objects.get(l.g).expect("the character");
+        // The weenie's motion and combat tables, which the older table does not name.
+        for table in [
+            empyrean_entity::enums::PropertyDataId::MotionTable,
+            empyrean_entity::enums::PropertyDataId::CombatTable,
+        ] {
+            assert!(p.get_property(table).is_some_and(|id| id != 0), "{table:?}");
+        }
+        assert_eq!(
+            p.get_property(empyrean_entity::enums::PropertyFloat::DefaultScale),
+            None,
+            "full size"
+        );
+        let sword = p
+            .skills()
+            .get(&empyrean_entity::enums::Skill::Sword)
+            .map(|s| s.advancement_class(p));
+        assert_eq!(
+            sword,
+            Some(empyrean_entity::enums::SkillAdvancementClass::Trained)
+        );
+    }
+
+    fn enter_and_move(mut l: Loop) -> Loop {
         let rules = l.ts.world.era;
         assert_eq!(
             rules.id,
@@ -96,5 +151,6 @@ mod era_real {
         l.advance(0.3);
 
         l.assert_all_decode(0, "the era world");
+        l
     }
 }

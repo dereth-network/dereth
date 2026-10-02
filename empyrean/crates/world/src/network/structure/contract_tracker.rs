@@ -87,9 +87,8 @@ impl ContractTracker {
             if let Some(contract_data) = w
                 .dats
                 .portal_dat()
-                .contract_table()
-                .contracts
-                .get(&self.contract_id)
+                .try_contract_table()
+                .and_then(|t| t.contracts.get(&self.contract_id))
             {
                 self.contract = Some(contract_data.clone());
             }

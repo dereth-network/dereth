@@ -5,7 +5,7 @@
 //! `dereth_client_runtime::landblock` re-exports this module, and keeps `block_shift` itself
 //! because that is the renderer's viewer-relative space and reads the renderer's block length.
 
-use dereth_assets::{decode_any, DecodedAsset, Region};
+use dereth_assets::{decode_any_in, DecodedAsset, Region};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
 
@@ -38,8 +38,13 @@ pub fn load_region(store: &RetailDatStore) -> Result<Region, WorldError> {
     let bytes = store
         .read_typed(DbType::Region, DERETH_REGION)
         .map_err(|e| WorldError::Region(DERETH_REGION, e.to_string()))?;
-    match decode_any(DbType::Region, DERETH_REGION, &bytes)
-        .map_err(|e| WorldError::Region(DERETH_REGION, e.to_string()))?
+    match decode_any_in(
+        store.era_of(DERETH_REGION),
+        DbType::Region,
+        DERETH_REGION,
+        &bytes,
+    )
+    .map_err(|e| WorldError::Region(DERETH_REGION, e.to_string()))?
     {
         DecodedAsset::Region(r) => Ok(*Box::new(r)),
         other => Err(WorldError::Region(

@@ -983,7 +983,7 @@ impl ObjectPhysics {
             match store
                 .read_typed(DbType::Setup, did)
                 .ok()
-                .and_then(|b| Setup::decode_payload(did, &b).ok())
+                .and_then(|b| Setup::decode_payload_in(store.era_of(did), did, &b).ok())
             {
                 Some(s) => Some(Arc::new(if self.mesh_collision {
                     setup_geometry_with_parts_at(store, &s, placement, &mut self.part_stats)
