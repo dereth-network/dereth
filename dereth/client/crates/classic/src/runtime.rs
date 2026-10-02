@@ -103,6 +103,8 @@ pub struct ClassicUi {
     pub initial_panel: String,
     bindings: Option<crate::keybindings::KeyBindings>,
     previews: crate::previews::Previews,
+    /// The character sheet's augmentation and luminance section, over the world's string tables.
+    augmentation_sheet: hud::AugmentationSheet,
     actions: Vec<dereth_client_contract::actions::Action>,
     pending_split: Option<(u64, u32, u32)>,
     pending_social: Option<(u64, u8)>,
@@ -189,6 +191,7 @@ impl ClassicUi {
             initial_panel: "login".into(),
             bindings: None,
             previews,
+            augmentation_sheet: hud::AugmentationSheet::default(),
             actions: vec![],
             pending_split: None,
             pending_social: None,
@@ -1207,6 +1210,12 @@ impl ClassicUi {
         ];
         if let Some(module) = &world.player_system.module {
             self.classic.timestamp_format = module.timestamp_format.clone().unwrap_or_default();
+        }
+        {
+            let view = cx.hud().view(cx.objects());
+            let text = self.augmentation_sheet.text(&view, cx.store());
+            self.classic.augmentations.clear();
+            self.classic.augmentations.push_str(text);
         }
         if self.stretch_saved != Some(bits) {
             // Stretching or unstretching lays the open windows out again at once.

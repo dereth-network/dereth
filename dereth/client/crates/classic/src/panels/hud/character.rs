@@ -53,7 +53,61 @@ pub(super) fn date(timestamp: i64, offset: i32) -> String {
         p[3]
     )
 }
-fn body(i: &CharacterInfo) -> String {
+/// The string table the end-of-retail character sheet's rows are on.
+const SHEET_TABLE: dereth_primitives::DataId = dereth_primitives::DataId(0x2300_0001);
+
+/// The character sheet's augmentation and luminance section, as the end-of-retail sheet composes
+/// it out of the world's string tables: shown when the world's era has luminance or the innate
+/// augmentations, and empty otherwise. A row the tables do not hold shows nothing.
+pub fn augmentation_text(
+    view: &dyn GameView,
+    strings: &dyn dereth_ui::text::StringResolver,
+) -> String {
+    let features = view.era().map(|e| e.features());
+    let luminance = features.is_some_and(|f| f.luminance);
+    let augmentations = features.is_some_and(|f| f.innate_augmentations);
+    if !(luminance || augmentations) {
+        return String::new();
+    }
+    let Some(info) = view.character_info() else {
+        return String::new();
+    };
+    dereth_presentation::character::augmentation_section(&info, luminance, &mut |token, values| {
+        dereth_ui::text::render_token(strings, SHEET_TABLE, token, values).unwrap_or_default()
+    })
+}
+
+/// The augmentation and luminance section kept for the sheet: the world's string tables, read
+/// once, and the text composed again only when the character or the era changes.
+#[derive(Debug, Default)]
+pub struct AugmentationSheet {
+    strings: Option<dereth_ui::text::DatStringResolver<dereth_dat::RetailDatStore>>,
+    seen: Option<(
+        Option<dereth_primitives::EraFeatures>,
+        Option<CharacterInfo>,
+    )>,
+    text: String,
+}
+impl AugmentationSheet {
+    /// The section for this frame's view, over the world's dats.
+    pub fn text(
+        &mut self,
+        view: &dyn GameView,
+        store: &std::sync::Arc<dereth_dat::RetailDatStore>,
+    ) -> &str {
+        let key = (view.era().map(|e| e.features()), view.character_info());
+        if self.seen.as_ref() != Some(&key) {
+            let strings = self
+                .strings
+                .get_or_insert_with(|| dereth_ui::text::DatStringResolver::new(store.clone()));
+            self.text = augmentation_text(view, strings);
+            self.seen = Some(key);
+        }
+        &self.text
+    }
+}
+
+fn body(i: &CharacterInfo, augmentations: &str) -> String {
     use dereth_presentation::character::{regeneration_band, resist_band};
     let mut s = String::new();
     if let Some(t) = i.created {
@@ -93,6 +147,10 @@ fn body(i: &CharacterInfo) -> String {
         "Chess Rank: {}\nFishing Skill: {}\n\n",
         i.chess_rank, i.fishing_skill
     ));
+    if !augmentations.is_empty() {
+        s.push_str(augmentations);
+        s.push('\n');
+    }
     if i.load >= 1.0 {
         let penalty = (10 - to_i32_f64((2.0 - i.load as f64).clamp(0.0, 1.0) * 10.0)) * 10;
         s.push_str(&format!("You are currently overburdened by {} Burden Units.This is reducing your Run, Jump, Melee Defense and Missile Defense skills by {penalty}%.\n",i.encumbrance-i.capacity));
@@ -133,7 +191,7 @@ impl Panel for Character {
             .game
             .character_info()
             .as_ref()
-            .map(body)
+            .map(|i| body(i, &c.classic.augmentations))
             .unwrap_or_default();
         let text_w = (w - 34).max(1);
         let content = crate::renderer::measure_text_height("16-7", &text, text_w)
@@ -194,7 +252,7 @@ mod tests {
             num_deaths: 2,
             ..Default::default()
         };
-        let text = body(&i);
+        let text = body(&i, "");
         assert!(text.contains("You've died twice."));
         assert!(text.contains("Innate Coordination: 10"));
         assert!(!text.contains("Luminance"));
@@ -204,5 +262,85 @@ mod tests {
     fn dates_use_c_locale_and_local_offset() {
         assert_eq!(date(0, 0), "01/01/70 00:00:00");
         assert_eq!(date(0, -3600), "12/31/69 23:00:00");
+    }
+
+    /// Two rows of the end-of-retail sheet: the luminance header, and Strength's augmentation
+    /// with its count variable. Every other row is missing.
+    #[derive(Debug)]
+    struct Rows;
+    impl Rows {
+        fn row(id: u32) -> Option<(Vec<String>, Vec<u32>)> {
+            let hash = |s: &str| dereth_primitives::num::hash::str_hash(s.as_bytes());
+            if id == hash("ID_CharacterInfo_Luminance_Header") {
+                Some((vec!["Luminance:\\n".into()], vec![]))
+            } else if id == hash("ID_CharacterInfo_Augmentation_Attribute_Strength") {
+                Some((
+                    vec!["Strength augmentations: ".into(), "\\n".into()],
+                    vec![hash("NUM_AUGMENTATIONS")],
+                ))
+            } else {
+                None
+            }
+        }
+    }
+    impl dereth_ui::text::StringResolver for Rows {
+        fn resolve_raw(&self, table: dereth_primitives::DataId, id: u32) -> Option<String> {
+            self.resolve_variants_raw(table, id)?.into_iter().next()
+        }
+        fn resolve_variants_raw(
+            &self,
+            table: dereth_primitives::DataId,
+            id: u32,
+        ) -> Option<Vec<String>> {
+            (table == SHEET_TABLE).then(|| Self::row(id))?.map(|r| r.0)
+        }
+        fn resolve_variables(&self, table: dereth_primitives::DataId, id: u32) -> Option<Vec<u32>> {
+            (table == SHEET_TABLE).then(|| Self::row(id))?.map(|r| r.1)
+        }
+    }
+
+    use dereth_client_contract::snapshot::GameSnapshot;
+
+    fn world(era: dereth_primitives::EraId, luminance: Option<bool>) -> GameSnapshot {
+        let mut info = CharacterInfo::default();
+        info.aug_ints.insert(0xDA, 2);
+        let mut announced = dereth_primitives::EraFeatureOverrides::default();
+        if let Some(on) = luminance {
+            announced.set("luminance", on);
+        }
+        GameSnapshot {
+            character_info: Some(info),
+            era: Some(dereth_client_contract::view::EraView {
+                era,
+                announced_features: announced,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_augmentation_section_follows_the_worlds_era() {
+        use dereth_primitives::EraId;
+        assert_eq!(
+            augmentation_text(&world(EraId::Eor, None), &Rows),
+            "Luminance:\nStrength augmentations: 2\n"
+        );
+        assert_eq!(
+            augmentation_text(&world(EraId::Eor, Some(false)), &Rows),
+            "Strength augmentations: 2\n",
+            "without luminance the header goes and the augmentations stay"
+        );
+        assert_eq!(
+            augmentation_text(&world(EraId::Infiltration, None), &Rows),
+            "",
+            "an era with neither system shows no section"
+        );
+        let i = CharacterInfo::default();
+        let text = body(&i, "Strength augmentations: 2\n");
+        assert!(
+            text.contains("Fishing Skill: 0\n\nStrength augmentations: 2\n\nYou are not"),
+            "the section sits between the skills and the load: {text:?}"
+        );
     }
 }

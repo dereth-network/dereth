@@ -6,6 +6,7 @@ use dereth_client_contract::view::{PkStatus, RadarEntry, TargetMode, Vital};
 use dereth_primitives::num::{to_i32, to_i32_f64};
 
 mod character;
+pub use character::{augmentation_text, AugmentationSheet};
 mod chat_focus;
 mod chat_log;
 mod combat;

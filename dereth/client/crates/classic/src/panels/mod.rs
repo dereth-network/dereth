@@ -45,6 +45,9 @@ pub struct ClassicState {
     pub abuse_response: Option<String>,
     pub game_status: String,
     pub chat: Vec<(u32, String)>,
+    /// The character sheet's augmentation and luminance section, composed from the world's string
+    /// tables; empty when the world's era has neither.
+    pub augmentations: String,
 }
 #[derive(Clone, Debug, Default)]
 pub struct ClassicAppraisalExtra {
@@ -78,6 +81,7 @@ impl Default for ClassicState {
             abuse_response: None,
             game_status: String::new(),
             chat: vec![],
+            augmentations: String::new(),
         }
     }
 }
