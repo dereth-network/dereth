@@ -1,12 +1,14 @@
 use super::*;
 use crate::int::i32_from;
-use dereth_client_contract::view::AllegianceAction;
+use dereth_client_contract::view::{AllegianceAction, AllegianceEntry, AllegianceRoster};
 
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     Some(Box::new(Social {
         tab: match id {
             "fellowship" => 1,
             "trade-intro" => 2,
+            "friends" => 3,
+            "squelch" => 4,
             _ => 0,
         },
         name: "Enter Fellowship Name".into(),
@@ -16,7 +18,10 @@ pub fn make(id: &str) -> Option<Box<dyn Panel>> {
         subscribed: None,
         height: 400,
         member_scroll: 0,
+        vassal_scroll: 0,
         error: None,
+        entry: String::new(),
+        list_scroll: 0,
     }))
 }
 #[derive(Debug, PartialEq)]
@@ -37,7 +42,34 @@ struct Social {
     subscribed: Option<usize>,
     height: u32,
     member_scroll: i32,
+    vassal_scroll: i32,
     error: Option<String>,
+    /// The name typed on the Friends or Squelch page.
+    entry: String,
+    /// The Friends or Squelch page's list scroll.
+    list_scroll: i32,
+}
+
+/// Whether the window has the Friends and Squelch pages: on a world after the classic
+/// interface's, whose clients had them. The classic interface's own world kept its friends and
+/// squelches in the @friends and @squelch commands.
+fn friends_and_squelch(game: &dyn GameView) -> bool {
+    game.era()
+        .is_none_or(|e| e.era > dereth_primitives::EraId::Infiltration)
+}
+
+/// The friends in the page's order: those logged in first, each group by name.
+fn friends_shown(game: &dyn GameView) -> Vec<dereth_client_contract::view::FriendEntry> {
+    let mut friends = game.friends();
+    friends.sort_by_key(|f| (!f.online, f.name.to_lowercase()));
+    friends
+}
+
+/// The squelched characters by name.
+fn squelches_shown(game: &dyn GameView) -> Vec<dereth_client_contract::view::SquelchEntry> {
+    let mut squelches = game.squelch_list();
+    squelches.sort_by_key(|q| q.name.to_lowercase());
+    squelches
 }
 fn swear_cost(level_span: u64, breaks: u32) -> u32 {
     // The base is clamped before the quarter-per-break penalty is applied.
@@ -80,6 +112,43 @@ fn comma(n: u64) -> String {
         out.push(c);
     }
     out
+}
+/// The rank on the header line: the allegiance's own, or, while a spell raises it, the raised
+/// rank and the difference ("5 (+1)").
+fn rank_text(a: &AllegianceRoster) -> String {
+    let tree = a.subject.as_ref().map_or(0, |s| i32::from(s.rank));
+    let quality = a.player_rank_quality;
+    if quality <= 0 || quality == tree {
+        tree.to_string()
+    } else {
+        format!("{quality} (+{})", quality - tree)
+    }
+}
+/// A member's name colour: the panel's ink while logged in, grey while not.
+fn member_color(m: &AllegianceEntry) -> u32 {
+    if m.logged_in {
+        INK
+    } else {
+        OFFLINE
+    }
+}
+const OFFLINE: u32 = 0xff96_9696;
+/// The name without its rank title (the full name is the title, a space, then the name).
+fn bare_name(full_name: &str) -> &str {
+    full_name
+        .split_once(' ')
+        .map_or(full_name, |(_, name)| name)
+}
+fn right_label(f: &mut PanelFrame, r: Rect, text: impl Into<String>) {
+    f.text_box(
+        rect(r.x + 2, r.y, (r.w - 4).max(0), r.h),
+        text,
+        "15-6",
+        INK,
+        TextAlign::Right,
+        false,
+        Some([r.x, r.y, r.x + r.w, r.y + r.h]),
+    );
 }
 impl Social {
     fn world_target(&mut self, target: Option<ObjectId>, c: &Context<'_>) -> Vec<PanelAction> {
@@ -165,8 +234,16 @@ impl Social {
         // Stretched, the vassal list grows and the option and buttons keep to the bottom.
         let hs = i32::try_from(self.height).unwrap_or(362) - 25;
         let a = c.game.allegiance_roster();
-        for y in [44, 88, 132] {
-            f.image("06001420", rect(0, y, 300, 9), false, false);
+        // A monarch above a patron of their own takes two sections; a patron who is the monarch
+        // (or a player with no patron) takes one, and the vassals' heading moves up under it.
+        let both = a
+            .monarch
+            .as_ref()
+            .zip(a.patron.as_ref())
+            .is_some_and(|(m, p)| m.id != p.id);
+        let rules: &[i32] = if both { &[44, 88, 132] } else { &[44, 108] };
+        for y in rules {
+            f.image("06001420", rect(0, *y, 300, 9), false, false);
         }
         label(
             &mut f,
@@ -182,30 +259,51 @@ impl Social {
         label(
             &mut f,
             rect(4, 25, 292, 20),
-            format!("Followers: {}", a.total_vassals),
+            format!(
+                "Followers: {}    Rank: {}",
+                comma(u64::from(a.total_vassals)),
+                rank_text(&a)
+            ),
             "15-6",
         );
-        if let Some(monarch) = &a.monarch {
-            label(&mut f, rect(4, 51, 146, 20), "MONARCH", "15-6");
-            label(&mut f, rect(4, 68, 194, 20), &monarch.full_name, "15-6");
-            label(
-                &mut f,
-                rect(150, 51, 142, 20),
-                format!("Followers: {}", a.total_members),
-                "15-6",
-            );
-        }
         if let Some(patron) = &a.patron {
-            label(&mut f, rect(4, 95, 146, 20), "PATRON", "15-6");
-            f.button("patron", rect(4, 112, 194, 20), &patron.full_name, true)
-                .images = Some(["0600141F"; 3].map(String::from));
-            label(&mut f, rect(150, 95, 142, 20), "xp produced", "15-6");
-            label(
-                &mut f,
-                rect(198, 112, 93, 20),
-                a.own_cp_tithed.to_string(),
-                "15-6",
-            );
+            let head = |f: &mut PanelFrame, y: i32, title: &str, who: &AllegianceEntry| {
+                label(f, rect(4, y, 146, 20), title, "15-6");
+                label_color(
+                    f,
+                    rect(4, y + 17, 194, 20),
+                    &who.full_name,
+                    "15-6",
+                    member_color(who),
+                );
+            };
+            let right = |f: &mut PanelFrame, y: i32, title: &str, value: String| {
+                right_label(f, rect(150, y, 142, 20), title);
+                right_label(f, rect(198, y + 17, 93, 20), value);
+            };
+            let produced = |f: &mut PanelFrame, y: i32, title: &str| {
+                if self.show_xp {
+                    right(f, y, title, comma(u64::from(a.own_cp_tithed)));
+                }
+            };
+            let patron_y = if both { 95 } else { 51 };
+            if let Some(monarch) = a.monarch.as_ref().filter(|_| both) {
+                head(&mut f, 51, "MONARCH", monarch);
+                right(
+                    &mut f,
+                    51,
+                    "Followers:",
+                    comma(u64::from(a.total_members.saturating_sub(1))),
+                );
+                head(&mut f, 95, "PATRON", patron);
+                produced(&mut f, 95, "xp produced");
+            } else {
+                head(&mut f, 51, "PATRON/MONARCH", patron);
+                produced(&mut f, 51, "xp produced:");
+            }
+            // The name is also where a click picks the patron to break from.
+            f.button("patron", rect(4, patron_y + 17, 194, 20), "", true)
+                .paint = false;
         } else {
             let cost = cost(c);
             let available = c.game.available_experience().max(0) as u64;
@@ -249,6 +347,8 @@ impl Social {
                     );
                 }
             } else {
+                // A player with no patron may swear, followers or not: a monarch could swear to
+                // another and bring the allegiance under them.
                 if let Some(target) = swear_target(c) {
                     social_button(
                         &mut f,
@@ -273,34 +373,14 @@ impl Social {
                 );
             }
         }
-        label(&mut f, rect(4, 138, 142, 18), "VASSALS", "15-6");
-        label(
-            &mut f,
-            rect(150, 138, 121, 18),
-            if self.show_xp { "xp produced" } else { "Rank" },
-            "15-6",
-        );
-        f.list(
-            "vassals",
-            rect(0, 156, 279, (hs - 252).max(123)),
-            a.vassals
-                .iter()
-                .map(|v| {
-                    format!(
-                        "{}    {}",
-                        v.full_name,
-                        if self.show_xp {
-                            v.cp_cached.to_string()
-                        } else {
-                            v.rank.to_string()
-                        }
-                    )
-                    .into()
-                })
-                .collect(),
-            self.selected,
-            22,
-        );
+        let heading = if both { 138 } else { 114 };
+        label(&mut f, rect(4, heading, 142, 18), "VASSALS", "15-6");
+        // Titles mode names each vassal by title and name alone; the experience column is shown
+        // only with Show XP.
+        if self.show_xp {
+            right_label(&mut f, rect(150, heading, 121, 18), "xp produced");
+        }
+        self.vassal_list(&mut f, &a, rect(0, 156, 279, (hs - 252).max(123)));
         f.check(
             "accept-allegiance",
             rect(25, hs - 56, 270, 13),
@@ -308,6 +388,7 @@ impl Social {
             !c.game.player_option(PlayerOption::IgnoreAllegianceRequests),
             true,
         );
+        let anyone = a.patron.is_some() || !a.vassals.is_empty();
         social_button(
             &mut f,
             "show-xp",
@@ -317,7 +398,7 @@ impl Social {
             } else {
                 "Show XP"
             },
-            true,
+            anyone,
         );
         social_button(
             &mut f,
@@ -325,9 +406,99 @@ impl Social {
             rect(150, hs - 36, 120, 36),
             // Two lines, as the caption wraps on the button.
             "Break\nAllegiance",
-            a.patron.is_some() || !a.vassals.is_empty(),
+            anyone,
         );
         f
+    }
+    /// The vassals: one 20-pixel row each, two pixels apart, on the row art, a logged-out
+    /// vassal in grey. "NONE" when the player has no followers.
+    fn vassal_list(&self, f: &mut PanelFrame, a: &AllegianceRoster, r: Rect) {
+        const PITCH: i32 = 22;
+        let clip = [r.x, r.y, r.x + r.w, r.y + r.h];
+        let max = (i32_from(a.vassals.len()) * PITCH - r.h).max(0);
+        let offset = self.vassal_scroll.clamp(0, max);
+        f.control(
+            "vassals",
+            r,
+            ControlKind::HitList {
+                row_count: a.vassals.len(),
+                row_height: PITCH,
+                selected: self.selected,
+                offset,
+            },
+            true,
+        )
+        .paint = false;
+        f.control(
+            "vassals-scroll",
+            rect(r.x + r.w, r.y, 21, r.h),
+            ControlKind::ScrollBar {
+                min: 0,
+                max,
+                value: offset,
+                page: r.h,
+                step: PITCH,
+                vertical: true,
+                arrow_size: 16,
+                thumb_size: 16,
+            },
+            true,
+        );
+        if a.vassals.is_empty() {
+            f.text_box(
+                rect(r.x + 5, r.y, r.w - 26, 20),
+                "NONE",
+                "16-7",
+                INK,
+                TextAlign::Left,
+                false,
+                Some(clip),
+            );
+            return;
+        }
+        let half = r.w / 2;
+        for (i, v) in a.vassals.iter().enumerate() {
+            let y = r.y + i32_from(i) * PITCH - offset;
+            if y + PITCH <= r.y || y >= r.y + r.h {
+                continue;
+            }
+            let row = rect(r.x, y, r.w, 20);
+            f.image_native(
+                "0600141F",
+                row.x,
+                row.y,
+                row.intersect(r).unwrap_or_default(),
+                false,
+            );
+            let color = member_color(v);
+            let mut text = |x: i32, w: i32, s: String, align: TextAlign| {
+                f.text_box(
+                    rect(r.x + x, y + 2, w, 16),
+                    s,
+                    "15-6",
+                    color,
+                    align,
+                    false,
+                    Some(clip),
+                );
+            };
+            if self.show_xp {
+                text(
+                    5,
+                    half - 5,
+                    bare_name(&v.full_name).to_owned(),
+                    TextAlign::Left,
+                );
+                text(
+                    half,
+                    half - 5,
+                    comma(u64::from(v.cp_cached)),
+                    TextAlign::Right,
+                );
+            } else {
+                text(5, r.w - 5, v.full_name.clone(), TextAlign::Left);
+            }
+        }
     }
     fn fellowship(&self, c: &Context<'_>) -> PanelFrame {
         let h = (self.height as i32 - 25).max(138);
@@ -598,6 +769,177 @@ impl Social {
         centered(&mut f,rect(10,240,272,60),"Note: Use Squelch to automatically stop a specific person from starting trade with you.","16-7");
         f
     }
+    /// A list of names on the row art, as the vassals are drawn: `(text, colour)` each.
+    fn name_list(&self, f: &mut PanelFrame, id: &str, r: Rect, rows: &[(String, u32)]) {
+        const PITCH: i32 = 22;
+        let clip = [r.x, r.y, r.x + r.w, r.y + r.h];
+        let max = (i32_from(rows.len()) * PITCH - r.h).max(0);
+        let offset = self.list_scroll.clamp(0, max);
+        f.control(
+            id,
+            r,
+            ControlKind::HitList {
+                row_count: rows.len(),
+                row_height: PITCH,
+                selected: self.selected,
+                offset,
+            },
+            true,
+        )
+        .paint = false;
+        f.control(
+            format!("{id}-scroll"),
+            rect(r.x + r.w, r.y, 21, r.h),
+            ControlKind::ScrollBar {
+                min: 0,
+                max,
+                value: offset,
+                page: r.h,
+                step: PITCH,
+                vertical: true,
+                arrow_size: 16,
+                thumb_size: 16,
+            },
+            true,
+        );
+        for (i, (text, color)) in rows.iter().enumerate() {
+            let y = r.y + i32_from(i) * PITCH - offset;
+            if y + PITCH <= r.y || y >= r.y + r.h {
+                continue;
+            }
+            let row = rect(r.x, y, r.w, 20);
+            f.image_native(
+                if self.selected == Some(i) {
+                    "06001451"
+                } else {
+                    "0600141F"
+                },
+                row.x,
+                row.y,
+                row.intersect(r).unwrap_or_default(),
+                false,
+            );
+            f.text_box(
+                rect(r.x + 5, y + 2, r.w - 10, 16),
+                text,
+                "15-6",
+                *color,
+                TextAlign::Left,
+                false,
+                Some(clip),
+            );
+        }
+    }
+    /// The name box and its caption above a page's buttons.
+    fn name_entry(&self, f: &mut PanelFrame, y: i32) {
+        label(f, rect(14, y, 60, 20), "NAME:", "15-6");
+        f.edit("entry", rect(74, y, 202, 20), &self.entry, 32, false, true)
+            .select_on_focus = true;
+    }
+    fn friends(&self, c: &Context<'_>) -> PanelFrame {
+        let h = (self.height as i32 - 25).max(200);
+        let mut f = tiled(300, h as u32, "06001421");
+        let friends = friends_shown(c.game);
+        let online = friends.iter().filter(|f| f.online).count();
+        label(
+            &mut f,
+            rect(4, 4, 292, 20),
+            format!("Friends: {}    Online: {online}", friends.len()),
+            "16-7",
+        );
+        f.image("06001420", rect(0, 24, 300, 9), false, false);
+        let rows: Vec<_> = friends
+            .iter()
+            .map(|f| (f.name.clone(), if f.online { INK } else { OFFLINE }))
+            .collect();
+        self.name_list(&mut f, "friend-rows", rect(0, 36, 279, h - 136), &rows);
+        if friends.is_empty() {
+            label(&mut f, rect(4, 36, 275, 20), "NONE", "16-7");
+        }
+        self.name_entry(&mut f, h - 92);
+        let chosen = self.selected.and_then(|i| friends.get(i));
+        social_button(
+            &mut f,
+            "add-friend",
+            rect(15, h - 64, 85, 27),
+            "Add",
+            !self.entry.trim().is_empty(),
+        );
+        social_button(
+            &mut f,
+            "remove-friend",
+            rect(105, h - 64, 85, 27),
+            "Remove",
+            chosen.is_some(),
+        );
+        social_button(
+            &mut f,
+            "tell-friend",
+            rect(195, h - 64, 85, 27),
+            "Tell",
+            chosen.is_some_and(|f| f.online),
+        );
+        label(
+            &mut f,
+            rect(14, h - 32, 276, 30),
+            "Friends are told to you as they log in and out.",
+            "15-6",
+        );
+        f
+    }
+    fn squelch(&self, c: &Context<'_>) -> PanelFrame {
+        let h = (self.height as i32 - 25).max(200);
+        let mut f = tiled(300, h as u32, "06001421");
+        let squelches = squelches_shown(c.game);
+        label(
+            &mut f,
+            rect(4, 4, 292, 20),
+            format!("Squelched: {}", squelches.len()),
+            "16-7",
+        );
+        f.image("06001420", rect(0, 24, 300, 9), false, false);
+        let rows: Vec<_> = squelches
+            .iter()
+            .map(|q| {
+                (
+                    if q.account {
+                        format!("{} (account)", q.name)
+                    } else {
+                        q.name.clone()
+                    },
+                    INK,
+                )
+            })
+            .collect();
+        self.name_list(&mut f, "squelch-rows", rect(0, 36, 279, h - 136), &rows);
+        if squelches.is_empty() {
+            label(&mut f, rect(4, 36, 275, 20), "NONE", "16-7");
+        }
+        self.name_entry(&mut f, h - 92);
+        let typed = !self.entry.trim().is_empty();
+        social_button(
+            &mut f,
+            "squelch-character",
+            rect(15, h - 64, 130, 27),
+            "Squelch",
+            typed,
+        );
+        social_button(
+            &mut f,
+            "squelch-account",
+            rect(150, h - 64, 130, 27),
+            "Squelch Account",
+            typed,
+        );
+        social_button(
+            &mut f,
+            "unsquelch",
+            rect(15, h - 32, 265, 27),
+            "Remove Squelch",
+            self.selected.is_some_and(|i| i < squelches.len()),
+        );
+        f
+    }
     fn subscription(&mut self) -> Vec<PanelAction> {
         if self.subscribed == Some(self.tab) {
             return vec![];
@@ -657,24 +999,36 @@ impl Panel for Social {
         "social"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
+        let later = friends_and_squelch(c.game);
         let mut f = translated(
             match self.tab {
                 0 => self.allegiance(c),
                 1 => self.fellowship(c),
+                3 if later => self.friends(c),
+                4 if later => self.squelch(c),
                 _ => self.trade(c),
             },
             25,
             self.height,
         );
-        for (i, title) in ["Allegiance", "Fellowship", "Trade"].iter().enumerate() {
+        let titles: &[&str] = if later {
+            &["Allegiance", "Fellowship", "Trade", "Friends", "Squelch"]
+        } else {
+            &["Allegiance", "Fellowship", "Trade"]
+        };
+        let width = 276 / i32_from(titles.len());
+        for (i, title) in titles.iter().enumerate() {
             // The tabs' art, drawn as it is: the tab of the page on show is held down, so it
-            // shows the pressed art.
+            // shows the pressed art. Five tabs share the row in a smaller hand.
             let tab = f.button(
                 format!("tab{i}"),
-                rect(i32_from(i) * 92, 0, 92, 25),
+                rect(i32_from(i) * width, 0, width, 25),
                 *title,
                 true,
             );
+            if later {
+                tab.font = "14-5".into();
+            }
             tab.images = Some(
                 [
                     if i == self.tab {
@@ -706,9 +1060,27 @@ impl Panel for Social {
                 self.member_scroll = value.max(0);
                 vec![]
             }
+            ControlEvent::Scroll { id, value } if id == "vassals-scroll" || id == "vassals" => {
+                self.vassal_scroll = value.max(0);
+                vec![]
+            }
             ControlEvent::Tick => self.subscription(),
             ControlEvent::Edit { id, text } if id == "name" => {
                 self.name = text;
+                vec![]
+            }
+            ControlEvent::Edit { id, text } if id == "entry" => {
+                self.entry = text;
+                vec![]
+            }
+            ControlEvent::Scroll { id, value }
+                if id.starts_with("friend-rows") || id.starts_with("squelch-rows") =>
+            {
+                self.list_scroll = value.max(0);
+                vec![]
+            }
+            ControlEvent::Select { id, index } if id == "friend-rows" || id == "squelch-rows" => {
+                self.selected = Some(index);
                 vec![]
             }
             ControlEvent::Check { id, checked } => {
@@ -738,12 +1110,67 @@ impl Panel for Social {
                 vec![]
             }
             ControlEvent::Activate(id) => match id.as_str() {
-                "tab0" | "tab1" | "tab2" => {
+                "tab0" | "tab1" | "tab2" | "tab3" | "tab4" => {
                     self.tab = id.as_bytes()[3] as usize - b'0' as usize;
                     self.selected = None;
+                    self.list_scroll = 0;
                     self.mode = Mode::None;
                     self.subscription()
                 }
+                "add-friend" => {
+                    let name = std::mem::take(&mut self.entry).trim().to_owned();
+                    if name.is_empty() {
+                        return vec![];
+                    }
+                    request(UiRequest::AddFriend { name })
+                }
+                "remove-friend" => self
+                    .selected
+                    .and_then(|i| friends_shown(c.game).get(i).map(|f| f.id))
+                    .map(|target| {
+                        self.selected = None;
+                        request(UiRequest::RemoveFriend { target })
+                    })
+                    .unwrap_or_default(),
+                "tell-friend" => self
+                    .selected
+                    .and_then(|i| friends_shown(c.game).get(i).cloned())
+                    .map(|f| request(UiRequest::StartTell { name: f.name }))
+                    .unwrap_or_default(),
+                // A character's squelch by name is the @squelch command's; an account's has
+                // its own message.
+                "squelch-character" | "squelch-account" => {
+                    let name = std::mem::take(&mut self.entry).trim().to_owned();
+                    if name.is_empty() {
+                        return vec![];
+                    }
+                    request(if id == "squelch-account" {
+                        UiRequest::ModifyAccountSquelch { add: true, name }
+                    } else {
+                        UiRequest::ChatLine {
+                            text: format!("@squelch {name}"),
+                            window: 0,
+                        }
+                    })
+                }
+                "unsquelch" => self
+                    .selected
+                    .and_then(|i| squelches_shown(c.game).get(i).cloned())
+                    .map(|q| {
+                        self.selected = None;
+                        request(if q.account {
+                            UiRequest::ModifyAccountSquelch {
+                                add: false,
+                                name: q.name,
+                            }
+                        } else {
+                            UiRequest::ChatLine {
+                                text: format!("@unsquelch {}", q.name),
+                                window: 0,
+                            }
+                        })
+                    })
+                    .unwrap_or_default(),
                 "close" => {
                     self.mode = Mode::None;
                     let old = self.tab;

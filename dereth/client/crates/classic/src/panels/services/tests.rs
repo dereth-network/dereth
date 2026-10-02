@@ -16,8 +16,24 @@ struct View {
     xp: Option<dereth_client_contract::statmgmt::XpHeader>,
     available: i64,
     mini: Option<dereth_client_contract::view::MiniGameView>,
+    roster: dereth_client_contract::view::AllegianceRoster,
+    era: Option<dereth_client_contract::EraView>,
+    friends: Vec<dereth_client_contract::view::FriendEntry>,
+    squelches: Vec<dereth_client_contract::view::SquelchEntry>,
 }
 impl GameView for View {
+    fn allegiance_roster(&self) -> dereth_client_contract::view::AllegianceRoster {
+        self.roster.clone()
+    }
+    fn era(&self) -> Option<&dereth_client_contract::EraView> {
+        self.era.as_ref()
+    }
+    fn friends(&self) -> Vec<dereth_client_contract::view::FriendEntry> {
+        self.friends.clone()
+    }
+    fn squelch_list(&self) -> Vec<dereth_client_contract::view::SquelchEntry> {
+        self.squelches.clone()
+    }
     fn minigame(&self) -> Option<dereth_client_contract::view::MiniGameView> {
         self.mini
     }
@@ -875,5 +891,199 @@ fn fellowship_pick_prompt_and_self_refusal_use_the_viewport_route() {
                 severity: Warning,
             })
         ]
+    );
+}
+
+/// Every piece of text a frame draws.
+fn texts(f: &PanelFrame) -> Vec<String> {
+    f.screen
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            crate::Command::TextBox { text, .. } | crate::Command::Text { text, .. } => {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+fn member(id: u32, full_name: &str, rank: u16, cp: u32, logged_in: bool) -> AllegianceEntry {
+    AllegianceEntry {
+        id: ObjectId(id),
+        full_name: full_name.into(),
+        logged_in,
+        rank,
+        cp_cached: cp,
+    }
+}
+use dereth_client_contract::view::{AllegianceEntry, AllegianceRoster};
+#[test]
+fn a_sworn_vassal_sees_their_patron_and_titled_vassals_without_the_swear_prompt() {
+    let v = View {
+        roster: AllegianceRoster {
+            total_members: 3,
+            total_vassals: 1,
+            own_cp_tithed: 250,
+            subject: Some(member(7, "Knight Aerin", 2, 0, true)),
+            player_rank_quality: 2,
+            monarch: Some(member(3, "Lord Bram", 3, 0, false)),
+            patron: Some(member(3, "Lord Bram", 3, 0, false)),
+            vassals: vec![member(11, "Yeoman Eve", 1, 500, true)],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut p = make("allegiance").unwrap();
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    assert!(shown.contains(&"PATRON/MONARCH".to_string()), "{shown:?}");
+    assert!(
+        shown.contains(&"Followers: 1    Rank: 2".to_string()),
+        "{shown:?}"
+    );
+    // Titles mode: the vassal by title and name, no rank or experience column.
+    assert!(shown.contains(&"Yeoman Eve".to_string()), "{shown:?}");
+    assert!(!shown
+        .iter()
+        .any(|t| t.contains("SWEAR") || t.contains("xp cost")));
+    assert!(!shown
+        .iter()
+        .any(|t| t == "Rank" || t.contains("xp produced")));
+    // Show XP: the bare name with the experience it passed up, and the patron's line.
+    activate(&mut *p, "show-xp", &v);
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    for want in ["Eve", "500", "xp produced", "xp produced:", "250"] {
+        assert!(shown.contains(&want.to_string()), "{want} in {shown:?}");
+    }
+}
+#[test]
+fn a_monarch_above_the_patron_gets_a_section_of_its_own() {
+    let v = View {
+        roster: AllegianceRoster {
+            total_members: 10,
+            subject: Some(member(7, "Aerin", 1, 0, true)),
+            monarch: Some(member(2, "King Cole", 6, 0, true)),
+            patron: Some(member(3, "Lord Bram", 3, 0, true)),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let p = make("allegiance").unwrap();
+    let shown = with_context(&v, |c| texts(&p.frame(c)));
+    for want in [
+        "MONARCH",
+        "King Cole",
+        "PATRON",
+        "Lord Bram",
+        "Followers:",
+        "9",
+        "NONE",
+    ] {
+        assert!(shown.contains(&want.to_string()), "{want} in {shown:?}");
+    }
+    assert!(!shown.contains(&"PATRON/MONARCH".to_string()));
+}
+#[test]
+fn a_raised_rank_shows_the_difference_and_show_xp_waits_for_someone_to_show() {
+    let v = View {
+        roster: AllegianceRoster {
+            subject: Some(member(7, "Aerin", 2, 0, true)),
+            player_rank_quality: 3,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let p = make("allegiance").unwrap();
+    let f = with_context(&v, |c| p.frame(c));
+    assert!(texts(&f).contains(&"Followers: 0    Rank: 3 (+1)".to_string()));
+    assert!(f.controls.iter().any(|c| c.id == "show-xp" && !c.enabled));
+}
+#[test]
+fn friends_and_squelch_are_pages_of_the_social_window_after_the_classic_world() {
+    let early = dereth_client_contract::EraView {
+        era: dereth_primitives::era::EraId::Infiltration,
+        era_announced: true,
+        ..Default::default()
+    };
+    let classic = View {
+        era: Some(early),
+        ..Default::default()
+    };
+    let p = make("friends").unwrap();
+    let ids = |v: &View, p: &dyn Panel| {
+        with_context(v, |c| p.frame(c))
+            .controls
+            .iter()
+            .map(|c| c.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert!(!ids(&classic, &*p).contains(&"tab3".to_string()));
+    let later = View {
+        friends: vec![
+            dereth_client_contract::view::FriendEntry {
+                id: ObjectId(20),
+                name: "Zed".into(),
+                online: false,
+            },
+            dereth_client_contract::view::FriendEntry {
+                id: ObjectId(21),
+                name: "Ann".into(),
+                online: true,
+            },
+        ],
+        squelches: vec![dereth_client_contract::view::SquelchEntry {
+            name: "Spammer".into(),
+            account: true,
+        }],
+        ..Default::default()
+    };
+    let mut p = make("friends").unwrap();
+    let shown = ids(&later, &*p);
+    assert!(shown.contains(&"tab3".to_string()) && shown.contains(&"tab4".to_string()));
+    assert!(shown.contains(&"add-friend".to_string()));
+    // Typed and added by name; the online friend is listed first, and removed by id.
+    event(
+        &mut *p,
+        ControlEvent::Edit {
+            id: "entry".into(),
+            text: " Bob ".into(),
+        },
+        &later,
+    );
+    assert_eq!(
+        activate(&mut *p, "add-friend", &later),
+        vec![PanelAction::Game(UiRequest::AddFriend {
+            name: "Bob".into()
+        })]
+    );
+    event(
+        &mut *p,
+        ControlEvent::Select {
+            id: "friend-rows".into(),
+            index: 0,
+        },
+        &later,
+    );
+    assert_eq!(
+        activate(&mut *p, "remove-friend", &later),
+        vec![PanelAction::Game(UiRequest::RemoveFriend {
+            target: ObjectId(21)
+        })]
+    );
+    // The Squelch page: an account squelch is lifted by its own message.
+    activate(&mut *p, "tab4", &later);
+    event(
+        &mut *p,
+        ControlEvent::Select {
+            id: "squelch-rows".into(),
+            index: 0,
+        },
+        &later,
+    );
+    assert_eq!(
+        activate(&mut *p, "unsquelch", &later),
+        vec![PanelAction::Game(UiRequest::ModifyAccountSquelch {
+            add: false,
+            name: "Spammer".into()
+        })]
     );
 }

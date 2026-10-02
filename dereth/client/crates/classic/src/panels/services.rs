@@ -14,7 +14,9 @@ mod world;
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     match id {
         "book" => Some(Box::new(book::Book::default())),
-        "social" | "allegiance" | "fellowship" | "trade-intro" => social::make(id),
+        "social" | "allegiance" | "fellowship" | "trade-intro" | "friends" | "squelch" => {
+            social::make(id)
+        }
         "trade" | "vendor" | "salvage" => commerce::make(id),
         "map" | "house" | "map-house" | "maintenance" | "game-center" | "link-status" => {
             world::make(id)
