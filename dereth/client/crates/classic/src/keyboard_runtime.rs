@@ -111,9 +111,19 @@ pub fn right_click_mouse_look(_world: &World) -> bool {
     classic_bits() & RIGHT_CLICK_LOOK != 0
 }
 
-fn cursor_sample(previous: Option<(f64, f64)>, x: f64, y: f64, inverted: bool) -> (f64, f64) {
-    match previous {
-        Some((_, last_y)) if inverted => (x, 2.0 * last_y - y),
+/// The sample to hand on for the real one at `(x, y)`. `previous` is the last real sample and
+/// `handed_on` the last sample handed on: inverted, the next one handed on moves from `handed_on`
+/// by the real vertical motion reversed, so the motion the camera sees is the real motion with
+/// its vertical part reversed.
+fn cursor_sample(
+    previous: Option<(f64, f64)>,
+    handed_on: Option<(f64, f64)>,
+    x: f64,
+    y: f64,
+    inverted: bool,
+) -> (f64, f64) {
+    match (previous, handed_on) {
+        (Some((_, last_y)), Some((_, handed_y))) if inverted => (x, handed_y - (y - last_y)),
         _ => (x, y),
     }
 }
@@ -122,7 +132,7 @@ fn cursor_sample(previous: Option<(f64, f64)>, x: f64, y: f64, inverted: bool) -
 /// sample, kept by the caller: reflected coordinates are only a delta adapter.
 pub fn cursor_moved<S: Shell>(cx: &mut Cx<'_, S>, last: &mut Option<(f64, f64)>, x: f64, y: f64) {
     let inverted = cx.mouse_look() && classic_bits() & INVERT_LOOK != 0;
-    let (sample_x, sample_y) = cursor_sample(*last, x, y, inverted);
+    let (sample_x, sample_y) = cursor_sample(*last, cx.last_cursor(), x, y, inverted);
     cx.cursor_moved(sample_x, sample_y);
     *last = Some((x, y));
 }
@@ -260,18 +270,35 @@ mod tests {
     }
 
     #[test]
-    fn inverted_cursor_preserves_horizontal_motion_and_does_not_accumulate_reflection() {
-        assert_eq!(cursor_sample(None, 20.0, 30.0, true), (20.0, 30.0));
+    fn inverted_cursor_reverses_every_vertical_step_and_keeps_horizontal_motion() {
+        // The real pointer moves steadily down and right; the camera must see it move up and right
+        // by the same amount at every step, not only the first.
+        let real = [
+            (20.0, 30.0),
+            (22.0, 35.0),
+            (25.0, 36.0),
+            (25.0, 40.0),
+            (30.0, 41.0),
+        ];
+        let mut previous = None;
+        let mut handed_on: Option<(f64, f64)> = None;
+        let mut seen = Vec::new();
+        for (x, y) in real {
+            let sample = cursor_sample(previous, handed_on, x, y, true);
+            if let Some(h) = handed_on {
+                seen.push((sample.0 - h.0, sample.1 - h.1));
+            }
+            handed_on = Some(sample);
+            previous = Some((x, y));
+        }
+        assert_eq!(seen, [(2.0, -5.0), (3.0, -1.0), (0.0, -4.0), (5.0, -1.0)]);
+        // Not inverted, or with nothing handed on yet (a fresh hold), the sample is the real one.
         assert_eq!(
-            cursor_sample(Some((20.0, 30.0)), 22.0, 35.0, true),
-            (22.0, 25.0)
+            cursor_sample(Some((22.0, 35.0)), Some((22.0, 25.0)), 25.0, 36.0, false),
+            (25.0, 36.0)
         );
         assert_eq!(
-            cursor_sample(Some((22.0, 35.0)), 25.0, 36.0, true),
-            (25.0, 34.0)
-        );
-        assert_eq!(
-            cursor_sample(Some((22.0, 35.0)), 25.0, 36.0, false),
+            cursor_sample(Some((22.0, 35.0)), None, 25.0, 36.0, true),
             (25.0, 36.0)
         );
     }
