@@ -790,9 +790,10 @@ impl Pregame {
         f.control(
             "message",
             rect(293, 285, 450, 278),
+            // A notch of the wheel over the box moves the text three lines.
             ControlKind::HitList {
-                row_count: full.max(0) as usize,
-                row_height: 1,
+                row_count: usize::try_from(full.max(0)).unwrap_or(0).div_ceil(48),
+                row_height: 48,
                 selected: None,
                 offset,
             },

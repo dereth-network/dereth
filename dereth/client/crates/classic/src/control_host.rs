@@ -698,6 +698,7 @@ impl ControlHost {
             && self.sound_scroll.as_ref().is_some_and(|(id, thumb, _)| {
                 *thumb && self.controls.iter().any(|c| c.id == *id && c.enabled)
             });
+        let input = self.wheel_target(input);
         let events = self.handle_inner(input);
         if release || cancel {
             self.sound_scroll = None;
@@ -736,6 +737,44 @@ impl ControlHost {
             self.sounds.push(0x74);
         }
         events
+    }
+    /// The wheel over a window scrolls what is under the pointer; over anything else in a
+    /// window with one vertical scroll bar, it scrolls that bar, as it would over the bar itself.
+    fn wheel_target(&self, input: Input) -> Input {
+        let Input::Wheel { x, y, delta } = input else {
+            return input;
+        };
+        // An open drop-down takes the wheel itself.
+        if self.choice.is_some() {
+            return input;
+        }
+        let scrolls = |c: &&Control| {
+            matches!(
+                c.kind,
+                ControlKind::List { .. }
+                    | ControlKind::HitList { .. }
+                    | ControlKind::ScrollBar { vertical: true, .. }
+            )
+        };
+        if self
+            .controls
+            .iter()
+            .filter(scrolls)
+            .any(|c| c.rect.contains(x, y))
+        {
+            return input;
+        }
+        let mut bars = self.controls.iter().filter(|c| {
+            c.enabled && matches!(c.kind, ControlKind::ScrollBar { vertical: true, .. })
+        });
+        match (bars.next(), bars.next()) {
+            (Some(bar), None) => Input::Wheel {
+                x: bar.rect.x + bar.rect.w / 2,
+                y: bar.rect.y + bar.rect.h / 2,
+                delta,
+            },
+            _ => input,
+        }
     }
     fn handle_inner(&mut self, input: Input) -> Vec<ControlEvent> {
         use crate::widgets::Key;
@@ -2034,6 +2073,48 @@ mod tests {
             .handle(Input::PointerUp { x: 5, y: 5 })
             .iter()
             .any(|e| matches!(e, ControlEvent::DoubleClick { index: 2, .. })));
+    }
+    #[test]
+    fn the_wheel_anywhere_over_a_window_with_one_scroll_bar_scrolls_it() {
+        let scroll = |value| ControlKind::ScrollBar {
+            min: 0,
+            max: 200,
+            value,
+            page: 100,
+            step: 20,
+            vertical: true,
+            arrow_size: 16,
+            thumb_size: 16,
+        };
+        let mut frame = PanelFrame::new(300, 300);
+        frame.check("row", rect(14, 30, 13, 13), "", false, true);
+        frame.control("scroll", rect(284, 16, 16, 264), scroll(0), true);
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        // Over a row of the page, not the bar: two notches down move the bar two steps.
+        let events = host.handle(Input::Wheel {
+            x: 100,
+            y: 100,
+            delta: 2,
+        });
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, ControlEvent::Scroll { id, value: 40 } if id == "scroll")),
+            "{events:?}"
+        );
+        // With two bars there is no telling which one the wheel means: it scrolls neither.
+        frame.control("other", rect(0, 16, 16, 264), scroll(0), true);
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        assert!(!host
+            .handle(Input::Wheel {
+                x: 100,
+                y: 100,
+                delta: 2,
+            })
+            .iter()
+            .any(|e| matches!(e, ControlEvent::Scroll { .. })));
     }
     #[test]
     fn a_horizontal_scroll_bars_arrows_step_by_one_cell() {
