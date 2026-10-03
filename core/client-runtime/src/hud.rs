@@ -5678,8 +5678,10 @@ impl GameView for HudView<'_> {
         ))
     }
 
-    /// `ObjectInventory::items`, in the
-    /// order the server gave them, which is the order the grid fills.
+    fn open_inventory_container(&self) -> Option<ObjectId> {
+        self.world.open_container.or_else(|| self.player())
+    }
+    /// The loose items in server order, which is the grid order.
     fn container_contents(&self, id: ObjectId) -> &[ObjectId] {
         self.world.inventory(id).map_or(&[][..], |i| &i.items)
     }

@@ -43,9 +43,8 @@ pub struct World {
     pub request_lock: RequestLock,
     /// blocks every inventory request.
     pub attack_in_progress: bool,
-    /// The open pack preferred over the player as an inventory destination. A new-parent notice
-    /// updates it whenever the list's parent actually changes. This is separate from a panel's
-    /// selected pack row: it is the destination used when an item is picked up.
+    /// The shared inventory grid parent and default pickup destination. A new-parent notice
+    /// selects it; a notified move away from the player restores the main pack.
     pub open_container: Option<ObjectId>,
     /// The optimistic row inserted into a destination list before the server answers. The client
     /// inserts and marks the row before sending either a container move or a ground drop. This
@@ -1860,6 +1859,10 @@ impl World {
         self.update_spell_components_under(id);
 
         if notify_ui {
+            // Moving the displayed pack away from the player reopens the main pack.
+            if self.open_container == Some(id) && Some(container) != player {
+                self.open_container = player;
+            }
             out.emit(Notice::ItemMoved {
                 object: id,
                 old_container,

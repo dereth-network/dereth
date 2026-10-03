@@ -20,6 +20,7 @@ const NOWHERE: ObjectId = ObjectId(0);
 /// enough to state: the player's loose items, his side packs, and the pack's own contents.
 #[derive(Debug)]
 struct World {
+    open: Option<ObjectId>,
     loose: Vec<ObjectId>,
     packs: Vec<ObjectId>,
     in_pack: Vec<ObjectId>,
@@ -30,6 +31,7 @@ struct World {
 impl World {
     fn new() -> Self {
         Self {
+            open: Some(PLAYER),
             loose: (0..4).map(|i| ObjectId(0x5000_7000 + i)).collect(),
             packs: vec![PACK],
             in_pack: (0..3).map(|i| ObjectId(0x5000_8000 + i)).collect(),
@@ -42,12 +44,18 @@ impl World {
     fn drop_the_pack(&mut self) {
         self.packs.retain(|p| *p != PACK);
         self.pack_is_the_players = false;
+        if self.open == Some(PACK) {
+            self.open = Some(PLAYER);
+        }
     }
 }
 
 impl GameView for World {
     fn player(&self) -> Option<ObjectId> {
         Some(PLAYER)
+    }
+    fn open_inventory_container(&self) -> Option<ObjectId> {
+        self.open
     }
     fn container_contents(&self, id: ObjectId) -> &[ObjectId] {
         if id == PACK {
@@ -127,7 +135,13 @@ enum Strip {
 
 /// Open a container the way a click does — the item list's `0x1C`/action-7 message arm, through
 /// the strip's own slot element.
-fn click(ui: &mut UiSystem, panel: &mut InventoryPanels, strip: Strip, id: ObjectId) {
+fn click(
+    ui: &mut UiSystem,
+    panel: &mut InventoryPanels,
+    world: &mut World,
+    strip: Strip,
+    id: ObjectId,
+) {
     let list = match strip {
         Strip::MainPack => panel.top_container.as_ref(),
         Strip::SidePacks => panel.container_list.as_ref(),
@@ -145,6 +159,11 @@ fn click(ui: &mut UiSystem, panel: &mut InventoryPanels, strip: Strip, id: Objec
         Some(id),
         "the click did not open {id:?}"
     );
+    for request in ui.requests.take() {
+        if let dereth_ui_screens::UiRequest::NewParentContainer(id) = request {
+            world.open = Some(id);
+        }
+    }
 }
 
 /// The open item of each strip, main pack first.
@@ -197,7 +216,7 @@ fn a_pack_dropped_while_you_are_looking_inside_it_hands_the_grid_back_to_the_pla
         "the grid starts on the player's loose items"
     );
 
-    click(&mut ui, &mut panel, Strip::SidePacks, PACK);
+    click(&mut ui, &mut panel, &mut w, Strip::SidePacks, PACK);
     panel.update(&mut ui, &w);
     // A second fill with nothing changed: the display-inventory tail must not run again.
     panel.update(&mut ui, &w);
@@ -249,9 +268,9 @@ fn a_pack_dropped_while_you_are_looking_inside_it_hands_the_grid_back_to_the_pla
 #[test]
 fn a_pack_dropped_while_the_main_pack_is_open_leaves_the_grid_alone() {
     let (mut ui, mut panel, mut w) = env();
-    click(&mut ui, &mut panel, Strip::SidePacks, PACK);
+    click(&mut ui, &mut panel, &mut w, Strip::SidePacks, PACK);
     panel.update(&mut ui, &w);
-    click(&mut ui, &mut panel, Strip::MainPack, PLAYER);
+    click(&mut ui, &mut panel, &mut w, Strip::MainPack, PLAYER);
     panel.update(&mut ui, &w);
     assert_eq!(panel.open_container, Some(PLAYER));
     assert_eq!(grid(&panel), w.loose);
@@ -266,4 +285,20 @@ fn a_pack_dropped_while_the_main_pack_is_open_leaves_the_grid_alone() {
     assert_eq!(panel.open_container, Some(PLAYER), "nothing moved the grid");
     assert_eq!(grid(&panel), w.loose);
     assert_eq!(open_items(&panel), (Some(PLAYER), None));
+}
+
+/// Behaviour: inventory.pack.a-pack-that-leaves-the-player-hands-the-grid-back-to-the-players-own-things
+#[test]
+fn a_recreated_inventory_panel_resumes_the_shared_open_pack() {
+    let (mut ui, _panel, mut world) = env();
+    world.open = Some(PACK);
+    let mut rebuilt = InventoryPanels::default();
+    let page = ui
+        .get_element(ElementId(0x1000_018B))
+        .expect("the inventory page is bound");
+    rebuilt.post_init(&mut ui, page);
+    rebuilt.update(&mut ui, &world);
+    assert_eq!(rebuilt.open_container, Some(PACK));
+    assert_eq!(grid(&rebuilt), world.in_pack);
+    assert_eq!(open_items(&rebuilt), (None, Some(PACK)));
 }

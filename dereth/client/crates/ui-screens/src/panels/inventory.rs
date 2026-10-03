@@ -529,7 +529,7 @@ pub struct InventoryPanels {
     /// went on". Zero with a non-zero [`Self::slots_filled`] is a silent failure and is why this
     /// is a number.
     pub slots_decorated: usize,
-    /// The open item — which container the item list is showing.
+    /// The rendered or requested container, refreshed from the shared view on each update.
     pub open_container: Option<ObjectId>,
     /// The last `(player, contents, containers, equipment)` shape the panel was filled for, so a
     /// per-frame drive is a no-op until the server changes something.
@@ -996,27 +996,9 @@ impl InventoryPanels {
         let burden_changed = self.set_load_level(ui, view.load().unwrap_or(0.0));
         let player = view.player();
 
-        // The inventory panel's server-says-move-item notice does one thing: if
-        // the moved object is the grid's parent container and its new container is not the
-        // container list's parent container, the top container opens its first container.
-        //
-        // The grid's parent container is `open` below and the strip's is the player, so the
-        // condition reads: **the pack the grid is showing has moved somewhere that is not the
-        // player.** It is an *edge* on the notice in the client and a *state* test here, for the
-        // same reason `update` stands in for the set-display-inventory notice at all — this build
-        // has no notice bus reaching the panels. `Notice::ItemMoved` *is* raised, by
-        // `server_says_move_item`, with all eight of the client's parameters, but no panel-side
-        // sink receives it. The state test and the edge agree here because the state can only
-        // change on that notice.
-        if let Some(c) = self.open_container {
-            let still_the_players =
-                player.is_some_and(|p| c == p || view.contained_containers(p).contains(&c));
-            if !still_the_players {
-                self.open_first_container(ui);
-            }
-        }
-
-        let open = self.open_container.or(player);
+        // A rebuilt interface resumes the shared selection; the local field only caches its draw.
+        let open = view.open_inventory_container();
+        self.open_container = open;
 
         // The title and the heading are driven by two *more* notices —
         // the player-description-received notice and the new-parent-container notice.
@@ -1082,7 +1064,7 @@ impl InventoryPanels {
         // of the icon update's five inputs moved), which reaches
         // *"For every UI item whose
         // item id is this id, run the item update"*. This build has no notice bus reaching the
-        // panels (see the `Notice::ItemMoved` note above), so the snapshot is the stand-in, and it
+        // panels, so the snapshot is the stand-in, and it
         // has to carry the fields the item update reads or it is a stand-in for nothing.
         //
         // **`SlotDecoration` alone is not that field set.** It is three of the four things
@@ -1153,41 +1135,11 @@ impl InventoryPanels {
             .collect();
         let icon = |id: ObjectId| view.icon(id);
 
-        // Read before the container list below is pointed at the player: the display-inventory
-        // tail's own guard.
-        let first_display = self
-            .container_list
-            .as_ref()
-            .is_some_and(|w| w.parent_container != player);
         // 1. The top container: one slot holding the player, i.e. the main pack.
         if let Some(w) = self.top_container.as_mut() {
             let ids: Vec<ObjectId> = player.into_iter().collect();
             w.set_contents(ui, player, None, &ids, &icon);
-            // **The display-inventory notice's tail.**
-            // The notice's body runs only while the container list's parent container is not
-            // already the player, so it runs exactly
-            // once, when the player system's login-complete notification raises the
-            // set-display-inventory notice (retail's only sender),
-            // and ends by flushing the top list, adding the player, setting the container
-            // list's parent to the player with arguments 0 and 1, then opening the player
-            // in the top list with argument 1. Opening records the open item
-            // after the is-in-list check passes — which it does, because
-            // the player was just added to this one-slot list — and makes the top list the
-            // grid's parent list.
-            //
-            // **It runs once, not on every fill.** Opening the first container — the move-item
-            // notice's response when the displayed pack leaves the player — returns immediately
-            // when the open item already equals the list's first item. A click on the side-pack
-            // strip re-parents the grid under the strip, and re-parenting clears the open item of
-            // the list the grid leaves (see [`Self::on_slot_clicked`]), so after a side pack has
-            // been opened the top list's open item is empty and the fallback reopens the player.
-            // Re-seeding it here on every fill would undo that clear and leave the grid pointing
-            // at a pack that has left the inventory.
-            if let Some(p) = player {
-                if first_display && w.is_in_list(p) {
-                    w.open_item_id = Some(p);
-                }
-            }
+            w.open_item_id = open.filter(|id| w.is_in_list(*id));
         }
         // 2. The container list: the side packs, containers-capacity slots of them.
         //
@@ -1202,6 +1154,7 @@ impl InventoryPanels {
                 &snap.containers,
                 &icon,
             );
+            w.open_item_id = open.filter(|id| w.is_in_list(*id));
         }
         // 3. The item list: the open container's loose items.
         if let Some(w) = self.item_list.as_mut() {
@@ -1297,7 +1250,7 @@ impl InventoryPanels {
         // The client reaches it from the flush (with 0) and from setting the open item
         // (with the new id); this pass has just flushed and
         // refilled every list, so both are the same call with the open item — which for the
-        // backpack is `self.open_container`, defaulted to the player exactly as `open` is above.
+        // backpack is the shared open-container selection.
         //
         // It is run over **every** list because the client does, even though only the two
         // `UI_ItemList_IsContainer` strips have an open-container frame to show.
@@ -1349,26 +1302,7 @@ impl InventoryPanels {
         true
     }
 
-    /// A click on a slot of one of the two **container** strips: the grid switches to that pack.
-    ///
-    /// The element-message handler routes a click on a container list's item into opening that
-    /// item (argument 1), and the child-list link is what makes the grid the
-    /// list that changes. Both strips carry `UI_ItemList_IsContainer`, which is how a strip is told
-    /// from the grid without naming an element id here.
-    ///
-    /// Returns the container that is now open, when the click changed it.
-    ///
-    /// The open-container id is per list: in the client each item list keeps its **own** value,
-    /// and
-    /// the client writes the one belonging to the list that was clicked,
-    /// which is what [`ItemListWidget::open_first_container`] later tests. Sharing one field
-    /// between the two strips would make the main-pack slot and the side-pack strip agree, and in
-    /// retail they do not.
-    ///
-    /// The click first makes the clicked strip the grid's parent list, and a list the grid leaves
-    /// loses its open item. The grid has one parent list at a time, so at most one strip holds an
-    /// open item; that clear is what lets the move-item fallback reopen the main pack after a
-    /// side pack was open.
+    /// A container-strip click selects its item and requests that shared inventory parent.
     pub fn on_slot_clicked(
         &mut self,
         requests_out: &mut crate::requests::Outbox,
@@ -1392,46 +1326,6 @@ impl InventoryPanels {
             w.open_item_id = Some(hit);
         }
         self.open_container(requests_out, hit).then_some(hit)
-    }
-
-    /// Open-first-container on the top container, which is
-    /// what the move-item notice calls; it ends in the open-container indicator update.
-    ///
-    /// The list half is [`ItemListWidget::open_first_container`]; what is left here is the
-    /// child-list half, which in this build is the grid (the item list) and the panel's own
-    /// open item: the child list's parent list becomes this list, its parent container becomes
-    /// the id (arguments 0 and 1), and a non-empty child list scrolls to show row 0.
-    ///
-    /// Setting the parent container ends in a flush and a refill from the container's own
-    /// contents list, which here is [`Self::update`]'s next pass — so clearing the snapshot is the
-    /// refill, and that pass scrolls to row 0 after a parent-container change.
-    ///
-    /// Returns the container that is now open, when it changed.
-    pub fn open_first_container(&mut self, ui: &mut UiSystem) -> Option<ObjectId> {
-        use crate::items::widget::OpenFirstContainer;
-        let w = self.top_container.as_mut()?;
-        match w.open_first_container(ui) {
-            OpenFirstContainer::Open(id) => {
-                // The grid is re-parented under the top list, so the strip it leaves loses its
-                // open item, as a click does.
-                if let Some(strip) = self.container_list.as_mut() {
-                    strip.open_item_id = None;
-                }
-                self.open_container = Some(id);
-                self.last = None;
-                self.last_tiles.clear();
-                // The same new-parent-container tail: the open-first-container path
-                // reaches it through setting the child list's parent container, and
-                // `OpenFirstContainer::Open` is by construction the arm where it changed.
-                ui.requests.emit(UiRequest::NewParentContainer(id));
-                Some(id)
-            }
-            // The child list's parent container becomes 0 — the grid is flushed and shows
-            // nothing. Unreachable from this panel, because the top container carries
-            // `UI_ItemList_FixedListSize = 1` and therefore always has its one slot; it is covered
-            // on the widget instead.
-            OpenFirstContainer::ClearChild | OpenFirstContainer::Unchanged => None,
-        }
     }
 
     /// The object under an element handle, and where a drop on it lands.

@@ -2390,6 +2390,10 @@ pub trait GameView: std::fmt::Debug {
     fn vital(&self, _id: ObjectId, _which: Vital) -> Option<(u32, u32)> {
         None
     }
+    /// The shared inventory parent shown by either interface and used for pickups.
+    fn open_inventory_container(&self) -> Option<ObjectId> {
+        self.player()
+    }
     fn container_contents(&self, _id: ObjectId) -> &[ObjectId] {
         &[]
     }

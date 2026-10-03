@@ -399,10 +399,8 @@ fn seed_side_pack(w: &mut dereth_client_model::World, id: ObjectId, player: Obje
 ///
 /// **Falsified by** removing the `UiRequest::NewParentContainer` arm from `run_ui_requests`, by
 /// removing the `requests::emit` from `InventoryPanels::open_container`, by either guard in
-/// the world's `on_new_parent_container`, by the identity arm of `is_owned_by_object`
-/// (without which the main-pack half below is refused), and by a strip click that leaves the main
-/// pack's own open item set, or a fill that re-seeds it (either makes opening the first container
-/// an early-out, so the grid stays on the departed pack).
+/// the world's `on_new_parent_container`, or by leaving the departed pack as the shared
+/// inventory parent after a notified move.
 #[test]
 fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
     have_dats();
@@ -505,13 +503,7 @@ fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
         "no per-frame re-raise"
     );
 
-    // ---- the other direction, driven for real ----
-    // When the displayed pack leaves the player's inventory, the grid falls back to the top
-    // container's first item (the player) and the changed parent produces another notice.
-    //
-    // The ownership predicate accepts identical object/owner ids: the player owns itself.
-    // Without that identity arm the main-pack notice is refused, leaving the world pointed
-    // at a pack no longer in the inventory.
+    // A notified departure restores the shared parent before the next frame.
     {
         let w = &mut app.objects_mut().world;
         w.server_says_move_item(
@@ -523,30 +515,28 @@ fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
             true,
             &mut dereth_client_model::NullSink,
         );
+        assert_eq!(
+            w.open_container,
+            Some(player),
+            "the move restores the pickup destination before any UI frame"
+        );
     }
     app.frame();
     assert_eq!(
         gameplay(&mut app).inventory.open_container,
         Some(player),
-        "the grid fell back to the top container's first item"
+        "the grid projects the restored main pack"
     );
-    // One frame of lag distinguishes this integration from the synchronous notice.
-    // Here a parent-container change emits a `UiRequest`,
-    // and `UiShell::frame` drains the queue *before* `Hud::drive` runs the panels, so a notice
-    // raised by `InventoryPanels::update` itself is picked up on the next frame. A notice raised
-    // by an element message (the click above) is not affected, because the message is delivered
-    // before the drain. The test explicitly advances the extra frame before checking the
-    // world's field; it does not establish absence of every possible within-frame consumer.
-    app.frame();
     assert_eq!(
         app.objects().world.open_container,
         Some(player),
-        "and the world's open-container id followed it there too"
+        "the world already restored the main pack during the move"
     );
+    app.frame();
     assert_eq!(
         app.interaction().stats.open_containers_changed,
-        2,
-        "two notices changed it in this test: the click, and the fallback"
+        1,
+        "projecting the shared fallback emits no redundant parent request"
     );
 
     {

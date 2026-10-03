@@ -29656,6 +29656,7 @@ mod overlays {
     #[derive(Debug, Clone)]
     struct Cool {
         items: Vec<ObjectId>,
+        open: Option<ObjectId>,
         /// How long the whole recharge is, so a scenario can make the ratio the number it wants.
         duration: f64,
         /// What is left of it, or nothing running at all.
@@ -29666,6 +29667,7 @@ mod overlays {
         fn default() -> Self {
             Self {
                 items: vec![WAND, ROCK],
+                open: Some(ME),
                 duration: 1.0,
                 left: None,
             }
@@ -29673,6 +29675,9 @@ mod overlays {
     }
 
     impl GameView for Cool {
+        fn open_inventory_container(&self) -> Option<ObjectId> {
+            self.open
+        }
         fn player(&self) -> Option<ObjectId> {
             Some(ME)
         }
@@ -29931,7 +29936,7 @@ mod overlays {
     pub fn the_open_pack_is_the_one_wearing_the_frame() {
         let mut c = super::a_gameplay_client();
         let (ui, screen) = super::parts(c.app_mut());
-        let v = Cool::default();
+        let mut v = Cool::default();
         assert!(
             screen.update_inventory(ui, &v),
             "the first drive is always a redraw"
@@ -29962,6 +29967,11 @@ mod overlays {
             screen.inventory.open_container(&mut ui.requests, SACK),
             "the premise: the side pack opens"
         );
+        for request in ui.requests.take() {
+            if let dereth_ui_screens::UiRequest::NewParentContainer(id) = request {
+                v.open = Some(id);
+            }
+        }
         screen.update_inventory(ui, &v);
         let moved = framed(&*ui, &*screen) == vec![SACK];
 

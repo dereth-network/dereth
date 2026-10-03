@@ -211,24 +211,31 @@ fn picked_equipment(ctx: &Context<'_>, mask: u32) -> Option<ObjectId> {
 }
 #[derive(Debug, Default)]
 pub struct Inventory {
-    item_scroll: i32,
+    item_scroll: std::cell::Cell<i32>,
     container_scroll: i32,
-    container: Option<ObjectId>,
+    displayed_container: std::cell::Cell<Option<ObjectId>>,
 }
 impl Inventory {
     fn container(&self, g: &dyn GameView) -> Option<ObjectId> {
-        self.container.or_else(|| g.player())
+        g.open_inventory_container()
     }
 }
 impl Panel for Inventory {
     fn id(&self) -> &'static str {
         "inventory"
     }
-    fn set_object(&mut self, id: ObjectId) {
-        self.container = Some(id);
+    fn set_object(&mut self, _id: ObjectId) {
+        self.item_scroll.set(0);
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
         let g = ctx.game;
+        if self
+            .displayed_container
+            .replace(g.open_inventory_container())
+            != g.open_inventory_container()
+        {
+            self.item_scroll.set(0);
+        }
         // Stretched, the page's art keeps its top 360 rows with a dark tile below, and the
         // contents grid grows downwards.
         let height = crate::panels::side_height() as i32;
@@ -349,7 +356,7 @@ impl Panel for Inventory {
                 &{
                     let all = slots(g, container, false, 6, (grid_height / 32 * 6) as usize);
                     all.into_iter()
-                        .skip((self.item_scroll.max(0) / 32) as usize * 6)
+                        .skip((self.item_scroll.get().max(0) / 32) as usize * 6)
                         .collect::<Vec<_>>()
                 },
                 6,
@@ -379,7 +386,7 @@ impl Panel for Inventory {
                         .div_ceil(6),
                 ) * 32,
                 grid_height,
-                self.item_scroll,
+                self.item_scroll.get(),
                 32,
                 true,
             );
@@ -457,7 +464,7 @@ impl Panel for Inventory {
                 }
             }
             ControlEvent::Scroll { id, value } if id == "items-scroll" => {
-                self.item_scroll = value.max(0)
+                self.item_scroll.set(value.max(0))
             }
             ControlEvent::Scroll { id, value } if id == "containers-scroll" => {
                 self.container_scroll = value.max(0)
@@ -470,7 +477,7 @@ impl Panel for Inventory {
                 let object = if id == "items" {
                     self.container(g).and_then(|c| {
                         g.container_contents(c)
-                            .get(index + (self.item_scroll.max(0) / 32) as usize * 6)
+                            .get(index + (self.item_scroll.get().max(0) / 32) as usize * 6)
                             .copied()
                     })
                 } else if id == "containers" {
@@ -521,8 +528,7 @@ impl Panel for Inventory {
                         return vec![PanelAction::BeginDrag(DragPayload::Object(object))];
                     }
                     if id == "containers" || id == "backpack" {
-                        self.container = Some(object);
-                        self.item_scroll = 0;
+                        self.item_scroll.set(0);
                         return vec![
                             PanelAction::Game(UiRequest::NewParentContainer(object)),
                             PanelAction::Game(UiRequest::Select(object)),
@@ -589,7 +595,7 @@ impl Panel for Inventory {
                             + if id == "containers" {
                                 (self.container_scroll.max(0) / 36) as u32
                             } else {
-                                (self.item_scroll.max(0) / 32) as u32 * 6
+                                (self.item_scroll.get().max(0) / 32) as u32 * 6
                             };
                         let list = if id == "containers" {
                             g.contained_containers(container)

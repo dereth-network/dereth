@@ -51,6 +51,7 @@ struct View {
     packs: Vec<ObjectId>,
     shop: ShopView,
     selected: Option<ObjectId>,
+    open: Option<ObjectId>,
 }
 impl Default for View {
     fn default() -> Self {
@@ -59,12 +60,16 @@ impl Default for View {
             packs: vec![ObjectId(0x6000)],
             shop: ShopView::default(),
             selected: None,
+            open: Some(ObjectId(0x1000)),
         }
     }
 }
 impl GameView for View {
     fn player(&self) -> Option<ObjectId> {
         Some(ObjectId(0x1000))
+    }
+    fn open_inventory_container(&self) -> Option<ObjectId> {
+        self.open
     }
     fn container_contents(&self, _id: ObjectId) -> &[ObjectId] {
         &self.items
@@ -173,6 +178,11 @@ fn inventory_bar_and_wheel_move_slots_and_the_scrolled_hit_resolves_the_displaye
         panel.on_slot_clicked(&mut ui.requests, side_slot),
         Some(ObjectId(0x6000))
     );
+    for request in ui.requests.take() {
+        if let dereth_ui_screens::UiRequest::NewParentContainer(id) = request {
+            view.open = Some(id);
+        }
+    }
     assert!(panel.update(&mut ui, &view));
     assert_eq!(panel.item_list.as_ref().unwrap().scroll(&ui), (0, 0));
 }

@@ -165,6 +165,8 @@ pub struct GameSnapshot {
     // ---- the nullary reads, one field each --------------------------------------------------
     /// [`GameView::player`].
     pub player: Option<ObjectId>,
+    /// [`GameView::open_inventory_container`].
+    pub open_inventory_container: Option<ObjectId>,
     /// [`GameView::era`].
     pub era: Option<EraView>,
     /// [`GameView::selection`].
@@ -333,9 +335,14 @@ impl GameSnapshot {
                 ids.push(id);
             }
         }
-        for id in [view.player(), view.selection(), view.selected_object()]
-            .into_iter()
-            .flatten()
+        for id in [
+            view.player(),
+            view.open_inventory_container(),
+            view.selection(),
+            view.selected_object(),
+        ]
+        .into_iter()
+        .flatten()
         {
             push(&mut ids, id);
         }
@@ -503,6 +510,7 @@ impl GameSnapshot {
         Self {
             era: view.era().cloned(),
             player: view.player(),
+            open_inventory_container: view.open_inventory_container(),
             selection: view.selection(),
             selected_object: view.selected_object(),
             radar_objects: view.radar_objects().to_vec(),
@@ -599,6 +607,9 @@ impl GameView for GameSnapshot {
     }
     fn player(&self) -> Option<ObjectId> {
         self.player
+    }
+    fn open_inventory_container(&self) -> Option<ObjectId> {
+        self.open_inventory_container
     }
     fn name(&self, id: ObjectId) -> Option<&str> {
         self.object(id)?.name.as_deref()
