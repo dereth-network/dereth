@@ -135,6 +135,39 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
         .map(|v| (name, v))
 }
 
+/// `cfg` with the drawing, camera and mouse-look options the option store holds: every option a
+/// world or a body is built from, where the store has a value for it.
+#[must_use]
+pub fn with_stored_options(mut cfg: crate::scene::SceneConfig) -> crate::scene::SceneConfig {
+    use crate::actions::camera::MouseLookPreferences as Look;
+    use crate::camera::CameraPreferences as Camera;
+    use dereth_client_contract::options::{landscape, preferences, store};
+    use dereth_client_contract::PrefValue;
+    let names = preferences::UI_PREFERENCES.iter().map(|p| p.name).chain([
+        landscape::GROUND,
+        landscape::SKY,
+        landscape::OBJECTS,
+        store::LANDSCAPE_DETAIL_TEXTURES,
+    ]);
+    for name in names {
+        let Some(v) = store::inq_value(name) else {
+            continue;
+        };
+        cfg.render.set_named(name, &v);
+        match (name, v) {
+            (Camera::ALIGN_TO_SLOPE, PrefValue::Bool(b)) => cfg.camera.align_to_slope = b,
+            (Camera::STIFFNESS, PrefValue::Float(f)) => cfg.camera.stiffness = f,
+            (Camera::ADJUSTMENT_SPEED, PrefValue::Float(f)) => cfg.camera.adjustment_speed = f,
+            (Look::SENSITIVITY, PrefValue::Float(f)) => cfg.mouse_look.sensitivity = f,
+            (Look::SMOOTHING, PrefValue::Float(f)) => cfg.mouse_look.smoothing = f,
+            (Look::INVERT_Y, PrefValue::Bool(b)) => cfg.mouse_look.invert_y = b,
+            (Look::USE_MOUSE_TURNING, PrefValue::Bool(b)) => cfg.mouse_look.use_mouse_turning = b,
+            _ => {}
+        }
+    }
+    cfg
+}
+
 /// Consume `UiRequest::OpenUrl` requests from the two support-ticket buttons.
 ///
 /// Each URL is passed to the desktop's registered handler. A signed result greater than `32`
@@ -5081,7 +5114,12 @@ impl<S: Shell> App<S> {
         };
         let block = pos.cell.landblock();
         let landblock = (u16::from(block.x()) << 8) | u16::from(block.y());
-        let cfg = crate::scene::SceneConfig { landblock, ..cfg };
+        // The world and the body are built with the options as they are now, not as they were
+        // at start-up: a second login keeps what the player changed on either interface's page.
+        let cfg = crate::scene::SceneConfig {
+            landblock,
+            ..with_stored_options(cfg)
+        };
         tracing::info!(
             "entering the world at landblock 0x{landblock:04X}, cell {:#010X}",
             pos.cell.0
