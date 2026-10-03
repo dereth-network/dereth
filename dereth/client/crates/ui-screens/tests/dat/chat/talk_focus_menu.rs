@@ -554,7 +554,6 @@ fn choosing_the_squelch_row_asks_the_shard_to_toggle_the_squelch() {
         squelched: false,
     };
     s.main_chat.set_selected(&mut ui, Some(&t));
-    s.chat_target_squelched = false;
     ui.requests.clear();
     assert_eq!(
         s.chat_target_menu_item(&mut ui, toggle),
@@ -562,24 +561,29 @@ fn choosing_the_squelch_row_asks_the_shard_to_toggle_the_squelch() {
     );
     assert_eq!(
         ui.requests.take(),
-        vec![UiRequest::ModifyCharacterSquelch {
-            object: dereth_primitives::ObjectId(0x5000_1234),
-            add: true,
-            account: String::new(),
-            message_type: 1,
-        }],
-        "the character-squelch event: inverse of the current state, id, empty account, type 1"
+        vec![UiRequest::ToggleCharacterSquelch(
+            dereth_primitives::ObjectId(0x5000_1234)
+        )],
+        "the runtime resolves the current squelch state"
     );
 
-    // …and it is a toggle: an already-squelched target is un-squelched.
-    s.chat_target_squelched = true;
+    // The same intent is sent when the displayed target was squelched.
+    s.main_chat.set_selected(
+        &mut ui,
+        Some(&SpeakableTarget {
+            squelched: true,
+            ..t
+        }),
+    );
     ui.requests.clear();
     s.chat_target_menu_item(&mut ui, toggle);
     let sent = ui.requests.take();
     assert!(
         matches!(
             sent.first(),
-            Some(UiRequest::ModifyCharacterSquelch { add: false, .. })
+            Some(UiRequest::ToggleCharacterSquelch(
+                dereth_primitives::ObjectId(0x5000_1234)
+            ))
         ),
         "got {sent:?}"
     );

@@ -2696,81 +2696,71 @@ fn a_client_with_a_named_player() -> HeadlessClient {
 /// The squelch row of the talk-to menu is a toggle: it silences whoever the player was last
 /// talking to, and un-silences him if he already was. With nobody to talk to it asks nothing.
 pub fn the_squelch_row_is_a_toggle_and_names_the_speaker() {
-    use dereth_ui_screens::chat::mainchat::MainChatPanel;
-
     let target = ObjectId(0x5000_1234);
-    let mut menu = MainChatPanel::default();
-    let nothing_to_silence = menu
-        .toggle_squelch_on_current_speakable_target(false)
-        .is_none();
-    menu.last_speakable_target = target.0;
-    let ask = menu
-        .toggle_squelch_on_current_speakable_target(false)
-        .expect("somebody to silence, and he is not silenced yet");
-    let asks_to_add = ask.object == target.0
-        && ask.add
-        // An empty account is what makes it one character and not a whole account.
-        && ask.account.is_empty()
-        && ask.message_type == dereth_client_model::chat::text_type::ALL_CHANNELS;
-    let undo = menu
-        .toggle_squelch_on_current_speakable_target(true)
-        .expect("somebody to un-silence");
-    let asks_to_remove = !undo.add;
-
-    // And the message the client sends for it.
     let mut c = a_client_with_a_named_player();
-    c.when(Player::ui(UiRequest::ModifyCharacterSquelch {
-        object: ObjectId(ask.object),
-        add: ask.add,
-        account: ask.account.clone(),
-        message_type: ask.message_type,
-    }));
-    let counted = c.view().interaction().stats.squelch_requests == 1;
-    let sent = c.view().outbound().to_vec();
-    let [dereth_client_model::Request::ModifyCharacterSquelch(m)] = sent.as_slice() else {
-        panic!("one message about silencing somebody, got {sent:?}")
-    };
-    let names_him = m.add == 1
-        && m.character_id == target
-        && m.character_name.is_empty()
-        && m.msg_type == dereth_client_model::chat::text_type::ALL_CHANNELS;
+    c.when(Player::ui(UiRequest::ToggleCharacterSquelch(ObjectId(0))));
+    c.when(Player::ui(UiRequest::ToggleCharacterSquelch(target)));
+    let missing_is_inert = c.outbound().is_empty();
+    let mut object = dereth_client_model::Weenie::new(target);
+    object.pwd.name = "Alba".into();
+    c.world_mut().tables.weenies.insert(target, object);
 
-    // The bytes, composed here rather than by the writer being asserted over: whether to add,
-    // who it is about, an empty name padded out, and which kinds of line.
-    let body = dereth_protocol::write_body(m).expect("the body encodes");
-    let bytes = body
-        == vec![
-            0x01, 0x00, 0x00, 0x00, //
-            0x34, 0x12, 0x00, 0x50, //
-            0x00, 0x00, 0x00, 0x00, //
-            0x01, 0x00, 0x00, 0x00,
-        ];
-
-    // Un-silencing is the same bytes with a nought in the first place, and nothing else moves.
-    let mut back = a_client_with_a_named_player();
-    back.when(Player::ui(UiRequest::ModifyCharacterSquelch {
-        object: ObjectId(undo.object),
-        add: undo.add,
-        account: undo.account.clone(),
-        message_type: undo.message_type,
-    }));
-    let undone = back.view().outbound().to_vec();
-    let [dereth_client_model::Request::ModifyCharacterSquelch(m2)] = undone.as_slice() else {
-        panic!("one message, got {undone:?}")
+    // A namesake and an account matching the displayed name do not identify this character.
+    // A partial squelch on the right id also does not mean all message types are squelched.
+    c.when(Inbound::message(&squelch_db(WireDb {
+        account_hash: packed(vec![("Alba".into(), 1)]),
+        character_hash: packed(vec![
+            (target.0 + 1, squelched("Alba", false)),
+            (target.0, squelch_info(&[text_type::SPEECH], "Alba")),
+        ]),
+        global_squelch_info: squelch_info(&[], ""),
+    })));
+    c.when(Player::ui(UiRequest::ToggleCharacterSquelch(target)));
+    let sent = c.outbound().to_vec();
+    let [Request::ModifyCharacterSquelch(add)] = sent.as_slice() else {
+        panic!("one character-squelch message, got {sent:?}");
     };
-    let body2 = dereth_protocol::write_body(m2).expect("the body encodes");
-    let only_the_flag = body2[0..4] == [0, 0, 0, 0] && body2[4..] == body[4..];
+    let body = dereth_protocol::write_body(add).expect("the body encodes");
+    let adds_by_id = body == vec![1, 0, 0, 0, 0x34, 0x12, 0, 0x50, 0, 0, 0, 0, 1, 0, 0, 0];
+    let waits_for_server = !c
+        .view()
+        .world()
+        .chat
+        .is_squelched(target, "", text_type::ALL_CHANNELS);
+
+    // The server's new list, not a stale displayed name or cached UI flag, decides the next click.
+    c.when(Inbound::message(&squelch_db(WireDb {
+        account_hash: packed(vec![]),
+        character_hash: packed(vec![(target.0, squelched("A different name", false))]),
+        global_squelch_info: squelch_info(&[], ""),
+    })));
+    c.when(Player::ui(UiRequest::ToggleCharacterSquelch(target)));
+    let sent = c.outbound().to_vec();
+    let [_, Request::ModifyCharacterSquelch(remove)] = sent.as_slice() else {
+        panic!("add then remove, got {sent:?}");
+    };
+    let undo = dereth_protocol::write_body(remove).expect("the body encodes");
+    let removes_by_id = undo[..4] == [0, 0, 0, 0] && undo[4..] == body[4..];
+    let counted = c.view().interaction().stats.squelch_requests == 2;
+    let removal_waits_for_server =
+        c.view()
+            .world()
+            .chat
+            .is_squelched(target, "", text_type::ALL_CHANNELS);
+    c.world_mut().tables.weenies.remove(target);
+    c.when(Player::ui(UiRequest::ToggleCharacterSquelch(target)));
+    let vanished_is_inert = c.outbound().len() == 2;
 
     c.assert_behaviour(
         "chat.talk-to-menu.the-squelch-row-is-a-toggle-and-its-message-names-the-speaker",
         move |_| {
-            nothing_to_silence
-                && asks_to_add
-                && asks_to_remove
+            missing_is_inert
+                && adds_by_id
+                && waits_for_server
+                && removes_by_id
+                && removal_waits_for_server
                 && counted
-                && names_him
-                && bytes
-                && only_the_flag
+                && vanished_is_inert
         },
     );
 }

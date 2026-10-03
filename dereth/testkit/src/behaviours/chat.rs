@@ -1091,9 +1091,10 @@ pub static ROWS: &[Behaviour] = &[
         id: "chat.talk-to-menu.the-squelch-row-is-a-toggle-and-its-message-names-the-speaker",
         says: "The row that silences somebody is a toggle on whoever the player was last talking \
                to: it asks for him to be silenced if he is not and un-silenced if he is, on every \
-               kind of line and as one character rather than a whole account. With nobody to talk to \
-               it asks for nothing at all, and the only thing that differs between silencing and \
-               un-silencing is the one word that says which.",
+               kind of line and as one character rather than a whole account. The current server list \
+               is checked by character id, with an empty wire name; a namesake or partial squelch does \
+               not count as silencing every kind of line. With no existing target it asks nothing, \
+               and only the add flag differs between silencing and un-silencing.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O235-SQUELCH"),
         station: "dereth-testkit::cpu::chat::scenario_the_squelch_row_is_a_toggle_and_names_the_speaker",

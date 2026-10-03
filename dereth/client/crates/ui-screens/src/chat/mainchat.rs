@@ -839,39 +839,6 @@ impl MainChatPanel {
         }
     }
 
-    /// The main chat panel's toggle squelch on current speakable target — the menu's **row 0**,
-    /// which is the one row with no `0x1000000B` and therefore the one
-    /// the client's message-7 arm matches by *identity* (the chosen item is the squelch
-    /// toggle).
-    ///
-    /// With no last speakable target, or no such object, it returns. Otherwise it reads whether
-    /// the target is squelched (empty account, message type 1), sets the squelch row's state, and
-    /// sends the character-squelch change `(add = !squelched, object = id, account = "", 1)`.
-    ///
-    /// The flag sent is the **negation** of the current state, which is what makes the row a
-    /// toggle, and the account/message-type arguments are the empty string and 1 — "this character,
-    /// all message types". Returns the event, or `None` when there is nothing selected. The
-    /// squelched/not-squelched pair of state sets share one tail in the client, so the row's own
-    /// appearance is left to [`Self::set_selected`], which sets it from the same predicate.
-    ///
-    /// It returns a value rather than raising a [`crate::view::UiRequest`] because there is no
-    /// squelch request in this build; the caller sends the event.
-    #[must_use]
-    pub fn toggle_squelch_on_current_speakable_target(
-        &self,
-        currently_squelched: bool,
-    ) -> Option<ModifyCharacterSquelch> {
-        if self.last_speakable_target == 0 {
-            return None;
-        }
-        Some(ModifyCharacterSquelch {
-            object: self.last_speakable_target,
-            add: !currently_squelched,
-            account: String::new(),
-            message_type: 1,
-        })
-    }
-
     /// The window grows to attribute `0x3E`'s
     /// height and shrinks back to the one it had.
     ///
@@ -1007,26 +974,12 @@ impl MainChatPanel {
 /// the client's message-7 arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuRowChoice {
-    /// The item was the squelch toggle, matched by identity:
-    /// [`MainChatPanel::toggle_squelch_on_current_speakable_target`].
+    /// The item was the squelch toggle, matched by identity.
     Squelch,
     /// The item carried `0x1000000B` and [`MainChatPanel::handle_selection`] accepted it.
     Focus(TalkFocusChange),
     /// No item, no attribute, or a row in state `0x0D` — the client's three `break`s.
     None,
-}
-
-/// The character-squelch change `(add, object, account, message_type)` — what
-/// the squelch row asks the server for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModifyCharacterSquelch {
-    pub object: u32,
-    /// Not currently squelched, which is what makes the row a toggle.
-    pub add: bool,
-    /// The account name — the empty string, i.e. "this character only".
-    pub account: String,
-    /// `1`, i.e. all message types.
-    pub message_type: u32,
 }
 
 /// The object one call is about, with the three questions the client asks
@@ -1240,43 +1193,6 @@ mod tests {
             "talk focus 2 (the selection) falls back to focus 1"
         );
         assert_eq!(m.last_speakable_target, 0);
-    }
-
-    /// Oracle: the toggle squelch on current speakable target — the character-squelch change
-    /// `(add = !squelched, object = id, account = "", 1)`, behind the early return when there is no
-    /// last speakable target.
-    #[test]
-    fn the_squelch_row_sends_the_negation_of_the_current_state() {
-        let (mut ui, mut m) = detached();
-        assert_eq!(
-            m.toggle_squelch_on_current_speakable_target(false),
-            None,
-            "nothing selected"
-        );
-
-        let t = SpeakableTarget {
-            id: 0x5000_0009,
-            name: "Alba".into(),
-            talkable: true,
-            squelched: false,
-        };
-        m.set_selected(&mut ui, Some(&t));
-        let on = m
-            .toggle_squelch_on_current_speakable_target(false)
-            .expect("selected");
-        assert_eq!(
-            on,
-            ModifyCharacterSquelch {
-                object: 0x5000_0009,
-                add: true,
-                account: String::new(),
-                message_type: 1,
-            }
-        );
-        let off = m
-            .toggle_squelch_on_current_speakable_target(true)
-            .expect("selected");
-        assert!(!off.add, "an already-squelched target is un-squelched");
     }
 
     /// Oracle: the client's two arms, quoted in the method's own documentation.

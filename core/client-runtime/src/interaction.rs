@@ -4738,15 +4738,13 @@ impl Interaction {
                     game.close_trade_window(now, &mut out, &mut req);
                     self.stats.trade_control_sent += 1;
                 }
-                // **The squelch wire's far end.** The chat target menu's squelch request and
-                // `GamePlayScreen::chat_target_menu_item` above it produce `0x0058`; without this
-                // arm every click on the chat menu's squelch row would fall into `other =>` below
-                // and be logged as an unowned request.
-                //
-                // The field names differ across the seam and the difference is real: the panel's
-                // `account` is the wire's `character_name`, which the client sends **empty** for a
-                // per-character squelch (an account-wide one carries the account name and a zero
-                // object id).
+                UiRequest::ToggleCharacterSquelch(object) => {
+                    if object.0 != 0 && game.weenie(object).is_some() {
+                        let squelched = game.chat.is_squelched(object, "", 1);
+                        game.modify_character_squelch(&mut req, object, !squelched, "", 1);
+                        self.stats.squelch_requests += 1;
+                    }
+                }
                 UiRequest::ModifyCharacterSquelch {
                     object,
                     add,

@@ -628,15 +628,11 @@ pub struct GamePlayScreen {
     /// `MainChat`'s own state — the talk-focus menu and the chat-target caption. Without it the
     /// menu table has no reader and every line goes out as speech.
     pub main_chat: crate::chat::mainchat::MainChatPanel,
-    /// Whether the last speakable target is squelched, pushed in by the
-    /// host the way [`Self::reply_targets`] is — `dereth_client_model::chat::ChatState::is_squelched` is on
-    /// the far side of this crate's seam. It is what the squelch row negates.
-    pub chat_target_squelched: bool,
     /// The auto-target throttle, the client's file-scope "next time".
     pub chat_auto_target_next: f64,
     /// What the object system last answered about the selection and the speakable target, pushed
-    /// in by the host once a frame the way [`Self::reply_targets`] and
-    /// [`Self::chat_target_squelched`] are. [`Screen::update`] runs the sweep off it.
+    /// in by the host once a frame the way [`Self::reply_targets`] is.
+    /// [`Screen::update`] runs the sweep off it.
     ///
     /// An all-default value is "nothing selected, nothing in range", which is what the sweep sees
     /// before a session starts and is exactly the
@@ -5114,9 +5110,6 @@ impl GamePlayScreen {
     /// including the branch [`Self::chat_target_menu_selection`] could not have: the squelch row
     /// is matched by pointer, not by attribute and not by index, because it is the one row
     /// `init_talk_focus_menu` deliberately leaves untagged.
-    ///
-    /// It is also the first caller
-    /// The main chat panel's toggle squelch on current speakable target has ever had.
     pub fn chat_target_menu_item(
         &mut self,
         ui: &mut UiSystem,
@@ -5131,18 +5124,9 @@ impl GamePlayScreen {
                 });
             }
             MenuRowChoice::Squelch => {
-                // The squelch test lives in `dereth_client_model::chat::ChatState`, on the far side
-                // of this crate's seam, and the host answers it into `chat_target_squelched`.
-                if let Some(e) = self
-                    .main_chat
-                    .toggle_squelch_on_current_speakable_target(self.chat_target_squelched)
-                {
-                    ui.requests.emit(UiRequest::ModifyCharacterSquelch {
-                        object: dereth_primitives::ObjectId(e.object),
-                        add: e.add,
-                        account: e.account,
-                        message_type: e.message_type,
-                    });
+                let object = dereth_primitives::ObjectId(self.main_chat.last_speakable_target);
+                if object.0 != 0 {
+                    ui.requests.emit(UiRequest::ToggleCharacterSquelch(object));
                 }
             }
             MenuRowChoice::None => {}

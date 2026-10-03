@@ -188,8 +188,6 @@ pub struct FrameCall {
     pub reply_targets: ReplyTargets,
     /// The stay-in-chat-mode option bit.
     pub stay_in_chat_mode: bool,
-    /// Whether the last speakable target is squelched.
-    pub chat_target_squelched: bool,
     /// The auto-target snapshot.
     pub auto_target_world: AutoTargetWorld,
     /// Chat lines for this screen construction, in arrival order.
@@ -851,7 +849,6 @@ fn frame(
     // The stay-in-chat-mode input.
     screen.stay_in_chat_mode = f.stay_in_chat_mode;
     // The auto-target producer.
-    screen.chat_target_squelched = f.chat_target_squelched;
     screen.chat_auto_target_world = std::mem::take(&mut f.auto_target_world);
 
     for m in std::mem::take(&mut f.chat) {

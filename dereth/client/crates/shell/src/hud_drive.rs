@@ -304,11 +304,6 @@ impl Hud {
         let target = self.auto_target_world(world);
         self.stats.auto_target_in_range =
             u64::try_from(target.in_range_of_player.len()).unwrap_or(0);
-        let chat_target_squelched = world.chat.last_speakable_target.is_some_and(|t| {
-            // `(id, "", 1)` — the same three arguments the menu's selection setter passes, and the value the
-            // squelch menu row toggles against.
-            world.chat.is_squelched(t, "", 1)
-        });
         let chat = self.take_chat_lines(screen_serial);
         let frame = FrameCall {
             rebind: self.panels_bound_to != Some(screen_serial),
@@ -327,7 +322,6 @@ impl Hud {
                 .player_system
                 .options
                 .get(dereth_client_model::player::options::option::STAY_IN_CHAT_MODE),
-            chat_target_squelched,
             auto_target_world: target,
             chat,
             out: Default::default(),

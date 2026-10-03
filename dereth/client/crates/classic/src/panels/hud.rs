@@ -1825,18 +1825,8 @@ impl Panel for Chat {
                     return vec![];
                 }
                 if index == 0 {
-                    if let Some((o, name)) = Self::target(c) {
-                        let add = !c
-                            .game
-                            .squelch_list()
-                            .iter()
-                            .any(|s| s.name.eq_ignore_ascii_case(&name));
-                        return vec![PanelAction::Game(UiRequest::ModifyCharacterSquelch {
-                            object: o,
-                            add,
-                            account: name,
-                            message_type: 1,
-                        })];
+                    if let Some((object, _)) = Self::target(c) {
+                        return vec![PanelAction::Game(UiRequest::ToggleCharacterSquelch(object))];
                     }
                     return vec![];
                 }
@@ -2137,6 +2127,36 @@ mod tests {
             ]
         );
     }
+    /// Behaviour: chat.talk-to-menu.the-squelch-row-is-a-toggle-and-its-message-names-the-speaker
+    #[test]
+    fn the_squelch_menu_sends_the_talk_targets_identity_to_the_runtime() {
+        let game = World {
+            selected: Some(ObjectId(88)),
+            ..Default::default()
+        };
+        let mut state = ClassicState {
+            chat_focus: Some((1, [true; 7])),
+            chat_target: Some((ObjectId(9), "Aerin".into())),
+            ..Default::default()
+        };
+        let (pregame, keyboard, settings) = Default::default();
+        let mut chat = Chat::default();
+        let click = || ControlEvent::Select {
+            id: "destination".into(),
+            index: 0,
+        };
+        let c = context(&game, &state, &pregame, &keyboard, &settings);
+        assert_eq!(
+            chat.event(click(), &c),
+            vec![PanelAction::Game(UiRequest::ToggleCharacterSquelch(
+                ObjectId(9)
+            ))]
+        );
+        state.chat_target = None;
+        let c = context(&game, &state, &pregame, &keyboard, &settings);
+        assert!(chat.event(click(), &c).is_empty());
+    }
+
     #[test]
     fn split_hotkey_focuses_only_a_visible_stack_entry() {
         let g = World {

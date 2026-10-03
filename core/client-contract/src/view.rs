@@ -1211,15 +1211,12 @@ pub enum UiRequest {
         focus: u32,
         enabled: bool,
     },
-    /// Add or remove the character squelch for the given object, account, and message type —
-    /// the talk-focus menu's **row 0**, the one with no `0x1000000B`, matched by pointer in
-    /// the main chat window's element-message handler and answered by its
-    /// squelch toggle for the current speakable target.
-    ///
-    /// `add` is the **negation** of the character's current squelch state for message type 1, which is
-    /// what makes the row a toggle; `account` is the empty string and `message_type` is 1, i.e.
-    /// "this character, all message types". Unlike [`UiRequest::SetTalkFocus`] this one *does* go
-    /// to the shard: it is `0x0058 Communication_ModifyCharacterSquelch`.
+    /// Toggle all-message squelching for this character using the current server-owned list.
+    /// The character is identified by id; the wire name is empty.
+    ToggleCharacterSquelch(ObjectId),
+    /// Add or remove a character squelch with `0x0058 Communication_ModifyCharacterSquelch`.
+    /// Typed-name operations may leave `object` zero; target-menu toggles use
+    /// [`UiRequest::ToggleCharacterSquelch`] instead.
     ModifyCharacterSquelch {
         object: ObjectId,
         add: bool,
