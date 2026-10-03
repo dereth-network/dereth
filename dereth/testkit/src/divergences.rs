@@ -477,6 +477,17 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The owner asked for the combat keys split per stance, the permanent keys bindable \
               and the 2004 default map enshrined as the classic defaults.",
     },
+    Divergence {
+        id: "CD-024",
+        title: "A censored word keeps the quotes around it",
+        retail: "With Filter Language on, the client split the finished chat line on spaces and \
+                 replaced each censored word, with whatever punctuation was joined to it, with \
+                 four asterisks. The line had its quotes by then, so a censored first or last \
+                 word of a message took the opening or closing quote with it.",
+        dereth: "A censored word is replaced with four asterisks and the punctuation at either \
+                 end of it stays, so the line keeps its quotes.",
+        why: "The owner reported the lost quotes as a fault, in both interfaces.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

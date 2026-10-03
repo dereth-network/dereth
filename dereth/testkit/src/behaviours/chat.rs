@@ -9,7 +9,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -317,6 +317,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P1-46"),
         station: "dereth-testkit::dat::chat::scenario_typing_past_the_entrys_edge_keeps_the_caret_in_view",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.filter.a-censored-word-keeps-the-quotes-around-it",
+        says: "With Filter Language on, a censored word is replaced with four asterisks and the \
+               punctuation at either end of it stays: the first or last word of a message keeps \
+               the quote the chat line puts beside it.",
+        since: THIS_CLIENT,
+        divergence: "CD-024",
+        evidence: Evidence::Private("AC-EVID-CHAT-FILTER-QUOTES"),
+        station: "dereth-rules::lib::taboo::tests::a_censored_first_or_last_word_keeps_the_quote_beside_it",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "chat.filters.every-window-offers-the-same-rows-and-each-row-lies-inside-its-control",

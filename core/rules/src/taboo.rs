@@ -110,7 +110,12 @@ pub fn contains_taboo_word(table: &TabooTable, encoding: &dyn HostEncoding, text
         .any(|token| censors_chat_token(table, encoding, token))
 }
 
-/// Apply the exact token loop retail runs when adding a line to the chat scroll to a composed line.
+/// Apply the token loop retail runs when adding a line to the chat scroll to a composed line.
+///
+/// The line is split on spaces and each word the table censors is replaced across the whole line,
+/// as retail does. The punctuation at either end of a censored word stays (client divergence
+/// CD-024): the line has its quotes before it is filtered, so a censored first or last word of a
+/// message is `"fuck` or `you"`, and retail replaced the quote with the word.
 #[must_use]
 pub fn filter_chat_line(table: &TabooTable, encoding: &dyn HostEncoding, text: &str) -> String {
     let mut filtered = text.to_owned();
@@ -120,10 +125,21 @@ pub fn filter_chat_line(table: &TabooTable, encoding: &dyn HostEncoding, text: &
     for token in tokens {
         if !token.is_empty() && censors_chat_token(table, encoding, token) {
             // Retail replaces matches across the whole line, not only this token's span.
-            filtered = filtered.replace(token, CENSOR_REPLACEMENT);
+            filtered = filtered.replace(token, &censored(token));
         }
     }
     filtered
+}
+
+/// A censored word: the replacement, between the punctuation the word began and ended with.
+fn censored(token: &str) -> String {
+    let core = token.trim_matches(|c: char| !c.is_alphanumeric());
+    if core.is_empty() {
+        return CENSOR_REPLACEMENT.to_owned();
+    }
+    let start = token.find(core).unwrap_or(0);
+    let end = start + core.len();
+    format!("{}{CENSOR_REPLACEMENT}{}", &token[..start], &token[end..])
 }
 
 #[cfg(test)]
@@ -177,6 +193,24 @@ mod tests {
         assert!(!censors_chat_token(&wrong_audience, &Cp1252, "bad"));
         assert!(!censors_chat_token(&zero_bucket, &Cp1252, "bad"));
         assert!(!censors_chat_token(&unknown_bucket, &Cp1252, "bad"));
+    }
+
+    /// Behaviour: chat.filter.a-censored-word-keeps-the-quotes-around-it
+    #[test]
+    fn a_censored_first_or_last_word_keeps_the_quote_beside_it() {
+        let table = table(vec![(1, vec![(1, vec!["*bad*".into()])])]);
+        assert_eq!(
+            filter_chat_line(&table, &Cp1252, "Name says, \"bad words\""),
+            "Name says, \"**** words\""
+        );
+        assert_eq!(
+            filter_chat_line(&table, &Cp1252, "Name says, \"words bad\""),
+            "Name says, \"words ****\""
+        );
+        assert_eq!(
+            filter_chat_line(&table, &Cp1252, "Name says, \"bad.\""),
+            "Name says, \"****.\""
+        );
     }
 
     #[test]
