@@ -424,8 +424,9 @@ fn trade_accept_uses_both_displayed_counts_and_offer_scroll_is_independent() {
         );
     }
 }
+/// Behaviour: options.client-page.the-classic-defaults-reset-the-texture-sizes-as-the-retail-ones-do
 #[test]
-fn sound_reset_restores_saved_draft_and_defaults_retain_texture_levels() {
+fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
     let v = View::default();
     let pregame = PregameView::default();
     let keyboard = KeyboardState::default();
@@ -434,7 +435,9 @@ fn sound_reset_restores_saved_draft_and_defaults_retain_texture_levels() {
         detail_available: true,
         resolutions: vec![(1024, 768), (800, 600)],
         effects_volume: 0.9,
-        texture_levels: [1, 2, 3, 1],
+        texture_levels: [3, 2, 3, 1],
+        environment_very_high: true,
+        landscape_detail: true,
         ..Default::default()
     };
     let c = Context {
@@ -462,7 +465,12 @@ fn sound_reset_restores_saved_draft_and_defaults_retain_texture_levels() {
     let PanelAction::Host(HostAction::DefaultClassicSettings(s)) = &out[0] else {
         panic!("missing default settings application")
     };
-    assert_eq!(s.texture_levels, [1, 2, 3, 1]);
+    // Landscape at the second step and the environment at the first after Very High, the
+    // shared set's defaults, with the environment's detail textures on and the landscape's off;
+    // the two levels no row shows are left as they were.
+    assert_eq!(s.texture_levels, [1, 2, 0, 1]);
+    assert!(!s.environment_very_high);
+    assert!(s.environment_detail && !s.landscape_detail);
     assert_eq!(s.resolution, 0, "the size the client starts at, 1024x768");
     assert_eq!(s.effects_volume, 1.0);
     assert_eq!(s.camera_stiffness, 0.23);

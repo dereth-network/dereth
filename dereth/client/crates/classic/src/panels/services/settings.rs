@@ -102,6 +102,11 @@ fn hosted(preference: &str) -> bool {
     )
 }
 
+/// The page's step of a texture-detail preference's value: 1 is the first, 4 the last.
+fn texture_level(value: i32) -> u8 {
+    u8::try_from((value - 1).clamp(0, 3)).unwrap_or(0)
+}
+
 /// A preference's slider range, from its registration.
 fn range(preference: &str) -> (f32, f32) {
     dereth_client_contract::options::preferences::UI_PREFERENCES
@@ -435,9 +440,26 @@ impl Settings {
         if let Some(i) = s.resolutions.iter().position(|r| *r == (1024, 768)) {
             s.resolution = i;
         }
-        if !s.detail_available {
-            s.landscape_detail = false;
-            s.environment_detail = false;
+        // The texture sizes and the detail textures go back to the shared set's defaults, as the
+        // other interface's Defaults puts them.
+        let default_of = |name: &str| {
+            sheet::rows_for(PageId::Client, Face::Retail)
+                .find(|r| r.preference() == Some(name))
+                .and_then(|r| r.default)
+                .map(PrefValue::from)
+        };
+        if let Some(PrefValue::Int(v)) = default_of("Render.LandscapeTextureDetail") {
+            s.texture_levels[0] = texture_level(v);
+        }
+        if let Some(PrefValue::Int(v)) = default_of("Render.EnvironmentTextureDetail") {
+            s.environment_very_high = v == 0;
+            s.texture_levels[2] = texture_level(v);
+        }
+        if let Some(PrefValue::Bool(on)) = default_of("Render.BuildingDetailTextures") {
+            s.environment_detail = on && s.detail_available;
+        }
+        if let Some(PrefValue::Bool(on)) = default_of("Render.LandscapeDetailTextures") {
+            s.landscape_detail = on && s.detail_available;
         }
         let s = s.clone();
         for r in sheet::rows_for(PageId::Client, Face::Classic) {

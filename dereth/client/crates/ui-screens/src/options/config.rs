@@ -250,7 +250,7 @@ pub const LANDSCAPE_ROWS: [ConfigRow; 3] = [
 pub const LANDSCAPE_SECTION: &str = GRAPHICS;
 
 /// This client's interface choice (the retail interface or the classic one), after the landscape
-/// rows: a menu of literal captions, and *Restore Defaults* puts it back to the retail interface.
+/// rows: a menu of literal captions. *Restore Defaults* leaves it at the interface being shown.
 pub const INTERFACE_ROW: ConfigRow = row(
     GRAPHICS,
     Menu,
@@ -444,6 +444,10 @@ pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
         let Some(r) = row.preference().and_then(config_row) else {
             continue;
         };
+        // The interface choice stays the interface being shown.
+        if r.preference == dereth_client_contract::options::interface::INTERFACE {
+            continue;
+        }
         out.push((r.preference, r.ui_default.into()));
         if let Some(s) = r.slider_preference {
             out.push((s, PrefValue::Float(SOUND_SLIDER_DEFAULT)));
@@ -657,10 +661,10 @@ mod tests {
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            26 + 3 + 6,
+            26 + 3 + 5,
             "retail's 26 rows (its 27 less Sync with Refresh Rate) plus the three paired volume \
-             sliders, this client's three era rows, its interface, its performance panel and its \
-             landscape detail texture"
+             sliders, this client's three era rows, its performance panel and its landscape \
+             detail texture"
         );
         assert_eq!(
             get_landscape(&v),

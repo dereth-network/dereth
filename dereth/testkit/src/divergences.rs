@@ -424,7 +424,10 @@ pub static DIVERGENCES: &[Divergence] = &[
                  what is under the pointer, and Display Timestamps has no format box (the time \
                  is written hours, minutes and seconds, as the other interface writes it). The \
                  client starts in a window at 1024 by 768, and \
-                 the Defaults button puts full screen off and the resolution at 1024 by 768.",
+                 the Defaults button puts full screen off and the resolution at 1024 by 768. \
+                 In either interface Defaults leaves the Interface choice at the interface being \
+                 shown, and the classic Defaults puts the texture sizes back as the retail one \
+                 does.",
         why: "The owner asked for one set of options behind both interfaces, grouped the same \
               way, with the dead rows gone, a windowed start and Defaults keeping the starting \
               size.",

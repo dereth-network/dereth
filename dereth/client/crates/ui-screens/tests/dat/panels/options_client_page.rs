@@ -365,9 +365,9 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     ui.requests.clear();
     let n = s.config_page.restore_default_values(&mut ui);
     assert_eq!(
-        n, 35,
-        "the 29 retail controls, this client's three rows from another era, its interface row, \
-         its performance row and its landscape detail row"
+        n, 34,
+        "the 29 retail controls, this client's three rows from another era, its performance row \
+         and its landscape detail row; its interface row stays as it is"
     );
     let live: Vec<(&str, PrefValue)> = ui
         .requests
@@ -380,7 +380,7 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
         .collect();
     let stat: Vec<(&str, PrefValue)> = config::restore_default_values();
     assert_eq!(live, stat, "the built page and CONFIG_PAGE disagree");
-    assert_eq!(live.len(), 35);
+    assert_eq!(live.len(), 34);
 
     // The control kinds, counted: 11 check boxes (retail's 12 less Sync with Refresh Rate),
     // 10 sliders, 8 menus.
@@ -745,8 +745,9 @@ mod sound_defaults {
         let out = ui.requests.take();
         assert_eq!(
             out.len(),
-            35,
-            "27 rows plus the three paired volume sliders, this client's three era rows and its              interface and performance rows"
+            34,
+            "27 rows plus the three paired volume sliders, this client's three era rows and its \
+             performance row; its interface row stays as it is"
         );
 
         // The eight `Sound.*` writes, spelled out with the default values the page's option
@@ -961,5 +962,43 @@ fn the_client_starts_in_a_window_at_1024x768_and_defaults_restore_that() {
     assert!(
         written.contains(&("Display.Resolution", PrefValue::Int(0x0400_0300))),
         "{written:?}"
+    );
+}
+
+/// The Defaults button leaves the interface choice where it is: a page that shows Classic keeps
+/// Classic, the row writes nothing, and every other row still goes back to its default.
+///
+/// Behaviour: options.client-page.defaults-leave-the-interface-choice-as-it-is
+#[test]
+fn defaults_leave_the_interface_choice_where_it_is_and_reset_the_other_rows() {
+    let (mut ui, mut s) = screen();
+    let interface = dereth_client_contract::options::interface::INTERFACE;
+    let (i, _) = control(&s.config_page, interface);
+    s.config_page.options[i].current = PrefValue::Int(1);
+    let (t, _) = control(&s.config_page, "Render.LandscapeTextureDetail");
+    s.config_page.options[t].current = PrefValue::Int(4);
+    ui.requests.clear();
+    s.config_page.restore_default_values(&mut ui);
+    let written: Vec<(&str, PrefValue)> = ui
+        .requests
+        .take()
+        .into_iter()
+        .filter_map(|r| match r {
+            UiRequest::SetPreference(n, v) => Some((n, v)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        s.config_page.options[i].current,
+        PrefValue::Int(1),
+        "still Classic"
+    );
+    assert!(
+        !written.iter().any(|(n, _)| *n == interface),
+        "the interface is not written: {written:?}"
+    );
+    assert!(
+        written.contains(&("Render.LandscapeTextureDetail", PrefValue::Int(2))),
+        "the texture size goes back: {written:?}"
     );
 }

@@ -1458,14 +1458,20 @@ impl PlayerOptionPage {
 
     /// The Defaults button and global message
     /// `0x0C`. Unconditional: every control, changed or not, this client's landscape rows
-    /// included (back to World Default).
+    /// included (back to World Default), but the interface choice. Returns how many were written.
     pub fn restore_default_values(&mut self, ui: &mut UiSystem) -> usize {
+        let mut n = 0;
         for i in 0..self.options.len() {
+            // The interface choice stays the interface being shown: Defaults does not leave it.
+            if self.options[i].preference == dereth_client_contract::options::interface::INTERFACE {
+                continue;
+            }
             self.options[i].current = self.options[i].default.clone();
             self.refresh(ui, i);
             self.apply(&mut ui.requests, i);
+            n += 1;
         }
-        self.options.len()
+        n
     }
 
     /// The Game / Support page's *Use Mouse Turning Settings*: each row of

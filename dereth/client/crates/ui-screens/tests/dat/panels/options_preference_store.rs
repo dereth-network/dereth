@@ -343,11 +343,11 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
         PrefValue::Float(0.25)
     );
     ui.requests.clear();
-    // The 30 retail controls, this client's three rows from another era, its interface row and
-    // its performance row.
-    assert_eq!(s.config_page.restore_default_values(&mut ui), 35);
+    // The 30 retail controls, this client's three rows from another era and its performance row;
+    // the interface row stays as it is.
+    assert_eq!(s.config_page.restore_default_values(&mut ui), 34);
     let requests = ui.requests.take().len();
-    assert_eq!(requests, 35, "the outward notification is unchanged");
+    assert_eq!(requests, 34, "the outward notification is unchanged");
     assert_eq!(
         store::inq_value("Input.MouseLookSensitivity"),
         Some(PrefValue::Float(0.55))
@@ -376,7 +376,7 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
     );
 
     // Now do it the way a player makes it stick: Defaults, then Apply, then close and re-open.
-    assert_eq!(s.config_page.restore_default_values(&mut ui), 35);
+    assert_eq!(s.config_page.restore_default_values(&mut ui), 34);
     assert_eq!(
         s.config_page.save_current_values(),
         0,

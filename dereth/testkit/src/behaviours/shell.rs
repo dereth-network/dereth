@@ -1444,6 +1444,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.client-page.defaults-leave-the-interface-choice-as-it-is",
+        says: "The client options page's Defaults button, in either interface, leaves the \
+               Interface row at the interface being shown and writes nothing for it, while every \
+               other row goes back to its default.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-DEFAULTS-INTERFACE"),
+        station: "dereth-ui-screens::dat::panels::options_client_page::defaults_leave_the_interface_choice_where_it_is_and_reset_the_other_rows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.client-page.defaults-write-through-to-the-store",
         says: "Defaults on the client options page writes every one of its controls' defaults \
                into the stored settings, but closing the page without Apply puts the old values \
@@ -1486,6 +1497,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O222-CLIENT-PAGE"),
         station: "dereth-ui-screens::dat::panels::options_preference_store::cancel_reverts_to_what_the_store_held_when_the_page_opened",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "options.client-page.the-classic-defaults-reset-the-texture-sizes-as-the-retail-ones-do",
+        says: "The classic interface's Client page Defaults puts the landscape and environment \
+               texture sizes and the detail textures back where the retail interface's Defaults \
+               puts them, as well as the sound, the screen and the camera.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-DEFAULTS-TEXTURES"),
+        station: "dereth-classic-ui::lib::panels::services::tests::sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "options.client-page.the-drop-downs-list-their-registered-choices-and-open-on-the-stored-one",
