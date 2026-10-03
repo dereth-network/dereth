@@ -2709,7 +2709,7 @@ fn chat_text(text: &str) -> String {
     // The game's lines name a speaker as a tag run (`<Tell:IIDString:id:name>name<\Tell>`), which
     // a chat window shows as the name: the markup is read as the retail chat window reads it.
     if line.contains('<') {
-        dereth_ui::text::tag::parse(line).text
+        dereth_text::tag::parse(line).text
     } else {
         line.to_owned()
     }

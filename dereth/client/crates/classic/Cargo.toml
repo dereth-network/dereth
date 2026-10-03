@@ -19,6 +19,7 @@ retail-dats = []
 
 [dependencies]
 dereth-primitives.workspace = true
+dereth-text.workspace = true
 dereth-dat.workspace = true
 dereth-client-contract = { path = "../../../../core/client-contract" }
 dereth-client-runtime = { path = "../../../../core/client-runtime" }

@@ -12,7 +12,7 @@
 //! `dereth-client-model`, `dereth-client-runtime`, `dereth-protocol`, `dereth-rules`,
 //! `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`), the client's
 //! `dereth-scene` (item icons decoded as the scene decodes them, the preview dressing rules),
-//! `dereth-ui` (its clip regions and its string-table composition), the game's presentation rules
+//! `dereth-ui` (its clip regions), `dereth-text` (tags and string-table composition), the game's presentation rules
 //! (`dereth-presentation`: the appraisal and character sheet text it shares with the other
 //! interface) and `dereth-input` (the host's device events and the final key maps),
 //! and on `dereth-classic-dat`. **Used by** the client shell, which runs it while it is the

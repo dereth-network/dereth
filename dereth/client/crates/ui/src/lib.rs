@@ -2,7 +2,8 @@
 //! editing, dialogs, persistence and the mode machine.
 //!
 //! **Depends on** `dereth-primitives`, the decoded layouts and fonts of `dereth-assets`, the
-//! contract (`dereth-client-contract`) and the device input's event types (`dereth-input`). **Used
+//! shared text (`dereth-text`), the contract (`dereth-client-contract`) and the device input's
+//! event types (`dereth-input`). **Used
 //! by** the retail screens (`dereth-ui-screens`), the client and its test kit.
 //!
 //! **Must never** hold a concrete screen or panel (those are `dereth-ui-screens`'), put pixels on

@@ -20,8 +20,7 @@ pub use dereth_assets::escape;
 pub mod element_text;
 pub mod glyph;
 pub mod linebreak;
-pub mod metalanguage;
-pub mod string_table;
+pub use dereth_text::{metalanguage, string_table};
 pub mod tag;
 
 pub use compose::{

@@ -7,7 +7,7 @@
 //! # Where it sits
 //!
 //! String-table lookup with `(out, id, vars, use-meta-language)` has two paths. The one
-//! [`StringResolver::resolve_variants`](crate::text::StringResolver::resolve_variants) models is
+//! [`StringResolver::resolve_variants`](crate::StringResolver::resolve_variants) models is
 //! use-meta-language off: interleave the fragments and the values and stop. The one
 //! the string info's internal query actually takes is on:
 //!
@@ -417,7 +417,7 @@ fn collapse_spaces(s: &str) -> String {
 /// item-name machinery — see the module header.
 ///
 /// `fragments` and `values` are **escaped**, as the dat stores them, and so is the answer: the
-/// caller applies [`crate::text::unescape`] afterwards, exactly where
+/// caller applies [`crate::unescape`] afterwards, exactly where
 /// the string info's outer query does.
 #[must_use]
 pub fn render(fragments: &[String], values: &[String]) -> String {

@@ -59,10 +59,7 @@ const SHEET_TABLE: dereth_primitives::DataId = dereth_primitives::DataId(0x2300_
 /// The character sheet's augmentation and luminance section, as the end-of-retail sheet composes
 /// it out of the world's string tables: shown when the world's era has luminance or the innate
 /// augmentations, and empty otherwise. A row the tables do not hold shows nothing.
-pub fn augmentation_text(
-    view: &dyn GameView,
-    strings: &dyn dereth_ui::text::StringResolver,
-) -> String {
+pub fn augmentation_text(view: &dyn GameView, strings: &dyn dereth_text::StringResolver) -> String {
     let Some(info) = view.character_info() else {
         return String::new();
     };
@@ -70,7 +67,7 @@ pub fn augmentation_text(
         &info,
         view.era_features(),
         &mut |token, values| {
-            dereth_ui::text::render_token(strings, SHEET_TABLE, token, values).unwrap_or_default()
+            dereth_text::render_token(strings, SHEET_TABLE, token, values).unwrap_or_default()
         },
     )
 }
@@ -79,7 +76,7 @@ pub fn augmentation_text(
 /// once, and the text composed again only when the character or the era changes.
 #[derive(Debug, Default)]
 pub struct AugmentationSheet {
-    strings: Option<dereth_ui::text::DatStringResolver<dereth_dat::RetailDatStore>>,
+    strings: Option<dereth_text::DatStringResolver<dereth_dat::RetailDatStore>>,
     seen: Option<(dereth_primitives::EraFeatures, Option<CharacterInfo>)>,
     text: String,
 }
@@ -94,7 +91,7 @@ impl AugmentationSheet {
         if self.seen.as_ref() != Some(&key) {
             let strings = self
                 .strings
-                .get_or_insert_with(|| dereth_ui::text::DatStringResolver::new(store.clone()));
+                .get_or_insert_with(|| dereth_text::DatStringResolver::new(store.clone()));
             self.text = augmentation_text(view, strings);
             self.seen = Some(key);
         }
@@ -278,7 +275,7 @@ mod tests {
             }
         }
     }
-    impl dereth_ui::text::StringResolver for Rows {
+    impl dereth_text::StringResolver for Rows {
         fn resolve_raw(&self, table: dereth_primitives::DataId, id: u32) -> Option<String> {
             self.resolve_variants_raw(table, id)?.into_iter().next()
         }

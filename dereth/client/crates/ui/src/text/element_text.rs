@@ -819,7 +819,7 @@ impl TextElement {
         let Some(tag) = self.tag_at(pos).cloned() else {
             return;
         };
-        let Some(id) = tag.kind.click_notice() else {
+        let Some(id) = crate::text::tag::click_notice(tag.kind) else {
             return;
         };
         let Some(tag_type) = tag.type_id() else {

@@ -2,9 +2,8 @@
 //! the client renders them, over any [`StringResolver`], and the resolver that reads the rows out
 //! of the dats.
 //!
-//! [`crate::UiSystem::resolve_string_named`] and [`crate::UiSystem::resolve_string_rendered`] are
-//! these two renders over the resolver the UI has installed; an interface that has no `UiSystem`
-//! calls them directly over its own resolver.
+//! Interfaces supply their resolver to the named or positional render; no widget or
+//! application state is required.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -12,7 +11,7 @@ use std::sync::Arc;
 
 use dereth_primitives::{AssetSource, DataId};
 
-use crate::text::{metalanguage, unescape, StringResolver};
+use crate::{metalanguage, unescape, StringResolver};
 
 /// One `StringInfo` rendered with its values matched **by name**: the row's own variable list is
 /// walked and each id looked up among `values` by the string hash of its name, then the pieces and

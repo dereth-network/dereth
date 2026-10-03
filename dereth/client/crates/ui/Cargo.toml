@@ -19,6 +19,7 @@ retail-dats = []
 # `dereth_ui::ElementId` and `dereth_ui::framework::UiMode` are `pub use`s of them.
 dereth-client-contract = { path = "../../../../core/client-contract" }
 dereth-primitives.workspace = true
+dereth-text.workspace = true
 thiserror.workspace = true
 # `dereth-assets` owns the on-disk `LayoutDesc` byte layout and already decodes all 101 shipped
 # layouts byte-exactly (the UI layout type's `decode_payload` method). This crate owns the
@@ -30,8 +31,6 @@ dereth-assets = { path = "../../../../core/assets" }
 # of `dereth_input::action`. There is no cycle -- `dereth-input` depends only on
 # `dereth-primitives`.
 dereth-input = { path = "../input" }
-# The string-table resolver warns, through the facade, when a table will not load.
-tracing.workspace = true
 
 [dev-dependencies]
 # Test-only: the acceptance gate reads the retail `client_local_English.dat` when it is present.

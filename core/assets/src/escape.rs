@@ -6,10 +6,10 @@
 //! so the tokenizer does not read them as syntax. The string info's query, its literal-value
 //! getter and the meta-language's render
 //! all end in the meta-language's unescape, so **the unescape belongs to
-//! the lookup, not to the element** — which is why it lives on `dereth_ui::text::StringResolver`'s
+//! the lookup, not to the element** — which is why it lives on `dereth_text::StringResolver`'s
 //! contract in this rebuild rather than in any one host's resolver, and here, beside the string
 //! table itself, so that a lookup made with no UI (the error box a failed first connection shows)
-//! unescapes the same way. `dereth_ui::text` re-exports both functions at their old path.
+//! unescapes the same way. `dereth_text` and `dereth_ui::text` re-export both functions.
 //!
 //! # The single-character unescape
 //!

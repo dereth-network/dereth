@@ -928,6 +928,7 @@ dependencies = [
  "dereth-protocol",
  "dereth-rules",
  "dereth-scene",
+ "dereth-text",
  "dereth-ui",
  "serde",
  "serde_json",
@@ -1323,6 +1324,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-text"
+version = "0.0.0"
+dependencies = [
+ "dereth-assets",
+ "dereth-primitives",
+ "tracing",
+]
+
+[[package]]
 name = "dereth-transport"
 version = "0.0.0"
 dependencies = [
@@ -1339,9 +1349,9 @@ dependencies = [
  "dereth-dat",
  "dereth-input",
  "dereth-primitives",
+ "dereth-text",
  "serde_json",
  "thiserror 2.0.20",
- "tracing",
 ]
 
 [[package]]
