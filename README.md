@@ -138,6 +138,46 @@ A run picks its backend from `--renderer vulkan|d3d12|wgpu`, then `Renderer=` in
 file, then the default; a backend that is not built or cannot create a device prints a line and falls
 back. The test-only `DERETH_TEST_RENDERER=d3d12|wgpu` runs the GPU test tiers on it.
 
+## Replaying input headlessly
+
+The desktop executable accepts `--headless --input-replay events.txt`. It validates the entire
+UTF-8 file before starting the client, then delivers each event through the same input queue as
+the window. A replay requires `--headless`. It does not end the session; use `--frames` or the
+normal logout controls to stop it.
+
+Each nonempty line contains a one-based frame number and an event. Frames must be in increasing
+order (equal frames are allowed and keep file order). Lines beginning with `#` are comments.
+
+```text
+# Move, press, drag, release, then type a translated character.
+100 move 120 240
+100 button left down
+105 move 220 240
+106 button left up
+120 key 0x41 0x1e down U+0061
+121 key 0x41 0x1e up
+```
+
+| Event fields after the frame | Meaning |
+|---|---|
+| `move X Y` | Pointer position in client pixels; finite decimal coordinates |
+| `button BUTTON down` or `button BUTTON up` | A transition for `left`, `right`, `middle`, `back` or `forward` |
+| `wheel NOTCHES` | Finite signed wheel distance; one detent is one notch |
+| `alt down` or `alt up` | The host's Alt modifier state |
+| `key VK SCAN down [U+HEX ...]` | A virtual key and scan code, optionally carrying translated Unicode scalars |
+| `key VK SCAN up` | Release the same key, without text |
+
+`VK` is a virtual-key number in 0..255; `SCAN` is a 16-bit set-1 scan code (including its extended
+prefix). Both accept decimal or `0x` hexadecimal. Text uses Unicode scalar values: `U+0020` is a
+space, `U+000D` is Return and `U+0016` is the translated Ctrl+V character. Supply modifier key
+transitions as well when a gesture needs them. Replay does not infer text from a keyboard layout.
+
+Events enter the input queue before their frame begins. `--capture-at 106:drag.png` captures the
+picture drawn by frame 106 on the next frame's start, so run at least 107 frames to save it. Network
+and loading times still vary: use captures to verify that the intended screen was ready before
+the gesture. The file names no controls or game requests; clicks and keys follow the active
+interface's normal routing.
+
 ## Where the client writes its settings
 
 Everything the player saves (`UserPreferences.ini`, `dereth.keymap`, the UI layouts, screenshots

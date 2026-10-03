@@ -28,6 +28,8 @@ use dereth_client::corestrings;
 use dereth_client::Dereth;
 use dereth_desktop::crashlog;
 
+mod input_replay;
+
 fn main() -> std::process::ExitCode {
     // Before *everything*, including the crash log's own `START` record and the stderr line below:
     // `std` resolves the standard handles when it writes, so the console has to exist by the first
@@ -68,9 +70,10 @@ fn main() -> std::process::ExitCode {
 /// `WinMain` steps 9 to 12: parse, initialize the client, run it, and clean up.
 fn run() -> Result<(), String> {
     // Step 9: parse the command line, make the settings folder and install the log.
-    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    let replay = input_replay::Replay::load(&mut argv)?;
     let cfg = dereth_desktop::start::<Dereth>(&argv)?;
-    run_with(cfg)
+    run_with(cfg, replay)
 }
 
 /// A `StartupError` on its way to `main`'s stderr sentence, with its cause logged first.
@@ -87,7 +90,7 @@ fn fatal(e: dereth_client::app::StartupError) -> String {
 }
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
-fn run_with(cfg: Config) -> Result<(), String> {
+fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), String> {
     let capture = cfg.capture.clone();
     let headless = cfg.headless;
     let mut scene = cfg.scene_config();
@@ -244,7 +247,21 @@ fn run_with(cfg: Config) -> Result<(), String> {
     app.play_startup_sound();
 
     // Step 11: run the client frame loop.
-    let frames = app.run();
+    let frames = if let Some(mut replay) = replay {
+        app.state = dereth_client::app::AppState::Running;
+        let mut frame = 1;
+        loop {
+            replay.drain_frame(frame, |event| app.queue_window_event(event));
+            if !app.frame() {
+                break;
+            }
+            frame += 1;
+        }
+        app.state = dereth_client::app::AppState::ShuttingDown;
+        app.frames_drawn()
+    } else {
+        app.run()
+    };
     tracing::info!("{frames} frame(s) drawn");
 
     if cfg_connect {
@@ -473,6 +490,6 @@ fn run_with(cfg: Config) -> Result<(), String> {
 }
 
 #[cfg(not(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12"))))]
-fn run_with(_cfg: Config) -> Result<(), String> {
+fn run_with(_cfg: Config, _replay: Option<input_replay::Replay>) -> Result<(), String> {
     Err("dereth-client needs a graphics backend: build with --features vulkan or d3d12".into())
 }

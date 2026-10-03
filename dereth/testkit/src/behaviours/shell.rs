@@ -2217,6 +2217,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "shell.input-replay.validates-and-preserves-device-events",
+        says: "A headless desktop run validates its input replay before startup, rejects malformed \
+               or out-of-order events, and delivers each device event once at its requested frame \
+               in file order, retaining pointer coordinates, key identities and translated text.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-HEADLESS-INPUT-REPLAY"),
+        station: "dereth-client::bin.dereth-client::input_replay::tests::replay_preserves_host_events_and_order_at_each_frame",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "text-entry.backspace.a-tap-deletes-one-character-and-nothing-follows-it",
         says: "Backspace pressed and let go deletes one character, and no further character is \
                lost however long the client runs afterwards.",
