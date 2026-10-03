@@ -926,10 +926,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "examine.portrait.the-model-is-drawn-over-the-attribute-lists-ground",
-        says: "In the examine window a creature's model is drawn over the translucent rows of the                attribute list laid over it, and under the list's text, so the list does not                shade the model.",
-        since: THIS_CLIENT,
-        divergence: "CD-020",
-        evidence: Evidence::Private("AC-EVID-R2C-PORTRAIT-OVER-LIST"),
+        says: "In the examine window a creature's model is drawn over the translucent rows of the \
+               attribute list laid over it, and under the list's text, so the list does not \
+               shade the model.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-OWNER-EXAMINE-PORTRAIT"),
         station: "dereth-client::gpu::panels::examine_portrait::the_creatures_attribute_list_does_not_shade_its_model",
         tier: Tier::Gpu,
     },

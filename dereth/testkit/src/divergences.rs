@@ -39,6 +39,10 @@ pub struct Divergence {
     pub why: &'static str,
 }
 
+/// The ids of divergences that were withdrawn because the client turned out to behave as retail
+/// does. Each keeps its number out of circulation, so the register skips it.
+pub static WITHDRAWN: &[&str] = &["CD-020"];
+
 /// Every divergence, in id order.
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
@@ -171,13 +175,6 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "Show Cloak works, and this client's own actions are listed on the retail key \
                  page and answered by the retail interface.",
         why: "A key that can be bound works when it is bound.",
-    },
-    Divergence {
-        id: "CD-020",
-        title: "The examined creature's model over its attribute list",
-        change: "The examine window's model is drawn over the attribute list's translucent rows, \
-                 so they no longer shade it.",
-        why: "The whole model is shown at full brightness.",
     },
     Divergence {
         id: "CD-021",
@@ -328,15 +325,19 @@ mod tests {
     }
 
     /// **A divergence nothing asserts is a claim with no test**, so every one is named by at least
-    /// one row, and the ids are `CD-` and three digits, unique and in order with no gap.
+    /// one row, and the ids are `CD-` and three digits, unique and in order with no gap but the
+    /// withdrawn numbers.
     #[test]
     fn every_divergence_is_numbered_in_order_and_named_by_a_row() {
         let mut seen = BTreeSet::new();
-        for (n, d) in DIVERGENCES.iter().enumerate() {
+        let mut expected = (1..)
+            .map(|n| format!("CD-{n:03}"))
+            .filter(|id| !WITHDRAWN.contains(&id.as_str()));
+        for d in DIVERGENCES {
             assert_eq!(
-                d.id,
-                format!("CD-{:03}", n + 1),
-                "the register is not numbered in order from CD-001"
+                Some(d.id.to_owned()),
+                expected.next(),
+                "the register is not numbered in order from CD-001, less the withdrawn numbers"
             );
             assert!(seen.insert(d.id), "{} is listed twice", d.id);
             assert!(
