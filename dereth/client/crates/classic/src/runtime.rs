@@ -2199,6 +2199,7 @@ impl ClassicUi {
                 self.classic.stack_split = Some((*split, *max));
             }
         }
+        let mut unowned = Vec::new();
         for request in requests {
             // The character screens' session operations are the runtime's.
             let request = match request {
@@ -2253,17 +2254,19 @@ impl ClassicUi {
                 }));
                 fallback
             };
-            for unowned in cx.run_request(request, now, &mut answer) {
-                self.outbox.emit(unowned);
-            }
+            // What no owner here took (an option's preference for the scene, the camera or the
+            // display, above all) goes on to the frame's own owners, as the other interface's
+            // requests do.
+            unowned.extend(cx.run_request(request, now, &mut answer));
             cx.deliver_selection_notices(now);
             if let Some(automatic) =
                 used.and_then(|id| crate::keyboard_runtime::auto_shortcut_after_use(cx.model(), id))
             {
-                for unowned in cx.run_request(automatic, now, &mut |_, _| false) {
-                    self.outbox.emit(unowned);
-                }
+                unowned.extend(cx.run_request(automatic, now, &mut |_, _| false));
             }
+        }
+        if !unowned.is_empty() {
+            cx.queue(Vec::new(), unowned);
         }
         let origins = std::mem::take(&mut self.desktop.host_origins);
         for (origin, action) in origins
