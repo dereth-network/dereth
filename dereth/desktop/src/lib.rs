@@ -91,7 +91,7 @@ pub fn start<P: Product>(argv: &[String]) -> Result<Config, String> {
     // this the first run. On Windows the original game's settings are copied (never moved) into it.
     // The outcome is logged below, once the log (which may write into that directory) is installed.
     let settings_dir = crate::folders::default_settings_dir(P::SETTINGS_DIR_NAME);
-    let original_settings_dir = crate::folders::retail_settings_dir();
+    let original_settings_dir = crate::folders::import_source();
     let (cfg, copied) = crate::folders::load_config(
         argv,
         &default_preferences,

@@ -51,7 +51,9 @@
 //!
 //! On Windows the first run **copies** the original game's `Documents\Asheron's Call` in
 //! ([`copy_settings_dir`]) when the client's directory still holds nothing: a retail installation
-//! is still using that directory, so it is left exactly as it was.
+//! is still using that directory, so it is left exactly as it was. Its key maps come in as the
+//! modern interface's (`<name>-modern.keymap`). A run given its folder by [`SETTINGS_DIR_ENV`]
+//! copies nothing in ([`import_source`]): that folder is the run's own.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -195,6 +197,20 @@ pub fn retail_settings_dir() -> Option<PathBuf> {
     }
 }
 
+/// Where the first run copies settings in from: [`retail_settings_dir`], unless
+/// [`SETTINGS_DIR_ENV`] names the settings folder outright, in which case nothing is copied.
+#[must_use]
+pub fn import_source() -> Option<PathBuf> {
+    import_source_in(&process_env, cfg!(windows))
+}
+
+fn import_source_in(env: Env<'_>, windows: bool) -> Option<PathBuf> {
+    if env(SETTINGS_DIR_ENV).is_some_and(|v| !v.is_empty()) || !windows {
+        return None;
+    }
+    windows_documents(env).map(|d| d.join(RETAIL_SETTINGS_DIR_NAME))
+}
+
 /// Choose the one in [`SETTINGS_DIR_ENV`]'s folder when that is set, else
 /// `<cwd>/UserPreferences.ini` when it exists, otherwise the one in [`default_settings_dir`];
 /// `None` when there is none.
@@ -235,6 +251,9 @@ fn holds_settings(dir: &Path) -> bool {
 /// installation is also using, and moving it would take the retail client's own preferences,
 /// keymap, journals and screenshots away from it. Nothing is ever written into `from`.
 ///
+/// A key map in `from` itself comes in as the modern interface's, `<name>-modern.keymap`, so the
+/// modern interface's key page lists it.
+///
 /// "One time" is expressed by the state on disk rather than by a stamp file: **`to` must hold no
 /// settings.** A `to` holding only [`CRASH_LOG_DIR_NAME`] still counts as new, because the crash
 /// log is written before this runs; after a copy `to` holds the player's files, so a later start
@@ -252,7 +271,21 @@ pub fn copy_settings_dir(from: &Path, to: &Path) -> std::io::Result<u32> {
         return Ok(0);
     }
     std::fs::create_dir_all(to)?;
-    copy_dir_contents(from, to)
+    copy_dir_contents(from, to, true)
+}
+
+/// The name a file of the original's folder takes in this client's: a key map at the top as the
+/// modern interface's, `<name>-modern.keymap`; anything else its own name.
+fn imported_name(name: &std::ffi::OsStr, top: bool) -> OsString {
+    let path = Path::new(name);
+    match (path.file_stem(), path.extension()) {
+        (Some(stem), Some(ext)) if top && ext.eq_ignore_ascii_case("keymap") => {
+            let mut out = stem.to_os_string();
+            out.push("-modern.keymap");
+            out
+        }
+        _ => name.to_os_string(),
+    }
 }
 
 /// What the first-run copy did: from where, to where, and how many files (or why it failed).
@@ -299,17 +332,17 @@ pub fn load_config(
     Ok((cfg, copied))
 }
 
-/// [`copy_settings_dir`]'s recursive half.
-fn copy_dir_contents(from: &Path, to: &Path) -> std::io::Result<u32> {
+/// [`copy_settings_dir`]'s recursive half; `top` for the original's folder itself.
+fn copy_dir_contents(from: &Path, to: &Path, top: bool) -> std::io::Result<u32> {
     let mut copied = 0;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
-        let target = to.join(entry.file_name());
+        let target = to.join(imported_name(&entry.file_name(), top));
         if entry.file_type()?.is_dir() {
             if !target.exists() {
                 std::fs::create_dir_all(&target)?;
             }
-            copied += copy_dir_contents(&entry.path(), &target)?;
+            copied += copy_dir_contents(&entry.path(), &target, false)?;
         } else if !target.exists() {
             std::fs::copy(entry.path(), &target)?;
             copied += 1;
@@ -456,6 +489,25 @@ mod tests {
         assert_eq!(retail_settings_dir(), None);
     }
 
+    /// A run given its settings folder outright copies nothing in from the original's; without
+    /// it, Windows copies from `Documents\Asheron's Call`.
+    #[test]
+    fn a_settings_folder_given_outright_takes_nothing_from_the_originals() {
+        let home = abs("home");
+        let plain = env_of(&[("USERPROFILE", home.as_str())]);
+        assert_eq!(
+            import_source_in(&plain, true),
+            Some(
+                PathBuf::from(&home)
+                    .join("Documents")
+                    .join(RETAIL_SETTINGS_DIR_NAME)
+            )
+        );
+        let given = env_of(&[("USERPROFILE", home.as_str()), (SETTINGS_DIR_ENV, "run")]);
+        assert_eq!(import_source_in(&given, true), None);
+        assert_eq!(import_source_in(&plain, false), None);
+    }
+
     /// The preferences file is the settings directory's `UserPreferences.ini` -- unless the
     /// working directory has one, which is the original's first branch and the portable-install
     /// override.
@@ -571,6 +623,10 @@ mod tests {
 
         assert_eq!(copy_settings_dir(&from, &to).expect("the copy runs"), 3);
         assert!(to.join("UserPreferences.ini").is_file());
+        assert!(
+            to.join("acclient-modern.keymap").is_file() && !to.join("acclient.keymap").exists(),
+            "the key map comes in as the modern interface's"
+        );
         assert!(to.join("shots").join("ScreenShot00000.png").is_file());
         assert!(
             from.join("UserPreferences.ini").is_file(),
