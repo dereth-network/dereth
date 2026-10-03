@@ -93,6 +93,13 @@ mod imp {
             PreviewId,
             dereth_render::camera::Viewport,
         )>,
+        /// The spaces drawn over a subtree's pictures and under its text this frame
+        /// ([`Renderer::queue_preview_under_text`]), drained with [`Self::preview_draws`].
+        preview_lifts: Vec<(
+            PreviewId,
+            dereth_render::camera::Viewport,
+            Vec<dereth_ui::ElemHandle>,
+        )>,
     }
 
     impl std::ops::Deref for Renderer {
@@ -148,6 +155,7 @@ mod imp {
                 ui_release: UiReleaseReport::default(),
                 ui_stats: crate::ui_draw::UiTextureStats::default(),
                 preview_draws: Vec::new(),
+                preview_lifts: Vec::new(),
             }
         }
 
@@ -164,6 +172,17 @@ mod imp {
             rect: dereth_render::camera::Viewport,
         ) {
             self.preview_draws.push((who, id, rect));
+        }
+
+        /// Say that `id`'s space occupies `rect` this frame, drawn over the pictures of the
+        /// elements of `subtree` and under their text.
+        pub fn queue_preview_under_text(
+            &mut self,
+            id: PreviewId,
+            subtree: Vec<dereth_ui::ElemHandle>,
+            rect: dereth_render::camera::Viewport,
+        ) {
+            self.preview_lifts.push((id, rect, subtree));
         }
 
         /// Upload whatever images this frame's UI draw list needs.
@@ -390,11 +409,33 @@ mod imp {
             // Taken rather than borrowed: draining here guarantees a queue entry for an element
             // that turned out not to be drawn is dropped rather than carried into the next frame.
             let previews = std::mem::take(&mut self.preview_draws);
+            let lifts = std::mem::take(&mut self.preview_lifts);
             let mut drawn_previews: Vec<dereth_ui::ElemHandle> = Vec::new();
             let mut items = Vec::new();
             if cmds.is_empty() {
                 return items;
             }
+            // A lifted space is drawn after the last command of its subtree, and the subtree's
+            // text is held back until then: `(space, rect, subtree, last command, held text)`.
+            #[allow(clippy::type_complexity)] // a one-off tuple, named where it is read
+            let mut lifted: Vec<(
+                PreviewId,
+                dereth_render::camera::Viewport,
+                Vec<dereth_ui::ElemHandle>,
+                usize,
+                Vec<OverlayItem>,
+            )> = Vec::new();
+            for (id, rect, subtree) in lifts {
+                match cmds.iter().rposition(|c| subtree.contains(&c.who)) {
+                    Some(last) => lifted.push((id, rect, subtree, last, Vec::new())),
+                    // A subtree that drew nothing has no text to go over the space: the space is
+                    // drawn where an element with no command of its own is.
+                    None => self.lower_preview(id, rect, &mut items),
+                }
+            }
+            // The lifted space whose subtree the current command's text belongs to, and where
+            // in `items` that text begins.
+            let mut holding: Option<(usize, usize)> = None;
             // A preview viewport that is **transparent** and carries no glyphs and no fills
             // emits no `UiDrawCmd` at all (`UiSystem::draw_region`'s
             // `if !transparent || !glyphs.is_empty() || !fills.is_empty()`), and the char-gen
@@ -410,7 +451,8 @@ mod imp {
                 self.lower_preview(*id, *rect, &mut items);
             }
             let fb = self.device.gpu.size();
-            for cmd in cmds {
+            for (index, cmd) in cmds.iter().enumerate() {
+                self.settle_lifts(&mut items, &mut lifted, &mut holding, index);
                 // Step 6 `DrawSelf`: the element's own blit first, then the glyphs it composes over
                 // it. Both belong to this element and both precede the next command, which is what
                 // keeps the whole overlay in order.
@@ -557,6 +599,11 @@ mod imp {
                     }
                     drawn_previews.push(cmd.who);
                 }
+                // The text of a lifted space's subtree goes after the space.
+                holding = lifted
+                    .iter()
+                    .position(|l| l.2.contains(&cmd.who))
+                    .map(|li| (li, items.len()));
                 // An element with no glyphs has no selection either -- `selection_boxes` walks the
                 // same glyph list -- but the two are tested together rather than one standing in
                 // for the other, so the invert pass below cannot be skipped by a guard that is
@@ -668,7 +715,35 @@ mod imp {
                     }
                 }
             }
+            self.settle_lifts(&mut items, &mut lifted, &mut holding, cmds.len());
             items
+        }
+
+        /// Before command `index`: move the text the last command held into its space's keeping,
+        /// then draw each space whose subtree ended with the last command, and its held text over
+        /// it.
+        #[allow(clippy::type_complexity)] // the tuple `overlay_items` names
+        fn settle_lifts(
+            &mut self,
+            items: &mut Vec<OverlayItem>,
+            lifted: &mut [(
+                PreviewId,
+                dereth_render::camera::Viewport,
+                Vec<dereth_ui::ElemHandle>,
+                usize,
+                Vec<OverlayItem>,
+            )],
+            holding: &mut Option<(usize, usize)>,
+            index: usize,
+        ) {
+            if let Some((li, start)) = holding.take() {
+                let held: Vec<OverlayItem> = items.drain(start..).collect();
+                lifted[li].4.extend(held);
+            }
+            for l in lifted.iter_mut().filter(|l| l.3 + 1 == index) {
+                self.lower_preview(l.0, l.1, items);
+                items.append(&mut l.4);
+            }
         }
 
         /// A queued preview space at this point in the overlay, counted as drawn or as empty. A
@@ -1171,6 +1246,15 @@ mod imp {
             rect: dereth_render::camera::Viewport,
         ) {
             Renderer::queue_preview(self, id, who, rect);
+        }
+
+        fn preview_queue_under_text(
+            &mut self,
+            id: PreviewId,
+            subtree: Vec<dereth_ui::ElemHandle>,
+            rect: dereth_render::camera::Viewport,
+        ) {
+            Renderer::queue_preview_under_text(self, id, subtree, rect);
         }
     }
 

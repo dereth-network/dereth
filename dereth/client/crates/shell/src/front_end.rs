@@ -2144,9 +2144,30 @@ impl<H: Host> Ui<'_, '_, H> {
                 return None;
             }
             let b = shell.ui.screen_clip_box(h);
-            b.is_valid().then_some((h, b, object))
+            // The creature's attribute list is laid over the viewport, and its translucent rows
+            // would shade the model: the model is drawn over the list's pictures and under its
+            // text.
+            let mut over: Vec<dereth_ui::ElemHandle> = shell
+                .ui
+                .parent(h)
+                .and_then(|p| {
+                    shell.ui.get_child_recursive(
+                        p,
+                        dereth_ui_screens::panels::examination::CREATURE_STAT_LIST,
+                    )
+                })
+                .filter(|l| element_is_drawn(&shell.ui, *l))
+                .into_iter()
+                .collect();
+            let mut at = 0;
+            while at < over.len() {
+                let more = shell.ui.children(over[at]);
+                over.extend(more);
+                at += 1;
+            }
+            b.is_valid().then_some((h, b, object, over))
         });
-        let Some((who, area, object)) = where_ else {
+        let Some((who, area, object, over)) = where_ else {
             return;
         };
 
@@ -2234,7 +2255,13 @@ impl<H: Host> Ui<'_, '_, H> {
             width: (area.x1 - area.x0.max(0) + 1).max(0) as u32,
             height: (area.y1 - area.y0.max(0) + 1).max(0) as u32,
         };
-        self.cx.present_mut().preview_queue(id, who, rect);
+        if over.is_empty() {
+            self.cx.present_mut().preview_queue(id, who, rect);
+        } else {
+            self.cx
+                .present_mut()
+                .preview_queue_under_text(id, over, rect);
+        }
     }
 
     /// `PropertyInt 0xBC HeritageGroup` off the `0x0013` qualities, which is what

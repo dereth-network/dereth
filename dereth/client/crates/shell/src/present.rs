@@ -66,6 +66,21 @@ pub trait ClientPresentation: Presentation {
     /// Draw preview space `id` into that element's rectangle this frame. The spaces themselves
     /// are the presentation's own (`Presentation::preview_ensure` and the rest).
     fn preview_queue(&mut self, id: PreviewId, who: dereth_ui::ElemHandle, rect: Viewport);
+
+    /// Draw preview space `id` into `rect` this frame over the pictures of the elements in
+    /// `subtree` (an element and its descendants) and under their text: the space is drawn once
+    /// the last of them has drawn its picture, and their text after it. A presentation that cannot
+    /// split the two draws the space at the first of them.
+    fn preview_queue_under_text(
+        &mut self,
+        id: PreviewId,
+        subtree: Vec<dereth_ui::ElemHandle>,
+        rect: Viewport,
+    ) {
+        if let Some(&who) = subtree.first() {
+            self.preview_queue(id, who, rect);
+        }
+    }
 }
 
 impl ClientPresentation for NullPresentation {

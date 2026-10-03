@@ -29,6 +29,8 @@ use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 /// The portrait element found recursively beneath the creature pane's parent window; it is kept
 /// as the portrait only if it is a viewport.
 const CREATURE_PAPER_DOLL: ElementId = ElementId(0x1000_0148);
+/// The creature's attribute list, laid over the viewport.
+const CREATURE_STAT_LIST: ElementId = ElementId(0x1000_0149);
 /// The viewport's registered engine element class.
 const VIEWPORT_CLASS: u32 = 0x0D;
 
@@ -197,6 +199,11 @@ struct Shot {
 const SETTLE: u32 = 6;
 
 fn arm(hide_viewport: bool, empty_space: bool) -> Shot {
+    arm_with(hide_viewport, empty_space, false)
+}
+
+/// [`arm`], with the creature's attribute list (laid over the viewport) hidden or not.
+fn arm_with(hide_viewport: bool, empty_space: bool, hide_list: bool) -> Shot {
     have_dats();
     let mut app = app_in_gameplay(4);
     let profile = examine_recorded(&mut app, "long-solo-play", GOLEM);
@@ -228,6 +235,11 @@ fn arm(hide_viewport: bool, empty_space: bool) -> Shot {
     }
     if hide_viewport {
         let h = handle_of(&mut app, CREATURE_PAPER_DOLL);
+        let (ui, _) = gameplay_screen(&mut app);
+        ui.set_visible(h, false);
+    }
+    if hide_list {
+        let h = handle_of(&mut app, CREATURE_STAT_LIST);
         let (ui, _) = gameplay_screen(&mut app);
         ui.set_visible(h, false);
     }
@@ -422,4 +434,46 @@ fn an_item_gets_no_portrait_because_its_init_is_the_base_one() {
         "the item-examination panel inherits shared examination-subpanel initialization, which adds no object"
     );
     app.shutdown();
+}
+
+/// Behaviour: examine.portrait.the-model-is-drawn-over-the-attribute-lists-ground
+///
+/// Oracle: the same model with the attribute list hidden. The model's pixels are those that
+/// differ from an empty space; wherever the list's text does not fall on them, they are the same
+/// with the list shown, so the list's translucent rows do not shade the model.
+#[test]
+fn the_creatures_attribute_list_does_not_shade_its_model() {
+    let shown = arm_with(false, false, false);
+    let bare = arm_with(false, false, true);
+    let empty_shown = arm_with(false, true, false);
+    let empty_bare = arm_with(false, true, true);
+    let rect = shown.rect;
+    let (w, h) = (shown.w, shown.h);
+    let (mut model, mut shaded) = (0u32, 0u32);
+    let x1 = (rect.x1.max(0) as u32).min(w - 1);
+    let y1 = (rect.y1.max(0) as u32).min(h - 1);
+    for y in rect.y0.max(0) as u32..=y1 {
+        for x in rect.x0.max(0) as u32..=x1 {
+            let i = ((y * w + x) * 4) as usize;
+            let px = |s: &Shot| s.px.get(i..i + 4).map(<[u8]>::to_vec);
+            // A model pixel, where no text of the list falls.
+            if px(&bare) == px(&empty_bare)
+                || px(&empty_shown) != px(&empty_bare) && {
+                    let p = px(&empty_shown).unwrap_or_default();
+                    p.iter().take(3).any(|&c| c > 150)
+                }
+            {
+                continue;
+            }
+            model += 1;
+            if px(&shown) != px(&bare) {
+                shaded += 1;
+            }
+        }
+    }
+    assert!(model > 1000, "the model covers {model} pixels");
+    assert!(
+        shaded * 10 < model,
+        "{shaded} of the model's {model} pixels change when the list is shown"
+    );
 }

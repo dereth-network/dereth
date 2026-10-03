@@ -391,6 +391,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                  so in the chat.",
         why: "The owner asked that every key that can be bound work when it is bound.",
     },
+    Divergence {
+        id: "CD-020",
+        title: "The examined creature's model over its attribute list",
+        retail: "The end-of-retail client draws the examine window's model where its viewport                  stands among the window's elements, before the attribute list laid over it, so                  the list's translucent rows shade the model where they cover it.",
+        dereth: "The model is drawn over the attribute list's rows and under its text, so it is                  as bright behind the numbers as below them.",
+        why: "The owner asked for the whole model to be drawn above the list's translucent               ground.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.
