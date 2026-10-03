@@ -1973,7 +1973,7 @@ mod tests {
             .collect();
         assert_eq!(
             maps,
-            [5, 3, 0x10],
+            [5, dereth_input::dereth::INPUT_MAP.0, 3, 0x10],
             "only the whole-run maps stay, in their walk order"
         );
         assert!(
@@ -1984,7 +1984,7 @@ mod tests {
         assert!(!shell.set_combat_input_maps(dereth_input::combat::mode::MAGIC));
         shell.set_target_input_map(true);
         assert!(!shell.target_input_map_active());
-        assert_eq!(shell.manager.maps.len(), 3);
+        assert_eq!(shell.manager.maps.len(), WHOLE_RUN_INPUT_MAPS.len());
 
         assert!(shell.set_character_session_input_maps(true));
         shell.set_combat_input_maps(dereth_input::combat::mode::MELEE);
