@@ -10,8 +10,7 @@ use dereth_ui::framework::Screen;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
 use dereth_ui_screens::chat::mainchat::{
-    AutoTarget, AutoTargetWorld, MenuRowChoice, SpeakableTarget, STATE_DISABLED, STATE_ENABLED,
-    STATE_SELECTED,
+    MenuRowChoice, SpeakableTarget, STATE_DISABLED, STATE_ENABLED, STATE_SELECTED,
 };
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::view::UiRequest;
@@ -590,71 +589,38 @@ fn choosing_the_squelch_row_asks_the_shard_to_toggle_the_squelch() {
 }
 
 /// Behaviour: chat.talk-to-menu.the-chat-target-follows-what-is-selected-while-it-is-near
-/// **The chat UI's once-a-second sweep — its first caller.**
-///
-/// The throttle is a file-scope static in the client: once a second, and the deadline is
-/// pushed forward on every path out.
 #[test]
-fn the_once_a_second_sweep_clears_a_target_that_walked_away() {
+fn projected_target_availability_updates_the_real_menu_rows() {
+    use dereth_client_contract::chat::mainchat::ChatFocusView;
     let (mut ui, mut s) = screen();
-    let t = SpeakableTarget {
-        id: 40,
-        name: "Alba".into(),
+    let row = s.main_chat.menu_item(&ui, 2).unwrap();
+    let mut facts = ChatFocusView {
+        focus: 1,
+        ..Default::default()
+    };
+    facts.enabled[1] = true;
+    facts.selectable[1] = true;
+    s.main_chat.project_communication(&mut ui, &facts);
+    assert_eq!(state(&ui, row), STATE_DISABLED.0);
+    facts.enabled[2] = true;
+    facts.selectable[2] = true;
+    facts.target = Some(SpeakableTarget {
+        id: 12,
+        name: "Hoshino".into(),
         talkable: true,
         squelched: false,
-    };
-    s.main_chat.set_selected(&mut ui, Some(&t));
-    assert!(
-        s.main_chat.is_talk_focus_enabled(2),
-        "the first arm is the one under test"
-    );
-
-    // In range: nothing happens, and the second is spent.
-    let near = AutoTargetWorld {
-        in_range_of_player: vec![40],
-        ..AutoTargetWorld::default()
-    };
-    assert_eq!(
-        s.chat_use_time(&mut ui, 100.0, &near, |_| None),
-        Some(AutoTarget::Unchanged)
-    );
-    assert_eq!(
-        s.chat_use_time(&mut ui, 100.5, &near, |_| None),
-        None,
-        "the throttle refuses"
-    );
-
-    // Out of range: the selected target is cleared, and focus 2 goes down with it.
-    let far = AutoTargetWorld::default();
-    assert_eq!(
-        s.chat_use_time(&mut ui, 101.0, &far, |_| None),
-        Some(AutoTarget::Clear)
-    );
-    assert_eq!(s.main_chat.last_speakable_target, 0);
-    assert!(
-        !s.main_chat.is_talk_focus_enabled(2),
-        "SetTalkFocusEnabled(2, false)"
-    );
-    let row2 = s.main_chat.menu_item(&ui, 2).expect("Tell to <selected>");
-    assert_eq!(
-        state(&ui, row2),
-        0x0D,
-        "and its element is disabled, not a flag"
-    );
-
-    // The second arm: nothing speakable, so a talkable selection in range is adopted.
-    let adopt = AutoTargetWorld {
-        selected_id: 12,
-        player_id: 9,
-        selected_talkable: true,
-        in_range_of_player: vec![12],
-        selected_name: "Hoshino".into(),
-        ..AutoTargetWorld::default()
-    };
-    assert_eq!(
-        s.chat_use_time(&mut ui, 102.0, &adopt, |id| Some(adopt.adopted(id))),
-        Some(AutoTarget::Adopt(12))
-    );
+    });
+    s.main_chat.project_communication(&mut ui, &facts);
     assert_eq!(s.main_chat.last_speakable_target, 12);
-    assert_eq!(state(&ui, row2), 0x1, "…and the row comes back up");
+    assert_eq!(state(&ui, row), STATE_ENABLED.0);
+    facts.focus = 2;
+    s.main_chat.project_communication(&mut ui, &facts);
+    assert_eq!(state(&ui, row), STATE_SELECTED.0);
+    facts.focus = 1;
+    facts.target = None;
+    facts.enabled[2] = false;
+    facts.selectable[2] = false;
+    s.main_chat.project_communication(&mut ui, &facts);
+    assert_eq!(s.main_chat.last_speakable_target, 0);
+    assert_eq!(state(&ui, row), STATE_DISABLED.0);
 }

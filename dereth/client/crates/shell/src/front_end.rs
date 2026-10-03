@@ -303,6 +303,11 @@ fn dispatch_ui_owner_requests<H: Host>(
                     })
                 }));
             }
+            for update in cx.take_chat_entry_updates() {
+                if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                    crate::hud_drive::game_call(&mut shell.ui, screen, GameCall::ChatEntry(update));
+                }
+            }
             cx.deliver_selection_notices(now);
             targeted_dialogs.service_with(cx, Some(shell), now);
             if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
@@ -334,6 +339,33 @@ fn dispatch_ui_owner_requests<H: Host>(
         );
         let (hud, objects) = cx.hud_and_objects();
         hud.refresh_item_input_views(&mut shell.ui, screen, objects);
+    }
+    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+        let GameCall::ChatDrafts(drafts) =
+            crate::hud_drive::game_call(&mut shell.ui, screen, GameCall::ChatDrafts(Vec::new()))
+        else {
+            unreachable!()
+        };
+        for (window, text) in drafts {
+            if cx
+                .model()
+                .chat
+                .entries
+                .get(&window)
+                .map(|entry| entry.text.as_str())
+                != Some(text.as_str())
+            {
+                unowned.extend(cx.run_request(
+                    UiRequest::ChatEntry {
+                        window,
+                        text,
+                        action: dereth_client_contract::chat::entry::EntryAction::Draft,
+                    },
+                    now,
+                    &mut |_, _| false,
+                ));
+            }
+        }
     }
     shell.set_target_mode_active(cx.target_mode() != TargetMode::None);
     unowned
@@ -596,6 +628,15 @@ impl<H: Host> Ui<'_, '_, H> {
                 ),
             );
         }
+        if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+            crate::hud_drive::game_call(
+                &mut shell.ui,
+                screen,
+                dereth_ui_screens::screens::gameplay_host::GameCall::ChatState(
+                    cx.hud().chat_focus_view(cx.model()),
+                ),
+            );
+        }
         // Retail external listeners call game globals synchronously. UiSystem has released
         // its element callback borrow here, so the complete listener sequence can finish before
         // the next action. No selective Use extraction may overtake a drag lock or split write.
@@ -716,32 +757,19 @@ impl<H: Host> Ui<'_, '_, H> {
         }
         if screen_changed {
             if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
-                // Post-initialization selects row 0, then handles selection 1. Current global
-                // enables initialize the new rows, but old notice history never does. Place
-                // the focus write AFTER outgoing-screen requests, whose commands preceded it.
-                let is_olthoi = self.cx.hud().is_olthoi(self.cx.model());
-                self.cx
-                    .set_talk_focus_enabled(dereth_client_model::chat::TalkFocus::Selected, false);
-                // Selecting the row raises its own enable notice, which belongs to this `post_init`,
-                // not a later input frame. Finish it before the explicit selection tail below.
-                self.cx.deliver_talk_focus_notices(&mut |focus, notice| {
-                    crate::hud::talk_focus_notice(&mut shell.ui, screen, focus, notice)
-                });
-                if let dereth_ui_screens::screens::gameplay_host::GameCall::InitCommunication {
-                    change: Some(change),
-                    ..
-                } = crate::hud_drive::game_call(
+                crate::hud_drive::game_call(
                     &mut shell.ui,
                     screen,
-                    dereth_ui_screens::screens::gameplay_host::GameCall::InitCommunication {
-                        enabled: self.cx.model().chat.enabled_focuses(),
-                        is_olthoi,
-                        change: None,
-                    },
-                ) {
-                    requests.push(dereth_client_contract::UiRequest::SetTalkFocus {
-                        focus: change.focus,
-                    });
+                    dereth_ui_screens::screens::gameplay_host::GameCall::ChatState(
+                        self.cx.hud().chat_focus_view(self.cx.model()),
+                    ),
+                );
+                for draft in self.cx.chat_entry_drafts() {
+                    crate::hud_drive::game_call(
+                        &mut shell.ui,
+                        screen,
+                        dereth_ui_screens::screens::gameplay_host::GameCall::ChatEntry(draft),
+                    );
                 }
             }
         }
@@ -2734,7 +2762,13 @@ impl<H: Host> ClientShell<H> {
                             u32::from(line.ty),
                             line.prefix.unwrap_or_default(),
                             &line.body,
+                            line.window,
                         );
+                    }
+                }
+                if let Some(ui) = self.classic.ui.as_mut() {
+                    for draft in cx.chat_entry_drafts() {
+                        ui.apply_chat_entry(cx, draft);
                     }
                 }
                 tracing::info!("the classic interface is shown");
@@ -2780,6 +2814,19 @@ impl<H: Host> ClientShell<H> {
                         tracing::debug!("the option pages read again: {moved} rows moved");
                     }
                 }
+                if let Some(shell) = self.ui.as_mut() {
+                    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                        for draft in cx.chat_entry_drafts() {
+                            crate::hud_drive::game_call(
+                                &mut shell.ui,
+                                screen,
+                                dereth_ui_screens::screens::gameplay_host::GameCall::ChatEntry(
+                                    draft,
+                                ),
+                            );
+                        }
+                    }
+                }
                 // This interface's chat takes the lines it missed.
                 let missed: Vec<_> = self.classic.take_missed();
                 for line in missed {
@@ -2819,6 +2866,11 @@ impl<H: Host> Shell for ClientShell<H> {
 
     /// The window's queued events, in arrival order, then the end of the drain.
     fn window_input(&mut self, cx: &mut Cx<'_, H>, time_ms: u32) {
+        cx.set_chat_interface(if self.classic.active {
+            dereth_client_contract::options::interface::Interface::Classic
+        } else {
+            dereth_client_contract::options::interface::Interface::Retail
+        });
         let events: Vec<_> = self.window_events.borrow_mut().drain(..).collect();
         if self.classic.active {
             // The classic interface takes the devices; the window's lifecycle stays the
@@ -3182,6 +3234,11 @@ impl<H: Host> Shell for ClientShell<H> {
         notices: UiNotices,
     ) {
         self.follow_interface(cx);
+        cx.set_chat_interface(if self.classic.active {
+            dereth_client_contract::options::interface::Interface::Classic
+        } else {
+            dereth_client_contract::options::interface::Interface::Retail
+        });
         if let Some(ui) = self.classic.active_mut() {
             // The journal's file follows the character in this interface too.
             let journal_identity = journal_identity(cx);

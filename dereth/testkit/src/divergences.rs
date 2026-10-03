@@ -219,6 +219,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                  detail from the distance alone.",
         why: "One setting that does the same thing on every world.",
     },
+    Divergence {
+        id: "CD-027",
+        title: "Chat availability does not depend on an open menu",
+        change: "Disabling the current chat destination falls back to Say even while its window or menu row is absent.",
+        why: "Rebuilding or switching the interface cannot leave an unavailable destination selected.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

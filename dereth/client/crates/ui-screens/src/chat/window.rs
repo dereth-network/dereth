@@ -541,29 +541,25 @@ impl ChatWindow {
         iface: &mut ChatInterface,
         source: ElemHandle,
         ch: char,
-        targets: &ReplyTargets,
-    ) -> Option<super::interface::TextReplacement> {
-        if Some(source) != self.entry || ch != ' ' {
-            return None;
-        }
-        let entry = self.entry?;
-        let text = ui
-            .text_element_mut(entry)
-            .map(|t| t.glyphs.inq_text(true))?;
-        let r = super::interface::handle_text_replacements(
-            &text,
-            targets.last_teller.as_deref(),
-            targets.monarch.as_deref(),
-            targets.patron.as_deref(),
-        )?;
-        iface.entry.clone_from(&r.text);
-        if let Some(t) = ui.text_element_mut(entry) {
-            t.set_text(&r.text);
-            // Move the cursor to `len + 1`, then clear the selection.
-            t.cursor = r.cursor.min(t.glyphs.len());
-            t.deselect();
-        }
-        Some(r)
+        _targets: &ReplyTargets,
+    ) -> bool {
+        let Some(entry) = self.entry.filter(|entry| *entry == source) else {
+            return false;
+        };
+        let Some(text) = ui.text_element_mut(entry).map(|t| t.glyphs.inq_text(true)) else {
+            return false;
+        };
+        iface.entry.clone_from(&text);
+        ui.requests.emit(UiRequest::ChatEntry {
+            window: iface.window_id,
+            text,
+            action: if ch == ' ' {
+                dereth_client_contract::chat::entry::EntryAction::ExpandAlias
+            } else {
+                dereth_client_contract::chat::entry::EntryAction::Draft
+            },
+        });
+        true
     }
 }
 
@@ -711,15 +707,16 @@ impl ChatWindow {
     /// (the main chat panel's text tag iid string click notice, tag type `0x10000001`,
     /// guarded by the entry not being focused).
     pub fn on_start_tell(&self, ui: &mut UiSystem, iface: &mut ChatInterface, name: &str) {
-        let Some(entry) = self.entry else { return };
-        let text = format!("{START_TELL_PREFIX}{name}, ");
-        self.activate_chat_entry(ui, iface);
-        iface.entry.clone_from(&text);
-        if let Some(t) = ui.text_element_mut(entry) {
-            t.set_text(&text);
-            t.cursor = t.glyphs.len();
-            t.deselect();
+        if self.entry.is_none() {
+            return;
         }
+        ui.requests.emit(UiRequest::ChatEntry {
+            window: iface.window_id,
+            text: iface.entry.clone(),
+            action: dereth_client_contract::chat::entry::EntryAction::StartTell {
+                name: name.to_owned(),
+            },
+        });
     }
 
     /// **The Enter key**: if the text entry is not focused, nothing happens. Unless the player's
@@ -773,13 +770,20 @@ impl ChatWindow {
         iface: &mut ChatInterface,
         back: bool,
     ) {
-        iface.select_command_from_history(back);
         let Some(entry) = self.entry else { return };
-        let text = iface.entry.clone();
-        if let Some(t) = ui.text_element_mut(entry) {
-            t.set_text(&text);
-            t.cursor = t.glyphs.len();
-        }
+        let text = ui
+            .text_element_mut(entry)
+            .map(|t| t.glyphs.inq_text(true))
+            .unwrap_or_default();
+        ui.requests.emit(UiRequest::ChatEntry {
+            window: iface.window_id,
+            text,
+            action: if back {
+                dereth_client_contract::chat::entry::EntryAction::Previous
+            } else {
+                dereth_client_contract::chat::entry::EntryAction::Next
+            },
+        });
     }
 
     /// Handle a reply-key action by composing `ID_AssistedTell` for one of
@@ -801,25 +805,26 @@ impl ChatWindow {
         targets: &ReplyTargets,
         template: &str,
     ) -> bool {
-        use super::mainchat::action as a;
-        let name = match action {
-            a::REPLY => targets.monarch.as_deref(),
-            a::REPLY_MONARCH => targets.patron.as_deref(),
-            a::REPLY_PATRON => targets.last_teller.as_deref(),
-            _ => None,
-        };
-        let Some(name) = name.filter(|s| !s.is_empty()) else {
+        let _ = targets;
+        let Some(entry) = self.entry else {
             return true;
         };
-        let Some(entry) = self.entry else { return true };
-        self.activate_chat_entry(ui, iface);
-        let text = format!("{template}{name}, ");
-        iface.entry.clone_from(&text);
-        if let Some(t) = ui.text_element_mut(entry) {
-            t.set_text(&text);
-            t.deselect();
-            t.cursor = t.glyphs.len();
-        }
+        let Some(target) = dereth_client_contract::chat::entry::ReplyTarget::from_action(
+            dereth_client_contract::actions::ActionId(action),
+        ) else {
+            return false;
+        };
+        let text = ui
+            .text_element_mut(entry)
+            .map_or_else(String::new, |t| t.glyphs.inq_text(true));
+        ui.requests.emit(UiRequest::ChatEntry {
+            window: iface.window_id,
+            text,
+            action: dereth_client_contract::chat::entry::EntryAction::Reply {
+                target,
+                prefix: template.to_owned(),
+            },
+        });
         true
     }
 

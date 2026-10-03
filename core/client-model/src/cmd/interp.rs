@@ -3,8 +3,6 @@
 //! re-join. An unrecognised command falls through to the server verbatim, **confirmed live**:
 //! a command only the server knows produced the server's answer in the chat window.
 
-use std::collections::VecDeque;
-
 use super::table::{CommandEntry, HELP_GROUPS, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS};
 
 /// The talk-focus enumeration, with values 1 through 13.
@@ -169,19 +167,11 @@ pub struct CommandInterp {
     /// The case-insensitive command table and its command records.
     /// Kept as a vector in registration order so "first registration wins" is visible.
     table: Vec<CommandEntry>,
-    /// Input history: up to 100 submitted lines, **per chat window**, not persisted.
-    history: VecDeque<String>,
-    /// The input-history browse position; `None` is the client's `0xFFFFFFFF` "not browsing".
-    history_pos: Option<usize>,
     /// The last command line.
     pub last_line: String,
     /// The chat window the current command came from.
     pub current_command_source: u32,
 }
-
-/// The history drops the oldest entries while the count exceeds
-/// this.
-pub const HISTORY_LIMIT: usize = 100;
 
 /// Only window ids **1** and **8** are routed by talk focus; every other window sends public chat.
 pub const TALK_FOCUS_WINDOWS: [u32; 2] = [1, 8];
@@ -205,8 +195,6 @@ impl CommandInterp {
         }
         Self {
             table,
-            history: VecDeque::new(),
-            history_pos: None,
             last_line: String::new(),
             current_command_source: 1,
         }
@@ -336,50 +324,6 @@ impl CommandInterp {
         }
     }
 
-    /// The dispatcher's history half: append, reset the browse
-    /// position, and drop the oldest while the count exceeds 100.
-    pub fn push_history(&mut self, line: &str) {
-        self.history.push_back(line.to_owned());
-        self.history_pos = None;
-        while self.history.len() > HISTORY_LIMIT {
-            self.history.pop_front();
-        }
-    }
-
-    /// Select from history, backwards -- up.
-    ///
-    /// If already browsing and at index 0, nothing happens; otherwise step to `pos - 1`, or to
-    /// `count - 1` when starting a browse.
-    pub fn history_back(&mut self) -> Option<&str> {
-        if self.history.is_empty() {
-            return None;
-        }
-        let next = match self.history_pos {
-            None => self.history.len() - 1,
-            Some(0) => return None,
-            Some(p) => p - 1,
-        };
-        self.history_pos = Some(next);
-        self.history.get(next).map(String::as_str)
-    }
-
-    /// History selection, downward. Running past the end clears the field and resets
-    /// the position to "not browsing", which is what `None` means here.
-    pub fn history_forward(&mut self) -> Option<&str> {
-        let p = self.history_pos?;
-        let next = p + 1;
-        if next >= self.history.len() {
-            self.history_pos = None;
-            return None;
-        }
-        self.history_pos = Some(next);
-        self.history.get(next).map(String::as_str)
-    }
-
-    pub fn history(&self) -> impl Iterator<Item = &String> {
-        self.history.iter()
-    }
-
     /// The help groups, for `@help` with no argument.
     #[must_use]
     pub fn help_groups(&self) -> &'static [&'static str] {
@@ -498,23 +442,6 @@ mod tests {
         assert_eq!(c.lookup("guild").unwrap().handler, Some("guild"));
         // `o` was not previously registered, so it is added.
         assert_eq!(c.lookup("o").unwrap().handler, Some("olthoi"));
-    }
-
-    /// Oracle: the recovered command-interpreter behavior §6 — 100 entries, per window, not persisted; the browse
-    /// position resets on submit and clears when it runs past the end.
-    #[test]
-    fn history_is_a_hundred_entries_and_browses_both_ways() {
-        let mut c = CommandInterp::new();
-        for i in 0..120 {
-            c.push_history(&format!("line {i}"));
-        }
-        assert_eq!(c.history().count(), HISTORY_LIMIT);
-        assert_eq!(c.history_back(), Some("line 119"));
-        assert_eq!(c.history_back(), Some("line 118"));
-        assert_eq!(c.history_forward(), Some("line 119"));
-        assert_eq!(c.history_forward(), None, "past the end clears the field");
-        assert_eq!(c.history_forward(), None, "and stops browsing");
-        assert_eq!(c.history_back(), Some("line 119"));
     }
 
     /// Oracle: the recovered command-interpreter behavior §2 — only windows 1 and 8 are routed by talk focus.

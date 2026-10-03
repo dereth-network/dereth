@@ -56,3 +56,40 @@ impl AutoTargetWorld {
         }
     }
 }
+
+/// Communication facts projected into either interface's target menu.
+#[derive(Debug, Clone, Default)]
+pub struct ChatFocusView {
+    pub focus: u32,
+    pub enabled: [bool; 14],
+    pub selectable: [bool; 14],
+    pub is_olthoi: bool,
+    pub target: Option<SpeakableTarget>,
+}
+
+/// Menu reset and enable notices deliberately allow different selected-target states.
+#[must_use]
+pub fn reset_focus_rows(enabled: [bool; 14], is_olthoi: bool) -> [bool; 14] {
+    if !is_olthoi {
+        return enabled;
+    }
+    let mut rows = [false; 14];
+    rows[1] = true;
+    rows[13] = true;
+    rows
+}
+
+/// One enable notice: row availability and whether the current destination falls back to Say.
+#[must_use]
+pub const fn focus_enable_transition(
+    previous: bool,
+    current: u32,
+    focus: u32,
+    enabled: bool,
+    is_olthoi: bool,
+) -> (bool, bool) {
+    if is_olthoi && !matches!(focus, 1 | 2 | 13) {
+        return (false, false);
+    }
+    (enabled, previous && !enabled && current == focus)
+}

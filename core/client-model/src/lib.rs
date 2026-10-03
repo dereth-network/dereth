@@ -34,6 +34,7 @@ pub mod attributes;
 pub mod book;
 pub mod chat;
 pub mod chat_cmd;
+pub mod chat_entry;
 /// The chat command interpreter: a line beginning `/` or `@` is normalised, tokenised and looked
 /// up in the table of client-side handlers, and anything unrecognised is forwarded verbatim.
 pub mod cmd;

@@ -1152,19 +1152,6 @@ pub struct Hud {
     barber: Option<dereth_protocol::trade::BarberSettings>,
     /// Notice edge, because two byte-identical Starts are still two modal openings.
     barber_generation: u64,
-    /// The last monarch user name, which reply action `0x10000020` and
-    /// the `mr ` text replacement read back. Empty is the client's null string, and an empty name
-    /// makes both of those do nothing.
-    ///
-    /// **These two live here and the third name does not.** The last teller's id and name are
-    /// `dereth_client_model::chat::ChatState::last_teller` / `last_teller_name` — transcribed from
-    /// the last-teller id and name setters. `ChatState` has no monarch or patron sibling, so the
-    /// two siblings sit on `Hud`, which supplies this client's communication state in every other
-    /// respect. They belong beside the other pair.
-    pub at_monarch_user_name: String,
-    /// The last `@patron` user name — its setter, action `0x10000021` and
-    /// the `pr ` replacement.
-    pub at_patron_user_name: String,
     /// `None` until the player has a cell.
     pub coords: Option<(f32, f32)>,
     /// The journal path's three inputs, composed by `App::frame` out
@@ -2365,8 +2352,8 @@ impl Hud {
                     // cleared by `ObjectStream::reset`'s `world = ()`, and these two
                     // have no other owner. A name that survived a log-off would compose a tell to
                     // somebody the next character has never spoken to.
-                    self.at_monarch_user_name.clear();
-                    self.at_patron_user_name.clear();
+                    world.chat.last_monarch_sender.clear();
+                    world.chat.last_patron_sender.clear();
                 }
                 _ => {}
             }
@@ -2726,6 +2713,7 @@ impl Hud {
     fn note_at_channel_speaker(
         &mut self,
         m: &dereth_protocol::comms::CommunicationChannelBroadcastRecv,
+        world: &mut dereth_client_model::World,
     ) {
         // A buffer length of 1 means the string holds only its terminator. An empty
         // sender name is the shard echoing our **own** broadcast, and the client takes the whole
@@ -2735,8 +2723,8 @@ impl Hud {
         }
         let name = trim_language_marker(&m.sender_name).to_owned();
         match m.channel {
-            channel::MONARCH => self.at_monarch_user_name = name,
-            channel::PATRON => self.at_patron_user_name = name,
+            channel::MONARCH => world.chat.last_monarch_sender = name,
+            channel::PATRON => world.chat.last_patron_sender = name,
             _ => return,
         }
         self.stats.at_channel_name_writes += 1;
@@ -2754,18 +2742,7 @@ impl Hud {
         &self,
         world: &dereth_client_model::World,
     ) -> dereth_client_contract::chat::window::ReplyTargets {
-        let some = |s: &str| -> Option<String> {
-            if s.is_empty() {
-                None
-            } else {
-                Some(s.to_owned())
-            }
-        };
-        dereth_client_contract::chat::window::ReplyTargets {
-            last_teller: some(&world.chat.last_teller_name),
-            monarch: some(&self.at_monarch_user_name),
-            patron: some(&self.at_patron_user_name),
-        }
+        world.chat.reply_targets()
     }
 
     /// How many live trackers name a contract [`Hud::contract_table`] does not carry.
@@ -2796,9 +2773,7 @@ impl Hud {
         dereth_primitives::ServerTime(self.now.0)
     }
 
-    /// `world` is `&mut` for one arm and one reason: `0x02BD`'s
-    /// last-teller id and name setters write `dereth_client_model::chat::ChatState`, which is where
-    /// this workspace already transcribes the communication system's remembered speakers.
+    /// Incoming communication updates the shared remembered speakers and chat state.
     fn ui_event(
         &mut self,
         opcode: dereth_protocol::Opcode,
@@ -3494,7 +3469,7 @@ impl Hud {
             Opcode::COMMUNICATION_CHANNEL_BROADCAST => {
                 match comms::CommunicationChannelBroadcastRecv::read(&mut r) {
                     Ok(m) => {
-                        self.note_at_channel_speaker(&m);
+                        self.note_at_channel_speaker(&m, world);
                         let (ty, line) = crate::chat::channel_broadcast_line(
                             m.channel,
                             &m.sender_name,
@@ -4787,6 +4762,30 @@ impl Hud {
         self.display_names = cache;
     }
 
+    /// The communication state projected into either interface's target menu.
+    #[must_use]
+    pub fn chat_focus_view(
+        &self,
+        world: &dereth_client_model::World,
+    ) -> dereth_client_contract::chat::mainchat::ChatFocusView {
+        dereth_client_contract::chat::mainchat::ChatFocusView {
+            focus: world.chat.talk_focus as u32,
+            enabled: world.chat.enabled_focuses(),
+            selectable: world.chat.selectable_focuses(),
+            is_olthoi: self.is_olthoi(world),
+            target: world.chat.last_speakable_target.and_then(|id| {
+                world.weenie(id).map(
+                    |w| dereth_client_contract::chat::mainchat::SpeakableTarget {
+                        id: id.0,
+                        name: w.object_name(dereth_client_model::weenie::NameType::Appropriate),
+                        talkable: w.is_talkable(),
+                        squelched: world.chat.is_squelched(id, "", 1),
+                    },
+                )
+            }),
+        }
+    }
+
     /// The eight answers the auto-target sweep needs from the object
     /// system, gathered once per frame.
     ///
@@ -4808,11 +4807,7 @@ impl Hud {
     /// [`Self::sync`] — `RadarEntry::in_world` is the "we have a position for it" flag — so this
     /// walks it rather than the object stream a second time.
     ///
-    /// **`pub` for testability.** Its one production caller is `Self::drive`,
-    /// which needs a live `UiSystem` and a built `GamePlayScreen`; a producer reachable only that
-    /// way cannot be driven directly by a test, and this one answers a
-    /// default-everything struct on any mistake — the shape that reads as "the sweep decided
-    /// nothing" rather than as a failure.
+    /// Both interface adapters and the runtime read these facts without owning the sweep.
     #[must_use]
     pub fn auto_target_world(
         &self,

@@ -2378,6 +2378,9 @@ impl<S: Shell> App<S> {
         // Communication notices affect command routing, so the existing subscriber receives
         // them before shell input, not in the late display-only power-bar batch below. If a mode
         // is queued, this is still the outgoing live subscriber; the new `post_init` reads globals.
+        let chat_target = self.hud.auto_target_world(&self.objects.world);
+        self.interaction
+            .update_chat_target(&mut self.objects.world, now.0, &chat_target);
         let chat_focus_notices = self.objects.world.chat.take_talk_focus_notices();
         // The player's `transient_state & 1`, the one thing
         // the log-off confirmation checks before refusing an airborne log-off. Read here, before

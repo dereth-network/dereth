@@ -78,11 +78,18 @@ pub enum GameCall {
     RereadOptions(usize),
     /// The start-tell notice for `name`, reaching the chat entry.
     StartTell(String),
+    ChatEntry(dereth_client_contract::chat::entry::EntryUpdate),
+    /// Read current widget drafts after edits such as paste or deletion.
+    ChatDrafts(Vec<(u32, String)>),
+    ChatState(dereth_client_contract::chat::mainchat::ChatFocusView),
     /// One of this client's window keys ([`GamePlayScreen::own_window_action`]); the answer is
     /// whether it was one.
     OwnWindowAction(u32, bool),
     /// Place the screen's windows from a loaded layout; `placed` is how many were placed.
-    LoadLayout { layout: ScreenLayout, placed: usize },
+    LoadLayout {
+        layout: ScreenLayout,
+        placed: usize,
+    },
     /// The screen's windows as a layout.
     SaveLayout(Option<ScreenLayout>),
     /// The player's airborne state, which the log-off confirmation checks.
@@ -100,7 +107,10 @@ pub enum GameCall {
         values: Option<(f32, f32)>,
     },
     /// The frame-rate display's guarded update.
-    FramerateUseTime { framerate: f32, degrade: f32 },
+    FramerateUseTime {
+        framerate: f32,
+        degrade: f32,
+    },
     /// A book went out of range.
     BookRangeExit(ObjectId),
     /// An item offered to the trade window from outside it.
@@ -364,6 +374,18 @@ pub(crate) fn on_game(s: &mut GamePlayScreen, cx: &mut ScreenCx<'_>, g: &mut Gam
         }
         GameCall::RereadOptions(moved) => {
             *moved = s.reread_option_pages(cx.ui, cx.view);
+            true
+        }
+        GameCall::ChatState(facts) => {
+            s.main_chat.project_communication(cx.ui, facts);
+            true
+        }
+        GameCall::ChatDrafts(drafts) => {
+            *drafts = s.chat_entry_drafts(cx.ui);
+            true
+        }
+        GameCall::ChatEntry(update) => {
+            s.chat_entry_update(cx.ui, update);
             true
         }
         GameCall::StartTell(name) => {

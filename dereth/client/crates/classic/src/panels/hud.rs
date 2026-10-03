@@ -7,10 +7,8 @@ use dereth_primitives::num::{to_i32, to_i32_f64};
 
 mod character;
 pub use character::{augmentation_text, AugmentationSheet};
-mod chat_focus;
 mod chat_log;
 mod combat;
-pub use chat_focus::ChatFocusState;
 
 const INK: u32 = 0xffd2d2c8;
 
@@ -668,6 +666,10 @@ impl Panel for Hud {
             self.vitals.event(ControlEvent::Tick, c);
         }
         match &e {
+            ControlEvent::ChatEntry(update) => {
+                self.chat.text.clone_from(&update.text);
+                return vec![];
+            }
             // The toolbar's backpack takes an object dropped on it into the backpack.
             ControlEvent::Drop {
                 id,
@@ -1119,6 +1121,7 @@ impl Panel for Vitals {
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         match e {
+
             ControlEvent::Tick=>{self.link.tick(c.game.now(),c.game.link_status());vec![]}
             ControlEvent::Activate(id) if id.starts_with("vital:") => {self.numeric = !self.numeric;vec![]}
 
@@ -1431,23 +1434,14 @@ impl Panel for Radar {
 /// The chat window's colour for each text type.
 fn chat_color(ty: u32) -> u32 {
     0xff000000
-        | match ty {
-            2 => 0xffffff,
-            3 | 10 => 0xffff3f,
-            4 | 11 => 0xd2d264,
-            5 | 20 => 0xff7fff,
-            6 | 15 | 21 => 0xff3f3f,
-            7 | 17 => 0x3fbfff,
-            8 => 0xff9696,
-            9 => 0xdca0a0,
-            12 => 0xd2d2c8,
-            13 => 0x3fdcdc,
-            14 => 0xb4dcf0,
-            18 => 0xee921e,
-            22 => 0xf57572,
-            _ => 0x80ff7f,
-        }
+        | dereth_client_contract::chat::colors::interface_color(
+            ty,
+            dereth_client_contract::options::interface::Interface::Classic,
+        )
+        .hex
 }
+
+const CHAT_FOCUSES: [u32; 14] = [0, 2, 1, 3, 5, 4, 6, 7, 8, 9, 10, 11, 12, 13];
 
 #[derive(Debug)]
 struct Chat {
@@ -1456,8 +1450,7 @@ struct Chat {
     text: String,
     offset: usize,
     destination: usize,
-    history: Vec<String>,
-    history_index: usize,
+
     /// The selected part of the log, from where the press landed to where the pointer is.
     selection: Option<(chat_log::Place, chat_log::Place)>,
     /// Whether a press in the log is still selecting.
@@ -1475,8 +1468,7 @@ impl Default for Chat {
             text: String::new(),
             offset: 0,
             destination: 2,
-            history: vec![],
-            history_index: 0,
+
             selection: None,
             selecting: false,
             selected: None,
@@ -1493,6 +1485,17 @@ fn chat_lines<'a>(c: &'a Context<'_>) -> Vec<&'a str> {
     c.classic.chat.iter().map(|(_, s)| s.as_str()).collect()
 }
 impl Chat {
+    fn entry_action(
+        &self,
+        action: dereth_client_contract::chat::entry::EntryAction,
+    ) -> Vec<PanelAction> {
+        vec![PanelAction::Game(UiRequest::ChatEntry {
+            window: dereth_client_contract::chat::interface::window::MAIN,
+            text: self.text.clone(),
+            action,
+        })]
+    }
+
     /// The log's rows, the row height, its full height, the visible height and how far it is
     /// scrolled.
     fn log(&self, c: &Context<'_>) -> (Vec<chat_log::Row>, i32, i32, i32, i32) {
@@ -1532,7 +1535,7 @@ impl Chat {
                 4 => 5,
                 5 => 4,
                 6 => 6,
-                7 => 7,
+                7..=13 => usize::from(focus),
                 _ => 2,
             })
     }
@@ -1549,17 +1552,17 @@ impl Chat {
         let enabled = c
             .classic
             .chat_focus
-            .map_or([true; 7], |(_, enabled)| enabled);
-        vec![
-            target,
-            target && enabled[1],
-            enabled[0],
-            enabled[2],
-            enabled[4],
-            enabled[3],
-            enabled[5],
-            enabled[6],
-        ]
+            .map_or([true; 14], |(_, enabled)| enabled);
+        CHAT_FOCUSES
+            .iter()
+            .map(|focus| {
+                if *focus == 0 {
+                    target
+                } else {
+                    enabled[*focus as usize] && (*focus != 2 || target)
+                }
+            })
+            .collect()
     }
 }
 impl Panel for Chat {
@@ -1678,6 +1681,12 @@ impl Panel for Chat {
             "Tell to Patron",
             "Tell to Vassals",
             "Tell to Allegiance",
+            "Tell to General",
+            "Tell to Trade",
+            "Tell to LFG",
+            "Tell to Roleplay",
+            "Tell to Society",
+            "Tell to Olthoi",
         ]
         .map(String::from)
         .to_vec();
@@ -1701,7 +1710,8 @@ impl Panel for Chat {
         f.text_box(
             rect(2, h - 15, 44, 13),
             [
-                "Chat", "Tell", "Chat", "Fell", "Mon", "Patr", "Vas", "Alleg",
+                "Chat", "Tell", "Chat", "Fell", "Mon", "Patr", "Vas", "Alleg", "Gen", "Trade",
+                "LFG", "Role", "Soc", "Olthoi",
             ][self.destination(c)],
             "15-6",
             INK,
@@ -1737,43 +1747,40 @@ impl Panel for Chat {
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         match e {
-            ControlEvent::Edit { id, text } if id == "input" => self.text = text,
+            ControlEvent::Edit { id, text } if id == "input" => {
+                self.text = text;
+                return self.entry_action(dereth_client_contract::chat::entry::EntryAction::Draft);
+            }
             ControlEvent::Scroll { id, value } if id == "scroll" => {
                 let (_, _, total, _, _) = self.log(c);
                 self.offset = ((total - (self.height as i32 - 27)).max(0) - value).max(0) as usize;
             }
             ControlEvent::Action(name) => match name.as_str() {
+                "ExpandChatAlias" => {
+                    return self.entry_action(
+                        dereth_client_contract::chat::entry::EntryAction::ExpandAlias,
+                    )
+                }
                 "Reply" | "MonarchReply" | "PatronReply" => {
-                    let (target, missing) = match name.as_str() {
-                        "Reply" => (
-                            &c.classic.reply_targets.last_teller,
-                            "Someone must @tell you first!",
-                        ),
-                        "MonarchReply" => (
-                            &c.classic.reply_targets.monarch,
-                            "One of your vassals must @m you first!",
-                        ),
-                        _ => (
-                            &c.classic.reply_targets.patron,
-                            "One of your vassals must @p you first!.",
-                        ),
+                    use dereth_client_contract::chat::entry::{EntryAction, ReplyTarget};
+                    let target = match name.as_str() {
+                        "Reply" => ReplyTarget::LastTeller,
+                        "MonarchReply" => ReplyTarget::Monarch,
+                        _ => ReplyTarget::Patron,
                     };
-                    let Some(target) = target.as_ref().filter(|s| !s.is_empty()) else {
-                        return vec![PanelAction::Host(HostAction::LocalFeedback {
-                            text: missing.into(),
-                            severity: crate::panels::FeedbackSeverity::Warning,
-                        })];
-                    };
-                    self.text = format!("@t {target}, ");
-                    return vec![PanelAction::Host(HostAction::FocusControl(
-                        "chat:input".into(),
-                    ))];
+                    return self.entry_action(EntryAction::Reply {
+                        target,
+                        prefix: "@tell ".into(),
+                    });
                 }
                 "IssueSlashCommand" | "START_COMMAND" => {
                     self.text = "/".into();
-                    return vec![PanelAction::Host(HostAction::FocusControl(
+                    let mut actions =
+                        self.entry_action(dereth_client_contract::chat::entry::EntryAction::Draft);
+                    actions.push(PanelAction::Host(HostAction::FocusControl(
                         "chat:input".into(),
-                    ))];
+                    )));
+                    return actions;
                 }
                 // A tell to the selected character begun in the entry.
                 "TellSelected" => {
@@ -1786,10 +1793,11 @@ impl Panel for Chat {
                     else {
                         return vec![];
                     };
-                    self.text = format!("@tell {name}, ");
-                    return vec![PanelAction::Host(HostAction::FocusControl(
-                        "chat:input".into(),
-                    ))];
+                    return self.entry_action(
+                        dereth_client_contract::chat::entry::EntryAction::StartTell {
+                            name: name.to_owned(),
+                        },
+                    );
                 }
                 "EnterChat" | "ChatMode" | "Chat" | "EnterChatMode" | "ToggleChatEntry" => {
                     return vec![PanelAction::Host(HostAction::FocusControl(
@@ -1797,27 +1805,22 @@ impl Panel for Chat {
                     ))];
                 }
                 "RecallLastMessage" => {
-                    if let Some(s) = self.history.last() {
-                        self.text = s.clone();
-                    }
+                    return self
+                        .entry_action(dereth_client_contract::chat::entry::EntryAction::RecallLast)
                 }
                 "PreviousMessage" => {
-                    self.history_index = self.history_index.saturating_sub(1);
-                    if let Some(s) = self.history.get(self.history_index) {
-                        self.text = s.clone();
-                    }
+                    return self
+                        .entry_action(dereth_client_contract::chat::entry::EntryAction::Previous)
                 }
                 "NextMessage" => {
-                    self.history_index = (self.history_index + 1).min(self.history.len());
-                    self.text = self
-                        .history
-                        .get(self.history_index)
-                        .cloned()
-                        .unwrap_or_default();
+                    return self
+                        .entry_action(dereth_client_contract::chat::entry::EntryAction::Next)
                 }
                 _ => {}
             },
-            ControlEvent::Select { id, index } if id == "destination" && index < 8 => {
+            ControlEvent::Select { id, index }
+                if id == "destination" && index < CHAT_FOCUSES.len() =>
+            {
                 if !Self::enabled(c)[index] {
                     return vec![];
                 }
@@ -1828,8 +1831,9 @@ impl Panel for Chat {
                     return vec![];
                 }
                 self.destination = index;
-                let native = [0, 1, 0, 2, 4, 3, 5, 6][index];
-                let mut actions = vec![PanelAction::Host(HostAction::ClassicTalkFocus(native))];
+                let mut actions = vec![PanelAction::Game(UiRequest::SetTalkFocus {
+                    focus: CHAT_FOCUSES[index],
+                })];
                 if index == 1 {
                     if let Some((_, name)) = Self::target(c) {
                         actions.push(PanelAction::Game(UiRequest::StartTell { name }));
@@ -1841,14 +1845,9 @@ impl Panel for Chat {
                 if (id == "send" || id == "input") && !self.text.is_empty() =>
             {
                 self.offset = 0;
-                self.history.push(self.text.clone());
-                if self.history.len() > 10 {
-                    self.history.remove(0);
-                }
-                self.history_index = self.history.len();
                 let mut actions = vec![PanelAction::Game(UiRequest::ChatLine {
                     text: std::mem::take(&mut self.text),
-                    window: 0,
+                    window: dereth_client_contract::chat::interface::window::MAIN,
                 })];
                 // The entry keeps the caret after a send only with "stay in chat mode"; otherwise
                 // sending leaves the chat.
@@ -2037,54 +2036,44 @@ mod tests {
         assert_eq!(tall.chat.h, 101 + 116);
     }
     #[test]
-    fn reply_keys_prefill_the_corresponding_sender_and_warn_without_a_target() {
-        let g = World::default();
-        let pregame = PregameView::default();
-        let keyboard = KeyboardState::default();
-        let settings = ClassicSettings::default();
-        let mut state = ClassicState::default();
-        let mut chat = Chat {
-            text: "unsent draft".into(),
-            ..Default::default()
-        };
-        for (action, message) in [
-            ("Reply", "Someone must @tell you first!"),
-            ("MonarchReply", "One of your vassals must @m you first!"),
-            ("PatronReply", "One of your vassals must @p you first!."),
-        ] {
-            let c = context(&g, &state, &pregame, &keyboard, &settings);
-            assert_eq!(
-                chat.event(ControlEvent::Action(action.into()), &c),
-                vec![PanelAction::Host(HostAction::LocalFeedback {
-                    text: message.into(),
-                    severity: crate::panels::FeedbackSeverity::Warning,
-                })]
-            );
-            assert_eq!(chat.text, "unsent draft");
-        }
-        state.reply_targets.last_teller = Some("Teller".into());
-        state.reply_targets.monarch = Some("Monarch speaker".into());
-        state.reply_targets.patron = Some("Patron speaker".into());
-        for (action, target) in [
-            ("Reply", "Teller"),
-            ("MonarchReply", "Monarch speaker"),
-            ("PatronReply", "Patron speaker"),
-        ] {
-            let c = context(&g, &state, &pregame, &keyboard, &settings);
-            assert_eq!(
-                chat.event(ControlEvent::Action(action.into()), &c),
-                vec![PanelAction::Host(HostAction::FocusControl(
-                    "chat:input".into()
-                ))]
-            );
-            assert_eq!(chat.text, format!("@t {target}, "));
-        }
+    fn reply_keys_emit_distinct_shared_entry_intents_without_local_history_or_sender_state() {
+        use dereth_client_contract::chat::entry::{EntryAction, ReplyTarget};
+        with_context(&World::default(), |c| {
+            let mut chat = Chat {
+                text: "unsent draft".into(),
+                ..Default::default()
+            };
+            for (name, target) in [
+                ("Reply", ReplyTarget::LastTeller),
+                ("MonarchReply", ReplyTarget::Monarch),
+                ("PatronReply", ReplyTarget::Patron),
+            ] {
+                assert_eq!(
+                    chat.event(ControlEvent::Action(name.into()), c),
+                    vec![PanelAction::Game(UiRequest::ChatEntry {
+                        window: 8,
+                        text: "unsent draft".into(),
+                        action: EntryAction::Reply {
+                            target,
+                            prefix: "@tell ".into()
+                        }
+                    })]
+                );
+                assert_eq!(chat.text, "unsent draft");
+            }
+        });
     }
     #[test]
     fn connected_chat_uses_talk_target_and_rejects_disabled_destination() {
         let g = World::default();
         let mut state = ClassicState {
-            chat_focus: Some((4, [true, true, false, true, false, false, false])),
+            chat_focus: Some((
+                4,
+                [
+                    false, true, true, false, true, false, false, false, false, false, false,
+                    false, false, false,
+                ],
+            )),
             ..Default::default()
         };
         state.chat_target = Some((ObjectId(9), "Patron Name".into()));
@@ -2106,7 +2095,10 @@ mod tests {
             .is_empty());
         assert_eq!(
             Chat::enabled(&c),
-            vec![true, true, true, false, false, true, false, false]
+            vec![
+                true, true, true, false, false, true, false, false, false, false, false, false,
+                false, false
+            ]
         );
         assert_eq!(
             chat.event(
@@ -2117,7 +2109,7 @@ mod tests {
                 &c
             ),
             vec![
-                PanelAction::Host(HostAction::ClassicTalkFocus(1)),
+                PanelAction::Game(UiRequest::SetTalkFocus { focus: 2 }),
                 PanelAction::Game(UiRequest::StartTell {
                     name: "Patron Name".into()
                 }),
@@ -2132,7 +2124,7 @@ mod tests {
             ..Default::default()
         };
         let mut state = ClassicState {
-            chat_focus: Some((1, [true; 7])),
+            chat_focus: Some((1, [true; 14])),
             chat_target: Some((ObjectId(9), "Aerin".into())),
             ..Default::default()
         };
@@ -2311,7 +2303,7 @@ mod tests {
                 vec![
                     PanelAction::Game(UiRequest::ChatLine {
                         text: "hello".into(),
-                        window: 0
+                        window: 8
                     }),
                     // Without "stay in chat mode" a send leaves the chat.
                     PanelAction::Host(HostAction::FocusControl(String::new())),
@@ -2335,7 +2327,7 @@ mod tests {
                     },
                     c
                 ),
-                vec![PanelAction::Host(HostAction::ClassicTalkFocus(6))]
+                vec![PanelAction::Game(UiRequest::SetTalkFocus { focus: 7 })]
             )
         });
     }
@@ -2471,15 +2463,24 @@ mod tests {
         );
     }
     #[test]
-    fn chat_history_keeps_ten_and_default_color_is_green() {
+    fn chat_submission_emits_one_main_window_line_and_default_color_is_green() {
         with_context(&World::default(), |c| {
             let mut chat = Chat::default();
             for n in 0..12 {
                 chat.text = format!("line{n}");
-                chat.event(ControlEvent::Submit { id: "input".into() }, c);
+                let requests = chat.event(ControlEvent::Submit { id: "input".into() }, c);
+                assert_eq!(
+                    requests
+                        .iter()
+                        .filter(|r| matches!(
+                            r,
+                            PanelAction::Game(UiRequest::ChatLine { window: 8, .. })
+                        ))
+                        .count(),
+                    1
+                );
             }
-            assert_eq!(chat.history.len(), 10);
-            assert_eq!(chat.history[0], "line2");
+            assert!(chat.text.is_empty());
             assert_eq!(chat_color(0), 0xff80ff7f);
             assert_eq!(chat_color(7), 0xff3fbfff);
         });

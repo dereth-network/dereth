@@ -110,11 +110,11 @@ pub mod floaty_chat {
 /// The four input actions bound to the reply keys.
 pub mod action {
     /// Reply to the last tell.
-    pub const REPLY: u32 = 0x1000_0020;
+    pub const REPLY: u32 = dereth_client_contract::actions::chat_entry::REPLY.0;
     /// Reply to the monarch.
-    pub const REPLY_MONARCH: u32 = 0x1000_0021;
+    pub const REPLY_MONARCH: u32 = dereth_client_contract::actions::chat_entry::MONARCH_REPLY.0;
     /// Reply to the patron.
-    pub const REPLY_PATRON: u32 = 0x1000_0022;
+    pub const REPLY_PATRON: u32 = dereth_client_contract::actions::chat_entry::PATRON_REPLY.0;
     /// Activate the chat entry and select all of it.
     pub const ACTIVATE_ENTRY: u32 = 0x1000_0023;
     /// The toggle chat entry handler.
@@ -298,8 +298,6 @@ pub struct MainChatPanel {
     pub old_height: i32,
     /// The caption token currently on the chat-target button.
     pub caption: &'static str,
-    /// The wants-to-be-in-allegiance-chat flag.
-    pub wants_alleg_chat: bool,
 }
 
 impl Default for MainChatPanel {
@@ -328,7 +326,6 @@ impl Default for MainChatPanel {
             old_y: 0,
             old_height: 0,
             caption: "ID_Chat_ChatTargetMenu",
-            wants_alleg_chat: false,
         }
     }
 }
@@ -451,6 +448,30 @@ impl MainChatPanel {
         self.talk_focus_buttons.len()
     }
 
+    /// Read the shared communication state; menu geometry and labels remain local.
+    pub fn project_communication(
+        &mut self,
+        ui: &mut UiSystem,
+        facts: &dereth_client_contract::chat::mainchat::ChatFocusView,
+    ) {
+        self.is_olthoi = facts.is_olthoi;
+        self.set_selected(ui, facts.target.as_ref());
+        self.enabled = facts.enabled;
+        self.talk_focus = facts.focus;
+        self.caption = talk_focus(facts.focus).map_or("ID_Chat_ChatTargetMenu", |r| r.caption);
+        self.set_chat_target_caption(ui);
+        for row in TALK_FOCUS_MENU {
+            let state = if !facts.selectable[row.id as usize] {
+                STATE_DISABLED
+            } else if row.id == facts.focus {
+                STATE_SELECTED
+            } else {
+                STATE_ENABLED
+            };
+            self.set_row_state(ui, row.id, state);
+        }
+    }
+
     /// Set whether talk focus `n` is enabled.
     ///
     /// The mask and the row's element state are two halves of one thing and the client never moves
@@ -496,24 +517,18 @@ impl MainChatPanel {
         if self.menu.is_some() && self.menu_item(ui, focus).is_none() {
             return false;
         }
-        if self.is_olthoi && !matches!(focus, 1 | 2 | OLTHOI_FOCUS) {
-            self.set_row_state(ui, focus, STATE_DISABLED);
-            return false;
-        }
-        if enable != (self.row_state(ui, focus) == Some(STATE_DISABLED)) {
-            return false;
-        }
-        self.set_talk_focus_enabled(focus, enable);
-        self.set_row_state(
-            ui,
+        let previous = self.row_state(ui, focus) != Some(STATE_DISABLED);
+        let (row, fallback) = dereth_client_contract::chat::mainchat::focus_enable_transition(
+            previous,
+            self.talk_focus,
             focus,
-            if enable {
-                STATE_ENABLED
-            } else {
-                STATE_DISABLED
-            },
+            enable,
+            self.is_olthoi,
         );
-        if !enable && self.talk_focus == focus {
+        if row != previous {
+            self.set_row_state(ui, focus, if row { STATE_ENABLED } else { STATE_DISABLED });
+        }
+        if fallback {
             self.handle_selection(ui, DEFAULT_TALK_FOCUS);
             return true;
         }
@@ -570,12 +585,10 @@ impl MainChatPanel {
     /// object's name, which lives on the far side of this crate's seam, and running it from inside
     /// [`Self::handle_selection`] would recurse. [`Self::set_selected`] is the caller's to run.
     pub fn reset_all_talk_focus_menu_buttons(&mut self, ui: &mut UiSystem) {
+        let enabled =
+            dereth_client_contract::chat::mainchat::reset_focus_rows(self.enabled, self.is_olthoi);
         for row in TALK_FOCUS_MENU {
-            let on = if self.is_olthoi {
-                row.id == OLTHOI_FOCUS || row.id == DEFAULT_TALK_FOCUS
-            } else {
-                self.is_talk_focus_enabled(row.id)
-            };
+            let on = enabled[row.id as usize];
             self.set_row_state(ui, row.id, if on { STATE_ENABLED } else { STATE_DISABLED });
         }
         // The client's tail: when the focus that is *current* has just been
@@ -680,9 +693,6 @@ impl MainChatPanel {
             return None;
         }
         let wants_alleg_chat = focus == ALLEGIANCE_FOCUS;
-        if wants_alleg_chat {
-            self.wants_alleg_chat = true;
-        }
         self.talk_focus = focus;
         self.caption = row.caption;
         self.set_chat_target_caption(ui);
@@ -822,10 +832,7 @@ impl MainChatPanel {
     /// chat state as well as this copy.
     fn set_last_speakable_target(&mut self, ui: &mut UiSystem, id: u32) {
         self.last_speakable_target = id;
-        ui.requests
-            .emit(crate::view::UiRequest::SetLastSpeakableTarget {
-                object: dereth_primitives::ObjectId(id),
-            });
+        let _ = ui;
     }
 
     /// Set one focus row's caption, with the string's `VALUE` variable
@@ -928,46 +935,6 @@ impl MainChatPanel {
         ui.move_to(root, x, new_y);
         Some((new_y, new_h))
     }
-
-    /// The once-a-second auto-target sweep that keeps
-    /// "Tell to &lt;selected&gt;" pointing at something a player can actually talk to.
-    ///
-    /// The original update uses one file-scope next-run time, so all five chat windows share a
-    /// once-per-second throttle even though only the main window performs this sweep. With a current
-    /// tell target, it keeps an item owned by the player, otherwise checks range to its containing
-    /// object when one exists and clears an out-of-range target. Without a tell target, it adopts
-    /// the selected object only when that object exists, is not the player, is talkable, and is in
-    /// radar range. The containing-object hop is significant: an item inside a chest remains valid
-    /// according to the *chest*'s distance. Every completed sweep advances the shared time by 1.0.
-    ///
-    /// This is the decision, separated from the object queries so it can be tested against values.
-    #[must_use]
-    pub fn use_time_auto_target(&self, w: &AutoTargetWorld) -> AutoTarget {
-        if self.is_talk_focus_enabled(2) {
-            if self.last_speakable_target == 0 {
-                return AutoTarget::Unchanged;
-            }
-            if w.owned_by_player {
-                return AutoTarget::Unchanged;
-            }
-            let ask = if w.container_id == 0 {
-                self.last_speakable_target
-            } else {
-                w.container_id
-            };
-            if w.in_range_of_player.contains(&ask) {
-                return AutoTarget::Unchanged;
-            }
-            return AutoTarget::Clear;
-        }
-        if w.selected_id == 0 || w.selected_id == w.player_id {
-            return AutoTarget::Unchanged;
-        }
-        if !w.selected_talkable || !w.in_range_of_player.contains(&w.selected_id) {
-            return AutoTarget::Unchanged;
-        }
-        AutoTarget::Adopt(w.selected_id)
-    }
 }
 
 /// Which of the fourteen rows a click landed on — the three outcomes of
@@ -994,20 +961,6 @@ pub use dereth_client_contract::chat::mainchat::SpeakableTarget;
 /// `dereth_client::hud` is what fills it -- the selected id, the player id, the talkable and
 /// ownership answers and the in-range sweep are all the object table's.
 pub use dereth_client_contract::chat::mainchat::AutoTargetWorld;
-
-/// What one per-frame auto-target sweep decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutoTarget {
-    /// No set-selected call this second.
-    Unchanged,
-    /// Set-selected with 0 — the target went out of range.
-    Clear,
-    /// Set-selected with the id — the selection was adopted.
-    Adopt(u32),
-}
-
-/// The auto-target throttle: a shared "next time" set to the current time plus 1.0.
-pub const AUTO_TARGET_INTERVAL_SECONDS: f64 = 1.0;
 
 /// The two element attributes the resize path reads, returning early when either is absent.
 pub mod attr {
@@ -1057,9 +1010,9 @@ mod tests {
     fn the_chat_input_actions_are_the_documented_ids() {
         assert_eq!(action::TOGGLE_ENTRY, 0x1000_0024);
         assert_eq!(action::ACTIVATE_ENTRY, 0x1000_0023);
-        assert_eq!(action::REPLY, 0x1000_0020);
-        assert_eq!(action::REPLY_MONARCH, 0x1000_0021);
-        assert_eq!(action::REPLY_PATRON, 0x1000_0022);
+        assert_eq!(action::REPLY, 0x1000_0022);
+        assert_eq!(action::REPLY_MONARCH, 0x1000_0020);
+        assert_eq!(action::REPLY_PATRON, 0x1000_0021);
         assert_eq!(action::COMMAND_OR_ALIAS, [0x1000_0028, 0x1000_0119]);
     }
 
@@ -1193,74 +1146,6 @@ mod tests {
             "talk focus 2 (the selection) falls back to focus 1"
         );
         assert_eq!(m.last_speakable_target, 0);
-    }
-
-    /// Oracle: the client's two arms, quoted in the method's own documentation.
-    ///
-    /// The container hop is the branch nothing else in the row would have found: an item held in
-    /// a chest is kept by the **chest**'s distance, not its own.
-    #[test]
-    fn the_auto_target_keeps_a_held_item_by_its_container_and_drops_what_walks_away() {
-        let (mut ui, mut m) = detached();
-        let t = SpeakableTarget {
-            id: 40,
-            name: "Alba".into(),
-            talkable: true,
-            squelched: false,
-        };
-        m.set_selected(&mut ui, Some(&t));
-        assert!(
-            m.is_talk_focus_enabled(2),
-            "the first arm is the one under test"
-        );
-
-        // In range: nothing happens.
-        let w = AutoTargetWorld {
-            in_range_of_player: vec![40],
-            ..AutoTargetWorld::default()
-        };
-        assert_eq!(m.use_time_auto_target(&w), AutoTarget::Unchanged);
-        // Out of range: cleared.
-        let w = AutoTargetWorld::default();
-        assert_eq!(m.use_time_auto_target(&w), AutoTarget::Clear);
-        // Out of range but inside a container that is in range: kept.
-        let w = AutoTargetWorld {
-            container_id: 77,
-            in_range_of_player: vec![77],
-            ..AutoTargetWorld::default()
-        };
-        assert_eq!(m.use_time_auto_target(&w), AutoTarget::Unchanged);
-        // In our own pack: kept whatever the distance says.
-        let w = AutoTargetWorld {
-            owned_by_player: true,
-            ..AutoTargetWorld::default()
-        };
-        assert_eq!(m.use_time_auto_target(&w), AutoTarget::Unchanged);
-
-        // The second arm: no speakable target, so the selection is adopted if it can be talked to.
-        m.set_selected(&mut ui, None);
-        let mut w = AutoTargetWorld {
-            selected_id: 12,
-            player_id: 9,
-            selected_talkable: true,
-            in_range_of_player: vec![12],
-            ..AutoTargetWorld::default()
-        };
-        assert_eq!(m.use_time_auto_target(&w), AutoTarget::Adopt(12));
-        w.selected_talkable = false;
-        assert_eq!(
-            m.use_time_auto_target(&w),
-            AutoTarget::Unchanged,
-            "a rock is not talkable"
-        );
-        w.selected_talkable = true;
-        w.selected_id = 9;
-        assert_eq!(
-            m.use_time_auto_target(&w),
-            AutoTarget::Unchanged,
-            "never ourselves"
-        );
-        assert_eq!(AUTO_TARGET_INTERVAL_SECONDS, 1.0);
     }
 
     /// Oracle: the client's two integer attribute reads, both of which

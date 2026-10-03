@@ -101,7 +101,6 @@ pub struct ClassicUi {
     stack_object: Option<(ObjectId, u32)>,
     selection_queries: hud::SelectionQueries,
     options_seen: Option<u32>,
-    chat_focus: hud::ChatFocusState,
     dialogs: ClassicDialogs,
     panel_events: Vec<(String, ControlEvent)>,
     preview_click: Option<(u64, i32, i32, std::time::Instant)>,
@@ -111,6 +110,7 @@ pub struct ClassicUi {
     ui_actions: Vec<String>,
     /// A tell to begin in the chat entry on the next refresh.
     pending_tell: Option<String>,
+    pending_chat_entry: Option<dereth_client_contract::chat::entry::EntryUpdate>,
     pub initial_panel: String,
     bindings: Option<crate::keybindings::KeyBindings>,
     previews: crate::previews::Previews,
@@ -203,7 +203,6 @@ impl ClassicUi {
             stack_object: None,
             selection_queries: Default::default(),
             options_seen: None,
-            chat_focus: Default::default(),
             dialogs: Default::default(),
             panel_events: vec![],
             preview_click: None,
@@ -211,6 +210,7 @@ impl ClassicUi {
             classic_keys: crate::keystore::ClassicKeys::default(),
             ui_actions: vec![],
             pending_tell: None,
+            pending_chat_entry: None,
             initial_panel: "login".into(),
             bindings: None,
             previews,
@@ -414,6 +414,18 @@ impl ClassicUi {
         use dereth_input::host::HostEvent;
         use dereth_input::keys::MouseButton;
         for event in events {
+            if matches!(event, HostEvent::KeyboardInput { .. })
+                && self.inputs.iter().any(|input| {
+                    matches!(input, Input::PointerDown { .. } | Input::PointerUp { .. })
+                })
+            {
+                self.process_inputs(
+                    cx,
+                    dereth_primitives::LocalTime(cx.now()),
+                    cx.pregame().in_world,
+                );
+            }
+            let first_input = self.inputs.len();
             let input = match event {
                 HostEvent::Focused(on) => {
                     if !on {
@@ -477,7 +489,72 @@ impl ClassicUi {
             if let Some(input) = input {
                 self.inputs.push(input);
             }
+            self.finish_chat_keyboard(cx, first_input);
         }
+    }
+    /// Chat keyboard edits complete before the next host key is classified.
+    /// Other device inputs and window requests keep their usual frame queue.
+    fn finish_chat_keyboard<S: Host>(&mut self, cx: &mut Cx<'_, S>, first_input: usize) {
+        let now = dereth_primitives::LocalTime(cx.now());
+        let mut retained = Vec::new();
+        for action in std::mem::take(&mut self.ui_actions) {
+            if matches!(
+                action.as_str(),
+                "Reply"
+                    | "MonarchReply"
+                    | "PatronReply"
+                    | "TellSelected"
+                    | "RecallLastMessage"
+                    | "PreviousMessage"
+                    | "NextMessage"
+                    | "IssueSlashCommand"
+                    | "START_COMMAND"
+                    | "EnterChat"
+                    | "ChatMode"
+                    | "Chat"
+                    | "EnterChatMode"
+                    | "ToggleChatEntry"
+            ) {
+                let view = cx.hud().view(cx.objects());
+                let context = Context {
+                    game: &view,
+                    pregame: cx.pregame(),
+                    keyboard: &self.keyboard,
+                    settings: &self.settings,
+                    map_teleport_allowed: false,
+                    classic: &self.classic,
+                };
+                self.desktop
+                    .dispatch_panel("hud", ControlEvent::Action(action), &context);
+                self.desktop.finish_chat_focus(&context);
+                self.carry_out_chat_entries(cx, now);
+            } else {
+                retained.push(action);
+            }
+        }
+        self.ui_actions = retained;
+        let mut retained = Vec::new();
+        for input in self.inputs.split_off(first_input) {
+            if self.desktop.focused_control() == Some("chat:input")
+                && matches!(input, Input::Key { .. } | Input::Text(_))
+            {
+                let view = cx.hud().view(cx.objects());
+                let context = Context {
+                    game: &view,
+                    pregame: cx.pregame(),
+                    keyboard: &self.keyboard,
+                    settings: &self.settings,
+                    map_teleport_allowed: false,
+                    classic: &self.classic,
+                };
+                self.desktop.input(input, &context);
+                self.desktop.finish_chat_focus(&context);
+                self.carry_out_chat_entries(cx, now);
+            } else {
+                retained.push(input);
+            }
+        }
+        self.inputs.extend(retained);
     }
     /// One key transition: the fixed keys, the key map, then the text fields.
     fn key_input<S: Host>(
@@ -593,6 +670,12 @@ impl ClassicUi {
             });
         }
         if vk == 0x20 {
+            if self.desktop.focused_control() == Some("chat:input") {
+                self.inputs.push(Input::Key {
+                    key: Key::Space,
+                    shift: self.shift,
+                });
+            }
             return Some(Input::Text(" ".into()));
         }
         match text.filter(|t| !t.is_empty() && !t.chars().any(char::is_control)) {
@@ -1014,9 +1097,6 @@ impl ClassicUi {
                 self.desktop.focus_control(&id);
             }
             HostAction::StartTell(name) => self.pending_tell = Some(name),
-            HostAction::ClassicTalkFocus(focus) => {
-                ask(cx, UiRequest::SetTalkFocus { focus: focus + 1 })
-            }
             HostAction::ConfirmBinding(accepted) => {
                 if let Some(bindings) = &mut self.bindings {
                     bindings.confirm_capture(accepted)?;
@@ -1309,6 +1389,7 @@ impl ClassicUi {
                 u32::from(line.ty),
                 line.prefix.unwrap_or_default(),
                 &line.body,
+                line.window,
             );
         }
         if self.classic.chat.len() > 2000 {
@@ -1317,10 +1398,12 @@ impl ClassicUi {
     }
     /// One line for the classic chat, from the game's chat feed or the history a switch hands
     /// over.
-    pub fn chat_line(&mut self, ty: u32, prefix: String, body: &str) {
-        if ty == 0x1a || !shows(self.chat_filter, ty) {
+    pub fn chat_line(&mut self, ty: u32, prefix: String, body: &str, window: u32) {
+        use dereth_client_contract::chat::interface::{route, window::MAIN, Routed};
+        if route(MAIN, self.chat_filter, ty, window) != Routed::Accepted {
             return;
         }
+        let body = dereth_client_contract::chat::interface::add_text_to_scroll_trim(body);
         let text = format!("{prefix}{body}");
         self.classic.chat.push((ty, chat_text(&text)));
     }
@@ -1445,14 +1528,8 @@ impl ClassicUi {
         focus: dereth_client_model::chat::TalkFocus,
         notice: dereth_client_model::chat::TalkFocusNotice,
     ) -> bool {
-        let fallback = self.chat_focus.answer(focus, notice);
-        let current = if fallback {
-            dereth_client_model::chat::TalkFocus::All
-        } else {
-            focus
-        };
-        self.classic.chat_focus = Some(self.chat_focus.snapshot(current));
-        fallback
+        let _ = (focus, notice);
+        false
     }
     pub fn open_vendor_buying(&mut self) {
         self.panel_events
@@ -1760,15 +1837,7 @@ impl ClassicUi {
                 .map(|name| (id, name.to_owned()))
         });
         let talk_focus = cx.model().chat.talk_focus;
-        if hud::ChatFocusState::target_lost(talk_focus, self.classic.chat_target.is_some()) {
-            cx.queue(
-                Vec::new(),
-                vec![UiRequest::SetTalkFocus {
-                    focus: dereth_client_model::chat::TalkFocus::All as u32,
-                }],
-            );
-        }
-        self.classic.chat_focus = Some(self.chat_focus.snapshot(talk_focus));
+        self.classic.chat_focus = Some((talk_focus as u8, cx.model().chat.selectable_focuses()));
         let transient = std::mem::take(&mut cx.hud_mut().classic_panels().transient);
         for (text, severity) in transient {
             let warning = severity
@@ -1848,9 +1917,6 @@ impl ClassicUi {
             }
         }
         let map_allowed = self.map_allowed(cx);
-        let armed = cx.target_mode() != dereth_client_runtime::interaction::TargetMode::None;
-        let mut pointer_events = Vec::new();
-        let mut paper_doll_clicks = Vec::new();
         {
             let view = cx.hud().view(cx.objects());
             let context = Context {
@@ -1972,20 +2038,43 @@ impl ClassicUi {
                     .dispatch_panel("hud", ControlEvent::Action(name), &context);
             }
             if let Some(name) = self.pending_tell.take() {
-                self.desktop.dispatch_panel(
-                    "hud",
-                    ControlEvent::Edit {
-                        id: "chat:input".into(),
-                        text: format!("@tell {name}, "),
-                    },
-                    &context,
-                );
-                self.desktop.focus_control("chat:input");
+                self.desktop.requests.push(UiRequest::StartTell { name });
             }
+        }
+        if let Some(update) = self.pending_chat_entry.take() {
+            self.apply_chat_entry(cx, update);
+        }
+        self.carry_out_chat_entries(cx, now);
+        self.process_inputs(cx, now, in_world);
+        self.carry_out_requests(cx, now);
+    }
+    /// Process queued device events in arrival order, including world interception before
+    /// window dispatch. A following host key sees the focus established by an earlier click.
+    fn process_inputs<S: Host>(
+        &mut self,
+        cx: &mut Cx<'_, S>,
+        now: dereth_primitives::LocalTime,
+        in_world: bool,
+    ) {
+        let map_allowed = self.map_allowed(cx);
+        let armed = cx.target_mode() != dereth_client_runtime::interaction::TargetMode::None;
+        let mut pointer_events = Vec::new();
+        let mut paper_doll_clicks = Vec::new();
+        {
             // A left click on a panel while a targeting cursor is armed acts with it (the item
             // clicked is the target) and then ends it, as a click in the world does; a right
             // click neither acts nor ends it.
             for input in std::mem::take(&mut self.inputs) {
+                let view = cx.hud().view(cx.objects());
+                let context = Context {
+                    game: &view,
+                    pregame: cx.pregame(),
+                    keyboard: &self.keyboard,
+                    settings: &self.settings,
+                    map_teleport_allowed: map_allowed,
+                    classic: &self.classic,
+                };
+
                 // Escape, with no dialog up and no text being typed, first ends a targeting
                 // cursor, then clears the selection, and only then closes pages.
                 if matches!(
@@ -2134,6 +2223,8 @@ impl ClassicUi {
                     }
                 }
                 self.desktop.input(input, &context);
+                self.desktop.finish_chat_focus(&context);
+                self.carry_out_chat_entries(cx, now);
             }
         }
         for event in pointer_events {
@@ -2165,8 +2256,57 @@ impl ClassicUi {
                 Err(e) => self.errors.push(e),
             }
         }
-        self.carry_out_requests(cx, now);
     }
+    pub fn apply_chat_entry<S: Host>(
+        &mut self,
+        cx: &Cx<'_, S>,
+        update: dereth_client_contract::chat::entry::EntryUpdate,
+    ) {
+        if update.window != dereth_client_contract::chat::interface::window::MAIN {
+            return;
+        }
+        if !self.desktop.is_open("hud") {
+            self.pending_chat_entry = Some(update);
+            return;
+        }
+        let view = cx.hud().view(cx.objects());
+        let context = Context {
+            game: &view,
+            pregame: cx.pregame(),
+            keyboard: &self.keyboard,
+            settings: &self.settings,
+            map_teleport_allowed: false,
+            classic: &self.classic,
+        };
+        self.desktop.apply_chat_entry(update, &context);
+    }
+
+    /// Chat edits finish between input events; unrelated requests retain their existing queue.
+    fn carry_out_chat_entries<S: Host>(
+        &mut self,
+        cx: &mut Cx<'_, S>,
+        now: dereth_primitives::LocalTime,
+    ) {
+        let mut retained = Vec::new();
+        for request in std::mem::take(&mut self.desktop.requests) {
+            if matches!(
+                request,
+                UiRequest::ChatEntry { .. }
+                    | UiRequest::ChatLine { .. }
+                    | UiRequest::StartTell { .. }
+                    | UiRequest::SetTalkFocus { .. }
+            ) {
+                retained.extend(cx.run_request(request, now, &mut |_, _| false));
+                for update in cx.take_chat_entry_updates() {
+                    self.apply_chat_entry(cx, update);
+                }
+            } else {
+                retained.push(request);
+            }
+        }
+        self.desktop.requests = retained;
+    }
+
     /// What the classic windows asked for this frame, carried out: the session's asks, then each
     /// request through the runtime's owners, then the host actions.
     fn carry_out_requests<S: Host>(
@@ -2219,36 +2359,18 @@ impl ClassicUi {
                     let _ = dereth_client_contract::options::store::set_value(name, value.clone());
                 }
             }
-            // The location command answers in the classic interface's own words.
-            if let UiRequest::ChatLine { text, .. } = &request {
-                let position = cx.scene().and_then(|s| {
-                    s.character()
-                        .map(dereth_client_runtime::character::Character::position)
-                });
-                if let Some((line, ty)) = classic_location(text, position.as_ref()) {
-                    cx.add_scroll_line(&line, ty);
-                    continue;
-                }
-            }
             let used = match &request {
                 UiRequest::Use(id) => Some(*id),
                 _ => None,
             };
-            let chat_focus = &mut self.chat_focus;
-            let classic = &mut self.classic;
-            let mut answer = |focus, notice| {
-                let fallback = chat_focus.answer(focus, notice);
-                classic.chat_focus = Some(chat_focus.snapshot(if fallback {
-                    dereth_client_model::chat::TalkFocus::All
-                } else {
-                    focus
-                }));
-                fallback
-            };
+            let mut answer = |_, _| false;
             // What no owner here took (an option's preference for the scene, the camera or the
             // display, above all) goes on to the frame's own owners, as the other interface's
             // requests do.
             unowned.extend(cx.run_request(request, now, &mut answer));
+            for update in cx.take_chat_entry_updates() {
+                self.apply_chat_entry(cx, update);
+            }
             cx.deliver_selection_notices(now);
             if let Some(automatic) =
                 used.and_then(|id| crate::keyboard_runtime::auto_shortcut_after_use(cx.model(), id))
@@ -2628,66 +2750,6 @@ mod field_of_view_tests {
     }
 }
 
-/// The classic interface's answer to `@loc` (or `/loc`), as a line and its text type, or `None`
-/// for any other chat line. With the body placed it gives the landblock cell in hex and the
-/// position and heading to one decimal; the other answers are local refusals.
-fn classic_location(
-    text: &str,
-    position: Option<&dereth_primitives::Position>,
-) -> Option<(String, u32)> {
-    let text = text.trim();
-    let rest = text.strip_prefix('@').or_else(|| text.strip_prefix('/'))?;
-    let (command, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-    if !command.eq_ignore_ascii_case("loc") {
-        return None;
-    }
-    if !args.trim().is_empty() {
-        return Some(("Unexpected arguments to @loc".into(), 0x1a));
-    }
-    let p = position?;
-    if p.cell.0 == 0 {
-        return Some(("@Loc: not in valid cell!".into(), 0x1a));
-    }
-    let o = p.frame.origin;
-    Some((
-        format!(
-            "Your location is Landblock: {:08x}, X: {:.1}, Y: {:.1}, Z: {:.1}, H: {:.1}",
-            p.cell.0,
-            o.x,
-            o.y,
-            o.z,
-            dereth_animation::frame::get_heading(&p.frame)
-        ),
-        0,
-    ))
-}
-
-#[cfg(test)]
-mod location_tests {
-    //! Behaviour: none (the classic interface's wording of the location command).
-    use super::classic_location;
-
-    #[test]
-    fn the_location_command_answers_in_the_classic_wording() {
-        let p = dereth_primitives::Position::new(
-            dereth_primitives::CellId(0xA9B4_0019),
-            dereth_primitives::Frame {
-                origin: dereth_primitives::Vec3::new(84.0, 7.1, 94.0),
-                ..Default::default()
-            },
-        );
-        let (line, ty) = classic_location("@loc", Some(&p)).unwrap();
-        assert!(
-            line.starts_with("Your location is Landblock: a9b40019, X: 84.0, Y: 7.1, Z: 94.0, H: "),
-            "{line}"
-        );
-        assert_eq!(ty, 0);
-        assert_eq!(classic_location("/LOC now", Some(&p)).unwrap().1, 0x1a);
-        assert!(classic_location("@location", Some(&p)).is_none());
-        assert!(classic_location("hello", Some(&p)).is_none());
-    }
-}
-
 /// Whether a left release while a targeting cursor is armed ends it once the panel under it has
 /// acted: only over a panel (a click in the world ends it in the world's own handler).
 fn leaves_target(armed: bool, over_panel: bool) -> bool {
@@ -2705,7 +2767,7 @@ fn world_double_click(previous: Option<(i32, i32, std::time::Instant)>, x: i32, 
 /// A message as the chat window holds it: one trailing line break ends the last line rather than
 /// starting an empty one (an empty line inside the message stays).
 fn chat_text(text: &str) -> String {
-    let line = text.strip_suffix('\n').unwrap_or(text);
+    let line = dereth_client_contract::chat::interface::add_text_to_scroll_trim(text);
     // The game's lines name a speaker as a tag run (`<Tell:IIDString:id:name>name<\Tell>`), which
     // a chat window shows as the name: the markup is read as the retail chat window reads it.
     if line.contains('<') {
@@ -3132,8 +3194,9 @@ mod option_change_tests {
 
 /// Whether a chat window with message filter `filter` shows a line of chat type `ty`: the
 /// filter has one bit per type.
+#[cfg(test)]
 fn shows(filter: u64, ty: u32) -> bool {
-    ty >= 64 || filter & (1 << ty) != 0
+    dereth_client_contract::chat::interface::type_is_active(filter, ty)
 }
 
 #[cfg(test)]
@@ -3153,3 +3216,7 @@ mod chat_filter_tests {
         assert!(!shows(all_but_bubbles & !general, 27));
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/chat_adapter.rs"]
+mod chat_tests;

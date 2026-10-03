@@ -302,6 +302,52 @@ impl Desktop {
             self.dispatch(token, event, context);
         }
     }
+    /// Complete only the HUD entry's focus changes between keyboard events.
+    pub fn finish_chat_focus(&mut self, context: &Context<'_>) {
+        let hud = self
+            .windows
+            .iter()
+            .find(|w| w.key == "hud")
+            .map(|w| w.token);
+        let mut retained = Vec::new();
+        for (action, origin) in std::mem::take(&mut self.host_actions)
+            .into_iter()
+            .zip(std::mem::take(&mut self.host_origins))
+        {
+            if Some(origin) == hud {
+                if let HostAction::FocusControl(id) = &action {
+                    if id.is_empty() || id == "chat:input" {
+                        if let Some(window) = self.windows.iter_mut().find(|w| Some(w.token) == hud)
+                        {
+                            window.frame = window.panel.frame(context);
+                            window.controls.sync(&window.frame);
+                        }
+                        self.focus_control(id);
+                        continue;
+                    }
+                }
+            }
+            retained.push((action, origin));
+        }
+        (self.host_actions, self.host_origins) = retained.into_iter().unzip();
+    }
+    pub fn apply_chat_entry(
+        &mut self,
+        update: dereth_client_contract::chat::entry::EntryUpdate,
+        context: &Context<'_>,
+    ) {
+        let cursor = update.cursor;
+        let focus = update.focus;
+        self.dispatch_panel("hud", ControlEvent::ChatEntry(update), context);
+        if let Some(window) = self.windows.iter_mut().find(|w| w.key == "hud") {
+            window.frame = window.panel.frame(context);
+            window.controls.sync(&window.frame);
+            window.controls.place_caret("chat:input", cursor);
+        }
+        if focus {
+            self.focus_control("chat:input");
+        }
+    }
     pub fn active_regions(&self) -> (String, String) {
         let mut right = String::new();
         let mut bottom = String::new();
@@ -983,6 +1029,22 @@ impl Desktop {
     }
     pub fn input(&mut self, input: Input, context: &Context<'_>) {
         self.release_inactive(context);
+        if self.modal.is_none()
+            && self.focused_control() == Some("chat:input")
+            && matches!(
+                input,
+                Input::Key {
+                    key: crate::widgets::Key::Space,
+                    ..
+                }
+            )
+        {
+            self.dispatch_panel(
+                "hud",
+                ControlEvent::Action("ExpandChatAlias".into()),
+                context,
+            );
+        }
         let visible = self.visible_tokens();
         if let Some(modal) = &mut self.modal {
             let answer = match &input {

@@ -1,8 +1,7 @@
-//! Chat *routing*: text types, the 34-entry colour table, talk focus and squelch.
+//! Chat channels, shared entry state, focus availability and squelch.
 //!
-//! This module owns the **model**: which channel a line belongs to, what colour it carries and
-//! whether it survives squelch. The presentation layer owns the windows, the scrollback and the
-//! pixels.
+//! The model decides destinations and remembered speakers. Interface adapters own widgets
+//! and scrollback; the contract supplies routing and presentation policy data.
 
 use dereth_primitives::ObjectId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -311,9 +310,14 @@ pub struct TalkFocusNotice {
 /// Talk focus, the squelch DB and the last-used speaker names.
 #[derive(Debug, Clone, Default)]
 pub struct ChatState {
+    /// Per-window text and history survive interface switches.
+    pub entries: BTreeMap<u32, crate::chat_entry::ChatEntry>,
+    pub last_monarch_sender: String,
+    pub last_patron_sender: String,
     pub talk_focus: TalkFocus,
     /// Which of the 13 focuses is currently selectable.
     enabled: [bool; 14],
+    menu_enabled: [bool; 14],
     pub(crate) is_olthoi: bool,
     talk_focus_notices: Vec<TalkFocusNotice>,
     pub squelch: SquelchDb,
@@ -339,22 +343,49 @@ pub struct ChatState {
 
 impl ChatState {
     #[must_use]
+    pub fn reply_targets(&self) -> dereth_client_contract::chat::window::ReplyTargets {
+        let present = |s: &str| (!s.is_empty()).then(|| s.to_owned());
+        dereth_client_contract::chat::window::ReplyTargets {
+            last_teller: present(&self.last_teller_name),
+            monarch: present(&self.last_monarch_sender),
+            patron: present(&self.last_patron_sender),
+        }
+    }
+
+    #[must_use]
     pub fn new() -> Self {
         let mut s = Self::default();
         // Focuses 1 and 2 are always enabled; the rest depend on membership and on Turbine chat.
         s.enabled[TalkFocus::All as usize] = true;
         s.enabled[TalkFocus::Selected as usize] = true;
+        s.menu_enabled[TalkFocus::All as usize] = true;
         s
     }
 
     /// Selects the active talk focus.
     pub fn set_talk_focus(&mut self, f: TalkFocus) {
         self.talk_focus = f;
+        self.menu_enabled =
+            dereth_client_contract::chat::mainchat::reset_focus_rows(self.enabled, self.is_olthoi);
+        if f == TalkFocus::Allegiance {
+            self.wants_allegiance_chat = true;
+        }
     }
 
     /// Enables or disables one talk focus and emits the corresponding UI notice.
     pub fn set_talk_focus_enabled(&mut self, f: TalkFocus, enabled: bool) {
         self.enabled[f as usize] = enabled;
+        let (row, fallback) = dereth_client_contract::chat::mainchat::focus_enable_transition(
+            self.menu_enabled[f as usize],
+            self.talk_focus as u32,
+            f as u32,
+            enabled,
+            self.is_olthoi,
+        );
+        self.menu_enabled[f as usize] = row;
+        if fallback {
+            self.set_talk_focus(TalkFocus::All);
+        }
         // Retail emits even when the bit was already equal. A disable/re-enable pair can
         // move the current UI focus to Say although the final mask is unchanged.
         self.talk_focus_notices.push(TalkFocusNotice {
@@ -400,6 +431,21 @@ impl ChatState {
     #[must_use]
     pub fn enabled_focuses(&self) -> [bool; 14] {
         self.enabled
+    }
+
+    /// The effective menu availability, including the character's channel restrictions.
+    #[must_use]
+    pub fn selectable_focuses(&self) -> [bool; 14] {
+        self.menu_enabled
+    }
+
+    /// Update the selected speech target and its focus availability together.
+    pub fn set_speakable_target(&mut self, target: Option<ObjectId>, named: bool) {
+        self.last_speakable_target = target;
+        self.set_talk_focus_enabled(TalkFocus::Selected, named);
+        if !named && self.talk_focus == TalkFocus::Selected {
+            self.set_talk_focus(TalkFocus::All);
+        }
     }
 
     /// Applies the communication layer's legality guard before consulting the squelch database.
@@ -1392,5 +1438,49 @@ mod tests {
             "HearSocietyChat is off by default"
         );
         assert!(!s.is_talk_focus_enabled(TalkFocus::Olthoi));
+    }
+    /// Behaviour: chat.focus-state
+    #[test]
+    fn allegiance_desire_survives_another_focus_and_olthoi_rows_keep_notice_order() {
+        let mut chat = ChatState::new();
+        chat.set_talk_focus(TalkFocus::Allegiance);
+        chat.set_talk_focus(TalkFocus::All);
+        assert!(chat.wants_allegiance_chat);
+        chat.recv_chat_room_tracker(dereth_protocol::comms::ChatRoomMembership {
+            allegiance_room: 42,
+            ..Default::default()
+        });
+        assert_eq!(chat.talk_focus, TalkFocus::Allegiance);
+        assert_eq!(chat.chat_rooms[&1], 42);
+        chat.is_olthoi = true;
+        chat.set_talk_focus(TalkFocus::All);
+        assert_eq!(
+            chat.selectable_focuses()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, on)| on.then_some(i))
+                .collect::<Vec<_>>(),
+            [1, 13]
+        );
+        chat.set_talk_focus_enabled(TalkFocus::Selected, true);
+        assert!(chat.selectable_focuses()[2]);
+        chat.set_talk_focus(TalkFocus::Selected);
+        assert!(!chat.selectable_focuses()[2]);
+        chat.set_talk_focus_enabled(TalkFocus::Selected, false);
+        assert_eq!(
+            chat.talk_focus,
+            TalkFocus::Selected,
+            "an already disabled row does not reset focus"
+        );
+        chat.set_talk_focus_enabled(TalkFocus::Selected, true);
+        chat.set_talk_focus_enabled(TalkFocus::Selected, false);
+        assert_eq!(chat.talk_focus, TalkFocus::All);
+        chat.set_talk_focus(TalkFocus::Monarch);
+        chat.set_talk_focus_enabled(TalkFocus::Monarch, false);
+        assert_eq!(
+            chat.talk_focus,
+            TalkFocus::Monarch,
+            "an Olthoi-forbidden row does not take the normal fallback arm"
+        );
     }
 }

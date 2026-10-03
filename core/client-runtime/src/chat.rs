@@ -91,13 +91,10 @@ pub const CLICKABLE_PLAYER_IDS: Range<u32> = 0x5000_0001..0x7000_0000;
 ///
 /// **Leading and trailing**, both — which is why a shard body that itself ends in a newline (ACE's
 /// enter-world broadcast does) reaches the log without one.
-#[must_use]
-pub fn add_text_to_scroll_trim(s: &str) -> &str {
-    s.trim_matches(TEMPLATE_TERMINATOR)
-}
+pub use dereth_client_contract::chat::interface::add_text_to_scroll_trim;
 
 /// `<Tell:IIDString:{id}:{name}>{name}<\Tell>` — the clickable-name run the two `_CLICKABLE`
-/// templates open with. `dereth_ui::text::tag::parse` strips the markup from the drawn glyphs and
+/// templates open with. `dereth_text::tag::parse` strips the markup from the drawn glyphs and
 /// hangs it on them as a tag, which is what makes a clicked name compose a tell.
 fn tell_run(id: u32, name: &str) -> String {
     format!("<Tell:IIDString:{id}:{name}>{name}<\\Tell>")

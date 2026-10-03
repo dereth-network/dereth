@@ -17,7 +17,7 @@ use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     (
         "the_talk_to_menu_is_redrawn_from_the_settings",
-        &["chat.talk-focus.picking-a-target-redraws-every-row-from-the-settings"],
+        &["chat.talk-focus.picking-a-target-redraws-every-row-from-the-settings", "chat.talk-focus.channel-fallback-does-not-require-a-window"],
         the_talk_to_menu_is_redrawn_from_the_settings,
     ),
     (
@@ -77,13 +77,13 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     ),
     (
         "a_new_chat_window_reads_the_settings_now",
-        &["chat.talk-focus.a-new-window-reads-the-settings-now-rather-than-replaying-what-it-missed"],
+        &["chat.talk-focus.a-new-window-reads-the-settings-now-rather-than-replaying-what-it-missed", "chat.talk-focus.channel-fallback-does-not-require-a-window"],
         a_new_chat_window_reads_the_settings_now,
     ),
     (
-        "with_no_window_there_is_nothing_to_fall_back_to",
-        &["chat.talk-focus.with-no-window-there-is-nothing-to-fall-back-to"],
-        with_no_window_there_is_nothing_to_fall_back_to,
+        "channel_fallback_does_not_require_a_window",
+        &["chat.talk-focus.channel-fallback-does-not-require-a-window"],
+        channel_fallback_does_not_require_a_window,
     ),
     (
         "the_talk_to_popup_draws_over_the_window_and_gives_the_keyboard_back",
@@ -517,8 +517,7 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
     });
     let setting_untouched = c.view().world().chat.enabled_focuses()[SELECTED_ROW as usize];
 
-    // **A row the shipped layout does not carry.** Take one out and the client invents nothing:
-    // the player's talk target stays where it is rather than being reset behind his back.
+    // Removing a projected row does not remove the shared channel fallback.
     let removed = on_the_shipped_menu(&mut c, |ui, screen, _| {
         let general = screen
             .main_chat
@@ -540,7 +539,7 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
             notices,
             &mut |focus, notice| dereth_client::hud::talk_focus_notice(ui, screen, focus, notice),
         );
-        let kept = chat.talk_focus == TalkFocus::General;
+        let kept = chat.talk_focus == TalkFocus::All;
         // The menu builds itself again and lands on the row it does have.
         let landed = screen.main_chat.init_talk_focus_menu(ui);
         let say = screen
@@ -562,11 +561,14 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
             && after_picking == Some(GREYED)
             && setting_untouched
             && removed
-            && rebuilt.0
             && rebuilt.1 == OLTHOI_ROW as usize
             // Rebuilt from the setting the chat system holds, which that last batch set false.
             && rebuilt.2 == Some(GREYED)
         },
+    );
+    c.assert_behaviour(
+        "chat.talk-focus.channel-fallback-does-not-require-a-window",
+        move |_| rebuilt.0,
     );
     c.shutdown();
 }
@@ -1067,25 +1069,15 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
     let framed = wire.payload == want && (wire.queue, wire.ordered) == (NetQueue::Weenie, true);
 
     // What the player typed is what his own history holds, whatever the host could spell.
-    let kept = {
-        let app = c.view().expect_app();
-        let any: &dyn std::any::Any = app
-            .ui()
-            .expect("the shell")
-            .flow
-            .current()
-            .expect("a screen");
-        let screen = any
-            .downcast_ref::<GamePlayScreen>()
-            .expect("the gameplay screen");
-        screen
-            .chat
-            .iter()
-            .find(|w| w.window_id == 8)
-            .and_then(|w| w.history.last())
-            .map(String::as_str)
-            == Some(input)
-    };
+    let kept = c
+        .view()
+        .world()
+        .chat
+        .entries
+        .get(&8)
+        .and_then(|entry| entry.history().last())
+        .map(String::as_str)
+        == Some(input);
 
     // The same line on the general channel: the same host spells it, and the room message carries
     // that spelling rather than the ordinary one's bytes.
@@ -1904,6 +1896,9 @@ pub fn a_new_chat_window_reads_the_settings_now() {
     describe(&mut c, true, false);
     to_gameplay(&mut c);
 
+    // The offline server stub answers the opening allegiance request after the UI boundary;
+    // its newly shared availability notices belong to the next frame.
+    c.tick(1);
     // **Everything a frame says about the channels is delivered in that frame.** A notice left
     // over would be heard by the next window, which is the replay this claim is about; the message
     // names whatever is left so that the next producer to forget is identified rather than guessed.
@@ -1931,8 +1926,7 @@ pub fn a_new_chat_window_reads_the_settings_now() {
     c.tick(1);
     let not_replayed = c.view().world().chat.talk_focus == TalkFocus::General;
 
-    // With no chat window up at all, a change is discarded rather than kept for later, and the
-    // player is left talking to whatever he chose.
+    // A closed window does not suspend shared fallback; notices still are not replayed.
     c.app_mut()
         .queue_ui_mode(dereth_ui::framework::mode::CHARACTER_MANAGEMENT);
     c.tick(1);
@@ -1944,8 +1938,8 @@ pub fn a_new_chat_window_reads_the_settings_now() {
         .set_talk_focus_enabled(TalkFocus::General, true);
     c.tick(1);
     let discarded = c.world_mut().chat.take_talk_focus_notices().is_empty()
-        && c.view().world().chat.talk_focus == TalkFocus::General;
-    // And the window that comes back chooses saying it aloud for itself.
+        && c.view().world().chat.talk_focus == TalkFocus::All;
+    // A returning window projects that current shared choice.
     to_gameplay(&mut c);
     let chose_say = c.view().world().chat.talk_focus == TalkFocus::All;
     pick_general(&mut c, &mut hand);
@@ -1971,11 +1965,15 @@ pub fn a_new_chat_window_reads_the_settings_now() {
             if m.target == selected && m.message == "before the window was replaced")
     }) && !c.view().expect_app().interaction().last_sent.iter().any(|r| {
         matches!(r, dereth_client_model::Request::Talk(m) if m.message == "before the window was replaced")
-    }) && c.view().world().chat.talk_focus == TalkFocus::All;
+    });
 
     c.assert_behaviour(
         "chat.talk-focus.a-new-window-reads-the-settings-now-rather-than-replaying-what-it-missed",
-        move |_| rebuilt && not_replayed && discarded && chose_say && picked_again && stayed_a_tell,
+        move |_| rebuilt && not_replayed && picked_again && stayed_a_tell,
+    );
+    c.assert_behaviour(
+        "chat.talk-focus.channel-fallback-does-not-require-a-window",
+        move |_| discarded && chose_say,
     );
     c.shutdown();
 }
@@ -1985,8 +1983,8 @@ fn scenario_a_new_chat_window_reads_the_settings_now() {
     scenario("a_new_chat_window_reads_the_settings_now");
 }
 
-/// With no window at all there is nothing to fall back to, and nothing is kept for later.
-pub fn with_no_window_there_is_nothing_to_fall_back_to() {
+/// Shared channel fallback runs without a window, and notices are not kept for a future one.
+pub fn channel_fallback_does_not_require_a_window() {
     use dereth_client_model::chat::TalkFocus;
 
     let mut c = a_bare_client(false);
@@ -2001,21 +1999,21 @@ pub fn with_no_window_there_is_nothing_to_fall_back_to() {
         .chat
         .set_talk_focus_enabled(TalkFocus::General, true);
     c.tick(1);
-    let kept = c.view().world().chat.talk_focus == TalkFocus::General
+    let kept = c.view().world().chat.talk_focus == TalkFocus::All
         && c.world_mut().chat.take_talk_focus_notices().is_empty();
     c.tick(1);
-    let still = c.view().world().chat.talk_focus == TalkFocus::General;
+    let still = c.view().world().chat.talk_focus == TalkFocus::All;
 
     c.assert_behaviour(
-        "chat.talk-focus.with-no-window-there-is-nothing-to-fall-back-to",
+        "chat.talk-focus.channel-fallback-does-not-require-a-window",
         move |_| had_none && kept && still,
     );
     c.shutdown();
 }
 
 #[test]
-fn scenario_with_no_window_there_is_nothing_to_fall_back_to() {
-    scenario("with_no_window_there_is_nothing_to_fall_back_to");
+fn scenario_channel_fallback_does_not_require_a_window() {
+    scenario("channel_fallback_does_not_require_a_window");
 }
 
 /// Whether `popup` draws above every part of the chat window, and every one of its rows is drawn
@@ -4565,14 +4563,12 @@ fn characters_delivered(c: &HeadlessClient) -> u64 {
 /// The main chat window's own history, which is the client's evidence that a line really left the
 /// box: an empty entry is not remembered, so a line in the history is a line that was sent.
 fn chat_history(c: &mut HeadlessClient) -> Vec<String> {
-    with_screen(c, |_, s| {
-        s.chat
-            .iter()
-            .find(|w| w.window_id == 8)
-            .expect("the main window")
-            .history
-            .clone()
-    })
+    c.view()
+        .world()
+        .chat
+        .entries
+        .get(&8)
+        .map_or_else(Vec::new, |entry| entry.history().to_vec())
 }
 
 /// Type `line` one character at a time, checking every one arrived, so a send is never asserted
@@ -6471,14 +6467,17 @@ pub fn the_selected_players_name_fills_both_changing_rows() {
 
     // The rows are filled by the client's own once-a-second sweep rather than by the selection
     // being written, so the sweep is run -- with the one thing a nearby body would have given it.
-    let adopted = with_screen(&mut c, |ui, s| {
-        let mut world = s.chat_auto_target_world.clone();
-        world.in_range_of_player.push(selected.0);
-        s.main_chat.set_talk_focus_enabled(2, false);
-        s.chat_use_time(ui, 100.0, &world, |id| Some(world.adopted(id)))
-    }) == Some(dereth_ui_screens::chat::mainchat::AutoTarget::Adopt(
-        selected.0,
-    ));
+    let mut facts = with_screen(&mut c, |_ui, s| s.chat_auto_target_world.clone());
+    facts.in_range_of_player.push(selected.0);
+    let adopted = {
+        let (interaction, world) = c.app_mut().interaction_and_world_mut();
+        world
+            .chat
+            .set_talk_focus_enabled(TalkFocus::Selected, false);
+        interaction.update_chat_target(world, 100.0, &facts);
+        world.chat.last_speakable_target == Some(selected)
+    };
+    c.tick(1);
 
     let (menu, row, squelch) = {
         let app = c.view().expect_app();
@@ -7030,18 +7029,14 @@ pub fn the_line_the_return_key_sends_is_remembered() {
     c.ui_outbox().clear();
     hand.press_return(&mut c);
     let emptied = element_text_of(&mut c, entry).is_empty();
-    let remembered = with_screen(&mut c, |_, s| {
-        let main = s
-            .chat
-            .iter()
-            .find(|w| w.window_id == 8)
-            .expect("the main window");
-        (
-            main.history.clone(),
-            main.history_pos,
-            main.chat_entry_active,
-        )
-    }) == (vec!["hail well met".to_owned()], None, false);
+    let remembered = chat_history(&mut c) == ["hail well met"]
+        && with_screen(&mut c, |_, s| {
+            !s.chat
+                .iter()
+                .find(|w| w.window_id == 8)
+                .unwrap()
+                .chat_entry_active
+        });
 
     // The key that opens the entry gives it the caret back, which is the other way in.
     let opened = with_screen(&mut c, |ui, s| s.chat_on_action(ui, ACTION_OPEN_ENTRY));
@@ -7117,18 +7112,16 @@ pub fn the_scroll_keys_move_the_log_and_the_history_keys_fill_the_entry() {
     let paged = page && scroll_y(&mut c) < at_end;
 
     // The history keys write into the **entry**, not the log.
-    with_screen(&mut c, |_, s| {
-        let main = s
-            .chat
-            .iter_mut()
-            .find(|w| w.window_id == 8)
-            .expect("the main window");
-        main.history = vec!["first".to_owned(), "second".to_owned()];
-        main.history_pos = None;
-    });
+    for text in ["first", "second"] {
+        c.world_mut().chat.entries.entry(8).or_default().submit(
+            text,
+            dereth_client_contract::options::interface::Interface::Retail,
+        );
+    }
     let back = with_screen(&mut c, |ui, s| {
         s.chat_on_child_action(ui, entry, &an_action(ACTION_HISTORY_BACK))
     });
+    c.tick(1);
     let filled = back && element_text_of(&mut c, entry) == "second";
 
     // And the key that gives up: the caret goes, and the text stays.
@@ -7299,9 +7292,8 @@ pub fn the_button_caption_follows_the_menu() {
             .main_chat
             .handle_selection(ui, 7)
             .expect("the allegiance row");
-        (change.wants_alleg_chat, s.main_chat.wants_alleg_chat)
-    }) == (true, true)
-        && caption(&mut c) != general;
+        change.wants_alleg_chat
+    }) && caption(&mut c) != general;
 
     // A row the menu does not have at all: nothing happens.
     let absent = with_screen(&mut c, |ui, s| s.main_chat.handle_selection(ui, 99)).is_none();
@@ -7355,13 +7347,9 @@ fn scenario_a_rows_place_in_the_list_is_not_the_order_of_the_channels() {
 pub fn the_reply_keys_address_three_different_people() {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
     let entry = element(&c, dereth_ui_screens::chat::window::ENTRY);
-    with_screen(&mut c, |_, s| {
-        s.reply_targets = dereth_ui_screens::chat::window::ReplyTargets {
-            last_teller: Some("Ipsum".to_owned()),
-            monarch: Some("Amaranthea".to_owned()),
-            patron: Some("Borelean".to_owned()),
-        };
-    });
+    c.world_mut().chat.last_teller_name = "Ipsum".into();
+    c.world_mut().chat.last_monarch_sender = "Amaranthea".into();
+    c.world_mut().chat.last_patron_sender = "Borelean".into();
     let template = dereth_ui_screens::chat::window::ASSISTED_TELL_FALLBACK;
 
     let mut every = true;
@@ -7370,20 +7358,21 @@ pub fn the_reply_keys_address_three_different_people() {
         (ACTION_REPLY_MONARCH, "Amaranthea"),
         (ACTION_REPLY_PATRON, "Borelean"),
     ] {
-        let took = with_screen(&mut c, |ui, s| {
-            (s.chat_on_action(ui, action), ui.focus_element())
-        }) == (true, Some(entry));
+        let took = with_screen(&mut c, |ui, s| s.chat_on_action(ui, action));
+        c.tick(1);
+        let took = took && focus_of(&c) == Some(entry);
         let addressed = element_text_of(&mut c, entry) == format!("{template}{who}, ");
         assert!(took && addressed, "{action:#X} should address {who}");
         every &= took && addressed;
     }
 
     // With nobody to reply to, the key is still taken and the box is left alone.
-    with_screen(&mut c, |_, s| {
-        s.reply_targets = dereth_ui_screens::chat::window::ReplyTargets::default();
-    });
+    c.world_mut().chat.last_teller_name.clear();
+    c.world_mut().chat.last_monarch_sender.clear();
+    c.world_mut().chat.last_patron_sender.clear();
     let before = element_text_of(&mut c, entry);
     let still_taken = with_screen(&mut c, |ui, s| s.chat_on_action(ui, ACTION_REPLY_LAST));
+    c.tick(1);
     let left_alone = still_taken && element_text_of(&mut c, entry) == before;
 
     c.assert_behaviour(
@@ -7511,4 +7500,85 @@ pub fn the_close_button_hides_its_own_window() {
 #[test]
 fn scenario_the_close_button_hides_its_own_window() {
     scenario("the_close_button_hides_its_own_window");
+}
+
+/// Behaviour: chat.entry-adapters
+#[test]
+fn modern_entry_batches_keep_shared_replies_history_aliases_and_widget_edits_current() {
+    fn action(c: &mut HeadlessClient, action: u32) {
+        c.app_mut()
+            .input_manager_mut()
+            .unwrap()
+            .inject_action(dereth_input::InputEvent {
+                action: dereth_input::ActionId(action),
+                input_map: dereth_input::InputMapId(0x10000009),
+                toggle: dereth_input::ToggleType::OneShot,
+                extent: 1.0,
+                start: true,
+                repeat_delta: 1,
+                repeat_total: 0,
+                from_key_down: false,
+            });
+    }
+    let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
+    let mut hand = Hand::new();
+    let entry = main_chat_entry(&c);
+    hand.click_handle(&mut c, entry);
+    c.world_mut().chat.last_monarch_sender = "Monarch Peer".into();
+    c.world_mut().chat.last_teller_name = "Last Peer".into();
+    action(&mut c, 0x10000020);
+    hand.character(&mut c, 'H');
+    c.tick(1);
+    assert_eq!(element_text_of(&mut c, entry), "@tell Monarch Peer, H");
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Enter), true);
+    c.tick(1);
+    assert_eq!(chat_history(&mut c), ["@tell Monarch Peer, H"]);
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Enter), false);
+    hand.click_handle(&mut c, entry);
+    action(&mut c, ACTION_HISTORY_BACK);
+    hand.character(&mut c, 'X');
+    c.tick(1);
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Enter), true);
+    c.tick(1);
+    assert_eq!(
+        chat_history(&mut c),
+        ["@tell Monarch Peer, H", "@tell Monarch Peer, HX"]
+    );
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Enter), false);
+    hand.click_handle(&mut c, entry);
+    for ch in "@r A".chars() {
+        hand.character(&mut c, ch);
+    }
+    c.tick(1);
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Enter), true);
+    c.tick(1);
+    assert_eq!(chat_history(&mut c).last().unwrap(), "@tell Last Peer, A");
+    assert_eq!(c.view().expect_app().interaction().stats.chat_lines_sent, 3);
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Enter), false);
+    with_screen(&mut c, |ui, s| {
+        s.chat_on_action(ui, ACTION_OPEN_ENTRY);
+        ui.text_element_mut(entry).unwrap().paste("pasted");
+    });
+    c.tick(1);
+    assert_eq!(c.view().world().chat.entries[&8].text, "pasted");
+    hand.key(&mut c, key_of(winit::keyboard::KeyCode::Backspace), true);
+    c.tick(1);
+    assert_eq!(c.view().world().chat.entries[&8].text, "paste");
+    let update = dereth_client_contract::chat::entry::EntryUpdate {
+        window: 8,
+        text: c.view().world().chat.entries[&8].text.clone(),
+        cursor: 5,
+        focus: false,
+    };
+    with_screen(&mut c, |ui, s| {
+        ui.text_element_mut(entry).unwrap().set_text("stale");
+        s.chat_entry_update(ui, &update);
+    });
+    assert_eq!(element_text_of(&mut c, entry), "paste");
+    assert_eq!(
+        chat_history(&mut c).len(),
+        3,
+        "restoring a draft does not submit or replay it"
+    );
+    c.shutdown();
 }

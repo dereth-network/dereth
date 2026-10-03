@@ -12,7 +12,6 @@
 
 pub mod console;
 pub mod help;
-pub mod history;
 pub mod interp;
 pub mod loadfile;
 pub mod table;

@@ -27,7 +27,7 @@ impl std::fmt::Debug for Context<'_> {
 #[derive(Clone, Debug)]
 pub struct ClassicState {
     pub reply_targets: dereth_client_contract::chat::window::ReplyTargets,
-    pub chat_focus: Option<(u8, [bool; 7])>,
+    pub chat_focus: Option<(u8, [bool; 14])>,
     pub chat_target: Option<(ObjectId, String)>,
     pub classic_power_level: Option<f32>,
     pub stack_split: Option<(u32, u32)>,
@@ -170,7 +170,6 @@ pub enum HostAction {
     /// Begin a tell to the named character in the chat entry: `@tell <name>, ` typed there and
     /// the entry focused, ready for the message.
     StartTell(String),
-    ClassicTalkFocus(u32),
     ConfirmBinding(bool),
     DialogAnswer {
         id: String,
@@ -285,6 +284,7 @@ pub enum DragPayload {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControlEvent {
+    ChatEntry(dereth_client_contract::chat::entry::EntryUpdate),
     Magic(dereth_client_contract::view::MagicNotice),
     Salvage(dereth_client_contract::panels::salvage::SalvageNotice),
     HousePaymentConfirmation {

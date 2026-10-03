@@ -57,12 +57,11 @@ pub static ROWS: &[Behaviour] = &[
         says: "The three allegiance channels are offered only while somebody is there to hear them: \
                the patron channel while the player's patron is online, the monarch channel while the \
                monarch is online and is somebody other than the player, and the vassal channel while \
-               any direct vassal is online. Every rebuild of the tab says so again, and when they all \
-               log out the three close again.",
+               any direct vassal is online; when they all log out the three close again.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-3-CHANNELS"),
-        station: "dereth-testkit::dat::social::scenario_an_online_relative_opens_that_allegiance_channel",
-        tier: Tier::Dat,
+        station: "dereth-client-model::lib::allegiance::tests::received_rosters_update_all_three_chat_focuses_without_a_panel",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "allegiance.channels.the-panels-request-writes-the-one-talk-focus-mask",

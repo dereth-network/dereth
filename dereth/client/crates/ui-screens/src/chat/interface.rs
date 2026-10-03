@@ -14,85 +14,9 @@ use crate::view::UiRequest;
 /// names `MAIN` when it seeds the placement blob.
 pub use dereth_client_contract::chat::interface::window;
 
-/// The default 64-bit text-type filter per window id, set by the post-init's window-id switch.
-///
-/// Type `0x1A` is *not* a chat type — it is the over-head bubble channel, and the main window's
-/// default filter excludes exactly that bit. `0xFBFFFFFF` is `!(1 << 26)` over the low 32.
-#[must_use]
-pub fn default_filter(window_id: u32) -> u64 {
-    match window_id {
-        window::MAIN_ALT | window::MAIN => 0xFBFF_FFFF,
-        window::FLOATY_1 => 0x0000_101C,
-        window::FLOATY_2 => 0x0004_0C00,
-        window::FLOATY_3 => 0x0008_0000,
-        window::FLOATY_4 => 0x7800_0000,
-        // The `switch` has no default arm; an unknown window id leaves the filter at its
-        // constructed value, which is zero — the window accepts nothing on a broadcast.
-        _ => 0,
-    }
-}
-
-/// One check box on the chat-options page: a label string id and the mask it owns.
-///
-/// The chat options panel's checkbox bitfield64 option insert.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FilterGroup {
-    pub label: &'static str,
-    pub mask: u64,
-}
-
-const fn fg(label: &'static str, mask: u64) -> FilterGroup {
-    FilterGroup { label, mask }
-}
-
-/// The thirteen filter groups, in the order the options page adds them.
-///
-/// **Twelve of the thirteen are always offered**; *Gameplay* is the one that is not. Which
-/// windows get it is easy to get backwards — see [`filter_groups_for`].
-pub const FILTER_GROUPS: [FilterGroup; 13] = [
-    fg("ID_ChatOption_TextFilter_Gameplay", 0x8391_2021),
-    fg("ID_ChatOption_TextFilter_Combat", 0x0060_0040),
-    fg("ID_ChatOption_TextFilter_Magic", 0x0002_0080),
-    fg("ID_ChatOption_TextFilter_AreaSpeech", 0x0000_1004),
-    fg("ID_ChatOption_TextFilter_Tells", 0x0000_0018),
-    fg("ID_ChatOption_TextFilter_Allegience", 0x0004_0C00),
-    fg("ID_ChatOption_TextFilter_Fellowship", 0x0008_0000),
-    fg("ID_ChatOption_TextFilter_General", 0x0800_0000),
-    fg("ID_ChatOption_TextFilter_Trade", 0x1000_0000),
-    fg("ID_ChatOption_TextFilter_LFG", 0x2000_0000),
-    fg("ID_ChatOption_TextFilter_Roleplay", 0x4000_0000),
-    fg("ID_ChatOption_TextFilter_Society", 0x1_0000_0000),
-    fg("ID_ChatOption_TextFilter_Error", 0x0400_0000),
-];
-
-/// The groups offered for one window: all thirteen for **every floaty**, the last twelve
-/// (starting at Combat) for the **main** window.
-///
-/// The client switches on the window id, and window **8** is the one case that skips the
-/// *Gameplay* check box:
-///
-/// ```text
-///   window 8:        default 0xFBFFFFFF; no Gameplay child
-///   windows 2/3/4/5: default = that window's mask; add Gameplay (mask 0x83912021)
-///   every window:    add Combat (mask 0x600040) and the eleven after it
-/// ```
-///
-/// The chat-options page's two per-window blocks agree: the main-window block (window 8) goes
-/// from setting the default straight to adding Combat (`0x600040`), while the floaty-4 block
-/// (window 5) adds Gameplay with mask `0x83912021` first.
-/// So the page shows **12 + 13 · 4 = 64** check boxes.
-///
-/// An unknown window id falls past the switch's range check to the common
-/// tail, i.e. twelve groups and **no default value at all** — which is why
-/// [`default_filter`] answers 0 there.
-#[must_use]
-pub fn filter_groups_for(window_id: u32) -> &'static [FilterGroup] {
-    match window_id {
-        window::MAIN | window::MAIN_ALT => &FILTER_GROUPS[1..],
-        window::FLOATY_1 | window::FLOATY_2 | window::FLOATY_3 | window::FLOATY_4 => &FILTER_GROUPS,
-        _ => &FILTER_GROUPS[1..],
-    }
-}
+pub use dereth_client_contract::chat::interface::{
+    default_filter, filter_groups_for, FilterGroup, FILTER_GROUPS,
+};
 
 /// The scrollback caps.
 pub mod scrollback {
@@ -109,43 +33,7 @@ pub mod scrollback {
 /// *enters* the UI, so the value that carries it is the contract and not the drawing.
 pub use dereth_client_contract::chat::interface::ChatMessage;
 
-/// Trimming both ends for `L"\n"` is the client's first operation on every composed chat
-/// line.
-///
-/// The composed line is trimmed using a temporary wide string containing only `\n`,
-/// with both leading and trailing trimming enabled. The final-string notice carries
-/// that trimmed string, not the original composed line.
-///
-/// `trim`'s trailing arm loops over wide characters, stopping on the first non-newline and
-/// otherwise reducing the character count and moving the end pointer back two bytes.
-/// Every trailing newline comes off, not merely one; the leading arm mirrors this behavior.
-///
-/// **Why it lives here rather than at each composer.** That one function is the *only* caller of
-/// the display-final-string-info notice in the whole client, so the trim applies
-/// to every line the chat log can ever receive; taking it at the notice boundary is the same
-/// function on the same strings, and it cannot be forgotten by one of the hundred call sites that
-/// compose a line.
-///
-/// **What it fixes.** A body that keeps its newline leaves the log's *last glyph* a newline glyph,
-/// and the glyph list's recalculate then adds the empty line at the glyph count. That line is
-/// real and correct for a text element in general — it must be unreachable for the chat log,
-/// where it shows as a blank bottom row. Every `0xF7E0` body in the recorded error-condition
-/// sweep ends in `'\n'`, so on an ACE shard it would be every line.
-#[must_use]
-pub fn add_text_to_scroll_trim(s: &str) -> &str {
-    s.trim_matches('\n')
-}
-
-/// What one window did with one message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Routed {
-    /// Appended to this window's log.
-    Accepted,
-    /// Addressed to a different window.
-    OtherWindow,
-    /// Broadcast, but this window filters the type out.
-    FilteredOut,
-}
+pub use dereth_client_contract::chat::interface::{add_text_to_scroll_trim, Routed};
 
 /// `ChatInterface` — one chat window's state.
 #[derive(Debug, Clone)]
@@ -157,10 +45,6 @@ pub struct ChatInterface {
     /// The log, one entry per appended run. Glyph counting is by `char`, which is what the client's
     /// glyph list counts for the ASCII and Latin-1 text this cap ever sees.
     pub log: Vec<(u8, String)>,
-    /// The input history.
-    pub history: Vec<String>,
-    /// The last input-history position; `None` is the client's `0xFFFFFFFF` "not in history".
-    pub history_pos: Option<usize>,
     /// The live edit line.
     pub entry: String,
     /// The default and active opacity, attributes `0x10000080` / `0x10000081`.
@@ -195,9 +79,6 @@ pub struct ChatInterface {
     /// the notice reads it.
     pub chat_entry_active: bool,
 }
-
-/// The input history is trimmed from the front while it holds more than this many entries.
-pub const INPUT_HISTORY_MAX: usize = 100;
 
 /// The per-frame fraction of `|active − default|` the fade moves. The frame-message handler
 /// multiplies by the single-precision float 0.05.
@@ -303,8 +184,7 @@ impl ChatInterface {
             window_id,
             filter: default_filter(window_id),
             log: Vec::new(),
-            history: Vec::new(),
-            history_pos: None,
+
             entry: String::new(),
             default_opacity: 1.0,
             active_opacity: 1.0,
@@ -320,10 +200,7 @@ impl ChatInterface {
     /// Whether the filter passes a chat type — `((filter >> type) & 1) != 0`.
     #[must_use]
     pub fn type_is_active(&self, ty: u8) -> bool {
-        if ty >= 64 {
-            return false;
-        }
-        (self.filter >> ty) & 1 != 0
+        dereth_client_contract::chat::interface::type_is_active(self.filter, u32::from(ty))
     }
 
     /// The display final string info notice's routing test: a message whose window id is not
@@ -333,15 +210,12 @@ impl ChatInterface {
     /// Note what it does *not* do: a message addressed to this window by id bypasses the filter.
     #[must_use]
     pub fn route(&self, m: &ChatMessage) -> Routed {
-        if m.window != self.window_id {
-            if m.window != 0 {
-                return Routed::OtherWindow;
-            }
-            if !self.type_is_active(m.ty) {
-                return Routed::FilteredOut;
-            }
-        }
-        Routed::Accepted
+        dereth_client_contract::chat::interface::route(
+            self.window_id,
+            self.filter,
+            u32::from(m.ty),
+            m.window,
+        )
     }
 
     /// The rest of the display-final-string-info notice: the newline separator, the grey prefix,
@@ -474,79 +348,8 @@ impl ChatInterface {
             text: text.clone(),
             window: self.window_id,
         };
-        self.history.push(text);
-        self.history_pos = None;
-        while self.history.len() > INPUT_HISTORY_MAX {
-            self.history.remove(0);
-        }
         self.entry.clear();
         Some(req)
-    }
-
-    /// Step through the input history, back (older) or forward (newer).
-    ///
-    /// The client walks the last input-history position as an **unsigned** index with `0xFFFFFFFF` meaning
-    /// "not in history".
-    ///
-    /// **Two of the four branches are easy to get wrong**, and by the same mistake: treating an
-    /// out-of-range position as "wrap round" where the client returns.
-    /// The whole behaviour:
-    ///
-    /// * **Back, in range:** (a) at position 0, the OLDEST, do nothing at all; otherwise step to
-    ///   `pos - 1`.
-    /// * **Back, from the live line:** with an empty history do nothing; otherwise go to the
-    ///   newest entry.
-    /// * **Forward, from the live line:** (b) blank the entry if it is non-empty, and that is all.
-    /// * **Forward, in range:** step to `pos + 1`; past the newest entry, blank the entry, return
-    ///   to the live line and stop.
-    ///
-    /// Every arm that lands on an entry then puts its text in the edit line and scrolls the edit
-    /// line to its end.
-    ///
-    /// (a) does not wrap from the oldest entry back to the newest, although `0 - 1` is
-    /// `0xFFFFFFFF` and the out-of-range clamp looks as if it covers that case: the `pos == 0` test
-    /// happens **first**, inside the in-range arm, and returns.
-    ///
-    /// (b) Down from the live line **blanks a half-typed entry and stops**; it does not step into
-    /// the oldest entry. Only this branch blanks — the back arm never does, because it overwrites
-    /// the entry in the same breath. \[verified\]
-    pub fn select_command_from_history(&mut self, back: bool) {
-        let num = self.history.len();
-        if back {
-            let next = match self.history_pos {
-                // In range. `pos == 0` is the oldest entry and the client returns from it.
-                Some(p) if p < num => {
-                    if p == 0 {
-                        return;
-                    }
-                    p - 1
-                }
-                // Out of range — `None` is the client's `0xFFFFFFFF`, and so is a stale index
-                // past the end after the history was trimmed. Both land on the newest.
-                _ => {
-                    if num == 0 {
-                        return;
-                    }
-                    num - 1
-                }
-            };
-            self.history_pos = Some(next);
-            self.entry.clone_from(&self.history[next]);
-        } else {
-            let Some(p) = self.history_pos.filter(|p| *p < num) else {
-                // Forward from the live line: blank whatever is half-typed, and stop.
-                self.entry.clear();
-                return;
-            };
-            let next = p + 1;
-            if next >= num {
-                self.history_pos = None;
-                self.entry.clear();
-            } else {
-                self.history_pos = Some(next);
-                self.entry.clone_from(&self.history[next]);
-            }
-        }
     }
 
     /// The client's **head** — "keep `default ≤ active`".
@@ -682,171 +485,6 @@ impl ChatInterface {
         }
         Some(next)
     }
-}
-
-// ---------------------------------------------------------------------------------------------
-// The chat interface's text replacements handling
-// ---------------------------------------------------------------------------------------------
-//
-// The five aliases a player types instead of a whole `@tell`, expanded the moment the **space**
-// after them is typed. The low-16-bit space-character message is the trigger:
-//
-// Text replacement runs only when the message's element is this interface's chat entry
-// and the low 16 bits of its character parameter are a space.
-//
-// The body tries three alias groups in order, each returning `false` when it does not match:
-// `r `, `rp `, or `reply ` for the last teller, then
-// `mr ` for the monarch, then `pr ` for the patron.
-// Each alias retains the typed trailing space.
-//
-// # The off-by-one that is not one
-//
-// The numbers the client passes to `substring` and to set-mark are `1`, `2`, `5`, `2`, `2` while
-// the literals they are compared against are 2, 3, 6, 3 and 3 characters long. That looks like a
-// discrepancy, and guessing would be wrong: a guessed expansion sends a player's words to the
-// wrong person, and nothing on screen would say so.
-//
-// It is not a discrepancy. The two functions take **different kinds of number**, and the two
-// meanings happen to coincide:
-//
-// * The original UTF-16 substring operation takes an **inclusive end
-//   index**, not a count: it clamps the end to the last index and copies `end - start + 1`
-//   characters, so `substring(0, 1)` is **two** characters and does match `L"r "` — space included.
-//
-// * The replacement iterator's set-mark writes a position, and replacement uses the
-//   **half-open** range `[curr, mark)`: it
-//   appends `old[0..lo)`, then the replacement, then resumes at `old[hi]`. The iterator is built
-//   with `curr = 0`, so `mark = 1` for `r ` replaces exactly `"r"` and **leaves the space**.
-//
-// Both numbers are therefore `len(alias) - 1`, for two different and consistent reasons, and the
-// arithmetic checks out against the composed string: the replacement literal is `L"@tell %hs,"`
-// with **no trailing space** precisely because the typed space survives, and the
-// cursor then moves to `len(replacement) + 1` — one past that space, where
-// the message continues. `r hello` + the typed space becomes `@tell Alba, hello` with the caret
-// before `hello`. Every one of those three facts would be wrong under the other reading. [verified]
-//
-// Two further things, both verified against retail:
-//
-// * **The line must already start with `/` or `@`.** All three functions test
-//   the first character of the trimmed text against `/` then `@` and return `false` otherwise,
-//   then `substring(1, len)` to drop that character. So the player types
-//   `@r hello` (or `/r hello`) and gets `@tell Alba, hello`; a bare `r hello` is left alone.
-// * **The name is `%hs`, a narrow string**, from the remembered teller, monarch, or patron name
-//   — the same three sources the reply keys use — and an **empty** one makes
-//   its function return `false` before it looks at the text at all (a stored length of 1,
-//   the terminator alone, counts as empty).
-
-/// Which of the three remembered names an alias expands to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReplyTarget {
-    /// The last teller's name — `r `, `rp `, `reply `.
-    LastTeller,
-    /// The monarch's name — `mr `.
-    Monarch,
-    /// The patron's name — `pr `.
-    Patron,
-}
-
-/// The five aliases, in the order the three functions try them, with the mark position each
-/// one passes. `mark` is always `alias.len() - 1`, which is the count of characters the replace
-/// removes — the alias **without** its trailing space.
-pub const REPLY_ALIASES: [(&str, usize, ReplyTarget); 5] = [
-    ("r ", 1, ReplyTarget::LastTeller),
-    ("rp ", 2, ReplyTarget::LastTeller),
-    ("reply ", 5, ReplyTarget::LastTeller),
-    ("mr ", 2, ReplyTarget::Monarch),
-    ("pr ", 2, ReplyTarget::Patron),
-];
-
-/// The two command sigils the replacement handler accepts. Every alias group
-/// requires one before it will expand anything.
-pub const COMMAND_SIGILS: [char; 2] = ['/', '@'];
-
-/// `L"@tell %hs,"` — the composed replacement, **without** a trailing space.
-///
-/// This is *not* the text composed from the `ID_AssistedTell` string-table row; the
-/// text replacements use a literal compiled into the client, and the two differ in exactly the
-/// trailing space (the client is `L"@tell %s, "`, the wide form, which this path does not use).
-#[must_use]
-pub fn assisted_tell_literal(name: &str) -> String {
-    format!("@tell {name},")
-}
-
-/// What one expansion did to the entry line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TextReplacement {
-    /// The literal that matched, as retail spells it.
-    pub alias: &'static str,
-    pub target: ReplyTarget,
-    /// The name that went into the tell.
-    pub name: String,
-    /// The entry's whole new text.
-    pub text: String,
-    /// The new cursor position: `len(replacement) + 1`, i.e. just past
-    /// the space the alias left behind.
-    pub cursor: usize,
-}
-
-/// The chat interface's text replacements, as a function of the entry text.
-///
-/// Returns `None` when nothing matched, which is the client's "all three returned `false`".
-///
-/// The three names are supplied by the caller because communication state owns them on the
-/// far side of this crate's seam; [`crate::chat::window::ReplyTargets`] is the same triple the
-/// reply keys read.
-#[must_use]
-pub fn handle_text_replacements(
-    text: &str,
-    last_teller: Option<&str>,
-    monarch: Option<&str>,
-    patron: Option<&str>,
-) -> Option<TextReplacement> {
-    // The client trims **leading** whitespace only.
-    let trimmed = text.trim_start();
-    // The first character must be `/` or `@`, and is then dropped.
-    let mut chars = trimmed.chars();
-    if !COMMAND_SIGILS.contains(&chars.next()?) {
-        return None;
-    }
-    let body: Vec<char> = chars.collect();
-
-    for (alias, mark, target) in REPLY_ALIASES {
-        let name = match target {
-            ReplyTarget::LastTeller => last_teller,
-            ReplyTarget::Monarch => monarch,
-            ReplyTarget::Patron => patron,
-        };
-        // The empty-name early return, which is why `mr ` in a character with no monarch is
-        // ordinary text rather than a tell to nobody.
-        let Some(name) = name.filter(|n| !n.is_empty()) else {
-            continue;
-        };
-        // `_wcsicmp(substring(0, mark), alias)` — `substring`'s end is inclusive, so the compared
-        // slice is `mark + 1` characters: the alias **with** its space.
-        let n = alias.chars().count();
-        if body.len() < n {
-            continue;
-        }
-        if !body[..n]
-            .iter()
-            .collect::<String>()
-            .eq_ignore_ascii_case(alias)
-        {
-            continue;
-        }
-        // The replace covers the half-open `[0, mark)`: the alias loses its last character, the space,
-        // to the tail.
-        let replacement = assisted_tell_literal(name);
-        let tail: String = body[mark..].iter().collect();
-        return Some(TextReplacement {
-            alias,
-            target,
-            name: name.to_owned(),
-            cursor: replacement.chars().count() + 1,
-            text: format!("{replacement}{tail}"),
-        });
-    }
-    None
 }
 
 #[cfg(test)]
@@ -1087,101 +725,6 @@ mod tests {
         assert_eq!(w.glyph_count(), 7500);
     }
 
-    /// Oracle: §6.2 steps 4–6 and §6.3 the select command from history.
-    #[test]
-    fn history_browsing_reproduces_the_documented_up_down_semantics() {
-        let mut w = ChatInterface::new(window::MAIN);
-        for s in ["one", "two", "three"] {
-            w.entry = s.to_owned();
-            assert!(w.process_command().is_some());
-        }
-        assert_eq!(w.history, vec!["one", "two", "three"]);
-        assert_eq!(w.history_pos, None, "the position resets on every submit");
-        assert!(w.entry.is_empty());
-
-        // Back from the live line lands on the newest.
-        w.select_command_from_history(true);
-        assert_eq!(w.entry, "three");
-        w.select_command_from_history(true);
-        assert_eq!(w.entry, "two");
-        w.select_command_from_history(true);
-        assert_eq!(w.entry, "one");
-        w.select_command_from_history(true);
-        assert_eq!(w.entry, "one", "Up at the oldest entry leaves it alone");
-        assert_eq!(w.history_pos, Some(0));
-
-        // Forward past the end clears the entry and leaves history.
-        w.history_pos = Some(2);
-        w.select_command_from_history(false);
-        assert_eq!(w.history_pos, None);
-        assert!(w.entry.is_empty());
-    }
-
-    /// The two ends of the history walk are dead ends not wraps.
-    #[test]
-    fn the_two_ends_of_the_history_walk_are_dead_ends_not_wraps() {
-        let mut w = ChatInterface::new(window::MAIN);
-        for s in ["one", "two", "three"] {
-            w.entry = s.to_owned();
-            assert!(w.process_command().is_some());
-        }
-
-        // Up, at the oldest entry: position 0 returns.
-        w.history_pos = Some(0);
-        w.entry = "one".to_owned();
-        w.select_command_from_history(true);
-        assert_eq!(w.entry, "one", "no wrap to the newest");
-        assert_eq!(w.history_pos, Some(0), "and the position did not move");
-
-        // Down, from the live line: blank the half-typed entry and stop.
-        w.history_pos = None;
-        w.entry = "half typed".to_owned();
-        w.select_command_from_history(false);
-        assert!(w.entry.is_empty(), "the half-typed line is blanked");
-        assert_eq!(w.history_pos, None, "and it did NOT step into the history");
-
-        // Down again, still live and now empty: still nothing.
-        w.select_command_from_history(false);
-        assert!(w.entry.is_empty());
-        assert_eq!(w.history_pos, None);
-
-        // The out-of-range arm is still a real arm: Up from live lands on the newest.
-        w.select_command_from_history(true);
-        assert_eq!(w.entry, "three");
-        assert_eq!(w.history_pos, Some(2));
-    }
-
-    /// Oracle: §6.3 — "Entering history from the 'live' state first blanks a non-empty entry line."
-    #[test]
-    fn entering_history_blanks_a_half_typed_line_first() {
-        let mut w = ChatInterface::new(window::MAIN);
-        w.entry = "hi".into();
-        let _ = w.process_command();
-        w.entry = "half typed".into();
-        w.select_command_from_history(true);
-        assert_eq!(
-            w.entry, "hi",
-            "the half-typed line is gone, replaced by the history entry"
-        );
-    }
-
-    /// Oracle: §6.2 steps 2 and 5 — an empty line submits nothing, and the history is trimmed from
-    /// the **front** past 100 entries.
-    #[test]
-    fn an_empty_line_submits_nothing_and_the_history_caps_at_one_hundred() {
-        let mut w = ChatInterface::new(window::MAIN);
-        assert!(w.process_command().is_none());
-        assert!(w.history.is_empty());
-
-        for i in 0..150 {
-            w.entry = format!("cmd{i}");
-            let _ = w.process_command();
-        }
-        assert_eq!(w.history.len(), INPUT_HISTORY_MAX);
-        assert_eq!(w.history[0], "cmd50", "trimmed from the front");
-        assert_eq!(w.history[99], "cmd149");
-    }
-
     /// The opacity pair stays ordered and the fade settles.
     #[test]
     fn the_opacity_pair_stays_ordered_and_the_fade_settles() {
@@ -1260,124 +803,5 @@ mod tests {
         w.log = vec![(2, "x".into())];
         w.recv_clear_chat_buffer(window::FLOATY_2);
         assert!(w.log.is_empty());
-    }
-
-    fn expand(text: &str) -> Option<TextReplacement> {
-        handle_text_replacements(text, Some("Alba"), Some("Aldis"), Some("Plonk"))
-    }
-
-    /// The five reply aliases expand with the space they were typed with.
-    #[test]
-    fn the_five_reply_aliases_expand_with_the_space_they_were_typed_with() {
-        // The five stored literals, paired with the target each corresponding handler reads.
-        assert_eq!(
-            REPLY_ALIASES.map(|(a, m, _)| (a, m)),
-            [("r ", 1), ("rp ", 2), ("reply ", 5), ("mr ", 2), ("pr ", 2)]
-        );
-        for (alias, mark, _) in REPLY_ALIASES {
-            assert_eq!(
-                mark,
-                alias.chars().count() - 1,
-                "{alias:?}: the mark is len-1"
-            );
-        }
-
-        let r = expand("@r hello").expect("the last teller is set");
-        assert_eq!(r.alias, "r ");
-        assert_eq!(r.target, ReplyTarget::LastTeller);
-        assert_eq!(
-            r.text, "@tell Alba, hello",
-            "the typed space survives the replacement"
-        );
-        // "@tell Alba," is 11 characters, so the space is at 11 and the caret goes to 12.
-        assert_eq!(
-            r.cursor, 12,
-            "the cursor moves to len + 1 — just past the space"
-        );
-        assert_eq!(
-            r.text.chars().nth(r.cursor),
-            Some('h'),
-            "…and `hello` starts there"
-        );
-
-        assert_eq!(expand("@rp hi").expect("rp").text, "@tell Alba, hi");
-        assert_eq!(expand("@reply hi").expect("reply").text, "@tell Alba, hi");
-        let m = expand("@mr hi").expect("mr");
-        assert_eq!(
-            (m.target, m.text.as_str()),
-            (ReplyTarget::Monarch, "@tell Aldis, hi")
-        );
-        let p = expand("@pr hi").expect("pr");
-        assert_eq!(
-            (p.target, p.text.as_str()),
-            (ReplyTarget::Patron, "@tell Plonk, hi")
-        );
-
-        // `/` is the other sigil, and it is dropped along with the alias.
-        assert_eq!(
-            expand("/reply hi").expect("the slash form").text,
-            "@tell Alba, hi"
-        );
-        // `_wcsicmp` is case-insensitive.
-        assert_eq!(
-            expand("@REPLY hi").expect("upper case").text,
-            "@tell Alba, hi"
-        );
-        // `trim(leading)`.
-        assert_eq!(
-            expand("   @r hi").expect("leading space").text,
-            "@tell Alba, hi"
-        );
-    }
-
-    /// Oracle: the three early returns — no sigil, no alias, and an empty remembered name. Each
-    /// leaves the line exactly as typed, which is what a player who types `rat ` must get.
-    #[test]
-    fn nothing_expands_without_a_sigil_a_whole_alias_and_a_name() {
-        assert_eq!(
-            expand("r hello"),
-            None,
-            "no `/` or `@`: the client returns false"
-        );
-        assert_eq!(expand("@rat hello"), None, "`rat ` is not `r `");
-        assert_eq!(expand("@replying hi"), None);
-        assert_eq!(
-            expand("@r"),
-            None,
-            "the trailing space is part of the literal"
-        );
-        assert_eq!(expand("@"), None);
-        assert_eq!(expand(""), None);
-        // An empty name is the early return — and it is **per function**, so
-        // `mr ` still expands when only the monarch is known.
-        assert_eq!(handle_text_replacements("@r hi", None, None, None), None);
-        assert_eq!(
-            handle_text_replacements("@r hi", Some(""), None, None),
-            None
-        );
-        let only_monarch = handle_text_replacements("@mr hi", None, Some("Aldis"), None);
-        assert_eq!(
-            only_monarch.expect("mr still works").text,
-            "@tell Aldis, hi"
-        );
-        // …and `r ` with no teller does not fall through to the monarch's name.
-        assert_eq!(
-            handle_text_replacements("@r hi", None, Some("Aldis"), None),
-            None
-        );
-    }
-
-    /// Oracle: appends `old[0..lo)` before the replacement, and the alias is
-    /// matched against `substring(0, mark)` of the text **after** the sigil is dropped — so an
-    /// alias in the middle of a line is not an alias.
-    #[test]
-    fn only_the_head_of_the_line_is_an_alias() {
-        assert_eq!(expand("@say r hello"), None);
-        assert_eq!(expand("@tell Alba, r hi"), None);
-        // The tail is preserved verbatim, commas and all.
-        assert_eq!(
-            expand("@r hi, there").expect("tail").text,
-            "@tell Alba, hi, there"
-        );
     }
 }

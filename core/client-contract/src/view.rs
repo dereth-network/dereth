@@ -1122,6 +1122,11 @@ pub enum UiRequest {
     /// refused with its message), then the add with server notification.
     CreateShortcut(ObjectId),
     /// Submit `text` from chat window `window` as a chat command.
+    ChatEntry {
+        window: u32,
+        text: String,
+        action: crate::chat::entry::EntryAction,
+    },
     ChatLine {
         text: String,
         window: u32,

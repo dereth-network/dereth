@@ -158,14 +158,12 @@ fn spew(app: &App) -> Vec<String> {
 
 /// Read submitted-command history from main chat window 8.
 fn history(app: &mut App) -> Vec<String> {
-    let (_, screen) = gameplay(app);
-    screen
+    app.objects()
+        .world
         .chat
-        .iter()
-        .find(|c| c.window_id == 8)
-        .expect("the main window")
-        .history
-        .clone()
+        .entries
+        .get(&8)
+        .map_or_else(Vec::new, |entry| entry.history().to_vec())
 }
 
 /// An independent spelling of the location format: eight uppercase hexadecimal cell

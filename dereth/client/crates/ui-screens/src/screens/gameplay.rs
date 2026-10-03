@@ -628,15 +628,8 @@ pub struct GamePlayScreen {
     /// `MainChat`'s own state — the talk-focus menu and the chat-target caption. Without it the
     /// menu table has no reader and every line goes out as speech.
     pub main_chat: crate::chat::mainchat::MainChatPanel,
-    /// The auto-target throttle, the client's file-scope "next time".
-    pub chat_auto_target_next: f64,
-    /// What the object system last answered about the selection and the speakable target, pushed
-    /// in by the host once a frame the way [`Self::reply_targets`] is.
-    /// [`Screen::update`] runs the sweep off it.
-    ///
-    /// An all-default value is "nothing selected, nothing in range", which is what the sweep sees
-    /// before a session starts and is exactly the
-    /// [`crate::chat::mainchat::AutoTarget::Unchanged`] it answers there.
+    /// Selection facts used by the target menu's caption and examine action.
+    /// Target adoption and its throttle belong to the shared runtime.
     pub chat_auto_target_world: crate::chat::mainchat::AutoTargetWorld,
     /// `FloatingChat`, one per floaty chat window, in [`Self::chat`]'s order minus the main
     /// window: the title, the close button and the four placement write-backs.
@@ -5121,43 +5114,6 @@ impl GamePlayScreen {
         choice
     }
 
-    /// The once-a-second auto-target sweep, with its own throttle; the caller of
-    /// `use_time_auto_target`.
-    ///
-    /// The throttle is the client's file-scope "next time": return early while now is before
-    /// it, and set it to now + 1.0 on **every** path out, taken *before* the
-    /// work rather than after it. Keeping it on the screen rather than in
-    /// `dereth_ui_screens::chat` is the same choice the client makes — the throttle is not a member
-    /// of `MainChat`.
-    ///
-    /// `world` is what the object system answered; `resolve` turns the id the sweep picked into
-    /// the name/talkable/squelched triple needs, which is the same seam
-    /// [`Self::chat_target_menu_item`] crosses. Returns what the sweep decided, or `None` when the
-    /// second has not elapsed.
-    pub fn chat_use_time(
-        &mut self,
-        ui: &mut UiSystem,
-        now: f64,
-        world: &crate::chat::mainchat::AutoTargetWorld,
-        resolve: impl FnOnce(u32) -> Option<crate::chat::mainchat::SpeakableTarget>,
-    ) -> Option<crate::chat::mainchat::AutoTarget> {
-        use crate::chat::mainchat::AutoTarget;
-        if now < self.chat_auto_target_next {
-            return None;
-        }
-        self.chat_auto_target_next = now + crate::chat::mainchat::AUTO_TARGET_INTERVAL_SECONDS;
-        let decision = self.main_chat.use_time_auto_target(world);
-        match decision {
-            AutoTarget::Unchanged => {}
-            AutoTarget::Clear => self.main_chat.set_selected(ui, None),
-            AutoTarget::Adopt(id) => {
-                let t = resolve(id);
-                self.main_chat.set_selected(ui, t.as_ref());
-            }
-        }
-        Some(decision)
-    }
-
     /// Advances the opacity fade for each of the five chat windows by one step.
     ///
     /// Returns the windows that moved this frame, as `(window id, opacity)`, so a test can say
@@ -5270,17 +5226,19 @@ impl GamePlayScreen {
         ui: &mut UiSystem,
         source: ElemHandle,
         ch: char,
-    ) -> Option<crate::chat::interface::TextReplacement> {
+    ) -> bool {
         let targets = self.reply_targets.clone();
         for i in 0..self.chat_windows.len() {
             let w = self.chat_windows[i];
             if w.entry != Some(source) {
                 continue;
             }
-            let iface = self.chat.get_mut(i)?;
+            let Some(iface) = self.chat.get_mut(i) else {
+                return false;
+            };
             return w.on_entry_character(ui, iface, source, ch, &targets);
         }
-        None
+        false
     }
 
     /// The main chat panel's element-message handler's **message-1** arm:
@@ -5318,6 +5276,42 @@ impl GamePlayScreen {
     /// [`UiRequest::StartTell`] arm.
     ///
     /// Returns whether a main window was there to take it.
+    /// Apply shared entry text without submitting or recording another command.
+    pub fn chat_entry_drafts(&mut self, ui: &mut UiSystem) -> Vec<(u32, String)> {
+        self.chat
+            .iter_mut()
+            .zip(&self.chat_windows)
+            .filter_map(|(iface, window)| {
+                let text = ui.text_element_mut(window.entry?)?.glyphs.inq_text(true);
+                iface.entry.clone_from(&text);
+                Some((iface.window_id, text))
+            })
+            .collect()
+    }
+
+    pub fn chat_entry_update(
+        &mut self,
+        ui: &mut UiSystem,
+        update: &dereth_client_contract::chat::entry::EntryUpdate,
+    ) {
+        let Some(index) = self.chat.iter().position(|c| c.window_id == update.window) else {
+            return;
+        };
+        let Some(window) = self.chat_windows.get(index) else {
+            return;
+        };
+        let iface = &mut self.chat[index];
+        iface.entry.clone_from(&update.text);
+        if update.focus {
+            window.activate_chat_entry(ui, iface);
+        }
+        if let Some(text) = window.entry.and_then(|entry| ui.text_element_mut(entry)) {
+            text.set_text(&update.text);
+            text.cursor = update.cursor.min(text.glyphs.len());
+            text.deselect();
+        }
+    }
+
     pub fn chat_recv_notice_start_tell(&mut self, ui: &mut UiSystem, name: &str) -> bool {
         let Some(w) = self.chat_windows.first().copied() else {
             return false;
@@ -6288,13 +6282,12 @@ impl Screen for GamePlayScreen {
         None
     }
 
-    fn update(&mut self, cx: &mut ScreenCx<'_>, now: LocalTime) -> Option<UiMode> {
+    fn update(&mut self, cx: &mut ScreenCx<'_>, _now: LocalTime) -> Option<UiMode> {
         let ui = &mut *cx.ui;
         // A virtual method the framework calls every frame, and
         // the *only* thing that keeps "Tell to <selected>" pointing at something a player can talk
         // to.
-        let world = self.chat_auto_target_world.clone();
-        self.chat_use_time(ui, now.0, &world, |id| Some(world.adopted(id)));
+
         if !self.do_end_session || self.ending_session {
             return None;
         }

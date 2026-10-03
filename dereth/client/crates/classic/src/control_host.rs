@@ -237,6 +237,11 @@ impl ControlHost {
             .copied()
             .is_some_and(|id| self.tree.focus_node(id))
     }
+    pub fn place_caret(&mut self, id: &str, cursor: usize) {
+        if let Some(node) = self.ids.get(id) {
+            self.tree.place_caret(*node, cursor, false);
+        }
+    }
     pub fn selected_text(&self) -> Option<String> {
         let id = self.tree.focus()?;
         let (cursor, anchor) = self.tree.edit_selection(id)?;

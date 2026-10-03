@@ -334,6 +334,38 @@ impl<'a, S: Shell> UiContext<'a, S> {
         }
     }
 
+    /// The interface that has actually accepted input, after any requested switch succeeds.
+    pub fn set_chat_interface(
+        &mut self,
+        interface: dereth_client_contract::options::interface::Interface,
+    ) {
+        self.app.interaction.chat_interface = interface;
+    }
+
+    /// Ordered text changes raised by shared entry operations.
+    pub fn take_chat_entry_updates(
+        &mut self,
+    ) -> Vec<dereth_client_contract::chat::entry::EntryUpdate> {
+        self.app.interaction.take_chat_entry_updates()
+    }
+
+    /// The retained drafts, without focus effects or replayed commands.
+    pub fn chat_entry_drafts(&self) -> Vec<dereth_client_contract::chat::entry::EntryUpdate> {
+        self.model()
+            .chat
+            .entries
+            .iter()
+            .map(
+                |(&window, entry)| dereth_client_contract::chat::entry::EntryUpdate {
+                    window,
+                    text: entry.text.clone(),
+                    cursor: entry.text.chars().count(),
+                    focus: false,
+                },
+            )
+            .collect()
+    }
+
     /// Chat-window titles set by command since the last call.
     pub fn take_chat_window_titles(&mut self) -> Vec<(u32, String)> {
         self.app.interaction.take_chat_window_title_notices()
@@ -476,8 +508,6 @@ pub fn offer_talk_focus_notices(
     answer: &mut TalkFocusAnswer<'_>,
 ) {
     for notice in notices {
-        if answer(chat.talk_focus, notice) {
-            chat.set_talk_focus(TalkFocus::All);
-        }
+        let _ = answer(chat.talk_focus, notice);
     }
 }

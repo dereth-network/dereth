@@ -1250,6 +1250,10 @@ pub use crate::flags::StartsTrue;
 /// Viewport selection, combat input and shared UI targeting state used by this router.
 #[derive(Debug, Default)]
 pub struct Interaction {
+    pub chat_interface: dereth_client_contract::options::interface::Interface,
+    pending_chat_entries: Vec<dereth_client_contract::chat::entry::EntryUpdate>,
+    chat_target_next: f64,
+
     /// The running program's name and version, as `@version` prints them after "Client version".
     /// The program sets it at start-up; until then it is this library's own fallback.
     pub client_build_id: &'static str,
@@ -1287,7 +1291,7 @@ pub struct Interaction {
     target_mode: TargetMode,
     /// Current and maximum split sizes, which the stack slider writes.
     split: SplitState,
-    /// The command table and typed-line history used to process chat input.
+    /// The command table used to process chat input.
     chat: dereth_client_model::cmd::CommandInterp,
     /// What the mouse and the screens asked for this frame, queued by [`Self::queue`].
     mouse: Vec<UiMouseEvent>,
@@ -2183,6 +2187,75 @@ impl Interaction {
         std::mem::take(&mut self.pending_trade_for_dummies)
     }
 
+    /// The shared timed target sweep runs independently of the active interface.
+    pub fn update_chat_target(
+        &mut self,
+        world: &mut dereth_client_model::World,
+        now: f64,
+        facts: &dereth_client_contract::chat::mainchat::AutoTargetWorld,
+    ) {
+        if now < self.chat_target_next {
+            return;
+        }
+        self.chat_target_next = now + 1.0;
+        let chat = &mut world.chat;
+        if chat.last_speakable_target.is_none()
+            && chat.is_talk_focus_enabled(dereth_client_model::chat::TalkFocus::Selected)
+        {
+            chat.set_talk_focus_enabled(dereth_client_model::chat::TalkFocus::Selected, false);
+        }
+        if chat.is_talk_focus_enabled(dereth_client_model::chat::TalkFocus::Selected) {
+            let target = chat.last_speakable_target.unwrap_or(ObjectId(0));
+            let range_id = if facts.container_id == 0 {
+                target.0
+            } else {
+                facts.container_id
+            };
+            if !facts.owned_by_player && !facts.in_range_of_player.contains(&range_id) {
+                chat.set_speakable_target(None, false);
+            }
+        } else if facts.selected_id != 0
+            && facts.selected_id != facts.player_id
+            && facts.selected_talkable
+            && facts.in_range_of_player.contains(&facts.selected_id)
+        {
+            chat.set_speakable_target(
+                Some(ObjectId(facts.selected_id)),
+                !facts.selected_name.is_empty(),
+            );
+        }
+    }
+
+    /// Entry readback is delivered before the next input listener runs.
+    pub fn take_chat_entry_updates(
+        &mut self,
+    ) -> Vec<dereth_client_contract::chat::entry::EntryUpdate> {
+        std::mem::take(&mut self.pending_chat_entries)
+    }
+
+    fn edit_chat_entry(
+        &mut self,
+        game: &mut dereth_client_model::World,
+        window: u32,
+        text: String,
+        action: dereth_client_contract::chat::entry::EntryAction,
+    ) {
+        let targets = game.chat.reply_targets();
+        let (update, warning) = game.chat.entries.entry(window).or_default().apply(
+            window,
+            text,
+            action,
+            &targets,
+            self.chat_interface,
+        );
+        if let Some(update) = update {
+            self.pending_chat_entries.push(update);
+        }
+        if let Some(warning) = warning {
+            game.scroll.add_text_to_scroll(warning, 0x1a, true, window);
+        }
+    }
+
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -2206,8 +2279,8 @@ impl Interaction {
     ///
     /// # What is deliberately kept
     ///
-    /// * **[`Interaction::chat`]** — the command table and typed-line history belong
-    ///   to process startup, not the character's gameplay UI. Rebuilding them here
+    /// * **[`Interaction::chat`]** — the command table belongs
+    ///   to process startup, not the character's gameplay UI. Rebuilding it here
     ///   would lose the Turbine-chat commands added by `App::process_logon_event_queue`
     ///   on `0xF658`.
     /// * **[`Interaction::stats`]** — this run's log line, exactly as
@@ -4352,10 +4425,42 @@ impl Interaction {
                 // `Handled` is a **locally** handled command (`@help`, `@quit`, …). One whose
                 // handler is not built is counted and reported rather than turned into speech
                 // — sending `@help` to the shard as a spoken line would be both wrong and rude.
+                UiRequest::ChatEntry {
+                    text,
+                    window,
+                    action,
+                } => {
+                    self.edit_chat_entry(game, window, text, action);
+                    self.stats.ui_requests_handled += 1;
+                    continue;
+                }
+                UiRequest::StartTell { name } => {
+                    let window = dereth_client_contract::chat::interface::window::MAIN;
+                    let text = game
+                        .chat
+                        .entries
+                        .get(&window)
+                        .map_or_else(String::new, |e| e.text.clone());
+                    self.edit_chat_entry(
+                        game,
+                        window,
+                        text,
+                        dereth_client_contract::chat::entry::EntryAction::StartTell { name },
+                    );
+                    self.stats.ui_requests_handled += 1;
+                    continue;
+                }
                 UiRequest::ChatLine { text, window } => {
                     // Convert submitted chat from wide to narrow text BEFORE command parsing and
                     // every destination. Input history remains the original wide text.
-                    self.chat.push_history(&text);
+                    if text.is_empty() {
+                        continue;
+                    }
+                    game.chat
+                        .entries
+                        .entry(window)
+                        .or_default()
+                        .submit(&text, self.chat_interface);
                     let Some(narrow) = game
                         .chat
                         .text_conversion
@@ -7767,15 +7872,40 @@ impl Interaction {
             };
             if p.cell.0 == 0 {
                 game.scroll.add_text_to_scroll(
-                    "Not in valid cell!",
-                    0x1A,
+                    if self.chat_interface
+                        == dereth_client_contract::options::interface::Interface::Classic
+                    {
+                        "@Loc: not in valid cell!"
+                    } else {
+                        "Not in valid cell!"
+                    },
+                    if self.chat_interface
+                        == dereth_client_contract::options::interface::Interface::Classic
+                    {
+                        0
+                    } else {
+                        0x1a
+                    },
                     true,
                     self.chat.current_command_source,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
             }
-            let line = format!("Your location is: {}\n", position_to_string(&p));
+            let line = if self.chat_interface
+                == dereth_client_contract::options::interface::Interface::Classic
+            {
+                format!(
+                    "Your location is Landblock: {:08x}, X: {:.1}, Y: {:.1}, Z: {:.1}, H: {:.1}",
+                    p.cell.0,
+                    p.frame.origin.x,
+                    p.frame.origin.y,
+                    p.frame.origin.z,
+                    dereth_animation::frame::get_heading(&p.frame)
+                )
+            } else {
+                format!("Your location is: {}\n", position_to_string(&p))
+            };
             game.scroll
                 .add_text_to_scroll(&line, 0, true, self.chat.current_command_source);
             self.stats.loc_lines_printed += 1;
@@ -10716,6 +10846,97 @@ fn chat_real_time() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: chat.target-sweep
+    #[test]
+    fn chat_target_sweep_runs_without_a_panel_obeys_the_boundary_and_replaces_nameless_targets() {
+        use dereth_client_contract::chat::mainchat::AutoTargetWorld;
+        use dereth_client_model::chat::TalkFocus;
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        let mut facts = AutoTargetWorld {
+            player_id: 1,
+            selected_id: 2,
+            selected_talkable: true,
+            selected_name: "First".into(),
+            in_range_of_player: vec![2],
+            ..Default::default()
+        };
+        inter.update_chat_target(&mut game, 4.0, &facts);
+        assert_eq!(game.chat.last_speakable_target, Some(ObjectId(2)));
+        game.chat.set_talk_focus(TalkFocus::Selected);
+        facts.in_range_of_player.clear();
+        inter.update_chat_target(&mut game, 4.999, &facts);
+        assert_eq!(game.chat.last_speakable_target, Some(ObjectId(2)));
+        inter.update_chat_target(&mut game, 5.0, &facts);
+        assert_eq!(game.chat.last_speakable_target, None);
+        assert_eq!(game.chat.talk_focus, TalkFocus::All);
+        facts.selected_name.clear();
+        facts.in_range_of_player = vec![2, 3];
+        inter.update_chat_target(&mut game, 6.0, &facts);
+        assert_eq!(game.chat.last_speakable_target, Some(ObjectId(2)));
+        assert!(!game.chat.is_talk_focus_enabled(TalkFocus::Selected));
+        facts.selected_id = 3;
+        facts.selected_name = "Named".into();
+        inter.update_chat_target(&mut game, 7.0, &facts);
+        assert_eq!(game.chat.last_speakable_target, Some(ObjectId(3)));
+        assert!(game.chat.is_talk_focus_enabled(TalkFocus::Selected));
+        facts.container_id = 9;
+        facts.in_range_of_player = vec![9];
+        inter.update_chat_target(&mut game, 8.0, &facts);
+        assert_eq!(game.chat.last_speakable_target, Some(ObjectId(3)));
+        facts.in_range_of_player.clear();
+        facts.owned_by_player = true;
+        inter.update_chat_target(&mut game, 9.0, &facts);
+        assert_eq!(game.chat.last_speakable_target, Some(ObjectId(3)));
+    }
+    /// Behaviour: chat.entry-history
+    #[test]
+    fn runtime_entry_requests_update_before_following_input_and_submission_records_once_per_window()
+    {
+        use dereth_client_contract::chat::entry::{EntryAction, ReplyTarget};
+        let mut game = dereth_client_model::World::new();
+        game.chat.last_teller_name = "Peer".into();
+        let mut inter = Interaction::new();
+        inter.queue(
+            Vec::new(),
+            vec![UiRequest::ChatEntry {
+                window: 8,
+                text: "old".into(),
+                action: EntryAction::Reply {
+                    target: ReplyTarget::LastTeller,
+                    prefix: "@tell ".into(),
+                },
+            }],
+        );
+        inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        let mut update = inter.take_chat_entry_updates().pop().unwrap();
+        assert_eq!(update.text, "@tell Peer, ");
+        assert!(inter.take_chat_entry_updates().is_empty());
+        update.text.push_str("hello");
+        inter.queue(
+            Vec::new(),
+            vec![
+                UiRequest::ChatLine {
+                    window: 8,
+                    text: update.text.clone(),
+                },
+                UiRequest::ChatLine {
+                    window: 8,
+                    text: String::new(),
+                },
+                UiRequest::ChatLine {
+                    window: 1,
+                    text: "other".into(),
+                },
+            ],
+        );
+        inter.run_ui_requests(&mut game, false, ServerTime(2.0));
+        assert_eq!(game.chat.entries[&8].history(), [update.text]);
+        assert_eq!(game.chat.entries[&1].history(), ["other"]);
+        assert!(game.chat.entries[&8].text.is_empty());
+        assert_eq!(inter.stats.chat_lines_sent, 2);
+    }
 
     /// Behaviour: spellbook.filter.changes-are-shared-before-the-server-replies
     #[test]

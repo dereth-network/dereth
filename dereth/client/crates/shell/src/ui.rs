@@ -2177,19 +2177,6 @@ impl UiShell {
             // dispatcher walks its listener list and calls the start-tell
             // handler on each; the one override is the chat-entry handler,
             // which lives on the gameplay screen. The friends panel is the
-            // `Hud`'s and the chat window is the screen's, so the notice crosses here, in the
-            // shell drain that runs before `Interaction` sees anything -- the same hop
-            // `SetLockUi` makes. Nothing goes to the shard: it is a chat-entry pre-fill.
-            UiRequest::StartTell { name } => {
-                self.stats.requests_handled += 1;
-                if let Some(g) = crate::hud_drive::game_screen(&mut self.flow) {
-                    crate::hud_drive::game_call(
-                        &mut self.ui,
-                        g,
-                        dereth_ui_screens::screens::gameplay_host::GameCall::StartTell(name),
-                    );
-                }
-            }
             other => {
                 // Not dropped: handed to the caller and counted, so a request nobody owns yet
                 // is a number in the report rather than a silence.

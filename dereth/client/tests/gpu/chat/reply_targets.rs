@@ -756,11 +756,17 @@ fn a_captured_tell_arms_all_five_aliases_in_the_live_tree() {
         );
     }
 
-    // Type each REPLY_ALIASES entry into the focused text element; character message 0x12
+    // Type each supported reply alias into the focused text element; character message 0x12
     // routes to the entry-character consumer and expands only when the final space arrives.
     let mut expanded = 0usize;
-    for (alias, _, target) in dereth_ui_screens::chat::interface::REPLY_ALIASES {
-        use dereth_ui_screens::chat::interface::ReplyTarget;
+    use dereth_client_contract::chat::entry::ReplyTarget;
+    for (alias, target) in [
+        ("r ", ReplyTarget::LastTeller),
+        ("rp ", ReplyTarget::LastTeller),
+        ("reply ", ReplyTarget::LastTeller),
+        ("mr ", ReplyTarget::Monarch),
+        ("pr ", ReplyTarget::Patron),
+    ] {
         let want_name = match target {
             ReplyTarget::LastTeller => name.as_str(),
             ReplyTarget::Monarch => "Aldis",
@@ -796,7 +802,7 @@ fn a_captured_tell_arms_all_five_aliases_in_the_live_tree() {
         );
         expanded += 1;
     }
-    assert_eq!(expanded, 5, "all five of REPLY_ALIASES expanded");
+    assert_eq!(expanded, 5, "all five supported aliases expanded");
     eprintln!("5 of 5 aliases expand from recorded tell and synthetic channel names");
     app.shutdown();
 }

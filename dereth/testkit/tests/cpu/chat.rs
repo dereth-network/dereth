@@ -2773,7 +2773,7 @@ fn scenario_the_squelch_row_is_a_toggle_and_names_the_speaker() {
 /// Who the player is talking to follows what he has selected, while that is near him -- and is
 /// let go of when it is not.
 pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
-    use dereth_ui_screens::chat::mainchat::{AutoTarget, AutoTargetWorld, MainChatPanel};
+    use dereth_client_contract::chat::mainchat::AutoTargetWorld;
 
     let player = ObjectId(0x5000_000A);
     let npc = ObjectId(0x5000_1111);
@@ -2794,9 +2794,13 @@ pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
 
     // Nothing selected: nothing to adopt.
     let empty = c.view().hud().auto_target_world(c.view().world());
-    let mut menu = MainChatPanel::default();
+    fn sweep(c: &mut HeadlessClient, now: f64, facts: &AutoTargetWorld) -> Option<ObjectId> {
+        let (interaction, world) = c.interaction_and_world_mut();
+        interaction.update_chat_target(world, now, facts);
+        world.chat.last_speakable_target
+    }
     let knows_the_player = empty.player_id == player.0 && empty.selected_id == 0;
-    let nothing_yet = menu.use_time_auto_target(&empty) == AutoTarget::Unchanged;
+    let nothing_yet = sweep(&mut c, 0.0, &empty).is_none();
 
     // Selected, but not near: not adopted.
     c.world_mut().selected = Some(npc);
@@ -2805,25 +2809,22 @@ pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
         && selected.selected_name == "Ulgrim"
         && selected.in_range_of_player.is_empty()
         && selected.selected_talkable;
-    let not_near = menu.use_time_auto_target(&selected) == AutoTarget::Unchanged;
+    let not_near = sweep(&mut c, 1.0, &selected).is_none();
 
     // Near, and the player has nobody yet: adopted.
-    menu.set_talk_focus_enabled(u32::try_from(ROW_SELECTED).expect("small"), false);
     let near = AutoTargetWorld {
         in_range_of_player: vec![npc.0],
         ..selected.clone()
     };
-    let adopted = menu.use_time_auto_target(&near) == AutoTarget::Adopt(npc.0);
+    let adopted = sweep(&mut c, 2.0, &near) == Some(npc);
 
     // Kept while he stays near, and let go of when he goes.
-    menu.last_speakable_target = npc.0;
-    menu.set_talk_focus_enabled(u32::try_from(ROW_SELECTED).expect("small"), true);
-    let kept = menu.use_time_auto_target(&near) == AutoTarget::Unchanged;
+    let kept = sweep(&mut c, 3.0, &near) == Some(npc);
     let gone = AutoTargetWorld {
         in_range_of_player: Vec::new(),
         ..near.clone()
     };
-    let let_go = menu.use_time_auto_target(&gone) == AutoTarget::Clear;
+    let let_go = sweep(&mut c, 4.0, &gone).is_none();
 
     c.assert_behaviour(
         "chat.talk-to-menu.the-chat-target-follows-what-is-selected-while-it-is-near",
@@ -2840,33 +2841,30 @@ fn scenario_the_chat_target_follows_what_is_selected_while_it_is_near() {
 /// happens to be selected; with no chat target it goes nowhere. The squelch row asks about the
 /// same target.
 pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
-    use dereth_ui_screens::chat::mainchat::{MainChatPanel, SpeakableTarget};
+    use dereth_ui_screens::chat::mainchat::MainChatPanel;
 
     let npc = ObjectId(0x5000_1111);
     let door = ObjectId(0x7000_2222);
 
-    // The menu adopting a target tells the session who it is.
+    let mut c = a_client_with_a_named_player();
+    let mut object = dereth_client_model::Weenie::new(npc);
+    object.pwd.name = "Ulgrim".into();
+    object.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+    c.world_mut().tables.weenies.insert(npc, object);
+    let facts = dereth_client_contract::chat::mainchat::AutoTargetWorld {
+        selected_id: npc.0,
+        selected_name: "Ulgrim".into(),
+        selected_talkable: true,
+        in_range_of_player: vec![npc.0],
+        ..Default::default()
+    };
+    let (interaction, world) = c.interaction_and_world_mut();
+    interaction.update_chat_target(world, 0.0, &facts);
+    let recorded = world.chat.last_speakable_target == Some(npc);
     let mut ui = dereth_ui::UiSystem::new((800, 600));
     let mut menu = MainChatPanel::default();
-    menu.set_selected(
-        &mut ui,
-        Some(&SpeakableTarget {
-            id: npc.0,
-            name: "Ulgrim".into(),
-            talkable: true,
-            squelched: false,
-        }),
-    );
-    let requests = ui.requests.take();
-    let told = requests
-        .iter()
-        .any(|r| matches!(r, UiRequest::SetLastSpeakableTarget { object } if *object == npc));
-
-    let mut c = a_client_with_a_named_player();
-    for r in requests {
-        c.when(Player::ui(r));
-    }
-    let recorded = c.view().world().chat.last_speakable_target == Some(npc);
+    menu.project_communication(&mut ui, &c.view().hud().chat_focus_view(c.view().world()));
+    let told = menu.last_speakable_target == npc.0 && ui.requests.take().is_empty();
     // The player has since selected a door; the menu still says Ulgrim, so the line is his.
     c.world_mut().selected = Some(door);
     c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
@@ -2890,12 +2888,12 @@ pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
             .is_some_and(|t| w.chat.is_squelched(t, "", 1))
     };
 
-    // The menu letting go of its target leaves the tell with nowhere to go.
-    menu.set_selected(&mut ui, None);
-    for r in ui.requests.take() {
-        c.when(Player::ui(r));
-    }
-    let cleared = c.view().world().chat.last_speakable_target.is_none();
+    // A selected-target command without a remembered recipient never becomes public speech.
+    c.world_mut().chat.set_speakable_target(None, false);
+    menu.project_communication(&mut ui, &c.view().hud().chat_focus_view(c.view().world()));
+    let cleared =
+        c.view().world().chat.last_speakable_target.is_none() && menu.last_speakable_target == 0;
+    c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
     let nowhere = type_line(&mut c, "anyone?").is_empty();
 
     c.assert_behaviour(

@@ -13,3 +13,9 @@ pub mod interface;
 pub mod mainchat;
 /// The three names the reply keys address.
 pub mod window;
+
+/// Chat presentation colours.
+pub mod colors;
+
+/// Shared entry intents and readback.
+pub mod entry;

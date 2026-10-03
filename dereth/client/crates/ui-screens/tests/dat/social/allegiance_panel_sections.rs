@@ -1,6 +1,5 @@
 //! Monarch/patron sections hide/show by roster (monarch sees neither, patron-is-monarch collapses,
-//! lower patron shows both, unaffiliated hides both) and allegiance chat channels follow online
-//! bits.
+//! lower patron shows both, unaffiliated hides both). Rendering does not mutate chat availability.
 //! Fixture: shipped layouts, strings and keymaps loaded from the retail DATs.
 
 use crate::common::layout::RegistrationOrder;
@@ -125,18 +124,9 @@ fn a_monarch_sees_neither_the_monarch_nor_the_patron_section() {
         "0x1000025A hidden: there is no patron"
     );
 
-    let calls = talk_focus_calls(&ui.requests.take());
     assert!(
-        calls.contains(&(5, false)),
-        "Monarch channel off for the monarch: {calls:?}"
-    );
-    assert!(
-        calls.contains(&(4, false)),
-        "Patron channel off with no patron: {calls:?}"
-    );
-    assert!(
-        calls.contains(&(6, true)),
-        "Vassals channel on: Dee is online: {calls:?}"
+        talk_focus_calls(&ui.requests.take()).is_empty(),
+        "rendering does not mutate shared focus state"
     );
 }
 
@@ -170,19 +160,13 @@ fn a_patron_who_is_the_monarch_collapses_into_the_monarch_section() {
         "0x10000490 shown"
     );
 
-    let calls = talk_focus_calls(&ui.requests.take());
     assert!(
-        calls.contains(&(5, true)),
-        "Monarch on: Bob is online and not us: {calls:?}"
+        talk_focus_calls(&ui.requests.take()).is_empty(),
+        "rendering does not mutate shared focus state"
     );
-    assert!(
-        calls.contains(&(4, true)),
-        "Patron on: Bob is our patron and online: {calls:?}"
-    );
-    assert!(calls.contains(&(6, false)), "Vassals off: none: {calls:?}");
 }
 
-/// Behaviour: allegiance.channels.an-online-patron-monarch-or-vassal-opens-that-channel
+/// Behaviour: allegiance.panel.a-monarch-has-no-monarch-row-and-no-patron-row
 /// A patron below the monarch: both sections shown, `0x10000490` hidden, and each
 /// channel follows its own person's online bit — here the monarch is offline and the patron is
 /// online, so 5 is off and 4 is on.
@@ -214,22 +198,12 @@ fn a_patron_below_the_monarch_shows_both_sections_and_follows_each_online_bit() 
         "0x10000490 hidden"
     );
 
-    let calls = talk_focus_calls(&ui.requests.take());
     assert!(
-        calls.contains(&(5, false)),
-        "Monarch off: Bob is offline: {calls:?}"
-    );
-    assert!(
-        calls.contains(&(4, true)),
-        "Patron on: Cid is online: {calls:?}"
-    );
-    assert!(
-        calls.contains(&(6, false)),
-        "Vassals off: Eve is offline: {calls:?}"
+        talk_focus_calls(&ui.requests.take()).is_empty(),
+        "rendering does not mutate shared focus state"
     );
 
-    // The same tree with everyone's bit flipped moves every channel the other way, so the three
-    // enables are read off the roster and not off anything constant.
+    // Flipping online bits changes the projected roster without emitting channel updates.
     let view = Roster(AllegianceRoster {
         allegiance_name: "The Hand".into(),
         total_members: 4,
@@ -242,10 +216,10 @@ fn a_patron_below_the_monarch_shows_both_sections_and_follows_each_online_bit() 
         vassals: vec![entry(11, "Yeoman Eve", true)],
     });
     assert!(panels.allegiance.update(&mut ui, &view));
-    let calls = talk_focus_calls(&ui.requests.take());
-    assert!(calls.contains(&(5, true)), "{calls:?}");
-    assert!(calls.contains(&(4, false)), "{calls:?}");
-    assert!(calls.contains(&(6, true)), "{calls:?}");
+    assert!(
+        talk_focus_calls(&ui.requests.take()).is_empty(),
+        "rendering does not mutate shared focus state"
+    );
 }
 
 /// The state every capture witnesses: no allegiance at all. The monarch is 0 and the
@@ -257,8 +231,7 @@ fn an_unaffiliated_character_has_both_sections_hidden() {
     assert!(panels.allegiance.update(&mut ui, &view));
     assert!(!own_visible(&ui, find(&ui, &s, MONARCH_FIELD)));
     assert!(!own_visible(&ui, find(&ui, &s, PATRON_FIELD)));
-    let calls = talk_focus_calls(&ui.requests.take());
-    assert_eq!(calls, vec![(5, false), (4, false), (6, false)]);
+    assert!(talk_focus_calls(&ui.requests.take()).is_empty());
 }
 
 /// [`screen`] with the shipped string tables installed, so the rank line is the text a player reads.

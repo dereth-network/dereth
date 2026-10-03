@@ -1129,14 +1129,12 @@ fn text_of(app: &mut App, h: ElemHandle) -> String {
 /// The main chat window's input history, appended when command processing accepts the line. It
 /// proves the command/history seam consumed the entry; it does not by itself prove network delivery.
 fn history(app: &mut App) -> Vec<String> {
-    let (_, screen) = gameplay(app);
-    screen
+    app.objects()
+        .world
         .chat
-        .iter()
-        .find(|c| c.window_id == 8)
-        .expect("the main window")
-        .history
-        .clone()
+        .entries
+        .get(&8)
+        .map_or_else(Vec::new, |entry| entry.history().to_vec())
 }
 
 /// Type a line into the focused entry, one character per frame, and check every one arrived.

@@ -755,21 +755,16 @@ fn a_click_and_a_typed_line_and_the_send_button_emit_the_chat_line() {
     let send_at = centre(&app, find(&app, SEND));
     hand.click(&mut app, send_at);
     {
-        let (ui, screen) = gameplay(&mut app);
+        let (ui, _) = gameplay(&mut app);
         let t = ui.text_element_mut(entry).expect("a text element");
         assert_eq!(t.glyphs.len(), 0, "sending emptied the entry box");
-        let main = screen
-            .chat
-            .iter()
-            .find(|c| c.window_id == 8)
-            .expect("the main window");
-        assert_eq!(
-            main.history,
-            vec!["hello world".to_owned()],
-            "and it went into the history"
-        );
-        assert_eq!(main.history_pos, None, "and the browse position was reset");
     }
+
+    assert_eq!(
+        app.objects().world.chat.entries[&8].history(),
+        ["hello world"],
+        "sending records the line once"
+    );
 
     // The Send click takes focus off the entry. A button's mouse-down takes focus the way a text
     // element's does before doing anything of its own, and the Send arm for element `0x10000019`

@@ -846,19 +846,6 @@ impl AllegiancePanel {
         set_text(ui, self.player_rank, &rank);
     }
 
-    /// Write one talk-focus row, as the three data-update tails do. The mask lives on the far side
-    /// of this crate's seam, so the
-    /// call crosses as [`UiRequest::SetTalkFocusEnabled`].
-    fn set_talk_focus_enabled(
-        &mut self,
-        requests_out: &mut crate::requests::Outbox,
-        focus: u32,
-        enabled: bool,
-    ) {
-        requests_out.emit(UiRequest::SetTalkFocusEnabled { focus, enabled });
-        self.talk_focus_writes += 1;
-    }
-
     /// The allegiance panel's monarch data update.
     ///
     /// Besides the three texts it owns the section's visibility, state and talk focus; without
@@ -882,7 +869,7 @@ impl AllegiancePanel {
             set_text(ui, self.monarch_followers, " ");
             // The monarch must exist, differ from the player and be logged in. The first two tests are the
             // ones that brought us here, so the answer is already `false`.
-            self.set_talk_focus_enabled(&mut ui.requests, TALK_FOCUS_MONARCH, false);
+
             return;
         };
         if let Some(h) = self.monarch_field {
@@ -929,7 +916,6 @@ impl AllegiancePanel {
         if let Some(h) = self.monarch_field {
             ui.set_state(h, online_state(m.logged_in));
         }
-        self.set_talk_focus_enabled(&mut ui.requests, TALK_FOCUS_MONARCH, m.logged_in);
     }
 
     /// The allegiance panel's patron data update.
@@ -967,8 +953,6 @@ impl AllegiancePanel {
                 }
             }
         }
-        let enabled = r.patron.as_ref().is_some_and(|p| p.logged_in);
-        self.set_talk_focus_enabled(&mut ui.requests, TALK_FOCUS_PATRON, enabled);
     }
 
     /// The allegiance panel's vassals data update.
@@ -1023,11 +1007,7 @@ impl AllegiancePanel {
         }
         // The function's last call before scrolling the selected row writes talk-focus row 6
         // from `vassal_chat_enabled`.
-        self.set_talk_focus_enabled(
-            &mut ui.requests,
-            TALK_FOCUS_VASSALS,
-            self.vassal_chat_enabled,
-        );
+
         // **The layout refresh.**
         //
         // Every other list-driven panel in this crate ends its rebuild with it

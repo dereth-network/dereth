@@ -265,6 +265,56 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.entry-adapters",
+        says: "Entry actions and widget edits reach the shared draft before the following input, and each submitted line enters its source window history once.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-ADAPTERS"),
+        station: "dereth-testkit::dat::chat::modern_entry_batches_keep_shared_replies_history_aliases_and_widget_edits_current",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.entry-aliases",
+        says: "Reply aliases use each interface's matching and missing-target rules; Classic expands the whole entry before the translated space, while modern preserves a trailing message and its insertion point.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-ALIASES"),
+        station: "dereth-client-model::lib::chat_entry::tests::classic_aliases_match_the_whole_entry_before_space_and_clear_missing_targets",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.entry-history",
+        says: "Nonempty submissions enter history once; backward and forward navigation stop at the ends and forward navigation clears an unsubmitted draft.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-HISTORY"),
+        station: "dereth-client-model::lib::chat_entry::tests::history_has_dead_ends_clears_forward_drafts_and_ignores_empty_submissions",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.entry-interface-history",
+        says: "Changing interface retains window drafts and history; submission applies the active interface's ten or one hundred entry limit.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-SWITCH"),
+        station: "dereth-client-model::lib::chat_entry::tests::each_interface_bounds_history_on_submission_and_switching_keeps_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.entry-replies",
+        says: "The monarch, patron and ordinary reply actions address their distinct remembered senders; Classic uses its short tell prefix and missing-target warning, while modern uses its assisted-tell prefix and silently preserves an unavailable draft.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-REPLIES"),
+        station: "dereth-client-model::lib::chat_entry::tests::canonical_reply_actions_address_distinct_sender_slots_and_keep_interface_prefixes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.entry-start-tell",
+        says: "Starting a tell fills and focuses the entry without submitting it or appending to history.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-START"),
+        station: "dereth-client-model::lib::chat_entry::tests::start_tell_replaces_the_draft_without_submitting_or_recording_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.entry.a-run-of-characters-all-arrives-and-none-overwrites-the-last",
         says: "A whole run typed into the chat entry arrives in it, in order, with every character \
                added to what is already there rather than replacing it -- whether the box was opened \
@@ -364,6 +414,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.focus-state",
+        says: "Allegiance listening desire survives changing speaking focus; enabled rows and fallback follow ordered availability notices, including the restricted character menu.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-FOCUS"),
+        station: "dereth-client-model::lib::chat::tests::allegiance_desire_survives_another_focus_and_olthoi_rows_keep_notice_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.garble.a-speaker-you-cannot-understand-is-drawn-as-a-name-and-a-noise",
         says: "A player whose tongue this character does not share is still shown speaking, but what \
                he said is replaced by one of ten noises drawn at random, written as his name and then \
@@ -420,6 +478,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O275-LATCH"),
         station: "dereth-testkit::dat::chat::scenario_the_eat_the_next_character_latch_is_armed_on_one_edge",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.interface-colors",
+        says: "Each interface keeps its chat palette, including the Classic overrides and green fallback outside the table.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-COLORS"),
+        station: "dereth-client-contract::lib::chat::colors::tests::classic_overrides_are_narrow_and_modern_keeps_the_full_table",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "chat.loc.prints-the-bodys-location-line",
@@ -637,6 +703,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O496-RANGED"),
         station: "dereth-testkit::cpu::chat::scenario_a_ranged_line_is_gated_by_its_own_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.routing",
+        says: "Addressed chat reaches only its destination regardless of filters; broadcast chat requires a valid enabled type and trims edge newlines.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-ROUTE"),
+        station: "dereth-client-contract::lib::chat::interface::shared_tests::addressed_messages_bypass_filters_and_large_broadcast_types_never_shift_the_mask",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -943,14 +1017,19 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "chat.talk-focus.a-new-window-reads-the-settings-now-rather-than-replaying-what-it-missed",
-        says: "A chat window built after the channels changed reads them as they are, and is never \
-               told again about changes made before it existed. A change made while there is no chat \
-               window is dropped rather than kept for the next one, and a window that comes back \
-               starts the player off saying things aloud. A line the player typed before his window \
-               was replaced still goes where he addressed it.",
+        says: "A new chat window projects current shared channel state without replaying old notices; a previously queued line keeps its intended destination.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-ASTRA-EMPTY-SELECTION-GENERATION"),
         station: "dereth-testkit::dat::chat::scenario_a_new_chat_window_reads_the_settings_now",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.talk-focus.channel-fallback-does-not-require-a-window",
+        says: "Channel fallback uses shared state even with no interface or a missing projected row; switching a disabled channel back on does not undo the fallback or replay an old notice.",
+        since: THIS_CLIENT,
+        divergence: "CD-027",
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-FALLBACK"),
+        station: "dereth-testkit::dat::chat::scenario_channel_fallback_does_not_require_a_window",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -980,9 +1059,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "The rows of the shipped talk-to menu carry what the chat system last said about each \
                one. Picking a target from that menu redraws every row from the player's stored \
                settings rather than from the last batch of answers, so a row those answers had \
-               opened closes again while the setting behind it is left exactly as it was; and a row \
-               the shipped layout does not carry is not invented, so the player's talk target stays \
-               where it is rather than being reset behind his back.",
+               opened closes again while the setting behind it is left exactly as it was.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-ASTRA-CHAT-FOCUS-SHIPPED"),
         station: "dereth-testkit::dat::chat::scenario_the_talk_to_menu_is_redrawn_from_the_settings",
@@ -1010,16 +1087,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O109-FOCUS"),
         station: "dereth-testkit::dat::chat::scenario_what_a_typed_line_becomes_follows_the_menu",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "chat.talk-focus.with-no-window-there-is-nothing-to-fall-back-to",
-        says: "A client with no interface at all keeps the player talking to whatever he chose when \
-               a channel is switched off and on again: there is no window to put him back on saying \
-               it aloud, and nothing is kept to do it later either.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-ASTRA-EMPTY-SELECTION-NOUI"),
-        station: "dereth-testkit::dat::chat::scenario_with_no_window_there_is_nothing_to_fall_back_to",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1110,6 +1177,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O109-ROWS"),
         station: "dereth-testkit::dat::chat::scenario_a_rows_place_in_the_list_is_not_the_order_of_the_channels",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.target-sweep",
+        says: "Chat retains an owned or nearby selected speaker, forgets an unavailable one and adopts a named nearby selection on the throttled sweep without a rendered chat panel.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHAT-SHARED-TARGET"),
+        station: "dereth-client-runtime::lib::interaction::tests::chat_target_sweep_runs_without_a_panel_obeys_the_boundary_and_replaces_nameless_targets",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "chat.tell-markup.a-composed-room-line-still-carries-its-markup-at-the-model-boundary",

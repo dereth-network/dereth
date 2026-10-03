@@ -706,6 +706,24 @@ impl crate::world::World {
                 d.set_may_passup_experience(false);
             }
         }
+        let ids = self.allegiance_roster_ids();
+        let online = |id| {
+            self.allegiance
+                .look_up(id)
+                .is_some_and(AllegianceData::is_logged_in)
+        };
+        let monarch = ids
+            .monarch
+            .filter(|id| Some(*id) != ids.subject)
+            .is_some_and(online);
+        let patron = ids.patron.is_some_and(online);
+        let vassals = ids.vassals.into_iter().any(online);
+        self.chat
+            .set_talk_focus_enabled(crate::chat::TalkFocus::Monarch, monarch);
+        self.chat
+            .set_talk_focus_enabled(crate::chat::TalkFocus::Patron, patron);
+        self.chat
+            .set_talk_focus_enabled(crate::chat::TalkFocus::Vassals, vassals);
         self.allegiance.total
     }
 
@@ -1254,6 +1272,52 @@ mod tests {
         let n = w.handle_allegiance_update(profile);
         assert_eq!(n, w.allegiance.total);
         w
+    }
+
+    /// Behaviour: allegiance.channels.an-online-patron-monarch-or-vassal-opens-that-channel
+    #[test]
+    fn received_rosters_update_all_three_chat_focuses_without_a_panel() {
+        use crate::chat::TalkFocus;
+        let mut world = World::new();
+        world.set_player(ObjectId(1));
+        for bits in 0..8 {
+            let mut profile = synthesised_profile();
+            for (_, member) in &mut profile.hierarchy.members {
+                let online = match member.id.0 {
+                    9 => bits & 1 != 0,
+                    5 => bits & 2 != 0,
+                    10 => bits & 4 != 0,
+                    11 => false,
+                    _ => true,
+                };
+                if online {
+                    member.bitfield |= wire::AllegianceData::LOGGED_IN;
+                } else {
+                    member.bitfield &= !wire::AllegianceData::LOGGED_IN;
+                }
+            }
+            world.handle_allegiance_update(&through_the_wire(&profile));
+            let notices = world.chat.take_talk_focus_notices();
+            assert_eq!(
+                notices
+                    .iter()
+                    .map(|n| (n.focus as u32, n.enabled))
+                    .collect::<Vec<_>>(),
+                [(5, bits & 1 != 0), (4, bits & 2 != 0), (6, bits & 4 != 0)]
+            );
+        }
+        let mut world = World::new();
+        assert!(world.set_player(ObjectId(9)));
+        world.handle_allegiance_update(&through_the_wire(&synthesised_profile()));
+        assert!(!world.chat.is_talk_focus_enabled(TalkFocus::Monarch));
+        assert!(!world.chat.is_talk_focus_enabled(TalkFocus::Patron));
+        assert!(world.chat.is_talk_focus_enabled(TalkFocus::Vassals));
+        let mut empty = synthesised_profile();
+        empty.hierarchy.members.clear();
+        world.handle_allegiance_update(&through_the_wire(&empty));
+        for focus in [TalkFocus::Monarch, TalkFocus::Patron, TalkFocus::Vassals] {
+            assert!(!world.chat.is_talk_focus_enabled(focus));
+        }
     }
 
     /// The roster walk reproduces the panels three walks.
