@@ -850,16 +850,10 @@ impl ClassicUi {
     /// The make-a-shortcut key: the selection goes on the first free shortcut.
     fn create_shortcut<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
         let view = cx.hud().view(cx.objects());
-        let free = (0..9).find(|slot| view.shortcut(*slot).is_none());
-        if let (Some(object), Some(slot)) = (view.selected_object(), free) {
+        if let Some(object) = view.selected_object() {
             self.desktop
-                .host_actions
-                .push(HostAction::ClassicShortcutDrop {
-                    object,
-                    slot,
-                    from: None,
-                });
-            self.desktop.host_origins.push(0);
+                .requests
+                .push(UiRequest::CreateShortcut(object));
         }
     }
 

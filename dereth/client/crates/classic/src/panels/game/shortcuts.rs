@@ -501,14 +501,12 @@ impl Panel for Favorites {
                 }
             }
             ControlEvent::Activate(id) if id == "cast" => {
-                if self.cast_label(g).1 {
-                    if let Some((object, spell_id)) = self.choice(g) {
-                        return vec![PanelAction::Game(if let Some(object) = object {
-                            UiRequest::Use(object)
-                        } else {
-                            UiRequest::CastSpell { spell_id }
-                        })];
-                    }
+                if let Some((object, spell_id)) = self.choice(g) {
+                    return vec![PanelAction::Game(if let Some(object) = object {
+                        UiRequest::Use(object)
+                    } else {
+                        UiRequest::CastSpell { spell_id }
+                    })];
                 }
             }
             ControlEvent::DragStart { id, .. } if id.starts_with("spell:") => {
@@ -623,6 +621,35 @@ mod magic_tests {
         fn item_useable_self_target(&self, _: ObjectId) -> bool {
             true
         }
+    }
+    /// Behaviour: magic.cast.a-refusal-the-client-makes-itself-is-said-in-its-own-words-and-never-sent
+    #[test]
+    fn a_cast_without_a_target_reaches_the_shared_model() {
+        #[derive(Debug)]
+        struct TargetedSpell;
+        impl GameView for TargetedSpell {
+            fn spell_tab(&self, _: usize) -> &[u32] {
+                &[11]
+            }
+        }
+        let pregame = Default::default();
+        let keyboard = Default::default();
+        let settings = Default::default();
+        let classic = Default::default();
+        let ctx = Context {
+            game: &TargetedSpell,
+            pregame: &pregame,
+            keyboard: &keyboard,
+            settings: &settings,
+            map_teleport_allowed: false,
+            classic: &classic,
+        };
+        let mut panel = Favorites::default();
+        assert!(!panel.cast_label(ctx.game).1);
+        assert_eq!(
+            panel.magic(MagicNotice::CastCurrentSpell, &ctx),
+            [PanelAction::Game(UiRequest::CastSpell { spell_id: 11 })]
+        );
     }
     #[test]
     fn spell_keys_cycle_through_endowment_and_retain_selection_per_tab() {
