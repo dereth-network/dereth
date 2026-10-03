@@ -114,7 +114,18 @@ impl ActionMap {
     /// Add this client's actions in [`INPUT_MAP`]. They carry no name in the shipped string
     /// table: their name and description ids are their own action ids, which no string table
     /// answers, and the key page shows [`name`] for them.
+    ///
+    /// [`INPUT_MAP`] conflicts with every map a key page lists keys in: it is live for the whole
+    /// run beside all of them, so a key given to one of these actions is taken from whatever
+    /// else had it, after the page asks, and a key given to anything else is taken from these,
+    /// as the shipped maps' own conflicts work.
     pub fn add_dereth_actions(&mut self) {
+        let mut maps: Vec<u32> = crate::presentation::ROWS.iter().map(|r| r.map).collect();
+        maps.sort_unstable();
+        maps.dedup();
+        for m in maps.into_iter().filter(|m| *m != INPUT_MAP.0) {
+            self.add_conflict(INPUT_MAP, InputMapId(m));
+        }
         for a in ACTIONS {
             self.insert(
                 INPUT_MAP,

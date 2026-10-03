@@ -203,6 +203,17 @@ impl ActionMap {
             .map_or((0, 0), |v| (v.action_name, v.description))
     }
 
+    /// Make `a` and `b` conflict, both ways: a key bound in one is taken from the other. A map
+    /// that had no list gets one holding itself first.
+    pub(crate) fn add_conflict(&mut self, a: InputMapId, b: InputMapId) {
+        for (x, y) in [(a, b), (b, a)] {
+            let list = self.conflicts.entry(x.0).or_insert_with(|| vec![x]);
+            if !list.contains(&y) {
+                list.push(y);
+            }
+        }
+    }
+
     /// The maps an action conflicts in. The list **includes the map itself**.
     #[must_use]
     pub fn conflicting_input_maps(&self, m: InputMapId) -> &[InputMapId] {
