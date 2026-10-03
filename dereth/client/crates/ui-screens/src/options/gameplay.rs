@@ -65,7 +65,7 @@
 //! |---|---|
 //! | `0x10000203` | [`crate::screens::gameplay::GamePlayScreen::on_end_character_session`] — the asking form |
 //! | `0x10000617` | the key-press path with `0x10000027` |
-//! | `0x10000206` / `0x10000207` | [`crate::view::UiRequest::OpenUrl`] on the ordinary request queue |
+//! | `0x10000206` / `0x10000207` | the in-game Urgent Assistance and Report Abuse forms ([`GameplayOptionsPage::arrange`]) |
 //! | `0x100005CC` | *Use Mouse Turning Settings*: the mouse-turning preset — see `MOUSE_TURNING_NOTE` |
 //! | `0x10000204` / `0x10000205` | the generic button path, `dereth_ui::widgets`' `BUTTON_INPUT_ACTION` dispatch |
 
@@ -139,6 +139,11 @@ pub const LAYOUT_DRIVEN: [(ElementId, u32); 2] = [
 pub const MOUSE_TURNING_NOTE: &str =
     "global 0x0C applies the mouse-turning preset and binds the wheel to the camera zoom";
 
+/// The input action that opens the in-game Urgent Assistance form, `ToggleUrgentAssistancePanel`.
+pub const URGENT_ASSISTANCE_ACTION: u32 = crate::panels::urgent_assistance::TOGGLE_ACTION;
+/// The input action that opens the in-game Report Abuse form, `ToggleAbusePanel`.
+pub const REPORT_ABUSE_ACTION: u32 = 0x1000_0003;
+
 /// The Game / Support page, bound to the built tree.
 ///
 /// It holds a handle and nothing else: the page has no state because retail's has none — no
@@ -160,6 +165,46 @@ impl GameplayOptionsPage {
             }) && is_under(ui, *h, root)
         });
         Self { page }
+    }
+
+    /// Lay the page out as both interfaces' pages are: In-Game Help is hidden, since no help
+    /// ships, and the two support buttons close up over its place and open the in-game forms
+    /// (Urgent Assistance, Report Abuse), each through its form's input action, as Configure
+    /// Keyboard opens the key page. Returns whether the page was there to lay out.
+    pub fn arrange(&self, ui: &mut UiSystem) -> bool {
+        let Some(page) = self.page else { return false };
+        let Some(help) = ui.get_child_recursive(page, button::HELP) else {
+            return false;
+        };
+        ui.set_visible(help, false);
+        ui.set_mouse_visible(help, false);
+        let rise = BUTTONS
+            .iter()
+            .find(|(b, _)| *b == button::SUPPORT_TICKET_UPPER)
+            .map_or(0, |(_, y)| *y)
+            - BUTTONS
+                .iter()
+                .find(|(b, _)| *b == button::HELP)
+                .map_or(0, |(_, y)| *y);
+        for (id, action) in [
+            (button::SUPPORT_TICKET_UPPER, URGENT_ASSISTANCE_ACTION),
+            (button::SUPPORT_TICKET_LOWER, REPORT_ABUSE_ACTION),
+        ] {
+            let Some(h) = ui.get_child_recursive(page, id) else {
+                continue;
+            };
+            if let Some(n) = ui.node_mut(h) {
+                n.instance_properties.set(
+                    dereth_ui::props::attr::BUTTON_INPUT_ACTION,
+                    dereth_assets::ui::PropertyValue::Enum(action),
+                );
+            }
+            let at = ui.node(h).map(|n| (n.region.box_.x0, n.region.box_.y0));
+            if let Some((x, y)) = at {
+                ui.move_to(h, x, y - rise + 10);
+            }
+        }
+        true
     }
 
     /// The whole of it.
@@ -225,9 +270,9 @@ mod tests {
     use super::*;
     use crate::view::UiRequest;
 
-    /// The five ids the handler answers, against the transcription in `pages.rs`.
+    /// The three ids the handler answers, against the transcription in `pages.rs`.
     #[test]
-    fn the_five_answered_ids_are_the_ones_the_handler_switches_on() {
+    fn the_three_answered_ids_are_the_ones_the_handler_switches_on() {
         assert_eq!(
             gameplay_option_action(button::EXIT_TO_CHARACTER_SELECTION),
             Some(GameplayOptionAction::Request(
@@ -248,9 +293,8 @@ mod tests {
         for b in [button::SUPPORT_TICKET_UPPER, button::SUPPORT_TICKET_LOWER] {
             assert_eq!(
                 gameplay_option_action(b),
-                Some(GameplayOptionAction::Request(UiRequest::OpenUrl(
-                    SUPPORT_URL
-                )))
+                None,
+                "the forms' actions open them"
             );
         }
         // And the two the class does not answer.

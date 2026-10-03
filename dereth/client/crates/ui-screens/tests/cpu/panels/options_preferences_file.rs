@@ -1,5 +1,5 @@
-//! A retail-shaped UserPreferences.ini fixture: 43 keys present, 34 match registered names, 34
-//! apply; bare keys and [Default]-dotted keys match nothing; the 9 unmatched are the 9 with no
+//! A retail-shaped UserPreferences.ini fixture: 43 keys present, 35 match registered names, 35
+//! apply; bare keys and [Default]-dotted keys match nothing; the 8 unmatched are the 8 with no
 //! option row; enum labels/indices resolve case-insensitively.
 //! Fixture: synthetic views and UI state; the catalogue check also reads production source files.
 
@@ -68,7 +68,7 @@ const RETAIL_SHAPED_INI: &str = "[Net]\r\n\
 /// without complaint. `Render.DisplayAdapter` is the odd one —
 /// the original initialization registers it and then unregisters it, so it is read from the INI
 /// and never written back.
-const THE_NINE_WITHOUT_A_UI_ROW: [&str; 9] = [
+const THE_EIGHT_WITHOUT_A_UI_ROW: [&str; 8] = [
     "Input.KeymapFile",
     "Input.MouseLookSmoothingAmount",
     "International.UseIME",
@@ -77,15 +77,15 @@ const THE_NINE_WITHOUT_A_UI_ROW: [&str; 9] = [
     "Net.UserSpecifiedPort",
     "Render.AspectRatio",
     "Render.DisplayAdapter",
-    "Render.LandscapeDetailTextures",
 ];
 
-/// **The number.** How many of the 34 matched keys carry a value the store can take.
+/// **The number.** How many of the 35 matched keys carry a value the store can take.
 ///
-/// `0` with the bare-key parser, `24` once the section is restored, `34` once enum labels convert.
+/// `0` with the bare-key parser, `24` once the section is restored, `34` once enum labels convert,
+/// `35` with the landscape detail texture.
 /// It is a constant so that a regression reads as this number going *down* rather than as a suite
 /// going red for an unrelated reason.
-const EXPECT_APPLIED: usize = 34;
+const EXPECT_APPLIED: usize = 35;
 
 /// The matched keys that still do not apply. **Empty**, and it held the ten `kind == 2`
 /// preferences — the drop-downs — for exactly one commit: the original client writes an
@@ -133,7 +133,7 @@ fn census(text: &str) -> (usize, usize, usize, Vec<String>) {
 fn the_census_of_a_retail_shaped_profile() {
     let (present, matched, applied, missed) = census(RETAIL_SHAPED_INI);
     assert_eq!(present, 43, "the fixture is every registered preference");
-    assert_eq!(matched, 34, "and 34 of them have a row on an option page");
+    assert_eq!(matched, 35, "and 35 of them have a row on an option page");
     assert_eq!(
         missed, EXPECT_NOT_APPLIED,
         "{present} present, {matched} matched, {applied} applied"
@@ -167,12 +167,12 @@ fn the_bare_key_as_written_in_the_file_is_not_a_registry_name() {
     }
 }
 
-/// The nine that do not match are exactly the nine never attached to an options row, and the two
+/// The eight that do not match are exactly the eight with no options row, and the two
 /// sets partition the 43 with nothing left over. A key the registry does not know is **not** an
 /// error — it belongs to networking, input methods, input management, or rendering, all of which
 /// read the same file — so `load`'s second return is a count and not a failure.
 #[test]
-fn the_nine_that_do_not_match_are_the_nine_with_no_option_row() {
+fn the_eight_that_do_not_match_are_the_eight_with_no_option_row() {
     assert_eq!(store::init(), 34);
     let ini = UserPreferences::parse(RETAIL_SHAPED_INI).expect("parses");
     let mut unmatched: Vec<&str> = ini
@@ -183,16 +183,16 @@ fn the_nine_that_do_not_match_are_the_nine_with_no_option_row() {
         .collect();
     unmatched.sort_unstable();
     assert_eq!(
-        unmatched, THE_NINE_WITHOUT_A_UI_ROW,
-        "43 = 34 with a row + 9 without"
+        unmatched, THE_EIGHT_WITHOUT_A_UI_ROW,
+        "43 = 35 with a row + 8 without"
     );
     let (_applied, ignored) = store::load(&ini);
     assert_eq!(
         ignored,
-        9 + EXPECT_NOT_APPLIED.len(),
+        8 + EXPECT_NOT_APPLIED.len(),
         "`load`'s second return conflates `somebody else owns this` with `this would not parse`"
     );
-    for name in THE_NINE_WITHOUT_A_UI_ROW {
+    for name in THE_EIGHT_WITHOUT_A_UI_ROW {
         assert!(
             !store::is_registered(name),
             "{name} must not be in the options registry"

@@ -13,6 +13,8 @@ pub mod keybinding;
 pub mod page;
 pub mod pages;
 pub mod preferences;
+/// The options both interfaces show, which these pages draw.
+pub use dereth_client_contract::options::sheet;
 pub mod store;
 /// The option checkboxes a *panel* binds, which are not on any option page.
 pub mod toggle;

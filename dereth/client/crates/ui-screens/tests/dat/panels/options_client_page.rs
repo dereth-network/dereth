@@ -305,12 +305,12 @@ fn sole_volume(out: &[UiRequest]) -> f32 {
 /// number, and this is the assertion that would catch a rebuild that forgot
 /// `inq_preference_range` and wrote the raw `0x86` through.
 ///
-/// `Camera.AdjustmentSpeed` is registered `5.0 … 80.0`, so the middle of its bar is **42.5** and
-/// not 0.5. A slider that wrote 0.5 would look identical on screen and be sixteen times too slow.
+/// `Render.ScreenBrightness` is registered `-1.0 … 1.0`, so the middle of its bar is **0.0** and
+/// not 0.5. A slider that wrote the raw position would look identical on screen and brighten.
 #[test]
 fn a_slider_whose_range_is_not_zero_to_one_writes_the_scaled_value() {
     let (mut ui, mut s) = screen();
-    let (_, bar) = control(&s.config_page, "Camera.AdjustmentSpeed");
+    let (_, bar) = control(&s.config_page, "Render.ScreenBrightness");
     let mut h = bar;
     loop {
         ui.set_visible(h, true);
@@ -330,19 +330,21 @@ fn a_slider_whose_range_is_not_zero_to_one_writes_the_scaled_value() {
     let out = ui.requests.take();
     let v = match out
         .iter()
-        .find(|r| matches!(r, UiRequest::SetPreference("Camera.AdjustmentSpeed", _)))
+        .find(|r| matches!(r, UiRequest::SetPreference("Render.ScreenBrightness", _)))
     {
         Some(UiRequest::SetPreference(_, PrefValue::Float(v))) => *v,
-        other => panic!("no Camera.AdjustmentSpeed write in {other:?} / {out:?}"),
+        other => panic!("no Render.ScreenBrightness write in {other:?} / {out:?}"),
     };
     let pos = dereth_ui::widgets::scrollbar::Scrollbar::position(&ui, bar);
-    let expected = 5.0 + pos * (80.0 - 5.0);
+    let expected = -1.0 + pos * (1.0 - -1.0);
     assert!(
         (v - expected).abs() < 1e-3,
         "wrote {v}, range says {expected} at position {pos}"
     );
-    assert!(v > 5.0 && v < 80.0, "{v} is outside the registered range");
+    assert!(v > -1.0 && v < 1.0, "{v} is outside the registered range");
+    assert!((v - pos).abs() > 0.1, "the raw position was not written");
     // The literal, so a wrong range constant cannot hide behind the symbol.
+    assert_eq!(page::slider_range("Render.ScreenBrightness"), (-1.0, 1.0));
     assert_eq!(page::slider_range("Camera.AdjustmentSpeed"), (5.0, 80.0));
 }
 
@@ -364,8 +366,8 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     let n = s.config_page.restore_default_values(&mut ui);
     assert_eq!(
         n, 35,
-        "the 30 retail controls, this client's three rows from another era, its interface row and \
-         its performance row"
+        "the 29 retail controls, this client's three rows from another era, its interface row, \
+         its performance row and its landscape detail row"
     );
     let live: Vec<(&str, PrefValue)> = ui
         .requests
@@ -380,14 +382,15 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     assert_eq!(live, stat, "the built page and CONFIG_PAGE disagree");
     assert_eq!(live.len(), 35);
 
-    // The control kinds, counted: 12 check boxes, 10 sliders, 8 menus.
+    // The control kinds, counted: 11 check boxes (retail's 12 less Sync with Refresh Rate),
+    // 10 sliders, 8 menus.
     let k = |c: OptionControl| {
         s.config_page
             .retail_options()
             .filter(|o| o.control == c)
             .count()
     };
-    assert_eq!(k(OptionControl::Checkbox), 12);
+    assert_eq!(k(OptionControl::Checkbox), 11);
     assert_eq!(k(OptionControl::Slider), 10);
     assert_eq!(k(OptionControl::Menu), 8);
     assert_eq!(
@@ -825,17 +828,18 @@ mod sound_defaults {
             .expect("the option box is in the shipped layout");
         assert_eq!(
             ui.children(box_h).len(),
-            43,
-            "27 option rows, this client's 3 era rows and its interface and performance rows, 6 section headers              and 5 separators"
+            41,
+            "26 retail option rows, this client's 3 era rows and its interface, performance and \
+             landscape detail rows, 5 headings and 4 separators"
         );
-        assert_eq!(screen.config_page.row_count(), 43);
-        assert_eq!(screen.config_page.headers, 6);
-        assert_eq!(screen.config_page.separators, 5);
+        assert_eq!(screen.config_page.row_count(), 41);
+        assert_eq!(screen.config_page.headers, 5);
+        assert_eq!(screen.config_page.separators, 4);
         assert_eq!(screen.config_page.failures, 0, "every row template built");
         assert_eq!(
             screen.config_page.retail_options().count(),
-            30,
-            "27 rows, of which the three check+slider pairs register two controls each"
+            29,
+            "26 rows, of which the three check+slider pairs register two controls each"
         );
         assert_eq!(screen.config_page.landscape_options().count(), 3);
 
@@ -850,8 +854,9 @@ mod sound_defaults {
         assert_eq!(
             delta(0x1000_0035),
             63,
-            "checkbox options: the client-options panel's 9 toggle rows + 3 paired boxes + the \
-             performance panel's, and the character-settings panel's 50"
+            "checkbox options: the client-options panel's 8 retail toggle rows + 3 paired \
+             boxes + the performance panel's and the landscape detail's, and the \
+             character-settings panel's 50"
         );
         assert_eq!(
             delta(0x1000_0036),

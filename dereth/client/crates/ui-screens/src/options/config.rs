@@ -267,6 +267,28 @@ pub const PERFORMANCE_ROW: ConfigRow = row(
     Bool(false),
 );
 
+/// The landscape's detail texture, a preference retail registers and draws no row for: a check
+/// box with a literal caption, off at first.
+pub const LANDSCAPE_DETAIL_ROW: ConfigRow = row(
+    TEXTURES,
+    Check,
+    "Render.LandscapeDetailTextures",
+    Bool(false),
+);
+
+/// The row the Client Options page builds for `preference`: retail's own row where retail has
+/// one ([`CONFIG_PAGE`]), else this client's ([`LANDSCAPE_ROWS`], [`INTERFACE_ROW`],
+/// [`PERFORMANCE_ROW`], [`LANDSCAPE_DETAIL_ROW`]).
+#[must_use]
+pub fn config_row(preference: &str) -> Option<ConfigRow> {
+    CONFIG_PAGE
+        .iter()
+        .chain(LANDSCAPE_ROWS.iter())
+        .chain([INTERFACE_ROW, PERFORMANCE_ROW, LANDSCAPE_DETAIL_ROW].iter())
+        .find(|r| r.preference == preference)
+        .copied()
+}
+
 /// The volume every one of the three sound check+slider pairs defaults its slider to.
 pub const SOUND_SLIDER_DEFAULT: f32 = 1.0;
 
@@ -412,28 +434,19 @@ pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
 ///
 /// Returns `(preference, value)` for every row, using the **UI** default — including the three that
 /// disagree with the registration.
+/// The rows run in the page's own order, the shared options set's Client Options page as the
+/// retail interface shows it.
 #[must_use]
 pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
+    use dereth_client_contract::options::sheet::{rows_for, Face, PageId};
     let mut out = Vec::new();
-    for (i, r) in CONFIG_PAGE.iter().enumerate() {
+    for row in rows_for(PageId::Client, Face::Retail) {
+        let Some(r) = row.preference().and_then(config_row) else {
+            continue;
+        };
         out.push((r.preference, r.ui_default.into()));
         if let Some(s) = r.slider_preference {
             out.push((s, PrefValue::Float(SOUND_SLIDER_DEFAULT)));
-        }
-        // This client's landscape rows close the Graphics section, as the page builds them.
-        let closes = r.section == LANDSCAPE_SECTION
-            && CONFIG_PAGE
-                .get(i + 1)
-                .is_none_or(|n| n.section != LANDSCAPE_SECTION);
-        if closes {
-            for l in LANDSCAPE_ROWS {
-                out.push((l.preference, l.ui_default.into()));
-            }
-            out.push((INTERFACE_ROW.preference, INTERFACE_ROW.ui_default.into()));
-            out.push((
-                PERFORMANCE_ROW.preference,
-                PERFORMANCE_ROW.ui_default.into(),
-            ));
         }
     }
     out
@@ -644,9 +657,10 @@ mod tests {
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            27 + 3 + 5,
-            "27 rows plus the three paired volume sliders, this client's three era rows, its \
-             interface and its performance panel"
+            26 + 3 + 6,
+            "retail's 26 rows (its 27 less Sync with Refresh Rate) plus the three paired volume \
+             sliders, this client's three era rows, its interface, its performance panel and its \
+             landscape detail texture"
         );
         assert_eq!(
             get_landscape(&v),

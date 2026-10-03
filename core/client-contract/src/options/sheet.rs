@@ -666,22 +666,28 @@ const CLIENT: [Heading; 5] = [
     Heading {
         title: "Graphics Quality",
         rows: &[
-            noted(
-                "Lowers the detail of distant objects to hold the frame rate.",
-                pref(
-                    "Adaptive Degrade",
-                    Value::Check("Render.AutomaticDegrades"),
-                    Bool(false),
-                ),
-            ),
-            noted(
-                "Speed or detail by hand, used while Adaptive Degrade is off.",
-                pref(
-                    "Degrade Bias",
-                    Value::Slider("Render.GraphicsPerformance"),
-                    Float(0.0),
-                ),
-            ),
+            Row {
+                classic: Some(("Auto-Degrade", false)),
+                ..noted(
+                    "Lowers the detail of distant objects to hold the frame rate.",
+                    pref(
+                        "Adaptive Degrade",
+                        Value::Check("Render.AutomaticDegrades"),
+                        Bool(false),
+                    ),
+                )
+            },
+            Row {
+                classic: Some(("Graphics Performance", false)),
+                ..noted(
+                    "Speed or detail chosen by hand, used while Adaptive Degrade is off.",
+                    pref(
+                        "Manual Degrade Bias",
+                        Value::Slider("Render.GraphicsPerformance"),
+                        Float(0.0),
+                    ),
+                )
+            },
             pref(
                 "Degrade Distance",
                 Value::Slider("Render.DegradeDistance"),
@@ -728,17 +734,17 @@ const CLIENT: [Heading; 5] = [
         title: "Era Look",
         rows: &[
             pref(
-                "Ground",
+                "Terrain Mode",
                 Value::Menu(crate::options::landscape::GROUND),
                 Int(crate::options::landscape::WORLD_DEFAULT),
             ),
             pref(
-                "Sky",
+                "Sky Mode",
                 Value::Menu(crate::options::landscape::SKY),
                 Int(crate::options::landscape::WORLD_DEFAULT),
             ),
             pref(
-                "Objects",
+                "Object Mode",
                 Value::Menu(crate::options::landscape::OBJECTS),
                 Int(crate::options::landscape::WORLD_DEFAULT),
             ),

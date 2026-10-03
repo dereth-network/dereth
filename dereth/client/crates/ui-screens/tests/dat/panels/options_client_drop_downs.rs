@@ -115,12 +115,12 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
     let want: [(&str, usize); 8] = [
         ("Sound.SoundFeatures", 2),
         ("Display.Resolution", 0),
+        ("UI.ChatFontFace", 5),
+        ("UI.ChatFontSize", 5),
         ("Render.LandscapeTextureDetail", 5),
         ("Render.EnvironmentTextureDetail", 5),
         ("Render.TextureFiltering", 4),
         ("Render.LandscapeDrawDistance", 6),
-        ("UI.ChatFontFace", 5),
-        ("UI.ChatFontSize", 5),
     ];
     let menus: Vec<&str> = p
         .retail_options()
@@ -515,8 +515,8 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
     let p = &s.config_page;
     assert_eq!(
         p.retail_options().count(),
-        30,
-        "all 30 controls are still bound"
+        29,
+        "all 29 controls are still bound"
     );
     // This client's three era rows and its interface row ask the option value store, not this
     // registry, so they keep their literal entries (four, four, three and two).
@@ -550,25 +550,22 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
 fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_one() {
     use dereth_client_contract::options::landscape;
     let (mut ui, mut s) = screen();
-    // The two rows sit between the Graphics section's last retail row and the Textures header.
+    // The three are the Era Look heading, after Graphics Quality and before Camera and Mouse.
     let order: Vec<&str> = s.config_page.options.iter().map(|o| o.preference).collect();
     let at = |p: &str| order.iter().position(|o| *o == p).expect("on the page");
-    assert_eq!(at(landscape::GROUND), at("Render.DegradeDistance") + 1);
+    assert_eq!(at(landscape::GROUND), at("Render.MultiPassAlpha") + 1);
     assert_eq!(at(landscape::SKY), at(landscape::GROUND) + 1);
     assert_eq!(at(landscape::OBJECTS), at(landscape::SKY) + 1);
-    // Then the interface row.
+    assert_eq!(at("Camera.Stiffness"), at(landscape::OBJECTS) + 1);
+    // The interface row opens Display, after Sound; the performance panel's follows the
+    // field of view.
     assert_eq!(
         at(dereth_client_contract::options::interface::INTERFACE),
-        at(landscape::OBJECTS) + 1
+        at("Sound.PlaySoundOnlyWhenActive") + 1
     );
-    // Then the performance panel's.
     assert_eq!(
         at(dereth_client_contract::options::performance::PERFORMANCE_PANEL),
-        at(dereth_client_contract::options::interface::INTERFACE) + 1
-    );
-    assert_eq!(
-        at("Render.LandscapeTextureDetail"),
-        at(dereth_client_contract::options::performance::PERFORMANCE_PANEL) + 1
+        at("Render.FieldOfView") + 1
     );
 
     let menu = control(&s.config_page, landscape::GROUND);

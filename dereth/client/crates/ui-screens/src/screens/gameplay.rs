@@ -1332,6 +1332,7 @@ impl GamePlayScreen {
         // but the page element itself, which is what attributes a click to this page rather than to
         // an id that happens to repeat. See [`crate::options::gameplay`].
         self.gameplay_options = crate::options::gameplay::GameplayOptionsPage::bind(ui, root);
+        self.gameplay_options.arrange(ui);
 
         // The vitals panel's post-init, once per vitals window.
         if let Some(spec) = crate::panels::catalogue::spec("VitalsPanel") {
@@ -4173,6 +4174,8 @@ impl GamePlayScreen {
         if self.era_features == Some(features) {
             return false;
         }
+        // The Character Options rows for what the era lacks are greyed out.
+        self.character_options.apply_era(ui, Some(features));
         let pages: Vec<(u32, bool)> = self
             .panels
             .pages

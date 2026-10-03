@@ -220,8 +220,10 @@ pub const SCREEN_BRIGHTNESS: &str = "Render.ScreenBrightness";
 pub const MULTI_PASS_ALPHA: &str = "Render.MultiPassAlpha";
 /// `Render.BuildingDetailTextures`, bound to `RenderPreferences::environment_detail_textures`.
 pub const BUILDING_DETAIL_TEXTURES: &str = "Render.BuildingDetailTextures";
-/// `Render.LandscapeDetailTextures`. One of the nine with no options-page row.
-pub const LANDSCAPE_DETAIL_TEXTURES: &str = "Render.LandscapeDetailTextures";
+/// `Render.LandscapeDetailTextures`: the detail texture over the ground. Retail's page had no
+/// row for it; both interfaces' pages here do.
+pub const LANDSCAPE_DETAIL_TEXTURES: &str =
+    dereth_client_contract::options::store::LANDSCAPE_DETAIL_TEXTURES;
 /// `Render.AutomaticDegrades`.
 pub const AUTOMATIC_DEGRADES: &str = "Render.AutomaticDegrades";
 /// `Render.GraphicsPerformance`.
@@ -385,6 +387,9 @@ impl RenderPreferences {
         }
         if name.eq_ignore_ascii_case(BUILDING_DETAIL_TEXTURES) {
             take!(environment_detail_textures, boolean);
+        }
+        if name.eq_ignore_ascii_case(LANDSCAPE_DETAIL_TEXTURES) {
+            take!(landscape_detail_textures, boolean);
         }
         if name.eq_ignore_ascii_case(GRAPHICS_PERFORMANCE) {
             take!(graphics_performance, float);

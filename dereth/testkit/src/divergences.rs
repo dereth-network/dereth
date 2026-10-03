@@ -401,12 +401,28 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-021",
         title: "One set of options pages for both interfaces",
-        retail: "The end-of-retail client started full screen, and its client options page's \
-                 Defaults button put the resolution at 800 by 600 although the client starts at \
-                 1024 by 768.",
-        dereth: "The client starts in a window at 1024 by 768, and the Defaults button puts full \
-                 screen off and the resolution at 1024 by 768.",
-        why: "The owner asked for a windowed start and for Defaults to keep the starting size.",
+        retail: "The end-of-retail client's options window had four pages of its own: Game and \
+                 Support (with In-Game Help and two buttons that opened a support web page, now \
+                 gone), Character Options under six headings, Chat Options and Client Options \
+                 under six more (one of them Sync with Refresh Rate, which acts only in full \
+                 screen). The early client's had three, with no chat page. The end-of-retail \
+                 client started full screen, and its client options page's Defaults button put \
+                 the resolution at 800 by 600 although the client starts at 1024 by 768.",
+        dereth: "Both interfaces draw the same four pages from one set of options, each in its own \
+                 look: Game and Support; Character Options under seven headings (Interface \
+                 Behavior, World Display, Chat, Fellowship and Allegiance, Other Players, Allow \
+                 Others to See Your, Combat and Movement); Chat Options; and Client Options under \
+                 five (Sound, Display, Graphics Quality, Era Look, Camera and Mouse). A row stores \
+                 its value where retail kept it, so either interface's page shows what the other \
+                 set. A row for something the world's era lacks is greyed out. In-Game Help is \
+                 not offered, Urgent Assistance and Report Abuse open the game's own forms, and \
+                 there is no Sync with Refresh Rate row (the full screen is a borderless window). \
+                 Manual Degrade Bias is greyed while Adaptive Degrade is on, and the landscape's \
+                 detail texture has a row. The client starts in a window at 1024 by 768, and the \
+                 Defaults button puts full screen off and the resolution at 1024 by 768.",
+        why: "The owner asked for one set of options behind both interfaces, grouped the same \
+              way, with the dead rows gone, a windowed start and Defaults keeping the starting \
+              size.",
     },
 ];
 

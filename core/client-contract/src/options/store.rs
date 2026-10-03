@@ -287,6 +287,13 @@ pub fn init() -> usize {
     super::interface::register();
     super::performance::register();
     super::classic::register();
+    // The landscape's detail texture: registered by retail's renderer with no options row, and
+    // given one by both interfaces' pages here.
+    register_preference(
+        LANDSCAPE_DETAIL_TEXTURES,
+        PrefValue::Bool(false),
+        DataType::Bool,
+    );
     n
 }
 
@@ -751,6 +758,8 @@ fn set_from_string_uint(name: &str, text: &str) -> Option<i32> {
 
 /// The two preference names whose choice labels and values are built at run time.
 pub const DISPLAY_RESOLUTION: &str = "Display.Resolution";
+/// `Render.LandscapeDetailTextures`: the detail texture over the ground, off at first.
+pub const LANDSCAPE_DETAIL_TEXTURES: &str = "Render.LandscapeDetailTextures";
 /// As [`DISPLAY_RESOLUTION`].
 pub const DISPLAY_REFRESH_RATE: &str = "Display.RefreshRate";
 
@@ -1090,8 +1099,8 @@ mod tests {
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
         // ...beside this client's three presentation options from another era, its interface, its
-        // performance panel and the classic interface's six.
-        assert_eq!(len(), 45);
+        // performance panel, the classic interface's six and the landscape detail texture.
+        assert_eq!(len(), 46);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

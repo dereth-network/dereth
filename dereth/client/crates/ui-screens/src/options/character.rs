@@ -242,6 +242,10 @@ pub struct CharacterOptionRow {
     /// The tooltip token — recorded and not shown, exactly as [`super::page`] records the option
     /// pages' tooltips: the hover surface is `dereth_ui`'s and no option control carries one here.
     pub help_token: String,
+    /// What of the world's era the option needs ([`dereth_client_contract::options::sheet::Needs`]).
+    pub needs: dereth_client_contract::options::sheet::Needs,
+    /// Drawn greyed out, because the world's era lacks what the option sets.
+    pub greyed: bool,
 }
 
 impl CharacterOptionRow {
@@ -318,19 +322,52 @@ impl CharacterSettingsPage {
     ///
     /// Returns how many check-box rows were built.
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
-        for s in super::pages::CHARACTER_SETTINGS_PAGE {
-            self.add_header(ui, s.header);
-            for o in s.options {
-                self.add_toggle_option(ui, *o, view);
+        use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
+        for (heading, rows) in sheet::headings_for(PageId::Character, Face::Retail) {
+            self.add_literal_header(ui, heading.title);
+            for r in rows {
+                let Value::Option(o) = r.value else { continue };
+                if let Some(i) = self.add_toggle_option(ui, o, view) {
+                    self.rows[i].needs = r.needs;
+                }
             }
-            // A separator follows **every** section, the last one included — the trailing
-            // rule at the bottom of the list is the client's and is not a transcription slip.
+            // A separator follows **every** section, the last one included, as retail's list
+            // ends with a rule.
             self.add_separator(ui);
         }
+        self.apply_era(ui, view.era().map(|e| e.features()));
         if let Some(b) = self.option_box.as_mut() {
             b.update_layout(ui);
         }
         self.rows.len()
+    }
+
+    /// A header with literal text: one of the headings both interfaces' pages share.
+    pub fn add_literal_header(&mut self, ui: &mut UiSystem, caption: &str) -> bool {
+        let Some(row) = self.add_row(ui, super::page::template::HEADER) else {
+            return false;
+        };
+        self.headers += 1;
+        super::page::set_literal_text(ui, row, caption);
+        self.header_captions += 1;
+        true
+    }
+
+    /// Grey out each row whose option the world's era lacks (`features`, `None` for a world
+    /// whose era is not known, which has everything), and bring back the others. Returns how many
+    /// rows are greyed.
+    pub fn apply_era(
+        &mut self,
+        ui: &mut UiSystem,
+        features: Option<dereth_primitives::EraFeatures>,
+    ) -> usize {
+        let mut n = 0;
+        for r in &mut self.rows {
+            r.greyed = !r.needs.met(features.as_ref());
+            super::page::set_row_greyed(ui, r.row, r.element, r.greyed);
+            n += usize::from(r.greyed);
+        }
+        n
     }
 
     fn add_row(&mut self, ui: &mut UiSystem, index: usize) -> Option<ElemHandle> {
@@ -426,6 +463,8 @@ impl CharacterSettingsPage {
             label,
             label_token: lt,
             help_token: ht,
+            needs: dereth_client_contract::options::sheet::Needs::Nothing,
+            greyed: false,
         });
         self.refresh(ui, idx);
         Some(idx)

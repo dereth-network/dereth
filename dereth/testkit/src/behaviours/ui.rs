@@ -522,14 +522,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "options.support.pressing-either-support-button-opens-the-page-in-the-players-browser",
-        says: "Either of the two buttons that offer to raise a support ticket really reaches the \
-               desktop and asks it to open the support page, once, at the address the client \
-               ships -- and the part of the client that answers that ask claims it and hands every \
-               other ask back untouched.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-P1-173-URL"),
-        station: "dereth-testkit::dat::ui::scenario_pressing_either_support_button_opens_the_page_in_the_players_browser",
+        id: "options.support.each-support-button-opens-its-in-game-form",
+        says: "Urgent Assistance and Report Abuse on the gameplay options page open the game's own \
+               forms, the one that sends a request for help and the one that reports a player, \
+               and neither asks the desktop to open a web page; In-Game Help is not offered, \
+               and the two buttons close up over its place.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-UNIFY-SUPPORT"),
+        station: "dereth-testkit::dat::ui::scenario_each_support_button_opens_its_in_game_form",
         tier: Tier::Dat,
     },
     behaviour! {

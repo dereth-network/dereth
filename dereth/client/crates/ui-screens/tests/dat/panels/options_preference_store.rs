@@ -188,7 +188,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
     );
     assert_eq!(value(&s, "Render.TextureFiltering"), PrefValue::Int(0));
 
-    // The other 27 controls agree with their `SetDefault`; all 30 still participate.
+    // The other 26 controls agree with their `SetDefault`; all 29 still participate.
     let disagreeing: Vec<&str> = config::DEFAULT_DISAGREEMENTS
         .iter()
         .map(|d| d.preference)
@@ -206,7 +206,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 27, "27 of the 30 controls agree either way");
+    assert_eq!(checked, 26, "26 of the 29 controls agree either way");
 }
 
 /// The **show** arm of the page's visibility hook —
@@ -513,8 +513,9 @@ fn dragging_the_volume_slider_updates_the_preference_store() {
 fn the_store_holds_the_thirty_four_attached_preferences_and_no_others() {
     let _ui = env();
     // ...and this client's own three options from another era, its interface, its performance
-    // panel and the classic interface's six beside them.
-    assert_eq!(store::len(), 45);
+    // panel, the classic interface's six and the landscape detail texture beside them.
+    assert_eq!(store::len(), 46);
+    assert!(store::is_registered("Render.LandscapeDetailTextures"));
     assert!(store::is_registered("Debug.PerformancePanel"));
     assert!(store::is_registered("Render.Ground") && store::is_registered("Render.Sky"));
     assert!(store::is_registered("Render.Objects") && store::is_registered("UI.Interface"));
@@ -528,7 +529,6 @@ fn the_store_holds_the_thirty_four_attached_preferences_and_no_others() {
         "Input.KeymapFile",
         "Input.MouseLookSmoothingAmount",
         "International.UseIME",
-        "Render.LandscapeDetailTextures",
         "Render.DisplayAdapter",
         "Render.AspectRatio",
     ] {
@@ -570,5 +570,5 @@ fn the_config_page_is_where_the_other_tests_look_for_it() {
         !ui.node(page_el).expect("the page").region.flags.visible,
         "it starts hidden"
     );
-    assert_eq!(s.config_page.row_count(), 43);
+    assert_eq!(s.config_page.row_count(), 41);
 }

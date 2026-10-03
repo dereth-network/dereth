@@ -351,14 +351,16 @@ pub enum GameplayOptionAction {
     },
 }
 
-/// The five buttons on the Game/Support page.
+/// The buttons on the Game/Support page the page itself answers. The two support buttons are
+/// not among them: they open the in-game Urgent Assistance and Report Abuse forms through the
+/// input action each is given ([`super::gameplay::GameplayOptionsPage::arrange`]), where retail
+/// opened [`SUPPORT_URL`], which is gone.
 #[must_use]
 pub fn gameplay_option_action(element: ElementId) -> Option<GameplayOptionAction> {
     use GameplayOptionAction::{BroadcastGlobal, Request};
     Some(match element.0 {
         // "Log out to character select".
         0x1000_0203 => Request(UiRequest::EndCharacterSession { ask: true }),
-        0x1000_0206 | 0x1000_0207 => Request(UiRequest::OpenUrl(SUPPORT_URL)),
         // *Use Mouse Turning Settings*: the mouse-turning preset.
         0x1000_05CC => BroadcastGlobal { id: 0x0C, param: 0 },
         // "synthesises the *quit* input action".
@@ -576,23 +578,16 @@ mod tests {
         assert_eq!(CHAT_FILTER_PROPERTY, 0x1000_007F);
     }
 
-    /// Oracle: §5's five-row element table.
+    /// The page answers three of its buttons itself; the support buttons are its forms' actions.
     #[test]
-    fn the_game_support_page_maps_its_five_buttons_to_the_documented_actions() {
+    fn the_game_support_page_maps_its_three_buttons_to_their_actions() {
         use GameplayOptionAction::{BroadcastGlobal, Request};
         assert_eq!(
             gameplay_option_action(ElementId(0x1000_0203)),
             Some(Request(UiRequest::EndCharacterSession { ask: true }))
         );
-        assert_eq!(
-            gameplay_option_action(ElementId(0x1000_0206)),
-            Some(Request(UiRequest::OpenUrl(SUPPORT_URL)))
-        );
-        assert_eq!(
-            gameplay_option_action(ElementId(0x1000_0207)),
-            gameplay_option_action(ElementId(0x1000_0206)),
-            "both support buttons open the same URL"
-        );
+        assert_eq!(gameplay_option_action(ElementId(0x1000_0206)), None);
+        assert_eq!(gameplay_option_action(ElementId(0x1000_0207)), None);
         assert_eq!(
             gameplay_option_action(ElementId(0x1000_05CC)),
             Some(BroadcastGlobal { id: 0x0C, param: 0 })

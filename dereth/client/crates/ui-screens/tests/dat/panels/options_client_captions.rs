@@ -58,12 +58,16 @@ fn child_text(ui: &mut UiSystem, row: ElemHandle, id: u32) -> Option<String> {
 fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     let (mut ui, s) = screen(true);
     let p = &s.config_page;
-    assert_eq!(p.retail_options().count(), 30, "30 controls over 27 rows");
+    assert_eq!(
+        p.retail_options().count(),
+        29,
+        "29 controls over retail's 26 rows (its 27 less Sync with Refresh Rate)"
+    );
     assert_eq!(p.failures, 0);
 
     // Every control that has a caption element got a caption.
     let labelled = p.retail_options().filter(|o| o.label.is_some()).count();
-    assert_eq!(labelled, 27, "27 of the 30 controls are captioned");
+    assert_eq!(labelled, 26, "26 of the 29 controls are captioned");
     let token_but_no_text = p
         .retail_options()
         .filter(|o| o.label_token != 0 && o.label.is_none())
@@ -83,8 +87,9 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     let rows: Vec<ElemHandle> = p.option_box.as_ref().expect("option box").items.clone();
     assert_eq!(
         rows.len(),
-        43,
-        "27 control rows, this client's 3 rows from another era and its interface and performance rows, 6 headers,          5 separators"
+        41,
+        "26 retail control rows, this client's 3 rows from another era, its interface, \
+         performance and landscape detail rows, 5 headers and 4 separators"
     );
     let mut captioned = 0;
     let mut blank: Vec<usize> = Vec::new();
@@ -103,7 +108,7 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
         }
     }
     assert_eq!(
-        captioned, 27,
+        captioned, 26,
         "rows with a caption; blank rows at {blank:?}"
     );
 
@@ -132,10 +137,15 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     assert_eq!(cap("Camera.AlignToSlope"), "Align camera to slope");
     assert_eq!(cap("Display.Resolution"), "Resolution");
     assert_eq!(cap("Display.FullScreen"), "Full Screen");
-    assert_eq!(cap("Display.SyncToRefresh"), "Sync with Refresh Rate");
     assert_eq!(cap("Render.ScreenBrightness"), "Screen Brightness");
     assert_eq!(cap("Render.AutomaticDegrades"), "Adaptive Degrade");
-    assert_eq!(cap("Render.GraphicsPerformance"), "Adaptive Degrade Bias");
+    // The bias is captioned for what it is: the speed or detail chosen by hand, used while
+    // Adaptive Degrade is off (retail's string says "Adaptive Degrade Bias").
+    assert_eq!(cap("Render.GraphicsPerformance"), "Manual Degrade Bias");
+    assert_eq!(
+        cap("Render.LandscapeDetailTextures"),
+        "Landscape Detail Textures"
+    );
     assert_eq!(cap("Render.DegradeDistance"), "Degrade Distance");
     assert_eq!(
         cap("Render.LandscapeTextureDetail"),
@@ -260,15 +270,12 @@ fn the_caption_lands_on_the_element_the_client_writes_it_to() {
 /// Six headers, and six slider labels making twelve end captions. Both counts asserted,
 /// and both sets of strings spelled out.
 #[test]
-fn the_six_section_headers_and_the_twelve_slider_end_captions_are_the_shipped_strings() {
+fn the_five_headings_and_the_twelve_slider_end_captions_are_the_shared_and_shipped_strings() {
     let (mut ui, s) = screen(true);
     let p = &s.config_page;
-    assert_eq!(p.headers, 6);
-    assert_eq!(
-        p.separators, 5,
-        "a separator between sections, and one at the end"
-    );
-    assert_eq!(p.header_captions, 6, "every AddHeader caption resolved");
+    assert_eq!(p.headers, 5);
+    assert_eq!(p.separators, 4, "a separator between headings");
+    assert_eq!(p.header_captions, 5, "every heading captioned");
     assert_eq!(
         p.slider_end_captions, 12,
         "six set_slider_label calls, two captions each"
@@ -290,14 +297,12 @@ fn the_six_section_headers_and_the_twelve_slider_end_captions_are_the_shipped_st
         headers,
         vec![
             "Sound Options",
-            "Camera Options",
-            "Graphics Options",
-            "Rendering Quality Options",
-            "Input Options",
-            "UI Options",
+            "Display Options",
+            "Graphics Quality Options",
+            "Era Look Options",
+            "Camera and Mouse Options",
         ]
     );
-    assert_eq!(config::SECTIONS.len(), headers.len());
 
     // The twelve end captions, per row. `Input.MouseLookSensitivity` is the narrow slider and
     // must have none — that is the assertion that would catch a rebuild that gave every slider
@@ -354,10 +359,17 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
 
     assert_eq!(
         p.retail_options().count(),
-        30,
+        29,
         "the rows still build; only the captions are gone"
     );
-    assert_eq!(p.retail_options().filter(|o| o.label.is_some()).count(), 0);
+    // Only the bias, which this client captions itself.
+    assert_eq!(
+        p.retail_options()
+            .filter(|o| o.label.is_some())
+            .map(|o| o.preference)
+            .collect::<Vec<_>>(),
+        ["Render.GraphicsPerformance"]
+    );
     assert_eq!(p.options.iter().filter(|o| o.label_token != 0).count(), 0);
     // This client's own rows have no registry entry to lose: their captions are literal.
     assert_eq!(
@@ -368,7 +380,7 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
         p.slider_end_captions, 12,
         "set_slider_label's ids are literals, not registry rows"
     );
-    assert_eq!(p.header_captions, 6, "AddHeader's ids are literals too");
+    assert_eq!(p.header_captions, 5, "the headings are literal text");
     // Every slider falls back to the slider option's constructor range.
     for o in &p.options {
         if o.control == OptionControl::Slider {
@@ -383,18 +395,21 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
 fn with_no_string_table_the_page_records_which_string_it_asked_for() {
     let (_ui, s) = screen(false);
     let p = &s.config_page;
-    assert_eq!(p.retail_options().count(), 30);
+    assert_eq!(p.retail_options().count(), 29);
     assert_eq!(
-        p.retail_options().filter(|o| o.label.is_some()).count(),
-        0,
-        "nothing resolved"
+        p.retail_options()
+            .filter(|o| o.label.is_some())
+            .map(|o| o.preference)
+            .collect::<Vec<_>>(),
+        ["Render.GraphicsPerformance"],
+        "nothing resolved; the bias carries this client's own caption"
     );
     assert_eq!(
         p.options.iter().filter(|o| o.label_token != 0).count(),
-        30,
-        "all 30 asked"
+        29,
+        "all 29 asked"
     );
-    assert_eq!(p.header_captions, 0);
+    assert_eq!(p.header_captions, 5, "the headings are literal text");
     assert_eq!(p.slider_end_captions, 0);
     // The ids are the real ones, as literals.
     let by = |pref: &str| {
@@ -472,9 +487,10 @@ fn register_all_fills_the_registry() {
     );
     assert_eq!(
         dereth_ui_screens::options::store::len(),
-        45,
+        46,
         "…over 34 registered variables, this client's three options from another era, its \
-         interface choice, its performance panel and the classic interface's six"
+         interface choice, its performance panel, the classic interface's six and the \
+         landscape detail texture"
     );
     let (table, label, _) =
         preferences::inq_preference("Camera.AlignToSlope").expect("inq_preference answers");
@@ -506,13 +522,13 @@ fn the_page_under_test_is_the_shipped_one() {
         })
         .expect("configuration panel");
     let built = page::config_post_init(&mut ui, page).expect("the config page's post-init");
-    assert_eq!(built.retail_options().count(), 30);
+    assert_eq!(built.retail_options().count(), 29);
     assert_eq!(
         built.retail_options().filter(|o| o.label.is_some()).count(),
-        27
+        26
     );
     assert_eq!(built.landscape_options().count(), 3);
-    assert_eq!(built.header_captions, 6);
+    assert_eq!(built.header_captions, 5);
     assert_eq!(built.slider_end_captions, 12);
     assert_eq!(built.failures, 0);
     let _: &PlayerOptionPage = &built;

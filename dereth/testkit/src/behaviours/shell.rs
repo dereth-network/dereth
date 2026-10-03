@@ -1327,10 +1327,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "options.character-page.the-page-is-forty-nine-toggles-captioned-from-their-own-tokens",
-        says: "Every one of the character options page's 50 check boxes and six section headers is \
-               captioned from its own entry in the shipped string table, such as Keep Combat \
-               Targets in View, Display 3D Tooltips and Side By Side Vitals, and none from the \
-               client's display and sound settings.",
+        says: "Every one of the character options page's 50 check boxes is captioned from its \
+               own entry in the shipped string table, such as Keep Combat Targets in View, \
+               Display 3D Tooltips and Side By Side Vitals, and none from the client's display \
+               and sound settings.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O62-CHARACTER-PAGE"),
         station: "dereth-ui-screens::dat::panels::options_character_page::every_row_captions_itself_from_its_own_token_and_none_from_the_preference_registry",
@@ -1445,10 +1445,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "options.client-page.defaults-write-through-to-the-store",
-        says: "Defaults on the client options page writes all 30 of its controls' defaults into \
-               the stored settings, but closing the page without Apply puts the old values back; \
-               Defaults followed by Apply sticks, and the page reopens on those values, such as \
-               mouse-look sensitivity 0.55, automatic degrades off and 800 by 600.",
+        says: "Defaults on the client options page writes every one of its controls' defaults \
+               into the stored settings, but closing the page without Apply puts the old values \
+               back; Defaults followed by Apply sticks, and the page reopens on those values, \
+               such as mouse-look sensitivity 0.55 and automatic degrades off.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O222-CLIENT-PAGE-DEFAULTS"),
         station: "dereth-ui-screens::dat::panels::options_preference_store::defaults_writes_through_to_the_store_and_survives_a_reopen",
@@ -1467,14 +1467,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "options.client-page.every-row-header-and-slider-end-carries-its-shipped-caption",
-        says: "The client options page is split into six sections headed Sound, Camera, Graphics, \
-               Rendering Quality, Input and UI Options, and each of its six wide sliders carries \
-               its two end captions, Soft and Hard, Slow and Fast, Narrow and Wide, Dark and \
-               Bright, Speed and Detail, Close and Far, while the mouse-look slider and the paired \
-               sound sliders carry none.",
+        says: "Each of the client options page's six wide sliders carries its two end captions, \
+               Soft and Hard, Slow and Fast, Narrow and Wide, Dark and Bright, Speed and Detail, \
+               Close and Far, while the mouse-look slider and the paired sound sliders carry \
+               none.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O221-CLIENT-PAGE"),
-        station: "dereth-ui-screens::dat::panels::options_client_captions::the_six_section_headers_and_the_twelve_slider_end_captions_are_the_shipped_strings",
+        station: "dereth-ui-screens::dat::panels::options_client_captions::the_five_headings_and_the_twelve_slider_end_captions_are_the_shared_and_shipped_strings",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1724,6 +1723,20 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-43-REVERT"),
         station: "dereth-testkit::dat::shell::scenario_undo_opens_greyed_because_nothing_has_changed_yet",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "options.pages.both-interfaces-draw-the-same-four-pages-under-the-same-headings",
+        says: "Both interfaces' options windows have the same four pages, Game and Support, \
+               Character Options, Chat Options and Client Options, and each page's rows sit \
+               under the same headings in both; the retail interface's character options page \
+               has seven headings over its 50 check boxes and its client options page five \
+               (Sound, Display, Graphics Quality, Era Look, Camera and Mouse), with no row for \
+               Sync with Refresh Rate and a row for the landscape's detail texture.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-UNIFY-PAGES"),
+        station: "dereth-ui-screens::dat::panels::options_character_page::the_page_is_seven_headings_seven_separators_and_fifty_toggles_off_the_shipped_tree",
         tier: Tier::Dat,
     },
     behaviour! {

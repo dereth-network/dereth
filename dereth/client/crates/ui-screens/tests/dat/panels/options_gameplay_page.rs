@@ -149,9 +149,15 @@ fn the_two_buttons_with_no_class_arm_carry_their_input_action_instead() {
             id.0
         );
     }
-    // The converse: none of the five answered ids carries one, so no button is driven twice.
+    // The converse: none of the three answered ids carries one, so no button is driven twice.
+    // The two support buttons are given their forms' actions instead of a class arm.
     for (id, _) in BUTTONS {
-        if LAYOUT_DRIVEN.iter().any(|(l, _)| *l == id) {
+        if LAYOUT_DRIVEN.iter().any(|(l, _)| *l == id)
+            || matches!(
+                id,
+                button::SUPPORT_TICKET_UPPER | button::SUPPORT_TICKET_LOWER
+            )
+        {
             continue;
         }
         let h = ui
@@ -173,25 +179,45 @@ fn the_two_buttons_with_no_class_arm_carry_their_input_action_instead() {
 // The two arms that reached nothing
 // -------------------------------------------------------------------------------------------
 
-/// Behaviour: options.support.pressing-either-support-button-opens-the-page-in-the-players-browser
-/// Clicking either support button raises the support url request.
+/// Behaviour: options.support.each-support-button-opens-its-in-game-form
+/// Urgent Assistance and Report Abuse open the in-game forms, through the forms' own input
+/// actions, and open no web page; In-Game Help is hidden and the two close up over its place.
 #[test]
-fn clicking_either_support_button_raises_the_support_url_request() {
+fn each_support_button_opens_its_in_game_form_and_help_is_hidden() {
+    use dereth_ui_screens::options::gameplay::{REPORT_ABUSE_ACTION, URGENT_ASSISTANCE_ACTION};
     let (mut ui, mut s) = screen();
-    for id in [button::SUPPORT_TICKET_UPPER, button::SUPPORT_TICKET_LOWER] {
+    let p = page(&ui);
+    for (id, action) in [
+        (button::SUPPORT_TICKET_UPPER, URGENT_ASSISTANCE_ACTION),
+        (button::SUPPORT_TICKET_LOWER, REPORT_ABUSE_ACTION),
+    ] {
+        let h = ui.get_child_recursive(p, id).expect("the button");
+        assert_eq!(
+            ui.node(h)
+                .expect("alive")
+                .merged_properties()
+                .get_enum(dereth_ui::props::attr::BUTTON_INPUT_ACTION),
+            Some(action),
+            "{:#010X} fires its form's action",
+            id.0
+        );
         let rs = click(&mut ui, &mut s, id);
         assert!(
-            rs.iter()
-                .any(|r| matches!(r, UiRequest::OpenUrl(u) if *u == SUPPORT_URL)),
-            "{:#010X} must raise OpenUrl({SUPPORT_URL}); got {rs:?}",
+            !rs.iter().any(|r| matches!(r, UiRequest::OpenUrl(_))),
+            "{:#010X} opens no web page: {rs:?}",
             id.0
         );
     }
-    // The URL is the client's own literal, not a re-typed one.
-    assert_eq!(
-        SUPPORT_URL,
-        "http://support.turbine.com/ics/support/ticketnewwizard.asp?style=classic"
-    );
+    let help = ui.get_child_recursive(p, button::HELP).expect("the button");
+    assert!(!ui.is_visible(help), "In-Game Help is hidden");
+    let y = |ui: &UiSystem, id: ElementId| {
+        let h = ui.get_child_recursive(p, id).expect("the button");
+        ui.node(h).expect("alive").region.box_.y0
+    };
+    assert_eq!(y(&ui, button::SUPPORT_TICKET_UPPER), 200);
+    assert_eq!(y(&ui, button::SUPPORT_TICKET_LOWER), 240);
+    // The address retail opened is gone; nothing here opens it.
+    assert!(SUPPORT_URL.starts_with("http://support.turbine.com/"));
 }
 
 /// Behaviour: options.gameplay-page.mouse-turning-settings-sets-the-preset-and-nothing-else
@@ -299,11 +325,11 @@ fn a_message_that_is_not_element_message_1_is_not_a_press() {
     let (ui, _s) = screen();
     let p = page(&ui);
     let h = ui
-        .get_child_recursive(p, button::SUPPORT_TICKET_UPPER)
+        .get_child_recursive(p, button::EXIT_TO_CHARACTER_SELECTION)
         .expect("the button");
     let bound = GameplayOptionsPage::bind(&ui, ui.element_list()[0]);
     let msg = |id: MessageId| dereth_ui::msg::ElementMessage {
-        source_id: button::SUPPORT_TICKET_UPPER,
+        source_id: button::EXIT_TO_CHARACTER_SELECTION,
         source: h,
         id,
         p1: 0,
@@ -325,8 +351,8 @@ fn a_message_that_is_not_element_message_1_is_not_a_press() {
     // And the action the press resolves to is the one the bytes give.
     assert_eq!(
         bound.on_element_message(&ui, &msg(MessageId(1))),
-        Some(GameplayOptionAction::Request(UiRequest::OpenUrl(
-            SUPPORT_URL
-        )))
+        Some(GameplayOptionAction::Request(
+            UiRequest::EndCharacterSession { ask: true }
+        ))
     );
 }

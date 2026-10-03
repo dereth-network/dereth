@@ -195,9 +195,9 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         a_real_failure_takes_the_player_off_the_world,
     ),
     (
-        "pressing_either_support_button_opens_the_page_in_the_players_browser",
-        &["options.support.pressing-either-support-button-opens-the-page-in-the-players-browser"],
-        pressing_either_support_button_opens_the_page_in_the_players_browser,
+        "each_support_button_opens_its_in_game_form",
+        &["options.support.each-support-button-opens-its-in-game-form"],
+        each_support_button_opens_its_in_game_form,
     ),
     (
         "a_browser_that_will_not_open_says_so_in_a_box_with_the_address_in_it",
@@ -4432,63 +4432,51 @@ fn the_support_page(ui: &UiSystem) -> ElemHandle {
 }
 
 // ---------------------------------------------------------------------------------------------
-// options.support.pressing-either-support-button-opens-the-page-in-the-players-browser
+// options.support.each-support-button-opens-its-in-game-form
 // ---------------------------------------------------------------------------------------------
 
-/// Both buttons, all the way to the door out to the desktop.
-pub fn pressing_either_support_button_opens_the_page_in_the_players_browser() {
-    use dereth_client::app::{apply_open_url_requests, record_shell_calls, ShellCall};
+/// Both buttons, each to its form, and neither to the desktop's browser.
+pub fn each_support_button_opens_its_in_game_form() {
+    use dereth_client::app::{apply_open_url_requests, record_shell_calls};
 
     let (mut ui, mut s, mut panels) = a_shipped_tree();
     let page = the_support_page(&ui);
-    let mut both = true;
-    for id in [
-        support_button::SUPPORT_TICKET_UPPER,
-        support_button::SUPPORT_TICKET_LOWER,
+    let mut opened = true;
+    for (id, form) in [
+        (
+            support_button::SUPPORT_TICKET_UPPER,
+            dereth_ui_screens::panels::urgent_assistance::PANEL_TYPE,
+        ),
+        (
+            support_button::SUPPORT_TICKET_LOWER,
+            dereth_ui_screens::panels::abuse::PANEL_TYPE,
+        ),
     ] {
         let asked = press_and_take(&mut ui, &mut s, &mut panels, page, id);
-        both &= asked
-            .iter()
-            .any(|r| matches!(r, dereth_ui_screens::UiRequest::OpenUrl(u) if *u == SUPPORT_URL));
-        // Stubbed **before** the consumer runs, so no browser is opened by this scenario.
-        record_shell_calls();
-        let (rest, calls) = apply_open_url_requests(asked);
-        both &= calls
-            == vec![ShellCall::Open {
-                url: SUPPORT_URL.to_owned(),
-                result: 33,
-            }];
-        // And it consumes what it answered.
-        both &= !rest
+        opened &= !asked
             .iter()
             .any(|r| matches!(r, dereth_ui_screens::UiRequest::OpenUrl(_)));
+        // The form is the one element of its type.
+        opened &= ui
+            .element_list()
+            .iter()
+            .any(|h| ui.node(*h).is_some_and(|n| n.ty() == form) && ui.is_visible(*h));
+        // Nothing reaches the desktop.
+        record_shell_calls();
+        let (_, calls) = apply_open_url_requests(asked);
+        opened &= calls.is_empty();
     }
-
-    // The arm has the same manners as the four beside it: it claims its own ask and hands every
-    // other one back, in order.
-    record_shell_calls();
-    let (rest, calls) = apply_open_url_requests(vec![
-        dereth_ui_screens::UiRequest::SavePlayerOptions,
-        dereth_ui_screens::UiRequest::OpenUrl(SUPPORT_URL),
-        dereth_ui_screens::UiRequest::CancelAppraisal,
-    ]);
-    let good_manners =
-        rest == vec![
-            dereth_ui_screens::UiRequest::SavePlayerOptions,
-            dereth_ui_screens::UiRequest::CancelAppraisal,
-        ] && calls.len() == 1
-            && apply_open_url_requests(Vec::new()).1.is_empty();
 
     let mut c = HeadlessClient::model();
     c.assert_behaviour(
-        "options.support.pressing-either-support-button-opens-the-page-in-the-players-browser",
-        move |_| both && good_manners,
+        "options.support.each-support-button-opens-its-in-game-form",
+        move |_| opened,
     );
 }
 
 #[test]
-fn scenario_pressing_either_support_button_opens_the_page_in_the_players_browser() {
-    scenario("pressing_either_support_button_opens_the_page_in_the_players_browser");
+fn scenario_each_support_button_opens_its_in_game_form() {
+    scenario("each_support_button_opens_its_in_game_form");
 }
 
 // ---------------------------------------------------------------------------------------------

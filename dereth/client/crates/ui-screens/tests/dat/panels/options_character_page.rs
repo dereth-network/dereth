@@ -156,33 +156,55 @@ impl GameView for Module {
 // The rows
 // ---------------------------------------------------------------------------------------------
 
-/// Oracle: the character-settings page's own option-building sequence in retail — **six**
-/// headers, **six** separators (the last one trailing, after the Chat section, with no section
-/// following it) and **50** toggle options.
+/// The shared options set's Character Options headings as the retail interface shows them.
+fn shared_order() -> Vec<PlayerOption> {
+    use dereth_ui_screens::options::sheet::{rows_for, Face, PageId, Value};
+    rows_for(PageId::Character, Face::Retail)
+        .filter_map(|r| match r.value {
+            Value::Option(o) => Some(o),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Behaviour: options.pages.both-interfaces-draw-the-same-four-pages-under-the-same-headings
+/// The page is the shared options set's seven headings, each followed by a separator (the last
+/// one trailing, as retail's list ends with a rule), over the 50 options retail's page has.
 #[test]
-fn the_page_is_six_headers_six_separators_and_fifty_toggles_off_the_shipped_tree() {
+fn the_page_is_seven_headings_seven_separators_and_fifty_toggles_off_the_shipped_tree() {
     let mut ui = env(true);
     let s = screen(&mut ui);
     let p = &s.character_options;
 
     assert_eq!(p.rows.len(), 50, "toggle options added");
-    assert_eq!(p.headers, 6, "headers added");
-    assert_eq!(p.separators, 6, "separators added — the sixth is trailing");
-    assert_eq!(p.row_count(), 62, "6 + 6 + 50 rows in the option box");
+    assert_eq!(p.headers, 7, "headers added");
+    assert_eq!(
+        p.separators, 7,
+        "separators added — the seventh is trailing"
+    );
+    assert_eq!(p.row_count(), 64, "7 + 7 + 50 rows in the option box");
     assert_eq!(p.failures, 0, "every template-list add produced a row");
 
-    // The section shape, in page-building order.
+    // Retail's own page had the same 50 options under six headings.
     let counts: Vec<usize> = CHARACTER_SETTINGS_PAGE
         .iter()
         .map(|c| c.options.len())
         .collect();
     assert_eq!(counts, vec![3, 15, 6, 11, 7, 8]);
     let order: Vec<PlayerOption> = p.rows.iter().map(|r| r.option).collect();
-    let expect: Vec<PlayerOption> = CHARACTER_SETTINGS_PAGE
+    assert_eq!(
+        order,
+        shared_order(),
+        "the rows are in the shared set's order"
+    );
+    let mut retail: Vec<PlayerOption> = CHARACTER_SETTINGS_PAGE
         .iter()
         .flat_map(|c| c.options.iter().copied())
         .collect();
-    assert_eq!(order, expect, "the rows are in option initialization order");
+    let mut ours = order.clone();
+    retail.sort_unstable();
+    ours.sort_unstable();
+    assert_eq!(ours, retail, "the same 50 options retail's page has");
 
     // Every row's control really is a checkbox option under `0x10000219` — the runtime type check
     // `add_toggle_option` performs, asserted against the literal type rather than the symbol.
@@ -239,7 +261,7 @@ fn every_row_captions_itself_from_its_own_token_and_none_from_the_preference_reg
     let p = &s.character_options;
 
     assert_eq!(p.row_captions, 50, "rows captioned of {}", p.rows.len());
-    assert_eq!(p.header_captions, 6, "section headers captioned");
+    assert_eq!(p.header_captions, 7, "section headers captioned");
     let resolved = p
         .rows
         .iter()
@@ -294,8 +316,8 @@ fn with_no_string_resolver_no_row_is_captioned() {
         .count();
     assert_eq!(resolved, 0, "captions resolved with no resolver, of 50");
     assert_eq!(
-        p.header_captions, 0,
-        "section headers captioned with no resolver"
+        p.header_captions, 7,
+        "the headings are literal text, and land with no resolver"
     );
 }
 
@@ -395,11 +417,7 @@ fn the_page_never_composes_an_option_word_from_its_own_check_boxes() {
             other => panic!("the page emitted something other than SetPlayerOption: {other:?}"),
         })
         .collect();
-    let expect: Vec<PlayerOption> = CHARACTER_SETTINGS_PAGE
-        .iter()
-        .flat_map(|c| c.options.iter().copied())
-        .collect();
-    assert_eq!(named, expect, "50 distinct options, in page order");
+    assert_eq!(named, shared_order(), "50 distinct options, in page order");
 }
 
 /// Behaviour: options.character-page.each-row-shows-the-bit-the-shard-sent-for-it

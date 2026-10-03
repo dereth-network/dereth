@@ -110,7 +110,7 @@ use crate::element_types::ty;
 use crate::panels::listbox::ListBoxWidget;
 use crate::view::{PrefValue, UiRequest};
 
-use super::config::{ConfigRow, Control, PrefValueConst, CONFIG_PAGE, SOUND_SLIDER_DEFAULT};
+use super::config::{ConfigRow, Control, PrefValueConst, SOUND_SLIDER_DEFAULT};
 
 // -------------------------------------------------------------------------------------------
 // The template list
@@ -203,6 +203,62 @@ pub fn set_string_info(
     ui.on_set_attribute(h, ATTR_STRING_INFO, Some(&v));
     let text = ui.text_element_mut(h)?.glyphs.inq_text(false);
     (!text.is_empty()).then_some(text)
+}
+
+/// Put literal text on a text element (a header row, a check box, a label) as a `StringInfo`
+/// carrying the text itself, the way a row with no string-table entry is captioned.
+pub fn set_literal_text(ui: &mut UiSystem, h: ElemHandle, text: &str) {
+    let si = dereth_assets::ui::StringInfo {
+        override_flag: 1,
+        literal: Some(text.to_string()),
+        string_id: None,
+        table_id: None,
+        is_adder: 0,
+        adder: None,
+        variables: Vec::new(),
+    };
+    let v = dereth_assets::ui::PropertyValue::StringInfo(Box::new(si));
+    if let Some(n) = ui.node_mut(h) {
+        n.instance_properties.set(ATTR_STRING_INFO, v.clone());
+    }
+    ui.on_set_attribute(h, ATTR_STRING_INFO, Some(&v));
+}
+
+/// Whether `preference` is one of retail's own Client Options preferences, captioned from the
+/// string tables, rather than one of this client's.
+#[must_use]
+pub fn is_retail_preference(preference: &str) -> bool {
+    dereth_client_contract::options::preferences::UI_PREFERENCES
+        .iter()
+        .any(|p| p.name == preference)
+}
+
+/// How strongly a greyed-out row is drawn.
+pub const GREYED_OPACITY: f32 = 0.4;
+
+/// Grey out an option row, or bring it back: the row is drawn faint and its control takes no
+/// clicks. A row is greyed when the world's era lacks what it sets, or when another option
+/// decides it (Degrade Bias while Adaptive Degrade is on).
+pub fn set_row_greyed(ui: &mut UiSystem, row: ElemHandle, control: ElemHandle, greyed: bool) {
+    let owns = ui.node(row).is_some_and(|n| n.flags.should_own_object());
+    if greyed || owns {
+        ui.set_should_own_object(row, true);
+        ui.set_material_opacity(row, if greyed { GREYED_OPACITY } else { 1.0 });
+    }
+    ui.set_mouse_visible(control, !greyed);
+    // The row's captions fade with it: their glyphs carry their own colour.
+    let alpha: u32 = if greyed { 0x66 } else { 0xFF };
+    let mut stack = vec![row];
+    while let Some(h) = stack.pop() {
+        stack.extend(ui.children(h));
+        if let Some(t) = ui.text_element_mut(h) {
+            let faded = (t.font_color & 0x00FF_FFFF) | (alpha << 24);
+            if faded != t.font_color {
+                t.font_color = faded;
+                t.do_font_reset();
+            }
+        }
+    }
 }
 
 /// The state puts the slider in when
@@ -361,6 +417,9 @@ pub struct PlayerOptionPage {
     pub options: Vec<UiOption>,
     /// Combined check-box-and-slider pairing: `(index of the toggle, index of the slider)`.
     pub gated: Vec<(usize, usize)>,
+    /// `(index of the check box, index of the slider)` for each slider the check box greys out
+    /// while it is ticked ([`dereth_client_contract::options::sheet::GREYED_WHILE_ON`]).
+    pub greyed_while_on: Vec<(usize, usize)>,
     /// The state [`Self::sync_gates`] last asked each paired slider for, in [`Self::gated`] order.
     ///
     /// **Recorded because the shipped layout makes the greying invisible.** `0x1000021C` declares
@@ -463,6 +522,18 @@ impl PlayerOptionPage {
         let ok = self.add_row(ui, template::SEPARATOR).is_some();
         self.separators += usize::from(ok);
         ok
+    }
+
+    /// A header with literal text: one of the headings both interfaces' pages share, which the
+    /// string tables do not carry.
+    pub fn add_literal_header(&mut self, ui: &mut UiSystem, caption: &str) -> bool {
+        let Some(row) = self.add_row(ui, template::HEADER) else {
+            return false;
+        };
+        self.headers += 1;
+        set_literal_text(ui, row, caption);
+        self.header_captions += 1;
+        true
     }
 
     /// Toggle insertion uses template 2, then recursively finds `0x10000219`, verifies the
@@ -688,25 +759,17 @@ impl PlayerOptionPage {
         let (element, row, control, preference) = (o.element, o.row, o.control, o.preference);
         let Some((table_enum, label, tooltip)) = super::preferences::inq_preference(preference)
         else {
-            // This client's landscape and interface options are not in the string tables: their
-            // caption and their choices are literal text.
-            if let Some(which) =
-                dereth_client_contract::options::landscape::Landscape::of(preference)
-            {
-                self.set_literal_preference(ui, i, which.caption());
-            } else if preference == dereth_client_contract::options::interface::INTERFACE {
-                self.set_literal_preference(
-                    ui,
-                    i,
-                    dereth_client_contract::options::interface::CAPTION,
-                );
-            } else if preference == dereth_client_contract::options::performance::PERFORMANCE_PANEL
-            {
-                self.set_literal_preference(
-                    ui,
-                    i,
-                    dereth_client_contract::options::performance::CAPTION,
-                );
+            // This client's own options are not in the string tables: their caption and their
+            // choices are literal text, the shared options set's caption. A retail option the
+            // registry does not answer for stays uncaptioned, as in retail.
+            if is_retail_preference(preference) {
+                return;
+            }
+            if let Some(row) = dereth_client_contract::options::sheet::row_of_preference(
+                dereth_client_contract::options::sheet::PageId::Client,
+                preference,
+            ) {
+                self.set_literal_preference(ui, i, row.caption);
             }
             return;
         };
@@ -760,21 +823,7 @@ impl PlayerOptionPage {
         let Some(o) = self.options.get(i) else { return };
         if o.control == OptionControl::Checkbox {
             // A check box carries its caption itself, as a literal string.
-            let element = o.element;
-            let si = dereth_assets::ui::StringInfo {
-                override_flag: 1,
-                literal: Some(caption.to_string()),
-                string_id: None,
-                table_id: None,
-                is_adder: 0,
-                adder: None,
-                variables: Vec::new(),
-            };
-            let v = dereth_assets::ui::PropertyValue::StringInfo(Box::new(si));
-            if let Some(n) = ui.node_mut(element) {
-                n.instance_properties.set(ATTR_STRING_INFO, v.clone());
-            }
-            ui.on_set_attribute(element, ATTR_STRING_INFO, Some(&v));
+            set_literal_text(ui, o.element, caption);
             if let Some(o) = self.options.get_mut(i) {
                 o.label = Some(caption.to_string());
             }
@@ -1457,11 +1506,9 @@ impl PlayerOptionPage {
 
     /// The page's retail controls: every option but this client's own landscape rows.
     pub fn retail_options(&self) -> impl Iterator<Item = &UiOption> + '_ {
-        self.options.iter().filter(|o| {
-            dereth_client_contract::options::landscape::Landscape::of(o.preference).is_none()
-                && o.preference != dereth_client_contract::options::interface::INTERFACE
-                && o.preference != dereth_client_contract::options::performance::PERFORMANCE_PANEL
-        })
+        self.options
+            .iter()
+            .filter(|o| is_retail_preference(o.preference))
     }
 
     /// This client's own landscape rows ([`super::config::LANDSCAPE_ROWS`]).
@@ -1567,6 +1614,14 @@ impl PlayerOptionPage {
     /// The checkbox slider option control's element-message handler's message-1 arm: set the
     /// slider's state to `(-(checked != 0) & 0xFFFFFFF4) + 0x0D`.
     fn sync_gates(&mut self, ui: &mut UiSystem) {
+        for (toggle, slider) in self.greyed_while_on.clone() {
+            let (Some(t), Some(s)) = (self.options.get(toggle), self.options.get(slider)) else {
+                continue;
+            };
+            let on = matches!(t.current, PrefValue::Bool(true));
+            let (row, element) = (s.row, s.element);
+            set_row_greyed(ui, row, element, on);
+        }
         self.gate_states
             .resize(self.gated.len(), SLIDER_ENABLED_STATE);
         for (k, (toggle, slider)) in self.gated.clone().into_iter().enumerate() {
@@ -1586,54 +1641,52 @@ impl PlayerOptionPage {
 
     // ---- the page itself ---------------------------------------------------------------------
 
-    /// The config panel's option build — the 27 rows of
-    /// [`super::config::CONFIG_PAGE`], in page order, with a header before each section and a
-    /// separator between sections.
-    ///
-    /// **The labels.** The section header takes its token straight from
-    /// [`super::config::SECTIONS`]; each control's own caption comes out of the preference query
-    /// inside [`Self::set_ui_preference`], against the registry
-    /// [`super::preferences::init_ui_preferences`] fills; and each wide slider's two end captions
-    /// come from [`super::config::ConfigRow::slider_ends`] through [`Self::set_slider_label`],
-    /// which is the slider label write.
+    /// The Client Options page's option build: the shared options set's Client Options page as
+    /// the retail interface shows it ([`dereth_client_contract::options::sheet`]), a header
+    /// before each heading and a separator between headings. Each row is built the way the
+    /// retail page builds its own ([`super::config::config_row`]); a row of this client's own
+    /// is captioned with literal text.
     ///
     /// A caption only *appears* if the host installed a string resolver — the ids resolve in
     /// `DataId(0x23000003)`, the `Preference` table. [`Self::header_captions`],
     /// [`Self::slider_end_captions`] and [`UiOption::label`] record what actually landed, so a
     /// headless caller can tell "no registry" from "no string table" from "captioned".
     pub fn init_options(&mut self, ui: &mut UiSystem) -> usize {
-        let mut section: Option<&'static str> = None;
-        for r in CONFIG_PAGE {
-            if section != Some(r.section) {
-                if let Some(done) = section {
-                    self.add_closing_rows(ui, done);
-                    self.add_separator(ui);
-                }
-                self.add_header(ui, r.section);
-                section = Some(r.section);
+        use dereth_client_contract::options::sheet::{self, Face, PageId};
+        for (k, (heading, rows)) in sheet::headings_for(PageId::Client, Face::Retail).enumerate() {
+            if k > 0 {
+                self.add_separator(ui);
             }
-            self.add_config_row(ui, &r);
+            // The retail page names each of its headings "... Options".
+            self.add_literal_header(ui, &format!("{} Options", heading.title));
+            for r in rows {
+                let Some(p) = r.preference() else { continue };
+                if let Some(c) = super::config::config_row(p) {
+                    self.add_config_row(ui, &c);
+                }
+            }
         }
-        if let Some(done) = section {
-            self.add_closing_rows(ui, done);
+        // A slider another option decides is captioned for what it is, and greyed while it is
+        // not used.
+        for (check, slider) in sheet::GREYED_WHILE_ON {
+            let find = |p: &str| self.options.iter().position(|o| o.preference == p);
+            if let (Some(t), Some(s)) = (find(check), find(slider)) {
+                self.greyed_while_on.push((t, s));
+                if let Some(row) = sheet::row_of_preference(PageId::Client, slider) {
+                    let label = ui.get_child_recursive(self.options[s].row, child::SLIDER_LABEL);
+                    if let Some(h) = label {
+                        set_literal_text(ui, h, row.caption);
+                        self.options[s].label = Some(row.caption.to_owned());
+                    }
+                }
+            }
         }
+        self.sync_gates(ui);
         // Place the rows down the box.
         if let Some(b) = self.option_box.as_mut() {
             b.update_layout(ui);
         }
         self.options.len()
-    }
-
-    /// This client's own rows that close `section`, after its retail rows: the three options
-    /// from another era close the Graphics section.
-    fn add_closing_rows(&mut self, ui: &mut UiSystem, section: &'static str) {
-        if section == super::config::LANDSCAPE_SECTION {
-            for r in super::config::LANDSCAPE_ROWS {
-                self.add_config_row(ui, &r);
-            }
-            self.add_config_row(ui, &super::config::INTERFACE_ROW);
-            self.add_config_row(ui, &super::config::PERFORMANCE_ROW);
-        }
     }
 
     fn add_config_row(&mut self, ui: &mut UiSystem, r: &ConfigRow) {
@@ -1789,7 +1842,7 @@ mod tests {
             "no registry, no range"
         );
         assert_eq!(super::super::preferences::init_ui_preferences(), 34);
-        for r in CONFIG_PAGE {
+        for r in super::super::config::CONFIG_PAGE {
             let names: Vec<&str> = match r.control {
                 Control::Slider { .. } => vec![r.preference],
                 Control::CheckSlider => r.slider_preference.into_iter().collect(),
