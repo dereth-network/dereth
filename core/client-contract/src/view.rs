@@ -4621,6 +4621,85 @@ pub struct TradeView {
     pub acceptance_darkened: bool,
 }
 
+/// The trade button's agreement state, independent of its artwork.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u32)]
+pub enum TradeButtonState {
+    /// Neither displayed list has an item.
+    #[default]
+    Disabled = 0x0D,
+    /// The offer can be accepted.
+    Enabled = 1,
+    /// The displayed offer has been accepted.
+    Accepted = 6,
+}
+
+impl TradeButtonState {
+    /// Empty lists disable the button; adding rows enables it without accepting.
+    #[must_use]
+    pub fn with_displayed_rows(self, displayed: usize) -> Self {
+        match (self, displayed) {
+            (Self::Accepted | Self::Enabled, 0) => Self::Disabled,
+            (Self::Disabled, n) if n > 0 => Self::Enabled,
+            (state, _) => state,
+        }
+    }
+
+    /// Toggle agreement using the counts the player actually saw.
+    pub fn press(&mut self, displayed_self: usize, displayed_partner: usize) -> Option<UiRequest> {
+        let request = match self {
+            Self::Enabled => {
+                *self = Self::Accepted;
+                Some(UiRequest::TradeAccept {
+                    displayed_self,
+                    displayed_partner,
+                })
+            }
+            Self::Accepted => {
+                *self = Self::Enabled;
+                Some(UiRequest::TradeDecline)
+            }
+            Self::Disabled => None,
+        };
+        *self = self.with_displayed_rows(displayed_self + displayed_partner);
+        request
+    }
+}
+
+/// Agreement controls for one displayed trade offer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TradeControls {
+    pub button: TradeButtonState,
+    pub partner_accepted: bool,
+    pub displayed_self: usize,
+    pub displayed_partner: usize,
+}
+
+impl TradeView {
+    /// Resolve the lights from the latest offer and the panel's displayed rows.
+    /// An optimistic row removal darkens the lights even before the mirror held it.
+    #[must_use]
+    pub fn controls(
+        &self,
+        displayed_self: usize,
+        displayed_partner: usize,
+        removed_now: bool,
+    ) -> TradeControls {
+        let darkened = removed_now || self.acceptance_darkened;
+        let button = if self.open && self.accepted && !darkened {
+            TradeButtonState::Accepted
+        } else {
+            TradeButtonState::Enabled
+        };
+        TradeControls {
+            button: button.with_displayed_rows(displayed_self + displayed_partner),
+            partner_accepted: self.open && self.partner_accepted && !darkened,
+            displayed_self,
+            displayed_partner,
+        }
+    }
+}
+
 /// One spell-component row, using element template `0x10000467`.
 ///
 /// The `wcid` is the row's identity: the panel stores it as **DataID attribute `0x1000004C`** and

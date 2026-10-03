@@ -1,13 +1,7 @@
-//! The secure-trade seam: `dereth_client_model`'s mirrored `Trade` as `dereth_ui_screens`' [`TradeView`].
+//! The secure-trade snapshot shared by the interfaces.
 //!
-//! The same shape as [`crate::vendor_view`] and [`crate::allegiance_view`], and for the same
-//! reason: `dereth-ui-screens` may not depend on `dereth-client-model`, so the join between the
-//! mirror and the objects it names happens on this side, in the crate that can see both.
-//!
-//! **This file is where `dereth_client_model::trade`'s functions get their production caller:**
-//! `add_item`, `remove_item`, `reset`, `is_partner_trading_item`, the four counters,
-//! `accept_decision` and `update_trade_button_state` have no other caller outside
-//! `core/client-model/src/trade.rs`.
+//! Names and icons are joined to the trade mirror here; the contract resolves the agreement
+//! controls using the rows each interface displays.
 //!
 //! A row's name and icon come from the object's own `PublicWeenieDesc`, which is why an item the
 //! tables do not hold yet draws as an empty name rather than as nothing: the partner's items

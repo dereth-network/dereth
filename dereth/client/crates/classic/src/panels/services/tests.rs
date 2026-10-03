@@ -411,6 +411,7 @@ fn trade_accept_uses_both_displayed_counts_and_offer_scroll_is_independent() {
     };
     let mut p = make("trade").unwrap();
     p.resize(600, 110);
+    with_context(&v, |c| p.frame(c));
     assert_eq!(
         activate(&mut *p, "accept", &v),
         request(UiRequest::TradeAccept {

@@ -247,18 +247,7 @@ pub mod status_state {
     pub const NOT_ACCEPTED: u32 = 0x0D;
 }
 
-/// The state of [`BTN_TRADE`] — the three values the client writes, as the literals it writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(u32)]
-pub enum ButtonState {
-    /// `0x0D`. Both lists empty.
-    #[default]
-    Disabled = 0x0D,
-    /// `1`. At least one row on either side, and not accepted.
-    Enabled = 1,
-    /// `6`. The accept path wrote it.
-    Accepted = 6,
-}
+pub use dereth_client_contract::view::TradeButtonState as ButtonState;
 
 /// The secure-trade panel, bound to a live tree.
 #[derive(Debug, Default)]
@@ -536,7 +525,6 @@ impl TradePanel {
         // `removed_now` stays beside it rather than being folded in, because the two cover
         // different cases: this flag is a fact about the model and moves only when a datagram
         // lands, while `removed_now` is about an **optimistic** row the model never held.
-        let darkened = removed_now || (v.open && v.acceptance_darkened);
         if !v.open {
             // The close-trade notice is the reset and then one more empty-string write on the
             // partner name; the reset's own partner write has already emptied it, because the
@@ -571,17 +559,17 @@ impl TradePanel {
             self.set_partner_name(ui, &v.partner_name);
             // …and the "remove added item" path's `0xD` overrides the mirror's
             // flag on the frame the removal lands.
-            self.set_partner_status(ui, v.partner_accepted && !darkened);
+            let controls = v.controls(
+                self.displayed_self.len(),
+                self.displayed_other.len(),
+                removed_now,
+            );
+            self.set_partner_status(ui, controls.partner_accepted);
             // The client writes 6 on the button when the accept was yours, and 1 when the server
             // cleared it; then the trade-button update runs. The remove-added-item handler's `1`
             // is the same write from the other
             // producer, and it wins for the same reason `0x0207` clears an acceptance at all.
-            self.button = if v.accepted && !darkened {
-                ButtonState::Accepted
-            } else {
-                ButtonState::Enabled
-            };
-            self.button = self.update_button_state();
+            self.button = controls.button;
             // The my/other item-number writes run off the **lists**, so they go after the fill
             // and after the button, exactly as the add and the reset order them.
             self.set_item_numbers(ui);
@@ -647,11 +635,7 @@ impl TradePanel {
     #[must_use]
     pub fn update_button_state(&self) -> ButtonState {
         let n = self.displayed_self.len() + self.displayed_other.len();
-        match (self.button, n) {
-            (ButtonState::Accepted | ButtonState::Enabled, 0) => ButtonState::Disabled,
-            (ButtonState::Disabled, n) if n > 0 => ButtonState::Enabled,
-            (s, _) => s,
-        }
+        self.button.with_displayed_rows(n)
     }
 
     fn fill(&mut self, ui: &mut UiSystem, partner_side: bool, rows: &[TradeRow]) {
@@ -889,23 +873,12 @@ impl TradePanel {
     ) -> bool {
         match id {
             BTN_TRADE => {
-                match self.button {
-                    // The toggle has already moved to `Accepted`, so this press is an accept.
-                    ButtonState::Enabled => {
-                        self.button = ButtonState::Accepted;
-                        requests_out.emit(UiRequest::TradeAccept {
-                            displayed_self: self.displayed_self.len(),
-                            displayed_partner: self.displayed_other.len(),
-                        });
-                    }
-                    ButtonState::Accepted => {
-                        self.button = ButtonState::Enabled;
-                        requests_out.emit(UiRequest::TradeDecline);
-                    }
-                    // `0x0D`: the client's `if` chain has no arm for it, so the press does nothing.
-                    ButtonState::Disabled => {}
+                if let Some(request) = self
+                    .button
+                    .press(self.displayed_self.len(), self.displayed_other.len())
+                {
+                    requests_out.emit(request);
                 }
-                self.button = self.update_button_state();
                 true
             }
             BTN_CLEAR_ALL => {

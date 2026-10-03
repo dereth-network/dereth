@@ -1,4 +1,5 @@
 use super::*;
+use dereth_client_contract::view::{TradeButtonState, TradeControls, TradeView};
 mod vendor;
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     match id {
@@ -54,6 +55,8 @@ fn items(
 }
 #[derive(Debug, Default)]
 struct Trade {
+    displayed: std::cell::Cell<TradeControls>,
+    last: std::cell::RefCell<Option<TradeView>>,
     selected: Option<ObjectId>,
     width: u32,
     offsets: [i32; 2],
@@ -71,6 +74,12 @@ impl Panel for Trade {
         let half = w / 2;
         let mut f = PanelFrame::new(width, 110);
         let t = c.game.trade();
+        if self.last.borrow().as_ref() != Some(&t) {
+            self.displayed
+                .set(t.controls(t.self_rows.len(), t.partner_rows.len(), false));
+            *self.last.borrow_mut() = Some(t.clone());
+        }
+        let controls = self.displayed.get();
         for (did, r) in [
             ("0600129D", rect(0, 3, half - 3, 107)),
             ("0600129E", rect(half + 3, 3, half - 3, 110)),
@@ -133,18 +142,27 @@ impl Panel for Trade {
         // The negotiation, not the window, makes the buttons live: a cancelled trade leaves the
         // window up with nothing to accept or clear.
         let trading = t.open && t.partner.is_some();
-        let b = f.button("accept", rect(half, 0, 46, 30), " Trade", trading);
+        let b = f.button(
+            "accept",
+            rect(half, 0, 46, 30),
+            " Trade",
+            trading && controls.button != TradeButtonState::Disabled,
+        );
         b.font = "14-6".into();
         b.images = Some(
             [
-                if t.accepted { "06001DC0" } else { "06001DC3" },
+                if controls.button == TradeButtonState::Accepted {
+                    "06001DC0"
+                } else {
+                    "06001DC3"
+                },
                 "06001DC0",
                 "06001DBF",
             ]
             .map(String::from),
         );
         f.image(
-            if t.partner_accepted {
+            if controls.partner_accepted {
                 "06001DBC"
             } else {
                 "06001DBB"
@@ -173,14 +191,14 @@ impl Panel for Trade {
             ControlEvent::Activate(id) => match id.as_str() {
                 "close" => vec![PanelAction::Game(UiRequest::TradeClose), PanelAction::Close],
                 "clear" if t.open && t.partner.is_some() => request(UiRequest::TradeReset),
-                "accept" if t.open && t.partner.is_some() => request(if t.accepted {
-                    UiRequest::TradeDecline
-                } else {
-                    UiRequest::TradeAccept {
-                        displayed_self: t.self_rows.len(),
-                        displayed_partner: t.partner_rows.len(),
-                    }
-                }),
+                "accept" if t.open && t.partner.is_some() => {
+                    let mut controls = self.displayed.get();
+                    let action = controls
+                        .button
+                        .press(controls.displayed_self, controls.displayed_partner);
+                    self.displayed.set(controls);
+                    action.map(request).unwrap_or_default()
+                }
                 _ => vec![],
             },
             ControlEvent::DropStack {
@@ -417,5 +435,146 @@ impl Panel for Salvage {
             }
             _ => vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod trade_tests {
+    use super::*;
+    use dereth_client_contract::view::TradeRow;
+
+    #[derive(Debug)]
+    struct Game(std::cell::RefCell<TradeView>);
+
+    impl GameView for Game {
+        fn trade(&self) -> TradeView {
+            self.0.borrow().clone()
+        }
+    }
+
+    fn with(game: &Game, run: impl FnOnce(&Context<'_>)) {
+        let (state, pregame, keyboard, settings) = Default::default();
+        run(&Context {
+            game,
+            pregame: &pregame,
+            keyboard: &keyboard,
+            settings: &settings,
+            map_teleport_allowed: false,
+            classic: &state,
+        });
+    }
+
+    fn offer() -> Game {
+        Game(std::cell::RefCell::new(TradeView {
+            open: true,
+            partner: Some(ObjectId(2)),
+            partner_rows: vec![TradeRow {
+                item: ObjectId(3),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+    }
+
+    /// Behaviour: trade.table.anything-either-side-changes-puts-both-agreements-out
+    #[test]
+    fn a_changed_offer_darkens_both_lights_and_the_next_press_accepts() {
+        let game = offer();
+        let mut panel = Trade::default();
+        {
+            let mut trade = game.0.borrow_mut();
+            trade.accepted = true;
+            trade.partner_accepted = true;
+        }
+        with(&game, |c| {
+            panel.frame(c);
+            assert_eq!(panel.displayed.get().button, TradeButtonState::Accepted);
+            assert!(panel.displayed.get().partner_accepted);
+            game.0.borrow_mut().acceptance_darkened = true;
+            let frame = panel.frame(c);
+            let button = frame.controls.iter().find(|c| c.id == "accept").unwrap();
+            assert!(button.enabled);
+            assert_eq!(button.images.as_ref().unwrap()[0], "06001DC3");
+            assert!(!panel.displayed.get().partner_accepted);
+            assert!(frame.screen.commands.iter().any(|command| {
+                matches!(command, Command::Image { did, .. } if did == "06001DBB")
+            }));
+            assert!(!frame.screen.commands.iter().any(|command| {
+                matches!(command, Command::Image { did, .. } if did == "06001DBC")
+            }));
+            assert_eq!(
+                panel.event(ControlEvent::Activate("accept".into()), c),
+                vec![PanelAction::Game(UiRequest::TradeAccept {
+                    displayed_self: 0,
+                    displayed_partner: 1
+                })]
+            );
+        });
+    }
+
+    /// Behaviour: trade.controls.the-one-button-agrees-and-then-takes-it-back-without-ending-anything
+    #[test]
+    fn an_empty_offer_disables_accept_and_a_partner_row_enables_it() {
+        let game = offer();
+        game.0.borrow_mut().partner_rows.clear();
+        let mut panel = Trade::default();
+        with(&game, |c| {
+            let frame = panel.frame(c);
+            assert!(
+                !frame
+                    .controls
+                    .iter()
+                    .find(|c| c.id == "accept")
+                    .unwrap()
+                    .enabled
+            );
+            assert!(panel
+                .event(ControlEvent::Activate("accept".into()), c)
+                .is_empty());
+            game.0.borrow_mut().partner_rows.push(TradeRow::default());
+            let frame = panel.frame(c);
+            assert!(
+                frame
+                    .controls
+                    .iter()
+                    .find(|c| c.id == "accept")
+                    .unwrap()
+                    .enabled
+            );
+        });
+    }
+
+    /// Behaviour: trade.controls.a-stale-window-accepts-an-empty-trade
+    #[test]
+    fn accept_uses_the_last_drawn_rows_when_the_model_changes_before_the_click() {
+        let game = offer();
+        let mut panel = Trade::default();
+        with(&game, |c| {
+            panel.frame(c);
+            game.0.borrow_mut().partner_rows.push(TradeRow::default());
+            assert_eq!(
+                panel.event(ControlEvent::Activate("accept".into()), c),
+                vec![PanelAction::Game(UiRequest::TradeAccept {
+                    displayed_self: 0,
+                    displayed_partner: 1
+                })]
+            );
+        });
+    }
+
+    /// Behaviour: trade.controls.the-one-button-agrees-and-then-takes-it-back-without-ending-anything
+    #[test]
+    fn a_second_press_declines_even_before_the_server_confirms_the_first() {
+        let game = offer();
+        let mut panel = Trade::default();
+        with(&game, |c| {
+            panel.frame(c);
+            panel.event(ControlEvent::Activate("accept".into()), c);
+            panel.frame(c);
+            assert_eq!(
+                panel.event(ControlEvent::Activate("accept".into()), c),
+                vec![PanelAction::Game(UiRequest::TradeDecline)]
+            );
+        });
     }
 }

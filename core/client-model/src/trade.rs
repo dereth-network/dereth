@@ -342,40 +342,6 @@ pub fn accept_decision(
     }
 }
 
-/// Button-state values for the trade button `0x10000086` — the three values
-/// the update, accept, and decline paths
-/// write, as the literals they write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum TradeButtonState {
-    /// `0x0D` — the value [`update_trade_button_state`] writes when both lists are empty.
-    Disabled = 0x0D,
-    /// `1` — adding a self item, adding a partner item and declining all write this.
-    Enabled = 1,
-    /// `6` — the accept path writes this, whichever branch it took.
-    Accepted = 6,
-}
-
-/// Apply the trade button's **transition**, which is not a function of the model alone.
-///
-/// ```text
-/// n = rows in the window's partner list + rows in its self list
-/// state 6    and n == 0 -> 0x0D
-/// state 1    and n == 0 -> 0x0D
-/// state 0x0D and n > 0  -> 1
-/// ```
-///
-/// Note what it cannot do: it never writes **6**, and from `Disabled` it only ever goes to
-/// `Enabled`. `Accepted` is reachable only through the accept path.
-#[must_use]
-pub fn update_trade_button_state(current: TradeButtonState, displayed: usize) -> TradeButtonState {
-    match (current, displayed) {
-        (TradeButtonState::Accepted | TradeButtonState::Enabled, 0) => TradeButtonState::Disabled,
-        (TradeButtonState::Disabled, n) if n > 0 => TradeButtonState::Enabled,
-        (s, _) => s,
-    }
-}
-
 /// Every string the secure-trade code produces itself as a wide literal. All of them
 /// go to [`TRADE_MESSAGE_CHANNEL`].
 ///
@@ -1017,7 +983,7 @@ impl crate::World {
     ///     id already in the window's self list -> -1
     ///     set_trade_state(w, 1)
     ///     insert a row for id into the self list at slot
-    ///     refresh the item count; update_trade_button_state
+    ///     refresh the item count and button
     ///     send 0x01F8 add-to-trade (id, the row's position in the list)
     /// ```
     ///
@@ -1032,7 +998,7 @@ impl crate::World {
     ///     id already in the window's self list -> -1
     ///     set_trade_state(w, 1)
     ///     insert a row for id into the self list at position
-    ///     refresh the item count; update_trade_button_state
+    ///     refresh the item count and button
     ///     send 0x01F8 add-to-trade (id, the row's position in the list)
     /// with_contents and the object holds items:
     ///     name = the object's name (form 2)
@@ -1596,31 +1562,6 @@ mod tests {
         assert_eq!(w.num_items(), 0);
         assert_eq!(w.num_containers(), 1);
         assert_eq!(w.num_self_objects(), 1);
-    }
-
-    /// The button update is a **transition**, not a function of the model: it
-    /// never writes 6, and from `Disabled` it can only reach `Enabled`.
-    #[test]
-    fn the_button_transition_never_reaches_accepted_on_its_own() {
-        assert_eq!(TradeButtonState::Disabled as u32, 0x0D);
-        assert_eq!(TradeButtonState::Enabled as u32, 1);
-        assert_eq!(TradeButtonState::Accepted as u32, 6);
-
-        use TradeButtonState::{Accepted, Disabled, Enabled};
-        assert_eq!(update_trade_button_state(Accepted, 0), Disabled);
-        assert_eq!(update_trade_button_state(Enabled, 0), Disabled);
-        assert_eq!(update_trade_button_state(Disabled, 3), Enabled);
-        assert_eq!(update_trade_button_state(Disabled, 0), Disabled);
-        assert_eq!(
-            update_trade_button_state(Enabled, 3),
-            Enabled,
-            "no arm fires"
-        );
-        assert_eq!(
-            update_trade_button_state(Accepted, 3),
-            Accepted,
-            "an accepted button with items on the table stays accepted"
-        );
     }
 
     // ------------------------------------------------------------------------------------
