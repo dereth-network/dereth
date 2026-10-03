@@ -897,6 +897,8 @@ impl LinkLamp {
     }
 }
 
+/// The top of a vital bar's number line: its capitals then stand on the bar's fourteenth pixel row.
+const VITAL_TEXT_TOP: i32 = 1;
 #[derive(Debug)]
 struct Vitals {
     width: u32,
@@ -1030,8 +1032,9 @@ impl Panel for Vitals {
                 .paint = false;
             if let Some((cur, max)) = value.filter(|_| self.numeric) {
                 f.text_box(
-                    // Centred in the bar, across and down, as the meter's text was.
-                    rect(x, (28 - 16) / 2, width, 16),
+                    // Centred across the bar and set high in it, inside the meter's 2-pixel inset:
+                    // the capitals run from the bar's fifth pixel row to its fourteenth.
+                    rect(x, VITAL_TEXT_TOP, width, 16),
                     format!("{title} {cur}/{max}"),
                     "16-7",
                     INK,
