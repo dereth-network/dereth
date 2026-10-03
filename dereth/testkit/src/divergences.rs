@@ -414,8 +414,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                  Others to See Your, Combat and Movement); Chat Options; and Client Options under \
                  five (Sound, Display, Graphics Quality, Era Look, Camera and Mouse). A row stores \
                  its value where retail kept it, so either interface's page shows what the other \
-                 set. A row for something the world's era lacks is greyed out. In-Game Help is \
-                 not offered, Urgent Assistance and Report Abuse open the game's own forms, and \
+                 set. A row for something the world's era lacks is left off the page. In-Game Help \
+                 is not offered, Urgent Assistance and Report Abuse open the game's own forms, and \
                  there is no Sync with Refresh Rate row (the full screen is a borderless window). \
                  Manual Degrade Bias is greyed while Adaptive Degrade is on, and the landscape's \
                  detail texture has a row. The classic interface's Options page is its Game and \

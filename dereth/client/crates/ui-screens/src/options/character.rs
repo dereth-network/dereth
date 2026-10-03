@@ -244,8 +244,6 @@ pub struct CharacterOptionRow {
     pub help_token: String,
     /// What of the world's era the option needs ([`dereth_client_contract::options::sheet::Needs`]).
     pub needs: dereth_client_contract::options::sheet::Needs,
-    /// Drawn greyed out, because the world's era lacks what the option sets.
-    pub greyed: bool,
 }
 
 impl CharacterOptionRow {
@@ -353,19 +351,34 @@ impl CharacterSettingsPage {
         true
     }
 
-    /// Grey out each row whose option the world's era lacks (`features`, `None` for a world
-    /// whose era is not known, which has everything), and bring back the others. Returns how many
-    /// rows are greyed.
+    /// Take off the page each row whose option the world's era lacks (`features`, `None` for a
+    /// world whose era is not known, which has everything): the rows under it move up. A page
+    /// is built for one world, so a row taken off does not come back. Returns how many rows were
+    /// taken off.
     pub fn apply_era(
         &mut self,
         ui: &mut UiSystem,
         features: Option<dereth_primitives::EraFeatures>,
     ) -> usize {
         let mut n = 0;
-        for r in &mut self.rows {
-            r.greyed = !r.needs.met(features.as_ref());
-            super::page::set_row_greyed(ui, r.row, r.element, r.greyed);
-            n += usize::from(r.greyed);
+        let mut k = 0;
+        while k < self.rows.len() {
+            if self.rows[k].needs.met(features.as_ref()) {
+                k += 1;
+                continue;
+            }
+            let row = self.rows.remove(k).row;
+            if let Some(b) = self.option_box.as_mut() {
+                if let Some(i) = b.index_of(row) {
+                    b.delete_item(ui, i);
+                }
+            }
+            n += 1;
+        }
+        if n > 0 {
+            if let Some(b) = self.option_box.as_mut() {
+                b.update_layout(ui);
+            }
         }
         n
     }
@@ -464,7 +477,6 @@ impl CharacterSettingsPage {
             label_token: lt,
             help_token: ht,
             needs: dereth_client_contract::options::sheet::Needs::Nothing,
-            greyed: false,
         });
         self.refresh(ui, idx);
         Some(idx)

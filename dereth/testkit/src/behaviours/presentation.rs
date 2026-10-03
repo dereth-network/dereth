@@ -300,7 +300,7 @@ pub static ROWS: &[Behaviour] = &[
                degrade bias by whether adaptive degrade is on now.",
         since: THIS_CLIENT,
         divergence: "CD-015",
-        evidence: Evidence::Private("AC-EVID-UI-OPTIONS-R3"),
+        evidence: Evidence::Private("AC-EVID-UI-OPTIONS-R3-SWITCH"),
         station: "dereth-ui-screens::dat::panels::options_preference_store::a_page_read_again_shows_the_stored_values_and_greys_by_them",
         tier: Tier::Dat,
     },

@@ -237,8 +237,8 @@ pub fn is_retail_preference(preference: &str) -> bool {
 pub const GREYED_OPACITY: f32 = 0.4;
 
 /// Grey out an option row, or bring it back: the row is drawn faint and its control takes no
-/// clicks. A row is greyed when the world's era lacks what it sets, or when another option
-/// decides it (Degrade Bias while Adaptive Degrade is on).
+/// clicks. A row is greyed while another option decides it (Degrade Bias while Adaptive Degrade
+/// is on); a row for what the world's era lacks is not shown at all.
 pub fn set_row_greyed(ui: &mut UiSystem, row: ElemHandle, control: ElemHandle, greyed: bool) {
     let owns = ui.node(row).is_some_and(|n| n.flags.should_own_object());
     if greyed || owns {

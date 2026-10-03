@@ -18,6 +18,7 @@ pub fn make(id: &str) -> Option<Box<dyn Panel>> {
         saved: None,
         dirty: false,
         scroll: 0,
+        chat_scroll: 0,
         own: Vec::new(),
         character: super::super::character_options::CharacterOptions::new(),
     }))
@@ -32,6 +33,8 @@ struct Settings {
     dirty: bool,
     /// How far the Client Options page is scrolled.
     scroll: i32,
+    /// How far the Chat Options page is scrolled.
+    chat_scroll: i32,
     /// The Client Options rows edited as preferences, changed since the page was applied.
     own: Vec<(&'static str, PrefValue)>,
     character: super::super::character_options::CharacterOptions,
@@ -49,10 +52,15 @@ fn separator(f: &mut PanelFrame, y: i32) {
     f.image("060012C4", rect(279, y, 17, 8), false, false);
 }
 
-/// The scrolling part of the Client and Chat pages, in page coordinates.
-const VIEW: Rect = rect(4, 16, 280, 264);
-/// How far apart the rows are.
-const ROW: i32 = 20;
+/// How far apart the rows are: the Client page's sliders and drop-downs a few pixels further
+/// than the check boxes of the others, so that no two touch.
+fn row_height(page: PageId) -> i32 {
+    if page == PageId::Client {
+        24
+    } else {
+        20
+    }
+}
 /// The caption colour of a row that cannot be changed now.
 const GREY: u32 = 0xff64_6464;
 const HEADING: u32 = 0xff00_c8e1;
@@ -65,19 +73,31 @@ enum Line {
     Row(&'static Row),
 }
 
-/// The lines of `page` as the classic interface shows it.
-fn lines(page: PageId) -> Vec<Line> {
+/// The lines of `page` as the classic interface shows it in the world `c` is in: a row for what
+/// the world's era lacks is left out.
+fn lines(page: PageId, c: &Context<'_>) -> Vec<Line> {
+    let features = c.game.era().map(|e| e.features());
     let mut out = Vec::new();
     for (h, rows) in sheet::headings_for(page, Face::Classic) {
         out.push(Line::Heading(h.title));
-        out.extend(rows.into_iter().map(Line::Row));
+        out.extend(
+            rows.into_iter()
+                .filter(|r| {
+                    r.needs.met(features.as_ref()) && r.preference().is_none_or(|p| era_has(c, p))
+                })
+                .map(Line::Row),
+        );
     }
     out
 }
 
-fn max_scroll(page: PageId) -> i32 {
-    let n = i32::try_from(lines(page).len()).unwrap_or(0);
-    (n * ROW + 6 - VIEW.h).max(0)
+/// How tall `page`'s list is.
+fn content(page: PageId, c: &Context<'_>) -> i32 {
+    i32::try_from(lines(page, c).len()).unwrap_or(0) * row_height(page) + 6
+}
+
+fn max_scroll(page: PageId, c: &Context<'_>) -> i32 {
+    crate::panels::OptionsPage::current().max_scroll(content(page, c))
 }
 
 /// The rows the classic interface keeps its own steps for, through the settings host.
@@ -122,7 +142,7 @@ const LANDSCAPE_STEPS: [&str; 4] = ["Full", "1/2", "1/4", "1/8"];
 const ENVIRONMENT_STEPS: [&str; 5] = ["Very High", "Full", "1/2", "1/4", "1/8"];
 
 /// Whether the world's era has what a row sets: the social window's Secure Trade page needs
-/// trade, and is greyed out without it.
+/// trade, and its row is not shown without it.
 fn era_has(c: &Context<'_>, preference: &str) -> bool {
     preference != classic::SHOW_TRADE_TAB || c.game.era().is_none_or(|e| e.features().trade)
 }
@@ -138,8 +158,11 @@ fn client_row(preference: &str) -> Option<&'static Row> {
 impl Settings {
     fn general(&self, _c: &Context<'_>) -> PanelFrame {
         let mut f = background();
-        separator(&mut f, 303);
-        for (k, r) in sheet::rows_for(PageId::GameSupport, Face::Classic).enumerate() {
+        let height = i32::try_from(crate::panels::side_height()).unwrap_or(362) - 25;
+        separator(&mut f, height - 34);
+        let actions = sheet::rows_for(PageId::GameSupport, Face::Classic)
+            .filter(|r| !matches!(r.value, Value::Action(sheet::Act::MouseTurningSettings)));
+        for (k, r) in actions.enumerate() {
             let Value::Action(act) = r.value else {
                 continue;
             };
@@ -151,12 +174,12 @@ impl Settings {
                 sheet::Act::ReportAbuse => "abuse",
                 sheet::Act::MouseTurningSettings => continue,
             };
-            let y = 6 + 36 * i32::try_from(k).unwrap_or(0);
+            let y = 8 + 42 * i32::try_from(k).unwrap_or(0);
             f.button(id, rect(30, y, 240, 34), r.caption_for(Face::Classic), true);
         }
         centered(
             &mut f,
-            rect(0, 314, 300, 18),
+            rect(0, height - 23, 300, 18),
             concat!("Version ", env!("CARGO_PKG_VERSION")),
             "15-6",
         );
@@ -276,10 +299,14 @@ impl Settings {
             .filter(|_| self.dirty)
             .unwrap_or(c.settings);
         let mut f = background();
-        let clip = Some([VIEW.x, VIEW.y, VIEW.x + VIEW.w, VIEW.y + VIEW.h]);
-        for (k, line) in lines(PageId::Client).into_iter().enumerate() {
-            let y = VIEW.y + 6 + ROW * i32::try_from(k).unwrap_or(0) - self.scroll;
-            if y < VIEW.y || y + 18 > VIEW.y + VIEW.h {
+        let page = crate::panels::OptionsPage::current();
+        page.background(&mut f);
+        let clip = Some(page.clip());
+        let row = row_height(PageId::Client);
+        let scroll = self.scroll.clamp(0, max_scroll(PageId::Client, c));
+        for (k, line) in lines(PageId::Client, c).into_iter().enumerate() {
+            let y = page.view.y + 6 + row * i32::try_from(k).unwrap_or(0) - scroll;
+            if !page.shows(y - 1, 18) {
                 continue;
             }
             let row = match line {
@@ -293,7 +320,6 @@ impl Settings {
             match row.value {
                 Value::Check(p) => {
                     let (on, enabled) = self.check_state(s, p);
-                    let enabled = enabled && era_has(c, p);
                     f.check(format!("row:{p}"), rect(14, y, 13, 13), "", on, enabled);
                     f.label(
                         36,
@@ -362,29 +388,19 @@ impl Settings {
                 _ => {}
             }
         }
-        f.control(
-            "scroll",
-            rect(284, 16, 16, 264),
-            ControlKind::ScrollBar {
-                min: 0,
-                max: max_scroll(PageId::Client),
-                value: self.scroll,
-                page: 264,
-                step: ROW,
-                vertical: true,
-                arrow_size: 16,
-                thumb_size: 16,
-            },
-            true,
-        );
-        for (id, text, x) in [
-            ("apply", "Apply", 25),
-            ("reset", "Reset", 110),
-            ("defaults", "Defaults", 195),
-        ] {
-            f.button(
+        page.scroll_bar(&mut f, "scroll", content(PageId::Client, c), scroll, row);
+        for (slot, (id, text)) in [
+            ("apply", "Apply"),
+            ("reset", "Reset"),
+            ("defaults", "Defaults"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            page.button(
+                &mut f,
+                i32::try_from(slot).unwrap_or(0),
                 id,
-                rect(x, 296, 80, 36),
                 text,
                 self.dirty || id == "defaults",
             );
@@ -402,10 +418,17 @@ impl Settings {
     /// The Chat Options page: which messages the chat window shows, by group.
     fn chat(&self, c: &Context<'_>) -> PanelFrame {
         let mut f = background();
-        let clip = Some([VIEW.x, VIEW.y, VIEW.x + VIEW.w, VIEW.y + VIEW.h]);
+        let page = crate::panels::OptionsPage::current();
+        page.background(&mut f);
+        let clip = Some(page.clip());
         let filter = Self::chat_filter(c);
-        for (k, line) in lines(PageId::Chat).into_iter().enumerate() {
-            let y = VIEW.y + 6 + ROW * i32::try_from(k).unwrap_or(0);
+        let row = row_height(PageId::Chat);
+        let scroll = self.chat_scroll.clamp(0, max_scroll(PageId::Chat, c));
+        for (k, line) in lines(PageId::Chat, c).into_iter().enumerate() {
+            let y = page.view.y + 6 + row * i32::try_from(k).unwrap_or(0) - scroll;
+            if !page.shows(y, 13) {
+                continue;
+            }
             match line {
                 Line::Heading(title) => f.label(16, y + 2, title, "courier-14-7", HEADING, clip),
                 Line::Row(r) => {
@@ -423,7 +446,8 @@ impl Settings {
                 }
             }
         }
-        f.button("chat-defaults", rect(195, 296, 80, 36), "Defaults", true);
+        page.scroll_bar(&mut f, "chat-scroll", content(PageId::Chat, c), scroll, row);
+        page.button(&mut f, 2, "chat-defaults", "Defaults", true);
         f
     }
 
@@ -507,7 +531,7 @@ impl Settings {
     fn client_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         match e {
             ControlEvent::Scroll { id, value } if id == "scroll" => {
-                self.scroll = value.clamp(0, max_scroll(PageId::Client));
+                self.scroll = value.clamp(0, max_scroll(PageId::Client, c));
                 vec![]
             }
             ControlEvent::Check { id, checked } => {
@@ -615,7 +639,13 @@ impl Settings {
         }
     }
 
-    fn chat_event(e: &ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+    fn chat_event(&mut self, e: &ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        if let ControlEvent::Scroll { id, value } = e {
+            if id == "chat-scroll" {
+                self.chat_scroll = (*value).clamp(0, max_scroll(PageId::Chat, c));
+            }
+            return vec![];
+        }
         let filter = Self::chat_filter(c);
         let mask = match e {
             ControlEvent::Check { id, checked } => {
@@ -716,7 +746,7 @@ impl Panel for Settings {
             return self.character.event(e, c);
         }
         if self.tab == 3 && !host_event {
-            return Self::chat_event(&e, c);
+            return self.chat_event(&e, c);
         }
         // Nothing changed here yet: the draft starts from the settings as they are now, which the
         // other interface may have changed since the page was last used.

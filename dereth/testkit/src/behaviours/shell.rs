@@ -1748,6 +1748,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.pages.a-row-for-what-the-worlds-era-lacks-is-not-shown",
+        says: "In a world whose era lacks what an option sets (rare items, cloaks, titles, \
+               houses, the trade window), neither interface's options pages show its row: the \
+               rows below move up into its place, and nothing greys it.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-UI-OPTIONS-R3-ERA"),
+        station: "dereth-ui-screens::dat::panels::options_character_page::a_row_for_what_the_worlds_era_lacks_leaves_the_page",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.pages.both-interfaces-draw-the-same-four-pages-under-the-same-headings",
         says: "Both interfaces' options windows have the same four pages, Game and Support, \
                Character Options, Chat Options and Client Options, and each page's rows sit \

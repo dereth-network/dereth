@@ -933,6 +933,86 @@ pub fn sub_page_background(f: &mut PanelFrame, height: i32) {
     }
 }
 
+/// The parts of an options window's scrolling page, `height` tall (the side panel's height less
+/// the tabs): the list runs from under the tabs down to the buttons, which keep to the bottom, so a
+/// taller page (the stretched interface) shows more of the list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OptionsPage {
+    /// Where the list is seen, in page coordinates.
+    pub view: Rect,
+    /// The top of the row of buttons under the list.
+    pub buttons_y: i32,
+}
+
+impl OptionsPage {
+    /// The page for a side panel page `height` tall.
+    #[must_use]
+    pub fn new(height: i32) -> Self {
+        Self {
+            view: rect(4, 16, 280, (height - 73).max(20)),
+            buttons_y: height - 40,
+        }
+    }
+    /// The page as the side panel is now.
+    #[must_use]
+    pub fn current() -> Self {
+        Self::new(i32::try_from(side_height()).unwrap_or(362) - 25)
+    }
+    /// The view as a clip rectangle.
+    #[must_use]
+    pub fn clip(&self) -> [i32; 4] {
+        let v = self.view;
+        [v.x, v.y, v.x + v.w, v.y + v.h]
+    }
+    /// How far a list `content` tall scrolls in the view.
+    #[must_use]
+    pub fn max_scroll(&self, content: i32) -> i32 {
+        (content - self.view.h).max(0)
+    }
+    /// The page's background and the inset frame around its list: a rule above it and a rule
+    /// below it.
+    pub fn background(&self, f: &mut PanelFrame) {
+        let bottom = self.view.y + self.view.h;
+        f.image("060012C4", rect(0, 8, 300, 8), true, false);
+        f.image("060012C4", rect(4, bottom, 296, 4), true, false);
+    }
+    /// The list's scroll bar, beside the view.
+    pub fn scroll_bar(&self, f: &mut PanelFrame, id: &str, content: i32, value: i32, step: i32) {
+        f.control(
+            id,
+            rect(284, self.view.y, 16, self.view.h),
+            ControlKind::ScrollBar {
+                min: 0,
+                max: self.max_scroll(content),
+                value: value.clamp(0, self.max_scroll(content)),
+                page: self.view.h,
+                step,
+                vertical: true,
+                arrow_size: 16,
+                thumb_size: 16,
+            },
+            true,
+        );
+    }
+    /// One of the buttons under the list, in the `slot`th of its three places (Apply, Reset,
+    /// Defaults), drawn the options window's way.
+    pub fn button(&self, f: &mut PanelFrame, slot: i32, id: &str, caption: &str, enabled: bool) {
+        let c = f.button(
+            id,
+            rect(25 + 85 * slot, self.buttons_y, 80, 36),
+            caption,
+            enabled,
+        );
+        c.images = Some(["06001207", "06001208", "0600120A"].map(String::from));
+        c.endcaps = Some(["06001206", "06001209", "06001205"].map(String::from));
+    }
+    /// Whether a row at `y` (page coordinates, `h` tall) is wholly in the view.
+    #[must_use]
+    pub fn shows(&self, y: i32, h: i32) -> bool {
+        y >= self.view.y && y + h <= self.view.y + self.view.h
+    }
+}
+
 /// Every classic panel, by id.
 #[must_use]
 pub fn factory(id: &str) -> Option<Box<dyn Panel>> {

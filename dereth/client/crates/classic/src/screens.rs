@@ -2,7 +2,6 @@
 //! Defaults and each checkbox change. The rows are the shared options set's Character Options
 //! page as the classic interface shows it ([`dereth_client_contract::options::sheet`]). The model
 //! emits actions; it does not emulate the game's side effects.
-use crate::{Command, Screen};
 use std::sync::OnceLock;
 
 /// The page's Defaults: the character's default option words, which are the final client's.
@@ -17,7 +16,6 @@ pub const DEFAULT_WORDS: [u32; 2] = [
 /// cannot both be on: turning one on turns the other off, as the game's own option change does.
 const IGNORE_FELLOWSHIP: u32 = 0x8;
 const AUTO_ACCEPT_FELLOWSHIP: u32 = 0x2000_0000;
-pub const VIEWPORT: [i32; 4] = [4, 41, 284, 305];
 /// How far apart the page's rows are.
 pub const ROW_HEIGHT: i32 = 20;
 
@@ -30,7 +28,7 @@ pub struct OptionRow {
     pub word: usize,
     pub bit: u32,
     pub invert: bool,
-    /// What of the world's era the option needs; a row whose need is not met is greyed out.
+    /// What of the world's era the option needs; a row whose need is not met is not shown.
     pub needs: dereth_client_contract::options::sheet::Needs,
 }
 
@@ -80,12 +78,6 @@ pub fn rows() -> &'static [OptionRow] {
         }
         out
     })
-}
-
-/// How far the page scrolls: its rows' height less the part the page shows.
-pub fn max_scroll() -> i32 {
-    let rows = i32::try_from(rows().len()).unwrap_or(i32::MAX);
-    (rows * ROW_HEIGHT - (VIEWPORT[3] - VIEWPORT[1])).max(0)
 }
 
 /// The bits of the two words the page shows; the rest it leaves as they are.
@@ -210,126 +202,6 @@ impl OptionsModel {
         self.timestamp.clone_from(&self.applied_timestamp);
         self.buttons = [true, false, false];
     }
-    pub fn row_at(&self, x: i32, y: i32, scroll: i32) -> Option<usize> {
-        if !(14..27).contains(&x) || !(41..305).contains(&y) {
-            return None;
-        }
-        let local_y = y - 41 + scroll.clamp(0, max_scroll());
-        rows()
-            .iter()
-            .position(|r| r.kind != "heading" && (r.y..r.y + 13).contains(&local_y))
-    }
-    pub fn render(&self, scroll: i32) -> Screen {
-        self.render_for(scroll, None)
-    }
-    /// The page, scrolled by `scroll`, with each row the world's era (`features`) lacks greyed.
-    pub fn render_for(
-        &self,
-        scroll: i32,
-        features: Option<&dereth_primitives::EraFeatures>,
-    ) -> Screen {
-        let scroll = scroll.clamp(0, max_scroll());
-        let mut screen: Screen =
-            serde_json::from_str(include_str!("../screens/character-top.json"))
-                .expect("checked screen");
-        screen.commands.retain(|c| match c {
-            Command::Image { clip, .. } | Command::Text { clip, .. } => *clip != Some(VIEWPORT),
-            _ => true,
-        });
-        for c in &mut screen.commands {
-            match c {
-                Command::Image { did, y, .. } if did == "06001263" => {
-                    *y = 57 + 217 * scroll / max_scroll().max(1)
-                }
-                Command::Image { did, x, y, .. } if *y == 322 => {
-                    let index = if *x < 110 {
-                        0
-                    } else if *x < 195 {
-                        1
-                    } else {
-                        2
-                    };
-                    if self.buttons[index] {
-                        *did = if did == "0600120A" {
-                            "06001207"
-                        } else {
-                            "06001206"
-                        }
-                        .into();
-                    }
-                }
-                Command::Text { text, color, .. } => {
-                    if let Some(index) = ["Apply", "Reset", "Defaults"]
-                        .iter()
-                        .position(|s| *s == text)
-                    {
-                        *color = if self.buttons[index] {
-                            0xffd2d2c8
-                        } else {
-                            0xff646464
-                        };
-                    }
-                }
-                _ => {}
-            }
-        }
-        let height = u32::try_from(rows().len()).unwrap_or(0) * 20 + 40;
-        screen
-            .commands
-            .push(image("0600128A", 4, 41 - scroll, 300, height, true, false));
-        for (index, r) in rows().iter().enumerate() {
-            let y = 41 + r.y - scroll;
-            if y + 20 <= 41 || y >= 305 {
-                continue;
-            }
-            let heading = r.kind == "heading";
-            let greyed = !r.needs.met(features);
-            if !heading {
-                screen.commands.push(image(
-                    if self.checked(index) == Some(true) {
-                        "0600128B"
-                    } else {
-                        "0600128D"
-                    },
-                    14,
-                    y,
-                    13,
-                    13,
-                    false,
-                    true,
-                ));
-            }
-            let clip = VIEWPORT;
-            screen.commands.push(Command::Text {
-                text: r.caption.clone(),
-                x: if heading { 16 } else { 36 },
-                y: y + 2,
-                font: if heading { "courier-14-7" } else { "15-6" }.into(),
-                color: if heading {
-                    0xff00c8e1
-                } else if greyed {
-                    0xff646464
-                } else {
-                    0xffd2d2c8
-                },
-                clip: Some(clip),
-            });
-        }
-        screen
-    }
-}
-fn image(did: &str, x: i32, y: i32, width: u32, height: u32, tile: bool, keyed: bool) -> Command {
-    Command::Image {
-        did: did.into(),
-        x,
-        y,
-        width,
-        height,
-        clip: Some(VIEWPORT),
-        tile,
-        color_key: keyed.then_some([0, 0, 0]),
-        key_bits: keyed.then_some([5, 6, 5]),
-    }
 }
 
 #[cfg(test)]
@@ -443,14 +315,5 @@ mod tests {
             }
         }
         assert_eq!(pairs.len(), 50);
-    }
-    #[test]
-    fn clipped_checkbox_hit_testing_tracks_scrolled_content() {
-        let model = OptionsModel::default();
-        let last = rows().len() - 1;
-        assert_eq!(model.row_at(15, 67, 0), Some(1));
-        assert_eq!(model.row_at(15, 291, max_scroll()), Some(last));
-        assert_eq!(model.row_at(15, 306, max_scroll()), None);
-        assert_eq!(model.row_at(36, 67, 0), None);
     }
 }

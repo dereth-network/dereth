@@ -923,3 +923,55 @@ mod defaults {
         );
     }
 }
+
+/// Behaviour: options.pages.a-row-for-what-the-worlds-era-lacks-is-not-shown
+/// In a world whose era lacks rare items, cloaks, titles or houses, the rows for them leave the
+/// page: they are no longer in the option box and the rows below move up into their places.
+#[test]
+fn a_row_for_what_the_worlds_era_lacks_leaves_the_page() {
+    use dereth_client_contract::options::sheet::Needs;
+    let mut ui = env(true);
+    let mut s = screen(&mut ui);
+    let before = s.character_options.rows.len();
+    let boxed = s.character_options.row_count();
+    let features = dereth_primitives::EraId::Infiltration.features();
+    let lacking: Vec<_> = s
+        .character_options
+        .rows
+        .iter()
+        .filter(|r| !r.needs.met(Some(&features)))
+        .map(|r| (r.option, r.row))
+        .collect();
+    assert!(
+        !lacking.is_empty(),
+        "the early world lacks something a row sets"
+    );
+    assert!(lacking.len() < 5);
+    let gone = s.character_options.apply_era(&mut ui, Some(features));
+    assert_eq!(gone, lacking.len());
+    assert_eq!(s.character_options.rows.len(), before - gone);
+    assert_eq!(s.character_options.row_count(), boxed - gone);
+    for (option, row) in lacking {
+        assert!(
+            s.character_options.row_of(option).is_none(),
+            "{option:?} is still on the page"
+        );
+        assert!(
+            ui.node(row).is_none(),
+            "{option:?}'s row is still in the tree"
+        );
+    }
+    assert!(s
+        .character_options
+        .rows
+        .iter()
+        .all(|r| r.needs == Needs::Nothing || r.needs.met(Some(&features))));
+    // A world with everything takes nothing off.
+    let mut ui = env(true);
+    let mut s = screen(&mut ui);
+    assert_eq!(
+        s.character_options
+            .apply_era(&mut ui, Some(dereth_primitives::EraId::Eor.features())),
+        0
+    );
+}
