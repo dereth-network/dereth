@@ -308,7 +308,13 @@ pub fn load_config(
     original_settings_dir: Option<&Path>,
 ) -> Result<(Config, Option<FirstRunCopy>), ConfigError> {
     let load = || -> Result<Config, ConfigError> {
-        let mut cfg = Config::from_args_and_prefs_at(argv, default_preferences)?;
+        // A settings folder named in the environment is asked for outright: a headless run
+        // reads its profile and writes it back at exit, as it does a `-prefs` file.
+        let mut cfg = Config::from_args_and_prefs_named_at(
+            argv,
+            default_preferences,
+            settings_dir_override().is_some(),
+        )?;
         if cfg.preferences_file.as_os_str().is_empty() && !cfg.headless {
             cfg.preferences_file = default_preferences.to_path_buf();
         }

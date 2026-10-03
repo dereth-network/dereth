@@ -1028,12 +1028,27 @@ impl Config {
         argv: &[String],
         default_preferences_file: &Path,
     ) -> Result<Self, ConfigError> {
+        Self::from_args_and_prefs_named_at(argv, default_preferences_file, false)
+    }
+
+    /// [`Self::from_args_and_prefs_at`], with `named` saying the default file was asked for
+    /// outright (its folder named in the environment), so that even a `--headless` run reads it
+    /// and writes it back, as it does a file given with `-prefs`.
+    ///
+    /// # Errors
+    /// [`ConfigError`] for any parse failure.
+    pub fn from_args_and_prefs_named_at(
+        argv: &[String],
+        default_preferences_file: &Path,
+        named: bool,
+    ) -> Result<Self, ConfigError> {
         // Native constructs the preferences-file path, parses the arguments (which may replace it),
         // and only then initializes and loads user preferences. Parse once through the real parser
         // to resolve and validate that selection; do not maintain a second switch scanner whose
         // case, duplicate, command-character, or required-value rules drift.
         let mut cfg = Self {
             preferences_file: default_preferences_file.to_path_buf(),
+            preferences_named: named,
             ..Self::default()
         };
         cfg.parse_args(argv)?;
@@ -2614,6 +2629,15 @@ Renderer=glide
         assert_eq!(
             asked.renderer,
             Some(dereth_client_contract::RendererChoice::Wgpu)
+        );
+        // A settings folder named outright (in the environment) is asked for too: the headless
+        // run reads its file and keeps it to write back.
+        let folder =
+            Config::from_args_and_prefs_named_at(&args(&["--headless"]), &default, true).unwrap();
+        assert_eq!(folder.preferences_file, default);
+        assert_eq!(
+            folder.renderer,
+            Some(dereth_client_contract::RendererChoice::D3d12)
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
