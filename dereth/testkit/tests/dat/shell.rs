@@ -11043,6 +11043,22 @@ fn registered_mode_maps(c: &HeadlessClient) -> Vec<u32> {
         .to_vec()
 }
 
+/// The maps the character list registers for itself: its own dialog keys, as the retail screen
+/// does, and the scrollable controls beside them, so the mouse wheel scrolls what is under the
+/// pointer with nothing focused (CD-017).
+fn character_screen_maps() -> Vec<u32> {
+    vec![
+        dereth_input::MAP_DIALOG_BOXES.0,
+        dereth_client::ui::CHARACTER_SCREEN_SCROLL_MAP,
+    ]
+}
+
+/// `maps` as a set, sorted, for a comparison that does not turn on registration order.
+fn sorted(mut maps: Vec<u32>) -> Vec<u32> {
+    maps.sort_unstable();
+    maps
+}
+
 /// Three characters, so that deleting one has something to ask about.
 fn three_characters() -> dereth_ui::persist::CharacterSet {
     dereth_ui::persist::CharacterSet {
@@ -11220,7 +11236,7 @@ pub fn enter_advances_the_opening_sequence_and_escape_leaves_it() {
         dialog_key_resolves_to(&mut c, ESCAPE_KEY) == Some((InputMapId(9), ActionId(ESCAPE_KEY)));
     key_trio(&mut c, &mut hands, KeyCode::Escape, '\u{1b}');
     let left_for_the_list = current_screen(&c) == Some(mode::CHARACTER_MANAGEMENT)
-        && registered_mode_maps(&c) == vec![dereth_input::MAP_DIALOG_BOXES.0];
+        && registered_mode_maps(&c) == character_screen_maps();
     // The second reading, and the only one that can see the screen's own tidying up: the other
     // map the sequence took has no second owner, so a screen that registered without
     // unregistering would leave that one behind even though its dialog map looked clean.
@@ -11229,7 +11245,7 @@ pub fn enter_advances_the_opening_sequence_and_escape_leaves_it() {
         .filter(|e| e.priority == 3000)
         .map(|e| e.map.0)
         .collect();
-    let nothing_left_behind = at_the_screens_priority == vec![9];
+    let nothing_left_behind = sorted(at_the_screens_priority) == sorted(character_screen_maps());
 
     c.assert_behaviour(
         "dialog-keys.intro.enter-advances-the-opening-sequence-and-escape-leaves-it",
@@ -11362,7 +11378,7 @@ pub fn either_key_ends_the_credit_roll_and_ends_it_once() {
     let enter_ended_it = current_screen(&c) == Some(mode::CHARACTER_MANAGEMENT)
         && screen_stats(&c).2 == switches + 1
         && screen_stats(&c).0 == intro_actions
-        && registered_mode_maps(&c) == vec![dereth_input::MAP_DIALOG_BOXES.0];
+        && registered_mode_maps(&c) == character_screen_maps();
     c.shutdown();
 
     // --- escape --------------------------------------------------------------------------
@@ -11410,7 +11426,7 @@ pub fn enter_is_declined_on_the_character_list_and_escape_asks_once() {
     use dereth_ui::framework::Screen as _;
 
     let mut c = a_client_on_character_select();
-    let its_own_map = registered_mode_maps(&c) == vec![dereth_input::MAP_DIALOG_BOXES.0];
+    let its_own_map = registered_mode_maps(&c) == character_screen_maps();
     let enter_arrives = dialog_key_resolves_to(&mut c, ACCEPT_INPUT)
         == Some((InputMapId(9), ActionId(ACCEPT_INPUT)));
 
