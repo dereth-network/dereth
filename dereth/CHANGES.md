@@ -14,6 +14,81 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+### Added
+
+- Worlds built on the February 2005 data files (Infiltration) play: the client logs in, draws
+  their palette-shifted ground, objects, clothing and portal tunnel, casts and logs out as on an
+  end-of-retail world. Data files from 1999 to 2017 are read.
+- The screens follow the world's era and the systems it announces: what it lacks (Contracts,
+  Titles, the journal, luminance, cloak and trinket slots, House) is left out, and the tabs and
+  panel buttons left close up without a gap. The launcher shows the world's era.
+- Terrain Mode (Palette Shift, Legacy Blend, Modern Blend) and Sky Mode (Legacy Software, Legacy
+  Hardware, Modern) draw any world's ground and sky in another era's style, given the older data
+  files.
+- Object Mode draws the world's objects, buildings, rooms and bodies, the paper doll included, in
+  another era's look, switched live.
+- Landscape Detail Textures lays the fine ground texture over nearby land, as the clients of 2005
+  to 2012 did. Off at first.
+- The classic interface, the game's interface from before its 2005 redesign, is a choice on the
+  options page (Interface), switched live at the character screen or in the world. It needs the
+  early-2005 data files. On later worlds it shows their systems in its own style: titles,
+  contracts, the journal, Friends and Squelch pages, the cloak, trinket and aetheria slots, and the
+  eighth-level and Void spells.
+- Spell research, on a world that has it: the magic window's Create Spell tab, in both interfaces,
+  takes up to eight carried components, by double-click or drag, and Test casts the formula.
+- The character screen shows the world's message in both interfaces: in the modern interface, an
+  Announcements window beside Create Character, scrolled with the wheel.
+- A performance panel over either interface shows the frame rate, frame times and where each
+  frame's time goes. It is an option on the client options page and an action a key can be bound
+  to.
+- Every key that can be bound does something in the modern interface: Show Cloak, Select Self,
+  Give, Drop, Move to Main Pack, hold sidestep, and the trade and spell research windows. This
+  client's own actions are listed under Dereth on the key page.
+- On a world that charges unassigned experience to swear allegiance again, the swear confirmation
+  and the classic allegiance panel say what the oath costs.
+
+### Changed
+
+- One options set for both interfaces: the same pages (Game and Support, Character Options, Chat
+  Options, Client Options), each drawn in its interface's style. A change on either page shows on
+  the other, takes effect when applied and lasts past logging out; rows for what the world's era
+  lacks are left out. Urgent Assistance and Report Abuse open the in-game forms.
+- One set of key bindings for both interfaces, each with key map files of its own
+  (`<name>-modern.keymap`, `<name>-classic.keymap`). Each key page lists only the rows its
+  interface acts on and offers both interfaces' defaults, and a cleared key stays cleared at the
+  next start. The classic defaults are the game's 2004 key map, and classic keys held with Shift,
+  Ctrl or Alt work.
+- The modern interface's 3D view fills any screen, however wide.
+- The chat font's face and size are chosen on the modern interface's Chat Options page.
+- Use Mouse Turning Settings sets the mouse-turning preset; it no longer restores the defaults or
+  changes the character's options.
+- The client starts in a 1024 by 768 window, and Defaults keeps that size.
+- A word the language filter censors keeps the punctuation at either end of it, so a censored
+  first or last word keeps the line's quote.
+- A crash log is kept only for a run that goes wrong, without the login, and only the newest 20
+  are kept. `DERETH_SETTINGS_DIR` names the settings folder outright.
+
+### Fixed
+
+- `@version` names the client's own version instead of 0.0.0.
+- At a load of exactly 110% the burden penalty shows 20%, as the game's own client does.
+- Components carried at log-in are listed in the Components tab whatever order they arrive in.
+- Component icons, in the magic window and a spell's examination, have black outlines instead of
+  white, and an examined spell shows its icon composed as the spellbook does.
+- With mouse turning on, the body stops turning when the mouse stops under mouse look, and when
+  the mouse-look button is let go.
+- Switching back to the modern interface brings it up on the screen the game is at, with the paper
+  doll at its own size and every option as the other interface left it.
+- The classic interface: its Brightness slider no longer doubles the world's brightness; the
+  pointer no longer trails the mouse; text is drawn as the game's own glyphs are; it draws in a
+  fraction of the time it took; the copy key copies the chat log's selection; a drag in the 3D
+  view picks up only what is under the pointer; a salvaging tool opens the salvage window;
+  inverted mouse look reverses every step; holding the run key walks; tells read "Name tells
+  you"; the wheel scrolls the window under the pointer.
+- On a February 2005 world, objects without a detail record of their own (Holtburg's cottage
+  stairs, doors, beams) draw their own models, and the portal tunnel is no longer black; drawn in
+  the later look, a room's furniture keeps its detail up close.
+
 ## 0.1.3 (2026-10-01)
 
 - After making a character, shortcut keys act once: a healing kit on a shortcut asks for a target,
