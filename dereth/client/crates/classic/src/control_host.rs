@@ -133,7 +133,7 @@ impl ControlHost {
     }
     fn scroll_sound_capture(&self, x: i32, y: i32) -> Option<(String, bool, Rect)> {
         let c = self.control_at(x, y).filter(|c| c.enabled && !c.silent)?;
-        // The Sound/Graphics sliders have no arrows and jump to the pointer, so a
+        // The options Client page's sliders have no arrows and jump to the pointer, so a
         // press on the track drags the thumb as if it had been pressed on it.
         if matches!(c.kind, ControlKind::Slider { .. }) && Self::settings_slider(c) {
             return Some((c.id.clone(), true, c.rect));

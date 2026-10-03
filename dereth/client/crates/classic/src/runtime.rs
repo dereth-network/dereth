@@ -303,7 +303,7 @@ impl ClassicUi {
             self.settings_host = Some(host);
             result?;
         }
-        // The Sound/Graphics page shows whether the game is full screen now (Alt+Enter too); out
+        // The options Client page shows whether the game is full screen now (Alt+Enter too); out
         // of the world, where the screens are always windowed, it shows the saved choice the
         // world will follow.
         self.settings.full_screen = if self.last_in_world {

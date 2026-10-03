@@ -43,9 +43,7 @@ impl Panel for CharacterOptions {
                         && !(*y == 322)
                 }
                 Command::Text { text, y, .. } => {
-                    *y >= 25
-                        && !matches!(text.as_str(), "Apply" | "Reset" | "Defaults")
-                        && text != self.model.timestamp_format()
+                    *y >= 25 && !matches!(text.as_str(), "Apply" | "Reset" | "Defaults")
                 }
                 _ => true,
             };
@@ -65,21 +63,6 @@ impl Panel for CharacterOptions {
                     f.check(format!("option{i}"), hit, "", checked, enabled);
                 }
             }
-        }
-        let timestamp = rows()
-            .iter()
-            .find(|r| r.caption == "Display Timestamps")
-            .unwrap();
-        if let Some(area) = rect(159, 16 + timestamp.y - self.scroll, 125, 20).intersect(viewport) {
-            let c = f.edit(
-                "timestamp",
-                area,
-                self.model.timestamp_format(),
-                128,
-                false,
-                true,
-            );
-            c.color = 0xff00ff00;
         }
         f.control(
             "scroll",
@@ -127,9 +110,6 @@ impl Panel for CharacterOptions {
                 if let Some(i) = id.strip_prefix("option").and_then(|s| s.parse().ok()) {
                     self.model.set_checked(i, checked);
                 }
-            }
-            ControlEvent::Edit { id, text } if id == "timestamp" => {
-                self.model.set_timestamp_format(text)
             }
             ControlEvent::Scroll { id, value } if id == "scroll" => {
                 self.scroll = value.clamp(0, max_scroll())

@@ -160,10 +160,6 @@ impl OptionsModel {
         self.timestamp = text.clone();
         self.applied_timestamp = text;
     }
-    pub fn set_timestamp_format(&mut self, text: String) {
-        self.timestamp = text;
-        self.buttons = [true; 3];
-    }
     /// Index is the 45-row blueprint index, including its six headings.
     pub fn checked(&self, row: usize) -> Option<bool> {
         let r = rows().get(row)?;
@@ -303,10 +299,7 @@ impl OptionsModel {
                     true,
                 ));
             }
-            let mut clip = VIEWPORT;
-            if r.caption == "Display Timestamps" {
-                clip[2] = 159;
-            }
+            let clip = VIEWPORT;
             screen.commands.push(Command::Text {
                 text: r.caption.clone(),
                 x: if heading { 16 } else { 36 },
@@ -321,16 +314,6 @@ impl OptionsModel {
                 },
                 clip: Some(clip),
             });
-            if r.caption == "Display Timestamps" && !self.timestamp.is_empty() {
-                screen.commands.push(Command::Text {
-                    text: self.timestamp.clone(),
-                    x: 161,
-                    y: y + 2,
-                    font: "15-6".into(),
-                    color: 0xff00ff00,
-                    clip: Some([159, 41, 284, 305]),
-                });
-            }
         }
         screen
     }
