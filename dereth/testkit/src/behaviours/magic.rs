@@ -984,6 +984,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "spellbook.filter.changes-are-shared-before-the-server-replies",
+        says: "Changing the spellbook filter updates the shared player state, its saved module and \
+               the interface view immediately, and sends the full new mask to the server.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SPELLBOOK-FILTER-SHARED"),
+        station: "dereth-client-runtime::lib::interaction::tests::a_spellbook_filter_change_updates_the_model_view_and_saved_module",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "spellbook.learned-spell.appears-without-a-relog",
         says: "A spell learned during a session appears in the book straight away, so it can be cast \
                and put on a bar without logging out; the first one makes the book, a repeat leaves the \

@@ -8105,15 +8105,9 @@ impl GameView for HudView<'_> {
         })
     }
 
-    /// Spellbook filters straight off the `0x0013` blob.
-    ///
-    /// The decoder defaults it to `0x3FFF` when the `0x0020` section is absent, so the fallback
-    /// here is only for "no description yet".
+    /// The shared player state includes local filter changes before any server reply.
     fn spell_filters(&self) -> u32 {
-        self.hud.player_module.as_ref().map_or(
-            dereth_client_contract::spellbook::DEFAULT_SPELL_FILTERS,
-            |m| m.spell_filters,
-        )
+        self.world.player_system.spell_filters
     }
 
     /// `UNDEF` is mapped to `NONCOMBAT` because the toolbar has

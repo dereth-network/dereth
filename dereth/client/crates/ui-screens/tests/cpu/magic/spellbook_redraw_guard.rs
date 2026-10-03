@@ -19,14 +19,14 @@ const FELLOWSHIP: u32 = 0x2000;
 /// frozen — the frame `Hud::build_spells` cannot produce, because it derives every one of these
 /// fields from the id through the static spell table.
 #[derive(Debug)]
-struct Book(Vec<SpellEntry>);
+struct Book(Vec<SpellEntry>, u32);
 
 impl GameView for Book {
     fn spellbook(&self) -> &[SpellEntry] {
         &self.0
     }
     fn spell_filters(&self) -> u32 {
-        DEFAULT_SPELL_FILTERS
+        self.1
     }
 }
 
@@ -53,11 +53,14 @@ fn entry(
 
 /// Two Creature spells and one Life spell, in `_display_order` 10, 20, 30.
 fn book() -> Book {
-    Book(vec![
-        entry(157, "Strength Self I", CREATURE, 1, 10, 0),
-        entry(1074, "Heal Self I", LIFE, 1, 20, 0),
-        entry(158, "Strength Self II", CREATURE, 2, 30, 0),
-    ])
+    Book(
+        vec![
+            entry(157, "Strength Self I", CREATURE, 1, 10, 0),
+            entry(1074, "Heal Self I", LIFE, 1, 20, 0),
+            entry(158, "Strength Self II", CREATURE, 2, 30, 0),
+        ],
+        DEFAULT_SPELL_FILTERS,
+    )
 }
 
 /// Assert that two frames differ in **exactly** the field the station is about: the same ids, in
@@ -206,9 +209,8 @@ fn a_level_change_alone_rebuilds_and_re_filters_the_list() {
     let mut p = SpellbookPanel::default();
 
     // Levels 1 and 2 only: bits 4 and 5 of `spell_filters_`, plus all five schools.
-    p.filters = Some(0x2000 | 0b1111 | (0b11 << 4));
-
-    let before = book();
+    let mut before = book();
+    before.1 = 0x2000 | 0b1111 | (0b11 << 4);
     assert!(
         p.update(&mut ui, &before),
         "the first drive is always a rebuild"
@@ -222,6 +224,7 @@ fn a_level_change_alone_rebuilds_and_re_filters_the_list() {
 
     // Spell 158 becomes a level-3 spell. Its id, school, order and bitfield do not move.
     let mut after = book();
+    after.1 = before.1;
     after.0[2].level = 3;
     only_one_thing_moved(&before, &after);
     assert_eq!(

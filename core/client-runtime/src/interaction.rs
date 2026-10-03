@@ -4460,10 +4460,12 @@ impl Interaction {
                         None => self.stats.requests_refused += 1,
                     }
                 }
-                // The spellbook's filter update has already established that the mask
-                // changed and has already written its own player-module copy; the server is
-                // being told, not asked, so there is no gate on this one.
+                // The filter changes locally before the server receives its new mask.
                 UiRequest::SetSpellbookFilter { mask } => {
+                    game.player_system.spell_filters = mask;
+                    if let Some(module) = &mut game.player_system.module {
+                        module.spell_filters = mask;
+                    }
                     dereth_client_model::advancement::send_spellbook_filter(&mut req, mask);
                 }
                 // **The Titles tab reaches the shard.**
@@ -10919,6 +10921,43 @@ fn chat_real_time() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: spellbook.filter.changes-are-shared-before-the-server-replies
+    #[test]
+    fn a_spellbook_filter_change_updates_the_model_view_and_saved_module() {
+        use crate::hud::{Hud, HudView};
+        use dereth_client_contract::view::GameView;
+        let mut game = dereth_client_model::World::new();
+        let module = dereth_protocol::login::PlayerModule::default();
+        game.player_system.apply_player_module(&module);
+        let mut hud = Hud::new();
+        hud.player_module = Some(module);
+        let mut inter = Interaction::new();
+        let mask = 0x1011;
+        inter.queue(Vec::new(), vec![UiRequest::SetSpellbookFilter { mask }]);
+        assert!(inter
+            .run_ui_requests(&mut game, false, ServerTime(1.0))
+            .is_empty());
+        assert_eq!(game.player_system.spell_filters, mask);
+        assert_eq!(
+            game.player_system
+                .client_packed_module()
+                .unwrap()
+                .spell_filters,
+            mask
+        );
+        assert_eq!(
+            HudView {
+                hud: &hud,
+                world: &game
+            }
+            .spell_filters(),
+            mask
+        );
+        assert!(
+            matches!(inter.pending_requests(), [Request::SpellbookFilterEvent(m)] if m.filter_mask == mask)
+        );
+    }
 
     #[test]
     fn hover_cannot_replace_pending_click_and_hidden_or_absent_answers_complete_with_zero() {

@@ -285,11 +285,6 @@ pub struct SpellbookPanel {
     pub shown: Vec<u32>,
     /// The selected spell id, updated when a spell row is selected.
     pub selected_spell: u32,
-    /// The player module's spell filters' **client-side** copy, written by the filter update
-    /// the moment a button is clicked and never read back off the wire.
-    /// `None` until a button has been clicked, at which point `GameView::spell_filters` (the
-    /// capture's value) is still the source.
-    pub filters: Option<u32>,
     /// The last `(filters, spellbook)` the list was built for, so an unchanged frame rebuilds
     /// nothing.
     ///
@@ -390,7 +385,6 @@ impl SpellbookPanel {
             .get_child_recursive(panel, SPELL_LIST)
             .map(|h| ItemListWidget::init(ui, h));
         self.last = None;
-        self.filters = None;
         self.shown.clear();
         self.selected_spell = 0;
         self.add_shortcut_notice = None;
@@ -571,12 +565,15 @@ impl SpellbookPanel {
     ///
     /// Returns true on a frame that actually rewrote the list.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
+        self.update_filtered(ui, view, view.spell_filters())
+    }
+
+    fn update_filtered(&mut self, ui: &mut UiSystem, view: &dyn GameView, filters: u32) -> bool {
         // **Before** the snapshot guard. The dialog creation's element half and
         // the callback are not part of the list rebuild and must
         // not be skipped on a frame where the book has not changed — which is *every* frame the
         // dialog is up, since nothing has changed yet.
         self.service_delete_dialog(ui);
-        let filters = self.filters(view);
         let book = view.spellbook();
         // The whole book, field for field, not the id list — see [`Self::last`].
         // No allocation on a frame that does not rebuild: this is a slice compare, and the
@@ -762,11 +759,8 @@ impl SpellbookPanel {
     /// in the player module's spell filters when the button is in state 6, clear it otherwise. If
     /// the mask changed, store it and send the spellbook-filter request with it.
     ///
-    /// Two things it does **not** do, and both matter. It does not toggle the button — the button
-    /// has already toggled itself, and state 6 is read *after* the fact; and it does not re-read
-    /// the mask from the server, it writes the client's own copy and sends. So the panel keeps
-    /// [`Self::filters`], which is the player module's spell filters, and the
-    /// wire message is a notification rather than a request for permission.
+    /// The button has already toggled itself. Redraw against the new mask immediately;
+    /// the request writes the shared player state at the runtime boundary.
     pub fn update_filter(
         &mut self,
         ui: &mut UiSystem,
@@ -774,7 +768,7 @@ impl SpellbookPanel {
         button: ElementId,
         bit: u32,
     ) {
-        let old = self.filters(view);
+        let old = view.spell_filters();
         let on = ui
             .get_element(button)
             .and_then(|h| ui.node(h))
@@ -783,27 +777,9 @@ impl SpellbookPanel {
         if new == old {
             return;
         }
-        self.filters = Some(new);
         ui.requests
             .emit(crate::view::UiRequest::SetSpellbookFilter { mask: new });
-        // The update from the player description — the list is rebuilt against the new mask, which is what
-        // makes the click visible.
-        //
-        // **No `self.last = None` here.** The first version of this had one, on the reasoning that
-        // `update`'s snapshot guard would swallow a filter the wire has not echoed yet. Mutation
-        // testing found the line dead: the guard compares against `Self::filters`, which is the
-        // *local* copy this function just wrote, so the mask it sees has already changed. Deleting
-        // the line changed no test, which is how it was caught — and a line whose removal changes
-        // nothing is the defect this codebase keeps finding, so it is gone rather than kept
-        // "for safety".
-        self.update(ui, view);
-    }
-
-    /// The player module's spell filters as this panel sees it: the local copy once a
-    /// button has been clicked, and the wire's value until then.
-    #[must_use]
-    pub fn filters(&self, view: &dyn GameView) -> u32 {
-        self.filters.unwrap_or_else(|| view.spell_filters())
+        self.update_filtered(ui, view, new);
     }
 
     /// Thirteen state writes, each the button's own bit tested against the mask.
