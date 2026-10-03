@@ -70,7 +70,6 @@ impl Desktop {
         game: &dyn GameView,
         pointer: Option<(i32, i32)>,
         ready: bool,
-        equipment: Option<crate::panels::game::equipment_drop::EquipmentFacts>,
     ) {
         let dragged = match self.drag_payload {
             Some(DragPayload::Object(id)) | Some(DragPayload::Shortcut { object: id, .. }) => {
@@ -86,7 +85,7 @@ impl Desktop {
                 .map(|(x, y)| (x - window.x, y - window.y));
             window
                 .controls
-                .update_item_drop_preview(game, dragged, pointer, ready, 0, equipment);
+                .update_item_drop_preview(game, dragged, pointer, ready, 0);
             window.controls.update_slot_hint(pointer.filter(|_| spell));
         }
     }

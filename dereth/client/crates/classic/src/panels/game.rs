@@ -1,7 +1,6 @@
 //! The classic interface's character and item panels.
 mod appraisal;
 mod common;
-pub mod equipment_drop;
 mod examine;
 mod items;
 mod magic;
@@ -433,59 +432,58 @@ mod tests {
         });
     }
     #[test]
-    fn equipment_drop_preserves_the_source_location_mask() {
-        let world = World {
-            valid_locations: vec![(ObjectId(12), 0x8000), (ObjectId(13), 4)],
-            ..Default::default()
-        };
-        with_context(&world, |ctx| {
-            let mut p = make("inventory").unwrap();
-            assert_eq!(
-                p.event(
-                    ControlEvent::Drop {
-                        id: "equip:0".into(),
-                        payload: DragPayload::Object(ObjectId(12)),
-                        slot: 0
+    fn equipment_drop_resolves_the_destination_without_prechecking_the_item() {
+        with_context(&World::default(), |ctx| {
+            let mut panel = make("inventory").unwrap();
+            for (control, target) in [
+                (
+                    "equip:0",
+                    dereth_client_contract::view::DropTarget::EquipLocation {
+                        mask: 0x8000,
+                        side: 0,
                     },
-                    ctx
                 ),
-                vec![PanelAction::Host(HostAction::Equip {
-                    object: ObjectId(12),
-                    location: 0x8000,
-                    slot: 0
-                })]
-            );
-            assert!(p
-                .event(
-                    ControlEvent::Drop {
-                        id: "equip:0".into(),
-                        payload: DragPayload::Object(ObjectId(13)),
-                        slot: 0
+                (
+                    "equip:2",
+                    dereth_client_contract::view::DropTarget::EquipLocation {
+                        mask: 0x40000,
+                        side: 1,
                     },
-                    ctx
-                )
-                .is_empty());
-            assert_eq!(
-                p.event(
-                    ControlEvent::Drop {
-                        id: "paperdoll".into(),
-                        payload: DragPayload::Object(ObjectId(13)),
-                        slot: 0
-                    },
-                    ctx
                 ),
-                [PanelAction::Host(HostAction::Wear(ObjectId(13)))]
-            );
-            assert!(p
-                .event(
-                    ControlEvent::Drop {
-                        id: "paperdoll".into(),
-                        payload: DragPayload::Object(ObjectId(12)),
-                        slot: 0
+                (
+                    "equip:4",
+                    dereth_client_contract::view::DropTarget::EquipLocation {
+                        mask: 0x80000,
+                        side: 2,
                     },
-                    ctx
-                )
-                .is_empty());
+                ),
+                (
+                    "equip:5",
+                    dereth_client_contract::view::DropTarget::EquipLocation {
+                        mask: 0x03500000,
+                        side: 0,
+                    },
+                ),
+                (
+                    "paperdoll",
+                    dereth_client_contract::view::DropTarget::EquipCanvas,
+                ),
+            ] {
+                assert_eq!(
+                    panel.event(
+                        ControlEvent::Drop {
+                            id: control.into(),
+                            payload: DragPayload::Object(ObjectId(12)),
+                            slot: 0,
+                        },
+                        ctx
+                    ),
+                    vec![PanelAction::Game(UiRequest::DragDrop {
+                        item: ObjectId(12),
+                        target
+                    })]
+                );
+            }
         });
     }
     #[test]
@@ -768,27 +766,6 @@ mod tests {
                     from: Some(2)
                 })]
             );
-        });
-    }
-    #[test]
-    fn equipment_drop_rejects_the_object_already_retained_in_that_slot() {
-        let world = World {
-            equipment: vec![(ObjectId(12), 0x8000)],
-            valid_locations: vec![(ObjectId(12), 0x8000)],
-            ..Default::default()
-        };
-        let mut panel = make("inventory").unwrap();
-        with_context(&world, |ctx| {
-            assert!(panel
-                .event(
-                    ControlEvent::Drop {
-                        id: "equip:0".into(),
-                        payload: DragPayload::Object(ObjectId(12)),
-                        slot: 0
-                    },
-                    ctx
-                )
-                .is_empty());
         });
     }
     #[test]

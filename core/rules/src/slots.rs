@@ -263,9 +263,7 @@ pub const PAPERDOLL_REGIONS: [(u32, u32, SlotSide); 24] = [
 /// (which is the fork the paper doll's drop release makes between the slot accept
 /// and the body accept).
 ///
-/// **The side is the half that had no consumer.** `DropTarget::EquipSlot` carries only an element
-/// id, so without this the left and right wrist — and the left and right ring — are
-/// indistinguishable at the point the wield is decided.
+/// Interfaces resolve their equipment elements here before sending a location and side.
 #[must_use]
 pub fn location_info_from_element_id(element: u32) -> Option<(u32, SlotSide)> {
     PAPERDOLL_REGIONS

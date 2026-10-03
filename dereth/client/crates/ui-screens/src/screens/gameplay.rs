@@ -1789,7 +1789,7 @@ impl GamePlayScreen {
         }
         // `InventoryPanels::drop_target` is the paper doll panel's drop handling's
         // location-from-element-id fork: a drop on one of the doll's twenty-four slots is a
-        // `DropTarget::EquipSlot`, not a container move.
+        // `DropTarget::EquipLocation`, not a container move.
         // The client's is-container drop flag, read off the drag proxy exactly as the client reads
         // it — `owner` here is the source
         // slot's drag icon, which is the element
@@ -1864,7 +1864,7 @@ impl GamePlayScreen {
         // the waiting-state clear (0). Both halves of that exist on
         // the far side of this seam: the pick-up writes the object's flag
         // ([`UiRequest::SetItemWaiting`], the client), and `Interaction`'s `ItemListSlot` and
-        // `EquipSlot` arms already answer a model refusal with `set_waiting_state(item, false)`.
+        // equipment arms already answer a model refusal with `set_waiting_state(item, false)`.
         //
         // Clearing it here would be a **desync**, not a deviation that merely lost a frame: the
         // widget would say "not waiting" while the object said "waiting", and
@@ -2125,23 +2125,10 @@ impl GamePlayScreen {
     ) -> Option<UiRequest> {
         use crate::view::DropTarget;
         match target {
-            // A paper-doll slot is a wield location. This arm passes the element id through because
-            // the id is all `DropTarget::EquipSlot` carries and `InventoryPanels::location_of_slot`
-            // inverts it on the far side.
-            //
-            // What the far side still has to do, transcribed from the paper doll's drag-accept,
-            // whose whole body is: take the item's valid locations; if the slot mask is
-            // `0x00200000` and the item may go in `0x00100000`, also allow `0x00200000` and pick
-            // the left side; refuse (and un-ghost) when the mask and the valid locations share no
-            // bit; otherwise auto-wield (one bit) when `mask & 0x080001FF` is 0, else auto-wear
-            // (the whole mask).
-            //
-            // A **gate** on the slot's mask against the item's valid locations, and a fork between
-            // auto-wield (which picks a *single* free bit, `plan_auto_wield`) and auto-wear (which
-            // sends the whole mask, `auto_wear`). TODO: `dereth_client::interaction`'s arm does
-            // neither; it sends the valid locations unconditionally.
+            // The model applies equipment legality to the resolved destination.
             DropTarget::BackpackButton
-            | DropTarget::EquipSlot(_)
+            | DropTarget::EquipLocation { .. }
+            | DropTarget::EquipCanvas
             | DropTarget::World
             | DropTarget::Container(_) => Some(UiRequest::DragDrop { item, target }),
             // [`crate::panels::inventory::InventoryPanels::resolve_item_list_drop`] runs first and

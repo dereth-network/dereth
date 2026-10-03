@@ -87,6 +87,7 @@ pub struct ControlHost {
     size: (u32, u32),
     edit_click: Option<(NodeId, (i32, i32), std::time::Instant)>,
     item_feedback: Option<(String, usize, u32)>,
+    canvas_feedback: Option<(Rect, bool)>,
     /// The slot a dragged spell would land in, lit while the drag is over it.
     slot_hint: Option<Rect>,
     sounds: Vec<u32>,
@@ -214,6 +215,7 @@ impl ControlHost {
         self.choice = None;
         self.edit_click = None;
         self.item_feedback = None;
+        self.canvas_feedback = None;
         if let Some(id) = edit {
             events.push(ControlEvent::Commit { id });
         }
@@ -490,15 +492,22 @@ impl ControlHost {
         pointer: Option<(i32, i32)>,
         request_ready: bool,
         forced_mode: u32,
-        equipment: Option<crate::panels::game::equipment_drop::EquipmentFacts>,
     ) {
-        self.item_feedback = None;
+        let previous = self.item_feedback.take();
+        let previous_canvas = self.canvas_feedback.take();
         let (Some(dragged), Some((x, y))) = (dragged, pointer) else {
             return;
         };
         let Some(control) = self.control_at(x, y) else {
             return;
         };
+        if control.drop_equipment_canvas {
+            self.canvas_feedback = match g.equipment_hover(dragged).canvas {
+                Some(accept) => Some((control.rect, accept)),
+                None => previous_canvas.filter(|(rect, _)| *rect == control.rect),
+            };
+            return;
+        }
         let Some(index) = Self::item_slot(control, x, y) else {
             return;
         };
@@ -526,10 +535,15 @@ impl ControlHost {
             return;
         }
         if let Some(location) = control.drop_location {
-            if let Some(art) =
-                equipment.and_then(|facts| facts.hover(location, true, !control.enabled))
+            if let Some(art) = g
+                .equipment_hover(dragged)
+                .at_location(location)
+                .map(|accept| if accept { 0x060011f9 } else { 0x060011f8 })
             {
                 self.item_feedback = Some((control.id.clone(), index, art));
+            } else {
+                self.item_feedback =
+                    previous.filter(|(id, slot, _)| *id == control.id && *slot == index);
             }
             return;
         }
@@ -1104,6 +1118,17 @@ impl ControlHost {
     }
     pub fn draw(&self, frame: &PanelFrame) -> Screen {
         let mut out = frame.clone();
+        if let Some((r, accept)) = self.canvas_feedback {
+            let color = if accept { 0xff00ff00 } else { 0xffff0000 };
+            for edge in [
+                rect(r.x, r.y, r.w, 1),
+                rect(r.x, r.y + r.h - 1, r.w, 1),
+                rect(r.x, r.y, 1, r.h),
+                rect(r.x + r.w - 1, r.y, 1, r.h),
+            ] {
+                out.fill(edge, color);
+            }
+        }
         if let Some(r) = self.slot_hint {
             out.image_native(SLOT_HINT, r.x, r.y, r, true);
         }
@@ -1604,6 +1629,41 @@ fn skin_text(out: &mut PanelFrame, r: Rect, text: &str, font: &str, color: u32) 
 mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
+    #[test]
+    fn equipment_canvas_hint_keeps_unchanged_state_and_clears_on_leave() {
+        #[derive(Debug)]
+        struct View(Option<bool>);
+        impl dereth_client_contract::GameView for View {
+            fn equipment_hover(&self, _: ObjectId) -> dereth_client_contract::view::EquipmentHover {
+                dereth_client_contract::view::EquipmentHover {
+                    slot_mask: None,
+                    canvas: self.0,
+                }
+            }
+        }
+        let mut frame = PanelFrame::new(100, 200);
+        frame
+            .button("canvas", rect(0, 0, 80, 180), "", true)
+            .drop_equipment_canvas = true;
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        for accept in [true, false] {
+            host.update_item_drop_preview(
+                &View(Some(accept)),
+                Some(ObjectId(3)),
+                Some((10, 10)),
+                true,
+                0,
+            );
+            let expected = Some((rect(0, 0, 80, 180), accept));
+            assert_eq!(host.canvas_feedback, expected);
+            host.update_item_drop_preview(&View(None), Some(ObjectId(3)), Some((10, 10)), true, 0);
+            assert_eq!(host.canvas_feedback, expected);
+            assert_eq!(host.draw(&frame).commands.iter().filter(|c| matches!(c, Command::Fill { color, .. } if *color == if accept { 0xff00ff00 } else { 0xffff0000 })).count(), 4);
+            host.update_item_drop_preview(&View(None), Some(ObjectId(3)), None, true, 0);
+            assert_eq!(host.canvas_feedback, None);
+        }
+    }
     #[test]
     fn settings_slider_uses_seven_pixel_thumb_preserves_grab_and_sounds_on_release() {
         let mut frame = PanelFrame::new(150, 30);

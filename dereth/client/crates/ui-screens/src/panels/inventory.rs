@@ -443,32 +443,16 @@ pub use dereth_client_contract::panels::inventory::HERITAGE_GROUP_PROPERTY;
 /// melee | missile | held | two-handed — so a two-handed sword lands in the same slot a dagger
 /// does; the neck slot's test is on bit 15; and the clearing
 /// pass (item 0 into location `0x7FFFFFFF`) runs every arm at once.
-pub const PAPER_DOLL_SLOTS: [(u32, u32); 24] = [
-    (0x1000_01DA, 0x0000_8000), // neck
-    (0x1000_01DB, 0x0001_0000), // left wrist
-    (0x1000_01DC, 0x0004_0000), // left ring
-    (0x1000_01DD, 0x0002_0000), // right wrist
-    (0x1000_01DE, 0x0008_0000), // right ring
-    (0x1000_01DF, 0x0350_0000), // weapon (ready)
-    (0x1000_01E0, 0x0080_0000), // ammo (ready)
-    (0x1000_01E1, 0x0020_0000), // shield (ready)
-    (0x1000_01E2, 0x0000_0002), // shirt
-    (0x1000_01E3, 0x0000_0040), // pants
-    (0x1000_058E, 0x0400_0000), // trinket
-    (0x1000_0595, 0x1000_0000), // sigil 1
-    (0x1000_0596, 0x2000_0000), // sigil 2
-    (0x1000_0597, 0x4000_0000), // sigil 3
-    (0x1000_05AB, 0x0000_0001), // head
-    (0x1000_05AC, 0x0000_0200), // chest
-    (0x1000_05AD, 0x0000_0400), // abdomen
-    (0x1000_05AE, 0x0000_0800), // upper arm
-    (0x1000_05AF, 0x0000_1000), // lower arm
-    (0x1000_05B0, 0x0000_0020), // hand
-    (0x1000_05B1, 0x0000_2000), // upper leg
-    (0x1000_05B2, 0x0000_4000), // lower leg
-    (0x1000_05B3, 0x0000_0100), // foot
-    (0x1000_05E9, 0x0800_0000), // cloak
-];
+pub const PAPER_DOLL_SLOTS: [(u32, u32); 24] = {
+    let mut slots = [(0, 0); 24];
+    let mut i = 0;
+    while i < slots.len() {
+        let (element, mask, _) = dereth_rules::slots::PAPERDOLL_REGIONS[i];
+        slots[i] = (element, mask);
+        i += 1;
+    }
+    slots
+};
 
 /// The location mask the client clears the doll with, by putting item 0 into every location.
 pub const CLEAR_ALL_LOCATIONS: u32 = 0x7FFF_FFFF;
@@ -1344,10 +1328,14 @@ impl InventoryPanels {
                 let slot = usize::try_from(slot).ok()?;
                 w.item_at(slot).or(w.parent_container)
             }
-            DropTarget::EquipSlot(id) => self
+            DropTarget::EquipLocation { mask, side } => self
                 .doll
                 .iter()
-                .find(|(_, w)| w.element == id)
+                .find(|(location, w)| {
+                    *location == mask
+                        && dereth_rules::slots::location_info_from_element_id(w.element.0)
+                            .is_some_and(|(_, paired)| paired as u32 == side)
+                })
                 .and_then(|(_, w)| w.item_at(0)),
             DropTarget::Container(id) => Some(id),
             // The destination of an `ItemListSlot` is not a single object — the
@@ -1360,6 +1348,7 @@ impl InventoryPanels {
             DropTarget::BackpackButton
             | DropTarget::ShortcutSlot(_)
             | DropTarget::ShortcutAlias { .. }
+            | DropTarget::EquipCanvas
             | DropTarget::World => None,
         }
     }
@@ -1475,55 +1464,18 @@ impl InventoryPanels {
         None
     }
 
-    /// Where a drop on this element **lands** — the one producer of [`DropTarget::EquipSlot`].
-    ///
-    /// [`Self::locate`] answers every list it recognises the same way, a `(list, slot, object)`
-    /// triple, which its callers turn into a [`DropTarget::ItemList`]. But `lists()` chains the
-    /// twenty-four paper-doll widgets in with the grid and the two container strips, so a drag
-    /// released on a doll slot and resolved through the `ItemList` arm would name `item_at(slot)`
-    /// or the list's `parent_container` — the item already worn there, or the **player** — and
-    /// become a `PutItemInContainer` request, putting the item into a pack instead of onto the
-    /// body, silently.
-    ///
-    /// The client makes the same split one level up and by a different route: the doll's slots are
-    /// children of the paper-doll panel, whose drop-release handler looks up the location of the
-    /// element under the cursor. A location takes the slot-equip path; without one,
-    /// only the `0x100001D6` drag mask takes the automatic-wear path.
-    /// This screen has one flat map of item lists rather than two panels, so the same fork is the
-    /// same question asked of [`Self::location_of_slot`].
-    ///
-    /// # The canvas
-    ///
-    /// The drop-release handler's no-location arm compares the target's own element id
-    /// with `0x100001D6` before accepting the paper-doll drop. Other ids fall through.
-    ///
-    /// So the *only* non-slot element of the whole panel that accepts a drop is
-    /// [`PAPER_DOLL_DRAG_MASK`]; the viewport `0x100001D5`, the overlay `0x1000046D`, the *Slots*
-    /// checkbox and the panel background all fall to clearing the waiting state. This answers with
-    /// the mask's **own** element id, exactly as the client hands the same element id down both
-    /// arms and lets the location lookup on the far side pick which one runs.
-    ///
-    /// It is deliberately **not** gated on [`Self::slots_view`]: the client has no such gate
-    /// either, because `set_slot_view` hides the mask and
-    /// returns `None` for a hidden element before a drop target is ever named.
-    ///
-    /// **The consumer of this answer is the paper-doll drop acceptance,**
-    /// `dereth_client::interaction::Interaction::accept_paper_doll_drag_object`: an item whose
-    /// valid locations `& 0x08007FFF == 0` speaks [`CANNOT_PUT_THAT_ITEM_THERE`] and refuses;
-    /// everything else attempts automatic wear **loudly** (`quiet = 0`) with the item's whole
-    /// mask. The hint [`InventoryPanels::on_paper_doll_canvas_message`] paints is the same
-    /// predicate asked quietly, one gesture earlier.
-    ///
-    /// Returns `None` for an element that is none of this page's lists, which is the caller's
-    /// is-ancestor guard.
+    /// Resolve equipment widgets into locations and sides, keeping the figure canvas distinct.
     #[must_use]
     pub fn drop_target(&self, h: ElemHandle) -> Option<DropTarget> {
         if self.doll_drag_mask == Some(h) {
-            return Some(DropTarget::EquipSlot(PAPER_DOLL_DRAG_MASK));
+            return Some(DropTarget::EquipCanvas);
         }
         let (list, slot, _) = self.locate(h)?;
-        if Self::location_of_slot(list).is_some() {
-            return Some(DropTarget::EquipSlot(list));
+        if let Some((mask, side)) = dereth_rules::slots::location_info_from_element_id(list.0) {
+            return Some(DropTarget::EquipLocation {
+                mask,
+                side: side as u32,
+            });
         }
         Some(DropTarget::ItemList { list, slot })
     }
@@ -1633,15 +1585,10 @@ impl InventoryPanels {
         let Some(item) = info.item.filter(|_| info.is_inventory_move()) else {
             return true;
         };
-        let Some(mut valid) = view.item_valid_locations(item) else {
+        let Some(accept) = view.equipment_hover(item).at_location(location) else {
             return true;
         };
-        if location == crate::panels::inventory::paper_doll::SHIELD_LOC
-            && valid & crate::panels::inventory::paper_doll::MELEE_WEAPON_LOC != 0
-        {
-            valid |= crate::panels::inventory::paper_doll::SHIELD_LOC;
-        }
-        let s = if location & valid != 0 && view.auto_wield_is_legal(item) {
+        let s = if accept {
             drag_accept_state::ACCEPT
         } else {
             drag_accept_state::REFUSE
@@ -1667,7 +1614,7 @@ impl InventoryPanels {
     ///   handling runs.
     ///
     /// **The message is keyed on the mask and on nothing else** (both arms compare the source
-    /// against `0x100001d6`), which is the same element [`Self::drop_target`] already answers `EquipSlot` for and
+    /// against `0x100001d6`), which is the same element [`Self::drop_target`] already answers `EquipCanvas` for and
     /// the only non-slot child of the panel that accepts a drop at all. A `0x3E` on
     /// a doll *slot* falls through to [`Self::on_paper_doll_drag_over`]'s own handler.
     ///
@@ -1710,7 +1657,7 @@ impl InventoryPanels {
         let Some(item) = info.item.filter(|_| info.is_inventory_move()) else {
             return true;
         };
-        match view.auto_wear_is_legal(item) {
+        match view.equipment_hover(item).canvas {
             Some(true) => ui.set_state(overlay, paper_doll_drag_overlay::ACCEPT),
             Some(false) => ui.set_state(overlay, paper_doll_drag_overlay::REFUSE),
             // Already worn: the piece is already on the figure. Leave the state unchanged.

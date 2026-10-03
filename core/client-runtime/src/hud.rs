@@ -6759,24 +6759,8 @@ impl GameView for HudView<'_> {
             .map(|w| w.pwd.valid_locations.unwrap_or(0))
     }
 
-    /// Test whether auto-wielding `item` is legal, with quiet flag 1.
-    fn auto_wield_is_legal(&self, item: ObjectId) -> bool {
-        self.world.auto_wield_is_legal(item).is_ok()
-    }
-
-    /// Test whether auto-wearing `item` is legal, returning the already-worn flag and using
-    /// quiet flag 1 — the paper doll's whole-figure drop-accept overlay. Its other callers are the
-    /// auto-wear path's own drop path and `plan_auto_wield`, where the boolean turns into a
-    /// request or a chat line rather than a hint.
-    ///
-    /// `Err((_, true))` is the client's already-worn out-flag set to 1 — "this piece is already
-    /// being worn" — and answers it with silence, so it maps to `None` rather than to a refusal.
-    fn auto_wear_is_legal(&self, item: ObjectId) -> Option<bool> {
-        match self.world.auto_wear_is_legal(item) {
-            Ok(()) => Some(true),
-            Err((_, true)) => None,
-            Err((_, false)) => Some(false),
-        }
+    fn equipment_hover(&self, item: ObjectId) -> dereth_client_contract::view::EquipmentHover {
+        self.world.equipment_hover(item)
     }
 
     /// The client predicate, answered by

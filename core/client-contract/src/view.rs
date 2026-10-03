@@ -667,6 +667,31 @@ pub enum TargetMode {
     Examine,
 }
 
+/// Compact drag feedback shared by equipment slots and the figure canvas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EquipmentHover {
+    /// Accepted slot masks after the wield legality check; none leaves the hint unchanged.
+    pub slot_mask: Option<u32>,
+    /// Whether the canvas accepts; none leaves the hint unchanged.
+    pub canvas: Option<bool>,
+}
+
+impl Default for EquipmentHover {
+    fn default() -> Self {
+        Self {
+            slot_mask: None,
+            canvas: Some(false),
+        }
+    }
+}
+
+impl EquipmentHover {
+    #[must_use]
+    pub fn at_location(self, mask: u32) -> Option<bool> {
+        self.slot_mask.map(|accepted| accepted & mask != 0)
+    }
+}
+
 /// Where a dragged item was dropped: the item-list drag handler's destinations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropTarget {
@@ -702,18 +727,10 @@ pub enum DropTarget {
         /// in flight, which the slot-available test's `-1 < slot` refuses.
         from: i32,
     },
-    /// An element of the paper doll, identified by its element id: one of the
-    /// twenty-four equipment slots, or the drag mask `0x100001D6` over the figure itself.
-    ///
-    /// **The id, not a location, is what the client carries here too.** The paper doll's drop
-    /// handler hands the same element id to both of its arms and lets
-    /// the location lookup on the far side decide which runs —
-    /// the slot accept for a slot, the body accept for the
-    /// mask. The producer is
-    /// `crate::panels::inventory::InventoryPanels::drop_target`; the mask's consumer arm is
-    /// `dereth_client::interaction`'s `accept_drag_object`, which answers `false` for it and
-    /// un-ghosts.
-    EquipSlot(crate::ids::ElementId),
+    /// An equipment slot, resolved by the interface into its accepted mask and paired side.
+    EquipLocation { mask: u32, side: u32 },
+    /// The figure itself: wearing chooses from the item's whole location mask.
+    EquipCanvas,
     /// The world viewport, which forwards element message `0x15`.
     World,
     /// A container object.
@@ -3323,35 +3340,10 @@ pub trait GameView: std::fmt::Debug {
         None
     }
 
-    /// Quietly test whether the player may wield the item — the second test the
-    /// doll's drag handler makes, after the slot mask. The host
-    /// answers it with the game world's auto-wield legality query. Default false: a host with no
-    /// world refuses every wield rather than accepting every one.
-    fn auto_wield_is_legal(&self, _item: ObjectId) -> bool {
-        false
-    }
-
-    /// Quietly test whether the player may wear the item and return the conflicting worn item — the **three**
-    /// answers the paper doll's drag-over acts on.
-    ///
-    /// | this | the client | what the drag-over does |
-    /// |---|---|---|
-    /// | `Some(true)` | returned true | state `0x10000040` — accept |
-    /// | `Some(false)` | false, worn flag `0` | state `0x10000041` — refuse |
-    /// | `None` | false, worn flag `1` | **nothing at all** |
-    ///
-    /// The third row is a real branch and not a rounding of the second: the worn flag is written
-    /// at exactly one site, reached only when the item's priority clashes with the
-    /// player's clothing-priority mask **and** the item has a nonzero location on the player — i.e.
-    /// the piece being carried is already on the figure. The drag-over then skips the
-    /// refusal, so dragging a worn piece back over your own doll leaves the overlay untouched.
-    /// Sibling of [`Self::auto_wield_is_legal`], which is the *slots*' predicate and a different
-    /// function (wielding rather than wearing).
-    ///
-    /// Default `Some(false)`: a host with no world refuses rather than accepting, which is the
-    /// same choice [`Self::auto_wield_is_legal`] makes.
-    fn auto_wear_is_legal(&self, _item: ObjectId) -> Option<bool> {
-        Some(false)
+    /// Shared slot and canvas drag feedback. Missing slot objects and already-worn canvas
+    /// items leave the existing hint unchanged.
+    fn equipment_hover(&self, _item: ObjectId) -> EquipmentHover {
+        EquipmentHover::default()
     }
 
     /// The spell's is-untargeted test — the first of the two tests the spellcasting panel's

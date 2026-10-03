@@ -14714,7 +14714,8 @@ pub fn every_place_the_figure_is_filled_from_answers_a_drop_with_its_own_place()
                 continue;
             };
             every_one_agrees &= mask & worn_at != 0;
-            every_one_agrees &= inv.drop_target(w.handle) == Some(DropTarget::EquipSlot(w.element));
+            every_one_agrees &=
+                inv.drop_target(w.handle) == Some(equipment_destination(w.element.0));
             checked += 1;
         }
     }
@@ -14760,13 +14761,13 @@ pub fn every_place_on_the_figure_is_a_place_to_wear_and_no_cell_of_a_pack_is() {
     let mut places: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut every_place_wears = true;
     for (mask, w) in &inv.doll {
-        every_place_wears &= inv.drop_target(w.handle) == Some(DropTarget::EquipSlot(w.element));
+        every_place_wears &= inv.drop_target(w.handle) == Some(equipment_destination(w.element.0));
         every_place_wears &= InventoryPanels::location_of_slot(w.element) == Some(*mask);
         // The tile inside the place answers the same way, which is what matters: the handle a
         // real hit test returns is the tile and not the list around it.
         for s in &w.slots {
             every_place_wears &=
-                inv.drop_target(s.handle) == Some(DropTarget::EquipSlot(w.element));
+                inv.drop_target(s.handle) == Some(equipment_destination(w.element.0));
         }
         every_place_wears &= places.insert(w.element.0);
     }
@@ -14952,13 +14953,12 @@ pub fn the_picture_of_the_character_is_a_twenty_fifth_place_to_let_something_go(
     let mut every_place_takes_one = true;
     for (_, w) in &inv.doll {
         every_place_takes_one &=
-            inv.drop_target(w.handle) == Some(DropTarget::EquipSlot(w.element));
+            inv.drop_target(w.handle) == Some(equipment_destination(w.element.0));
         targets.insert(w.element.0);
     }
     let twenty_four_places = targets.len() == 24;
 
-    let the_picture_takes_one =
-        inv.drop_target(picture) == Some(DropTarget::EquipSlot(PAPER_DOLL_DRAG_MASK));
+    let the_picture_takes_one = inv.drop_target(picture) == Some(DropTarget::EquipCanvas);
     targets.insert(PAPER_DOLL_DRAG_MASK.0);
     let twenty_five_in_all = targets.len() == 25;
     let nothing_else_does = others.iter().all(|(_, h)| inv.drop_target(*h).is_none());
@@ -15017,8 +15017,7 @@ pub fn asking_for_the_grid_of_places_takes_the_picture_out_of_the_hit_test() {
         (
             !ui.node(picture).expect("alive").region.flags.visible,
             ui.hit_test_screen(x, y) != Some(picture),
-            screen.inventory.drop_target(picture)
-                == Some(DropTarget::EquipSlot(PAPER_DOLL_DRAG_MASK)),
+            screen.inventory.drop_target(picture) == Some(DropTarget::EquipCanvas),
         )
     };
 
@@ -22777,7 +22776,7 @@ mod equip {
         let before = c.outbound().len();
         c.when(Player::Ui(vec![UiRequest::DragDrop {
             item,
-            target: DropTarget::EquipSlot(ElementId(element)),
+            target: crate::inventory::equipment_destination(element),
         }]));
         c.outbound()[before..].to_vec()
     }
@@ -30434,7 +30433,7 @@ mod clicks {
                 .is_none()
         };
 
-        // The pack leaves the player -- dropped, given away or put inside something else.
+        // Editing list membership alone is not an ownership notification.
         {
             let w = &mut c.app_mut().objects_mut().world;
             if let Some(inv) = w.tables.inventories.get_mut(super::DRAG_PLAYER) {
@@ -30442,16 +30441,28 @@ mod clicks {
             }
         }
         c.tick(2);
-
-        let handed_back = {
-            let (_ui, screen) = super::parts(c.app_mut());
-            screen.inventory.open_container == Some(super::DRAG_PLAYER)
-        } && grid_contents(&mut c) == vec![super::DRAG_ITEM]
+        let silent_edit_keeps_open =
+            dereth_client_contract::GameView::open_inventory_container(&c.snapshot())
+                == Some(super::DRAG_PACK);
+        // The shard then says the open pack left the player.
+        c.world_mut().server_says_move_item(
+            super::DRAG_PACK,
+            ObjectId(0),
+            0,
+            ObjectId(0),
+            0,
+            true,
+            &mut dereth_client_model::RecordingSink::default(),
+        );
+        c.tick(2);
+        let handed_back = dereth_client_contract::GameView::open_inventory_container(&c.snapshot())
+            == Some(super::DRAG_PLAYER)
+            && grid_contents(&mut c) == vec![super::DRAG_ITEM]
             && framed(&mut c) == vec![super::DRAG_PLAYER];
 
         c.assert_behaviour(
             "inventory.pack.a-pack-that-leaves-the-player-hands-the-grid-back-to-the-players-own-things",
-            move |_| looking && main_pack_let_go && handed_back,
+            move |_| looking && main_pack_let_go && silent_edit_keeps_open && handed_back,
         );
         c.shutdown();
     }
@@ -31178,4 +31189,14 @@ fn the_make_shortcut_key_puts_the_selection_on_the_bar() {
     );
     clear_requests(c.ui_outbox());
     c.shutdown();
+}
+
+fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarget {
+    let (mask, side) =
+        dereth_client_model::inventory::slots::location_info_from_element_id(element)
+            .expect("equipment slot");
+    dereth_client_contract::view::DropTarget::EquipLocation {
+        mask,
+        side: side as u32,
+    }
 }

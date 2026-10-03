@@ -1,6 +1,6 @@
 //! The two identifier newtypes the contract carries.
 //!
-//! [`UiRequest`](crate::UiRequest) names both — `DropTarget::{ItemList, EquipSlot}` carry an
+//! [`UiRequest`](crate::UiRequest) names both — `DropTarget::ItemList` carry an
 //! [`ElementId`] and `UiRequest::QueueMode` carries a [`UiMode`] — so a contract crate that may
 //! not depend on `dereth-ui` has to own them. `dereth_ui::ElementId` and `dereth_ui::framework::UiMode`
 //! are `pub use`s of these, so every existing path still resolves.

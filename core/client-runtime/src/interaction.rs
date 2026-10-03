@@ -90,16 +90,6 @@ pub const CHANNEL_COMMAND_NEEDS_TEXT: &str = "You must specify the text you wish
 /// names itself at start-up through [`Interaction::client_build_id`].
 const CLIENT_BUILD_ID: &str = concat!("dereth-client", " ", env!("CARGO_PKG_VERSION"));
 
-/// The drop-release handler accepts element `0x100001D6`, the one element of the panel
-/// that is not a slot and still accepts a
-/// drop; see [`Interaction::accept_paper_doll_drag_object`].
-///
-/// Pinned as the client's own literal rather than read through
-/// `dereth_client_contract::panels::inventory::PAPER_DOLL_DRAG_MASK`, because a test on this file's side
-/// must be able to detect a wrong constant without going through the symbol that wrote it; the
-/// `#[test]` at the foot of this module asserts the two agree.
-const DOLL_DRAG_MASK: ElementId = ElementId(0x1000_01D6);
-
 const SQUELCH_QUERY_HEADER: &str =
     "(account) denotes a character whose account has also been squelched.\n\
 Format: Name : List of squelched message types.\n\
@@ -5471,16 +5461,22 @@ impl Interaction {
                     game.attempt_split_to_container(req, out, item, c, 0, amount, now, false)
                 }
             }
-            // A paper-doll slot is a wield location, and which one is
-            // the paper-doll slot-drop handler's to decide — see
-            // [`Self::accept_drag_object`]. It answers `false` for a refusal, which
-            // `handle_drop_release` turns into `set_waiting_state(0)`.
-            DropTarget::EquipSlot(element) => {
-                if !self.accept_drag_object(item, element, game, req, out, now) {
-                    self.stats.requests_refused += 1;
-                    // `weenie(id)->set_waiting_state(0)` — the icon un-ghosts and the
-                    // item stays where the player picked it up. Nothing is on the wire.
-                    game.set_waiting_state(item, false);
+            DropTarget::EquipLocation { .. } | DropTarget::EquipCanvas => {
+                use dereth_client_model::inventory::equip::EquipmentDropOutcome;
+                let outcome = match target {
+                    DropTarget::EquipLocation { mask, side } => {
+                        game.drop_equipment_at_location(req, out, item, mask, side, self.split, now)
+                    }
+                    _ => game.drop_equipment_on_canvas(req, out, item, self.split, now),
+                };
+                match outcome {
+                    EquipmentDropOutcome::Refused => {
+                        self.stats.requests_refused += 1;
+                        game.set_waiting_state(item, false);
+                    }
+                    EquipmentDropOutcome::Wield => self.stats.wields_requested += 1,
+                    EquipmentDropOutcome::Wear => self.stats.wears_requested += 1,
+                    EquipmentDropOutcome::Unblock => self.stats.unblocks_started += 1,
                 }
                 return;
             }
@@ -5610,205 +5606,6 @@ impl Interaction {
         if r.is_err() {
             self.stats.requests_refused += 1;
         }
-    }
-
-    /// Paper-doll slot-drop acceptance — nine lines, four decisions.
-    ///
-    /// It is not `attempt_wield` with the item's whole valid-locations mask for every one of the
-    /// twenty-four slots: this is the live path for every equip a player attempts, and each of
-    /// the four decisions is invisible from the screen when it is missing — the item
-    /// equips, just not where or how the player aimed.
-    ///
-    /// Retail refuses an unknown object. It takes the object's valid locations and, when the slot
-    /// is `0x200000` and the object may go at `0x100000`, also allows `0x200000` and sets the
-    /// side to left. It refuses when the slot is not among the valid locations or there is no
-    /// player system. A slot with none of the `0x080001FF` bits is an auto-wield on the side; any
-    /// other is an auto-wear.
-    ///
-    /// The four, in the order the function makes them:
-    ///
-    /// 1. **The off-hand.** `*loc` and `*side` are the element-id location lookup's two
-    ///    out-parameters, and `DropTarget::EquipSlot` carries only the element id, so the side
-    ///    comes from the lookup; without it the left and right wrist, and the left and right
-    ///    ring, could not be told apart. `dereth_client_model::inventory::slots::location_info_from_element_id`
-    ///    answers both. The shield slot is the one place the *client* invents a side: a melee
-    ///    weapon (`0x00100000`) released on the shield slot (`0x00200000`) is widened to pass the
-    ///    gate and marked as the left side, which is what `auto_wield`'s own rewrite
-    ///    then turns into an off-hand wield.
-    /// 2. **The gate.** `(*loc & valid) == 0` refuses the drop, and the caller un-ghosts. Without
-    ///    it a sword dropped on the head slot would be wielded in the hand: not refused, just
-    ///    silently somewhere the player did not aim.
-    /// 3. **The fork**, on the **slot's** mask and not the item's — `CLOTHING_LOC`, `0x080001FF`,
-    ///    which is only the nine clothing bits and the cloak. So the shirt and pants slots wear
-    ///    and everything else, armour included, wields. `auto_wear` sends the whole mask;
-    ///    `auto_wield` sends the one bit its own order picks against the inventory mask.
-    /// 4. **The split** stays in this module's split-size state because the wield attempt
-    ///    reads that state rather than taking an argument. The auto-wear command also
-    ///    honors the split size.
-    ///
-    /// Returns `accept_drag_object`'s own `bool`: `false` is a refusal, and `handle_drop_release`
-    /// answers it with `set_waiting_state(0)`.
-    fn accept_drag_object(
-        &mut self,
-        item: ObjectId,
-        element: ElementId,
-        game: &mut dereth_client_model::World,
-        req: &mut RecordingRequests,
-        out: &mut Notices,
-        now: ServerTime,
-    ) -> bool {
-        use dereth_client_model::inventory::slots::{loc, location_info_from_element_id, SlotSide};
-
-        // `handle_drop_release`'s *other* arm:
-        //
-        // A drop on a slot goes to the slot arm below; a drop on the figure element
-        // `0x100001D6` goes to the paper-doll accept; a refusal either way clears the item's
-        // waiting state.
-        //
-        // The element-to-location lookup has no case for `0x100001D6`, so the canvas is
-        // exactly the `None` this `let-else` takes; answering `false` for it would make a drop on
-        // the body do nothing.
-        if element == DOLL_DRAG_MASK {
-            return self.accept_paper_doll_drag_object(item, game, req, out, now);
-        }
-        let Some((mask, side)) = location_info_from_element_id(element.0) else {
-            return false;
-        };
-        let Some(w) = game.weenie(item) else {
-            return false;
-        };
-        let mut valid = w.pwd.valid_locations.unwrap_or(0);
-
-        // 1. The off-hand, **before** the gate — this is what lets it pass.
-        let side = if mask == loc::SHIELD && valid & loc::MELEE_WEAPON != 0 {
-            valid |= loc::SHIELD;
-            SlotSide::Left
-        } else {
-            side
-        };
-
-        // 2. The gate.
-        if mask & valid == 0 {
-            return false;
-        }
-
-        // 3. The fork.
-        if mask & loc::CLOTHING == 0 {
-            // Auto-wield with arguments `(id, side, 0, 1, 0, 0)` — and the fourth argument matters here.
-            //
-            // Every per-slot "You're already wearing …" message in `auto_wield` is guarded by
-            // the fourth argument being zero, and this call site passes **1**,
-            // so a doll drop onto an occupied slot shows **no** message. What it does instead is
-            // the tail, which is gated on the same argument: record
-            // the blocked id, blocked side and blocking id, bump the unblock attempt number, say
-            // "Moving <blocker> to your backpack" and unwield the blocker, retrying the wield when
-            // the server-says-move-item notice says it moved.
-            //
-            // That tail is built, so this is the whole function:
-            // the world's auto-wield operation. Its last argument, 0, is the
-            // player's aim — a ring dropped on the *left* ring slot does not wander to the right
-            // one, where auto-sort and the retry (last argument 1) both may.
-            let sent = game.auto_wield(req, out, item, side, false, true, false, self.split, now);
-            if sent {
-                // Auto-wield zeroes the unblock attempt number on entry and only its unblock tail
-                // sets it, so a non-zero value here means what went on the wire was
-                // the *blocker's* move. Reading it as "greater than before" miscounts a drop made
-                // while an earlier unblock was still in flight, where both are 1.
-                if game.unblock.unblock_attempt_num > 0 {
-                    // The wire carries the *blocker's* `0x0019`, not this item's `0x001A`; the
-                    // icon stays ghosted until the retry resolves it.
-                    self.stats.unblocks_started += 1;
-                } else {
-                    self.stats.wields_requested += 1;
-                }
-            }
-            sent
-        } else {
-            // `auto_wear(id, &worn, 0)` — the whole valid-locations mask, the server picks.
-            let ok = game
-                .auto_wear(req, out, item, self.split, now, false)
-                .is_ok();
-            if ok {
-                self.stats.wears_requested += 1;
-            }
-            ok
-        }
-    }
-
-    /// Paper-doll canvas acceptance — a drop on the
-    /// **figure itself** rather than on one of its twenty-four slots. The hover hint promises
-    /// it; this is the drop.
-    ///
-    /// Every branch was checked against retail. Unknown objects return false
-    /// silently. A zero intersection of the valid locations and wearable mask `0x08007FFF`
-    /// prints "You can't put that item there" unconditionally on channel `0x1A` and returns false.
-    /// Failure of inventory readiness with argument 0, or an absent player system, also returns
-    /// false. Otherwise initialize the worn output to zero and call auto-wear with the id read
-    /// from the object and `quiet = 0`, returning its boolean result.
-    ///
-    /// Four readings, and three of them are things a "just wear it" implementation would get
-    /// wrong:
-    ///
-    /// 1. **There is no slot and no side.** The whole point of the canvas arm is that the player
-    ///    aimed at nothing in particular; `auto_wear` is just two calls —
-    ///    `auto_wear_is_legal(id, &worn, quiet)` then, only if that passed and the object is
-    ///    known, the wield request with the object's own valid locations; it returns the
-    ///    legality answer —
-    ///    and it hands the **entire** valid-locations mask over, letting the shard pick. That
-    ///    is the world's attempt-wield request, which this build already had and which the *slot*
-    ///    arm's clothing fork above already calls.
-    /// 2. **`quiet = 0`**, the literal `push 0` at the drop call. The hover
-    ///    (`InventoryPanels::on_paper_doll_canvas_message`) passes `1` and is
-    ///    silent; the **drop** speaks. So `auto_wear_is_legal`'s two lines —
-    ///    `"The %s is already being worn"` and `"You must remove your %s to wear
-    ///    that"` — reach the player here and nowhere else on this path.
-    /// 3. **The unwearable refusal is a different message from a different check.**
-    ///    "You can't put that item there" is produced by the paper-doll handler
-    ///    before auto-wear. Its earlier mask check makes the later auto-wear
-    ///    wearable refusal unreachable on this path.
-    /// 4. **False clears ghosting silently, without a second message.** The caller
-    ///    clears waiting state for every refused drop, including this arm.
-    ///
-    /// The inventory-readiness test is not transcribed separately:
-    /// auto-wear -> `auto_wear_is_legal` makes the same call first thing
-    /// (`ready_for_inventory_request` is where this build keeps it), so the order
-    /// and the message are already retail's. Likewise a missing player system, which the host
-    /// never is.
-    ///
-    /// Returns `accept_paper_doll_drag_object`'s own `bool`.
-    fn accept_paper_doll_drag_object(
-        &mut self,
-        item: ObjectId,
-        game: &mut dereth_client_model::World,
-        req: &mut RecordingRequests,
-        out: &mut Notices,
-        now: ServerTime,
-    ) -> bool {
-        use dereth_client_model::inventory::slots::loc;
-        // An object the table does not know is refused in silence.
-        let Some(w) = game.weenie(item) else {
-            return false;
-        };
-        if w.pwd.valid_locations.unwrap_or(0) & loc::WEARABLE == 0 {
-            // The literal is `panels/inventory`'s, transcribed from the native refusal.
-            // `0x1A` is the feedback channel, as the literal the client
-            // pushes rather than through the symbol that holds it.
-            out.emit(dereth_client_model::Notice::DisplayString {
-                channel: 0x1A,
-                text: dereth_client_contract::panels::inventory::CANNOT_PUT_THAT_ITEM_THERE
-                    .to_owned(),
-            });
-            self.stats.requests_refused += 1;
-            return false;
-        }
-        // `auto_wear(id, &worn, 0)` — loud, whole mask, this module's splitter.
-        let ok = game
-            .auto_wear(req, out, item, self.split, now, false)
-            .is_ok();
-        if ok {
-            self.stats.wears_requested += 1;
-        }
-        ok
     }
 
     /// One selection case of the player-action handler.
@@ -11140,22 +10937,6 @@ mod tests {
         i.run_leave_target_mode();
         assert_eq!(i.target_mode(), TargetMode::None);
         assert!(!i.leave_target_mode);
-    }
-
-    /// The paper doll canvas is 0x100001d6 and is no slot.
-    #[test]
-    fn the_paper_doll_canvas_is_0x100001d6_and_is_no_slot() {
-        assert_eq!(DOLL_DRAG_MASK, ElementId(0x1000_01D6));
-        assert_eq!(
-            DOLL_DRAG_MASK,
-            dereth_client_contract::panels::inventory::PAPER_DOLL_DRAG_MASK,
-            "the panel that names the drop target and the file that resolves it must agree"
-        );
-        assert_eq!(
-            dereth_client_model::inventory::slots::location_info_from_element_id(DOLL_DRAG_MASK.0),
-            None,
-            "the element-id decoder has no case for the canvas -- that is why it needs its own arm"
-        );
     }
 
     /// The make-shortcut key on the selected object: the first empty slot takes it, with the

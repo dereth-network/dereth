@@ -581,7 +581,7 @@ fn space_id(kind: PreviewKind) -> Option<PreviewSpace> {
 /// The body parts a paper-doll click can hit; held objects occupy their own preview indices.
 pub fn equipment_mask(object_index: usize, part_index: i32) -> u32 {
     match object_index {
-        1 => 0x1500000,
+        1 => dereth_rules::slots::loc::WEAPON_READY_SLOT,
         2 => 0x200000,
         _ => match part_index {
             0 => 0x404,
@@ -731,7 +731,7 @@ mod tests {
         assert_eq!(equipment_mask(0, 16), 1);
         assert_eq!(equipment_mask(0, 0), 0x404);
         assert_eq!(equipment_mask(0, 12), equipment_mask(0, 15));
-        assert_eq!(equipment_mask(1, 16), 0x1500000);
+        assert_eq!(equipment_mask(1, 16), 0x03500000);
         assert_eq!(equipment_mask(2, 0), 0x200000);
         assert_eq!(equipment_mask(0, -1), 0);
     }

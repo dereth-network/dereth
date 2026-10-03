@@ -210,12 +210,6 @@ pub enum HostAction {
     ConfirmResolution(bool),
     CloseVendorForced,
     CloseGroundForced,
-    Wear(ObjectId),
-    Equip {
-        object: ObjectId,
-        location: u32,
-        slot: u32,
-    },
     SaveKeyMapAs {
         name: String,
     },
@@ -496,6 +490,7 @@ pub enum DropFilter {
 pub struct Control {
     pub silent: bool,
     pub drop_location: Option<u32>,
+    pub drop_equipment_canvas: bool,
     /// For an item strip that takes only some items, the rule its drag hints follow: an item it
     /// takes lights any slot as a place to drop, any other item as refused.
     pub drop_filter: Option<DropFilter>,
@@ -698,6 +693,7 @@ impl PanelFrame {
         self.controls.push(Control {
             silent: false,
             drop_location: None,
+            drop_equipment_canvas: false,
             drop_filter: None,
             choice_enabled: None,
             smooth_scroll: false,

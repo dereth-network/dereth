@@ -179,7 +179,112 @@ pub enum WieldPlan {
     NotWieldable,
 }
 
+/// The request produced by an equipment drop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EquipmentDropOutcome {
+    Refused,
+    Wield,
+    Wear,
+    Unblock,
+}
+
 impl World {
+    /// Quiet slot and canvas feedback, evaluated against the same inventory as equipment requests.
+    #[must_use]
+    pub fn equipment_hover(&self, item: ObjectId) -> dereth_client_contract::view::EquipmentHover {
+        let slot_mask = self.weenie(item).map(|w| {
+            if self.auto_wield_is_legal(item).is_err() {
+                return 0;
+            }
+            let valid = w.pwd.valid_locations.unwrap_or(0);
+            if valid & loc::MELEE_WEAPON != 0 {
+                valid | loc::SHIELD
+            } else {
+                valid
+            }
+        });
+        let canvas = match self.auto_wear_is_legal(item) {
+            Ok(()) => Some(true),
+            Err((_, true)) => None,
+            Err((_, false)) => Some(false),
+        };
+        dereth_client_contract::view::EquipmentHover { slot_mask, canvas }
+    }
+
+    /// Equip at the interface's resolved location. Clothing wears using the full item mask;
+    /// other slots wield on the requested side and may first move a blocker to the backpack.
+    #[allow(clippy::too_many_arguments)]
+    pub fn drop_equipment_at_location(
+        &mut self,
+        req: &mut dyn RequestSink,
+        out: &mut dyn NoticeSink,
+        item: ObjectId,
+        mask: u32,
+        side: u32,
+        split: SplitState,
+        now: ServerTime,
+    ) -> EquipmentDropOutcome {
+        let Some(w) = self.weenie(item) else {
+            return EquipmentDropOutcome::Refused;
+        };
+        let mut valid = w.pwd.valid_locations.unwrap_or(0);
+        let side = if mask == loc::SHIELD && valid & loc::MELEE_WEAPON != 0 {
+            valid |= loc::SHIELD;
+            SlotSide::Left
+        } else {
+            match side {
+                1 => SlotSide::Left,
+                2 => SlotSide::Right,
+                _ => SlotSide::Null,
+            }
+        };
+        if mask & valid == 0 {
+            return EquipmentDropOutcome::Refused;
+        }
+        if mask & loc::CLOTHING != 0 {
+            if self.auto_wear(req, out, item, split, now, false).is_ok() {
+                EquipmentDropOutcome::Wear
+            } else {
+                EquipmentDropOutcome::Refused
+            }
+        } else if self.auto_wield(req, out, item, side, false, true, false, split, now) {
+            if self.unblock.unblock_attempt_num > 0 {
+                EquipmentDropOutcome::Unblock
+            } else {
+                EquipmentDropOutcome::Wield
+            }
+        } else {
+            EquipmentDropOutcome::Refused
+        }
+    }
+
+    /// Drop on the figure itself, asking the server to choose from all wearable locations.
+    pub fn drop_equipment_on_canvas(
+        &mut self,
+        req: &mut dyn RequestSink,
+        out: &mut dyn NoticeSink,
+        item: ObjectId,
+        split: SplitState,
+        now: ServerTime,
+    ) -> EquipmentDropOutcome {
+        let Some(w) = self.weenie(item) else {
+            return EquipmentDropOutcome::Refused;
+        };
+        if w.pwd.valid_locations.unwrap_or(0) & loc::WEARABLE == 0 {
+            self.refuse(
+                out,
+                false,
+                dereth_client_contract::panels::inventory::CANNOT_PUT_THAT_ITEM_THERE,
+            );
+            return EquipmentDropOutcome::Refused;
+        }
+        if self.auto_wear(req, out, item, split, now, false).is_ok() {
+            EquipmentDropOutcome::Wear
+        } else {
+            EquipmentDropOutcome::Refused
+        }
+    }
+
     /// Check whether automatic wearing is legal and report whether the item is already worn:
     /// `(id, already_worn, quiet)`.
     ///

@@ -3709,7 +3709,6 @@ fn what_the_recording_says_he_wore() -> Vec<(ObjectId, u32)> {
 /// which is why what is asked for is required to be a **part** of the thing's own list rather
 /// than the whole of it.
 pub fn every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it() {
-    use dereth_client_contract::view::DropTarget;
     use dereth_ui_screens::panels::inventory::{InventoryPanels, PAPER_DOLL_SLOTS};
 
     let worn = what_the_recording_says_he_wore();
@@ -3766,7 +3765,7 @@ pub fn every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it
         let mark = c.outbound().len();
         c.when(Player::ui(UiRequest::DragDrop {
             item: *item,
-            target: DropTarget::EquipSlot(element),
+            target: equipment_destination(element.0),
         }));
         let sent: Vec<Request> = c.outbound()[mark..].to_vec();
 
@@ -3922,19 +3921,17 @@ fn let_go_on_the_picture(c: &mut HeadlessClient, item: ObjectId) -> Vec<Request>
     let mark = c.outbound().len();
     c.when(Player::ui(UiRequest::DragDrop {
         item,
-        target: DropTarget::EquipSlot(PAPER_DOLL_DRAG_MASK),
+        target: DropTarget::EquipCanvas,
     }));
     c.outbound()[mark..].to_vec()
 }
 
 /// Let `item` go on one of the figure's **places**, named by its own element.
 fn let_go_on_a_place(c: &mut HeadlessClient, item: ObjectId, element: u32) -> Vec<Request> {
-    use dereth_client_contract::view::DropTarget;
-
     let mark = c.outbound().len();
     c.when(Player::ui(UiRequest::DragDrop {
         item,
-        target: DropTarget::EquipSlot(dereth_ui::ElementId(element)),
+        target: equipment_destination(element),
     }));
     c.outbound()[mark..].to_vec()
 }
@@ -4352,4 +4349,14 @@ pub fn ground_container_contents_become_a_pickup() {
 #[test]
 fn scenario_ground_container_contents_become_a_pickup() {
     scenario("ground_container_contents_become_a_pickup");
+}
+
+fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarget {
+    let (mask, side) =
+        dereth_client_model::inventory::slots::location_info_from_element_id(element)
+            .expect("equipment slot");
+    dereth_client_contract::view::DropTarget::EquipLocation {
+        mask,
+        side: side as u32,
+    }
 }

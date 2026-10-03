@@ -1110,37 +1110,6 @@ impl ClassicUi {
                 );
                 crate::keyboard_runtime::sync_options(cx);
             }
-            HostAction::Wear(object) => ask(cx, UiRequest::AutoWear(object)),
-            HostAction::Equip {
-                object,
-                location,
-                slot,
-            } => {
-                let world = cx.model();
-                if world.ready_for_inventory_request(false).is_ok()
-                    && world.weenie(object).is_some_and(|w| {
-                        w.pwd
-                            .wielder_id
-                            .is_none_or(|owner| owner.0 == 0 || Some(owner) == world.player)
-                    })
-                {
-                    use crate::panels::game::equipment_drop::{refusal_message, EquipmentFacts};
-                    if let Err(reason) = EquipmentFacts::from_world(world, object).result(location)
-                    {
-                        if let Some(text) = refusal_message(world, object, reason) {
-                            cx.add_scroll_line(&text, 0x1a);
-                        }
-                        return Ok(());
-                    }
-                }
-                ask(
-                    cx,
-                    UiRequest::AutoWield {
-                        item: object,
-                        side: slot,
-                    },
-                );
-            }
             HostAction::AllegianceSend { action, target } => {
                 use dereth_client_contract::view::AllegianceAction;
                 let name = cx
@@ -2492,18 +2461,12 @@ impl ClassicUi {
                     .collect(),
             );
         }
-        let equipment = match self.desktop.drag_payload {
-            Some(DragPayload::Object(id)) | Some(DragPayload::Shortcut { object: id, .. }) => Some(
-                crate::panels::game::equipment_drop::EquipmentFacts::from_world(cx.model(), id),
-            ),
-            _ => None,
-        };
         let idle = cx.model().request_lock.is_idle() && !cx.model().combat.attack_in_progress;
         let cursor = cx
             .last_cursor()
             .map(|(x, y)| (to_i32_f64(x), to_i32_f64(y)));
         self.desktop
-            .update_drag_preview(&cx.hud().view(cx.objects()), cursor, idle, equipment);
+            .update_drag_preview(&cx.hud().view(cx.objects()), cursor, idle);
         self.screen = self.desktop.screen();
         if self.last_in_world {
             self.screen.commands.extend(self.overlay.commands_at(

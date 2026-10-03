@@ -319,3 +319,268 @@ fn removing_a_character_squelch_keeps_the_name_literal() {
         character_squelch_from_panel(name, false);
     }
 }
+
+fn equipment_world(mask: u32) -> dereth_client_model::World {
+    let mut world = inventory_world();
+    let item = world.tables.weenies.get_mut(ObjectId(3)).unwrap();
+    item.pwd.name = "Shirt".into();
+    item.pwd.valid_locations = Some(mask);
+    item.pwd.priority = Some(4);
+    world
+}
+
+fn equipment_drop(
+    world: &mut dereth_client_model::World,
+    control: &str,
+) -> dereth_client_runtime::interaction::Interaction {
+    use dereth_classic_ui::panels::DragPayload;
+    use dereth_client_runtime::{hud::Hud, interaction::Interaction};
+    let hud = Hud::new();
+    let view = dereth_client_runtime::hud::HudView { hud: &hud, world };
+    let context = Context {
+        game: &view,
+        pregame: &Default::default(),
+        keyboard: &Default::default(),
+        settings: &Default::default(),
+        classic: &Default::default(),
+        map_teleport_allowed: false,
+    };
+    let mut panel = dereth_classic_ui::panels::game::make("inventory").unwrap();
+    let actions = panel.event(
+        ControlEvent::Drop {
+            id: control.into(),
+            payload: DragPayload::Object(ObjectId(3)),
+            slot: 0,
+        },
+        &context,
+    );
+    assert_eq!(actions.len(), 1);
+    let requests = actions
+        .into_iter()
+        .map(|action| match action {
+            PanelAction::Game(request) => request,
+            _ => panic!("equipment is a shared game request"),
+        })
+        .collect();
+    let mut interaction = Interaction::new();
+    world.set_waiting_state(ObjectId(3), true);
+    interaction.queue(Vec::new(), requests);
+    assert!(interaction
+        .run_ui_requests(world, false, dereth_primitives::ServerTime(1.0))
+        .is_empty());
+    interaction
+}
+
+/// Behaviour: inventory.equip.a-weapon-let-go-on-the-shield-place-is-taken-into-the-off-hand
+#[test]
+fn classic_equipment_preserves_pairs_offhand_and_later_locations() {
+    use dereth_client_model::Request;
+    for (control, valid, expected) in [
+        ("equip:1", 0x30000, 0x10000),
+        ("equip:3", 0x30000, 0x20000),
+        ("equip:2", 0xc0000, 0x40000),
+        ("equip:4", 0xc0000, 0x80000),
+        ("equip:5", 0x100000, 0x100000),
+        ("equip:7", 0x100000, 0x200000),
+        ("equip:5", 0x2000000, 0x2000000),
+        ("equip:10", 0x8000000, 0x8000000),
+        ("equip:11", 0x4000000, 0x4000000),
+        ("equip:12", 0x10000000, 0x10000000),
+        ("equip:13", 0x20000000, 0x20000000),
+        ("equip:14", 0x40000000, 0x40000000),
+    ] {
+        let mut world = equipment_world(valid);
+        let interaction = equipment_drop(&mut world, control);
+        let [Request::GetAndWieldItem(message)] = interaction.pending_requests() else {
+            panic!(
+                "{control} with {valid:#x} sends one wield: {:?}",
+                interaction.pending_requests()
+            );
+        };
+        assert_eq!((message.item, message.slot), (ObjectId(3), expected));
+        assert_eq!(interaction.stats.requests_refused, 0);
+    }
+}
+
+/// Behaviour: inventory.body.something-that-could-be-worn-or-wielded-is-still-worn-on-the-picture
+#[test]
+fn classic_clothing_and_canvas_send_the_whole_mask_but_other_slots_choose_one() {
+    use dereth_client_model::Request;
+    for (control, valid, expected, wear) in [
+        ("equip:8", 0x1e, 0x1e, true),
+        ("paperdoll", 0x200 | 0x100000, 0x200 | 0x100000, true),
+        ("equip:5", 0x200 | 0x100000, 0x200, false),
+    ] {
+        let interaction = equipment_drop(&mut equipment_world(valid), control);
+        let [Request::GetAndWieldItem(message)] = interaction.pending_requests() else {
+            panic!("one wield")
+        };
+        assert_eq!(message.slot, expected);
+        assert_eq!(interaction.stats.wears_requested, u64::from(wear));
+        assert_eq!(interaction.stats.wields_requested, u64::from(!wear));
+    }
+}
+
+/// Behaviour: inventory.equip.a-place-the-thing-cannot-go-in-refuses-it-and-a-place-it-can-takes-it
+#[test]
+fn classic_wrong_slot_is_silent_but_unwearable_canvas_speaks_once() {
+    for (control, expected) in [
+        ("equip:0", None),
+        ("paperdoll", Some("You can't put that item there")),
+    ] {
+        let mut world = equipment_world(0x100000);
+        let interaction = equipment_drop(&mut world, control);
+        assert!(interaction.pending_requests().is_empty());
+        assert_eq!(interaction.stats.requests_refused, 1);
+        assert_eq!(interaction.last_refusal.as_deref(), expected);
+        assert!(!world.weenie(ObjectId(3)).unwrap().waiting);
+    }
+}
+
+/// Behaviour: inventory.equip.a-shield-is-refused-in-words-while-a-weapon-for-both-hands-is-held
+#[test]
+fn classic_shield_hover_and_drop_refuse_a_two_handed_weapon() {
+    use dereth_client_contract::{snapshot::GameSnapshot, GameView};
+    let mut world = equipment_world(0x200000);
+    let ready = world.tables.weenies.get_mut(ObjectId(4)).unwrap();
+    ready.pwd.name = "Spadone".into();
+    ready.pwd.combat_use = Some(5);
+    world.inv_slots.set(0x2000000, ObjectId(4));
+    let hud = dereth_client_runtime::hud::Hud::new();
+    let view = dereth_client_runtime::hud::HudView {
+        hud: &hud,
+        world: &world,
+    };
+    let snapshot = GameSnapshot::from_view(&view);
+    assert_eq!(
+        view.equipment_hover(ObjectId(3)).at_location(0x200000),
+        Some(false)
+    );
+    assert_eq!(
+        snapshot.equipment_hover(ObjectId(3)),
+        view.equipment_hover(ObjectId(3))
+    );
+    let interaction = equipment_drop(&mut world, "equip:7");
+    assert!(interaction.pending_requests().is_empty());
+    assert_eq!(interaction.stats.requests_refused, 1);
+    assert_eq!(
+        interaction.last_refusal.as_deref(),
+        Some("A shield may not be worn with the Spadone")
+    );
+}
+
+/// Behaviour: inventory.body.something-already-worn-is-told-so-when-it-is-dropped
+#[test]
+fn classic_worn_clothing_speaks_but_a_worn_ring_refuses_silently() {
+    for (control, mask, expected) in [
+        ("equip:8", 2, Some("The Shirt is already being worn")),
+        ("paperdoll", 2, Some("The Shirt is already being worn")),
+        ("equip:2", 0x40000, None),
+    ] {
+        let mut world = equipment_world(mask);
+        let item = world.tables.weenies.get_mut(ObjectId(3)).unwrap();
+        item.pwd.location = Some(mask);
+        item.pwd.wielder_id = world.player;
+        world.inventory_mask = mask;
+        world.clothing_priority_mask = 4;
+        world
+            .inventory_mut(ObjectId(1))
+            .unwrap()
+            .set_placement(ObjectId(3), mask, 4);
+        world.inv_slots.set(mask, ObjectId(3));
+        let interaction = equipment_drop(&mut world, control);
+        assert!(interaction.pending_requests().is_empty());
+        assert_eq!(interaction.stats.requests_refused, 1);
+        assert_eq!(interaction.last_refusal.as_deref(), expected);
+    }
+}
+
+/// Behaviour: inventory.drag-hint.a-body-slot-shows-whether-it-could-take-what-is-carried
+#[test]
+fn equipment_hover_snapshot_preserves_offhand_refusal_and_unchanged_states() {
+    use dereth_client_contract::{snapshot::GameSnapshot, GameView};
+    use dereth_client_runtime::hud::Hud;
+    let hud = Hud::new();
+    let mut world = equipment_world(0x100000);
+    for (mask, worn, expected_slot, expected_canvas) in [
+        (0x100000, false, Some(true), Some(false)),
+        (0, false, Some(false), Some(false)),
+        (2, false, Some(false), Some(true)),
+        (2, true, Some(false), None),
+    ] {
+        let item = world.tables.weenies.get_mut(ObjectId(3)).unwrap();
+        item.pwd.valid_locations = Some(mask);
+        item.pwd.location = worn.then_some(mask);
+        item.pwd.wielder_id = worn.then_some(ObjectId(1));
+        world.clothing_priority_mask = if worn { 4 } else { 0 };
+        world.inventory_mut(ObjectId(1)).unwrap().set_placement(
+            ObjectId(3),
+            if worn { mask } else { 0 },
+            4,
+        );
+        let view = dereth_client_runtime::hud::HudView {
+            hud: &hud,
+            world: &world,
+        };
+        let snapshot = GameSnapshot::from_view(&view);
+        for source in [&view as &dyn GameView, &snapshot] {
+            let hover = source.equipment_hover(ObjectId(3));
+            assert_eq!(hover.at_location(0x200000), expected_slot);
+            assert_eq!(hover.canvas, expected_canvas);
+            assert_eq!(source.equipment_hover(ObjectId(999)).at_location(2), None);
+        }
+    }
+    let mut world = equipment_world(0x01000002);
+    world.combat.combat_mode = dereth_client_model::combat::CombatMode::Melee;
+    let view = dereth_client_runtime::hud::HudView {
+        hud: &hud,
+        world: &world,
+    };
+    let snapshot = GameSnapshot::from_view(&view);
+    for source in [&view as &dyn GameView, &snapshot] {
+        assert_eq!(
+            source.equipment_hover(ObjectId(3)).at_location(2),
+            Some(false)
+        );
+        assert_eq!(source.equipment_hover(ObjectId(3)).canvas, Some(true));
+    }
+}
+
+/// Behaviour: inventory.body.every-place-on-the-figure-is-a-place-to-wear-and-no-cell-of-a-pack-is
+#[test]
+fn classic_ready_slot_displays_a_confirmed_two_handed_weapon() {
+    use dereth_classic_ui::panels::ControlKind;
+    let mut world = equipment_world(0x02000000);
+    world.server_says_move_item(
+        ObjectId(3),
+        ObjectId(0),
+        0,
+        ObjectId(1),
+        0x02000000,
+        true,
+        &mut dereth_client_model::RecordingSink::default(),
+    );
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
+    objects.world = world;
+    let mut hud = dereth_client_runtime::hud::Hud::new();
+    hud.sync(&objects, None);
+    let view = hud.view(&objects);
+    let context = Context {
+        game: &view,
+        pregame: &Default::default(),
+        keyboard: &Default::default(),
+        settings: &Default::default(),
+        classic: &Default::default(),
+        map_teleport_allowed: false,
+    };
+    let panel = dereth_classic_ui::panels::game::make("inventory").unwrap();
+    let frame = panel.frame(&context);
+    let ready = frame.controls.iter().find(|c| c.id == "equip:5").unwrap();
+    let ControlKind::Items { entries, .. } = &ready.kind else {
+        panic!("ready slot")
+    };
+    assert_eq!(
+        entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+        vec![ObjectId(3)]
+    );
+}

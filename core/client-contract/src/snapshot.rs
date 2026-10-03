@@ -127,10 +127,8 @@ pub struct ObjectSnapshot {
     pub trade_drag_item_acceptable: bool,
     /// [`GameView::item_valid_locations`].
     pub item_valid_locations: Option<u32>,
-    /// [`GameView::auto_wield_is_legal`].
-    pub auto_wield_is_legal: bool,
-    /// [`GameView::auto_wear_is_legal`].
-    pub auto_wear_is_legal: Option<bool>,
+    /// Shared equipment drag feedback.
+    pub equipment_hover: crate::view::EquipmentHover,
     /// [`GameView::item_useable_self_target`].
     pub item_useable_self_target: bool,
     /// [`GameView::item_target_compatible`].
@@ -442,8 +440,7 @@ impl GameSnapshot {
                     vendor_drag_item_accepted: view.vendor_drag_item_accepted(id),
                     trade_drag_item_acceptable: view.trade_drag_item_acceptable(id),
                     item_valid_locations: view.item_valid_locations(id),
-                    auto_wield_is_legal: view.auto_wield_is_legal(id),
-                    auto_wear_is_legal: view.auto_wear_is_legal(id),
+                    equipment_hover: view.equipment_hover(id),
                     item_useable_self_target: view.item_useable_self_target(id),
                     item_target_compatible: view.item_target_compatible(id),
                     allegiance_has_member: view.allegiance_has_member(id),
@@ -891,11 +888,9 @@ impl GameView for GameSnapshot {
     fn item_valid_locations(&self, item: ObjectId) -> Option<u32> {
         self.object(item)?.item_valid_locations
     }
-    fn auto_wield_is_legal(&self, item: ObjectId) -> bool {
-        self.object(item).is_some_and(|o| o.auto_wield_is_legal)
-    }
-    fn auto_wear_is_legal(&self, item: ObjectId) -> Option<bool> {
-        self.object(item)?.auto_wear_is_legal
+    fn equipment_hover(&self, item: ObjectId) -> crate::view::EquipmentHover {
+        self.object(item)
+            .map_or_else(Default::default, |o| o.equipment_hover)
     }
     fn spell_is_untargeted(&self, spell_id: u32) -> bool {
         self.spells.get(&spell_id).is_some_and(|s| s.untargeted)

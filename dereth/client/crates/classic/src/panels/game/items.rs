@@ -4,29 +4,30 @@ use super::common::*;
 use crate::int::{i32_from, u32_from};
 use dereth_client_contract::view::DropTarget;
 use dereth_primitives::num::to_i32;
+use dereth_rules::slots::loc;
 
 const EQUIPMENT: [(i32, i32, u32, u32, usize); 10] = [
-    (27, 33, 0x06000f68, 0x8000, 0),
-    (156, 118, 0x06000f6a, 0x10000, 1),
-    (156, 151, 0x06000f6b, 0x40000, 1),
-    (13, 118, 0x06000f5d, 0x20000, 2),
-    (13, 151, 0x06000f5a, 0x80000, 2),
-    (138, 202, 0x06000f66, 0x1500000, 0),
-    (172, 202, 0x06000f5e, 0x800000, 0),
-    (13, 202, 0x06000f6c, 0x200000, 0),
-    (190, 118, 0x060032c5, 2, 0),
-    (190, 151, 0x060032c4, 0x40, 0),
+    (27, 33, 0x06000f68, loc::NECK_WEAR, 0),
+    (156, 118, 0x06000f6a, loc::WRIST_WEAR_LEFT, 1),
+    (156, 151, 0x06000f6b, loc::FINGER_WEAR_LEFT, 1),
+    (13, 118, 0x06000f5d, loc::WRIST_WEAR_RIGHT, 2),
+    (13, 151, 0x06000f5a, loc::FINGER_WEAR_RIGHT, 2),
+    (138, 202, 0x06000f66, loc::WEAPON_READY_SLOT, 0),
+    (172, 202, 0x06000f5e, loc::MISSILE_AMMO, 0),
+    (13, 202, 0x06000f6c, loc::SHIELD, 0),
+    (190, 118, 0x060032c5, loc::CHEST_WEAR, 0),
+    (190, 151, 0x060032c4, loc::UPPER_LEG_WEAR, 0),
 ];
 /// The slots a world after the classic interface adds to the paper doll, where the doll leaves
 /// room: the cloak and the trinket on the bottom row, the three aetheria sigils beside the head.
 /// The classic portal has no art for them, so each wears a slot composed from its own pieces in
 /// the classic slots' style: a bevelled frame with a garment's, a flask's or a crystal's outline.
 const LATER_EQUIPMENT: [(i32, i32, u32, u32, usize); 5] = [
-    (55, 202, crate::composed::CLOAK_SLOT, 0x0800_0000, 0),
-    (97, 202, crate::composed::TRINKET_SLOT, 0x0400_0000, 0),
-    (156, 33, crate::composed::SIGIL_SLOT, 0x1000_0000, 0),
-    (156, 66, crate::composed::SIGIL_SLOT, 0x2000_0000, 0),
-    (13, 66, crate::composed::SIGIL_SLOT, 0x4000_0000, 0),
+    (55, 202, crate::composed::CLOAK_SLOT, loc::CLOAK, 0),
+    (97, 202, crate::composed::TRINKET_SLOT, loc::TRINKET_ONE, 0),
+    (156, 33, crate::composed::SIGIL_SLOT, loc::SIGIL_ONE, 0),
+    (156, 66, crate::composed::SIGIL_SLOT, loc::SIGIL_TWO, 0),
+    (13, 66, crate::composed::SIGIL_SLOT, loc::SIGIL_THREE, 0),
 ];
 
 /// The paper doll's slots on this world: the classic ones, then the cloak, the trinket and the
@@ -38,8 +39,8 @@ fn equipment_slots(game: &dyn GameView) -> Vec<(i32, i32, u32, u32, usize)> {
     let mut slots = EQUIPMENT.to_vec();
     for slot in LATER_EQUIPMENT {
         let wanted = match slot.3 {
-            0x0800_0000 => has(|f| f.cloaks),
-            0x0400_0000 => has(|f| f.trinkets),
+            loc::CLOAK => has(|f| f.cloaks),
+            loc::TRINKET_ONE => has(|f| f.trinkets),
             _ => has(|f| f.aetheria),
         };
         if wanted {
@@ -274,7 +275,9 @@ impl Panel for Inventory {
             object: g.player(),
             appearance: None,
         });
-        f.button("paperdoll", rect(59, 23, 80, 212), "", true).paint = false;
+        let canvas = f.button("paperdoll", rect(59, 23, 80, 212), "", true);
+        canvas.paint = false;
+        canvas.drop_equipment_canvas = true;
         if let Some(player) = g.player() {
             for (i, (x, y, did, mask, _slot)) in equipment_slots(g).iter().enumerate() {
                 let equipped = g
@@ -543,39 +546,22 @@ impl Panel for Inventory {
                 slot,
             } => {
                 if id == "paperdoll" {
-                    if g.item_valid_locations(item)
-                        .filter(|location| location & 0x7fff != 0)
-                        .is_some()
-                    {
-                        return vec![PanelAction::Host(HostAction::Wear(item))];
-                    }
-                    return vec![];
+                    return vec![PanelAction::Game(UiRequest::DragDrop {
+                        item,
+                        target: DropTarget::EquipCanvas,
+                    })];
                 }
                 if let Some(index) = id
                     .strip_prefix("equip:")
                     .and_then(|s| s.parse::<usize>().ok())
                 {
-                    if let Some((_, _, _, location, slot)) = equipment_slots(g).get(index).copied()
-                    {
-                        // Dropping the held object back on its own slot is refused.
-                        if g.player().is_some_and(|player| {
-                            g.equipment(player)
-                                .iter()
-                                .find(|(_, mask)| mask & location != 0)
-                                .is_some_and(|(equipped, _)| *equipped == item)
-                        }) {
-                            return vec![];
-                        }
-                        if !g
-                            .item_valid_locations(item)
-                            .is_some_and(|valid| valid & location != 0)
-                        {
-                            return vec![];
-                        }
-                        return vec![PanelAction::Host(HostAction::Equip {
-                            object: item,
-                            location,
-                            slot: u32_from(slot),
+                    if let Some((_, _, _, mask, side)) = equipment_slots(g).get(index).copied() {
+                        return vec![PanelAction::Game(UiRequest::DragDrop {
+                            item,
+                            target: DropTarget::EquipLocation {
+                                mask,
+                                side: u32_from(side),
+                            },
                         })];
                     }
                 }
