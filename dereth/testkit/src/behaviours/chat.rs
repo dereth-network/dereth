@@ -345,9 +345,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "chat.filters.the-global-channels-are-rows-of-that-list-and-are-drawn",
         says: "The channels everybody can talk on -- general, trade, looking for a group, \
                roleplaying and the society one -- are rows of that same list rather than a separate \
-               page or a set the shard sends, and they are drawn on the screen: four of them as soon \
-               as the tab comes up and the fifth by scrolling to it, along with the rest of the list \
-               below.",
+               page or a set the shard sends, and they are drawn on the screen: the first of them \
+               as soon as the tab comes up and the others by scrolling to them, along with the \
+               rest of the list below.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-63-CHANNELS"),
         station: "dereth-testkit::dat::chat::scenario_the_global_channels_are_rows_of_that_list_and_are_drawn",

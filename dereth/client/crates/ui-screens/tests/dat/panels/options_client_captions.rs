@@ -87,9 +87,10 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     let rows: Vec<ElemHandle> = p.option_box.as_ref().expect("option box").items.clone();
     assert_eq!(
         rows.len(),
-        41,
-        "26 retail control rows, this client's 3 rows from another era, its interface, \
-         performance and landscape detail rows, 5 headers and 4 separators"
+        39,
+        "24 retail control rows (the chat font's two are the Chat Options page's), this \
+         client's 3 rows from another era, its interface, performance and landscape detail \
+         rows, 5 headers and 4 separators"
     );
     let mut captioned = 0;
     let mut blank: Vec<usize> = Vec::new();
@@ -108,7 +109,7 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
         }
     }
     assert_eq!(
-        captioned, 26,
+        captioned, 24,
         "rows with a caption; blank rows at {blank:?}"
     );
 
@@ -522,10 +523,11 @@ fn the_page_under_test_is_the_shipped_one() {
         })
         .expect("configuration panel");
     let built = page::config_post_init(&mut ui, page).expect("the config page's post-init");
-    assert_eq!(built.retail_options().count(), 29);
+    // The chat font's two rows are the Chat Options page's, which a page built alone lacks.
+    assert_eq!(built.retail_options().count(), 27);
     assert_eq!(
         built.retail_options().filter(|o| o.label.is_some()).count(),
-        26
+        24
     );
     assert_eq!(built.landscape_options().count(), 3);
     assert_eq!(built.header_captions, 5);

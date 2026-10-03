@@ -4019,15 +4019,11 @@ pub fn the_global_channels_are_rows_of_that_list_and_are_drawn() {
     let mut c = a_client_on_the_chat_options_tab(&mut hand);
 
     let at_rest = drawn_runs(&mut c);
-    // Four of the five are on screen the moment the tab comes up; the fifth is the last box of
-    // the main window's list and sits just below what the page shows at rest.
+    // The first two are on screen the moment the tab comes up (the chat font's two rows above
+    // the list push the others down); the rest are the last boxes of the main window's list and
+    // sit just below what the page shows at rest.
     let mut drawn = true;
-    for caption in [
-        "General Channel",
-        "Trade Channel",
-        "LFG Channel",
-        "Roleplay Channel",
-    ] {
+    for caption in ["General Channel", "Trade Channel"] {
         assert!(
             at_rest.iter().any(|s| s == caption),
             "{caption:?} is not drawn: {at_rest:?}"
@@ -4052,7 +4048,13 @@ pub fn the_global_channels_are_rows_of_that_list_and_are_drawn() {
     c.tick(1);
     let scrolled = drawn_runs(&mut c);
     let mut reachable = true;
-    for caption in ["Society Channel", "Errors", "Gameplay"] {
+    for caption in [
+        "LFG Channel",
+        "Roleplay Channel",
+        "Society Channel",
+        "Errors",
+        "Gameplay",
+    ] {
         assert!(
             scrolled.iter().any(|s| s == caption),
             "{caption:?} is not reachable by scrolling: {scrolled:?}"
@@ -4295,10 +4297,11 @@ pub fn changing_the_chat_font_size_remeasures_the_backlog() {
         && dereth_ui_screens::options::store::inq_value("UI.ChatFontSize")
             == Some(dereth_ui_screens::view::PrefValue::Int(1));
 
+    // The chat font's size is chosen on the chat options page.
     open_the_options_page(
         &mut c,
         &mut hand,
-        dereth_ui_screens::options::config::CONFIG_PAGE_ELEMENT,
+        dereth_ui_screens::options::chat::CHAT_PAGE_ELEMENT,
     );
     // Bring the row on to the screen the way the scrollbar does, then press it.
     let menu = {
@@ -4307,11 +4310,11 @@ pub fn changing_the_chat_font_size_remeasures_the_backlog() {
                 .options
                 .iter()
                 .position(|o| o.preference == "UI.ChatFontSize")
-                .expect("the options page has a chat font size row")
+                .expect("the options window has a chat font size row")
         });
         with_screen(&mut c, |ui, s| {
             let row = s.config_page.options[i].row;
-            if let Some(list) = s.config_page.option_box.as_mut() {
+            if let Some(list) = s.chat_options.option_box.as_mut() {
                 if let Some(k) = list.items.iter().position(|&h| h == row) {
                     list.scroll_to_view(ui, k);
                 }

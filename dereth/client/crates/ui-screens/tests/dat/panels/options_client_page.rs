@@ -365,9 +365,10 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     ui.requests.clear();
     let n = s.config_page.restore_default_values(&mut ui);
     assert_eq!(
-        n, 34,
-        "the 29 retail controls, this client's three rows from another era, its performance row \
-         and its landscape detail row; its interface row stays as it is"
+        n, 32,
+        "the 27 retail controls (the chat font's two are the Chat Options page's), this client's \
+         three rows from another era, its performance row and its landscape detail row; its \
+         interface row stays as it is"
     );
     let live: Vec<(&str, PrefValue)> = ui
         .requests
@@ -380,7 +381,7 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
         .collect();
     let stat: Vec<(&str, PrefValue)> = config::restore_default_values();
     assert_eq!(live, stat, "the built page and CONFIG_PAGE disagree");
-    assert_eq!(live.len(), 34);
+    assert_eq!(live.len(), 32);
 
     // The control kinds, counted: 11 check boxes (retail's 12 less Sync with Refresh Rate),
     // 10 sliders, 8 menus.
@@ -745,8 +746,9 @@ mod sound_defaults {
         let out = ui.requests.take();
         assert_eq!(
             out.len(),
-            34,
-            "27 rows plus the three paired volume sliders, this client's three era rows and its \
+            32,
+            "25 rows (the chat font's two are the Chat Options page's) plus the three paired \
+             volume sliders, this client's three era rows and its \
              performance row; its interface row stays as it is"
         );
 
@@ -829,11 +831,12 @@ mod sound_defaults {
             .expect("the option box is in the shipped layout");
         assert_eq!(
             ui.children(box_h).len(),
-            41,
-            "26 retail option rows, this client's 3 era rows and its interface, performance and \
-             landscape detail rows, 5 headings and 4 separators"
+            39,
+            "24 retail option rows (the chat font's two are on the Chat Options page), this \
+             client's 3 era rows and its interface, performance and landscape detail rows, 5 \
+             headings and 4 separators"
         );
-        assert_eq!(screen.config_page.row_count(), 41);
+        assert_eq!(screen.config_page.row_count(), 39);
         assert_eq!(screen.config_page.headers, 5);
         assert_eq!(screen.config_page.separators, 4);
         assert_eq!(screen.config_page.failures, 0, "every row template built");

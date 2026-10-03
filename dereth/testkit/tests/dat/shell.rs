@@ -209,7 +209,10 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     ),
     (
         "the_chat_options_tab_draws_its_controls",
-        &["options.chat-page.the-tab-comes-up-with-every-control-the-page-declares"],
+        &[
+            "options.chat-page.the-tab-comes-up-with-every-control-the-page-declares",
+            "options.chat-page.the-chat-fonts-face-and-size-sit-under-the-windows-opacity",
+        ],
         the_chat_options_tab_draws_its_controls,
     ),
     (
@@ -4267,6 +4270,27 @@ pub fn the_chat_options_tab_draws_its_controls() {
             s.chat_options.child_captions,
         )
     });
+    // The chat font's face and size: two drop-downs in the page's box, just under the two
+    // opacity sliders.
+    let fonts_under_the_opacity = with_gameplay(&mut c, |_, s| {
+        let Some(list) = s.chat_options.option_box.as_ref() else {
+            return false;
+        };
+        let at = s.chat_options.after_opacity();
+        let names: Vec<&str> = s
+            .chat_font_rows
+            .iter()
+            .map(|&i| s.config_page.options[i].preference)
+            .collect();
+        let places: Vec<Option<usize>> = s
+            .chat_font_rows
+            .iter()
+            .map(|&i| list.index_of(s.config_page.options[i].row))
+            .collect();
+        names == ["UI.ChatFontFace", "UI.ChatFontSize"]
+            && at.is_some()
+            && places == [at, at.map(|a| a + 1)]
+    });
 
     // Every control opens at its window's own default, and every box is drawn from that default.
     let mut opens_at_the_defaults = true;
@@ -4293,7 +4317,7 @@ pub fn the_chat_options_tab_draws_its_controls() {
                 && boxes == 64
                 && headers == 6
                 && separators == 6
-                && rows == headers + separators + controls
+                && rows == headers + separators + controls + 2
                 && failures == 0
                 && header_captions == 6
                 && slider_captions == 2
@@ -4302,6 +4326,10 @@ pub fn the_chat_options_tab_draws_its_controls() {
                 && sliders_open_at_their_defaults
                 && quiet
         },
+    );
+    c.assert_behaviour(
+        "options.chat-page.the-chat-fonts-face-and-size-sit-under-the-windows-opacity",
+        move |_| fonts_under_the_opacity,
     );
     c.shutdown();
 }

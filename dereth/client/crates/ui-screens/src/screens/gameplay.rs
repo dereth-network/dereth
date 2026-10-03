@@ -672,6 +672,9 @@ pub struct GamePlayScreen {
     /// page's six window descriptors have no consumer at all, and the tab draws an empty box. See
     /// [`crate::options::chat`].
     pub chat_options: crate::options::chat::ChatOptionsPage,
+    /// The Client Options page's options shown on the Chat Options page (the chat font's face
+    /// and size), as indices among its options.
+    pub chat_font_rows: Vec<usize>,
     /// Visibility edges and `0x100001FC`/`FD`/`FE` presses on the Chat Options page, queued for
     /// [`Self::drive_chat_options`] for exactly the reason
     /// [`Self::character_option_visibility`] is: the show arm re-reads every control from the
@@ -1315,6 +1318,21 @@ impl GamePlayScreen {
             if let Some(p) = crate::options::chat::chat_options_post_init(ui, h, &view) {
                 self.chat_options = p;
             }
+        }
+        // The chat font's face and size sit on the Chat Options page, under the windows'
+        // opacity. They are preferences like the Client Options page's rows, so that page builds
+        // and keeps them, and the Chat Options page shows them.
+        if let Some(at) = self.chat_options.after_opacity() {
+            use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
+            let fonts: Vec<&'static str> = rows_for(PageId::Chat, Face::Retail)
+                .filter_map(|r| match r.value {
+                    Value::Menu(p) => Some(p),
+                    _ => None,
+                })
+                .collect();
+            self.chat_font_rows =
+                self.config_page
+                    .add_rows_into(ui, &mut self.chat_options.option_box, at, &fonts);
         }
 
         // Bind the six tab pages' list boxes and the two keymap buttons. Option-row
@@ -4358,7 +4376,9 @@ impl GamePlayScreen {
     /// the other interface changed them while this one was put away. Returns how many rows
     /// moved.
     pub fn reread_option_pages(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
+        let fonts = self.chat_font_rows.clone();
         self.config_page.reread(ui)
+            + self.config_page.reread_options(ui, &fonts)
             + self.character_options.save_current_values(ui, view)
             + self.chat_options.save_current_values(ui, view)
     }
@@ -4593,11 +4613,22 @@ impl GamePlayScreen {
         source_id: ElementId,
     ) -> usize {
         use crate::options::config::button;
+        let fonts = self.chat_font_rows.clone();
         let (n, effects) = match source_id {
             // The option page base's save of the current values — a re-read, not a write.
-            button::APPLY => (self.chat_options.save_current_values(ui, view), Vec::new()),
-            button::CANCEL => self.chat_options.restore_saved_values(ui),
-            button::DEFAULTS => self.chat_options.restore_default_values(ui),
+            button::APPLY => (
+                self.chat_options.save_current_values(ui, view)
+                    + self.config_page.reread_options(ui, &fonts),
+                Vec::new(),
+            ),
+            button::CANCEL => {
+                let (n, e) = self.chat_options.restore_saved_values(ui);
+                (n + self.config_page.restore_saved_options(ui, &fonts), e)
+            }
+            button::DEFAULTS => {
+                let (n, e) = self.chat_options.restore_default_values(ui);
+                (n + self.config_page.restore_default_options(ui, &fonts), e)
+            }
             _ => return 0,
         };
         for e in effects {
@@ -4630,6 +4661,14 @@ impl GamePlayScreen {
             // second.
             if visible {
                 ui.requests.emit(UiRequest::SavePlayerOptions);
+            }
+            // The chat font's rows on the page read again on show and go back on hide, as the
+            // page's own do.
+            let fonts = self.chat_font_rows.clone();
+            if visible {
+                self.config_page.reread_options(ui, &fonts);
+            } else {
+                self.config_page.restore_saved_options(ui, &fonts);
             }
             let (n, effects) = self.chat_options.on_visibility_changed(ui, view, visible);
             for e in effects {

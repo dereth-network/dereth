@@ -115,12 +115,13 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
     let want: [(&str, usize); 8] = [
         ("Sound.SoundFeatures", 2),
         ("Display.Resolution", 0),
-        ("UI.ChatFontFace", 5),
-        ("UI.ChatFontSize", 5),
         ("Render.LandscapeTextureDetail", 5),
         ("Render.EnvironmentTextureDetail", 5),
         ("Render.TextureFiltering", 4),
         ("Render.LandscapeDrawDistance", 6),
+        // Built last, into the Chat Options page under the windows' opacity.
+        ("UI.ChatFontFace", 5),
+        ("UI.ChatFontSize", 5),
     ];
     let menus: Vec<&str> = p
         .retail_options()
@@ -327,6 +328,9 @@ fn the_page_opens_with_the_stored_setting_selected() {
     // `on_visibility_changed(true)` -> -> each value read, then the
     // page's own `Refresh` fan-out.
     s.config_page.on_visibility_changed(&mut ui, true);
+    // The chat font's rows are shown on the Chat Options page, whose show reads them.
+    let fonts = s.chat_font_rows.clone();
+    s.config_page.reread_options(&mut ui, &fonts);
 
     let want: [(&str, &str, i32); 3] = [
         ("Render.LandscapeDrawDistance", "Extreme", 25),

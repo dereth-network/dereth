@@ -405,13 +405,14 @@ pub static DIVERGENCES: &[Divergence] = &[
                  Support (with In-Game Help and two buttons that opened a support web page, now \
                  gone), Character Options under six headings, Chat Options and Client Options \
                  under six more (one of them Sync with Refresh Rate, which acts only in full \
-                 screen). The early client's had three, with no chat page. The end-of-retail \
+                 screen, and the chat font's face and size under Interface). The early client's had three, with no chat page. The end-of-retail \
                  client started full screen, and its client options page's Defaults button put \
                  the resolution at 800 by 600 although the client starts at 1024 by 768.",
         dereth: "Both interfaces draw the same four pages from one set of options, each in its own \
                  look: Game and Support; Character Options under seven headings (Interface \
                  Behavior, World Display, Chat, Fellowship and Allegiance, Other Players, Allow \
-                 Others to See Your, Combat and Movement); Chat Options; and Client Options under \
+                 Others to See Your, Combat and Movement); Chat Options, with the chat font's face \
+                 and size under the windows' opacity; and Client Options under \
                  five (Sound, Display, Graphics Quality, Era Look, Camera and Mouse). A row stores \
                  its value where retail kept it, so either interface's page shows what the other \
                  set. A row for something the world's era lacks is left off the page. In-Game Help \

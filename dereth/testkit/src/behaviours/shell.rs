@@ -1380,6 +1380,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.chat-page.the-chat-fonts-face-and-size-sit-under-the-windows-opacity",
+        says: "The chat font's face and size are chosen on the chat options tab, in two \
+               drop-downs just under the windows' two opacity sliders, and the client options \
+               tab no longer lists them.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-UI-OPTIONS-R3-FONTS"),
+        station: "dereth-testkit::dat::shell::scenario_the_chat_options_tab_draws_its_controls",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.chat-page.the-opacity-slider-writes-what-the-fade-reads-and-keeps-the-two-in-order",
         says: "Moving the idle-opacity slider sets the value every chat window's fade is measured \
                from, so the fade has somewhere to travel; dragging the active-opacity slider below \

@@ -464,6 +464,20 @@ impl ChatOptionsPage {
         }
     }
 
+    /// The place in the option box just under the windows' opacity sliders.
+    #[must_use]
+    pub fn after_opacity(&self) -> Option<usize> {
+        let b = self.option_box.as_ref()?;
+        self.options
+            .iter()
+            .filter_map(|o| match o {
+                ChatOption::Opacity(o) => b.index_of(o.row),
+                ChatOption::Filter(_) => None,
+            })
+            .max()
+            .map(|i| i + 1)
+    }
+
     /// The rows currently in the option box — headers, separators and controls together.
     #[must_use]
     pub fn row_count(&self) -> usize {

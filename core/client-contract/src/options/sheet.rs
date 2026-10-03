@@ -530,6 +530,14 @@ const CHAT: [Heading; 6] = [
                 Shown::Retail,
                 row("Active Window Opacity", Value::Opacity(0x1000_0081)),
             ),
+            only(
+                Shown::Retail,
+                pref("Chat Font", Value::Menu("UI.ChatFontFace"), Int(2)),
+            ),
+            only(
+                Shown::Retail,
+                pref("Chat Font Size", Value::Menu("UI.ChatFontSize"), Int(1)),
+            ),
         ],
     },
     Heading {
@@ -656,14 +664,6 @@ const CLIENT: [Heading; 5] = [
                     Value::Check(crate::options::classic::SHOW_SQUELCH_TAB),
                     Bool(true),
                 ),
-            ),
-            only(
-                Shown::Retail,
-                pref("Chat Font", Value::Menu("UI.ChatFontFace"), Int(2)),
-            ),
-            only(
-                Shown::Retail,
-                pref("Chat Font Size", Value::Menu("UI.ChatFontSize"), Int(1)),
             ),
         ],
     },
@@ -959,8 +959,19 @@ mod tests {
         assert_eq!(classic_chat, ["Main Chat Window"]);
         assert_eq!(
             rows_for(PageId::Chat, Face::Retail).count(),
-            2 + 12 + 13 * 4
+            2 + 2 + 12 + 13 * 4
         );
+        // The chat font's face and size are the chat page's, under the windows' opacity.
+        let chat: Vec<Option<&str>> = rows_for(PageId::Chat, Face::Retail)
+            .take(4)
+            .map(Row::preference)
+            .collect();
+        assert_eq!(
+            chat[2..],
+            [Some("UI.ChatFontFace"), Some("UI.ChatFontSize")]
+        );
+        assert!(!rows_for(PageId::Client, Face::Retail)
+            .any(|r| r.preference().is_some_and(|p| p.starts_with("UI.ChatFont"))));
     }
 
     #[test]

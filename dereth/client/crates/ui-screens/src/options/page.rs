@@ -411,6 +411,12 @@ impl UiOption {
 pub struct PlayerOptionPage {
     /// The page element itself (`0x10000213` for the client-options panel).
     pub page: Option<ElemHandle>,
+    /// Where the next row goes in the option box, while rows are built into the middle of
+    /// it ([`Self::add_rows_into`]); `None` appends.
+    insert_at: Option<usize>,
+    /// The options built into another page's box ([`Self::add_rows_into`]). That page reads,
+    /// reverts and resets them; this page's own show, hide, Apply and Defaults leave them be.
+    pub elsewhere: Vec<usize>,
     /// The option-box list widget.
     pub option_box: Option<ListBoxWidget>,
     /// The option array, in order.
@@ -494,11 +500,86 @@ impl PlayerOptionPage {
 
     fn add_row(&mut self, ui: &mut UiSystem, index: usize) -> Option<ElemHandle> {
         let b = self.option_box.as_mut()?;
-        let h = b.add_from_template(ui, index, None);
+        let h = b.add_from_template(ui, index, self.insert_at);
         if h.is_none() {
             self.failures += 1;
+        } else if let Some(at) = self.insert_at.as_mut() {
+            *at += 1;
         }
         h
+    }
+
+    /// Build the rows for `preferences` into another page's option box, `option_box`, from its
+    /// row `at` on. They are this page's options, applied as this page's are, and shown on the
+    /// other page. Returns their indices among [`Self::options`].
+    pub fn add_rows_into(
+        &mut self,
+        ui: &mut UiSystem,
+        option_box: &mut Option<ListBoxWidget>,
+        at: usize,
+        preferences: &[&'static str],
+    ) -> Vec<usize> {
+        std::mem::swap(&mut self.option_box, option_box);
+        self.insert_at = Some(at);
+        let start = self.options.len();
+        for p in preferences {
+            if let Some(c) = super::config::config_row(p) {
+                self.add_config_row(ui, &c);
+            }
+        }
+        self.insert_at = None;
+        std::mem::swap(&mut self.option_box, option_box);
+        if let Some(b) = option_box.as_mut() {
+            b.update_layout(ui);
+        }
+        self.elsewhere.extend(start..self.options.len());
+        (start..self.options.len()).collect()
+    }
+
+    /// [`Self::reread`] for the options `which` alone. Returns how many moved.
+    pub fn reread_options(&mut self, ui: &mut UiSystem, which: &[usize]) -> usize {
+        let mut moved = 0;
+        for &i in which {
+            if i >= self.options.len() {
+                continue;
+            }
+            let v = self.get_value(i);
+            moved += usize::from(v != self.options[i].current);
+            self.options[i].current = v.clone();
+            self.options[i].saved = v;
+            self.refresh(ui, i);
+        }
+        moved
+    }
+
+    /// [`Self::restore_saved_values`] for the options `which` alone.
+    pub fn restore_saved_options(&mut self, ui: &mut UiSystem, which: &[usize]) -> usize {
+        let mut n = 0;
+        for &i in which {
+            if !self.options.get(i).is_some_and(UiOption::changed) {
+                continue;
+            }
+            self.options[i].current = self.options[i].saved.clone();
+            self.refresh(ui, i);
+            self.apply(&mut ui.requests, i);
+            n += 1;
+        }
+        n
+    }
+
+    /// [`Self::restore_default_values`] for the options `which` alone.
+    pub fn restore_default_options(&mut self, ui: &mut UiSystem, which: &[usize]) -> usize {
+        let mut n = 0;
+        for &i in which {
+            if i >= self.options.len() {
+                continue;
+            }
+            self.options[i].current = self.options[i].default.clone();
+            self.refresh(ui, i);
+            self.apply(&mut ui.requests, i);
+            n += 1;
+        }
+        n
     }
 
     /// Header insertion uses template 0, casts the row to a text element, then constructs
@@ -1427,6 +1508,9 @@ impl PlayerOptionPage {
     pub fn save_current_values(&mut self) -> usize {
         let mut moved = 0;
         for i in 0..self.options.len() {
+            if self.elsewhere.contains(&i) {
+                continue;
+            }
             let v = self.get_value(i);
             if v != self.options[i].current {
                 moved += 1;
@@ -1445,7 +1529,7 @@ impl PlayerOptionPage {
     pub fn restore_saved_values(&mut self, ui: &mut UiSystem) -> usize {
         let mut n = 0;
         for i in 0..self.options.len() {
-            if !self.options[i].changed() {
+            if !self.options[i].changed() || self.elsewhere.contains(&i) {
                 continue;
             }
             self.options[i].current = self.options[i].saved.clone();
@@ -1463,7 +1547,9 @@ impl PlayerOptionPage {
         let mut n = 0;
         for i in 0..self.options.len() {
             // The interface choice stays the interface being shown: Defaults does not leave it.
-            if self.options[i].preference == dereth_client_contract::options::interface::INTERFACE {
+            if self.options[i].preference == dereth_client_contract::options::interface::INTERFACE
+                || self.elsewhere.contains(&i)
+            {
                 continue;
             }
             self.options[i].current = self.options[i].default.clone();
@@ -1545,7 +1631,9 @@ impl PlayerOptionPage {
         // the page's own refresh fan-out.
         let moved = self.save_current_values();
         for i in 0..self.options.len() {
-            self.refresh(ui, i);
+            if !self.elsewhere.contains(&i) {
+                self.refresh(ui, i);
+            }
         }
         // A row another option greys follows that option as it is now.
         self.sync_gates(ui);
