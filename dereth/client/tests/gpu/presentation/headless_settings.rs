@@ -134,7 +134,7 @@ fn a_headless_run_leaves_the_players_preferences_and_key_map_untouched() {
     std::fs::create_dir_all(&settings).expect("the player's settings folder");
     std::fs::write(settings.join("UserPreferences.ini"), PLAYER_PREFERENCES)
         .expect("the player's preferences");
-    std::fs::write(settings.join("dereth.keymap"), PLAYER_KEYMAP).expect("the player's key map");
+    std::fs::write(settings.join("dereth-modern.keymap"), PLAYER_KEYMAP).expect("the player's key map");
     let before = files_under(&settings);
     assert_eq!(before.len(), 2, "the fixture is the two files");
 
