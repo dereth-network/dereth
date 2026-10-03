@@ -27,16 +27,6 @@
 //! themselves from a token derived from the option's name** — the same string table, a different
 //! producer. \[verified\]
 //!
-//! # The page, measured
-//!
-//! The option initialisation is a straight-line body: six headers, 50 player-option toggles each
-//! followed by its toggle-label write, and **six** separators — not five. The sixth is a
-//! **trailing** separator after `ID_CharacterOption_Chat_Section`'s last row, with no section after
-//! it, so the list box ends with a rule. 6 + 6 + 50 = **62 rows**. \[verified\]
-//!
-//! ([`super::pages::CHARACTER_SETTINGS_PAGE`] has the 50, and its own test asserts the section
-//! sizes `[3, 15, 6, 11, 7, 8]`.)
-//!
 //! # Where the value comes from, and why no option word is ever rebuilt here
 //!
 //! The check-box option control's value read is the module's getter for its one player option,
@@ -313,10 +303,8 @@ impl CharacterSettingsPage {
 
     /// The character settings panel's option build.
     ///
-    /// Six sections; a header before each; a separator after each **including the last**; one
-    /// player-option toggle + toggle-label write per bit. The section order and the bits
-    /// within each come from [`super::pages::CHARACTER_SETTINGS_PAGE`], transcribed from the same
-    /// function.
+    /// Each shared heading has a header before it and a separator after it, including the last.
+    /// Every player option gets a toggle and its caption.
     ///
     /// Returns how many check-box rows were built.
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
@@ -676,7 +664,7 @@ pub fn table(ui: &UiSystem) -> dereth_primitives::DataId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::options::pages::CHARACTER_SETTINGS_PAGE;
+    use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
 
     /// Oracle: the 50 string literals retail hashes in
     /// The character settings panel's option build, in page order.
@@ -730,9 +718,11 @@ mod tests {
         assert_eq!(OPTION_BOX.0, 0x1000_01FA);
         assert_ne!(OPTION_BOX, super::super::config::OPTION_BOX);
         // Every option on the page has a name, and no two share one.
-        let mut names: Vec<&str> = CHARACTER_SETTINGS_PAGE
-            .iter()
-            .flat_map(|s| s.options.iter().copied())
+        let mut names: Vec<&str> = rows_for(PageId::Character, Face::Retail)
+            .filter_map(|r| match r.value {
+                Value::Option(o) => Some(o),
+                _ => None,
+            })
             .map(option_name)
             .collect();
         assert_eq!(names.len(), 50);
@@ -744,27 +734,5 @@ mod tests {
             help_token(P::HearPKDeaths),
             "ID_PlayerOption_HearPKDeaths_Help"
         );
-    }
-
-    /// Oracle: the client's own call sequence — six headers, six separators
-    /// and 50 player-option toggles.
-    ///
-    /// The **six** separators are the point: there is a trailing one after the Chat section with
-    /// no section following it, so the list box is 62 rows and not 61.
-    #[test]
-    fn the_page_is_six_headers_six_separators_and_fifty_toggles() {
-        let toggles: usize = CHARACTER_SETTINGS_PAGE
-            .iter()
-            .map(|s| s.options.len())
-            .sum();
-        assert_eq!(CHARACTER_SETTINGS_PAGE.len(), 6);
-        assert_eq!(toggles, 50);
-        assert_eq!(6 + 6 + toggles, 62, "headers + separators + toggles");
-        // The templates are `PlayerOptionPage`'s, shared with the Client Options page.
-        assert_eq!(super::super::page::template::HEADER, 0);
-        assert_eq!(super::super::page::template::SEPARATOR, 1);
-        assert_eq!(super::super::page::template::TOGGLE, 2);
-        assert_eq!(super::super::page::child::CHECKBOX.0, 0x1000_0219);
-        assert_eq!(super::super::page::ATTR_CHECKED, 0x0E);
     }
 }

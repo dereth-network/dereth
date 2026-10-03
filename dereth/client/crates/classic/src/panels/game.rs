@@ -8,7 +8,6 @@ mod magic;
 mod research;
 mod systems;
 pub use magic::research_on;
-pub mod shortcut_drop;
 mod shortcuts;
 mod stats;
 use super::Panel;

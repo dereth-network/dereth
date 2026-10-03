@@ -1,4 +1,4 @@
-//! The Character Options page is 6 headers, 6 separators, 50 toggles off the shipped tree,
+//! The Character Options page is 7 headings, 7 separators, 50 toggles off the shipped tree,
 //! captioned from their own tokens; a tick emits one SetPlayerOption; showing re-reads rows and
 //! hiding reverts; page id ambiguity; first show swallows its own visibility message.
 //! Fixture: shipped layouts, strings and keymaps loaded from the retail DATs.
@@ -16,7 +16,6 @@ use dereth_ui_screens::options::character::{
     self, help_token, label_token, option_name, CHARACTER_PAGE_ELEMENT, HELP_SUFFIX, OPTION_BOX,
     STRING_TABLE_ENUM, TOKEN_PREFIX,
 };
-use dereth_ui_screens::options::pages::CHARACTER_SETTINGS_PAGE;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::{GameView, PlayerOption, UiRequest};
 
@@ -41,20 +40,11 @@ const ATTR_CHECKED: u32 = 0x0E;
 /// The seven option types' `0x10000035` checkbox option.
 const UIOPTION_CHECKBOX: u32 = 0x1000_0035;
 
-/// The **50 string literals** the page hashes, in page order, with
-/// the six header tokens interleaved where the client puts them.
-///
-/// This is the whole oracle for the caption half, transcribed from retail's own list rather
-/// than assembled from [`PlayerOption`]'s `Debug`. A token built by concatenation and checked by
-/// concatenation cannot catch a wrong spelling — `ID_PlayerOption_FellowshipShareXP`'s capital
-/// `XP` is the one that is not obvious, and `AutoRepeatAttack` / `AcceptLootPermits` are the two
-/// whose enum name and token differ in nothing at all, which is exactly why they are here.
-const TOKENS_IN_ORDER: [&str; 56] = [
-    "ID_CharacterOption_UIBehavior_Section",
+/// The player-option caption tokens, independent of the shared sheet.
+const OPTION_TOKENS: [&str; 50] = [
     "ID_PlayerOption_ViewCombatTarget",
     "ID_PlayerOption_SalvageMultiple",
     "ID_PlayerOption_MainPackPreferred",
-    "ID_CharacterOption_UIDisplay_Section",
     "ID_PlayerOption_VividTargetingIndicator",
     "ID_PlayerOption_ShowTooltips",
     "ID_PlayerOption_CoordinatesOnRadar",
@@ -70,14 +60,12 @@ const TOKENS_IN_ORDER: [&str; 56] = [
     "ID_PlayerOption_FilterLanguage",
     "ID_PlayerOption_ShowHelm",
     "ID_PlayerOption_ShowCloak",
-    "ID_CharacterOption_Grouping_Section",
     "ID_PlayerOption_IgnoreAllegianceRequests",
     "ID_PlayerOption_IgnoreFellowshipRequests",
     "ID_PlayerOption_DisplayAllegianceLogonNotifications",
     "ID_PlayerOption_FellowshipShareXP",
     "ID_PlayerOption_FellowshipShareLoot",
     "ID_PlayerOption_FellowshipAutoAcceptRequests",
-    "ID_CharacterOption_OtherPlayers_Section",
     "ID_PlayerOption_AcceptLootPermits",
     "ID_PlayerOption_UseDeception",
     "ID_PlayerOption_AllowGive",
@@ -89,7 +77,6 @@ const TOKENS_IN_ORDER: [&str; 56] = [
     "ID_PlayerOption_DisplayFishingSkill",
     "ID_PlayerOption_DisplayNumberDeaths",
     "ID_PlayerOption_DisplayNumberCharacterTitles",
-    "ID_CharacterOption_CharacterBehavior_Section",
     "ID_PlayerOption_ToggleRun",
     "ID_PlayerOption_AdvancedCombatUI",
     "ID_PlayerOption_AutoTarget",
@@ -97,7 +84,6 @@ const TOKENS_IN_ORDER: [&str; 56] = [
     "ID_PlayerOption_UseChargeAttack",
     "ID_PlayerOption_LeadMissileTargets",
     "ID_PlayerOption_UseFastMissiles",
-    "ID_CharacterOption_Chat_Section",
     "ID_PlayerOption_StayInChatMode",
     "ID_PlayerOption_HearAllegianceChat",
     "ID_PlayerOption_HearGeneralChat",
@@ -185,27 +171,12 @@ fn the_page_is_seven_headings_seven_separators_and_fifty_toggles_off_the_shipped
     assert_eq!(p.row_count(), 64, "7 + 7 + 50 rows in the option box");
     assert_eq!(p.failures, 0, "every template-list add produced a row");
 
-    // Retail's own page had the same 50 options under six headings.
-    let counts: Vec<usize> = CHARACTER_SETTINGS_PAGE
-        .iter()
-        .map(|c| c.options.len())
-        .collect();
-    assert_eq!(counts, vec![3, 15, 6, 11, 7, 8]);
     let order: Vec<PlayerOption> = p.rows.iter().map(|r| r.option).collect();
     assert_eq!(
         order,
         shared_order(),
         "the rows are in the shared set's order"
     );
-    let mut retail: Vec<PlayerOption> = CHARACTER_SETTINGS_PAGE
-        .iter()
-        .flat_map(|c| c.options.iter().copied())
-        .collect();
-    let mut ours = order.clone();
-    retail.sort_unstable();
-    ours.sort_unstable();
-    assert_eq!(ours, retail, "the same 50 options retail's page has");
-
     // Every row's control really is a checkbox option under `0x10000219` — the runtime type check
     // `add_toggle_option` performs, asserted against the literal type rather than the symbol.
     for r in &p.rows {
@@ -223,21 +194,21 @@ fn the_page_is_seven_headings_seven_separators_and_fifty_toggles_off_the_shipped
         .is_some());
 }
 
-/// Oracle: the 50 + 6 string literals of `option initialization`, transcribed above, against the tokens the
-/// page actually builds.
+/// The built page uses all fifty player-option caption tokens.
 #[test]
 fn the_page_names_every_row_the_way_init_options_spells_it() {
-    let mut built: Vec<String> = Vec::new();
-    for c in CHARACTER_SETTINGS_PAGE {
-        built.push(c.header.to_string());
-        for o in c.options {
-            built.push(label_token(*o));
-        }
-    }
-    assert_eq!(
-        built, TOKENS_IN_ORDER,
-        "the 56 tokens option initialization hashes, in order"
-    );
+    let mut ui = env(true);
+    let page = screen(&mut ui);
+    let mut built: Vec<String> = page
+        .character_options
+        .rows
+        .iter()
+        .map(|row| label_token(row.option))
+        .collect();
+    let mut expected = OPTION_TOKENS;
+    built.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(built, expected);
     assert_eq!(TOKEN_PREFIX, "ID_PlayerOption_");
     assert_eq!(HELP_SUFFIX, "_Help");
     assert_eq!(
@@ -285,9 +256,10 @@ fn every_row_captions_itself_from_its_own_token_and_none_from_the_preference_reg
     assert_eq!(text(PlayerOption::SideBySideVitals), "Side By Side Vitals");
 
     // The other direction: the registry answers for none of them.
-    let from_registry = CHARACTER_SETTINGS_PAGE
+    let from_registry = p
+        .rows
         .iter()
-        .flat_map(|c| c.options.iter().copied())
+        .map(|r| r.option)
         .filter(|o| {
             dereth_ui_screens::options::preferences::inq_preference(option_name(*o)).is_some()
                 || dereth_ui_screens::options::preferences::inq_preference(&label_token(*o))

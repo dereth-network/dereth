@@ -47,7 +47,6 @@ pub mod screens;
 pub mod settings_host;
 pub mod steering;
 pub mod text_edit;
-pub mod vendor_runtime;
 pub mod widgets;
 pub mod world_overlay;
 

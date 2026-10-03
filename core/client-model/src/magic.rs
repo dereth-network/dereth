@@ -36,27 +36,6 @@ pub mod spell_index {
     pub const DAMAGE_OVER_TIME: u32 = 0x1_0000;
 }
 
-/// `SpellbookFilter`.
-pub mod spellbook_filter {
-    pub const UNDEF: u32 = 0;
-    pub const CREATURE: u32 = 1;
-    pub const ITEM: u32 = 2;
-    pub const LIFE: u32 = 4;
-    pub const WAR: u32 = 8;
-    pub const LEVEL_1: u32 = 16;
-    pub const LEVEL_2: u32 = 32;
-    pub const LEVEL_3: u32 = 64;
-    pub const LEVEL_4: u32 = 128;
-    pub const LEVEL_5: u32 = 256;
-    pub const LEVEL_6: u32 = 512;
-    pub const LEVEL_7: u32 = 1024;
-    pub const LEVEL_8: u32 = 2048;
-    /// Honoured by the filtering predicate, but **no client path sets it**.
-    pub const LEVEL_9: u32 = 4096;
-    pub const VOID: u32 = 8192;
-    pub const DEFAULT: u32 = 16383;
-}
-
 /// The spell-component category values.
 pub mod component_category {
     pub const SCARAB: u32 = 0;
@@ -863,31 +842,6 @@ impl ComponentTracker {
 
 /// The spell book — one packed table from spell id to `SpellBookPage`.
 pub type SpellBook = BTreeMap<u32, dereth_protocol::types::qualities::SpellBookPage>;
-
-/// Spellbook visibility filtering by school and level.
-///
-/// The `Level_9` bit is honoured even though no client path sets it.
-#[must_use]
-pub fn is_filtered_out(filters: u32, school: u32, level: u32) -> bool {
-    let school_bit = match school {
-        1 => spellbook_filter::WAR,
-        2 => spellbook_filter::LIFE,
-        3 => spellbook_filter::ITEM,
-        4 => spellbook_filter::CREATURE,
-        5 => spellbook_filter::VOID,
-        _ => 0,
-    };
-    if school_bit != 0 && filters & school_bit == 0 {
-        return true;
-    }
-    if (1..=9).contains(&level) {
-        let level_bit = spellbook_filter::LEVEL_1 << (level - 1);
-        if filters & level_bit == 0 {
-            return true;
-        }
-    }
-    false
-}
 
 /// The refusal strings produced by client-side spell casting.
 pub mod messages {
@@ -1915,30 +1869,6 @@ mod tests {
             ComponentCatalogue::default().determine_component_category(100),
             component_category::UNDEF,
             "no dats loaded is Undef, not Scarab"
-        );
-    }
-
-    /// Oracle: the spellbook-filter table, including the otherwise unused `Level_9` bit.
-    #[test]
-    fn the_spellbook_filter_honours_every_bit_including_the_unset_level_nine() {
-        assert_eq!(spellbook_filter::DEFAULT, 16383);
-        assert_eq!(spellbook_filter::DEFAULT.count_ones(), 14);
-        assert_eq!(spellbook_filter::LEVEL_9, 4096);
-
-        let all = spellbook_filter::DEFAULT;
-        assert!(!is_filtered_out(all, 1, 5));
-        assert!(
-            is_filtered_out(all & !spellbook_filter::WAR, 1, 5),
-            "war school filtered out"
-        );
-        assert!(is_filtered_out(all & !spellbook_filter::LEVEL_5, 1, 5));
-        assert!(
-            is_filtered_out(all & !spellbook_filter::LEVEL_9, 1, 9),
-            "Level_9 is honoured even though nothing sets it"
-        );
-        assert!(
-            !is_filtered_out(all & !spellbook_filter::VOID, 1, 5),
-            "a different school"
         );
     }
 

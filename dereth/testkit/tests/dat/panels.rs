@@ -14554,7 +14554,11 @@ pub fn turning_a_school_off_hides_its_spells_and_sends_the_whole_list() {
     let it_was_there_before = before.iter().any(|id| school_of.get(id) == Some(&school));
 
     let sent_off = pinp_filters_sent(&c);
-    let client_side = c.view().expect_app().hud().panels.spellbook.filters;
+    let client_side = {
+        use dereth_ui_screens::view::GameView as _;
+        let app = c.view().expect_app();
+        app.hud().view(app.objects()).spell_filters()
+    };
     let (framed_off, payload_off) =
         pinp_encoded(&dereth_client_model::Request::SpellbookFilterEvent(
             dereth_protocol::combat::CharacterSpellbookFilterEvent {
@@ -14580,7 +14584,7 @@ pub fn turning_a_school_off_hides_its_spells_and_sends_the_whole_list() {
                 && that_school_is_gone
                 && it_was_there_before
                 && sent_off == vec![mask0 & !bit]
-                && client_side == Some(mask0 & !bit)
+                && client_side == mask0 & !bit
                 && off_bytes_are_right
                 && the_book_came_back
                 && sent_both == vec![mask0 & !bit, mask0]

@@ -227,44 +227,6 @@ impl SpellFilter {
     }
 }
 
-/// The power level a **power
-/// component** id stands for.
-///
-/// Ten arms, and they are not contiguous: 1…6 map to themselves, and then `0x6E`, `0x70`, `0xC0`
-/// and `0xC1` map to 7, 8, 9 and 10. Anything else is 0.
-#[must_use]
-pub const fn power_level_of_component(comp: u32) -> u32 {
-    match comp {
-        1..=6 => comp,
-        0x6E => 7,
-        0x70 => 8,
-        0xC0 => 9,
-        0xC1 => 10,
-        _ => 0,
-    }
-}
-
-/// The spell level the filter tests.
-///
-/// Retail takes the power level of the formula's power component (its first slot); above 6 it
-/// subtracts 1 when the level is below 9 and 2 otherwise.
-///
-/// So the ten power levels collapse onto **eight** spell levels: power level 7 comes out as 6 and
-/// 8 as 7, then 9 as 7 and 10 as 8. The ninth filter bit is therefore unreachable from any spell
-/// whose power component is one of the ten, and that is an open question in its own right: the
-/// client honours a level its rough spell-level heuristic can never return.
-#[must_use]
-pub const fn spell_level_from_power_component(comp: u32) -> u32 {
-    let pl = power_level_of_component(comp);
-    if pl > 6 {
-        if pl < 9 {
-            return pl - 1;
-        }
-        return pl - 2;
-    }
-    pl
-}
-
 /// The **first** decrypted formula slot.
 ///
 /// Defined in [`dereth_client_contract::spellbook`], beside `DEFAULT_SPELL_FILTERS`,

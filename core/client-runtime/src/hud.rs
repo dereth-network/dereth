@@ -1918,12 +1918,6 @@ impl Hud {
     /// endowment spell, the spell on the wielded wand.
     /// See [`dereth_client_contract::GameView::spell`].
     pub fn spell_entry(&self, id: u32) -> Option<SpellEntry> {
-        // `spell_level_from_power_component` in `dereth-ui-screens` and
-        // `dereth_client_model::magic::{scarab_power_level, spell_level_by_rough_heuristic}` are the **same
-        // two functions transcribed twice**. This call goes through the `dereth-client-model` pair,
-        // which is the one under test in
-        // that crate; `dereth-ui-screens`' copies stay because that crate must not depend on
-        // `dereth-client-model` and a panel may yet need them.
         use dereth_client_contract::spellbook::power_component;
         use dereth_client_model::magic::{scarab_power_level, spell_level_by_rough_heuristic};
         // Retail's spell add drops an id the spell table does not know, and so does this `?`.

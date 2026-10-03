@@ -2918,6 +2918,7 @@ fn world_with(module: &dereth_protocol::login::PlayerModule) -> dereth_client_mo
 /// Every row of the page shows the setting the shard sent for it.
 pub fn every_row_shows_the_setting_the_shard_sent() {
     use dereth_client::hud::{character_option, option_ordinal, Hud};
+    use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
     use dereth_client_model::player::options::PLAYER_OPTIONS;
     use dereth_ui_screens::options::character::option_name;
     use dereth_ui_screens::view::{GameView, PlayerOption};
@@ -2929,10 +2930,10 @@ pub fn every_row_shows_the_setting_the_shard_sent() {
     // Two tables meet here and neither is derived from the other.
     let mut seen = std::collections::BTreeSet::new();
     let mut names_agree = true;
-    for section in dereth_ui_screens::options::pages::CHARACTER_SETTINGS_PAGE {
-        for o in section.options {
-            let n = option_ordinal(*o);
-            names_agree &= PLAYER_OPTIONS[n].0 == option_name(*o) && seen.insert(n);
+    for row in rows_for(PageId::Character, Face::Retail) {
+        if let Value::Option(o) = row.value {
+            let n = option_ordinal(o);
+            names_agree &= PLAYER_OPTIONS[n].0 == option_name(o) && seen.insert(n);
         }
     }
 
@@ -2944,16 +2945,16 @@ pub fn every_row_shows_the_setting_the_shard_sent() {
     let mut asked = 0usize;
     let mut ticked = 0usize;
     let mut each_row_agrees = true;
-    for section in dereth_ui_screens::options::pages::CHARACTER_SETTINGS_PAGE {
-        for o in section.options {
+    for row in rows_for(PageId::Character, Face::Retail) {
+        if let Value::Option(o) = row.value {
             asked += 1;
-            let n = option_ordinal(*o);
+            let n = option_ordinal(o);
             let (_, word, mask) = PLAYER_OPTIONS[n];
             let expect = match word {
                 dereth_client_model::player::OptionWord::One => module.options & mask != 0,
                 dereth_client_model::player::OptionWord::Two => module.options2 & mask != 0,
             };
-            each_row_agrees &= view.player_option(*o) == expect;
+            each_row_agrees &= view.player_option(o) == expect;
             ticked += usize::from(expect);
         }
     }
