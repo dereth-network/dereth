@@ -103,6 +103,7 @@ pub struct Maintenance {
     width: u32,
     offsets: [i32; 2],
     pending_split: Option<(bool, ObjectId)>,
+    confirmation_pending: [bool; 2],
 }
 impl Maintenance {
     fn add_object(
@@ -141,7 +142,7 @@ impl Maintenance {
                 note,
             )
         {
-            self.items_mut().insert(0, item);
+            self.items_mut().push(item);
         }
     }
     fn send_payment(&mut self, c: &Context<'_>) -> Vec<PanelAction> {
@@ -303,6 +304,36 @@ impl Panel for Maintenance {
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
         match e {
+            ControlEvent::HousePaymentConfirmation { rent, confirmed } => {
+                self.confirmation_pending[usize::from(rent)] = false;
+                match confirmed {
+                    None => vec![],
+                    Some(false) => vec![PanelAction::Close],
+                    Some(true) => {
+                        let allowed = if rent {
+                            !self.rent_items.is_empty()
+                        } else {
+                            let drops = self
+                                .buy
+                                .iter()
+                                .map(|i| {
+                                    (
+                                        c.game.item_wcid(*i),
+                                        c.game.item_house_payment(*i),
+                                        c.game.item_trade_note_value(*i),
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            c.game.slumlord_payment(false, &drops).paid_in_full
+                        };
+                        if allowed {
+                            self.send_payment(c)
+                        } else {
+                            vec![]
+                        }
+                    }
+                }
+            }
             ControlEvent::DropStack {
                 id,
                 object,
@@ -394,7 +425,6 @@ impl Panel for Maintenance {
                     PanelAction::Game(UiRequest::UnregisterSlumlordRange),
                     PanelAction::Close,
                 ],
-                "pay-confirmed" => self.send_payment(c),
                 "pay" => {
                     let Some(h) = c.game.slumlord() else {
                         return vec![];
@@ -409,16 +439,18 @@ impl Panel for Maintenance {
                     {
                         return vec![];
                     }
-                    if let Some(text) =
-                        payment_confirmation(self.rent, h.am_i_the_owner, h.house_type)
-                    {
-                        vec![PanelAction::Confirm {
-                            id: "house-payment".into(),
-                            text: text.into(),
-                            accept: vec![PanelAction::Control(ControlEvent::Activate(
-                                "pay-confirmed".into(),
-                            ))],
-                        }]
+                    let needs_confirmation = if self.rent {
+                        !h.am_i_the_owner
+                    } else {
+                        h.house_type != 4
+                    };
+                    if needs_confirmation {
+                        let pending = &mut self.confirmation_pending[usize::from(self.rent)];
+                        if std::mem::replace(pending, true) {
+                            vec![]
+                        } else {
+                            request(UiRequest::HousePaymentConfirmation { rent: self.rent })
+                        }
                     } else {
                         self.send_payment(c)
                     }
@@ -456,28 +488,190 @@ impl Panel for Maintenance {
         }
     }
 }
-fn payment_confirmation(rent: bool, owner: bool, house_type: u32) -> Option<&'static str> {
-    if rent {
-        (!owner).then_some("\n\nYou are paying maintenance on someone else's house. Are you sure you wish to continue?\n\n(Default is No)")
-    } else {
-        (house_type!=4).then_some("\n\nWhen you buy a landscape house like this one, you are restricted from buying another for 30 days. Are you sure you want to buy this house?\n\n(Default is No)")
-    }
-}
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
+    use dereth_client_contract::view::{SlumlordPayment, SlumlordView};
+
+    #[derive(Debug)]
+    struct House {
+        profile: SlumlordView,
+        paid: std::cell::Cell<bool>,
+    }
+
+    impl GameView for House {
+        fn slumlord(&self) -> Option<SlumlordView> {
+            Some(self.profile.clone())
+        }
+        fn item_owned_by_player(&self, _: ObjectId) -> bool {
+            true
+        }
+        fn slumlord_payment(&self, _: bool, drops: &[(u32, i32, Option<i32>)]) -> SlumlordPayment {
+            SlumlordPayment {
+                paid_in_full: self.paid.get() && !drops.is_empty(),
+                ..Default::default()
+            }
+        }
+        fn slumlord_needs_more(
+            &self,
+            _: bool,
+            _: &[(u32, i32, Option<i32>)],
+            _: u32,
+            _: Option<i32>,
+        ) -> bool {
+            true
+        }
+        fn slumlord_pay(
+            &self,
+            _: bool,
+            _: &[(u32, i32, Option<i32>)],
+            _: u32,
+            _: i32,
+            _: Option<i32>,
+        ) -> bool {
+            true
+        }
+    }
+
+    fn with_house(
+        rent: bool,
+        owner: bool,
+        house_type: u32,
+        run: impl FnOnce(&Context<'_>, &House),
+    ) {
+        let game = House {
+            profile: SlumlordView {
+                slumlord: ObjectId(9),
+                owner: ObjectId(u32::from(rent)),
+                am_i_the_owner: owner,
+                house_type,
+                ..Default::default()
+            },
+            paid: std::cell::Cell::new(true),
+        };
+        let context = Context {
+            game: &game,
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            map_teleport_allowed: false,
+            classic: &Default::default(),
+        };
+        run(&context, &game);
+    }
+
+    fn drop_item(panel: &mut Maintenance, c: &Context<'_>, item: u32) {
+        assert!(panel
+            .event(
+                ControlEvent::Drop {
+                    id: "items".into(),
+                    payload: DragPayload::Object(ObjectId(item)),
+                    slot: 0,
+                },
+                c
+            )
+            .is_empty());
+    }
+
+    /// Behaviour: panels.house-purchase.paying-sends-buy-house-with-the-windows-items
     #[test]
-    fn apartments_and_own_rent_send_without_confirmation() {
-        assert_eq!(payment_confirmation(false, false, 4), None);
-        assert_eq!(payment_confirmation(true, true, 1), None);
-        assert!(payment_confirmation(true, false, 4)
-            .unwrap()
-            .contains("someone else"));
-        for kind in [0, 1, 2, 3] {
-            assert!(payment_confirmation(false, false, kind)
-                .unwrap()
-                .contains("30 days"));
+    fn payments_keep_drop_order_for_purchase_and_maintenance() {
+        for rent in [false, true] {
+            with_house(rent, rent, 4, |c, _| {
+                let mut panel = Maintenance {
+                    rent,
+                    ..Default::default()
+                };
+                for id in [7, 2, 6, 2] {
+                    drop_item(&mut panel, c, id);
+                }
+                assert_eq!(
+                    panel.event(ControlEvent::Activate("pay".into()), c),
+                    request(UiRequest::HousePayment {
+                        slumlord: ObjectId(9),
+                        rent,
+                        items: vec![ObjectId(7), ObjectId(2), ObjectId(6)],
+                    })
+                );
+                assert!(panel.items().is_empty());
+            });
+        }
+    }
+
+    /// Behaviour: panels.house-purchase.confirmations-use-current-payment-and-handle-every-answer
+    #[test]
+    fn housing_questions_use_shared_confirmation_and_handle_every_answer() {
+        for rent in [false, true] {
+            with_house(rent, false, 1, |c, _| {
+                let mut panel = Maintenance {
+                    rent,
+                    ..Default::default()
+                };
+                drop_item(&mut panel, c, 7);
+                for answer in [None, Some(false), Some(true)] {
+                    assert_eq!(
+                        panel.event(ControlEvent::Activate("pay".into()), c),
+                        request(UiRequest::HousePaymentConfirmation { rent })
+                    );
+                    assert!(panel
+                        .event(ControlEvent::Activate("pay".into()), c)
+                        .is_empty());
+                    let result = panel.event(
+                        ControlEvent::HousePaymentConfirmation {
+                            rent,
+                            confirmed: answer,
+                        },
+                        c,
+                    );
+                    match answer {
+                        None => assert!(result.is_empty()),
+                        Some(false) => assert_eq!(result, vec![PanelAction::Close]),
+                        Some(true) => assert_eq!(
+                            result,
+                            request(UiRequest::HousePayment {
+                                slumlord: ObjectId(9),
+                                rent,
+                                items: vec![ObjectId(7)],
+                            })
+                        ),
+                    }
+                    assert!(!panel.confirmation_pending[usize::from(rent)]);
+                }
+            });
+        }
+    }
+
+    /// Behaviour: panels.house-purchase.confirmations-use-current-payment-and-handle-every-answer
+    #[test]
+    fn confirmation_rechecks_payment_after_the_question_was_opened() {
+        for rent in [false, true] {
+            with_house(rent, false, 1, |c, game| {
+                let mut panel = Maintenance {
+                    rent,
+                    ..Default::default()
+                };
+                drop_item(&mut panel, c, 7);
+                assert_eq!(
+                    panel.event(ControlEvent::Activate("pay".into()), c),
+                    request(UiRequest::HousePaymentConfirmation { rent })
+                );
+                if rent {
+                    panel.rent_items.clear();
+                } else {
+                    game.paid.set(false);
+                }
+                assert!(panel
+                    .event(
+                        ControlEvent::HousePaymentConfirmation {
+                            rent,
+                            confirmed: Some(true)
+                        },
+                        c
+                    )
+                    .is_empty());
+                assert!(!panel.confirmation_pending[usize::from(rent)]);
+            });
         }
     }
     #[test]

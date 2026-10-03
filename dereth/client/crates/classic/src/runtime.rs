@@ -1867,14 +1867,10 @@ impl ClassicUi {
         }
         // The dialog service's answers for a panel: the house payment's goes to its window.
         for request in std::mem::take(&mut self.dialogs.delivered) {
-            if let UiRequest::HousePaymentConfirmationAnswer {
-                confirmed: Some(true),
-                ..
-            } = request
-            {
+            if let UiRequest::HousePaymentConfirmationAnswer { rent, confirmed } = request {
                 self.panel_events.push((
                     "maintenance".into(),
-                    ControlEvent::Activate("pay-confirmed".into()),
+                    ControlEvent::HousePaymentConfirmation { rent, confirmed },
                 ));
             } else {
                 self.desktop.requests.push(request);

@@ -1550,6 +1550,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "panels.house-purchase.confirmations-use-current-payment-and-handle-every-answer",
+        says: "A landscape purchase and maintenance paid for another owner ask for confirmation \
+               once while the question is open. Yes rechecks the current payment, No closes the \
+               window, and a missing answer releases the question so the player can try again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-HOUSING-CONFIRMATION-ANSWERS"),
+        station: "dereth-classic-ui::lib::panels::services::world::housing::tests::housing_questions_use_shared_confirmation_and_handle_every_answer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "panels.house-purchase.paying-sends-buy-house-with-the-windows-items",
         says: "Paying for a house sends one House_BuyHouse naming the items in the order they were \
                dropped into the purchase window, byte for byte as the recorded retail client sent \

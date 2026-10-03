@@ -293,6 +293,10 @@ pub enum DragPayload {
 pub enum ControlEvent {
     Magic(dereth_client_contract::view::MagicNotice),
     Salvage(dereth_client_contract::panels::salvage::SalvageNotice),
+    HousePaymentConfirmation {
+        rent: bool,
+        confirmed: Option<bool>,
+    },
     Held {
         id: String,
         pressed: bool,
