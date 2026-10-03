@@ -1641,7 +1641,9 @@ impl<H: Host> Ui<'_, '_, H> {
             stats.bindable_actions = bindable;
             stats.headers = headers;
             stats.failures = failures;
-            let name = input.keymap_file_name();
+            let name = input
+                .modern_scheme_in_use()
+                .or_else(|| input.keymap_file_name());
             page(&mut shell.ui, &mut input.manager, K::RefreshFileName(name));
             // A denominator, not a bare number: `0` and `0 of 306` read the same in a log and only
             // one of them is a bug.
@@ -1709,56 +1711,41 @@ impl<H: Host> Ui<'_, '_, H> {
                 }
                 PageEvent::RestoredSaved(n) => stats.rows_reverted += n as u64,
                 PageEvent::RestoredDefaults(n) => stats.rows_defaulted += n as u64,
-                PageEvent::LoadKeymapDialog => match input.keymap_files() {
-                    Ok(mut files) => {
-                        files.splice(
-                            0..0,
-                            [
-                                LOAD_RETAIL_DEFAULTS.to_owned(),
-                                LOAD_CLASSIC_DEFAULTS.to_owned(),
-                            ],
-                        );
-                        let current = input.keymap_file_name();
-                        page(
-                            &mut shell.ui,
-                            &mut input.manager,
-                            K::OpenLoad { files, current },
-                        );
+                PageEvent::LoadKeymapDialog => {
+                    match input.scheme_names(crate::input::MODERN_SLUG) {
+                        Ok(mut files) => {
+                            // "Default", the shipped maps, first; then this interface's own saved
+                            // key maps, by the names they were saved under.
+                            files.insert(0, KEYMAP_DEFAULT.to_owned());
+                            let current = input.modern_scheme_in_use();
+                            page(
+                                &mut shell.ui,
+                                &mut input.manager,
+                                K::OpenLoad { files, current },
+                            );
+                        }
+                        Err(error) => tracing::warn!("enumerate keymaps failed: {error}"),
                     }
-                    Err(error) => tracing::warn!("enumerate keymaps failed: {error}"),
-                },
+                }
                 PageEvent::SaveKeymapDialog => {
                     page(&mut shell.ui, &mut input.manager, K::OpenSave);
                 }
-                PageEvent::LoadKeymap(name)
-                    if name == LOAD_RETAIL_DEFAULTS
-                        || name == LOAD_CLASSIC_DEFAULTS
-                        || name.eq_ignore_ascii_case(crate::input::CLASSIC_KEYMAP_FILE) =>
-                {
-                    // A default scheme, or the other interface's own keys: the retail map becomes
-                    // exactly that, and the file in use stays the one it was.
-                    use dereth_classic_ui::keystore::Scheme;
-                    let scheme = if name == LOAD_RETAIL_DEFAULTS {
-                        Scheme::RetailDefaults
-                    } else if name == LOAD_CLASSIC_DEFAULTS {
-                        Scheme::ClassicDefaults
-                    } else {
-                        Scheme::File(
-                            crate::input::CLASSIC_KEYMAP_FILE
-                                .trim_end_matches(".keymap")
-                                .to_owned(),
-                        )
-                    };
-                    if input.load_retail_scheme(&scheme) {
+                PageEvent::LoadKeymap(name) if name == KEYMAP_DEFAULT => {
+                    // The shipped maps, in the key map file in use.
+                    if input.restore_shipped_keys() {
                         page(&mut shell.ui, &mut input.manager, K::Reinit);
                     }
                 }
-                PageEvent::LoadKeymap(name) => match input.load_keymap_file(&name) {
+                PageEvent::LoadKeymap(name) => match input
+                    .load_keymap_file(&crate::input::scheme_file(&name, crate::input::MODERN_SLUG))
+                {
                     Ok(true) => {
-                        if let Err(error) =
-                            crate::input::save_keymap_preference(&preferences_file, &name)
-                        {
-                            tracing::warn!("save keymap preference failed: {error}");
+                        if let Some(file) = input.keymap_file_name() {
+                            if let Err(error) =
+                                crate::input::save_keymap_preference(&preferences_file, &file)
+                            {
+                                tracing::warn!("save keymap preference failed: {error}");
+                            }
                         }
                         page(&mut shell.ui, &mut input.manager, K::Reinit);
                         page(
@@ -1779,11 +1766,8 @@ impl<H: Host> Ui<'_, '_, H> {
                             {
                                 tracing::warn!("save keymap preference failed: {error}");
                             }
-                            page(
-                                &mut shell.ui,
-                                &mut input.manager,
-                                K::RefreshFileName(Some(name)),
-                            );
+                            let label = input.modern_scheme_in_use().or(Some(name));
+                            page(&mut shell.ui, &mut input.manager, K::RefreshFileName(label));
                         }
                     }
                     Ok(Some(crate::input::SaveKeymapAs::NeedsOverwrite)) => {
@@ -1804,11 +1788,8 @@ impl<H: Host> Ui<'_, '_, H> {
                             {
                                 tracing::warn!("save keymap preference failed: {error}");
                             }
-                            page(
-                                &mut shell.ui,
-                                &mut input.manager,
-                                K::RefreshFileName(Some(name)),
-                            );
+                            let label = input.modern_scheme_in_use().or(Some(name));
+                            page(&mut shell.ui, &mut input.manager, K::RefreshFileName(label));
                         }
                     }
                     Ok(Some(crate::input::SaveKeymapAs::ReadOnly)) => {
@@ -2657,11 +2638,8 @@ fn classic_keys(
     input.map_or_else(Default::default, crate::input::InputShell::classic_keys)
 }
 
-/// The retail Load Keymap menu's entries ahead of the key map files: the two interfaces' default
-/// schemes.
-pub const LOAD_RETAIL_DEFAULTS: &str = "Retail defaults";
-/// See [`LOAD_RETAIL_DEFAULTS`].
-pub const LOAD_CLASSIC_DEFAULTS: &str = "Classic defaults";
+/// The modern Load Keymap menu's first entry: the shipped maps, this interface's defaults.
+pub const KEYMAP_DEFAULT: &str = "Default";
 
 /// Bring the classic interface up: its art from the early-2005 portal, its text from the host's
 /// fonts, its settings and keys in the stores both interfaces share.

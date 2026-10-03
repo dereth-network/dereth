@@ -6,7 +6,7 @@
 //! | file | built by |
 //! |---|---|
 //! | `UserPreferences.ini` | [`default_preferences_file`] |
-//! | `dereth.keymap` and any saved-as keymap | the front end's `keymap_path_for` |
+//! | `dereth-modern.keymap`, `dereth-classic.keymap` and the saved `<name>-modern.keymap` and `<name>-classic.keymap` | the front end's `keymap_path_for` |
 //! | `UI-Default.txt`, `UI-<char>-<world>-<h>-<w>.txt` | `dereth_client::persist::layout_path` |
 //! | `ScreenShot%05d.png` | `dereth_client::app::App::screenshot_path` |
 //! | `Journal-<world>-<char>.txt` | `dereth_client_contract::journal::JournalIdentity::client_path` |

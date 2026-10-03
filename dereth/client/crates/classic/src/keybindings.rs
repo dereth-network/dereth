@@ -5,8 +5,8 @@
 //! categories and labels, three key slots a row. A key is a keyboard
 //! key held with Shift, Ctrl or Alt or none, and the page shows and captures all of them. Every
 //! key the page binds or clears is asked of the host's map at once ([`KeyStoreRequest`]), so
-//! nothing is ever left unsaved; the schemes the page lists are this interface's defaults, the
-//! retail interface's, and the key map files.
+//! nothing is ever left unsaved; the schemes the page lists are "Default", this interface's
+//! defaults, and this interface's own saved key maps.
 //!
 //! The keys themselves are dispatched here: a key fires the action it is bound to in an input map
 //! that is live, the stance's combat map only in that stance, as the retail client registers
@@ -61,8 +61,6 @@ pub struct KeyOutcome {
 
 /// The first scheme the page lists: this interface's defaults.
 pub const DEFAULT_SCHEME: &str = "Default";
-/// The second: the retail interface's defaults.
-pub const RETAIL_SCHEME: &str = "Retail Defaults";
 
 #[derive(Debug)]
 pub struct KeyBindings {
@@ -71,7 +69,9 @@ pub struct KeyBindings {
     /// What the page asks of the host's map, oldest first. The host carries each out and hands
     /// back the map as it then is ([`Self::set_keys`]).
     pub requests: Vec<KeyStoreRequest>,
-    selected: usize,
+    /// The scheme chosen last, by name; `None` for the defaults. Kept by name, so a list that
+    /// changes under it (a save, a delete) keeps the same one chosen.
+    selected: Option<String>,
     capture: Option<Capture>,
     capture_revision: u64,
     swallowed: Vec<u16>,
@@ -88,7 +88,7 @@ impl KeyBindings {
             keys: ClassicKeys::default(),
             bindings: Vec::new(),
             requests: Vec::new(),
-            selected: 0,
+            selected: None,
             capture: None,
             capture_revision: 0,
             swallowed: Vec::new(),
@@ -115,33 +115,43 @@ impl KeyBindings {
                 })
             })
             .collect();
-        let schemes = self.schemes();
-        if self.selected >= schemes.len() {
-            self.selected = 0;
+        if let Some(name) = &self.selected {
+            if !self.keys.files.iter().any(|f| f.eq_ignore_ascii_case(name)) {
+                self.selected = None;
+            }
         }
         self.end_capture();
     }
 
-    /// The schemes the page lists: the two defaults, then every key map file but this
-    /// interface's own.
+    /// The schemes the page lists: "Default", this interface's defaults, then this interface's
+    /// saved key maps.
     fn schemes(&self) -> Vec<String> {
-        let mut out = vec![DEFAULT_SCHEME.to_owned(), RETAIL_SCHEME.to_owned()];
-        out.extend(
-            self.keys
-                .files
-                .iter()
-                .filter(|f| !f.eq_ignore_ascii_case(&self.keys.own_files[1]))
-                .cloned(),
-        );
+        let mut out = vec![DEFAULT_SCHEME.to_owned()];
+        out.extend(self.keys.files.iter().cloned());
         out
     }
 
     fn scheme_at(&self, index: usize) -> Option<Scheme> {
         match index {
-            0 => Some(Scheme::ClassicDefaults),
-            1 => Some(Scheme::RetailDefaults),
-            _ => self.schemes().get(index).cloned().map(Scheme::File),
+            0 => Some(Scheme::Default),
+            _ => self.keys.files.get(index - 1).cloned().map(Scheme::File),
         }
+    }
+
+    fn selected_index(&self) -> usize {
+        self.selected
+            .as_ref()
+            .and_then(|n| {
+                self.keys
+                    .files
+                    .iter()
+                    .position(|f| f.eq_ignore_ascii_case(n))
+            })
+            .map_or(0, |i| i + 1)
+    }
+
+    fn selected_scheme(&self) -> Scheme {
+        self.selected.clone().map_or(Scheme::Default, Scheme::File)
     }
 
     /// Whether the key `vk` held with `modifiers` is bound to `action`.
@@ -227,7 +237,7 @@ impl KeyBindings {
             capture_revision: self.capture_revision,
             warning: self.warning.clone(),
             dirty: false,
-            scheme: u32_from(self.selected),
+            scheme: u32_from(self.selected_index()),
             schemes: self.schemes(),
             bindings,
         }
@@ -246,11 +256,10 @@ impl KeyBindings {
         self.combat_mode = mode;
     }
 
+    /// The name of the key map in use, or the defaults' row: neither is overwritten or deleted.
     fn protected(&self, name: &str) -> bool {
-        self.keys
-            .own_files
-            .iter()
-            .any(|f| !f.is_empty() && f.eq_ignore_ascii_case(name))
+        name.eq_ignore_ascii_case(DEFAULT_SCHEME)
+            || (!self.keys.active.is_empty() && self.keys.active.eq_ignore_ascii_case(name))
     }
 
     /// Returns false for a host action outside this module's ownership.
@@ -260,7 +269,10 @@ impl KeyBindings {
                 let scheme = self
                     .scheme_at(*i as usize)
                     .ok_or("Unknown keyboard scheme")?;
-                self.selected = *i as usize;
+                self.selected = match &scheme {
+                    Scheme::Default => None,
+                    Scheme::File(name) => Some(name.clone()),
+                };
                 self.requests.push(KeyStoreRequest::Load(scheme));
                 self.end_capture();
             }
@@ -304,49 +316,53 @@ impl KeyBindings {
                     overwrite: false,
                 });
                 self.keys.files.push(name.clone());
-                self.selected = self.schemes().len() - 1;
+                self.keys.files.sort_by_key(|f| f.to_lowercase());
+                self.selected = Some(name.clone());
             }
             HostAction::OverwriteKeyMap { name } => {
                 validate_name(name)?;
-                let index = self
-                    .schemes()
+                let name = self
+                    .keys
+                    .files
                     .iter()
-                    .position(|s| s.eq_ignore_ascii_case(name))
+                    .find(|s| s.eq_ignore_ascii_case(name))
+                    .cloned()
                     .ok_or("Unknown keyboard scheme")?;
-                if index < 2 || self.protected(name) {
+                if self.protected(&name) {
                     return Err("That keyboard scheme cannot be overwritten".into());
                 }
-                let name = self.schemes()[index].clone();
                 self.requests.push(KeyStoreRequest::SaveAs {
-                    name,
+                    name: name.clone(),
                     overwrite: true,
                 });
-                self.selected = index;
+                self.selected = Some(name);
             }
             HostAction::DeleteKeyScheme { name } => {
-                let index = self
-                    .schemes()
+                let name = self
+                    .keys
+                    .files
                     .iter()
-                    .position(|s| s.eq_ignore_ascii_case(name))
+                    .find(|s| s.eq_ignore_ascii_case(name))
+                    .cloned()
                     .ok_or("Unknown scheme")?;
-                if index < 2 || self.protected(name) {
+                if self.protected(&name) {
                     return Err("That keyboard scheme cannot be deleted".into());
                 }
-                let name = self.schemes()[index].clone();
                 self.requests.push(KeyStoreRequest::Delete(name.clone()));
                 self.keys.files.retain(|f| !f.eq_ignore_ascii_case(&name));
-                if self.selected == index {
-                    self.selected = 0;
-                } else if self.selected > index {
-                    self.selected -= 1;
+                if self
+                    .selected
+                    .as_ref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(&name))
+                {
+                    self.selected = None;
                 }
                 self.end_capture();
             }
             HostAction::RestoreBindings => {
                 // Back to the scheme chosen last, as it is.
-                if let Some(scheme) = self.scheme_at(self.selected) {
-                    self.requests.push(KeyStoreRequest::Load(scheme));
-                }
+                self.requests
+                    .push(KeyStoreRequest::Load(self.selected_scheme()));
                 self.end_capture();
             }
             _ => return Ok(false),
@@ -755,8 +771,8 @@ mod tests {
                 b(DELETE, 0, action("CombatAimLow"), map::MISSILE),
                 b(DELETE, 0, action("CombatPrevSpell"), map::MAGIC),
             ],
-            files: vec!["dereth".into(), "dereth-classic".into(), "pvp".into()],
-            own_files: ["dereth".into(), "dereth-classic".into()],
+            files: vec!["pvp".into(), "wer".into()],
+            active: "dereth".into(),
             conflicts: vec![(map::MOVEMENT, vec![map::MOVEMENT])],
             holds: vec![(map::MOVEMENT, FORWARD), (map::MOVEMENT, BACK)],
         }
@@ -976,47 +992,58 @@ mod tests {
     }
 
     #[test]
-    fn the_schemes_are_the_two_defaults_and_the_files_but_this_interfaces_own() {
+    fn the_schemes_are_the_default_and_this_interfaces_saved_maps() {
         let mut k = KeyBindings::new(&keys());
-        assert_eq!(
-            k.snapshot().schemes,
-            [DEFAULT_SCHEME, RETAIL_SCHEME, "dereth", "pvp"]
-        );
+        assert_eq!(k.snapshot().schemes, [DEFAULT_SCHEME, "pvp", "wer"]);
         k.handle(&HostAction::KeyboardScheme(1)).unwrap();
-        k.handle(&HostAction::KeyboardScheme(2)).unwrap();
         k.handle(&HostAction::KeyboardScheme(0)).unwrap();
-        k.handle(&HostAction::SaveKeyMapAs {
-            name: "My Keys".into(),
-        })
-        .unwrap();
         k.handle(&HostAction::DeleteKeyScheme { name: "pvp".into() })
             .unwrap();
         assert_eq!(
             k.requests,
             [
-                KeyStoreRequest::Load(Scheme::RetailDefaults),
-                KeyStoreRequest::Load(Scheme::File("dereth".into())),
-                KeyStoreRequest::Load(Scheme::ClassicDefaults),
-                KeyStoreRequest::SaveAs {
-                    name: "My Keys".into(),
-                    overwrite: false
-                },
+                KeyStoreRequest::Load(Scheme::File("pvp".into())),
+                KeyStoreRequest::Load(Scheme::Default),
                 KeyStoreRequest::Delete("pvp".into()),
             ]
         );
-        for name in ["dereth", "dereth-classic", "Default"] {
+        for name in ["dereth", "Default"] {
             assert!(k
                 .handle(&HostAction::OverwriteKeyMap { name: name.into() })
                 .is_err());
             assert!(k
                 .handle(&HostAction::DeleteKeyScheme { name: name.into() })
                 .is_err());
+            assert!(k
+                .handle(&HostAction::SaveKeyMapAs { name: name.into() })
+                .is_err());
         }
-        assert!(k
-            .handle(&HostAction::SaveKeyMapAs {
-                name: "dereth-classic".into()
-            })
-            .is_err());
+    }
+
+    /// Behaviour: keys.classic.a-scheme-saved-under-a-name-is-the-one-chosen-after
+    #[test]
+    fn a_scheme_saved_under_a_name_stays_chosen_when_the_list_comes_back_sorted() {
+        let mut k = KeyBindings::new(&keys());
+        k.handle(&HostAction::SaveKeyMapAs {
+            name: "bananas".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            k.snapshot().schemes,
+            [DEFAULT_SCHEME, "bananas", "pvp", "wer"]
+        );
+        assert_eq!(k.snapshot().scheme, 1, "bananas, at once");
+        // The host writes the file and hands the list back as the folder holds it.
+        let mut back = keys();
+        back.files = vec!["bananas".into(), "pvp".into(), "wer".into()];
+        k.set_keys(&back);
+        let page = k.snapshot();
+        assert_eq!(page.schemes[page.scheme as usize], "bananas");
+        k.handle(&HostAction::RestoreBindings).unwrap();
+        assert_eq!(
+            k.requests.last(),
+            Some(&KeyStoreRequest::Load(Scheme::File("bananas".into())))
+        );
     }
 
     #[test]

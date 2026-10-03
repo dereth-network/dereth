@@ -325,16 +325,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "keys.classic.the-classic-map-starts-from-the-players-keys",
-        says: "The first time the classic interface's key map is wanted and it has no file, it is \
-               made from its default keys with the keys the player bound and cleared in the one \
-               map both interfaces used to keep laid over them, Shift, Ctrl and Alt keys \
-               included, and written; the retail key map is left as it was.",
+        id: "keys.classic.a-scheme-saved-under-a-name-is-the-one-chosen-after",
+        says: "A key map saved under a name on the classic Keyboard Configuration page is the \
+               one its Current Scheme shows chosen afterwards, however the list of saved maps \
+               comes back ordered, and Reset goes back to it.",
         since: THIS_CLIENT,
         divergence: "CD-022",
-        evidence: Evidence::Private("AC-EVID-KEYBIND-MIGRATE"),
-        station: "dereth-client::dat::ui::shared_key_map::the_classic_map_starts_from_the_players_keys_of_the_one_map_both_kept",
-        tier: Tier::Dat,
+        evidence: Evidence::Private("AC-EVID-KEYBIND-SAVE-CHOSEN"),
+        station: "dereth-classic-ui::lib::keybindings::tests::a_scheme_saved_under_a_name_stays_chosen_when_the_list_comes_back_sorted",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "keys.classic.the-default-keys-are-the-eras-shipped-map-and-the-permanent-keys",
@@ -419,16 +418,16 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "keys.shared.each-interface-keeps-its-own-key-map",
         says: "Each interface keeps its own key map, in the shared action names and the same \
-               file format: the retail interface its key map file over the final client's \
-               shipped maps, the classic interface its own file beside it over its 2004 default \
-               keys. A key bound on the classic page leaves the retail keys as they were. Either \
-               interface takes the other's keys, or either default scheme, whole: the rows of \
-               the key pages bound exactly as the scheme binds them, and the keys no page lists \
-               (a text box's, a dialog's) left as they were.",
+               file format: the modern interface its key map file over the final client's \
+               shipped maps, the classic interface dereth-classic.keymap beside it over its 2004 \
+               default keys. A key bound on the classic page leaves the modern keys as they \
+               were. A key map saved under a name is that interface's own file, \
+               <name>-modern.keymap or <name>-classic.keymap, and each interface lists only its \
+               own, after Default.",
         since: THIS_CLIENT,
         divergence: "CD-022",
         evidence: Evidence::Private("AC-EVID-KEYBIND-OWN-MAPS"),
-        station: "dereth-client::dat::ui::shared_key_map::each_interface_keeps_its_own_key_map_and_takes_the_others_whole",
+        station: "dereth-client::dat::ui::shared_key_map::each_interface_keeps_its_own_key_map_and_its_own_saved_ones",
         tier: Tier::Dat,
     },
     behaviour! {

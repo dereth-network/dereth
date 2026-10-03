@@ -13793,7 +13793,7 @@ pub fn a_set_of_keys_can_be_saved_under_a_name_and_loaded_back() {
         .expect("a settings directory")
         .dir()
         .to_path_buf();
-    let saved = dir.join("keys-roundtrip.keymap");
+    let saved = dir.join("keys-roundtrip-modern.keymap");
     let mut hand = KeyHand::new();
     let cell = forward_cell(c.app_mut());
 
@@ -13832,16 +13832,13 @@ pub fn a_set_of_keys_can_be_saved_under_a_name_and_loaded_back() {
         load_dialog,
         dereth_ui::dialog::base::child::CONFIRM_MENU_MENU,
     );
-    // The two default schemes come first, then the files.
-    let defaults_first = [(0, "Retail defaults"), (1, "Classic defaults")]
-        .into_iter()
-        .all(|(i, label)| {
-            dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, i)
-                .is_some_and(|row| kb_text(c.app_mut(), row) == label)
-        });
-    let row = dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, 2)
+    // "Default" first, then this interface's saved key maps by the names they were saved
+    // under.
+    let default_first = dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, 0)
+        .is_some_and(|row| kb_text(c.app_mut(), row) == "Default");
+    let row = dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, 1)
         .expect("the saved file is a real row of the list");
-    let listed = defaults_first && kb_text(c.app_mut(), row) == "keys-roundtrip.keymap";
+    let listed = default_first && kb_text(c.app_mut(), row) == "keys-roundtrip";
     kb_press(c.app_mut(), menu);
     kb_press(c.app_mut(), row);
     let accept = kb_child(
@@ -13883,8 +13880,8 @@ pub fn saving_over_a_set_asks_first_and_one_that_cannot_be_written_refuses() {
         .expect("a settings directory")
         .dir()
         .to_path_buf();
-    let writable = dir.join("existing.keymap");
-    let read_only = dir.join("read-only.keymap");
+    let writable = dir.join("existing-modern.keymap");
+    let read_only = dir.join("read-only-modern.keymap");
     let sentinel = b"existing bytes must survive no";
     let read_only_sentinel = b"read-only bytes must not change";
     std::fs::write(&writable, sentinel).expect("a disposable target");

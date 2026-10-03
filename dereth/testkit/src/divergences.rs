@@ -123,8 +123,10 @@ pub static DIVERGENCES: &[Divergence] = &[
         dereth: "They go in a folder named for this client: Dereth's client folder in the \
                  roaming application data on Windows, and in the platform's own settings place \
                  on macOS and other Unix systems. On Windows the first run copies the original \
-                 game's folder's contents across. The key map a player has not named is always \
-                 dereth.keymap, whatever the program file is called.",
+                 game's folder's contents across, its key maps as the modern interface's \
+                 (<name>-modern.keymap), unless DERETH_SETTINGS_DIR names the folder. The modern \
+                 interface's key map a player has not named is always dereth-modern.keymap, \
+                 whatever the program file is called.",
         why: "This client's files are not the original's, and a folder of its own keeps them \
               from sharing a directory with a retail installation. A key map named after the \
               program would be lost whenever the program is renamed or copied under another \
@@ -446,18 +448,17 @@ pub static DIVERGENCES: &[Divergence] = &[
                  character options. A row that does nothing in an interface is not on that \
                  interface's page and has no default key there. A key given to one of this \
                  client's own actions is taken from whatever else had it, after the page asks, \
-                 as a shipped action's key is. Each interface keeps its own key map: the retail \
-                 interface its key map file over the final client's shipped maps, the classic \
-                 interface dereth-classic.keymap beside it over its own default keys, made the \
-                 first time from the player's keys of the one map both used to keep. A key bound \
-                 in one leaves the other alone. The retail page's Load menu offers Retail \
-                 defaults and Classic defaults ahead of the key map files, and the classic page's \
-                 Current Scheme offers Default and Retail Defaults ahead of them; either takes a \
-                 scheme whole, the keys no page lists left as they were. A key cleared on either \
-                 page stays cleared.",
+                 as a shipped action's key is. Each interface keeps its own key maps, named \
+                 <name>-modern.keymap and <name>-classic.keymap: the modern interface's in use is \
+                 its key map file (dereth-modern.keymap unless the player names another) over the \
+                 final client's shipped maps, the classic interface's dereth-classic.keymap over \
+                 its own default keys. A key bound in one leaves the other alone. Each page's \
+                 Load and Save As list only its own interface's key maps, by name, after Default \
+                 (that interface's defaults); Save As adds the interface's ending to the name \
+                 typed. A key cleared on either page stays cleared.",
         why: "The owner asked for one set of available key bindings with a default set per \
-              interface, and for the bindings an interface does not use to stay visible, \
-              editable and clearable there.",
+              interface, each interface's saved key maps its own, and no list of the bindings \
+              an interface does not use.",
     },
     Divergence {
         id: "CD-023",
