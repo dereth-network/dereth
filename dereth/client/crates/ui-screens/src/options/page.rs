@@ -1529,18 +1529,27 @@ impl PlayerOptionPage {
     /// player closes the page instead of pressing Apply.
     pub fn on_visibility_changed(&mut self, ui: &mut UiSystem, visible: bool) -> usize {
         if visible {
-            // `save_current_values` re-reads the store into the current and saved values, so
-            // the elements have to be pushed the new values or the page would show the old ones.
-            // The client gets this for free: each option's save-current-value is followed by
-            // the page's own refresh fan-out.
-            let moved = self.save_current_values();
-            for i in 0..self.options.len() {
-                self.refresh(ui, i);
-            }
-            moved
+            self.reread(ui)
         } else {
             self.restore_saved_values(ui)
         }
+    }
+
+    /// Read every row from the store again and show it: the values, and the rows another
+    /// option greys. The page's show arm, and what the page does when the store moved under it
+    /// while it was not the interface being shown. Returns how many rows moved.
+    pub fn reread(&mut self, ui: &mut UiSystem) -> usize {
+        // `save_current_values` re-reads the store into the current and saved values, so
+        // the elements have to be pushed the new values or the page would show the old ones.
+        // The client gets this for free: each option's save-current-value is followed by
+        // the page's own refresh fan-out.
+        let moved = self.save_current_values();
+        for i in 0..self.options.len() {
+            self.refresh(ui, i);
+        }
+        // A row another option greys follows that option as it is now.
+        self.sync_gates(ui);
+        moved
     }
 
     // ---- messages ----------------------------------------------------------------------------

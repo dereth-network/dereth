@@ -572,3 +572,69 @@ fn the_config_page_is_where_the_other_tests_look_for_it() {
     );
     assert_eq!(s.config_page.row_count(), 41);
 }
+
+/// Behaviour: presentation.settings.an-interface-shown-again-shows-the-store-as-it-is
+/// The other interface changed options while this page was put away, the page still showing: read
+/// again, it shows the store's values, the interface choice among them, and greys the manual
+/// degrade bias by the adaptive degrade as it is now, not as it was when the page was built.
+#[test]
+fn a_page_read_again_shows_the_stored_values_and_greys_by_them() {
+    use dereth_client_contract::options::interface::{Interface, INTERFACE};
+    let mut ui = env();
+    assert!(store::set_value(
+        INTERFACE,
+        PrefValue::Int(Interface::Classic.value())
+    ));
+    assert!(store::set_value(
+        "Render.AutomaticDegrades",
+        PrefValue::Bool(true)
+    ));
+    let mut s = screen(&mut ui);
+    let bias = index(&s, "Render.GraphicsPerformance");
+    let control = s.config_page.options[bias].element;
+    let clickable = |ui: &UiSystem| ui.node(control).is_some_and(|n| n.is_mouse_visible);
+    assert!(
+        !clickable(&ui),
+        "the bias is greyed while adaptive degrade is on"
+    );
+    assert_eq!(
+        value(&s, INTERFACE),
+        PrefValue::Int(Interface::Classic.value())
+    );
+
+    // The other interface: back to this one, and adaptive degrade turned off there.
+    assert!(store::set_value(
+        INTERFACE,
+        PrefValue::Int(Interface::Retail.value())
+    ));
+    assert!(store::set_value(
+        "Render.AutomaticDegrades",
+        PrefValue::Bool(false)
+    ));
+    assert_eq!(
+        s.config_page.reread(&mut ui),
+        2,
+        "two rows moved under the page"
+    );
+    assert_eq!(
+        value(&s, INTERFACE),
+        PrefValue::Int(Interface::Retail.value())
+    );
+    assert_eq!(
+        value(&s, "Render.AutomaticDegrades"),
+        PrefValue::Bool(false)
+    );
+    assert!(
+        clickable(&ui),
+        "the bias is used by hand now, and takes clicks"
+    );
+    ui.requests.clear();
+    assert_eq!(s.config_page.reread(&mut ui), 0);
+    assert!(
+        !ui.requests
+            .take()
+            .iter()
+            .any(|r| matches!(r, UiRequest::SetPreference(..))),
+        "reading again writes nothing"
+    );
+}

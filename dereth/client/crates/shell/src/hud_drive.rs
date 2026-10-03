@@ -226,6 +226,27 @@ impl Hud {
         self.panels = panels;
     }
 
+    /// Read the gameplay screen's option pages again from the store and the character, with
+    /// the live view. Returns how many rows moved.
+    pub(crate) fn reread_option_pages(
+        &mut self,
+        ui: &mut dereth_ui::UiSystem,
+        screen: &mut dyn Screen,
+        objects: &crate::objects::ObjectStream,
+    ) -> usize {
+        let mut call = GameCall::RereadOptions(0);
+        let view = self.view(objects);
+        let took = screen.on_game(
+            &mut ScreenCx::with_view(ui, &view),
+            &mut GameCx::call(&mut call),
+        );
+        expect_taken(took, &call);
+        match call {
+            GameCall::RereadOptions(moved) => moved,
+            _ => 0,
+        }
+    }
+
     /// Hand everything to the live gameplay screen, once per frame. `screen_serial`
     /// distinguishes constructions so update_from_player_module runs again after replacement.
     pub fn drive(

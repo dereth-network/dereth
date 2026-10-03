@@ -283,10 +283,25 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.settings.a-headless-run-leaves-the-players-settings-alone-unless-given-a-file",
-        says: "A run with no window reads nothing from the player's settings folder and writes                nothing to it: the preferences and the key map are byte for byte what they were                afterwards. Naming a preferences file on the command line, with either spelling of                the switch, asks for that file, which the run then reads and writes on exit, and so does naming the settings folder in DERETH_SETTINGS_DIR.",
+        says: "A run with no window reads nothing from the player's settings folder and writes \
+               nothing to it: the preferences and the key map are byte for byte what they were \
+               afterwards. Naming a preferences file on the command line, with either spelling of \
+               the switch, asks for that file, which the run then reads and writes on exit, and \
+               so does naming the settings folder in DERETH_SETTINGS_DIR.",
         since: TOOLING,
         evidence: Evidence::Private("AC-EVID-HEADLESS-SETTINGS"),
         station: "dereth-client::gpu::presentation::headless_settings::a_headless_run_leaves_the_players_preferences_and_key_map_untouched",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.settings.an-interface-shown-again-shows-the-store-as-it-is",
+        says: "Switching interfaces, the interface that comes back shows every option as the \
+               other one left it, its own interface choice among them, and greys the manual \
+               degrade bias by whether adaptive degrade is on now.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-OPTIONS-R3"),
+        station: "dereth-ui-screens::dat::panels::options_preference_store::a_page_read_again_shows_the_stored_values_and_greys_by_them",
         tier: Tier::Dat,
     },
     behaviour! {

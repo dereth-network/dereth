@@ -2770,6 +2770,16 @@ impl<H: Host> ClientShell<H> {
                         );
                     }
                 }
+                // The other interface may have changed any option while this one was put
+                // away (the interface choice itself among them): every option page shows the
+                // store and the character as they are now.
+                if let Some(shell) = self.ui.as_mut() {
+                    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                        let (hud, objects) = cx.hud_and_objects();
+                        let moved = hud.reread_option_pages(&mut shell.ui, screen, objects);
+                        tracing::debug!("the option pages read again: {moved} rows moved");
+                    }
+                }
                 // This interface's chat takes the lines it missed.
                 let missed: Vec<_> = self.classic.take_missed();
                 for line in missed {

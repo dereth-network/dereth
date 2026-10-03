@@ -73,6 +73,9 @@ pub enum GameCall {
     },
     /// The UI-lock flag, pushed into the screen before the global `0x0D` broadcast.
     LockUi(bool),
+    /// Read the option pages again ([`GamePlayScreen::reread_option_pages`]); the answer is how
+    /// many rows moved.
+    RereadOptions(usize),
     /// The start-tell notice for `name`, reaching the chat entry.
     StartTell(String),
     /// One of this client's window keys ([`GamePlayScreen::own_window_action`]); the answer is
@@ -359,6 +362,10 @@ pub(crate) fn on_game(s: &mut GamePlayScreen, cx: &mut ScreenCx<'_>, g: &mut Gam
         }
         GameCall::LockUi(locked) => {
             s.set_lock_ui(*locked);
+            true
+        }
+        GameCall::RereadOptions(moved) => {
+            *moved = s.reread_option_pages(cx.ui, cx.view);
             true
         }
         GameCall::StartTell(name) => {

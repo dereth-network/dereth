@@ -4353,6 +4353,16 @@ impl GamePlayScreen {
         self.config_page.on_visibility_changed(ui, visible)
     }
 
+    /// Read all three option pages again from what they show: the Client Options page from
+    /// the preference store, the Character and Chat Options pages from the character. For when
+    /// the other interface changed them while this one was put away. Returns how many rows
+    /// moved.
+    pub fn reread_option_pages(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
+        self.config_page.reread(ui)
+            + self.character_options.save_current_values(ui, view)
+            + self.chat_options.save_current_values(ui, view)
+    }
+
     // ---- the Character Options page ---------------------------------------------------------
 
     /// The option page's visibility handling on the Character Options page —

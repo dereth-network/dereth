@@ -269,7 +269,12 @@ impl Settings {
     /// The Client Options page: the shared set's headings and the classic interface's rows under
     /// them, scrolled.
     fn client(&self, c: &Context<'_>) -> PanelFrame {
-        let s = self.draft.as_ref().unwrap_or(c.settings);
+        // Unchanged, the page shows the settings as they are now, whichever interface set them.
+        let s = self
+            .draft
+            .as_ref()
+            .filter(|_| self.dirty)
+            .unwrap_or(c.settings);
         let mut f = background();
         let clip = Some([VIEW.x, VIEW.y, VIEW.x + VIEW.w, VIEW.y + VIEW.h]);
         for (k, line) in lines(PageId::Client).into_iter().enumerate() {
@@ -713,7 +718,9 @@ impl Panel for Settings {
         if self.tab == 3 && !host_event {
             return Self::chat_event(&e, c);
         }
-        if self.draft.is_none() {
+        // Nothing changed here yet: the draft starts from the settings as they are now, which the
+        // other interface may have changed since the page was last used.
+        if self.draft.is_none() || !self.dirty {
             self.draft = Some(c.settings.clone());
             self.saved = Some(c.settings.clone());
         }
