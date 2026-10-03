@@ -114,10 +114,6 @@ fn source_alpha() -> Vec<u8> {
     a
 }
 
-/// The same bytes as BGRA, white RGB with the coverage in alpha — which is what
-/// `dereth_client::ui_draw::build_font_atlas` hands [`FontAtlas::from_glyph_sheet`] after decoding
-/// an `A8` `RenderSurface`.
-
 /// One measurement: what the rendered frame's red channel is, per pixel.
 struct Shot {
     red: Vec<u8>,

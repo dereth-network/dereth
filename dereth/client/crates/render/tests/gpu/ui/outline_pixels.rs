@@ -133,9 +133,6 @@ fn background_alpha() -> Vec<u8> {
     a
 }
 
-/// A8 coverage as the BGRA the decoders hand [`FontAtlas::from_glyph_sheets`]: white rgb, the
-/// coverage in alpha.
-
 /// One read-back frame, kept as **two** colour channels so a two-pass frame can be separated:
 /// the outline is drawn in blue and the foreground in red, and the text material's
 /// `TEXOP_SELECTARG2(DIFFUSE)` colour keeps them in their own channels.

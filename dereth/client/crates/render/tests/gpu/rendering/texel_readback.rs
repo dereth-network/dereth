@@ -133,7 +133,14 @@ fn render(gpu: &mut Gpu, tex: &TextureData, format: VertexFormat, lit: bool) -> 
 fn check(name: &str, rgba: &[u8], want: (u8, u8, u8)) {
     let n = (rgba.len() / 4) as f64;
     let mean: Vec<f64> = (0..3)
-        .map(|c| rgba.chunks_exact(4).map(|p| f64::from(p[c])).sum::<f64>() / n)
+        .map(|c| {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| f64::from(p[c]))
+                .sum::<f64>()
+                / n
+        })
         .collect();
     let centre = &rgba[((N / 2) * N + N / 2) as usize * 4..][..3];
     eprintln!(
@@ -141,7 +148,9 @@ fn check(name: &str, rgba: &[u8], want: (u8, u8, u8)) {
         centre[0], centre[1], centre[2], mean[0], mean[1], mean[2]
     );
     let off = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|p| {
             p[0].abs_diff(want.0) > 1 || p[1].abs_diff(want.1) > 1 || p[2].abs_diff(want.2) > 1
         })
