@@ -291,8 +291,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.settings.both-interfaces-edit-one-store",
-        says: "The classic interface's Sound/Graphics page opens on the same preferences the \
-               retail interface's Client Options page edits, and what it applies the retail page \
+        says: "The classic interface's Client page opens on the same preferences the retail \
+               interface's Client Options page edits, and what it applies the retail page \
                shows: the volumes, the sound switches, brightness, the camera's stiffness, \
                graphics performance, automatic degrading, the texture sizes, the detail \
                textures, the window's size and full screen. A settings file the classic \

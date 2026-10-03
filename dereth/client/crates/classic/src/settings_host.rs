@@ -1,6 +1,6 @@
 //! The classic settings pages carried onto the host. UI values are normalized.
 //!
-//! **One store.** Every row of the Sound/Graphics page is a shared preference, the same one the
+//! **One store.** Every row of the Client page is a shared preference, the same one the
 //! retail interface's Client Options page edits: the page opens on the store's values and Apply
 //! writes them back, so the profile (`UserPreferences.ini`) holds both interfaces' settings and
 //! either page shows what the other set. The page keeps its own steps (tenths for the volumes,
@@ -105,7 +105,7 @@ impl Stored {
         Ok(s)
     }
 }
-/// The classic Sound/Graphics settings, carried onto the shared scene's render preferences.
+/// The classic Client page's settings, carried onto the shared scene's render preferences.
 ///
 /// The classic page has four texture sliders (landscape, clip-mapped, colour and indexed images),
 /// each with four steps from full size to a sixteenth. The shared scene has two: landscape, and one
@@ -118,7 +118,11 @@ impl Stored {
 /// and the performance slider sets the degrade bias when automatic degrading is off.
 pub fn render_preferences(s: &ClassicSettings, prefs: &mut RenderPreferences) {
     prefs.landscape_texture_detail = u32::from(s.texture_levels[0].min(3)) + 1;
-    prefs.environment_texture_detail = u32::from(s.texture_levels[2].min(3)) + 1;
+    prefs.environment_texture_detail = if s.environment_very_high {
+        0
+    } else {
+        u32::from(s.texture_levels[2].min(3)) + 1
+    };
     prefs.environment_detail_textures = s.detail_available && s.environment_detail;
     prefs.screen_brightness = brightness_of_slider(s.brightness);
     prefs.automatic_degrades = s.auto_degrade;
@@ -268,6 +272,7 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
         s.texture_levels[0] = level_of(v);
     }
     if let Some(v) = int_of(names::ENVIRONMENT_TEXTURE_DETAIL) {
+        s.environment_very_high = v == 0;
         s.texture_levels[2] = level_of(v);
     }
     if let Some(v) = bool_of(names::BUILDING_DETAIL_TEXTURES) {
@@ -418,7 +423,9 @@ impl SettingsHost {
         save: bool,
     ) -> Result<Vec<UiRequest>, String> {
         let packed = Stored::from_settings(&settings);
-        let effective = packed.decode(&self.current)?;
+        let mut effective = packed.decode(&self.current)?;
+        // Very High is not one of the packed steps.
+        effective.environment_very_high = settings.environment_very_high;
         // A rejected native resize can leave the requested configuration ahead of
         // the live surface; rollback and retry must start from what is displayed.
         let previous = cx.present().size();

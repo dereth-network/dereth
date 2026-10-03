@@ -1740,6 +1740,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.pages.the-classic-window-draws-the-shared-pages-its-own-way",
+        says: "The classic interface's options window has the same four pages: its Options page \
+               is Leave World, Exit Game, Configure Keyboard, Urgent Assistance and Report Abuse, \
+               with no Setup 3D Acceleration, In-Game Help or Retail Interface button; the \
+               interface is chosen on its Client page, as on the retail one, and Apply writes \
+               the choice.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-OPTIONS-UNIFY-CLASSIC-PAGES"),
+        station: "dereth-classic-ui::lib::panels::services::tests::the_options_page_has_the_shared_buttons_and_the_interface_choice_is_a_client_row",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "options.panel-boxes.each-panel-option-box-draws-its-caption-and-a-press-names-its-option",
         says: "The five character-option boxes that live on the allegiance and fellowship panels \
                each draw the caption the shipped string table gives their option, laid out and \

@@ -466,6 +466,10 @@ pub mod window {
     pub use crate::chat::interface::window::{FLOATY_1, FLOATY_2, FLOATY_3, FLOATY_4, MAIN};
 }
 
+/// The main chat window's filter before the player sets one: every kind of message but the one
+/// meant for the speech bubbles over heads (`1 << 26`).
+pub const MAIN_WINDOW_DEFAULT_FILTER: u64 = 0xFBFF_FFFF;
+
 /// The groups of a chat window's message filter, in the order the pages list them: the group's
 /// caption and its mask of the filter. The first, Gameplay, is offered for the floating
 /// windows only; the main window shows its messages always.

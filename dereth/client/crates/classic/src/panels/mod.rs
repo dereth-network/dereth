@@ -106,6 +106,9 @@ pub struct ClassicSettings {
     pub landscape_detail: bool,
     pub environment_detail: bool,
     pub texture_levels: [u8; 4],
+    /// Every image but the landscape's at the final client's Very High: full size, from its
+    /// high-resolution art. The environment's step in `texture_levels` then is Full.
+    pub environment_very_high: bool,
     /// Whether the game fills the monitor (a borderless window over it) rather than a window.
     pub full_screen: bool,
 }

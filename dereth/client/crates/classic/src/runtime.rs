@@ -65,6 +65,9 @@ pub struct ClassicUi {
     pub quit_requested: bool,
     local_severity: Vec<(String, crate::panels::FeedbackSeverity)>,
     game_status_area: bool,
+    /// Which kinds of message the chat window shows: the main chat window's filter, which the
+    /// Chat Options page sets.
+    chat_filter: u64,
     examine_seen: Option<(ObjectId, u64)>,
     examine_open: Option<ObjectId>,
     stretch_saved: Option<u32>,
@@ -170,6 +173,7 @@ impl ClassicUi {
             quit_requested: false,
             local_severity: Vec::new(),
             game_status_area: false,
+            chat_filter: dereth_client_contract::options::sheet::MAIN_WINDOW_DEFAULT_FILTER,
             examine_seen: None,
             examine_open: None,
             stretch_saved: None,
@@ -1058,16 +1062,14 @@ impl ClassicUi {
                 timestamp_format,
                 save,
             } => {
-                // This interface's own settings stay out of the character's word, which keeps
-                // whatever the server holds in those bits.
-                let own = crate::keyboard_runtime::CLASSIC_ONLY;
-                crate::keyboard_runtime::set_classic_bits(words[0]);
+                // The page sets only the bits it shows; every other bit of the two words (this
+                // interface's own settings, which live in the profile, and the options set from
+                // elsewhere, such as appearing offline) keeps what the character holds now.
+                let shown = crate::screens::shown_bits();
                 let options = &cx.model().player_system.options;
                 let old = [options.options, options.options2];
-                let word = (words[0] & !own) | (options.options & own);
-                // The classic page knows only the low byte of the second word; the rest holds
-                // the final client's settings for the same character and is kept as it is.
-                let word2 = (words[1] & 0xff) | (options.options2 & !0xff);
+                let word = (words[0] & shown[0]) | (options.options & !shown[0]);
+                let word2 = (words[1] & shown[1]) | (options.options2 & !shown[1]);
                 // Each named option the page changed goes through the game's own option change,
                 // as the other interface's page sends it: an option the server acts on at once
                 // (the chat channels, the fellowship and allegiance options) is told to it at
@@ -1308,6 +1310,11 @@ impl ClassicUi {
                 _=>None,
             };
         }
+        self.chat_filter = cx
+            .hud()
+            .view(cx.objects())
+            .chat_window_filter(dereth_client_contract::options::sheet::window::MAIN)
+            .unwrap_or(dereth_client_contract::options::sheet::MAIN_WINDOW_DEFAULT_FILTER);
         for line in cx.hud_mut().take_chat_lines(0) {
             self.chat_line(
                 u32::from(line.ty),
@@ -1322,7 +1329,7 @@ impl ClassicUi {
     /// One line for the classic chat, from the game's chat feed or the history a switch hands
     /// over.
     pub fn chat_line(&mut self, ty: u32, prefix: String, body: &str) {
-        if ty == 0x1a {
+        if ty == 0x1a || !shows(self.chat_filter, ty) {
             return;
         }
         let text = format!("{prefix}{body}");
@@ -2323,7 +2330,14 @@ impl ClassicUi {
                         && !self.desktop.pointer_over_panel(x, y)
                 })
                 .map(|_| cx.found_object())
-                .filter(|id| id.0 != 0);
+                .filter(|id| id.0 != 0)
+                // Display Tooltips off: no name or hint of what is under the pointer.
+                .filter(|_| {
+                    cx.model()
+                        .player_system
+                        .options
+                        .get(dereth_client_model::player::option::SHOW_TOOLTIPS)
+                });
             self.overlay.hover(cx.model(), found, now);
             self.overlay.tick(now);
         }
@@ -3002,5 +3016,29 @@ mod option_change_tests {
             vec![(P::HearAllegianceChat, true), (P::HearGeneralChat, false)]
         );
         assert!(changed_options(new, new).is_empty());
+    }
+}
+
+/// Whether a chat window with message filter `filter` shows a line of chat type `ty`: the
+/// filter has one bit per type.
+fn shows(filter: u64, ty: u32) -> bool {
+    ty >= 64 || filter & (1 << ty) != 0
+}
+
+#[cfg(test)]
+mod chat_filter_tests {
+    //! Behaviour: none (the filter's bit per chat type; the page that sets it is tested where
+    //! it is drawn).
+    use super::shows;
+
+    #[test]
+    fn a_filter_shows_the_types_whose_bits_it_has() {
+        let all_but_bubbles = dereth_client_contract::options::sheet::MAIN_WINDOW_DEFAULT_FILTER;
+        assert!(shows(all_but_bubbles, 0));
+        assert!(!shows(all_but_bubbles, 26));
+        // The General channel's group off: its type no longer reaches the window.
+        let general = 0x0800_0000;
+        assert!(shows(all_but_bubbles, 27));
+        assert!(!shows(all_but_bubbles & !general, 27));
     }
 }

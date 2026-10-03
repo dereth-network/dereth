@@ -305,10 +305,9 @@ pub static DIVERGENCES: &[Divergence] = &[
         retail: "Each client had one interface: the clients before Throne of Destiny the one the \
                  game had before its 2005 redesign, drawn from their own portal.dat, and the \
                  end-of-retail client the redesigned one.",
-        dereth: "Interface on the client options page (UI.Interface in the profile) chooses \
-                 Retail or Classic, and the client switches on the next frame, at the character \
-                 screen or in the world; the classic interface's Options page has a Retail \
-                 Interface button that goes back. The classic interface draws its pictures and creation \
+        dereth: "Interface on either interface's client options page (UI.Interface in the \
+                 profile) chooses Retail or Classic, and the client switches on the next frame, \
+                 at the character screen or in the world. The classic interface draws its pictures and creation \
                  tables from the early-2005 portal.dat (the world's own on a world of that era, \
                  else the one in the folder given with --legacy-dat-dir or Render.LegacyDatDir) \
                  and its text with the system's fonts; without either it is refused with a \
@@ -318,10 +317,10 @@ pub static DIVERGENCES: &[Divergence] = &[
                  interface switched to; the journal is one file, written by the interface \
                  switched from and read again by the one switched to. Both interfaces' options \
                  pages edit the same preferences in the profile (the classic interface's own \
-                 six, its inverted vertical mouse look, right-click mouse look and stretched \
-                 layout and whether its social window shows the Secure Trade page (off at \
-                 first, on worlds with trade), the Friends page and the Squelch page (on at \
-                 first, on any world), are UI.Classic.*), and both bind keys in one key map \
+                 six, its inverted vertical mouse look, right-click mouse look (on at first) and \
+                 stretched layout and whether its social window shows the Secure Trade page \
+                 (off at first, greyed on worlds without trade), the Friends page and the \
+                 Squelch page (on at first), are UI.Classic.*), and both bind keys in one key map \
                  file: each brings its own default scheme, and the player's keys lay over \
                  either, those held with Shift, Ctrl or Alt included.",
         why: "The owner asked for both interfaces over any world, switchable while playing, as \
@@ -418,8 +417,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                  not offered, Urgent Assistance and Report Abuse open the game's own forms, and \
                  there is no Sync with Refresh Rate row (the full screen is a borderless window). \
                  Manual Degrade Bias is greyed while Adaptive Degrade is on, and the landscape's \
-                 detail texture has a row. The client starts in a window at 1024 by 768, and the \
-                 Defaults button puts full screen off and the resolution at 1024 by 768.",
+                 detail texture has a row. The classic interface's Options page is its Game and \
+                 Support page (Leave World, Exit Game, Configure Keyboard and the two forms), its \
+                 Client page scrolls, its environment textures offer Very High, and its Chat page \
+                 sets which messages its one chat window shows, by the groups the retail \
+                 interface's main chat window has; Display Tooltips shows or hides the name of \
+                 what is under the pointer. The client starts in a window at 1024 by 768, and \
+                 the Defaults button puts full screen off and the resolution at 1024 by 768.",
         why: "The owner asked for one set of options behind both interfaces, grouped the same \
               way, with the dead rows gone, a windowed start and Defaults keeping the starting \
               size.",

@@ -141,22 +141,39 @@ fn event(p: &mut dyn Panel, e: ControlEvent, v: &View) -> Vec<PanelAction> {
 fn activate(p: &mut dyn Panel, id: &str, v: &View) -> Vec<PanelAction> {
     event(p, ControlEvent::Activate(id.into()), v)
 }
+/// Behaviour: options.pages.the-classic-window-draws-the-shared-pages-its-own-way
 #[test]
-fn the_options_page_offers_the_way_back_to_the_retail_interface() {
+fn the_options_page_has_the_shared_buttons_and_the_interface_choice_is_a_client_row() {
     use dereth_client_contract::options::interface::{Interface, INTERFACE};
+    dereth_client_contract::options::store::init();
     let v = View::default();
     let mut p = make("options").unwrap();
     let shown = with_context(&v, |c| p.frame(c));
+    let ids: Vec<&str> = shown.controls.iter().map(|c| c.id.as_str()).collect();
+    for id in ["leave", "exit", "keyboard", "urgent", "abuse"] {
+        assert!(ids.contains(&id), "{id} in {ids:?}");
+    }
+    for gone in ["retail-interface", "acceleration", "help", "show-trade"] {
+        assert!(!ids.contains(&gone), "{gone} in {ids:?}");
+    }
+    assert!(matches!(
+        &activate(&mut *p, "exit", &v)[0],
+        PanelAction::Confirm { accept, .. } if *accept == vec![PanelAction::Host(HostAction::Quit)]
+    ));
+    // The interface is chosen on the Client page, as the other interface's is, and written
+    // on Apply.
+    activate(&mut *p, "sound", &v);
+    let client = with_context(&v, |c| p.frame(c));
+    let row = format!("row:{INTERFACE}");
+    assert!(client.controls.iter().any(|c| c.id == row));
+    event(&mut *p, ControlEvent::Select { id: row, index: 1 }, &v);
+    let applied = activate(&mut *p, "apply", &v);
     assert!(
-        format!("{shown:?}").contains("retail-interface"),
-        "the Options tab has the button"
-    );
-    assert_eq!(
-        activate(&mut *p, "retail-interface", &v),
-        vec![PanelAction::Game(UiRequest::SetPreference(
+        applied.contains(&PanelAction::Game(UiRequest::SetPreference(
             INTERFACE,
-            dereth_client_contract::PrefValue::Int(Interface::Retail.value())
-        ))]
+            dereth_client_contract::PrefValue::Int(Interface::Classic.value())
+        ))),
+        "{applied:?}"
     );
 }
 #[test]
@@ -432,7 +449,7 @@ fn sound_reset_restores_saved_draft_and_defaults_retain_texture_levels() {
     p.event(ControlEvent::Tick, &c);
     p.event(
         ControlEvent::Value {
-            id: "effects-volume".into(),
+            id: "vol:Sound.SoundVolume".into(),
             value: 10,
         },
         &c,
@@ -453,7 +470,7 @@ fn sound_reset_restores_saved_draft_and_defaults_retain_texture_levels() {
     assert!(matches!(
         &f.controls
             .iter()
-            .find(|c| c.id == "resolution")
+            .find(|c| c.id == "row:Display.Resolution")
             .unwrap()
             .kind,
         ControlKind::Choice { .. }

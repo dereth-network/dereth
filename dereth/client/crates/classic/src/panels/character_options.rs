@@ -1,7 +1,7 @@
 //! The classic Character settings model as an embeddable options page.
 use super::*;
 use crate::int::i32_from;
-use crate::screens::{rows, OptionsModel, MAX_SCROLL};
+use crate::screens::{max_scroll, rows, OptionsModel};
 #[derive(Debug, Default)]
 pub struct CharacterOptions {
     model: OptionsModel,
@@ -17,11 +17,16 @@ impl Panel for CharacterOptions {
     fn id(&self) -> &'static str {
         "character-options"
     }
-    fn frame(&self, _context: &Context<'_>) -> PanelFrame {
+    fn frame(&self, context: &Context<'_>) -> PanelFrame {
         let height = crate::panels::side_height() - 25;
         let mut f = PanelFrame::new(300, height);
         crate::panels::sub_page_background(&mut f, height as i32);
-        for command in self.model.render(self.scroll).commands {
+        let features = context.game.era().map(|e| e.features());
+        for command in self
+            .model
+            .render_for(self.scroll, features.as_ref())
+            .commands
+        {
             let include = match &command {
                 Command::Image { did, y, .. } => {
                     *y >= 25
@@ -55,7 +60,9 @@ impl Panel for CharacterOptions {
             if let Some(checked) = self.model.checked(i) {
                 let area = rect(14, 16 + row.y - self.scroll, 13, 13);
                 if let Some(hit) = area.intersect(viewport) {
-                    f.check(format!("option{i}"), hit, "", checked, true);
+                    // A row for what the world's era lacks is greyed and takes no click.
+                    let enabled = row.needs.met(features.as_ref());
+                    f.check(format!("option{i}"), hit, "", checked, enabled);
                 }
             }
         }
@@ -79,7 +86,7 @@ impl Panel for CharacterOptions {
             rect(284, 16, 16, 264),
             ControlKind::ScrollBar {
                 min: 0,
-                max: MAX_SCROLL,
+                max: max_scroll(),
                 value: self.scroll,
                 page: 264,
                 step: 20,
@@ -125,7 +132,7 @@ impl Panel for CharacterOptions {
                 self.model.set_timestamp_format(text)
             }
             ControlEvent::Scroll { id, value } if id == "scroll" => {
-                self.scroll = value.clamp(0, MAX_SCROLL)
+                self.scroll = value.clamp(0, max_scroll())
             }
             ControlEvent::Activate(id) => match id.as_str() {
                 "apply" => {
