@@ -773,3 +773,65 @@ fn a_camera_key_reaches_set_pivot_object_and_the_stiffness_pair() {
     );
     frames(&mut app, 2);
 }
+
+/// **2b — the turn stops.** With `Input.UseMouseTurning` on, the body's mouse turn ends when the
+/// mouse stops moving under mouse look (the input poll's 0.2 s idle tick stops the drift) and when
+/// the right button is let go mid-drag; the body then holds its heading.
+///
+/// Behaviour: camera.mouse-turning.the-body-stops-turning-when-the-mouse-stops-or-the-button-is-let-go
+#[test]
+fn with_mouse_turning_on_the_body_stops_turning_when_the_mouse_stops_or_is_let_go() {
+    let mut app = setup(true);
+    let mut wire = Wire::attach(&mut app);
+    wire.frames(&mut app, 4);
+    let turn_command = |app: &App| {
+        app.world_state()
+            .unwrap()
+            .character
+            .as_ref()
+            .unwrap()
+            .driver()
+            .movement
+            .interp
+            .raw_state
+            .turn_command
+    };
+    let drag = |app: &mut App, wire: &mut Wire, x: &mut f64, n: usize| {
+        for _ in 0..n {
+            *x += 60.0;
+            app.cursor_moved(*x, 120.0);
+            wire.frames(app, 1);
+        }
+    };
+    let mut x = 160.0;
+
+    // Held, dragged, then held still: the turn stops within the idle tick.
+    app.mouse_look_button(true);
+    drag(&mut app, &mut wire, &mut x, 40);
+    let turning = turn_command(&app) == MotionCommand::TURN_LEFT;
+    wire.frames(&mut app, 30);
+    let stopped_still = turn_command(&app) != MotionCommand::TURN_LEFT;
+    let h = heading(&app);
+    wire.frames(&mut app, 20);
+    let held_still = turned(h, heading(&app)).abs() < 1.0;
+
+    // Dragged again and let go mid-drag: the turn stops with the button.
+    drag(&mut app, &mut wire, &mut x, 40);
+    let turning_again = turn_command(&app) == MotionCommand::TURN_LEFT;
+    app.mouse_look_button(false);
+    wire.frames(&mut app, 3);
+    let stopped_released = turn_command(&app) != MotionCommand::TURN_LEFT;
+    let h = heading(&app);
+    wire.frames(&mut app, 30);
+    let held_released = turned(h, heading(&app)).abs() < 1.0;
+
+    assert!(turning && turning_again, "the drag turns the body");
+    assert!(
+        stopped_still && held_still,
+        "a still mouse stops the turn: stopped {stopped_still}, held {held_still}"
+    );
+    assert!(
+        stopped_released && held_released,
+        "letting the button go stops the turn: stopped {stopped_released}, held {held_released}"
+    );
+}

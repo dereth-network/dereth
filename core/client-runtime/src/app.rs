@@ -734,6 +734,8 @@ pub struct App<S: Shell> {
     pub movement: crate::character::MovementCommands,
     /// Right button held: the cursor drives the look direction.
     pub mouse_look: bool,
+    /// When the cursor last moved under mouse look, for the input poll's 0.2 s idle tick.
+    last_mouse_move: f64,
     pub last_cursor: Option<(f64, f64)>,
     /// Time at the previous frame, used to compute the camera timestep.
     pub last_time: f64,
@@ -1108,6 +1110,10 @@ impl<S: Shell> std::fmt::Debug for App<S> {
     }
 }
 
+/// How long the mouse stays still under mouse look before the input poll's idle tick, in
+/// seconds.
+const MOUSE_LOOK_IDLE: f64 = 0.2;
+
 impl<S: Shell> App<S> {
     /// Run the twelve startup steps.
     ///
@@ -1347,6 +1353,7 @@ impl<S: Shell> App<S> {
             char_input: crate::character::CharacterInput::default(),
             movement: crate::character::MovementCommands::default(),
             mouse_look: false,
+            last_mouse_move: 0.0,
             last_cursor: None,
             last_time: 0.0,
             last_target_tracking: None,
@@ -4016,6 +4023,7 @@ impl<S: Shell> App<S> {
         // interpreter's, not the camera's. It runs here, immediately after `update_viewer`,
         // because `update_viewer` is where held-key camera repeat reaches
         // `Rotate` at all; see [`Self::apply_camera_turn`].
+        self.mouse_look_idle(now);
         self.apply_camera_turn(now);
         // Target tracking: the camera update routine at the three edges retail raises it on — see
         // [`Self::last_target_tracking`] for why an edge detector is the faithful shape here and a
@@ -6321,7 +6329,16 @@ impl<S: Shell> App<S> {
     /// could reach. The pumped events are plain data, so that arm is reachable; this split stays
     /// because the two halves are the two things the arm does.
     pub fn mouse_look_button(&mut self, down: bool) {
+        // The hold ending is mouse look ending: a turn the mouse gave the body stops.
+        if self.mouse_look && !down {
+            if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
+                if let Some(c) = world.world_mut().character.as_mut() {
+                    c.camera.mouse_look_ended();
+                }
+            }
+        }
         self.mouse_look = down;
+        self.last_mouse_move = self.timer.cur_time;
         // A fresh hold starts from the cursor's next sample, never from where it was left.
         self.last_cursor = None;
     }
@@ -6335,6 +6352,9 @@ impl<S: Shell> App<S> {
                 // LINT-OK: a cursor delta in pixels for a debug flycam, narrowed for its
                 // own f32 arithmetic. Not engine arithmetic.
                 let (dx, dy) = ((now.0 - prev.0) as f32, (now.1 - prev.1) as f32);
+                if dx != 0.0 || dy != 0.0 {
+                    self.last_mouse_move = self.timer.cur_time;
+                }
                 if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
                     // With a body this is camera-set mouse look through
                     // `crate::actions::camera`; without one it is the flycam look.
@@ -6749,6 +6769,20 @@ impl<S: Shell> App<S> {
     /// Sending a movement event has the mouse-turning arm's own 0.5 s throttle, which is
     /// **not** [`dereth_client_net::client_session::PositionReporter`]'s change detector: retail runs both, and this
     /// does too.
+    /// The input poll's idle tick: while mouse look holds and the mouse has not moved for 0.2 s,
+    /// a still delta reaches the mouse-look handler every frame, which with mouse turning on
+    /// stops the body's turn.
+    fn mouse_look_idle(&mut self, now: dereth_primitives::LocalTime) {
+        if !self.mouse_look || self.timer.cur_time < self.last_mouse_move + MOUSE_LOOK_IDLE {
+            return;
+        }
+        if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
+            if world.world_mut().character.is_some() {
+                crate::camera::mouse_look(&mut *world, 0.0, 0.0, now);
+            }
+        }
+    }
+
     fn apply_camera_turn(&mut self, now: dereth_primitives::LocalTime) {
         let Some(mut world) = self
             .present

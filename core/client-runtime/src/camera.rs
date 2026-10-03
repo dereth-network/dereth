@@ -1918,6 +1918,15 @@ impl CameraControl {
         }
     }
 
+    /// Mouse look has ended. With mouse turning on, the body stops the turn the mouse gave it
+    /// (a held turning key keeps its own) and the server is told.
+    pub fn mouse_look_ended(&mut self) {
+        if self.prefs.use_mouse_turning {
+            self.set.effects.turn = Some(CameraTurn::StopDrift);
+            self.set.effects.send_movement_event = true;
+        }
+    }
+
     /// Drain what decided the *body* should do this frame — the
     /// `MovePlayer` / `TurnToHeading` / `StopDrift` call and the mouse-turning arm's own
     /// `SendMovementEvent`. Taken, not read, so one press cannot be issued twice.
@@ -1962,6 +1971,11 @@ impl CameraControl {
         let in_head = CameraState::in_head(&self.manager);
         let r = self.mouse_look.handle(dx, dy, &self.prefs, in_head, now);
         let t = self.tick(now.0);
+        // The idle tick with mouse turning on: the mouse has stopped, so the body stops turning.
+        if r.stop_drift {
+            self.set.effects.turn = Some(CameraTurn::StopDrift);
+            self.set.effects.send_movement_event |= r.send_movement_event;
+        }
         if let Some((left, extent)) = r.rotate {
             self.set
                 .rotate(&mut self.manager, left, false, extent, false, t);
@@ -2012,7 +2026,9 @@ impl CameraControl {
             // `ToggleMouseLook` resets both extent counters on the way in; that is
             // `MouseLook::toggle`, and action 0x3E falls through to the same behaviour.
             C::ToggleMouseLook(on) | C::AlternateMode { on } => {
-                self.mouse_look.toggle(on);
+                if self.mouse_look.toggle(on) && !on {
+                    self.mouse_look_ended();
+                }
                 self.set.mouselook_active = self.mouse_look.active;
             }
             C::NotHandled => {}

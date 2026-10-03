@@ -30,6 +30,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "camera.mouse-turning.the-body-stops-turning-when-the-mouse-stops-or-the-button-is-let-go",
+        says: "With Turn your character with camera turning on, the turn mouse look gives the \
+               body stops when the mouse has been still for a fifth of a second under mouse look \
+               and when the mouse-look button is let go, and the body then holds its heading.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MOUSE-TURN-STOP"),
+        station: "dereth-client::gpu::camera::turn_keys::with_mouse_turning_on_the_body_stops_turning_when_the_mouse_stops_or_is_let_go",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "camera.pitch.the-drawn-frame-is-pitched-down-as-retail",
         says: "The gameplay camera looks down on the player from behind and above, so upright \
                lines in the world converge downward on screen at the angle the retail camera \

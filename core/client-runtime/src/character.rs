@@ -2674,6 +2674,12 @@ impl Character {
         };
         self.motion(false, MotionCommand::TURN_RIGHT, &params);
         self.motion(false, MotionCommand::TURN_LEFT, &params);
+        // A turning key still held keeps its turn, as the interpreter's re-apply of the current
+        // movement gives it back.
+        let held = self.applied.turn_command();
+        if held != MotionCommand::NONE {
+            self.motion(true, held, &MovementParameters::default());
+        }
         self.stats.camera_turn_stops += 1;
     }
 

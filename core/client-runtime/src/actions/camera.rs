@@ -179,9 +179,11 @@ pub struct MouseLookResult {
     pub rotate: Option<(bool, f32)>,
     /// `Lower(0, fy)` for a positive `fy`, `Raise(0, |fy|)` for a negative one.
     pub pitch: Option<(PitchDirection, f32)>,
-    /// The 0.2 s idle tick asked to keep the turn command alive
-    /// (`HandleKeyboardCommand`), and possibly to re-send a movement event.
-    pub keep_turn_alive: bool,
+    /// The 0.2 s idle tick, with mouse turning on: the body's turn stops (the command
+    /// interpreter's stop-drift), the mouse having stopped.
+    pub stop_drift: bool,
+    /// The idle tick's throttled movement event is owed: half a second since the last.
+    pub send_movement_event: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,7 +237,8 @@ impl MouseLook {
                 return MouseLookResult {
                     rotate: None,
                     pitch: None,
-                    keep_turn_alive: false,
+                    stop_drift: false,
+                    send_movement_event: false,
                 };
             }
             let resend = self.last_server_message.0 + 0.5 < now.0;
@@ -245,7 +248,8 @@ impl MouseLook {
             return MouseLookResult {
                 rotate: None,
                 pitch: None,
-                keep_turn_alive: true,
+                stop_drift: true,
+                send_movement_event: resend,
             };
         }
 
@@ -292,7 +296,8 @@ impl MouseLook {
         MouseLookResult {
             rotate,
             pitch,
-            keep_turn_alive: false,
+            stop_drift: false,
+            send_movement_event: false,
         }
     }
 }
@@ -436,11 +441,11 @@ mod tests {
     fn the_idle_tick_only_matters_with_mouse_turning() {
         let mut ml = MouseLook::default();
         let off = MouseLookPreferences::default();
-        assert!(!ml.handle(0, 0, &off, false, LocalTime(1.0)).keep_turn_alive);
+        assert!(!ml.handle(0, 0, &off, false, LocalTime(1.0)).stop_drift);
         let on = MouseLookPreferences {
             use_mouse_turning: true,
             ..MouseLookPreferences::default()
         };
-        assert!(ml.handle(0, 0, &on, false, LocalTime(1.0)).keep_turn_alive);
+        assert!(ml.handle(0, 0, &on, false, LocalTime(1.0)).stop_drift);
     }
 }
