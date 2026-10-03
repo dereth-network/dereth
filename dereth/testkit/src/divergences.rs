@@ -488,6 +488,17 @@ pub static DIVERGENCES: &[Divergence] = &[
                  end of it stays, so the line keeps its quotes.",
         why: "The owner reported the lost quotes as a fault, in both interfaces.",
     },
+    Divergence {
+        id: "CD-025",
+        title: "The 3D view fills any screen",
+        retail: "The end-of-retail client's world view stopped growing at 3000 pixels wide and \
+                 2000 high, in the top-left corner of the screen, and showed the backdrop beyond \
+                 that on a wider or taller screen.",
+        dereth: "The retail interface's world view fills the whole screen at any resolution. Its \
+                 minimum size stays, and every other window keeps its own limits.",
+        why: "The owner reported the world view stopping short of a 5120 by 2160 screen as a \
+              fault.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

@@ -1449,8 +1449,10 @@ impl GamePlayScreen {
         }
 
         self.apply_start_visibility(ui);
-        self.let_the_world_through(ui);
+        // The world view's own set-up first: it can grow the view to the whole screen, and
+        // whether the view covers the root is what the next step reads.
         self.world_view_post_init(ui);
+        self.let_the_world_through(ui);
     }
 
     /// The inventory panel's set-display-inventory notice and
@@ -2806,12 +2808,23 @@ impl GamePlayScreen {
     /// The drag icon child (`0x10000345`) is deliberately not created here: this screen has no
     /// drag proxy of its own, `dereth_ui::UiSystem` makes one for every drag, and
     /// the set-up's own next act is to hide it.
+    ///
+    /// **The 3D view fills any screen (CD-025).** The smart box's layout gives it a maximum width
+    /// of 3000 and a maximum height of 2000, and the element resize honours both, so on a wider or
+    /// taller screen the end-of-retail client's world view stops at 3000 by 2000 in the top-left
+    /// corner with the backdrop around it. Here the two maximums are lifted on this one element:
+    /// its own values, written over the layout's, are the largest there are, and the view is laid
+    /// out again against the screen it was built on. Its minimums stay, and every other element
+    /// keeps its own limits.
     fn world_view_post_init(&mut self, ui: &mut UiSystem) {
         let Some(root) = self.root() else { return };
         let Some(sbox) = ui.get_child_recursive(root, window::SMART_BOX) else {
             return;
         };
         ui.set_mouse_visible(sbox, true);
+        ui.set_attribute_int(sbox, attr::MAX_HEIGHT, i32::MAX);
+        ui.set_attribute_int(sbox, attr::MAX_WIDTH, i32::MAX);
+        ui.update_for_parent_size_change(sbox);
     }
 
     /// The one line that reconciles the client's compositing with this rebuild's.

@@ -8,3 +8,4 @@ mod string_table_unescape;
 mod tab_initial_state;
 mod text_focus_policy;
 mod ui_lock_window_chrome;
+mod world_view_fills_the_screen;

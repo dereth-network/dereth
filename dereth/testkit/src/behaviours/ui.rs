@@ -1666,6 +1666,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.world-view.the-world-view-fills-any-screen",
+        says: "In the retail interface the 3D world view covers the whole screen at any \
+               resolution, 5120 by 2160 among them, and still covers it after a resolution \
+               change; it keeps its minimum size, and every other element keeps its own limits.",
+        since: THIS_CLIENT,
+        divergence: "CD-025",
+        evidence: Evidence::Private("AC-EVID-SMARTBOX-FILLS"),
+        station: "dereth-ui-screens::dat::ui::world_view_fills_the_screen::the_world_view_fills_a_5120_by_2160_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "urgent-assistance.send.the-refusal-that-applies-to-a-typed-command-does-not-apply-here",
         says: "The help channel is refused to a typed channel command, which is what makes asking \
                for help a command rather than a channel; the urgent-assistance window is the one \
