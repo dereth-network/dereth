@@ -394,7 +394,7 @@ impl SpellExamineUi {
 
         // Clear the image, then set alpha blit mode 3 and the image — the clear is
         // unconditional and the set is guarded on the spell having an icon.
-        set_icon(ui, self.icon, v.icon);
+        set_icon(ui, self.icon, v.icon, v.level, v.bitfield);
 
         let surviving = surviving_components(&v.components);
         let names: Vec<String> = surviving.iter().map(|(c, _)| c.name.clone()).collect();
@@ -434,7 +434,7 @@ impl SpellExamineUi {
             self.rows_drawn += 1;
             if let Some(node) = ui.node_mut(row) {
                 node.region.blit_mode = dereth_ui::BlitMode::Alpha3;
-                node.region.image = Some(dereth_ui::GraphicRef::world_surface(*icon, 0, 0));
+                node.region.image = Some(super::spellcomponent::component_icon(*icon));
             }
             set_row_component(ui, row, c.scid);
         }
@@ -530,15 +530,31 @@ fn set_text(ui: &mut UiSystem, h: Option<ElemHandle>, text: &str) {
     }
 }
 
-/// Clear the image, then, when there is one, set alpha blit mode 3 and the image.
-fn set_icon(ui: &mut UiSystem, h: Option<ElemHandle>, icon: Option<DataId>) {
+/// Clear the image, then, when there is one, set alpha blit mode 3 and the spell's icon, composed
+/// as the spellbook composes it: the power level's background under the icon, then the wash and
+/// the badge its bitfield names.
+fn set_icon(
+    ui: &mut UiSystem,
+    h: Option<ElemHandle>,
+    icon: Option<DataId>,
+    level: u32,
+    bitfield: u32,
+) {
+    let recipe = icon.map(|i| crate::items::widget::spell_recipe(ui, level, Some(i), bitfield));
     let Some(node) = h.and_then(|h| ui.node_mut(h)) else {
         return;
     };
     node.region.image = None;
-    if let Some(icon) = icon {
+    if let (Some(icon), Some(recipe)) = (icon, recipe) {
         node.region.blit_mode = dereth_ui::BlitMode::Alpha3;
-        node.region.image = Some(dereth_ui::GraphicRef::world_surface(icon, 0, 0));
+        node.region.image = Some(dereth_ui::GraphicRef {
+            did: recipe.base().unwrap_or(icon),
+            source: dereth_ui::ImageSource::World,
+            width: 0,
+            height: 0,
+            opaque: None,
+            op: Some(dereth_ui::region::SurfaceOp::Icon(recipe)),
+        });
     }
 }
 

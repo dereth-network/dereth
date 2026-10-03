@@ -223,6 +223,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "magic.examine.the-spell-pane-draws-its-icons-as-the-spellbook-and-components-tab-do",
+        says: "Examining a spell shows its icon composed as the spellbook composes it, on its power                level's background with the wash and badge its flags name, and each component of                its formula with the component's white outline turned black, as the Components                tab draws it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-R2C-SPELL-EXAMINE-ICONS"),
+        station: "dereth-ui-screens::dat::panels::spell_examine_icons::the_examined_spells_icon_is_composed_and_its_components_have_black_outlines",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "magic.fizzle.the-recorded-fizzle-plays-the-bodys-emitter-and-sound",
         says: "A recorded fizzle effect aimed at the player puts exactly one particle emitter on \
                his body, drawing the shipped fizzle particles, and raises the fizzle sound from \

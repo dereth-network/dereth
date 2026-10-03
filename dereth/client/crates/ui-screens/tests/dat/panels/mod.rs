@@ -14,6 +14,7 @@ mod options_key_bindings;
 mod options_preference_store;
 mod panel_option_checkboxes;
 mod panel_stack_visibility;
+mod spell_examine_icons;
 mod toolbar_layout;
 mod toolbar_panel_buttons;
 mod urgent_assistance_window;

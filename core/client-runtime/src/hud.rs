@@ -6351,6 +6351,15 @@ impl GameView for HudView<'_> {
             duration: base.duration.map_or(-1.0, |(d, _, _)| d),
             range: spell_range(base.base_range_constant, base.base_range_mod, skill),
             icon: (base.icon != 0).then_some(DataId(base.icon)),
+            level: dereth_client_model::magic::spell_level_by_rough_heuristic(
+                dereth_client_model::magic::scarab_power_level(
+                    dereth_client_contract::spellbook::power_component(
+                        base.raw_comps[0],
+                        base.comp_key,
+                    ),
+                ),
+            ),
+            bitfield: base.bitfield,
             components,
         })
     }

@@ -522,6 +522,11 @@ pub struct SpellExamineView {
     pub range: f32,
     /// The spell icon id returned by the magic system.
     pub icon: Option<DataId>,
+    /// The spell's power level and its bitfield, which the spell icon is composed from (the
+    /// level's background, the reversed wash and the fellowship or self badge), as the
+    /// spellbook composes it.
+    pub level: u32,
+    pub bitfield: u32,
     /// One entry per slot counted, **in formula
     /// order**; `None` where the spell-component lookup missed, which is the client's first skip.
     pub components: Vec<Option<SpellExamineComponent>>,
