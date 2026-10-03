@@ -1175,8 +1175,6 @@ impl Panel for Social {
                     .and_then(|i| friends_shown(c.game).get(i).cloned())
                     .map(|f| vec![PanelAction::Host(HostAction::StartTell(f.name))])
                     .unwrap_or_default(),
-                // A character's squelch by name is the @squelch command's; an account's has
-                // its own message.
                 "squelch-character" | "squelch-account" => {
                     let name = std::mem::take(&mut self.entry).trim().to_owned();
                     if name.is_empty() {
@@ -1185,9 +1183,11 @@ impl Panel for Social {
                     request(if id == "squelch-account" {
                         UiRequest::ModifyAccountSquelch { add: true, name }
                     } else {
-                        UiRequest::ChatLine {
-                            text: format!("@squelch {name}"),
-                            window: 0,
+                        UiRequest::ModifyCharacterSquelch {
+                            object: ObjectId(0),
+                            add: true,
+                            account: name,
+                            message_type: 1,
                         }
                     })
                 }
@@ -1202,9 +1202,11 @@ impl Panel for Social {
                                 name: q.name,
                             }
                         } else {
-                            UiRequest::ChatLine {
-                                text: format!("@unsquelch {}", q.name),
-                                window: 0,
+                            UiRequest::ModifyCharacterSquelch {
+                                object: ObjectId(0),
+                                add: false,
+                                account: q.name,
+                                message_type: 1,
                             }
                         })
                     })

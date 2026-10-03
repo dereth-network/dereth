@@ -221,3 +221,101 @@ fn deleting_the_open_pack_restores_the_main_pack_before_removal() {
     assert!(world.weenie(ObjectId(2)).is_none());
     assert_eq!(world.open_container, Some(ObjectId(1)));
 }
+
+fn character_squelch_from_panel(name: &str, add: bool) {
+    use dereth_client_contract::{view::SquelchEntry, GameView, UiRequest};
+    use dereth_client_model::{Request, World};
+    use dereth_client_runtime::interaction::Interaction;
+    #[derive(Debug)]
+    struct View(String);
+    impl GameView for View {
+        fn squelch_list(&self) -> Vec<SquelchEntry> {
+            vec![SquelchEntry {
+                name: self.0.clone(),
+                account: false,
+            }]
+        }
+    }
+    dereth_client_contract::options::store::init();
+    let view = View(name.to_owned());
+    let context = Context {
+        game: &view,
+        pregame: &Default::default(),
+        keyboard: &Default::default(),
+        settings: &Default::default(),
+        map_teleport_allowed: false,
+        classic: &Default::default(),
+    };
+    let mut panel = dereth_classic_ui::panels::services::make("squelch").unwrap();
+    panel.event(
+        if add {
+            ControlEvent::Edit {
+                id: "entry".into(),
+                text: name.to_owned(),
+            }
+        } else {
+            ControlEvent::Select {
+                id: "squelch-rows".into(),
+                index: 0,
+            }
+        },
+        &context,
+    );
+    let actions = panel.event(
+        ControlEvent::Activate(
+            if add {
+                "squelch-character"
+            } else {
+                "unsquelch"
+            }
+            .into(),
+        ),
+        &context,
+    );
+    assert_eq!(
+        actions,
+        vec![PanelAction::Game(UiRequest::ModifyCharacterSquelch {
+            object: ObjectId(0),
+            add,
+            account: name.to_owned(),
+            message_type: 1,
+        })]
+    );
+    let mut interaction = Interaction::new();
+    interaction.queue(
+        Vec::new(),
+        actions
+            .into_iter()
+            .filter_map(|action| match action {
+                PanelAction::Game(request) => Some(request),
+                _ => None,
+            })
+            .collect(),
+    );
+    let mut world = World::new();
+    world.chat.last_teller_name = "Somebody Else".into();
+    interaction.run_ui_requests(&mut world, false, dereth_primitives::ServerTime(1.0));
+    let [Request::ModifyCharacterSquelch(message)] = interaction.pending_requests() else {
+        panic!("one character squelch message")
+    };
+    assert_eq!(message.add, i32::from(add));
+    assert_eq!(message.character_id, ObjectId(0));
+    assert_eq!(message.character_name, name);
+    assert_eq!(message.msg_type, 1);
+}
+
+/// Behaviour: chat.squelch-panel.the-two-buttons-send-different-messages-about-the-same-name
+#[test]
+fn adding_a_character_squelch_keeps_the_name_literal() {
+    for name in ["+Name", "-reply"] {
+        character_squelch_from_panel(name, true);
+    }
+}
+
+/// Behaviour: chat.squelch-panel.removing-sends-the-kind-the-row-itself-names
+#[test]
+fn removing_a_character_squelch_keeps_the_name_literal() {
+    for name in ["+Name", "-reply"] {
+        character_squelch_from_panel(name, false);
+    }
+}
