@@ -518,11 +518,11 @@ mod bench {
 /// through the far terrain.** An object requested 60 m under the ground can still paint a few
 /// pixels because the placement did not bury it, not because the terrain is not watertight.
 ///
-/// The current submission trace's `cypt` is each part's distance from the viewer, not its full
-/// position. The test compares the nearest submitted value for requests 60 m, 200 m and **2 000 m**
-/// below ground at 1 008 m range: the nearest value is bit-identical to the ground-level request,
-/// while lifting changes it. That shows the downward placement is rejected; it does not directly
-/// inspect all part positions or count pixels.
+/// The test reads the object's drawn origin for requests 60 m, 200 m and **2 000 m** below ground
+/// at 1 008 m range: its height is bit-identical to the ground-level request's, while a 40 m lift
+/// moves it 40 m. That shows the downward placement is rejected; it does not count pixels. The
+/// submission trace's sort key cannot answer this: an outdoor object more than fifty units away
+/// sorts at its land cell's horizontal distance, the same at every height.
 ///
 /// A buried-object control must therefore establish that burial occurred before treating its
 /// pixels as a leak floor. This test sets `ETHEREAL_PS`, retaining the control that excludes
@@ -561,42 +561,49 @@ fn a_request_to_bury_an_object_is_discarded_so_it_cannot_be_a_leak_floor() {
         for _ in 0..3 {
             b.draw();
         }
-        let cypts: Vec<f32> = b
+        let subsets = b
             .scene
             .drawn_part_order()
             .iter()
             .filter(|e| e.object == Some(bench::TARGET))
-            .map(|e| e.cypt)
-            .collect();
+            .count();
         assert!(
-            !cypts.is_empty(),
+            subsets > 0,
             "the object was not submitted at depth {depth}, so nothing here is measured"
         );
-        let lo = cypts.iter().copied().fold(f32::MAX, f32::min);
+        // The drawn origin, not the sort key: an outdoor object this far away sorts at its land
+        // cell's horizontal distance, which no change of height can move.
+        let z = b
+            .scene
+            .objects
+            .get(&bench::TARGET)
+            .expect("the object is in the world")
+            .frame
+            .origin
+            .z;
         eprintln!(
             "burial: requested z = ground - {depth:6.0} m (ground {ground:.1} m at {d:.0} m) \
-             -> {} subsets, nearest cypt {lo:.4}",
-            cypts.len()
+             -> {subsets} subsets, drawn at z {z:.4}"
         );
-        reading.push((depth, lo));
+        reading.push((depth, z));
     }
     let on_ground = reading[0].1;
     // **The positive control first**, because without it the equalities below are a blind
-    // instrument: `cypt` must be *able* to move when the object does.
+    // instrument: the drawn height must be *able* to move when the object does.
     let lifted = reading[4].1;
     assert!(
-        (lifted - on_ground).abs() > 0.5,
-        "lifting the object 40 m moved its drawn depth by only {:.4} m, so this instrument cannot \
+        (lifted - on_ground - 40.0).abs() < 0.5,
+        "lifting the object 40 m moved its drawn height by {:.4} m, so this instrument cannot \
          see the object move and proves nothing about burial",
-        (lifted - on_ground).abs()
+        lifted - on_ground
     );
-    // The finding for all three tested burial depths: the nearest submitted distance is unchanged.
-    for (depth, cypt) in &reading[1..4] {
+    // The finding for all three tested burial depths: the drawn height is unchanged.
+    for (depth, z) in &reading[1..4] {
         assert_eq!(
-            cypt.to_bits(),
+            z.to_bits(),
             on_ground.to_bits(),
-            "a request to bury the object {depth} m changed its drawn depth from {on_ground} to \
-             {cypt}; if burial now works then a buried object's pixels are a real leak reading \
+            "a request to bury the object {depth} m changed its drawn height from {on_ground} to \
+             {z}; if burial now works then a buried object's pixels are a real leak reading \
              again and this test should be rewritten rather than relaxed"
         );
     }
