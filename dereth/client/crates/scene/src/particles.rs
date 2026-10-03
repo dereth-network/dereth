@@ -554,20 +554,18 @@ pub(crate) fn draw(
     globals: &DegradeGlobals,
     light_set: Option<ParticleLightSet<'_>>,
     stats: &mut ParticleStats,
+    // The live `Render.MultiPassAlpha` preference.
+    multi_pass_alpha: bool,
 ) -> Result<(), RenderError> {
     let ready = prepare(geometry, viewer, parts, share, globals, light_set, stats);
-    for (i, j) in draw_order(&ready, geometry) {
+    for (i, j, force_alpha) in draw_passes(&ready, geometry, multi_pass_alpha) {
         let r = &ready[i];
         let Some(m) = geometry.get(r.gfx).and_then(|g| g.meshes.get(j)) else {
             continue;
         };
-        // The same two keys every animated part picks between. A particle whose
+        // The same keys every animated part picks between. A particle whose
         // `1 - t` is not 0xFF is a part whose material has alpha enabled.
-        let key = if r.texture_factor >> 24 == 0xFF {
-            m.key
-        } else {
-            m.key_material_alpha
-        };
+        let key = *crate::world::part_subset_key(m, r.texture_factor >> 24 != 0xFF, force_alpha);
         if let Some(slot) = m.texture {
             gpu.bind_texture(slot, m.sampler);
         }
@@ -616,7 +614,18 @@ pub(crate) fn draw(
     Ok(())
 }
 
-/// The submission order: `(index into ready, index into that emitter mesh's subsets)`.
+/// [`draw_passes`] with the option off, without the flags.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn draw_order(ready: &[Prepared], geometry: &ParticleGeometry) -> Vec<(usize, usize)> {
+    draw_passes(ready, geometry, false)
+        .into_iter()
+        .map(|(i, j, _)| (i, j))
+        .collect()
+}
+
+/// The submission order: `(index into ready, index into that emitter mesh's subsets,
+/// force_alpha)`.
 ///
 /// The alpha-list renderer drains **the clip list first and the alpha list second**, each in
 /// insertion order, whatever their depths. That split is
@@ -625,9 +634,40 @@ pub(crate) fn draw(
 ///
 /// Insertion order inside each list is the traversal order, which [`prepare`] has already put
 /// far→near; within one part it is mesh-subset order.
+///
+/// **"Multiple Pass Alpha"** (`multi_pass_alpha`) adds passes and clears none. With it on, the
+/// mesh draw renders a clip-mapped subset (mask 8) in place **and** queues it on the clip list,
+/// and the flush draws that entry with surface setup's force-alpha argument. The in-place draws
+/// come first, in traversal order, as they do while the cells are drawn; then the clip list, its
+/// clip-mapped entries forced; then the alpha list. With it off every flag is clear.
 #[must_use]
-pub(crate) fn draw_order(ready: &[Prepared], geometry: &ParticleGeometry) -> Vec<(usize, usize)> {
+pub(crate) fn draw_passes(
+    ready: &[Prepared],
+    geometry: &ParticleGeometry,
+    multi_pass_alpha: bool,
+) -> Vec<(usize, usize, bool)> {
+    let multipass = |m: &crate::world::PartMesh| {
+        multi_pass_alpha
+            && dereth_world_render::objects::draw::classify_subset_passes(
+                m.subset_mask,
+                dereth_world_render::consts::S_ALPHA_DELAY_MASK,
+                true,
+            )
+            .multipass
+    };
     let mut out = Vec::new();
+    if multi_pass_alpha {
+        for (i, r) in ready.iter().enumerate() {
+            let Some(gfx) = geometry.get(r.gfx) else {
+                continue;
+            };
+            for (j, m) in gfx.meshes.iter().enumerate() {
+                if multipass(m) {
+                    out.push((i, j, false));
+                }
+            }
+        }
+    }
     for clip_list in [true, false] {
         for (i, r) in ready.iter().enumerate() {
             let Some(gfx) = geometry.get(r.gfx) else {
@@ -637,8 +677,10 @@ pub(crate) fn draw_order(ready: &[Prepared], geometry: &ParticleGeometry) -> Vec
                 // The mesh-subset path classifies a subset from its `SurfaceType`:
                 // `Base1ClipMap` (mask 8) goes to the clip list, `Alpha`/`InvAlpha`/`Additive`
                 // (mask 2) to the alpha list. Alpha-testing is exactly what `BASE1_CLIPMAP` sets.
-                if m.key.alpha_test == clip_list {
-                    out.push((i, j));
+                // The option's arm puts every mask-8 subset on the clip list.
+                let forced = multipass(m);
+                if (m.key.alpha_test || forced) == clip_list {
+                    out.push((i, j, forced));
                 }
             }
         }
@@ -1061,6 +1103,7 @@ mod tests {
             key: key(t),
             surface_type: t,
             key_material_alpha: key(t),
+            key_force_alpha: key(t),
             key_detail: key(t),
             alpha_ref: 0,
             texture: None,
@@ -1120,5 +1163,106 @@ mod tests {
             clip_near < alpha_far,
             "the clip list is flushed first regardless of depth"
         );
+    }
+
+    /// ORACLE: with "Multiple Pass Alpha" on, the mesh draw renders a clip-mapped subset in place
+    /// and also queues it on the clip list flagged multipass; the flush draws a multipass entry
+    /// through surface setup with force alpha, which blends `SRCALPHA / INVSRCALPHA`, skips the
+    /// alpha test and the depth write, and keeps the `LESS` depth test. With the option off there
+    /// is one pass, alpha-tested, exactly as before.
+    #[test]
+    fn multiple_pass_alpha_draws_a_clip_mapped_subset_again_blended_and_untested() {
+        use dereth_render::pso::{PipelineKey, SurfaceContext, ZFunc};
+        use dereth_render::surface::{surface_type, Surface, SurfaceHandler};
+        use dereth_render::vertex::VertexFormat;
+
+        let key = |t: u32, force_alpha: bool| {
+            let s = Surface {
+                r#type: t,
+                handler: SurfaceHandler::Database,
+                ..Surface::default()
+            };
+            let ctx = SurfaceContext {
+                vertex_format: VertexFormat::XyzDiffuseTex1,
+                texture_is_set: true,
+                lighting: false,
+                force_alpha,
+                ..SurfaceContext::default()
+            };
+            PipelineKey::from_surface(&s, ctx).0
+        };
+        let mesh = |t: u32| crate::world::PartMesh {
+            key: key(t, false),
+            surface_type: t,
+            key_material_alpha: key(t, false),
+            key_force_alpha: key(t, true),
+            key_detail: key(t, false),
+            alpha_ref: 0,
+            texture: None,
+            sampler: 0,
+            subset_mask: dereth_world_render::objects::draw::subset_mask(t),
+            surface: None,
+            luminosity: 0.0,
+            vertices: Vec::new(),
+        };
+        let clip_type = surface_type::BASE1_IMAGE | surface_type::BASE1_CLIPMAP;
+        let mut g = ParticleGeometry::default();
+        g.insert(
+            DataId(7),
+            Some(ParticleGfx {
+                meshes: vec![
+                    mesh(surface_type::BASE1_IMAGE | surface_type::ALPHA),
+                    mesh(clip_type),
+                ],
+                sort_center: Vec3::ZERO,
+                degrade: None,
+                drawing_sphere: None,
+            }),
+        );
+        let parts = vec![part(7, 10.0, 1.0, 0.0), part(7, 90.0, 1.0, 0.0)];
+        let mut stats = ParticleStats::default();
+        let ready = prepare(
+            &g,
+            Vec3::ZERO,
+            &parts,
+            &DegradeLevel::startup(),
+            &DegradeGlobals::default(),
+            None,
+            &mut stats,
+        );
+
+        assert_eq!(
+            draw_passes(&ready, &g, false),
+            vec![(0, 1, false), (1, 1, false), (0, 0, false), (1, 0, false)],
+            "option off: one pass per subset, clip list then alpha list"
+        );
+        assert_eq!(
+            draw_passes(&ready, &g, true),
+            vec![
+                (0, 1, false),
+                (1, 1, false),
+                (0, 1, true),
+                (1, 1, true),
+                (0, 0, false),
+                (1, 0, false)
+            ],
+            "option on: the clip subsets in place, then the clip list forced, then the alpha list"
+        );
+
+        let clip = mesh(clip_type);
+        let first = *crate::world::part_subset_key(&clip, false, false);
+        assert!(
+            first.alpha_test && first.z_write,
+            "the first pass is the cut-out"
+        );
+        for material_alpha in [false, true] {
+            let second = *crate::world::part_subset_key(&clip, material_alpha, true);
+            assert!(second.alpha_blend, "the second pass blends");
+            assert!(!second.alpha_test, "the second pass is not alpha-tested");
+            assert!(!second.z_write, "the second pass writes no depth");
+            assert_eq!(second.z_func, ZFunc::Less, "and still tests it with LESS");
+            assert_eq!(second.src_blend, Blend::SrcAlpha);
+            assert_eq!(second.dst_blend, Blend::InvSrcAlpha);
+        }
     }
 }

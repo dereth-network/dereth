@@ -141,6 +141,27 @@ pub const fn subset_mask(surface_type: u32) -> u32 {
     }
 }
 
+/// Whether the mesh draw consults the alpha lists at all for this mesh, before any per-subset
+/// classification.
+///
+/// ```text
+/// if drawing_sky or alpha_delay_mask == 0 or a detail surface is installed:
+///     render every subset in place          ; no list, no second pass
+/// else:
+///     classify each subset                  ; classify_subset_passes
+/// ```
+///
+/// So "Multiple Pass Alpha" never reaches the sky, nor a mesh drawn while a detail surface is
+/// installed (a building's shell under the building detail texture).
+#[must_use]
+pub const fn mesh_draw_defers(
+    drawing_sky: bool,
+    alpha_delay_mask: u32,
+    detail_surface_installed: bool,
+) -> bool {
+    !drawing_sky && alpha_delay_mask != 0 && !detail_surface_installed
+}
+
 /// The alpha-delay mask's per-subset classification: which list a subset is deferred to, or `None`
 /// when it is drawn immediately.
 ///
@@ -473,6 +494,20 @@ mod tests {
             classify_subset(2, 0, true),
             None,
             "only the clip bit is forced"
+        );
+    }
+
+    /// Oracle: the mesh draw renders every subset in place, consulting neither list, while the
+    /// sky is drawn, when the alpha-delay mask is zero, or while a detail surface is installed.
+    #[test]
+    fn the_alpha_lists_are_bypassed_for_the_sky_a_zero_mask_and_a_detail_surface() {
+        const SHIPPED: u32 = crate::consts::S_ALPHA_DELAY_MASK;
+        assert!(mesh_draw_defers(false, SHIPPED, false));
+        assert!(!mesh_draw_defers(true, SHIPPED, false), "the sky");
+        assert!(!mesh_draw_defers(false, 0, false), "a zero delay mask");
+        assert!(
+            !mesh_draw_defers(false, SHIPPED, true),
+            "a detail surface installed"
         );
     }
 

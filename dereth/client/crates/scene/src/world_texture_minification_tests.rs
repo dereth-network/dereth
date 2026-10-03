@@ -317,7 +317,7 @@ fn draw(gpu: &mut Gpu, mesh: &PartMesh) -> Vec<u8> {
     };
     let part = dereth_animation::parts::PhysicsPart::new(DataId(0));
     gpu.begin_frame().expect("begin minified world draw");
-    submit_part_mesh(gpu, &frame, &part, &Frame::default(), mesh, true, None)
+    submit_part_mesh(gpu, &frame, &part, &Frame::default(), mesh, true, None, false)
         .expect("actual production part submission");
     gpu.end_frame().expect("end minified world draw");
     gpu.capture().expect("actual sampled frame").bgra

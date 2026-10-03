@@ -34,7 +34,7 @@ fn draw(gpu: &mut Gpu, cell: &EnvCellDraw, env: bool) -> Vec<u8> {
     } else {
         let part = dereth_animation::parts::PhysicsPart::new(DataId(0));
         for mesh in &cell.meshes {
-            submit_part_mesh(gpu, &frame, &part, &Frame::default(), mesh, true, None).unwrap();
+            submit_part_mesh(gpu, &frame, &part, &Frame::default(), mesh, true, None, false).unwrap();
         }
     }
     gpu.end_frame().unwrap();

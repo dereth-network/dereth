@@ -869,6 +869,89 @@ fn multiple_pass_alpha_adds_a_second_device_pass_on_the_next_frame() {
     assert_eq!(app.stream_failures(), 0);
 }
 
+/// Behaviour: rendering.preferences.multiple-pass-alpha-blends-the-edges-the-cut-out-drops
+/// **Rejecting.** The option's second pass is what softens the edges: the alpha-list flush draws
+/// each entry the option queued with surface setup's force alpha, blended and without the alpha
+/// test. Drawn like any other clip-list entry, alpha-tested and unblended, the two passes are the
+/// same hard cut-out twice and the option changes no pixel. Scenery and buildings get the same
+/// second pass at the frame's alpha flush; with the option off nothing does.
+#[test]
+fn multiple_pass_alpha_s_second_pass_is_blended_and_not_alpha_tested() {
+    use dereth_world_render::objects::alpha::AlphaList;
+    let Some(mut app) = app() else { return };
+    let forced = |app: &App| {
+        let s = app.world_scene().expect("a world");
+        let trace = s.drawn_part_order();
+        let clip8 = trace
+            .iter()
+            .filter(|d| d.list == Some(AlphaList::Clip) && d.mask == 8)
+            .count();
+        let forced = trace.iter().filter(|d| d.force_alpha).count();
+        let forced_clip8 = trace
+            .iter()
+            .filter(|d| d.force_alpha && d.list == Some(AlphaList::Clip) && d.mask == 8)
+            .count();
+        (
+            clip8,
+            forced,
+            forced_clip8,
+            s.drawn_alpha_lists().multipass,
+            s.drawn_landscape_alpha(),
+        )
+    };
+
+    let (clip0, forced0, _, parts0, land0) = forced(&app);
+    eprintln!(
+        "MultiPassAlpha off: {clip0} clip-mapped part subset(s) flushed, {forced0} forced; \
+         landscape {} alpha-tested batch(es), {} second pass(es)",
+        land0.clip, land0.multipass
+    );
+    assert!(
+        clip0 > 0,
+        "nothing on this station has a clip-mapped part subset, so the instrument cannot see the \
+         second pass at all"
+    );
+    assert!(
+        land0.clip > 0,
+        "the landscape has no alpha-tested batch here, so its second pass cannot be seen"
+    );
+    assert_eq!(forced0, 0, "with the option off no draw is forced alpha");
+    assert_eq!(parts0, 0);
+    assert_eq!(
+        land0.multipass, 0,
+        "with the option off the landscape has one pass"
+    );
+
+    change(&mut app, tick("Render.MultiPassAlpha", true));
+    let (clip1, forced1, forced_clip1, parts1, land1) = forced(&app);
+    eprintln!(
+        "MultiPassAlpha on:  {clip1} clip-mapped part subset(s) flushed, {forced1} forced; \
+         landscape {} alpha-tested batch(es), {} second pass(es)",
+        land1.clip, land1.multipass
+    );
+    assert!(
+        clip1 > 0,
+        "the clip list emptied, which the option cannot do"
+    );
+    assert_eq!(
+        forced_clip1, clip1,
+        "every clip-mapped entry the flush drew must be its blended second pass"
+    );
+    assert_eq!(
+        forced1, clip1,
+        "only those entries are forced: no in-place draw and no blend-list entry"
+    );
+    assert_eq!(parts1, clip1, "the census agrees with the trace");
+    assert!(
+        land1.multipass > 0 && land1.multipass <= land1.clip,
+        "the landscape's alpha-tested batches get a second pass at the frame's flush \
+         ({} of {})",
+        land1.multipass,
+        land1.clip
+    );
+    assert_eq!(app.stream_failures(), 0);
+}
+
 // ---------------------------------------------------------------------------------------------
 // 3. Landscape Draw Distance
 // ---------------------------------------------------------------------------------------------

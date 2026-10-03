@@ -808,6 +808,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.preferences.multiple-pass-alpha-blends-the-edges-the-cut-out-drops",
+        says: "With Multiple Pass Alpha on, every cut-out texture (leaves, grass, fences) on \
+               creatures, scenery and buildings is drawn a second time, blended and without the \
+               cut-off, so its edges come out soft instead of hard; with it off each is drawn \
+               once, hard-edged.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MULTIPASS-ALPHA-PASSES"),
+        station: "dereth-client::gpu::rendering::render_preferences::multiple_pass_alpha_s_second_pass_is_blended_and_not_alpha_tested",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.preferences.render-options-reach-projection-and-device",
         says: "The render settings saved in the player's profile reach the picture: field of view \
                and aspect ratio set the projection, degrade distance and graphics performance set \
@@ -866,6 +877,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-SKY-SKY"),
         station: "dereth-client::gpu::rendering::sky::the_sky_is_not_black_and_the_day_cycle_moves_it",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.surfaces.a-forced-alpha-pass-blends-only-what-the-alpha-test-cut",
+        says: "Drawing a cut-out texture a second time, blended and without the cut-off, changes \
+               only the pixels the first drawing left out, each blended at its own transparency, \
+               and leaves every pixel the first drawing kept exactly as it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MULTIPASS-ALPHA-PIXELS"),
+        station: "dereth-render::gpu::rendering::multipass_alpha::the_forced_alpha_pass_blends_only_the_texels_the_alpha_test_cut_away",
         tier: Tier::Gpu,
     },
     behaviour! {

@@ -205,6 +205,10 @@ mod imp {
         /// Entries `FlushAlphaList(0.0)` actually drew. Equal to `clip + blend` on any frame that
         /// flushed; published separately so *"queued"* and *"drawn"* cannot be confused.
         pub flushed: usize,
+        /// Of [`Self::flushed`], the entries "Multiple Pass Alpha" queued, which the flush drew
+        /// with surface setup's force-alpha argument: the second, blended pass of a clip-mapped
+        /// subset. Zero with the option off.
+        pub multipass: usize,
     }
 
     /// The landscape's two alpha lists, as the last
@@ -231,6 +235,10 @@ mod imp {
         /// for a later alpha-tested one to paint over it: distant tree foliage covering a near
         /// plant.
         pub blend_before_clip: usize,
+        /// The second, blended passes "Multiple Pass Alpha" gave alpha-tested batches at the
+        /// frame's alpha flush, drawn before that flush's blended batches. Zero with the option
+        /// off.
+        pub multipass: usize,
     }
 
     /// Which of the two points the client issues its alpha flush from.
@@ -280,6 +288,10 @@ mod imp {
         /// This is deliberately independent of [`Self::outdoors`]: an interior object reached
         /// through an outdoor building portal is pre-clear but still uses env-cell lighting.
         pub before_depth_clear: bool,
+        /// Whether this draw went down with surface setup's force-alpha argument: blended, not
+        /// alpha-tested, no depth write. Set only on the alpha-list flush's draw of an entry
+        /// "Multiple Pass Alpha" queued.
+        pub force_alpha: bool,
     }
 
     /// The frame-rate estimate and adaptive-degrade governor shared by the whole client.
@@ -673,6 +685,10 @@ mod imp {
         /// Used only by the **building** pass, because
         /// is the only static draw that installs one.
         key_detail: PipelineKey,
+        /// [`Self::key`] with surface setup's force-alpha argument set: the second pass "Multiple
+        /// Pass Alpha" gives a clip-mapped batch at the alpha flush. See
+        /// [`PartMesh::key_force_alpha`].
+        key_force_alpha: PipelineKey,
         /// Authored surface-record type, independent of the generated solid-colour texture slot.
         surface_type: u32,
         /// Building drawing's second (shell) pass, not ordinary objects sharing this material.
@@ -928,6 +944,15 @@ mod imp {
         /// drew**; an indoor frame that sees outdoors through an opening issues it between that
         /// outdoor pass and the depth clear.
         frame_alpha_pending: std::cell::RefCell<Vec<(i32, i32)>>,
+        /// The landscape's clip-list queue under "Multiple Pass Alpha": the blocks whose
+        /// clip-mapped batches the landscape pass has drawn in place and whose second, blended
+        /// pass is still owed, in the order they were drawn.
+        ///
+        /// Separate from [`Self::frame_alpha_pending`] because the two fill at different points:
+        /// this build draws the alpha-tested batches in place after the whole block walk, so a
+        /// building's own flush inside the walk has nothing on this list yet, and the frame's
+        /// flush drains it first, clip list before alpha list.
+        frame_multipass_pending: std::cell::RefCell<Vec<(i32, i32)>>,
         /// What the per-object frustum test did on the last [`WorldScene::draw`].
         frame_object_cone: std::cell::Cell<ObjectConeStats>,
         /// Same bracket: one entry per subset of every part the last
@@ -1080,6 +1105,12 @@ mod imp {
         /// material cannot be drawn with [`Self::key`]. Both keys come from the same
         /// [`PipelineKey::state_from_surface`] call site in [`resolve_surface`]; the draw picks.
         pub(crate) key_material_alpha: PipelineKey,
+        /// The same surface's state with `SurfaceContext::force_alpha` set: the
+        /// second pass "Multiple Pass Alpha" gives a clip-mapped subset when the alpha list is
+        /// flushed. Blending `SRCALPHA / INVSRCALPHA` on, the alpha test off, the depth write
+        /// off and the depth test still `LESS`, so it lands only where the first, alpha-tested
+        /// pass left the depth alone: the soft edge texels the test cut away.
+        pub(crate) key_force_alpha: PipelineKey,
         /// The same surface's state with `SurfaceContext::detail_in_stage1` set —
         /// changing only `StageOps::BASE` to `StageOps::SINGLE_PASS_DETAIL`.
         /// Mesh-subset drawing chooses between them from the current detail surface on each
@@ -5323,6 +5354,7 @@ mod imp {
                 frame_alpha_lists: std::cell::Cell::new(AlphaListStats::default()),
                 frame_landscape_alpha: std::cell::Cell::new(LandscapeAlphaStats::default()),
                 frame_alpha_pending: std::cell::RefCell::new(Vec::new()),
+                frame_multipass_pending: std::cell::RefCell::new(Vec::new()),
                 frame_object_cone: std::cell::Cell::new(ObjectConeStats::default()),
                 frame_part_order: std::cell::RefCell::new(Vec::new()),
                 frame_drawn_cells: std::cell::RefCell::new(None),
@@ -10836,6 +10868,13 @@ mod imp {
                     stats.blend_before_clip = stats.blend_before_clip.max(stats.blend);
                 }
                 self.frame_landscape_alpha.set(stats);
+                // "Multiple Pass Alpha" queues each clip-mapped subset on the clip list as well as
+                // drawing it, so this block owes the frame's flush a second pass.
+                if self.cfg.render.multi_pass_alpha {
+                    self.frame_multipass_pending
+                        .borrow_mut()
+                        .push((slot.block_x, slot.block_y));
+                }
             }
 
             // --- the blended list, queued --------------------------------------------------
@@ -10931,6 +10970,7 @@ mod imp {
             // The queue is cleared as well as the census, so a frame that failed part way through
             // cannot leak its unflushed blocks into the next one's flush.
             self.frame_alpha_pending.borrow_mut().clear();
+            self.frame_multipass_pending.borrow_mut().clear();
             self.frame_landscape_alpha
                 .set(LandscapeAlphaStats::default());
             let (w, h) = gpu.size();
@@ -11050,6 +11090,7 @@ mod imp {
                                     &light_set as crate::particles::ParticleLightSet<'_>,
                                 ),
                                 ps,
+                                self.cfg.render.multi_pass_alpha,
                             )?;
                         }
                         Ok(())
@@ -11132,6 +11173,7 @@ mod imp {
                         .object_lighting
                         .then_some(&light_set as crate::particles::ParticleLightSet<'_>),
                     &mut particle_stats,
+                    self.cfg.render.multi_pass_alpha,
                 )?;
             }
             self.frame_particles.set(particle_stats);
@@ -11584,6 +11626,7 @@ mod imp {
                 dropped: pass.lists.dropped,
                 immediate: pass.counts.immediate,
                 flushed: 0,
+                multipass: 0,
             };
             // Flushing the alpha list at 0.0 draws the clip list in insertion order, then the blend
             // list. `ready(0.0)` is always true and is *called* rather than assumed,
@@ -11608,6 +11651,11 @@ mod imp {
                     // for **every** entry, which is a superset and produces the same device state
                     // for each draw. `first_of_kind` is still recorded, because it is what a test
                     // asserts the queueing against.
+                    //
+                    // An entry "Multiple Pass Alpha" queued is drawn with surface setup's
+                    // force-alpha argument: blended, not alpha-tested, no depth write. Its first
+                    // pass, the in-place one, already wrote depth wherever the alpha test passed,
+                    // so under `LESS` this one lands only on the edge texels the test cut away.
                     submit_part_mesh(
                         gpu,
                         per_frame,
@@ -11616,11 +11664,16 @@ mod imp {
                         m,
                         material,
                         sets.get(q.submission as usize).and_then(|x| x.as_deref()),
+                        e.multipass,
                     )?;
                     // The trace is in **device submission order**, so a deferred subset is
                     // recorded here and not where it was queued: that is the whole observable.
-                    pass.trace.push(q.probe);
+                    pass.trace.push(PartSubsetDraw {
+                        force_alpha: e.multipass,
+                        ..q.probe
+                    });
                     stats.flushed += 1;
+                    stats.multipass += usize::from(e.multipass);
                 }
             }
             alpha_out.parts += stats.parts;
@@ -11629,6 +11682,7 @@ mod imp {
             alpha_out.dropped += stats.dropped;
             alpha_out.immediate += stats.immediate;
             alpha_out.flushed += stats.flushed;
+            alpha_out.multipass += stats.multipass;
             counts_out.0 += pass.counts.parts;
             counts_out.1 += pass.counts.material;
             trace_out.extend(pass.trace);
@@ -12269,6 +12323,36 @@ mod imp {
                     self.current_detail(dereth_world_render::detail::DetailClass::Building),
                 )?;
             }
+            // "Multiple Pass Alpha": the cell's clip-mapped batches again, blended, with surface
+            // setup's force-alpha argument. This path draws every batch in place rather than
+            // queueing any, so the second pass follows the cell's own statics directly instead of
+            // waiting for a flush.
+            if self.cfg.render.multi_pass_alpha {
+                let detail =
+                    self.current_detail(dereth_world_render::detail::DetailClass::Building);
+                for b in batches
+                    .iter()
+                    .filter(|b| static_multipass_member(b, detail.is_some()))
+                {
+                    let set = self.cfg.object_lighting.then(|| {
+                        let c = Vec3::new(
+                            b.sphere.0.x + origin.0,
+                            b.sphere.0.y + origin.1,
+                            b.sphere.0.z,
+                        );
+                        self.object_light_set(c, b.sphere.1, false)
+                    });
+                    submit_static_batch_with(
+                        gpu,
+                        per_frame,
+                        &world,
+                        b,
+                        set.as_deref(),
+                        detail,
+                        true,
+                    )?;
+                }
+            }
             Ok(())
         }
 
@@ -12470,6 +12554,55 @@ mod imp {
             Ok(())
         }
 
+        /// The landscape's clip-list entries under "Multiple Pass Alpha": every alpha-tested
+        /// batch of `blocks` that the option queued, drawn again with surface setup's force-alpha
+        /// argument.
+        ///
+        /// That state blends `SRCALPHA / INVSRCALPHA`, drops the alpha test and writes no depth,
+        /// and keeps the `LESS` depth test. The batch's first pass wrote depth wherever its
+        /// texels passed the alpha test, so this pass fails there and lands only on the texels
+        /// the test cut away, blending the soft edge of a leaf over whatever is behind it.
+        fn flush_multipass_list(
+            &self,
+            gpu: &mut Gpu,
+            per_frame: &PerFrameConstants,
+            blocks: &[(i32, i32)],
+        ) -> Result<(), RenderError> {
+            let sun_set = self
+                .cfg
+                .object_lighting
+                .then(|| self.object_light_set(Vec3::ZERO, 0.0, true));
+            let detail = self.current_detail(dereth_world_render::detail::DetailClass::Building);
+            let mut stats = self.frame_landscape_alpha.get();
+            for key in blocks {
+                let Some(block) = self.blocks.get(key) else {
+                    continue;
+                };
+                let world = world_constants(&Frame::new(
+                    Vec3::new(block.origin.0, block.origin.1, 0.0),
+                    Quat::IDENTITY,
+                ));
+                for batch in block
+                    .blended
+                    .iter()
+                    .filter(|b| static_multipass_member(b, detail.is_some()))
+                {
+                    submit_static_batch_with(
+                        gpu,
+                        per_frame,
+                        &world,
+                        batch,
+                        sun_set.as_deref(),
+                        detail,
+                        true,
+                    )?;
+                    stats.multipass += 1;
+                }
+            }
+            self.frame_landscape_alpha.set(stats);
+            Ok(())
+        }
+
         /// The frame's own alpha flush, at the point the client issues it: after the pass that
         /// queued the meshes **and after the objects that pass drew**.
         ///
@@ -12479,6 +12612,11 @@ mod imp {
             gpu: &mut Gpu,
             per_frame: &PerFrameConstants,
         ) -> Result<(), RenderError> {
+            // The clip list drains first: the second passes "Multiple Pass Alpha" owes.
+            let multipass = std::mem::take(&mut *self.frame_multipass_pending.borrow_mut());
+            if !multipass.is_empty() {
+                self.flush_multipass_list(gpu, per_frame, &multipass)?;
+            }
             let pending = std::mem::take(&mut *self.frame_alpha_pending.borrow_mut());
             if pending.is_empty() {
                 return Ok(());
@@ -13541,6 +13679,7 @@ mod imp {
                 let batch = StaticBatch {
                     key: pkey,
                     key_detail: resolved.key_detail,
+                    key_force_alpha: resolved.key_force_alpha,
                     surface_type: resolved.surface_type,
                     building_pass: key.building_pass,
                     alpha_ref,
@@ -14103,6 +14242,16 @@ mod imp {
                 ..ctx
             },
         );
+        // The alpha-list flush draws an entry queued by "Multiple Pass Alpha" through surface
+        // setup with its force-alpha argument set; nothing else about the device changes. Computed
+        // here for the same reason as the two above.
+        let st_force_alpha = PipelineKey::state_from_surface(
+            &state,
+            SurfaceContext {
+                force_alpha: true,
+                ..ctx
+            },
+        );
         let (texture, texture_key, solid_texel) = match (slot, st.solid_color) {
             (Some(s), _) => (Some(s), texture_key, false),
             // **The untextured arm is keyed on the colour word.**
@@ -14150,6 +14299,7 @@ mod imp {
             surface_type: state.r#type,
             key_material_alpha: st_material_alpha.key,
             key_detail: st_detail.key,
+            key_force_alpha: st_force_alpha.key,
             alpha_ref: st.alpha_ref,
             vertex_alpha: st.vertex_alpha,
             luminosity: state.luminosity,
@@ -14341,6 +14491,8 @@ mod imp {
                             first_of_kind: first,
                             outdoors: s.outdoors,
                             before_depth_clear: s.before_depth_clear,
+                            // The flush sets it from the entry's own multipass flag.
+                            force_alpha: false,
                         },
                     });
                     // LINT-OK: an index into this frame's own queue, capped at
@@ -14388,9 +14540,10 @@ mod imp {
                 first_of_kind: false,
                 outdoors: s.outdoors,
                 before_depth_clear: s.before_depth_clear,
+                force_alpha: false,
             });
             pass.counts.immediate += 1;
-            submit_part_mesh(gpu, per_frame, part, draw_pos, m, honour, lights)?;
+            submit_part_mesh(gpu, per_frame, part, draw_pos, m, honour, lights, false)?;
         }
         Ok(())
     }
@@ -14448,6 +14601,20 @@ mod imp {
         // it on entry -- so `None` is the rule and the shell is the exception.
         detail: Option<(TextureSlot, f32)>,
     ) -> Result<(), RenderError> {
+        submit_static_batch_with(gpu, per_frame, world, batch, lights, detail, false)
+    }
+
+    /// [`submit_static_batch`] with surface setup's force-alpha argument, which only the
+    /// alpha-list flush of a "Multiple Pass Alpha" entry sets.
+    fn submit_static_batch_with(
+        gpu: &mut Gpu,
+        per_frame: &PerFrameConstants,
+        world: &PerDrawConstants,
+        batch: &StaticBatch,
+        lights: Option<&[D3dLight]>,
+        detail: Option<(TextureSlot, f32)>,
+        force_alpha: bool,
+    ) -> Result<(), RenderError> {
         if !static_subset_visible(batch) {
             return Ok(());
         }
@@ -14470,7 +14637,11 @@ mod imp {
             world.detail_params = [tiling, 1.0, 0.0, 0.0];
         }
         gpu.draw_dynamic(
-            if detail.is_some() {
+            // A batch drawn with a detail surface installed is never queued for a second pass
+            // ([`static_multipass_member`]), so the two never meet.
+            if force_alpha {
+                &batch.key_force_alpha
+            } else if detail.is_some() {
                 &batch.key_detail
             } else {
                 &batch.key
@@ -14509,6 +14680,48 @@ mod imp {
         static_subset_visible(batch) && batch.key.alpha_blend && batch.key.alpha_test
     }
 
+    /// Whether "Multiple Pass Alpha", when on, queues this alpha-tested batch for a second pass
+    /// at the alpha flush as well as drawing it in place.
+    ///
+    /// Two things decide it besides the option: the mesh draw consults the alpha lists at all
+    /// (not while a detail surface is installed, which for a static is a building's shell drawn
+    /// with the building detail texture), and the subset's mask is the clip-mapped one, 8. An
+    /// `Alpha | ClipMap` surface is alpha-tested too but is mask 2, so it has one pass.
+    fn static_multipass_member(batch: &StaticBatch, detail_installed: bool) -> bool {
+        use dereth_world_render::consts::S_ALPHA_DELAY_MASK;
+        use dereth_world_render::objects::draw::{
+            classify_subset_passes, mesh_draw_defers, subset_mask,
+        };
+        static_clip_list_member(batch)
+            && mesh_draw_defers(
+                false,
+                S_ALPHA_DELAY_MASK,
+                batch.building_pass && detail_installed,
+            )
+            && classify_subset_passes(subset_mask(batch.surface_type), S_ALPHA_DELAY_MASK, true)
+                .multipass
+    }
+
+    /// Which of a subset's precomputed pipeline states one draw of it uses.
+    ///
+    /// Surface setup takes the force-alpha argument and the current material's alpha flag as
+    /// two inputs. With force alpha set the material flag cannot change the answer: the surface
+    /// already blends without an alpha test, which is the one case the material override leaves
+    /// alone. So force alpha wins, then the material, then the plain state.
+    pub(crate) fn part_subset_key(
+        m: &PartMesh,
+        material_alpha: bool,
+        force_alpha: bool,
+    ) -> &PipelineKey {
+        if force_alpha {
+            &m.key_force_alpha
+        } else if material_alpha {
+            &m.key_material_alpha
+        } else {
+            &m.key
+        }
+    }
+
     /// One subset of one part on the device, rendered with the
     /// object matrix and the current material already chosen.
     ///
@@ -14516,6 +14729,7 @@ mod imp {
     /// subset drawn later out of the alpha list go down through one function. Two copies would
     /// be two chances to disagree about `key_material_alpha`, and the whole point of
     /// deferring is that the picture is otherwise unchanged.
+    #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
     fn submit_part_mesh(
         gpu: &mut Gpu,
         per_frame: &PerFrameConstants,
@@ -14524,6 +14738,9 @@ mod imp {
         m: &PartMesh,
         honour: bool,
         lights: Option<&[D3dLight]>,
+        // Surface setup's force-alpha argument: set only when the alpha-list flush draws an entry
+        // "Multiple Pass Alpha" queued.
+        force_alpha: bool,
     ) -> Result<(), RenderError> {
         // Part submission uses `draw_pos.frame`, not
         // `pos.frame` -- the two differ exactly when draw-frame calculation billboarded the
@@ -14566,11 +14783,7 @@ mod imp {
             gpu.bind_texture(slot, m.sampler);
         }
         gpu.draw_dynamic(
-            if factor.is_some() {
-                &m.key_material_alpha
-            } else {
-                &m.key
-            },
+            part_subset_key(m, factor.is_some(), force_alpha),
             &DrawConstants {
                 alpha_ref: m.alpha_ref,
                 texture_factor: factor.unwrap_or(0),
@@ -14736,6 +14949,9 @@ mod imp {
         /// because whether a detail surface is installed is a property of the *frame* and not of
         /// the surface.
         pub(crate) key_detail: PipelineKey,
+        /// [`Self::key`] re-run with `SurfaceContext::force_alpha` set: the state the alpha-list
+        /// flush gives an entry queued by "Multiple Pass Alpha". See [`PartMesh::key_force_alpha`].
+        pub(crate) key_force_alpha: PipelineKey,
         pub(crate) alpha_ref: u8,
         /// The current alpha, the material setup's **return value**: `0xFF` for
         /// everything except a `TRANSLUCENT` surface, where it is
@@ -14881,6 +15097,7 @@ mod imp {
                 key: r.key,
                 surface_type: r.surface_type,
                 key_material_alpha: r.key_material_alpha,
+                key_force_alpha: r.key_force_alpha,
                 key_detail: r.key_detail,
                 alpha_ref: r.alpha_ref,
                 texture: r.texture,
