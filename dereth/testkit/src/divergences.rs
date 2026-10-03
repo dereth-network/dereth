@@ -227,7 +227,9 @@ pub static DIVERGENCES: &[Divergence] = &[
                  for the end-of-retail world. The terrain numbering is the same in every region, so \
                  each square takes the chosen style's texture for its own terrain; the world's \
                  land, scenery, buildings and sounds never change. A change takes effect on the \
-                 next frame, rebuilding the ground or the sky in place. The detail textures, when                  turned on, are drawn under every ground style: the style's own where its region                  names them, else the world's own region's, else the end-of-retail region's. An older world's later \
+                 next frame, rebuilding the ground or the sky in place. The detail textures, when \
+                 turned on, are drawn under every ground style: the style's own where its region \
+                 names them, else the world's own region's, else the end-of-retail region's. An older world's later \
                  styles come from the end-of-retail files beside it; the end-of-retail world's \
                  older styles from a folder holding an older portal.dat, given with \
                  --legacy-dat-dir or Render.LegacyDatDir, which only presentation reads. A style whose \
@@ -394,9 +396,13 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-020",
         title: "The examined creature's model over its attribute list",
-        retail: "The end-of-retail client draws the examine window's model where its viewport                  stands among the window's elements, before the attribute list laid over it, so                  the list's translucent rows shade the model where they cover it.",
-        dereth: "The model is drawn over the attribute list's rows and under its text, so it is                  as bright behind the numbers as below them.",
-        why: "The owner asked for the whole model to be drawn above the list's translucent               ground.",
+        retail: "The end-of-retail client draws the examine window's model where its viewport \
+                 stands among the window's elements, before the attribute list laid over it, so \
+                 the list's translucent rows shade the model where they cover it.",
+        dereth: "The model is drawn over the attribute list's rows and under its text, so it is \
+                 as bright behind the numbers as below them.",
+        why: "The owner asked for the whole model to be drawn above the list's translucent \
+              ground.",
     },
     Divergence {
         id: "CD-021",
