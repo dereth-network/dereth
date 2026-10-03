@@ -3935,13 +3935,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "vendor.money.a-basket-is-counted-in-things-and-not-in-rows",
-        says: "What a basket says it holds is a count of things and not of rows, so a row \
-               standing for three of a stack of twenty reads as sixty; a thing with no count of \
-               its own counts as one, and a row naming something the client does not hold counts \
+        says: "What a basket says it holds is a count of things and not of rows. Buying counts \
+               each selected quantity once; selling counts each offered object's stack, with \
+               an absent or zero stack size counting as one. A missing object counts \
                as nothing. The noun is singular at exactly one and plural everywhere else, zero \
                included, and the money is grouped in threes.",
         since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-O604-COUNTS"),
+        evidence: Evidence::Private("AC-EVID-VENDOR-BASKET-QUANTITIES"),
         station: "dereth-testkit::dat::inventory::scenario_a_basket_is_counted_in_things_and_not_in_rows",
         tier: Tier::Dat,
     },

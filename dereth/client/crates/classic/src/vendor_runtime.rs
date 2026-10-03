@@ -3,13 +3,6 @@
 use dereth_client_model::{NoticeSink, RequestSink, World};
 use dereth_primitives::ServerTime;
 
-/// The buy total sums each buy row's selected stack quantity once. The shared
-/// basket amount already carries that quantity; multiplying by stock size again
-/// turns twelve selected units into 144.
-pub fn buying_units(rows: &[dereth_client_contract::view::ShopRow]) -> i32 {
-    rows.iter().map(|row| row.amount).sum()
-}
-
 /// The visible sell basket records one offered object per row. At submission,
 /// rebuild amounts from current stacks; Sell Single keeps its literal one.
 pub fn sell_all(
@@ -138,22 +131,5 @@ mod tests {
             assert_eq!(world.shop.sell_list, vec![(ObjectId(0x100), 1)]);
             assert!(world.request_lock.is_idle());
         }
-    }
-    #[test]
-    fn buying_count_sums_selected_units_once() {
-        use dereth_client_contract::view::ShopRow;
-        let rows = [
-            ShopRow {
-                amount: 12,
-                max_stack_size: 100,
-                ..Default::default()
-            },
-            ShopRow {
-                amount: 3,
-                max_stack_size: 50,
-                ..Default::default()
-            },
-        ];
-        assert_eq!(buying_units(&rows), 15);
     }
 }

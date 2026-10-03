@@ -6415,9 +6415,9 @@ pub fn a_basket_is_counted_in_things_and_not_in_rows() {
     w.shop.buy_list = vec![(stock, 3)];
     counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
 
-    // The same row when the thing is a stack of twenty: sixty, not three and not one.
+    // The selected quantity is already in the basket, independent of the stock stack size.
     w.shop.stock[0].pwd.stack_size = Some(20);
-    counts &= dereth_client::vendor_view::shop(&w).buy_items == 60;
+    counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
 
     // A thing with no count of its own, or a count of nothing, counts as one.
     w.shop.stock[0].pwd.stack_size = None;

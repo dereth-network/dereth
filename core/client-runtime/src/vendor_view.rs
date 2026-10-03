@@ -111,38 +111,20 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
         buy_items: basket_items(
             s.buy_list
                 .iter()
-                .filter_map(|(id, n)| Some((s.stock_item(*id)?.pwd.stack_size, *n))),
+                .filter_map(|(id, n)| s.stock_item(*id).map(|_| *n)),
         ),
-        sell_items: basket_items(
-            s.sell_list
-                .iter()
-                .filter_map(|(id, _)| Some((w.weenie(*id)?.pwd.stack_size, 1))),
-        ),
+        sell_items: basket_items(s.sell_list.iter().filter_map(|(id, _)| {
+            Some(i32::from(w.weenie(*id)?.pwd.stack_size.unwrap_or(1).max(1)))
+        })),
         total_value: s.total_value,
         type_filters: type_filters(w),
     }
 }
 
-/// The `%d` of `L"Buying %d %s worth %hsp"` / `L"Selling %d %s worth %hsp"`.
-///
-/// Retail's two transaction loops carry a second accumulator beside the money:
-/// each row adds its object's stack size, with a stack size of 0 counted as 1. It is a count of
-/// **things**, not rows or money, and it is what picks `L"item"` versus `L"items"`.
-///
-/// `rows` yields `(pwd.stack_size, how many basket entries this row stands for)`, already filtered
-/// by the caller to rows whose object the client actually holds — the live-object lookup
-/// encloses the accumulator as well as the price.
-/// A stack size of 0 becomes 1, and an
-/// **absent** stack size (the wire's optional field) is the same 1.
-///
-/// The second term is the one deviation and it is bounded: retail's buy basket is a
-/// item-list widget with one element per "Add to List" press, while
-/// [`dereth_client_model::vendor::Shop::buy_list`] merges them into one row carrying the count — so `n`
-/// presses of an object with stack size `s` are `n` rows of `s` there and one row of `n·s` here,
-/// and the sum is the same. The sell basket's `n` is the literal 1 the single-item sell writes.
-fn basket_items(rows: impl Iterator<Item = (Option<u16>, i32)>) -> i32 {
-    rows.map(|(stack, n)| i32::from(stack.unwrap_or(1).max(1)) * n.max(1))
-        .sum()
+/// Count selected units for buying and live stack quantities for selling.
+/// Missing objects have already been excluded by the caller.
+fn basket_items(rows: impl Iterator<Item = i32>) -> i32 {
+    rows.sum()
 }
 
 /// Construct the vendor-item tabs: walk the eighteen
@@ -253,4 +235,35 @@ fn num_contained_containers(
 ) -> u32 {
     w.inventory(iid)
         .map_or(0, |i| u32::try_from(i.containers.len()).unwrap_or(u32::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dereth_client_model::{vendor::ItemProfile, World};
+    use dereth_primitives::ObjectId;
+    use dereth_protocol::types::PublicWeenieDesc;
+
+    /// Behaviour: vendor.money.a-basket-is-counted-in-things-and-not-in-rows
+    #[test]
+    fn buying_selected_units_counts_each_quantity_once() {
+        let mut world = World::new();
+        world.shop.vendor_id = Some(ObjectId(1));
+        let stock = ObjectId(2);
+        world.shop.stock.push(ItemProfile {
+            iid: stock,
+            amount: -1,
+            pwd: PublicWeenieDesc {
+                stack_size: Some(12),
+                max_stack_size: Some(100),
+                ..Default::default()
+            },
+        });
+        assert!(world.add_to_buy_list(stock, 12));
+        assert_eq!(shop(&world).buy_items, 12);
+        assert!(world.add_to_buy_list(stock, 3));
+        assert_eq!(shop(&world).buy_items, 15);
+        world.shop.buy_list.push((ObjectId(3), 50));
+        assert_eq!(shop(&world).buy_items, 15);
+    }
 }

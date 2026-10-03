@@ -4499,15 +4499,13 @@ pub struct ShopView {
     /// the object tables shows **0** and does not touch the text element at all.
     pub sell_transaction: i32,
     /// The `%d` of `L"Buying %d %s worth %hsp"` — how many **things** the buy basket holds, which
-    /// is `Σ max(stack size, 1)` over the buy list and **not** the
-    /// number of rows and **not** the money.
+    /// is the sum of selected quantities over the buy list.
     ///
     /// It is a separate accumulator from the transaction value in the same loop, and it decides the
     /// `"item"` / `"items"` fork on `count == 1`, so a station that only compared the
     /// money could not tell the two apart.
     pub buy_items: i32,
-    /// The same count for the sell basket — `L"Selling %d %s worth %hsp"`'s `%d`, accumulated the
-    /// same way.
+    /// The sell basket's item count, summing each offered object's stack size (at least one).
     pub sell_items: i32,
     /// The vendor window's total value — the **player's purse**, `PropertyInt` 20
     /// `CoinValue`, drawn into **both** `0x100000C8` and `0x100000D1` by the two

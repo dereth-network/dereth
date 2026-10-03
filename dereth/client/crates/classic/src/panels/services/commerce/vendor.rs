@@ -163,10 +163,7 @@ impl Panel for Vendor {
             let (count, total) = if sell {
                 (s.sell_items, s.sell_transaction)
             } else {
-                (
-                    crate::vendor_runtime::buying_units(&s.buy_list),
-                    s.buy_transaction,
-                )
+                (s.buy_items, s.buy_transaction)
             };
             label(
                 &mut f,
