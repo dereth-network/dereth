@@ -896,19 +896,23 @@ fn restoring_the_option_page_defaults_puts_the_sound_preferences_back() {
 
     // The exact request set raised by the Defaults button.
     let requests = dereth_ui_screens::options::config::restore_defaults_requests();
+    // The page's own count (its rows, the three paired sliders, the era, performance and
+    // landscape detail rows) is pinned by the options page's tests; this one needs only that the
+    // button raises one request per write.
+    let all = requests.len();
     assert_eq!(
-        requests.len(),
-        27 + 3,
-        "the page is 27 rows plus the three paired sliders"
+        all,
+        dereth_ui_screens::options::config::restore_default_values().len(),
+        "the Defaults button raises one request per write"
     );
     let left = dereth_client::audio::apply_preference_requests(Some(&mut a), requests);
-    // **Eight of the thirty are `Sound.*`** -- the three volumes, the three `*Disabled` booleans,
+    // **Eight of them are `Sound.*`** -- the three volumes, the three `*Disabled` booleans,
     // `Sound.SoundFeatures` and `Sound.PlaySoundOnlyWhenActive`, i.e. the whole of `SOUND_KEYS`.
-    // The other 22 belong to Render / Camera / Display / Input / UI and must come back out.
+    // The rest belong to Render / Camera / Display / Input / UI and must come back out.
     assert_eq!(
         left.len(),
-        30 - 8,
-        "{} of 30 requests came back unowned",
+        all - 8,
+        "{} of {all} requests came back unowned",
         left.len()
     );
 
