@@ -157,7 +157,7 @@ pub struct CharacterInfoPanel {
     was_visible: bool,
     /// The world's era has no luminance, so the sheet leaves out its luminance section
     /// ([`super::era`]).
-    pub era_lacks_luminance: bool,
+    pub era_features: dereth_primitives::EraFeatures,
 }
 
 impl CharacterInfoPanel {
@@ -210,9 +210,9 @@ impl CharacterInfoPanel {
         if shown_now {
             self.seen = None;
         }
-        let lacks_luminance = view.era().is_some_and(|e| !e.features().luminance);
-        if lacks_luminance != self.era_lacks_luminance {
-            self.era_lacks_luminance = lacks_luminance;
+        let features = view.era_features();
+        if features != self.era_features {
+            self.era_features = features;
             self.seen = None;
         }
         let info = view.character_info();
@@ -331,7 +331,7 @@ impl CharacterInfoPanel {
     fn augmentations(&self, ui: &UiSystem, c: &CharacterInfo) -> String {
         dereth_presentation::character::augmentation_section(
             c,
-            !self.era_lacks_luminance,
+            self.era_features,
             &mut |token, values| compose(ui, token, values),
         )
     }

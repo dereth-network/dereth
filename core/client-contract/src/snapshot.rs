@@ -167,6 +167,10 @@ pub struct GameSnapshot {
     pub open_inventory_container: Option<ObjectId>,
     /// [`GameView::era`].
     pub era: Option<EraView>,
+    /// Resolved presentation facts, including facts that a view supplies directly.
+    pub resolved_era_features: Option<dereth_primitives::EraFeatures>,
+    pub resolved_era_ui: Option<crate::era::EraUiFacts>,
+    pub aetheria_slots: u8,
     /// [`GameView::selection`].
     pub selection: Option<ObjectId>,
     /// [`GameView::selected_object`].
@@ -506,6 +510,9 @@ impl GameSnapshot {
 
         Self {
             era: view.era().cloned(),
+            resolved_era_features: Some(view.era_features()),
+            resolved_era_ui: Some(view.era_ui()),
+            aetheria_slots: view.aetheria_slots(),
             player: view.player(),
             open_inventory_container: view.open_inventory_container(),
             selection: view.selection(),
@@ -601,6 +608,26 @@ impl GameSnapshot {
 impl GameView for GameSnapshot {
     fn era(&self) -> Option<&EraView> {
         self.era.as_ref()
+    }
+    fn era_features(&self) -> dereth_primitives::EraFeatures {
+        self.resolved_era_features.unwrap_or_else(|| {
+            self.era.as_ref().map_or(
+                dereth_primitives::EraFeatures::END_OF_RETAIL,
+                EraView::features,
+            )
+        })
+    }
+    fn era_ui(&self) -> crate::era::EraUiFacts {
+        self.resolved_era_ui.unwrap_or_else(|| {
+            crate::era::EraUiFacts::for_profile(
+                self.era
+                    .as_ref()
+                    .map_or(dereth_primitives::EraId::Eor, |e| e.era),
+            )
+        })
+    }
+    fn aetheria_slots(&self) -> u8 {
+        self.aetheria_slots
     }
     fn player(&self) -> Option<ObjectId> {
         self.player

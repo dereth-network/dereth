@@ -41,6 +41,7 @@ pub mod confirmation;
 pub mod ctime;
 /// What a disconnect says, whatever UI shows it.
 pub mod disconnect;
+pub mod era;
 /// `PlayerModule`'s window-placement blob, shared with `dereth_ui_screens::hud::floaty`.
 /// `dereth_client::hud` owns the blob.
 pub mod floaty;

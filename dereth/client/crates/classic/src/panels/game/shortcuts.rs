@@ -137,15 +137,11 @@ const SELECTED: [u32; 8] = [
     0x06001cb6, 0x06001cb7, 0x06001cb8, 0x06001cb9, 0x06001cb5, 0x06002622, 0x06002623, 0x06002623,
 ];
 
-/// How many spell tabs the world has: seven before Throne of Destiny, eight after.
+/// How many spell tabs the selected world profile makes available.
 fn tab_count(game: &dyn GameView) -> usize {
-    if game.era().is_some_and(|e| e.before_throne_of_destiny()) {
-        7
-    } else {
-        8
-    }
+    game.era_ui().spell_favorite_tabs
 }
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Favorites {
     tab: usize,
     selected: Option<u32>,
@@ -304,6 +300,11 @@ impl Panel for Favorites {
         self.width = width;
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
+        if self.tab >= tab_count(ctx.game) {
+            let mut visible = self.clone();
+            visible.change_tab(0);
+            return visible.frame(ctx);
+        }
         // The bar runs the 3D view's width: its texture tiles up to the right-hand piece, which
         // (with the cast button) keeps to the right edge.
         let w = self.width();
@@ -458,6 +459,9 @@ impl Panel for Favorites {
     }
     fn event(&mut self, e: ControlEvent, ctx: &Context<'_>) -> Vec<PanelAction> {
         let g = ctx.game;
+        if self.tab >= tab_count(g) {
+            self.change_tab(0);
+        }
         match e {
             ControlEvent::Magic(notice) => return self.magic(notice, ctx),
             // A double click casts the spell; a right click examines it.

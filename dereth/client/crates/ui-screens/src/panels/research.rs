@@ -528,7 +528,7 @@ impl ResearchPanel {
         let Some(window) = self.window else {
             return false;
         };
-        let has = view.era().is_some_and(|e| e.features().spell_research);
+        let has = view.era_features().spell_research;
         let mut wrote = false;
         if self.shown != Some(has) {
             self.shown = Some(has);

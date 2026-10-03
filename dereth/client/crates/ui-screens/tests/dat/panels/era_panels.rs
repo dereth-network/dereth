@@ -88,8 +88,11 @@ fn an_infiltration_world_has_no_contracts_tab_and_the_quest_page_leaves_it() {
     pump(&mut ui, &mut s);
     let n = ui.node(tab).expect("alive");
     assert!(!n.region.flags.visible, "the tab is hidden");
-    let now = open_tab(&ui, tab).expect("a tab is open");
-    assert_ne!(now, dereth_ui_screens::panels::contracts::TAB);
+    assert_eq!(
+        open_tab(&ui, tab),
+        None,
+        "neither quest system is available"
+    );
     // Applied once: the same era again changes nothing.
     assert!(!era.update(&mut ui, &world(EraId::Infiltration)));
 
@@ -115,7 +118,7 @@ fn an_infiltration_character_sheet_has_no_luminance_section() {
     sheet.write(&mut ui, Some(&info));
     assert!(sheet.text.contains(&header), "{}", sheet.text);
 
-    sheet.era_lacks_luminance = true;
+    sheet.era_features = EraId::Infiltration.features();
     sheet.write(&mut ui, Some(&info));
     assert!(!sheet.text.contains(&header), "{}", sheet.text);
 }
@@ -453,4 +456,365 @@ fn a_world_without_housing_has_no_house_tab_on_the_map_page() {
     // February 2005 had houses.
     assert!(era.update(&mut ui, &world(EraId::Infiltration)));
     assert!(ui.node(house).expect("alive").region.flags.visible);
+}
+
+#[derive(Debug)]
+struct Facts {
+    profile: EraView,
+    bits: i32,
+    magic: Option<dereth_client_contract::era::EraUiFacts>,
+}
+impl GameView for Facts {
+    fn era(&self) -> Option<&EraView> {
+        Some(&self.profile)
+    }
+    fn player(&self) -> Option<dereth_primitives::ObjectId> {
+        Some(dereth_primitives::ObjectId(1))
+    }
+    fn int_stat(&self, _: dereth_primitives::ObjectId, prop: u32) -> Option<i32> {
+        (prop == 0x142).then_some(self.bits)
+    }
+    fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+        self.magic.unwrap_or_else(|| {
+            dereth_client_contract::era::EraUiFacts::for_profile(self.profile.era)
+        })
+    }
+    fn spell_tab(&self, tab: usize) -> &[u32] {
+        if tab == 7 {
+            &[777]
+        } else {
+            &[]
+        }
+    }
+    fn character_info(&self) -> Option<CharacterInfo> {
+        let mut info = CharacterInfo::default();
+        info.aug_ints.insert(0xda, 2);
+        Some(info)
+    }
+}
+fn facts() -> Facts {
+    Facts {
+        profile: EraView::default(),
+        bits: 0,
+        magic: None,
+    }
+}
+fn available(ui: &UiSystem, root: ElemHandle, id: dereth_ui::ElementId) -> (bool, bool) {
+    let n = ui
+        .node(ui.get_child_recursive(root, id).expect("authored element"))
+        .unwrap();
+    (n.region.flags.visible, n.should_be_mouse_visible)
+}
+
+/// Behaviour: presentation.era.aetheria-slots-follow-character-unlocks
+#[test]
+fn aetheria_quality_changes_refresh_visible_and_mouse_slots_without_an_era_change() {
+    use dereth_ui_screens::panels::inventory::SIGIL_SLOTS;
+    let (mut ui, s) = screen();
+    let root = s.roots()[0];
+    let mut era = EraPanels::default();
+    era.post_init(&ui, root);
+    let mut w = facts();
+    for bits in [0, 1, 2, 4, 7, 0x100] {
+        w.bits = bits;
+        era.update(&mut ui, &w);
+        for (i, id) in SIGIL_SLOTS.into_iter().enumerate() {
+            let has = bits & (1 << i) != 0;
+            assert_eq!(
+                available(&ui, root, id),
+                (has, has),
+                "bits={bits:#x}, slot={i}"
+            );
+        }
+        assert!(!era.update(&mut ui, &w), "unchanged facts need no writes");
+    }
+    w.bits = 7;
+    w.profile.era = EraId::Infiltration;
+    era.update(&mut ui, &w);
+    for id in SIGIL_SLOTS {
+        assert_eq!(available(&ui, root, id), (false, false));
+    }
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn quest_system_combinations_keep_valid_tabs_and_remove_unavailable_click_targets() {
+    use dereth_ui_screens::panels::{contracts, journal, pagelist};
+    let (mut ui, mut s) = screen();
+    let root = s.roots()[0];
+    let mut era = EraPanels::default();
+    era.post_init(&ui, root);
+    let quest = s
+        .panels
+        .pages
+        .iter()
+        .find(|p| p.element == journal::PAGE)
+        .copied()
+        .unwrap();
+    let button = s
+        .toolbar
+        .buttons
+        .iter()
+        .find(|b| b.panel_id == quest.panel_id)
+        .unwrap()
+        .handle;
+    let initial = ui.get_child_recursive(root, journal::TAB).unwrap();
+    ui.broadcast_element_message(initial, dereth_ui::msg::element::id::MOUSE_CLICK, 0, 0);
+    pump(&mut ui, &mut s);
+    let mut w = facts();
+    for (journal_on, contracts_on) in [
+        (true, true),
+        (false, true),
+        (true, false),
+        (false, false),
+        (true, true),
+    ] {
+        w.profile.announced_features.set("journal", journal_on);
+        w.profile.announced_features.set("contracts", contracts_on);
+        let features = w.era_features();
+        s.apply_era(&mut ui, features);
+        era.update(&mut ui, &w);
+        pump(&mut ui, &mut s);
+        for (id, has) in [
+            (journal::TAB, journal_on),
+            (pagelist::TAB, journal_on),
+            (contracts::TAB, contracts_on),
+        ] {
+            assert_eq!(available(&ui, root, id), (has, has));
+        }
+        assert_eq!(
+            ui.node(button).unwrap().region.flags.visible,
+            journal_on || contracts_on
+        );
+        s.recv_set_panel_visibility(&mut ui, quest.panel_id, true);
+        assert_eq!(
+            ui.node(quest.handle).unwrap().region.flags.visible,
+            journal_on || contracts_on
+        );
+        let tab = ui.get_child_recursive(root, journal::TAB).unwrap();
+        let expected = if journal_on {
+            Some(journal::TAB)
+        } else if contracts_on {
+            Some(contracts::TAB)
+        } else {
+            None
+        };
+        assert_eq!(open_tab(&ui, tab), expected);
+    }
+    let contract_tab = ui.get_child_recursive(root, contracts::TAB).unwrap();
+    ui.broadcast_element_message(contract_tab, dereth_ui::msg::element::id::MOUSE_CLICK, 0, 0);
+    pump(&mut ui, &mut s);
+    w.bits = 1;
+    era.update(&mut ui, &w);
+    pump(&mut ui, &mut s);
+    assert_eq!(open_tab(&ui, contract_tab), Some(contracts::TAB));
+    let pages = ui.get_child_recursive(root, pagelist::TAB).unwrap();
+    ui.broadcast_element_message(pages, dereth_ui::msg::element::id::MOUSE_CLICK, 0, 0);
+    pump(&mut ui, &mut s);
+    w.bits = 2;
+    era.update(&mut ui, &w);
+    pump(&mut ui, &mut s);
+    assert_eq!(
+        open_tab(&ui, pages),
+        Some(pagelist::TAB),
+        "valid journal subpage stays selected"
+    );
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn magic_controls_and_favorite_navigation_follow_independent_profile_facts() {
+    use dereth_ui_screens::panels::{spellbook, spellcasting};
+    let (mut ui, mut s) = screen();
+    let root = s.roots()[0];
+    let mut book = spellbook::SpellbookPanel::default();
+    book.post_init(&mut ui, root);
+    let mut bar = spellcasting::SpellcastingPanel::default();
+    bar.post_init(&mut ui, root);
+    let mut w = facts();
+    w.magic = Some(dereth_client_contract::era::EraUiFacts {
+        void_magic: false,
+        spell_level_eight: true,
+        spell_favorite_tabs: 7,
+    });
+    book.update(&mut ui, &w);
+    bar.update(&mut ui, &w);
+    pump(&mut ui, &mut s);
+    for (id, bit) in spellbook::FILTER_BUTTONS {
+        assert_eq!(
+            available(&ui, root, dereth_ui::ElementId(id)),
+            (bit != 0x2000, bit != 0x2000)
+        );
+    }
+    ui.requests.clear();
+    let void_button = ui.get_element(spellbook::School::Void.button()).unwrap();
+    ui.set_state(void_button, dereth_ui::StateId(1));
+    book.update_filter(&mut ui, &w, spellbook::School::Void.button(), 0x2000);
+    assert!(
+        ui.requests.take().is_empty(),
+        "hidden filter cannot write the mask"
+    );
+    let eighth = dereth_ui::ElementId(spellcasting::SUB_MENU_TAB_BUTTONS[7]);
+    assert_eq!(available(&ui, root, eighth), (false, false));
+    assert!(!bar.add_favorite(&mut ui, &w, 7, 777, -1, true));
+    assert_eq!(w.spell_tab(7), &[777]);
+    assert_eq!(
+        bar.favorites_pruned, 0,
+        "the hidden bank is retained even if unknown"
+    );
+    for which in [spellcasting::TabJump::Next, spellcasting::TabJump::Prev] {
+        let panel = ui
+            .node_mut(bar.panel.unwrap())
+            .unwrap()
+            .behaviour
+            .as_mut()
+            .unwrap()
+            .as_any_mut()
+            .unwrap()
+            .downcast_mut::<dereth_ui::widgets::panel::Panel>()
+            .unwrap();
+        panel.open_tab = Some(dereth_ui::ElementId(0xdead));
+        assert_eq!(
+            bar.open_spell_tab(&mut ui, which).unwrap().0,
+            spellcasting::SUB_MENU_TAB_BUTTONS[0]
+        );
+        pump(&mut ui, &mut s);
+    }
+    let last = bar
+        .open_spell_tab(&mut ui, spellcasting::TabJump::Last)
+        .unwrap();
+    pump(&mut ui, &mut s);
+    assert_eq!(last.0, spellcasting::SUB_MENU_TAB_BUTTONS[6]);
+    assert_eq!(
+        bar.open_spell_tab(&mut ui, spellcasting::TabJump::Next)
+            .unwrap()
+            .0,
+        spellcasting::SUB_MENU_TAB_BUTTONS[0]
+    );
+    pump(&mut ui, &mut s);
+    w.magic = None;
+    book.update(&mut ui, &w);
+    bar.update(&mut ui, &w);
+    pump(&mut ui, &mut s);
+    assert_eq!(available(&ui, root, eighth), (true, true));
+    bar.open_spell_tab(&mut ui, spellcasting::TabJump::Last);
+    pump(&mut ui, &mut s);
+    w.profile.era = EraId::Infiltration;
+    bar.update(&mut ui, &w);
+    pump(&mut ui, &mut s);
+    assert_eq!(
+        bar.open_sub_menu_index(&ui),
+        0,
+        "an unavailable current tab falls back immediately"
+    );
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn fellowship_caption_uses_the_complete_dat_variant_only_for_its_option() {
+    use dereth_client_contract::PlayerOption;
+    use dereth_ui_screens::panels::era::option_caption;
+    let (ui, _) = screen();
+    assert_eq!(
+        option_caption(&ui, PlayerOption::FellowshipShareXP, EraId::Eor.features()).as_deref(),
+        Some("Share Fellowship Experience and Luminance")
+    );
+    assert_eq!(
+        option_caption(
+            &ui,
+            PlayerOption::FellowshipShareXP,
+            EraId::Infiltration.features()
+        )
+        .as_deref(),
+        Some("Share Fellowship Experience")
+    );
+    assert_eq!(
+        option_caption(
+            &ui,
+            PlayerOption::FellowshipShareLoot,
+            EraId::Infiltration.features()
+        ),
+        None
+    );
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn character_section_refreshes_when_only_augmentation_availability_changes() {
+    let (mut ui, s) = screen();
+    let root = s.roots()[0];
+    let mut sheet = CharacterInfoPanel::default();
+    sheet.post_init(&mut ui, root);
+    ui.set_visible(sheet.panel.unwrap(), true);
+    let mut w = facts();
+    w.profile.announced_features.set("luminance", false);
+    assert!(sheet.update(&mut ui, &w));
+    let with = sheet.text.clone();
+    w.profile
+        .announced_features
+        .set("innate_augmentations", false);
+    assert!(sheet.update(&mut ui, &w));
+    assert_ne!(sheet.text, with);
+    assert!(sheet.sections[4].is_empty());
+    w.profile
+        .announced_features
+        .set("innate_augmentations", true);
+    assert!(sheet.update(&mut ui, &w));
+    assert_eq!(sheet.text, with);
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn character_options_restore_controls_and_refresh_complete_captions_on_feature_changes() {
+    use dereth_client_contract::PlayerOption;
+    let (mut ui, mut s) = screen();
+    let mut w = facts();
+    let original: Vec<_> = s.character_options.rows.iter().map(|r| r.option).collect();
+    let boxed = s.character_options.row_count();
+    let mut remaining = dereth_ui_screens::panels::remaining::RemainingPanels::default();
+    remaining.post_init(&mut ui, s.roots()[0]);
+    for era in [
+        EraId::Infiltration,
+        EraId::Eor,
+        EraId::Infiltration,
+        EraId::Eor,
+    ] {
+        w.profile.era = era;
+        s.apply_era(&mut ui, w.era_features());
+        s.character_options.on_player_option_changed(&mut ui, &w);
+        remaining.update(&mut ui, &w);
+        let expected = Some(if era == EraId::Eor {
+            "Share Fellowship Experience and Luminance"
+        } else {
+            "Share Fellowship Experience"
+        });
+        let share = remaining
+            .fellowship_options
+            .boxes
+            .iter()
+            .find(|b| b.option == PlayerOption::FellowshipShareXP)
+            .unwrap();
+        assert_eq!(share.label.as_deref(), expected);
+        let p = &s.character_options;
+        assert_eq!(
+            p.row_of(PlayerOption::ShowCloak).is_some(),
+            era == EraId::Eor
+        );
+        let i = p.row_of(PlayerOption::FellowshipShareXP).unwrap();
+        assert_eq!(
+            p.rows[i].label.as_deref(),
+            Some(if era == EraId::Eor {
+                "Share Fellowship Experience and Luminance"
+            } else {
+                "Share Fellowship Experience"
+            })
+        );
+        if era == EraId::Eor {
+            assert_eq!(
+                p.rows.iter().map(|r| r.option).collect::<Vec<_>>(),
+                original
+            );
+            assert_eq!(p.row_count(), boxed);
+        }
+    }
 }

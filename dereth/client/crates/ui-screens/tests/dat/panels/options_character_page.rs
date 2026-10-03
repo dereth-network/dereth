@@ -272,11 +272,10 @@ fn every_row_captions_itself_from_its_own_token_and_none_from_the_preference_reg
     );
 }
 
-/// The calibration for the count above follows the live-run validation policy: the *same* page, built the
-/// same way, with no `StringResolver` installed reads **0 of 50**. Without this, "50 of 50" and
-/// "my counter cannot go down" are the same output.
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+/// Without a resolver only the complete shared caption fallback is available.
 #[test]
-fn with_no_string_resolver_no_row_is_captioned() {
+fn with_no_string_resolver_only_the_shared_caption_fallback_is_available() {
     let mut ui = env(false);
     let s = screen(&mut ui);
     let p = &s.character_options;
@@ -286,7 +285,12 @@ fn with_no_string_resolver_no_row_is_captioned() {
         .iter()
         .filter(|r| r.label.as_deref().is_some_and(|s| !s.is_empty()))
         .count();
-    assert_eq!(resolved, 0, "captions resolved with no resolver, of 50");
+    assert_eq!(resolved, 1, "only the explicit complete fallback, of 50");
+    let row = &p.rows[p.row_of(PlayerOption::FellowshipShareXP).unwrap()];
+    assert_eq!(
+        row.label.as_deref(),
+        Some("Share Fellowship Experience and Luminance")
+    );
     assert_eq!(
         p.header_captions, 7,
         "the headings are literal text, and land with no resolver"
@@ -923,14 +927,15 @@ fn a_row_for_what_the_worlds_era_lacks_leaves_the_page() {
     assert_eq!(gone, lacking.len());
     assert_eq!(s.character_options.rows.len(), before - gone);
     assert_eq!(s.character_options.row_count(), boxed - gone);
-    for (option, row) in lacking {
+    for (option, row) in &lacking {
         assert!(
-            s.character_options.row_of(option).is_none(),
+            s.character_options.row_of(*option).is_none(),
             "{option:?} is still on the page"
         );
         assert!(
-            ui.node(row).is_none(),
-            "{option:?}'s row is still in the tree"
+            ui.node(*row)
+                .is_some_and(|n| !n.region.flags.visible && !n.should_be_mouse_visible),
+            "{option:?}'s retained row is still interactive"
         );
     }
     assert!(s
@@ -938,6 +943,16 @@ fn a_row_for_what_the_worlds_era_lacks_leaves_the_page() {
         .rows
         .iter()
         .all(|r| r.needs == Needs::Nothing || r.needs.met(Some(&features))));
+    s.character_options
+        .apply_era(&mut ui, Some(dereth_primitives::EraId::Eor.features()));
+    assert_eq!(s.character_options.rows.len(), before);
+    assert_eq!(s.character_options.row_count(), boxed);
+    for (option, row) in lacking {
+        assert!(s.character_options.row_of(option).is_some());
+        assert!(ui
+            .node(row)
+            .is_some_and(|n| n.region.flags.visible && n.should_be_mouse_visible));
+    }
     // A world with everything takes nothing off.
     let mut ui = env(true);
     let mut s = screen(&mut ui);

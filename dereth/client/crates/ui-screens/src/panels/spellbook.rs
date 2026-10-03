@@ -531,6 +531,14 @@ impl SpellbookPanel {
     }
 
     fn update_filtered(&mut self, ui: &mut UiSystem, view: &dyn GameView, filters: u32) -> bool {
+        let facts = view.era_ui();
+        for (id, bit) in FILTER_BUTTONS {
+            if let Some(h) = ui.get_element(ElementId(id)) {
+                let has = facts.spell_filter(bit);
+                ui.set_visible(h, has);
+                ui.set_mouse_visible(h, has);
+            }
+        }
         // **Before** the snapshot guard. The dialog creation's element half and
         // the callback are not part of the list rebuild and must
         // not be skipped on a frame where the book has not changed — which is *every* frame the
@@ -730,6 +738,9 @@ impl SpellbookPanel {
         button: ElementId,
         bit: u32,
     ) {
+        if !view.era_ui().spell_filter(bit) {
+            return;
+        }
         let old = view.spell_filters();
         let on = ui
             .get_element(button)

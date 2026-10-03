@@ -104,7 +104,7 @@ pub(super) fn era_has(
     game: &dyn GameView,
     which: fn(&dereth_primitives::era::EraFeatures) -> bool,
 ) -> bool {
-    game.era().is_none_or(|e| which(&e.features()))
+    which(&game.era_features())
 }
 
 impl Panel for Titles {
@@ -343,7 +343,7 @@ impl Contracts {
 /// and Start counts down the days, hours and minutes in the three boxes (Reset stops it). The
 /// arrows turn the pages, New adds one at the end and Delete takes the shown one out. Every change
 /// is written to the file at once, so nothing waits on the page being closed.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Journal {
     pages: Vec<JournalPage>,
     /// The page shown, from 1.
@@ -354,11 +354,24 @@ pub struct Journal {
     boxes: [String; 3],
     /// On a world with contracts as well, the window's Contracts tab.
     contracts: Contracts,
-    /// The tab shown, an index into [`quest_tabs`]: the first (Contracts, where the world has
-    /// them) until another is chosen.
-    tab: usize,
+    /// The selected system or the journal's page list; resolved against this world's systems.
+    tab: Option<QuestTab>,
     /// The Page List tab.
     list: PageList,
+}
+
+impl Default for Journal {
+    fn default() -> Self {
+        Self {
+            pages: Vec::new(),
+            current: 0,
+            file: None,
+            boxes: Default::default(),
+            contracts: Contracts::default(),
+            tab: Some(QuestTab::Contracts),
+            list: PageList::default(),
+        }
+    }
 }
 
 /// The journal window's tabs on a world with the journal: Contracts first where the world has
@@ -368,8 +381,10 @@ fn quest_tabs(game: &dyn GameView) -> Vec<(&'static str, &'static str, QuestTab)
     if era_has(game, |e| e.contracts) {
         tabs.push(("tab-contracts", "Contracts", QuestTab::Contracts));
     }
-    tabs.push(("tab-journal", "Journal", QuestTab::Journal));
-    tabs.push(("tab-pages", "Page List", QuestTab::Pages));
+    if game.era_features().journal {
+        tabs.push(("tab-journal", "Journal", QuestTab::Journal));
+        tabs.push(("tab-pages", "Page List", QuestTab::Pages));
+    }
     tabs
 }
 
@@ -532,10 +547,16 @@ impl PageList {
 impl Journal {
     /// The tab shown on a world with the journal.
     fn shown_tab(&self, game: &dyn GameView) -> QuestTab {
-        let tabs = quest_tabs(game);
-        tabs.get(self.tab)
-            .or(tabs.first())
-            .map_or(QuestTab::Journal, |t| t.2)
+        use dereth_client_contract::era::{quest_page, QuestPage};
+        let current = self.tab.map(|t| match t {
+            QuestTab::Contracts => QuestPage::Contracts,
+            _ => QuestPage::Journal,
+        });
+        match quest_page(game.era_features(), current) {
+            Some(QuestPage::Contracts) => QuestTab::Contracts,
+            Some(QuestPage::Journal) if self.tab == Some(QuestTab::Pages) => QuestTab::Pages,
+            _ => QuestTab::Journal,
+        }
     }
 
     /// The Page List tab's events.
@@ -604,10 +625,7 @@ impl Journal {
                 if again {
                     if let Some(n) = self.list.pages.get(index).map(|p| p.page_number) {
                         self.show(n);
-                        self.tab = quest_tabs(c.game)
-                            .iter()
-                            .position(|t| t.2 == QuestTab::Journal)
-                            .unwrap_or(0);
+                        self.tab = Some(QuestTab::Journal);
                         self.list.pressed = 0.0;
                     }
                 }
@@ -698,7 +716,7 @@ impl Panel for Journal {
         "journal"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        if !era_has(c.game, |e| e.journal) {
+        if dereth_client_contract::era::quest_page(c.game.era_features(), None).is_none() {
             let (mut f, h) = page("Journal");
             self.body(&mut f, h, c);
             return f;
@@ -720,12 +738,15 @@ impl Panel for Journal {
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
-        if era_has(c.game, |e| e.journal) {
+        let available =
+            dereth_client_contract::era::quest_page(c.game.era_features(), None).is_some();
+        self.tab = available.then(|| self.shown_tab(c.game));
+        if available {
             let tabs = quest_tabs(c.game);
             match &e {
                 ControlEvent::Activate(id) if tabs.iter().any(|t| t.0 == id) => {
-                    self.tab = tabs.iter().position(|t| t.0 == id).unwrap_or(0);
-                    if tabs[self.tab].2 == QuestTab::Pages {
+                    self.tab = tabs.iter().find(|t| t.0 == id).map(|t| t.2);
+                    if self.tab == Some(QuestTab::Pages) {
                         let out = self.load(c.game);
                         let filter = !self.list.search.is_empty();
                         self.list.rebuild(&self.pages, filter);
@@ -739,7 +760,11 @@ impl Panel for Journal {
             match self.shown_tab(c.game) {
                 QuestTab::Contracts => {
                     // The journal is read while its window is up on any tab.
-                    let mut out = self.load(c.game);
+                    let mut out = if c.game.era_features().journal {
+                        self.load(c.game)
+                    } else {
+                        vec![]
+                    };
                     out.extend(self.contracts.body_event(e, c));
                     return out;
                 }
@@ -1266,7 +1291,7 @@ mod tests {
         let has = |f: &PanelFrame, id: &str| f.controls.iter().any(|k| k.id == id);
         with(&game, |c| {
             j.event(ControlEvent::Tick, c);
-            // Contracts is the tab shown first.
+            // The initialized Contracts selection remains valid.
             let f = j.frame(c);
             assert!(has(&f, "tab-contracts") && has(&f, "tab-journal") && has(&f, "tab-pages"));
             assert!(has(&f, "abandon") && !has(&f, "stamp"));
@@ -1447,5 +1472,50 @@ mod tests {
             [(1, "alpha"), (2, "Charlie")]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+    #[test]
+    fn quest_tabs_preserve_system_selection_and_remove_unavailable_controls() {
+        let mut j = Journal::default();
+        let mut g = Game::default();
+        let mut era = dereth_client_contract::EraView::default();
+        for (journal, contracts, want) in [
+            (true, true, QuestTab::Contracts),
+            (false, true, QuestTab::Contracts),
+            (true, false, QuestTab::Journal),
+            (false, false, QuestTab::Journal),
+        ] {
+            era.announced_features.set("journal", journal);
+            era.announced_features.set("contracts", contracts);
+            g.era = Some(era.clone());
+            with(&g, |c| {
+                j.event(ControlEvent::Tick, c);
+                let f = j.frame(c);
+                let has = |id| f.controls.iter().any(|k| k.id == id);
+                assert_eq!(has("tab-journal"), journal);
+                assert_eq!(has("tab-pages"), journal);
+                assert_eq!(has("tab-contracts"), contracts);
+                assert_eq!(j.shown_tab(c.game), want);
+                for id in ["tab-journal", "tab-pages", "tab-contracts"] {
+                    if !has(id) {
+                        let old = j.tab;
+                        j.event(ControlEvent::Activate(id.into()), c);
+                        assert_eq!(j.tab, old);
+                    }
+                }
+            });
+        }
+        g.era = None;
+        with(&g, |c| {
+            act(&mut j, "tab-contracts", c);
+            assert_eq!(j.shown_tab(c.game), QuestTab::Contracts);
+            assert!(j.frame(c).controls.iter().any(|k| k.id == "abandon"));
+            act(&mut j, "tab-pages", c);
+            assert_eq!(j.shown_tab(c.game), QuestTab::Pages);
+        });
+        era.announced_features.set("journal", true);
+        era.announced_features.set("contracts", false);
+        g.era = Some(era);
+        with(&g, |c| assert_eq!(j.shown_tab(c.game), QuestTab::Pages));
     }
 }

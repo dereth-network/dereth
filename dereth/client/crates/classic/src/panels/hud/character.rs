@@ -63,18 +63,16 @@ pub fn augmentation_text(
     view: &dyn GameView,
     strings: &dyn dereth_ui::text::StringResolver,
 ) -> String {
-    let features = view.era().map(|e| e.features());
-    let luminance = features.is_some_and(|f| f.luminance);
-    let augmentations = features.is_some_and(|f| f.innate_augmentations);
-    if !(luminance || augmentations) {
-        return String::new();
-    }
     let Some(info) = view.character_info() else {
         return String::new();
     };
-    dereth_presentation::character::augmentation_section(&info, luminance, &mut |token, values| {
-        dereth_ui::text::render_token(strings, SHEET_TABLE, token, values).unwrap_or_default()
-    })
+    dereth_presentation::character::augmentation_section(
+        &info,
+        view.era_features(),
+        &mut |token, values| {
+            dereth_ui::text::render_token(strings, SHEET_TABLE, token, values).unwrap_or_default()
+        },
+    )
 }
 
 /// The augmentation and luminance section kept for the sheet: the world's string tables, read
@@ -82,10 +80,7 @@ pub fn augmentation_text(
 #[derive(Debug, Default)]
 pub struct AugmentationSheet {
     strings: Option<dereth_ui::text::DatStringResolver<dereth_dat::RetailDatStore>>,
-    seen: Option<(
-        Option<dereth_primitives::EraFeatures>,
-        Option<CharacterInfo>,
-    )>,
+    seen: Option<(dereth_primitives::EraFeatures, Option<CharacterInfo>)>,
     text: String,
 }
 impl AugmentationSheet {
@@ -95,7 +90,7 @@ impl AugmentationSheet {
         view: &dyn GameView,
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
     ) -> &str {
-        let key = (view.era().map(|e| e.features()), view.character_info());
+        let key = (view.era_features(), view.character_info());
         if self.seen.as_ref() != Some(&key) {
             let strings = self
                 .strings

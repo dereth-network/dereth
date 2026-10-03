@@ -41,7 +41,7 @@ impl Panel for CharacterOptions {
         crate::panels::sub_page_background(&mut f, height as i32);
         let page = crate::panels::OptionsPage::current();
         page.background(&mut f);
-        let features = context.game.era().map(|e| e.features());
+        let features = Some(context.game.era_features());
         let shown = shown(features.as_ref());
         let scroll = self.scroll.clamp(0, page.max_scroll(content(shown.len())));
         let clip = page.clip();
@@ -55,7 +55,15 @@ impl Panel for CharacterOptions {
             f.label(
                 if heading { 16 } else { 36 },
                 y + 2,
-                row.caption.clone(),
+                if row.option == Some(dereth_client_contract::PlayerOption::FellowshipShareXP) {
+                    dereth_client_contract::era::fellowship_share_caption(
+                        context.game.era_features(),
+                    )
+                    .fallback
+                    .into()
+                } else {
+                    row.caption.clone()
+                },
                 if heading { "courier-14-7" } else { "15-6" },
                 if heading { 0xff00_c8e1 } else { 0xffd2_d2c8 },
                 Some(clip),
@@ -93,7 +101,7 @@ impl Panel for CharacterOptions {
                 }
             }
             ControlEvent::Scroll { id, value } if id == "scroll" => {
-                let features = c.game.era().map(|e| e.features());
+                let features = Some(c.game.era_features());
                 let page = crate::panels::OptionsPage::current();
                 self.scroll =
                     value.clamp(0, page.max_scroll(content(shown(features.as_ref()).len())));

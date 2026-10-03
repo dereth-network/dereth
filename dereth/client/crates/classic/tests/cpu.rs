@@ -322,6 +322,16 @@ fn removing_a_character_squelch_keeps_the_name_literal() {
 
 fn equipment_world(mask: u32) -> dereth_client_model::World {
     let mut world = inventory_world();
+    world
+        .tables
+        .weenies
+        .get_mut(world.player.unwrap())
+        .unwrap()
+        .qualities
+        .get_or_insert_with(Default::default)
+        .ints
+        .get_or_insert_with(Default::default)
+        .insert(0x142, 7);
     let item = world.tables.weenies.get_mut(ObjectId(3)).unwrap();
     item.pwd.name = "Shirt".into();
     item.pwd.valid_locations = Some(mask);
@@ -583,4 +593,186 @@ fn classic_ready_slot_displays_a_confirmed_two_handed_weapon() {
         entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
         vec![ObjectId(3)]
     );
+}
+
+fn era_context<T>(
+    view: &dyn dereth_client_contract::GameView,
+    f: impl FnOnce(&Context<'_>) -> T,
+) -> T {
+    f(&Context {
+        game: view,
+        pregame: &Default::default(),
+        keyboard: &Default::default(),
+        settings: &Default::default(),
+        classic: &Default::default(),
+        map_teleport_allowed: false,
+    })
+}
+
+/// Behaviour: presentation.era.aetheria-slots-follow-character-unlocks
+#[test]
+fn classic_equipment_refreshes_unlocks_through_the_runtime_view_and_preserves_drop_locations() {
+    use dereth_classic_ui::panels::DragPayload;
+    use dereth_client_contract::{DropTarget, GameSnapshot, GameView, UiRequest};
+    use dereth_client_runtime::hud::{Hud, HudView};
+    let mut world = equipment_world(0x70000000);
+    let mut hud = Hud::new();
+    let player = world.player.unwrap();
+    let mut panel = dereth_classic_ui::panels::game::make("inventory").unwrap();
+    for bits in [0, 1, 2, 4, 7, 0x100] {
+        world
+            .tables
+            .weenies
+            .get_mut(player)
+            .unwrap()
+            .qualities
+            .as_mut()
+            .unwrap()
+            .ints
+            .as_mut()
+            .unwrap()
+            .insert(0x142, bits);
+        let view = HudView {
+            hud: &hud,
+            world: &world,
+        };
+        let snap = GameSnapshot::from_view(&view);
+        assert_eq!(view.aetheria_slots(), snap.aetheria_slots());
+        era_context(&view, |c| {
+            let f = panel.frame(c);
+            let slots: Vec<_> = f
+                .controls
+                .iter()
+                .filter(|k| k.drop_location.is_some_and(|m| m & 0x70000000 != 0))
+                .collect();
+            assert_eq!(slots.len(), (bits & 7).count_ones() as usize);
+            for slot in slots {
+                let mask = slot.drop_location.unwrap();
+                assert_ne!(bits as u32 & (mask >> 28), 0);
+                assert_eq!(
+                    panel.event(
+                        ControlEvent::Drop {
+                            id: slot.id.clone(),
+                            payload: DragPayload::Object(ObjectId(3)),
+                            slot: 0
+                        },
+                        c
+                    ),
+                    vec![PanelAction::Game(UiRequest::DragDrop {
+                        item: ObjectId(3),
+                        target: DropTarget::EquipLocation { mask, side: 0 }
+                    })]
+                );
+            }
+        });
+    }
+    hud.era.era = dereth_primitives::EraId::Infiltration;
+    world
+        .tables
+        .weenies
+        .get_mut(player)
+        .unwrap()
+        .qualities
+        .as_mut()
+        .unwrap()
+        .ints
+        .as_mut()
+        .unwrap()
+        .insert(0x142, 7);
+    era_context(
+        &HudView {
+            hud: &hud,
+            world: &world,
+        },
+        |c| {
+            assert!(!panel
+                .frame(c)
+                .controls
+                .iter()
+                .any(|k| k.drop_location.is_some_and(|m| m & 0x70000000 != 0)))
+        },
+    );
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn classic_magic_filters_gate_inputs_independently_of_skill_loading() {
+    use dereth_client_contract::{era::EraUiFacts, GameSnapshot};
+    let mut panel = dereth_classic_ui::panels::game::make("spellbook").unwrap();
+    for (void, eight) in [(false, true), (true, false), (false, false), (true, true)] {
+        let view = GameSnapshot {
+            resolved_era_ui: Some(EraUiFacts {
+                void_magic: void,
+                spell_level_eight: eight,
+                spell_favorite_tabs: 7,
+            }),
+            ..Default::default()
+        };
+        era_context(&view, |c| {
+            let f = panel.frame(c);
+            for (bit, shown) in [(0x2000, void), (0x800, eight)] {
+                let id = format!("filter:{bit}");
+                assert_eq!(f.controls.iter().any(|k| k.id == id), shown);
+                let out = panel.event(ControlEvent::Check { id, checked: true }, c);
+                assert_eq!(!out.is_empty(), shown);
+            }
+        });
+    }
+}
+
+/// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+#[test]
+fn classic_favorites_hide_an_unavailable_current_bank_before_the_next_input() {
+    use dereth_client_contract::{EraView, GameView, SpellEntry};
+    #[derive(Debug)]
+    struct View {
+        era: EraView,
+    }
+    impl GameView for View {
+        fn era(&self) -> Option<&EraView> {
+            Some(&self.era)
+        }
+        fn spell_tab(&self, tab: usize) -> &[u32] {
+            if tab == 7 {
+                &[777]
+            } else if tab == 0 {
+                &[111]
+            } else {
+                &[]
+            }
+        }
+        fn spell(&self, id: u32) -> Option<SpellEntry> {
+            Some(SpellEntry {
+                id,
+                name: if id == 777 {
+                    "HiddenBank"
+                } else {
+                    "VisibleBank"
+                }
+                .into(),
+                icon: None,
+                school: 1,
+                level: 1,
+                display_order: 0,
+                bitfield: 0,
+            })
+        }
+    }
+    let mut view = View {
+        era: EraView::default(),
+    };
+    let mut panel = dereth_classic_ui::panels::game::make("spell-favorites").unwrap();
+    era_context(&view, |c| {
+        panel.event(ControlEvent::Activate("tab:7".into()), c);
+        assert!(format!("{:?}", panel.frame(c)).contains("HiddenBank"));
+    });
+    view.era.era = dereth_primitives::EraId::Infiltration;
+    era_context(&view, |c| {
+        let f = panel.frame(c);
+        assert!(!f.controls.iter().any(|k| k.id == "tab:7"));
+        let text = format!("{f:?}");
+        assert!(text.contains("VisibleBank"));
+        assert!(!text.contains("HiddenBank"));
+    });
+    assert_eq!(view.spell_tab(7), &[777]);
 }

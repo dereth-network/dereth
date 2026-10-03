@@ -66,6 +66,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.era.aetheria-slots-follow-character-unlocks",
+        says: "On a world with aetheria, its three equipment slots are visible only for the corresponding low three player unlock bits; missing or higher-only bits hide them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-AETHERIA-SLOT-UNLOCKS"),
+        station: "dereth-client-contract::lib::era::tests::aetheria_slots_use_only_the_three_unlock_bits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "presentation.era.shared-facts-follow-the-world-profile",
+        says: "Both interfaces and owned snapshots share default world systems, independent magic capabilities and favorite-tab counts, valid quest-page fallback, augmentation gating and complete fellowship caption variants. Interface artwork and transient table loading do not change those facts; hidden favorite banks retain their contents.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-SHARED-WORLD-PRESENTATION-FACTS"),
+        station: "dereth-client-contract::lib::era::tests::profile_facts_ignore_container_format_and_skill_loading",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "presentation.era.the-panel-buttons-close-up-over-a-system-the-world-lacks",
         says: "When the world has no system for one of the toolbar's panel buttons (no journal on \
                an Infiltration world), the button is hidden and the row's other buttons spread \
@@ -114,7 +131,7 @@ pub static ROWS: &[Behaviour] = &[
                on such a tab moves to its next tab, and the page's other tabs share its strip, \
                growing over the gap); an era with no cloaks or trinkets has no \
                cloak or trinket slot on the paper doll, and one with no luminance no luminance \
-               section on the character sheet; one with no journal has no journal button, and its \
+               section on the character sheet; one with neither journal nor contracts has no quest button, and its \
                quest page never opens; a world the server announces without trade, tinkering, \
                housing or chess never opens the secure-trade, salvage, house purchase or chess \
                window and has no House tab on the map page; on an end-of-retail world all are \

@@ -56,7 +56,7 @@ struct Social {
 fn pages(game: &dyn GameView) -> Vec<(usize, &'static str)> {
     use dereth_client_contract::options::classic;
     let mut pages = vec![(0, "Allegiance"), (1, "Fellowship")];
-    if game.era().is_none_or(|e| e.features().trade) && classic::shown(classic::SHOW_TRADE_TAB) {
+    if game.era_features().trade && classic::shown(classic::SHOW_TRADE_TAB) {
         pages.push((2, "Trade"));
     }
     if classic::shown(classic::SHOW_FRIENDS_TAB) {
@@ -88,7 +88,7 @@ fn squelches_shown(game: &dyn GameView) -> Vec<dereth_client_contract::view::Squ
 }
 /// Whether the world charges experience for an oath; without it the panel shows no cost.
 fn oath_costs_xp(game: &dyn GameView) -> bool {
-    game.era().is_some_and(|e| e.features().swear_xp_cost)
+    game.era_features().swear_xp_cost
 }
 /// What the world charges for an oath: nothing without the charge or before a first break.
 fn cost(c: &Context<'_>) -> u32 {
@@ -717,7 +717,8 @@ impl Social {
                 ),
                 (
                     "share-xp",
-                    "Share Fellowship Experience",
+                    dereth_client_contract::era::fellowship_share_caption(c.game.era_features())
+                        .fallback,
                     h - 94,
                     PlayerOption::FellowshipShareXP,
                     false,

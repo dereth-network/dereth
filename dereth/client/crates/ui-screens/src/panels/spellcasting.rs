@@ -301,6 +301,7 @@ pub struct SpellcastingPanel {
     pub background: Option<ElemHandle>,
     /// The eight sub-menus.
     pub sub_menus: Vec<SubMenu>,
+    visible_tabs: Option<usize>,
     /// The eight item-list consumers, in the same order as [`Self::sub_menus`].
     pub lists: Vec<Option<ItemListWidget>>,
     /// Snapshot guard for PlayerDesc/PlayerModule spell changes; never reorder the favorites.
@@ -422,10 +423,22 @@ impl SpellcastingPanel {
     /// reason that method's own documentation gives: the join is narrower than the spellbook, and
     /// the difference would be an unrequested `0x01E4` for a spell the player still has.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
+        let count = view.era_ui().spell_favorite_tabs;
+        let era_changed = self.visible_tabs != Some(count);
+        self.visible_tabs = Some(count);
+        for (i, sub) in self.sub_menus.iter().enumerate() {
+            if let Some(tab) = sub.tab_element {
+                ui.set_visible(tab, i < count);
+                ui.set_mouse_visible(tab, i < count);
+            }
+        }
+        if self.open_sub_menu_index(ui) >= count {
+            self.open_spell_tab(ui, TabJump::First);
+        }
         let book: std::collections::BTreeMap<_, _> =
             view.spellbook().iter().map(|s| (s.id, s)).collect();
-        let mut changed = false;
-        for tab in 0..self.lists.len() {
+        let mut changed = era_changed;
+        for tab in 0..self.lists.len().min(count) {
             // The update-from-player-module's first pass, ahead of the refill and ahead of the
             // unchanged-rows shortcut: a tab whose *rows* are unchanged (both entries were
             // already invisible) can still owe the shard a removal.
@@ -608,7 +621,7 @@ impl SpellcastingPanel {
         mut index: i32,
         move_allowed: bool,
     ) -> bool {
-        if tab >= self.sub_menus.len() {
+        if tab >= self.sub_menus.len().min(view.era_ui().spell_favorite_tabs) {
             return false;
         }
         if !move_allowed && view.spell_tab(tab).contains(&spell_id) {
@@ -1668,14 +1681,19 @@ impl SpellcastingPanel {
     /// Returns the tab id it asked for, or `None` when the panel is not bound.
     pub fn open_spell_tab(&mut self, ui: &mut UiSystem, which: TabJump) -> Option<ElementId> {
         let panel = self.panel?;
-        let tab = match which {
-            TabJump::First => SUB_MENU_TAB_BUTTONS[0],
-            TabJump::Last => SUB_MENU_TAB_BUTTONS[SUB_MENU_TAB_BUTTONS.len() - 1],
-            TabJump::Next | TabJump::Prev => {
-                let current = self.open_tab_token(ui).map_or(0, |e| e.0);
-                Self::step_tab_id(current, matches!(which, TabJump::Next))
-            }
+        let count = self.visible_tabs.unwrap_or(SUB_MENUS);
+        let current = self.open_tab_token(ui).and_then(|token| {
+            SUB_MENU_TAB_BUTTONS[..count]
+                .iter()
+                .position(|id| *id == token.0)
+        });
+        let index = match which {
+            TabJump::First => 0,
+            TabJump::Last => count - 1,
+            TabJump::Next => current.map_or(0, |i| (i + 1) % count),
+            TabJump::Prev => current.map_or(0, |i| (i + count - 1) % count),
         };
+        let tab = SUB_MENU_TAB_BUTTONS[index];
         let tab = ElementId(tab);
         let h = ui.get_child_recursive(panel, tab)?;
         ui.broadcast_element_message(h, dereth_ui::msg::element::id::MOUSE_CLICK, 0, 0);

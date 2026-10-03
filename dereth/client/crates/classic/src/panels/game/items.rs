@@ -33,15 +33,17 @@ const LATER_EQUIPMENT: [(i32, i32, u32, u32, usize); 5] = [
 /// The paper doll's slots on this world: the classic ones, then the cloak, the trinket and the
 /// sigils where the world has them.
 fn equipment_slots(game: &dyn GameView) -> Vec<(i32, i32, u32, u32, usize)> {
-    let features = game.era().map(dereth_client_contract::EraView::features);
-    let has =
-        |pick: fn(&dereth_primitives::era::EraFeatures) -> bool| features.as_ref().is_none_or(pick);
+    let features = game.era_features();
+    let sigils = game.aetheria_slots();
     let mut slots = EQUIPMENT.to_vec();
     for slot in LATER_EQUIPMENT {
         let wanted = match slot.3 {
-            loc::CLOAK => has(|f| f.cloaks),
-            loc::TRINKET_ONE => has(|f| f.trinkets),
-            _ => has(|f| f.aetheria),
+            loc::CLOAK => features.cloaks,
+            loc::TRINKET_ONE => features.trinkets,
+            loc::SIGIL_ONE => sigils & 1 != 0,
+            loc::SIGIL_TWO => sigils & 2 != 0,
+            loc::SIGIL_THREE => sigils & 4 != 0,
+            _ => false,
         };
         if wanted {
             slots.push(slot);
@@ -1003,7 +1005,7 @@ mod later_slot_tests {
     fn the_paper_doll_has_the_later_slots_only_where_the_world_has_them() {
         assert_eq!(
             equipment_slots(&World::default()).len(),
-            EQUIPMENT.len() + 5
+            EQUIPMENT.len() + 2
         );
         let mut era = dereth_client_contract::EraView::default();
         era.era = dereth_primitives::era::EraId::Infiltration;

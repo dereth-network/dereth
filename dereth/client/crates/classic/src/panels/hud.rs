@@ -175,14 +175,11 @@ fn keyed_image(f: &mut PanelFrame, did: u32, r: Rect, clip: Option<Rect>) {
 /// The page the toolbar's journal button opens: the journal on a world with it, else the
 /// contracts; `None` on a world with neither, whose toolbar has no such button.
 fn quest_page(game: &dyn GameView) -> Option<&'static str> {
-    let features = game.era().map(|e| e.features());
-    if features.is_none_or(|f| f.journal) {
-        Some("journal")
-    } else if features.is_some_and(|f| f.contracts) {
-        Some("contracts")
-    } else {
-        None
-    }
+    use dereth_client_contract::era::{quest_page, QuestPage};
+    quest_page(game.era_features(), None).map(|page| match page {
+        QuestPage::Journal => "journal",
+        QuestPage::Contracts => "contracts",
+    })
 }
 
 /// The side pages a toolbar button stands for: it is lit while any of them is shown, and a press

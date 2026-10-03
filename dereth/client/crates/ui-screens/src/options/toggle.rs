@@ -301,19 +301,13 @@ impl PanelOptionBoxes {
     /// finding nothing" and "not polling".
     pub fn refresh(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> u32 {
         let mut moved = 0;
-        // A caption naming luminance drops it on a world without luminance.
-        let luminance = crate::panels::era::has_luminance(view);
-        for b in &self.boxes {
-            let Some(label) = b.label.as_deref() else {
-                continue;
-            };
-            if !label.contains(crate::panels::era::LUMINANCE_WORDS) {
-                continue;
-            }
-            let want = crate::panels::era::caption_for_era(label, luminance);
-            if let Some(t) = ui.text_element_mut(b.element) {
-                if t.glyphs.inq_text(false) != want {
-                    t.set_text(&want);
+        for b in &mut self.boxes {
+            if let Some(caption) =
+                crate::panels::era::option_caption(ui, b.option, view.era_features())
+            {
+                if b.label.as_ref() != Some(&caption) {
+                    super::page::set_literal_text(ui, b.element, &caption);
+                    b.label = Some(caption);
                 }
             }
         }

@@ -197,7 +197,7 @@ pub fn accept_swear_prompt(ui: &UiSystem, name: &str) -> String {
 /// world without the charge.
 #[must_use]
 pub fn oath_xp_cost(view: &dyn GameView) -> Option<u32> {
-    if !view.era().is_some_and(|e| e.features().swear_xp_cost) {
+    if !view.era_features().swear_xp_cost {
         return None;
     }
     let xp = view.experience_header()?;

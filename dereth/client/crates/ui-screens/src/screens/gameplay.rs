@@ -6371,7 +6371,9 @@ impl Screen for GamePlayScreen {
 pub fn era_lacks_page(features: dereth_primitives::EraFeatures, element: ElementId) -> bool {
     use crate::panels::{journal, minigame, salvage, slumlord, trade};
     match element {
-        e if e == journal::PAGE => !features.journal,
+        e if e == journal::PAGE => {
+            dereth_client_contract::era::quest_page(features, None).is_none()
+        }
         e if e == trade::WINDOW => !features.trade,
         e if e == salvage::PANEL => !features.tinkering,
         e if e == slumlord::PANEL => !features.housing,

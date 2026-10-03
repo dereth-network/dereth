@@ -277,9 +277,12 @@ pub type Compose<'a> = dyn FnMut(&str, &[(&str, &str)]) -> String + 'a;
 /// Each row's text carries its own trailing line break, so the rows are simply appended.
 pub fn augmentation_section(
     c: &CharacterInfo,
-    luminance: bool,
+    features: dereth_primitives::EraFeatures,
     compose: &mut Compose<'_>,
 ) -> String {
+    if !(features.luminance || features.innate_augmentations) {
+        return String::new();
+    }
     let mut s = String::new();
     if c.melee_mastery > 0 {
         let name = melee_mastery_name(c.melee_mastery);
@@ -295,7 +298,7 @@ pub fn augmentation_section(
     }
     // No gate and no variable: the header is on the sheet even for a character with no luminance
     // at all, which is what a new character sees first -- in an era that has luminance.
-    let ratings: &[_] = if luminance {
+    let ratings: &[_] = if features.luminance {
         s.push_str(&compose(string::LUMINANCE_HEADER, &[]));
         LUMINANCE
     } else {
@@ -439,7 +442,11 @@ mod tests {
         c.aug_ints.insert(0x152, 9);
         c.aug_ints.insert(0xDA, 1);
         let melee = format!("ID_CharacterInfo_Mastery_Melee[{}]", melee_mastery_name(1));
-        let with = augmentation_section(&c, true, &mut token_form);
+        let with = augmentation_section(
+            &c,
+            dereth_primitives::EraFeatures::END_OF_RETAIL,
+            &mut token_form,
+        );
         assert_eq!(
             with.lines().collect::<Vec<_>>(),
             [
@@ -452,7 +459,14 @@ mod tests {
                 "ID_CharacterInfo_Augmentation_Attribute_Strength[1]",
             ]
         );
-        let without = augmentation_section(&c, false, &mut token_form);
+        let without = augmentation_section(
+            &c,
+            dereth_primitives::EraFeatures {
+                luminance: false,
+                ..Default::default()
+            },
+            &mut token_form,
+        );
         assert_eq!(
             without.lines().collect::<Vec<_>>(),
             [
@@ -460,5 +474,33 @@ mod tests {
                 "ID_CharacterInfo_Augmentation_Attribute_Strength[1]",
             ]
         );
+    }
+    /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
+    #[test]
+    fn the_augmentation_section_requires_luminance_or_innate_augmentations() {
+        let mut c = CharacterInfo {
+            melee_mastery: 1,
+            ..Default::default()
+        };
+        c.aug_ints.insert(0xDA, 1);
+        for luminance in [false, true] {
+            for innate_augmentations in [false, true] {
+                let text = augmentation_section(
+                    &c,
+                    dereth_primitives::EraFeatures {
+                        luminance,
+                        innate_augmentations,
+                        ..Default::default()
+                    },
+                    &mut token_form,
+                );
+                assert_eq!(text.is_empty(), !luminance && !innate_augmentations);
+                if !text.is_empty() {
+                    assert!(text.contains("Mastery_Melee"));
+                    assert!(text.contains("Augmentation_Attribute_Strength"));
+                    assert_eq!(text.contains("Luminance_Header"), luminance);
+                }
+            }
+        }
     }
 }

@@ -623,11 +623,7 @@ fn frame(
     out.radar = screen.update_radar(ui, view);
     out.indicators = screen.update_indicators(ui, view);
     // The era's features, before any page could be opened this frame.
-    let _ = screen.apply_era(
-        ui,
-        view.era()
-            .map_or(dereth_primitives::EraFeatures::ALL, |e| e.features()),
-    );
+    let _ = screen.apply_era(ui, view.era_features());
     // Driven from the same place every other window on the screen is. It runs
     // **after** the frame's event application, which is what makes the panel open on the frame
     // the `0x00C9` lands rather than the frame after.

@@ -2389,6 +2389,26 @@ pub trait GameView: std::fmt::Debug {
         None
     }
 
+    /// Resolved world systems; a view without a world uses the default profile.
+    fn era_features(&self) -> dereth_primitives::EraFeatures {
+        self.era().map_or(
+            dereth_primitives::EraFeatures::END_OF_RETAIL,
+            EraView::features,
+        )
+    }
+    fn era_ui(&self) -> crate::era::EraUiFacts {
+        crate::era::EraUiFacts::for_profile(
+            self.era().map_or(dereth_primitives::EraId::Eor, |e| e.era),
+        )
+    }
+    fn aetheria_slots(&self) -> u8 {
+        let unlocks = self
+            .player()
+            .and_then(|p| self.int_stat(p, 0x142))
+            .unwrap_or(0);
+        crate::era::aetheria_slots(self.era_features(), unlocks)
+    }
+
     /// The player object, once `LOGIN_COMPLETE` (global message `0x0B`) has fired.
     fn player(&self) -> Option<ObjectId> {
         None

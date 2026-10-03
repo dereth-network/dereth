@@ -23,6 +23,7 @@ pub const ROW_HEIGHT: i32 = 20;
 #[derive(Clone, Debug)]
 pub struct OptionRow {
     pub caption: String,
+    pub option: Option<dereth_client_contract::PlayerOption>,
     pub y: i32,
     pub kind: String,
     pub word: usize,
@@ -50,6 +51,7 @@ pub fn rows() -> &'static [OptionRow] {
         for (heading, rows) in headings_for(PageId::Character, Face::Classic) {
             out.push(OptionRow {
                 caption: heading.title.to_owned(),
+                option: None,
                 y,
                 kind: "heading".into(),
                 word: 0,
@@ -66,6 +68,10 @@ pub fn rows() -> &'static [OptionRow] {
                 };
                 out.push(OptionRow {
                     caption: r.caption_for(Face::Classic).to_owned(),
+                    option: match r.value {
+                        Value::Option(o) => Some(o),
+                        _ => None,
+                    },
                     y,
                     kind: "checkbox".into(),
                     word,

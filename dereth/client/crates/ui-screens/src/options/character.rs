@@ -253,6 +253,8 @@ pub struct CharacterSettingsPage {
     pub option_box: Option<ListBoxWidget>,
     /// The page's option controls, in option-initialisation order.
     pub rows: Vec<CharacterOptionRow>,
+    hidden_rows: Vec<CharacterOptionRow>,
+    row_order: Vec<ElemHandle>,
     /// [`Self::add_header`] calls that produced a row.
     pub headers: usize,
     /// [`Self::add_separator`] calls that produced a row. **Six**, not five: there is a trailing one.
@@ -321,7 +323,7 @@ impl CharacterSettingsPage {
             // ends with a rule.
             self.add_separator(ui);
         }
-        self.apply_era(ui, view.era().map(|e| e.features()));
+        self.apply_era(ui, Some(view.era_features()));
         if let Some(b) = self.option_box.as_mut() {
             b.update_layout(ui);
         }
@@ -339,36 +341,46 @@ impl CharacterSettingsPage {
         true
     }
 
-    /// Take off the page each row whose option the world's era lacks (`features`, `None` for a
-    /// world whose era is not known, which has everything): the rows under it move up. A page
-    /// is built for one world, so a row taken off does not come back. Returns how many rows were
-    /// taken off.
+    /// Hide unavailable options and compact the list, retaining their controls so a later
+    /// capability update can restore them in their original order. Returns the number hidden.
     pub fn apply_era(
         &mut self,
         ui: &mut UiSystem,
         features: Option<dereth_primitives::EraFeatures>,
     ) -> usize {
-        let mut n = 0;
-        let mut k = 0;
-        while k < self.rows.len() {
-            if self.rows[k].needs.met(features.as_ref()) {
-                k += 1;
-                continue;
-            }
-            let row = self.rows.remove(k).row;
-            if let Some(b) = self.option_box.as_mut() {
-                if let Some(i) = b.index_of(row) {
-                    b.delete_item(ui, i);
-                }
-            }
-            n += 1;
+        if self.row_order.is_empty() {
+            self.row_order = self
+                .option_box
+                .as_ref()
+                .map_or_else(Vec::new, |b| b.items.clone());
         }
-        if n > 0 {
-            if let Some(b) = self.option_box.as_mut() {
-                b.update_layout(ui);
+        let previously_visible = self.rows.len();
+        self.rows.append(&mut self.hidden_rows);
+        self.rows
+            .sort_by_key(|r| self.row_order.iter().position(|h| *h == r.row));
+        let features = features.unwrap_or(dereth_primitives::EraFeatures::END_OF_RETAIL);
+        let rows = std::mem::take(&mut self.rows);
+        for row in rows {
+            let visible = row.needs.met(Some(&features));
+            ui.set_visible(row.row, visible);
+            ui.set_mouse_visible(row.row, visible);
+            ui.set_mouse_visible(row.element, visible);
+            if visible {
+                self.rows.push(row);
+            } else {
+                self.hidden_rows.push(row);
             }
         }
-        n
+        if let Some(b) = self.option_box.as_mut() {
+            b.items = self
+                .row_order
+                .iter()
+                .copied()
+                .filter(|h| !self.hidden_rows.iter().any(|r| r.row == *h))
+                .collect();
+            b.update_layout(ui);
+        }
+        previously_visible.saturating_sub(self.rows.len())
     }
 
     fn add_row(&mut self, ui: &mut UiSystem, index: usize) -> Option<ElemHandle> {
@@ -434,24 +446,19 @@ impl CharacterSettingsPage {
         let ht = help_token(option);
         // The toggle-label write puts the caption on the check box itself because
         // the check-box control carries button behavior and its own text caption.
-        let mut label = super::page::set_string_info(
-            ui,
-            element,
-            table(ui),
-            dereth_primitives::num::hash::str_hash(lt.as_bytes()),
-        );
-        // A caption naming luminance drops it on a world without luminance.
-        if let Some(text) = label.as_deref() {
-            let shown =
-                crate::panels::era::caption_for_era(text, crate::panels::era::has_luminance(view));
-            if shown != text {
-                let shown = shown.into_owned();
-                if let Some(t) = ui.text_element_mut(element) {
-                    t.set_text(&shown);
-                }
-                label = Some(shown);
-            }
-        }
+        let label = if let Some(caption) =
+            crate::panels::era::option_caption(ui, option, view.era_features())
+        {
+            super::page::set_literal_text(ui, element, &caption);
+            Some(caption)
+        } else {
+            super::page::set_string_info(
+                ui,
+                element,
+                table(ui),
+                dereth_primitives::num::hash::str_hash(lt.as_bytes()),
+            )
+        };
         self.row_captions += usize::from(label.is_some());
         let idx = self.rows.len();
         self.rows.push(CharacterOptionRow {
@@ -551,6 +558,15 @@ impl CharacterSettingsPage {
     pub fn on_player_option_changed(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
         let mut moved = 0;
         for i in 0..self.rows.len() {
+            if let Some(caption) =
+                crate::panels::era::option_caption(ui, self.rows[i].option, view.era_features())
+            {
+                if self.rows[i].label.as_ref() != Some(&caption) {
+                    super::page::set_literal_text(ui, self.rows[i].element, &caption);
+                    self.rows[i].label = Some(caption);
+                }
+            }
+
             let v = view.player_option(self.rows[i].option);
             if v == self.rows[i].current {
                 continue;

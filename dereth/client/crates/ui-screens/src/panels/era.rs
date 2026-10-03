@@ -22,14 +22,13 @@
 //!
 //! | feature | what goes |
 //! |---|---|
-//! | `journal` | the quest page and its toolbar button |
+//! | neither `journal` nor `contracts` | the quest page and its toolbar button |
 //! | `trade` | the secure-trade window |
 //! | `tinkering` | the salvage window a tinkering tool opens |
 //! | `housing` | the house purchase and maintenance window a deed's slumlord opens |
 //! | `chess` | the chess window |
 //!
-//! The aetheria sigil slots need nothing here: the paper doll hides them for every era, and a
-//! character with no aetheria slots never has them restored.
+//! Aetheria slots require both world availability and the character's unlock bits.
 
 use dereth_primitives::EraFeatures;
 use dereth_ui::msg::element::id as msgid;
@@ -38,24 +37,20 @@ use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
 use crate::view::GameView;
 
-/// The words a caption loses on a world with no luminance: the fellowship's sharing option is
-/// *Share Fellowship Experience and Luminance* in the interface's strings.
-pub const LUMINANCE_WORDS: &str = " and Luminance";
-
-/// `text` as a world shows it: without [`LUMINANCE_WORDS`] when the world has no luminance.
-#[must_use]
-pub fn caption_for_era(text: &str, luminance: bool) -> std::borrow::Cow<'_, str> {
-    if luminance || !text.contains(LUMINANCE_WORDS) {
-        std::borrow::Cow::Borrowed(text)
-    } else {
-        std::borrow::Cow::Owned(text.replace(LUMINANCE_WORDS, ""))
+/// An identity-specific caption selected before localization and composition.
+pub fn option_caption(
+    ui: &UiSystem,
+    option: crate::view::PlayerOption,
+    features: EraFeatures,
+) -> Option<String> {
+    if option != crate::view::PlayerOption::FellowshipShareXP {
+        return None;
     }
-}
-
-/// Whether the world `view` shows has luminance; a view with no era has everything.
-#[must_use]
-pub fn has_luminance(view: &dyn GameView) -> bool {
-    view.era().is_none_or(|e| e.features().luminance)
+    let caption = dereth_client_contract::era::fellowship_share_caption(features);
+    Some(
+        ui.resolve_string(caption.table, caption.token)
+            .unwrap_or_else(|| caption.fallback.into()),
+    )
 }
 
 /// The paper doll's cloak slot (worn location `0x08000000`).
@@ -172,6 +167,8 @@ fn place(ui: &mut UiSystem, h: ElemHandle, b: dereth_ui::Box2D) {
 pub struct EraPanels {
     /// The quest page's Contracts tab ([`super::contracts::TAB`]).
     contracts_tab: Option<Tab>,
+    journal_tab: Option<Tab>,
+    page_list_tab: Option<Tab>,
     /// The character page's Titles tab: the tab of [`super::titles::PANEL`].
     titles_tab: Option<Tab>,
     /// The map page's House tab: the tab of [`super::house::PANEL`].
@@ -180,6 +177,8 @@ pub struct EraPanels {
     cloak_slot: Option<ElemHandle>,
     /// [`TRINKET_SLOT`].
     trinket_slot: Option<ElemHandle>,
+    sigil_slots: [Option<ElemHandle>; 3],
+    applied_sigils: u8,
     /// The tab strips of the pages above, which close up over a hidden tab.
     strips: Vec<Strip>,
     /// The features last applied; `None` before the first frame.
@@ -206,14 +205,22 @@ impl EraPanels {
                     page: ui.node(tab)?.region.parent?,
                 })
             });
+        self.journal_tab = Self::tab_of(ui, root, super::journal::PANEL);
+        self.page_list_tab = Self::tab_of(ui, root, super::pagelist::PANEL);
+        self.sigil_slots = super::inventory::SIGIL_SLOTS.map(|id| ui.get_child_recursive(root, id));
         self.titles_tab = Self::tab_of(ui, root, super::titles::PANEL);
         self.house_tab = Self::tab_of(ui, root, super::house::PANEL);
         self.cloak_slot = ui.get_child_recursive(root, CLOAK_SLOT);
         self.trinket_slot = ui.get_child_recursive(root, TRINKET_SLOT);
         let mut pages: Vec<ElemHandle> = Vec::new();
-        for t in [self.contracts_tab, self.titles_tab, self.house_tab]
-            .into_iter()
-            .flatten()
+        for t in [
+            self.contracts_tab,
+            self.journal_tab,
+            self.titles_tab,
+            self.house_tab,
+        ]
+        .into_iter()
+        .flatten()
         {
             if !pages.contains(&t.page) {
                 pages.push(t.page);
@@ -244,23 +251,84 @@ impl EraPanels {
     }
 
     /// Show what the era has and hide what it lacks, when the era's features changed since the
-    /// last frame. A view with no era shows everything. Returns whether anything was applied.
+    /// last frame. A view with no era uses the default profile. Returns whether anything was applied.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        let features = view.era().map_or(EraFeatures::ALL, |e| e.features());
-        if self.applied == Some(features) {
+        let features = view.era_features();
+        let sigils = view.aetheria_slots();
+        if self.applied == Some(features) && self.applied_sigils == sigils {
             return false;
         }
         self.applied = Some(features);
+        self.applied_sigils = sigils;
         for (tab, has) in [
             (self.contracts_tab, features.contracts),
+            (self.journal_tab, features.journal),
+            (self.page_list_tab, features.journal),
             (self.titles_tab, features.titles),
             (self.house_tab, features.housing),
         ] {
             let Some(tab) = tab else { continue };
             ui.set_visible(tab.tab, has);
             ui.set_mouse_visible(tab.tab, has);
-            if !has {
+        }
+        for tab in [self.titles_tab, self.house_tab].into_iter().flatten() {
+            if !ui.node(tab.tab).is_some_and(|n| n.region.flags.visible) {
                 Self::leave_tab(ui, tab);
+            }
+        }
+        if let Some(tab) = self.journal_tab.or(self.contracts_tab) {
+            use dereth_client_contract::era::{quest_page, QuestPage};
+            let current = panel(ui, tab.page).and_then(|p| p.open_tab).and_then(|id| {
+                if id == super::journal::TAB || id == super::pagelist::TAB {
+                    Some(QuestPage::Journal)
+                } else if id == super::contracts::TAB {
+                    Some(QuestPage::Contracts)
+                } else {
+                    None
+                }
+            });
+            let desired = quest_page(features, current);
+            if desired != current {
+                let target = match desired {
+                    Some(QuestPage::Journal) => self.journal_tab,
+                    Some(QuestPage::Contracts) => self.contracts_tab,
+                    None => {
+                        if let Some(p) = ui
+                            .node_mut(tab.page)
+                            .and_then(|n| n.behaviour.as_mut())
+                            .and_then(|b| b.as_any_mut())
+                            .and_then(|b| b.downcast_mut::<Panel>())
+                        {
+                            p.open_tab = None;
+                            p.open_page = None;
+                        }
+                        None
+                    }
+                };
+                if let Some(target) = target {
+                    ui.broadcast_element_message(target.tab, msgid::MOUSE_CLICK, 0, 0);
+                }
+            }
+            for (id, has) in [
+                (super::journal::PANEL, features.journal),
+                (super::pagelist::PANEL, features.journal),
+                (super::contracts::PANEL, features.contracts),
+            ] {
+                if !has {
+                    if let Some(h) = ui.get_child_recursive(tab.page, id) {
+                        ui.set_visible(h, false);
+                        ui.set_mouse_visible(h, false);
+                    }
+                } else if let Some(h) = ui.get_child_recursive(tab.page, id) {
+                    ui.set_mouse_visible(h, true);
+                }
+            }
+        }
+        for (i, slot) in self.sigil_slots.iter().enumerate() {
+            if let Some(slot) = slot {
+                let has = sigils & (1 << i) != 0;
+                ui.set_visible(*slot, has);
+                ui.set_mouse_visible(*slot, has);
             }
         }
         for strip in &self.strips {
@@ -286,7 +354,13 @@ impl EraPanels {
             };
             (
                 panel.open_tab,
-                panel.tab_to_page.keys().copied().find(|&t| t != tab.id),
+                panel.tab_to_page.keys().copied().find(|&t| {
+                    t != tab.id
+                        && ui
+                            .get_child_recursive(tab.page, t)
+                            .and_then(|h| ui.node(h))
+                            .is_some_and(|n| n.region.flags.visible)
+                }),
             )
         };
         if open != Some(tab.id) {

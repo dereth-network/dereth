@@ -77,14 +77,14 @@ enum Line {
 /// The lines of `page` as the classic interface shows it in the world `c` is in: a row for what
 /// the world's era lacks is left out.
 fn lines(page: PageId, c: &Context<'_>) -> Vec<Line> {
-    let features = c.game.era().map(|e| e.features());
+    let features = c.game.era_features();
     let mut out = Vec::new();
     for (h, rows) in sheet::headings_for(page, Face::Classic) {
         out.push(Line::Heading(h.title));
         out.extend(
             rows.into_iter()
                 .filter(|r| {
-                    r.needs.met(features.as_ref()) && r.preference().is_none_or(|p| era_has(c, p))
+                    r.needs.met(Some(&features)) && r.preference().is_none_or(|p| era_has(c, p))
                 })
                 .map(Line::Row),
         );
@@ -133,7 +133,7 @@ fn range(preference: &str) -> (f32, f32) {
 /// Whether the world's era has what a row sets: the social window's Secure Trade page needs
 /// trade, and its row is not shown without it.
 fn era_has(c: &Context<'_>, preference: &str) -> bool {
-    preference != classic::SHOW_TRADE_TAB || c.game.era().is_none_or(|e| e.features().trade)
+    preference != classic::SHOW_TRADE_TAB || c.game.era_features().trade
 }
 
 /// The row of the classic Client Options page that edits `preference`.
