@@ -40,6 +40,7 @@ serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+dereth-client-net = { path = "../../../../core/client-net" }
 dereth-dat = { workspace = true, features = ["test-support"] }
 # One layout test measures the title with the fonts the desktop draws it with.
 dereth-classic-gdi = { path = "../classic-gdi" }

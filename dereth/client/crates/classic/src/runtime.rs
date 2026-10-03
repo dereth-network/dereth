@@ -85,6 +85,7 @@ pub struct ClassicUi {
     spells_added_seen: u64,
     /// The last book opening the server made, so each new one opens the book window once.
     book_opening: Option<u64>,
+    house_profile_seen: u64,
     /// Where the portal-space swirl is drawn this frame, while the player travels.
     portal_rect: Option<crate::widgets::Rect>,
     minigame_lines_seen: u64,
@@ -189,6 +190,7 @@ impl ClassicUi {
             known_spells: None,
             spells_added_seen: 0,
             book_opening: None,
+            house_profile_seen: 0,
             portal_rect: None,
             minigame_lines_seen: 0,
             game_info: String::new(),
@@ -1918,6 +1920,7 @@ impl ClassicUi {
                         self.desktop.open_object("book", book.book_id, &context);
                     }
                 }
+                open_house_profile(&mut self.desktop, &mut self.house_profile_seen, &context);
                 let shop = context.game.shop();
                 match (shop.open, shop.vendor, self.desktop.is_open("vendor")) {
                     (true, Some(vendor), false) => {
@@ -2821,6 +2824,110 @@ mod click_and_chat_tests {
         assert!(!world_double_click(None, 100, 100));
         let old = now - std::time::Duration::from_millis(600);
         assert!(!world_double_click(Some((100, 100, old)), 100, 100));
+    }
+}
+
+fn open_house_profile(desktop: &mut Desktop, seen: &mut u64, context: &Context<'_>) {
+    let notices = context.game.slumlord_notices();
+    if notices != *seen {
+        *seen = notices;
+        if context.game.slumlord().is_some() {
+            desktop.open("maintenance", context);
+        }
+    }
+}
+
+#[cfg(test)]
+mod house_profile_tests {
+    use super::*;
+    use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::{hud::Hud, objects::ObjectStream};
+    use dereth_protocol::{trade::HouseProfileMessage, Message};
+
+    fn with_context(hud: &Hud, objects: &ObjectStream, run: impl FnOnce(&Context<'_>)) {
+        run(&Context {
+            game: &hud.view(objects),
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            map_teleport_allowed: false,
+            classic: &Default::default(),
+        });
+    }
+
+    /// Behaviour: panels.house-purchase.each-profile-opens-the-payment-window-once
+    #[test]
+    fn a_house_profile_opens_once_and_a_repeated_use_reopens_after_close() {
+        let mut hud = Hud::new();
+        let mut objects = ObjectStream::new();
+        let mut desktop = Desktop::new(crate::panels::services::make, (800, 600));
+        let mut seen = 0;
+        with_context(&hud, &objects, |context| {
+            open_house_profile(&mut desktop, &mut seen, context);
+            assert!(!desktop.is_open("maintenance"));
+        });
+
+        let message = HouseProfileMessage {
+            covenant_crystal: ObjectId(9),
+            profile: dereth_protocol::trade::HouseProfile {
+                house_type: 1,
+                ..Default::default()
+            },
+        };
+        objects.world.recv_house_profile(&message);
+        with_context(&hud, &objects, |context| {
+            assert!(context.game.slumlord().is_some());
+            assert_eq!(context.game.slumlord_notices(), 0);
+            open_house_profile(&mut desktop, &mut seen, context);
+            assert!(
+                !desktop.is_open("maintenance"),
+                "a cached profile is not a receipt"
+            );
+        });
+        let mut blob = HouseProfileMessage::OPCODE.0.to_le_bytes().to_vec();
+        blob.extend(dereth_protocol::write_body(&message).unwrap());
+        let event = SessionEvent::UiEvent {
+            opcode: HouseProfileMessage::OPCODE,
+            blob,
+        };
+        for receipt in 1..=2 {
+            hud.apply_events(std::slice::from_ref(&event), &mut objects.world);
+            with_context(&hud, &objects, |context| {
+                assert_eq!(context.game.slumlord_notices(), receipt);
+                open_house_profile(&mut desktop, &mut seen, context);
+                assert!(
+                    desktop.is_open("maintenance"),
+                    "profile {receipt} opens the window"
+                );
+                desktop.close("maintenance", context);
+                assert!(!desktop.is_open("maintenance"));
+                for _ in 0..3 {
+                    open_house_profile(&mut desktop, &mut seen, context);
+                    assert!(
+                        !desktop.is_open("maintenance"),
+                        "closing lasts until another profile"
+                    );
+                }
+            });
+        }
+        hud.apply_events(&[event], &mut objects.world);
+        let cached = objects.world.slumlord.take();
+        with_context(&hud, &objects, |context| {
+            open_house_profile(&mut desktop, &mut seen, context);
+            assert_eq!(seen, 3);
+            assert!(
+                !desktop.is_open("maintenance"),
+                "a cleared profile cannot open"
+            );
+        });
+        objects.world.slumlord = cached;
+        with_context(&hud, &objects, |context| {
+            open_house_profile(&mut desktop, &mut seen, context);
+            assert!(
+                !desktop.is_open("maintenance"),
+                "the cleared receipt was consumed"
+            );
+        });
     }
 }
 

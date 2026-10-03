@@ -1560,6 +1560,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "panels.house-purchase.each-profile-opens-the-payment-window-once",
+        says: "Each received house profile opens the payment window once. Closing it keeps it \
+               closed until another profile arrives, including a repeated use of the same house.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-HOUSING-PROFILE-OPENING"),
+        station: "dereth-classic-ui::lib::runtime::house_profile_tests::a_house_profile_opens_once_and_a_repeated_use_reopens_after_close",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "panels.house-purchase.paying-sends-buy-house-with-the-windows-items",
         says: "Paying for a house sends one House_BuyHouse naming the items in the order they were \
                dropped into the purchase window, byte for byte as the recorded retail client sent \
