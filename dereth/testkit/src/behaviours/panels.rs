@@ -852,6 +852,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "examine.item.the-floating-windows-item-pane-shows-no-icon-of-the-item",
+        says: "Examining an item shows its name and its description but no picture of the item: \
+               the floating examination window's item pane has no place for one, though the \
+               docked panel it replaced did.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-R2C-ITEM-EXAMINE-NO-ICON"),
+        station: "dereth-ui-screens::dat::panels::examine_window::examining_an_item_shows_no_icon_because_the_shipped_item_pane_has_no_place_for_one",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "examine.key.the-assess-key-shuts-an-open-pane-and-opens-a-shut-one",
         says: "The key that assesses what the player is looking at is a toggle: pressed with the \
                pane shut it asks the shard and the answer opens it, pressed again on the open pane \

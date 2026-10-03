@@ -54,6 +54,10 @@
 //! `0x1000013E`, `0x1000013F` and `0x1000013D`). The appraise-info write's
 //! value-element-or-description fork therefore takes the *second* branch in retail too, and the
 //! value and burden go into the description block.
+//!
+//! The same is true of the item's icon. The pane would draw the examined object's icon in
+//! `0x1000013A`, but only the docked examination panel the floating window replaced (`0x1000012C`
+//! in layout `0x2100001C`) has that element, so the item pane draws no icon of the item.
 
 use dereth_ui::{ElemHandle, ElementId, StateId, UiSystem};
 

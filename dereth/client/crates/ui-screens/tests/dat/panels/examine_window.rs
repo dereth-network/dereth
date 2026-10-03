@@ -811,3 +811,56 @@ mod selection_guard {
         );
     }
 }
+
+// =============================================================================================
+// The item pane has no picture of the item.
+// =============================================================================================
+
+/// The item pane would put the examined item's icon in `0x1000013A`, but the shipped floating
+/// window's item pane has no such element (only the docked panel the window replaced had one), so
+/// examining an item shows its text and no icon.
+/// Behaviour: examine.item.the-floating-windows-item-pane-shows-no-icon-of-the-item
+#[test]
+fn examining_an_item_shows_no_icon_because_the_shipped_item_pane_has_no_place_for_one() {
+    use dereth_primitives::AssetSource as _;
+    use dereth_ui_screens::panels::examination::ITEM_BASE;
+    const ITEM_ICON: ElementId = ElementId(0x1000_013A);
+
+    let (mut ui, mut s) = screen();
+    let w = window_of(&ui, &s);
+    let base = ui
+        .get_child_recursive(w, ITEM_BASE)
+        .expect("the shipped window has an item pane");
+    assert!(
+        ui.get_child_recursive(w, ITEM_ICON).is_none(),
+        "the shipped window has no item icon element"
+    );
+
+    // The element exists in the shipped dats, but only in the older docked panel's layout.
+    let (_, _, store) = crate::common::layout::load((800, 600), RegistrationOrder::BeforeResolver);
+    let did = dereth_primitives::DataId(0x2100_001C);
+    let old = dereth_ui::desc::LayoutDesc::read(did, &store.read(did).unwrap(), &ui.property_types)
+        .expect("the docked panel's layout decodes");
+    fn has(d: &dereth_ui::ElementDesc, id: ElementId) -> bool {
+        d.element_id == id || d.children.values().any(|c| has(c, id))
+    }
+    assert!(
+        old.elements.values().any(|d| has(d, ITEM_ICON)),
+        "the docked panel had a place for the icon, so the id is the right one"
+    );
+
+    let mut host = Host::default();
+    open(&mut ui, &mut s, &mut host, SWORD, 1);
+    assert!(is_open(&ui, w), "the window opened on the item");
+    let mut pictures = Vec::new();
+    let mut q = vec![base];
+    while let Some(h) = q.pop() {
+        if let Some(g) = ui.node(h).and_then(|n| n.region.image.as_ref()) {
+            if g.source != dereth_ui::region::ImageSource::Interface {
+                pictures.push(g.clone());
+            }
+        }
+        q.extend(ui.children(h));
+    }
+    assert!(pictures.is_empty(), "nothing drew the item: {pictures:?}");
+}
