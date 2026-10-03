@@ -115,7 +115,8 @@ impl Stored {
 /// no landscape detail texture, so that checkbox changes nothing. Brightness sets the screen's gamma
 /// (the classic page raised the ambient light and the viewer's own light instead) on the other
 /// interface's scale, [`brightness_of_slider`], so the slider's middle leaves the picture as it is;
-/// and the performance slider sets the degrade bias when automatic degrading is off.
+/// and the performance slider sets the degrade bias when automatic degrading is off, speed at its
+/// left and detail at its right, the way the other interface's slider runs.
 pub fn render_preferences(s: &ClassicSettings, prefs: &mut RenderPreferences) {
     prefs.landscape_texture_detail = u32::from(s.texture_levels[0].min(3)) + 1;
     prefs.environment_texture_detail = if s.environment_very_high {
@@ -126,7 +127,7 @@ pub fn render_preferences(s: &ClassicSettings, prefs: &mut RenderPreferences) {
     prefs.environment_detail_textures = s.detail_available && s.environment_detail;
     prefs.screen_brightness = brightness_of_slider(s.brightness);
     prefs.automatic_degrades = s.auto_degrade;
-    prefs.graphics_performance = 1.0 - 2.0 * normalized(s.performance);
+    prefs.graphics_performance = 2.0 * normalized(s.performance) - 1.0;
 }
 /// The screen brightness for the classic Brightness slider's position (0 to 1): the other
 /// interface's brightness slider runs from -1 to 1 with the unchanged picture at 0, and the classic
@@ -285,7 +286,7 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
         s.auto_degrade = v;
     }
     if let Some(v) = float_of(names::GRAPHICS_PERFORMANCE) {
-        s.performance = normalized((1.0 - v) / 2.0);
+        s.performance = normalized((v + 1.0) / 2.0);
     }
     if let Some(v) = float_of("Camera.Stiffness") {
         s.camera_stiffness = normalized(v / 0.714_285_73 - 0.4);
@@ -760,7 +761,7 @@ mod tests {
         assert!(prefs.environment_detail_textures);
         assert_eq!(prefs.screen_brightness, 1.0);
         assert!(!prefs.automatic_degrades);
-        assert_eq!(prefs.graphics_performance, -1.0);
+        assert_eq!(prefs.graphics_performance, 1.0);
         s.detail_available = false;
         render_preferences(&s, &mut prefs);
         assert!(!prefs.environment_detail_textures);
@@ -863,7 +864,7 @@ mod tests {
         );
         assert_eq!(
             store::inq_value("Render.GraphicsPerformance"),
-            Some(PrefValue::Float(-1.0))
+            Some(PrefValue::Float(1.0))
         );
     }
     /// Behaviour: presentation.settings.both-interfaces-edit-one-store
