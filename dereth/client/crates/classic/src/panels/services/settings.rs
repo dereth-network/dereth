@@ -791,15 +791,7 @@ impl Panel for Settings {
                     .into(),
                 accept: vec![PanelAction::Host(HostAction::Quit)],
             }],
-            "keyboard" => vec![PanelAction::Confirm {
-                id: "configure-keyboard".into(),
-                text: "\n\nTo configure your keyboard, you need to leave the world.\nProceed?"
-                    .into(),
-                accept: vec![
-                    PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
-                    PanelAction::Open("keyboard".into()),
-                ],
-            }],
+            "keyboard" => vec![crate::panels::configure_keyboard()],
             "urgent" => vec![PanelAction::Open("urgent-assistance".into())],
             "abuse" => vec![PanelAction::Open("abuse".into())],
             _ => vec![],

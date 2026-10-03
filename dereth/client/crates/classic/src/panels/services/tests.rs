@@ -160,6 +160,15 @@ fn the_options_page_has_the_shared_buttons_and_the_interface_choice_is_a_client_
         &activate(&mut *p, "exit", &v)[0],
         PanelAction::Confirm { accept, .. } if *accept == vec![PanelAction::Host(HostAction::Quit)]
     ));
+    // Configure Keyboard leaves the world, and the key page opens on the character screen after,
+    // not in the world it is leaving.
+    assert!(matches!(
+        &activate(&mut *p, "keyboard", &v)[0],
+        PanelAction::Confirm { accept, .. } if *accept == vec![
+            PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
+            PanelAction::Host(HostAction::KeyboardOnLeaving),
+        ]
+    ));
     // The interface is chosen on the Client page, as the other interface's is, and written
     // on Apply.
     activate(&mut *p, "sound", &v);
@@ -1237,4 +1246,15 @@ fn a_click_on_the_map_teleports_only_a_character_allowed_to() {
         p.event(press, &allowed).as_slice(),
         [PanelAction::Host(HostAction::MapTeleport { .. })]
     ));
+}
+/// The stretched page's list grows, and its buttons keep to the foot of the page.
+#[test]
+fn a_taller_options_page_shows_more_of_its_list_and_keeps_its_buttons_at_the_foot() {
+    let page = crate::panels::OptionsPage::new(337);
+    assert_eq!(page.view, rect(4, 16, 280, 264));
+    assert_eq!(page.buttons_y, 297);
+    let tall = crate::panels::OptionsPage::new(537);
+    assert_eq!(tall.view.h, 264 + 200);
+    assert_eq!(tall.buttons_y, 497);
+    assert!(tall.max_scroll(1000) < page.max_scroll(1000));
 }

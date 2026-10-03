@@ -145,6 +145,9 @@ pub enum FeedbackSeverity {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostAction {
+    /// Open the key page on the character screen once the world has been left, as the character
+    /// screen's own keyboard button does.
+    KeyboardOnLeaving,
     /// The spell research page's Test: the formula's components (as component class ids, in
     /// order) tried on the target.
     TestSpellFormula {
@@ -1010,6 +1013,20 @@ impl OptionsPage {
     #[must_use]
     pub fn shows(&self, y: i32, h: i32) -> bool {
         y >= self.view.y && y + h <= self.view.y + self.view.h
+    }
+}
+
+/// Configure Keyboard, from the world: the key page is the character screen's, so it asks to leave
+/// the world first, and the page opens on the character screen once the world has been left.
+#[must_use]
+pub fn configure_keyboard() -> PanelAction {
+    PanelAction::Confirm {
+        id: "configure-keyboard".into(),
+        text: "\n\nTo configure your keyboard, you need to leave the world.\nProceed?".into(),
+        accept: vec![
+            PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
+            PanelAction::Host(HostAction::KeyboardOnLeaving),
+        ],
     }
 }
 

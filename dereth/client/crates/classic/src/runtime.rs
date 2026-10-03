@@ -146,8 +146,15 @@ pub struct ClassicUi {
     canvas: Option<Canvas>,
     screen: Screen,
     last_in_world: bool,
+    /// When Configure Keyboard asked to leave the world for the key page, until the world is
+    /// left.
+    keyboard_on_leaving: Option<f64>,
     pub errors: Vec<String>,
 }
+
+/// How long after Configure Keyboard a leaving of the world still opens the key page, in
+/// seconds: longer than a logging-out character takes to leave.
+const KEYBOARD_ON_LEAVING_WAIT: f64 = 60.0;
 impl std::fmt::Debug for ClassicUi {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClassicUi")
@@ -236,6 +243,7 @@ impl ClassicUi {
                 commands: vec![],
             },
             last_in_world: false,
+            keyboard_on_leaving: None,
             errors: vec![],
         }
     }
@@ -895,6 +903,9 @@ impl ClassicUi {
         }
         let ask = |cx: &mut Cx<'_, S>, request: UiRequest| cx.queue(Vec::new(), vec![request]);
         match action {
+            HostAction::KeyboardOnLeaving => {
+                self.keyboard_on_leaving = Some(cx.now());
+            }
             HostAction::Quit => {
                 self.quit_requested = true;
                 cx.quit();
@@ -1941,6 +1952,18 @@ impl ClassicUi {
                 self.desktop.close_all(&context);
                 self.desktop
                     .open(if in_world { "hud" } else { "login" }, &context);
+                // Configure Keyboard left the world for the key page: it opens now, on the
+                // character screen, as the screen's own keyboard button opens it. A leave that
+                // did not come of it (the asking was long ago) opens nothing.
+                if let Some(asked) = self.keyboard_on_leaving.take() {
+                    if !in_world && now.0 - asked < KEYBOARD_ON_LEAVING_WAIT {
+                        self.desktop.dispatch_panel(
+                            "login",
+                            ControlEvent::Activate("keyboard".into()),
+                            &context,
+                        );
+                    }
+                }
                 // The side panel shows the inventory when a character enters the world.
                 if in_world {
                     self.desktop.open("inventory", &context);

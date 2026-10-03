@@ -785,15 +785,7 @@ impl Panel for Hud {
             // The keyboard window is the character screen's: going there leaves the world, so
             // it asks first, as the Options window's Configure Keyboard does.
             if name == "ToggleKeyboardPanel" {
-                return vec![PanelAction::Confirm {
-                    id: "configure-keyboard".into(),
-                    text: "\n\nTo configure your keyboard, you need to leave the world.\nProceed?"
-                        .into(),
-                    accept: vec![
-                        PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
-                        PanelAction::Open("keyboard".into()),
-                    ],
-                }];
+                return vec![crate::panels::configure_keyboard()];
             }
             if name == "LOGOUT" {
                 return vec![PanelAction::Confirm {
