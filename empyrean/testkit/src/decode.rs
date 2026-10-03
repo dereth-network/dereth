@@ -113,6 +113,7 @@ decoders!(
     login::LoginAccountBanned,
     login::LoginAccountBooted,
     login::LoginAwaitingSubscriptionExpiration,
+    login::LoginCharacterScreenMessage,
     login::LoginCharacterSet,
     login::LoginEnterGameServerReady,
     login::LoginExecuteLogOff,

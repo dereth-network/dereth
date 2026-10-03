@@ -12,8 +12,9 @@ use dereth_primitives::ObjectId;
 use dereth_protocol::admin::{AdminSendAdminRestoreCharacter, DddInterrogation};
 use dereth_protocol::login::{
     CharGenVerificationResponse, CharacterDeleteAck, CharacterDeleteRequest, CharacterError,
-    LoginAccountBooted, LoginCharacterSet, LoginEnterGameServerReady, LoginExecuteLogOff,
-    LoginExecuteLogOffRequest, LoginSendEnterWorld, LoginSendEnterWorldRequest, LoginWorldInfo,
+    LoginAccountBooted, LoginCharacterScreenMessage, LoginCharacterSet, LoginEnterGameServerReady,
+    LoginExecuteLogOff, LoginExecuteLogOffRequest, LoginSendEnterWorld, LoginSendEnterWorldRequest,
+    LoginWorldInfo,
 };
 use empyrean_common::account_defaults::AccountDefaults;
 use empyrean_common::clock::Clock;
@@ -22,7 +23,7 @@ use empyrean_entity::ObjectGuid;
 use empyrean_net::{SessionId, SessionState, SessionTerminationReason};
 use empyrean_store::models::shard::Character;
 use empyrean_store::MemAuth;
-use empyrean_testkit::{ClientId, ClientStatus, TestServer};
+use empyrean_testkit::{decode, ClientId, ClientStatus, TestServer};
 use empyrean_world::managers::{player_manager, world_manager};
 use empyrean_world::sessions;
 use empyrean_world::world::AuthHandle;
@@ -217,6 +218,26 @@ fn a_good_login_reaches_the_character_list_with_the_accounts_characters() {
     let account = ts.auth().get_account_by_name("acct").expect("account");
     assert_eq!(account.total_times_logged_in, 1);
     assert!(account.last_login_time.is_some());
+}
+
+/// The character screen's welcome, which the server sends with no message configured, is one of
+/// the messages dereth-protocol reads, and so is everything else the login sends.
+#[test]
+fn every_message_up_to_the_character_list_decodes_the_welcome_included() {
+    let mut ts = seeded();
+    let id = login(&mut ts, "acct", "secret");
+    assert_eq!(
+        ts.received::<LoginCharacterScreenMessage>(id)
+            .iter()
+            .map(LoginCharacterScreenMessage::shown)
+            .collect::<Vec<_>>(),
+        vec!["Welcome to Empyrean!".to_owned()]
+    );
+    let bad: Vec<_> = decode::undecoded(ts.received_raw(id))
+        .into_iter()
+        .map(|d| (format!("0x{:04X} {}", d.kind, d.name()), d.result))
+        .collect();
+    assert!(bad.is_empty(), "messages that do not decode: {bad:#?}");
 }
 
 #[test]
