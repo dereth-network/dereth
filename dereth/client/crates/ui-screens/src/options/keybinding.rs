@@ -59,6 +59,7 @@
 //! alternative is stated here so it can be checked against retail.
 
 use dereth_input::binding::{Capture, Conflict, DO_NOTHING};
+use dereth_input::presentation::{self, Interface};
 use dereth_input::spec::{activation, ControlChord};
 use dereth_input::{ActionId, DeviceType, InputManager, InputMapId};
 use dereth_ui::{ElemHandle, ElementId, StateId, UiSystem};
@@ -1924,13 +1925,23 @@ impl KeyBindingPage {
         // `entries()` is the input maps' own walk order — map by map, action by action — which
         // is the order the option build fills its nested hash in and therefore the order the rows
         // appear in.
+        //
+        // The rows are the ones both interfaces' key pages list
+        // ([`dereth_input::presentation`]): the bindable entries but the hidden quickslots and
+        // the quest detail panel, with Disable Most Weather Effects among the character options.
+        // A row this interface does nothing with goes last on its tab, under its own heading.
         #[allow(clippy::type_complexity)] // a one-off tuple, named where it is read
         let mut groups: Vec<(u32, Vec<(InputMapId, Vec<ActionId>)>)> = Vec::new();
+        let mut not_used: Vec<(u32, InputMapId, ActionId)> = Vec::new();
         for (map, action, v) in m.action_map.entries().collect::<Vec<_>>() {
-            if !m.action_map.is_user_bindable(map, action) {
+            let Some(row) = presentation::find(map, action) else {
+                continue;
+            };
+            let class = presentation::retail_class(map, action).unwrap_or(v.action_class);
+            if row.not_used(Interface::Retail).is_some() {
+                not_used.push((class, map, action));
                 continue;
             }
-            let class = v.action_class;
             let ci = match groups.iter().position(|(c, _)| *c == class) {
                 Some(i) => i,
                 None => {
@@ -1977,6 +1988,27 @@ impl KeyBindingPage {
                     None => self.failures += 1,
                 }
                 for action in actions {
+                    self.add_action_key_map(ui, m, bi, map, action);
+                }
+            }
+            let unused: Vec<_> = not_used
+                .iter()
+                .filter(|(c, _, _)| *c == class)
+                .map(|(_, map, action)| (*map, *action))
+                .collect();
+            if !unused.is_empty() {
+                match self.list_boxes[bi]
+                    .1
+                    .add_from_template(ui, TEMPLATE_HEADER, None)
+                {
+                    Some(h) => {
+                        set_literal(ui, h, presentation::NOT_USED_HEADING);
+                        self.header_elements.push(h);
+                        self.headers += 1;
+                    }
+                    None => self.failures += 1,
+                }
+                for (map, action) in unused {
                     self.add_action_key_map(ui, m, bi, map, action);
                 }
             }
@@ -2041,14 +2073,25 @@ impl KeyBindingPage {
         };
         let (name_id, tip_id) = m.action_map.descrip_values(map, action);
         let table = dereth_primitives::DataId(m.action_map.string_table);
-        // This client's own actions have no row in the string table: their names are its own.
-        let (name, tip) = match dereth_input::dereth::name(action) {
-            Some(own) if map == dereth_input::dereth::INPUT_MAP => (own.to_owned(), String::new()),
+        // This client's own actions have no row in the string table: their names are its own;
+        // so has Disable Most Weather Effects, which goes by its Character Options page's words.
+        let (name, tip) = match (
+            dereth_input::dereth::name(action),
+            presentation::retail_caption(map, action),
+        ) {
+            (Some(own), _) if map == dereth_input::dereth::INPUT_MAP => {
+                (own.to_owned(), String::new())
+            }
+            (_, Some(caption)) => (caption.to_owned(), String::new()),
             _ => (
                 ui.resolve_string(table, name_id).unwrap_or_default(),
                 ui.resolve_string(table, tip_id).unwrap_or_default(),
             ),
         };
+        // A row this interface does nothing with says why.
+        let tip = presentation::find(map, action)
+            .and_then(|r| r.not_used(Interface::Retail))
+            .map_or(tip, str::to_owned);
         set_literal(ui, h, &name);
         // Initialization takes the defaults as its fifth argument and fills the current list
         // itself from `find_keys_for_action` on the *merged* map. The two lists are different

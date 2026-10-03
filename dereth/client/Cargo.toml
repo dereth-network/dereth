@@ -144,6 +144,8 @@ dereth-dat = { path = "../../core/dat", features = ["test-support"] }
 dereth-render = { path = "crates/render", default-features = false, features = ["mock", "test-support"] }
 # The tests build animation runtime shapes from decoded records with `anim_convert`.
 dereth-world-data = { path = "../../core/world-data" }
+# The classic interface's key map requests, which the key map tests make as its page does.
+dereth-classic-ui = { path = "crates/classic" }
 
 [lints]
 workspace = true

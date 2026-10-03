@@ -313,30 +313,94 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "keys.classic.the-classic-map-starts-from-the-players-keys",
+        says: "The first time the classic interface's key map is wanted and it has no file, it is \
+               made from its default keys with the keys the player bound and cleared in the one \
+               map both interfaces used to keep laid over them, Shift, Ctrl and Alt keys \
+               included, and written; the retail key map is left as it was.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-MIGRATE"),
+        station: "dereth-client::dat::ui::shared_key_map::the_classic_map_starts_from_the_players_keys_of_the_one_map_both_kept",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "keys.classic.the-default-keys-are-the-eras-shipped-map-and-the-permanent-keys",
+        says: "The classic interface's default keys are the game's 2004 default map, 75 keys, \
+               each the shared action its command was (a combat key the three stance actions), \
+               and the January 2005 page's permanent keys at their keys: Escape, Enter, Tab, F1, \
+               1 to 9, 0 and Ctrl-R.",
+        since: THIS_CLIENT,
+        divergence: "CD-023",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-DEFAULT-MAP"),
+        station: "dereth-classic-ui::lib::default_keys::tests::the_shipped_map_is_seventy_five_keys_each_a_row_both_pages_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "keys.classic.the-page-captures-a-key-with-its-modifiers",
+        says: "The classic Keyboard Configuration page captures a key with the Shift, Ctrl or Alt \
+               held and shows it so (Ctrl+W); a modifier key pressed and let go by itself is the \
+               key captured, as the run key is Left Shift.",
+        since: THIS_CLIENT,
+        divergence: "CD-023",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-CAPTURE"),
+        station: "dereth-classic-ui::lib::keybindings::tests::capture_records_the_modifiers_held_and_a_modifier_let_go_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "keys.retail.the-key-page-lists-the-shared-rows-and-the-unused-ones-last",
+        says: "The retail key page lists the one set of bindings both pages list: every bindable \
+               action but the quickslots 10 to 18 and the quest detail panel's toggle, this \
+               client's own, and Disable Most Weather Effects among the character options. The \
+               rows this interface does nothing with (right-click mouse look, the stretched \
+               layout, automatic shortcuts, and the classic interface's cancel and \
+               repeat-message keys) come last on their tabs under <<NOT USED IN THIS UI>>, each \
+               with its three key buttons and a tooltip saying why.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-PAGES"),
+        station: "dereth-ui-screens::dat::panels::options_key_bindings::the_key_page_lists_the_shared_rows_with_the_ones_this_interface_does_not_use_last",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "keys.shared.a-cleared-key-stays-cleared-when-the-game-starts-again",
+        says: "A key cleared on a key page is bound to nothing in its map rather than dropped, \
+               so the key map file mentions it and the shipped default does not come back to it \
+               when the game starts again: in the retail interface as the final client's own \
+               clear does, and in the classic interface the same way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-KEYBIND-CLEAR"),
+        station: "dereth-client::dat::ui::shared_key_map::a_cleared_key_stays_cleared_in_both_interfaces_when_the_game_starts_again",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "keys.shared.each-interface-keeps-its-own-key-map",
+        says: "Each interface keeps its own key map, in the shared action names and the same \
+               file format: the retail interface its key map file over the final client's \
+               shipped maps, the classic interface its own file beside it over its 2004 default \
+               keys. A key bound on the classic page leaves the retail keys as they were. Either \
+               interface takes the other's keys, or either default scheme, whole: the rows of \
+               the key pages bound exactly as the scheme binds them, and the keys no page lists \
+               (a text box's, a dialog's) left as they were.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-OWN-MAPS"),
+        station: "dereth-client::dat::ui::shared_key_map::each_interface_keeps_its_own_key_map_and_takes_the_others_whole",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "keys.shared.every-bindable-action-does-something-in-the-retail-interface",
-        says: "Every action a key can be bound to -- every bindable entry of the shipped action                map and every one of this client's own -- is answered in the retail interface                when its key is pressed in the place it belongs (a combat key in its combat                mode): by a window, the movement, the camera, the game or this client's own                handling. None goes unanswered.",
+        says: "Every action the retail key page lists outside its not-used section -- every \
+               bindable entry of the shipped action map but the quickslots 10 to 18 and the \
+               quest detail panel, Disable Most Weather Effects, and this client's own -- is \
+               answered in the retail interface when its key is pressed in the place it belongs \
+               (a combat key in its combat mode): by a window, the movement, the camera, the game \
+               or this client's own handling. None goes unanswered.",
         since: THIS_CLIENT,
         divergence: "CD-019",
         evidence: Evidence::Private("AC-EVID-R2-EVERY-KEY"),
         station: "dereth-client::gpu::ui::every_bindable_action::every_bindable_action_is_taken_by_some_handler_in_the_retail_interface",
         tier: Tier::Gpu,
-    },
-    behaviour! {
-        id: "keys.shared.one-key-map-for-every-interface",
-        says: "Both interfaces bind keys in one key map, the client's key map file, in the \
-               shared action names: a key the classic interface's Keyboard Configuration page \
-               binds goes into the map its action belongs to, in place of whatever the key did \
-               there and in the maps that conflict with it, and the retail key page and the \
-               retail interface's keys see it; the keys the retail page binds lay over the \
-               classic interface's own default scheme. Each interface keeps its own default \
-               scheme, the player's keys are what differs from the shipped defaults, the classic \
-               page's schemes are the key map files, and the commands only the classic interface \
-               has are written by this client's own action names.",
-        since: THIS_CLIENT,
-        divergence: "CD-015",
-        evidence: Evidence::Private("AC-EVID-UI-UNIFY-ONE-KEYMAP"),
-        station: "dereth-client::dat::ui::shared_key_map::a_key_bound_for_one_interface_is_the_shared_maps_and_survives_its_file",
-        tier: Tier::Dat,
     },
     behaviour! {
         id: "keys.shared.the-retail-interface-answers-this-clients-own-keys",

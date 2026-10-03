@@ -452,17 +452,6 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.cursor_moved(x, y);
     }
 
-    /// A held run key, against the run-as-default option as the movement keys read it.
-    pub fn set_hold_run(&mut self, held: bool) {
-        let toggles = self.app.objects.world.player_system.options.toggle_run();
-        self.app.movement.lists.set_hold_run(held, toggles);
-    }
-
-    /// A held sidestep key.
-    pub fn set_hold_sidestep(&mut self, held: bool) {
-        self.app.movement.lists.set_hold_sidestep(held);
-    }
-
     /// The free camera's rise and sink keys.
     pub fn flycam_rise(&mut self, held: bool) {
         self.app.flycam_rise(held);

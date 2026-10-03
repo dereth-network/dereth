@@ -48,7 +48,9 @@ mod message;
 pub mod mouse;
 pub mod names;
 pub mod objname;
+pub mod presentation;
 pub mod pump;
+pub mod scheme;
 pub mod spec;
 pub mod state;
 pub mod win32;
@@ -331,13 +333,8 @@ impl InputManager {
         gm_default_map: &[u8],
         default_map: &[u8],
     ) -> Result<(), InputError> {
-        self.keymap.clear();
-        if let Some(text) = user_file {
-            match MasterInputMap::from_keymap_text(text) {
-                Ok(user) => self.keymap.merge(&user, true),
-                Err(_) => self.keymap.clear(),
-            }
-        }
+        // A user file that will not read is as good as none.
+        let user = user_file.and_then(|text| MasterInputMap::from_keymap_text(text).ok());
         let gm = MasterInputMap::read(gm_default_map)?;
         let mut dm = MasterInputMap::read(default_map)?;
         // This client's own actions' default keys go in with the shipped defaults, so a restore
@@ -345,8 +342,9 @@ impl InputManager {
         if let Some(own) = dereth::default_map(&dm) {
             dm.merge(&own, true);
         }
-        self.keymap.merge(&gm, true);
-        self.keymap.merge(&dm, true);
+        let merged = scheme::over_defaults(user.as_ref(), &[&gm, &dm], Some(&self.action_map));
+        self.keymap.clear();
+        self.keymap.merge(&merged, true);
         self.shipped_maps = Some(Box::new((gm, dm)));
         Ok(())
     }

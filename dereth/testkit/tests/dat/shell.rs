@@ -13822,9 +13822,16 @@ pub fn a_set_of_keys_can_be_saved_under_a_name_and_loaded_back() {
         load_dialog,
         dereth_ui::dialog::base::child::CONFIRM_MENU_MENU,
     );
-    let row = dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, 0)
+    // The two default schemes come first, then the files.
+    let defaults_first = [(0, "Retail defaults"), (1, "Classic defaults")]
+        .into_iter()
+        .all(|(i, label)| {
+            dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, i)
+                .is_some_and(|row| kb_text(c.app_mut(), row) == label)
+        });
+    let row = dereth_ui::widgets::menu::get_item(kb_ui(c.app_mut()), menu, 2)
         .expect("the saved file is a real row of the list");
-    let listed = kb_text(c.app_mut(), row) == "keys-roundtrip.keymap";
+    let listed = defaults_first && kb_text(c.app_mut(), row) == "keys-roundtrip.keymap";
     kb_press(c.app_mut(), menu);
     kb_press(c.app_mut(), row);
     let accept = kb_child(

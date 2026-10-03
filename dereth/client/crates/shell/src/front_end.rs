@@ -22,8 +22,8 @@ pub struct KeyBindingStats {
     pub init_calls: u64,
     /// Rows the last options initialization built: the size of the page's option array.
     pub rows_built: usize,
-    /// **The denominator**: bindable `(input map, action)` pairs in the merged action map.
-    /// `rows_built` must equal it.
+    /// **The denominator**: the `(input map, action)` pairs of the merged action map the key
+    /// pages list ([`dereth_input::presentation`]). `rows_built` must equal it.
     pub bindable_actions: usize,
     /// Section headers added (template 0), one per input map that contributed a row.
     pub headers: usize,
@@ -1020,11 +1020,11 @@ impl<H: Host> Ui<'_, '_, H> {
     }
 
     /// This client's own actions that the retail interface answers itself, taken out of what the
-    /// screens left this frame (the performance panel's key goes on to the runtime):
+    /// screens left this frame (the performance panel's key and hold sidestep go on to the
+    /// runtime, which answers them in either interface):
     ///
     /// | action | what this interface does |
     /// |---|---|
-    /// | hold sidestep | the turning keys step sideways while it is held |
     /// | trade, spell research | the secure-trade window; the magic window's Create Spell tab |
     /// | automatic shortcuts | flips the character's option, as the classic key does |
     /// | inverted mouse look, mute when inactive | flips the shared preference |
@@ -1037,14 +1037,11 @@ impl<H: Host> Ui<'_, '_, H> {
         let (mine, rest): (Vec<_>, Vec<_>) = input.take_events().into_iter().partition(|e| {
             e.input_map == dereth_input::dereth::INPUT_MAP
                 && e.action.0 != own::TOGGLE_PERFORMANCE_PANEL
+                && e.action.0 != own::MOVEMENT_HOLD_SIDESTEP
         });
         input.put_back_unconsumed(rest);
         for e in mine {
             let id = e.action.0;
-            if id == own::MOVEMENT_HOLD_SIDESTEP {
-                self.cx.set_hold_sidestep(e.start);
-                continue;
-            }
             if !e.start {
                 continue;
             }
@@ -1632,7 +1629,9 @@ impl<H: Host> Ui<'_, '_, H> {
                 .manager
                 .action_map
                 .entries()
-                .filter(|(map, action, _)| input.manager.action_map.is_user_bindable(*map, *action))
+                .filter(|(map, action, _)| {
+                    dereth_input::presentation::find(*map, *action).is_some()
+                })
                 .count();
             stats.init_calls += 1;
             stats.rows_built = rows;
@@ -1708,7 +1707,14 @@ impl<H: Host> Ui<'_, '_, H> {
                 PageEvent::RestoredSaved(n) => stats.rows_reverted += n as u64,
                 PageEvent::RestoredDefaults(n) => stats.rows_defaulted += n as u64,
                 PageEvent::LoadKeymapDialog => match input.keymap_files() {
-                    Ok(files) => {
+                    Ok(mut files) => {
+                        files.splice(
+                            0..0,
+                            [
+                                LOAD_RETAIL_DEFAULTS.to_owned(),
+                                LOAD_CLASSIC_DEFAULTS.to_owned(),
+                            ],
+                        );
                         let current = input.keymap_file_name();
                         page(
                             &mut shell.ui,
@@ -1720,6 +1726,29 @@ impl<H: Host> Ui<'_, '_, H> {
                 },
                 PageEvent::SaveKeymapDialog => {
                     page(&mut shell.ui, &mut input.manager, K::OpenSave);
+                }
+                PageEvent::LoadKeymap(name)
+                    if name == LOAD_RETAIL_DEFAULTS
+                        || name == LOAD_CLASSIC_DEFAULTS
+                        || name.eq_ignore_ascii_case(crate::input::CLASSIC_KEYMAP_FILE) =>
+                {
+                    // A default scheme, or the other interface's own keys: the retail map becomes
+                    // exactly that, and the file in use stays the one it was.
+                    use dereth_classic_ui::keystore::Scheme;
+                    let scheme = if name == LOAD_RETAIL_DEFAULTS {
+                        Scheme::RetailDefaults
+                    } else if name == LOAD_CLASSIC_DEFAULTS {
+                        Scheme::ClassicDefaults
+                    } else {
+                        Scheme::File(
+                            crate::input::CLASSIC_KEYMAP_FILE
+                                .trim_end_matches(".keymap")
+                                .to_owned(),
+                        )
+                    };
+                    if input.load_retail_scheme(&scheme) {
+                        page(&mut shell.ui, &mut input.manager, K::Reinit);
+                    }
                 }
                 PageEvent::LoadKeymap(name) => match input.load_keymap_file(&name) {
                     Ok(true) => {
@@ -2618,134 +2647,24 @@ fn journal_identity<H: Host>(
     })
 }
 
-/// The shared key map as the classic interface reads it: the player's own keys, and the key map
-/// files.
-fn shared_keys(
-    input: Option<&crate::input::InputShell>,
-) -> dereth_classic_ui::keystore::SharedKeys {
-    let Some(input) = input else {
-        return dereth_classic_ui::keystore::SharedKeys::default();
-    };
-    let stem = |n: &str| {
-        std::path::Path::new(n)
-            .file_stem()
-            .map_or_else(|| n.to_owned(), |s| s.to_string_lossy().into_owned())
-    };
-    dereth_classic_ui::keystore::SharedKeys {
-        player: input
-            .player_bindings()
-            .into_iter()
-            .map(
-                |(scan, action)| dereth_classic_ui::keystore::SharedBinding {
-                    scan,
-                    action: action.0,
-                },
-            )
-            .collect(),
-        removed: input
-            .removed_bindings()
-            .into_iter()
-            .map(
-                |(scan, action)| dereth_classic_ui::keystore::SharedBinding {
-                    scan,
-                    action: action.0,
-                },
-            )
-            .collect(),
-        files: input
-            .keymap_files()
-            .unwrap_or_default()
-            .iter()
-            .map(|n| stem(n))
-            .collect(),
-        current: input.keymap_file_name().map(|n| stem(&n)),
-        chorded: input
-            .chorded_bindings()
-            .into_iter()
-            .filter_map(|(scan, meta, action)| {
-                let modifiers = dereth_classic_ui::keystore::modifiers_of_meta(meta)?;
-                Some((
-                    dereth_classic_ui::keystore::SharedBinding {
-                        scan,
-                        action: action.0,
-                    },
-                    modifiers,
-                ))
-            })
-            .collect(),
-    }
+/// The classic key map as the classic interface reads it.
+fn classic_keys(
+    input: Option<&mut crate::input::InputShell>,
+) -> dereth_classic_ui::keystore::ClassicKeys {
+    input.map_or_else(Default::default, crate::input::InputShell::classic_keys)
 }
 
-/// Carry out one of the classic key page's requests on the shared key map.
-fn apply_key_store_request(
-    input: &mut crate::input::InputShell,
-    request: dereth_classic_ui::keystore::KeyStoreRequest,
-) {
-    use dereth_classic_ui::keystore::KeyStoreRequest as R;
-    let result = match request {
-        R::Bind {
-            scan,
-            action,
-            replaced,
-        } => {
-            input.bind_key(scan, dereth_input::ActionId(action), replaced);
-            Ok(())
-        }
-        R::Unbind { scan, action } => {
-            input.unbind_key(scan, dereth_input::ActionId(action));
-            Ok(())
-        }
-        R::SaveAs { name, overwrite } => input.save_keymap_as(&name, overwrite).map(|_| ()),
-        R::Load(name) => input
-            .load_keymap_file(&format!("{name}.keymap"))
-            .map(|_| ()),
-        R::Delete(name) => input.delete_keymap_file(&name).map(|_| ()),
-        R::Defaults => {
-            input.restore_shipped_keys();
-            Ok(())
-        }
-    };
-    if let Err(e) = result {
-        tracing::warn!("the key map: {e}");
-    }
-}
-
-/// Carry the classic interface's old schemes into the shared key map: the one it had in use into
-/// the key map in use, each other into a key map file of its name (the shipped defaults with its
-/// keys), unless one of that name is already there.
-fn carry_legacy_schemes(
-    input: &mut crate::input::InputShell,
-    schemes: Vec<(
-        String,
-        Vec<dereth_classic_ui::keystore::SharedBinding>,
-        bool,
-    )>,
-) {
-    for (name, keys, in_use) in schemes {
-        let keys: Vec<(u16, dereth_input::ActionId)> = keys
-            .iter()
-            .map(|k| (k.scan, dereth_input::ActionId(k.action)))
-            .collect();
-        if in_use {
-            for (scan, action) in &keys {
-                input.bind_key(*scan, *action, None);
-            }
-            tracing::info!("the classic key scheme {name:?} is now the key map's own keys");
-        } else {
-            match input.save_scheme_as(&name, &keys) {
-                Ok(true) => tracing::info!("the classic key scheme {name:?} is now {name}.keymap"),
-                Ok(false) => {}
-                Err(e) => tracing::warn!("the classic key scheme {name:?}: {e}"),
-            }
-        }
-    }
-}
+/// The retail Load Keymap menu's entries ahead of the key map files: the two interfaces' default
+/// schemes.
+pub const LOAD_RETAIL_DEFAULTS: &str = "Retail defaults";
+/// See [`LOAD_RETAIL_DEFAULTS`].
+pub const LOAD_CLASSIC_DEFAULTS: &str = "Classic defaults";
 
 /// Bring the classic interface up: its art from the early-2005 portal, its text from the host's
 /// fonts, its settings and keys in the stores both interfaces share.
 fn build_classic<H: Host>(
     cx: &mut Cx<'_, H>,
-    keys: dereth_classic_ui::keystore::SharedKeys,
+    keys: dereth_classic_ui::keystore::ClassicKeys,
 ) -> Result<dereth_classic_ui::runtime::ClassicUi, crate::classic_face::Refusal> {
     use crate::classic_face::Refusal;
     let portal = dereth_classic_dat::ClassicPortal::of_store(cx.store()).ok_or(Refusal::Files)?;
@@ -2772,7 +2691,7 @@ fn build_classic<H: Host>(
         dereth_classic_ui::panels::factory,
         size,
     );
-    ui.set_shared_keys(keys);
+    ui.set_classic_keys(keys);
     ui.start(cx).map_err(Refusal::Failed)?;
     Ok(ui)
 }
@@ -2796,19 +2715,11 @@ impl<H: Host> ClientShell<H> {
             Interface::Classic => {
                 if let Some(ui) = self.classic.ui.as_mut() {
                     ui.shown_again();
-                    ui.set_shared_keys(shared_keys(self.input.as_ref()));
+                    ui.set_classic_keys(classic_keys(self.input.as_mut()));
                 }
                 if self.classic.ui.is_none() {
-                    match build_classic(cx, shared_keys(self.input.as_ref())) {
-                        Ok(mut ui) => {
-                            let legacy = ui.take_legacy_schemes();
-                            if !legacy.is_empty() {
-                                if let Some(input) = self.input.as_mut() {
-                                    carry_legacy_schemes(input, legacy);
-                                    ui.legacy_schemes_moved();
-                                }
-                                ui.set_shared_keys(shared_keys(self.input.as_ref()));
-                            }
+                    match build_classic(cx, classic_keys(self.input.as_mut())) {
+                        Ok(ui) => {
                             self.classic.ui = Some(ui);
                         }
                         Err(refusal) => {
@@ -3285,18 +3196,18 @@ impl<H: Host> Shell for ClientShell<H> {
             let journal_identity = journal_identity(cx);
             cx.hud_mut().journal_identity = journal_identity;
             ui.ui_frame(cx, now, notices);
-            // What the classic key page asked of the shared key map, carried out, and the map
-            // handed back as it then is.
+            // What the classic key page asked of its key map, carried out, and the map handed back
+            // as it then is.
             let requests = ui.take_key_store_requests();
             if !requests.is_empty() {
                 if let Some(input) = self.input.as_mut() {
                     for r in requests {
-                        apply_key_store_request(input, r);
+                        input.classic_request(r);
                     }
                 }
-                let keys = shared_keys(self.input.as_ref());
+                let keys = classic_keys(self.input.as_mut());
                 if let Some(ui) = self.classic.active_mut() {
-                    ui.set_shared_keys(keys);
+                    ui.set_classic_keys(keys);
                 }
             }
             return;

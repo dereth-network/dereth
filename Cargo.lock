@@ -940,6 +940,7 @@ dependencies = [
  "dereth-animation",
  "dereth-assets",
  "dereth-audio",
+ "dereth-classic-ui",
  "dereth-client-contract",
  "dereth-client-model",
  "dereth-client-net",

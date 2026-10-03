@@ -320,9 +320,8 @@ pub static DIVERGENCES: &[Divergence] = &[
                  six, its inverted vertical mouse look, right-click mouse look (on at first) and \
                  stretched layout and whether its social window shows the Secure Trade page \
                  (off at first, greyed on worlds without trade), the Friends page and the \
-                 Squelch page (on at first), are UI.Classic.*), and both bind keys in one key map \
-                 file: each brings its own default scheme, and the player's keys lay over \
-                 either, those held with Shift, Ctrl or Alt included.",
+                 Squelch page (on at first), are UI.Classic.*). Each keeps its own key map \
+                 (CD-022).",
         why: "The owner asked for both interfaces over any world, switchable while playing, as \
               the landscape and object looks are, and for one set of options and keys behind \
               them.",
@@ -429,6 +428,49 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The owner asked for one set of options behind both interfaces, grouped the same \
               way, with the dead rows gone, a windowed start and Defaults keeping the starting \
               size.",
+    },
+    Divergence {
+        id: "CD-022",
+        title: "One set of key bindings for both interfaces, a key map for each",
+        retail: "The end-of-retail client's key page listed every bindable action on six tabs, \
+                 the quickslots 10 to 18 (which no shortcut bar shows) and the quest detail \
+                 panel's key (which opens nothing) among them, and not Disable Most Weather \
+                 Effects. The early client's Keyboard Configuration page listed its own commands, \
+                 and each client had one interface and one key map.",
+        dereth: "Both interfaces' key pages list one set of bindings, each in its own style: \
+                 every bindable action but the quickslots 10 to 18 and the quest detail panel's \
+                 key, this client's own actions, and Disable Most Weather Effects among the \
+                 character options. A row that does nothing in an interface is listed last on \
+                 that page, under <<NOT USED IN THIS UI>>, with a tooltip saying why, and binds \
+                 and clears like any other. Each interface keeps its own key map: the retail \
+                 interface its key map file over the final client's shipped maps, the classic \
+                 interface dereth-classic.keymap beside it over its own default keys, made the \
+                 first time from the player's keys of the one map both used to keep. A key bound \
+                 in one leaves the other alone. The retail page's Load menu offers Retail \
+                 defaults and Classic defaults ahead of the key map files, and the classic page's \
+                 Current Scheme offers Default and Retail Defaults ahead of them; either takes a \
+                 scheme whole, the keys no page lists left as they were. A key cleared on either \
+                 page stays cleared.",
+        why: "The owner asked for one set of available key bindings with a default set per \
+              interface, and for the bindings an interface does not use to stay visible, \
+              editable and clearable there.",
+    },
+    Divergence {
+        id: "CD-023",
+        title: "The classic Keyboard Configuration page binds every key",
+        retail: "The early client's page had five combat rows, each one key for the attack or \
+                 spell action of all three stances; Escape, Enter, Tab, F1, the number row and \
+                 Ctrl-R were permanent keys it listed and never let the player change; and it \
+                 bound keys without Shift, Ctrl or Alt. Its default keys were read from the \
+                 installation's own key map file.",
+        dereth: "The classic page lists the fifteen stance actions as rows of their own, the \
+                 default keys giving each stance's action its combined key, and the permanent \
+                 keys as rows like any other, at their 2005 keys by default. A key is captured \
+                 with the Shift, Ctrl or Alt held, and shown with them; a modifier key pressed \
+                 and let go by itself is captured alone. The default keys are the game's 2004 \
+                 default map, kept in the client, with no file needed.",
+        why: "The owner asked for the combat keys split per stance, the permanent keys bindable \
+              and the 2004 default map enshrined as the classic defaults.",
     },
 ];
 

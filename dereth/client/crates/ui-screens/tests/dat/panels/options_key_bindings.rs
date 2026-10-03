@@ -214,7 +214,18 @@ fn the_page_draws_a_row_per_bindable_action_with_the_keys_the_merged_map_reports
         "the two halves of is_user_bindable agree on all {} entries in this map",
         m.action_map.entries().count()
     );
-    assert_eq!(p.rows.len(), bindable, "one row per bindable (map, action)");
+    // One row per row of the set both interfaces' pages list: the bindable entries but the
+    // quickslots 10 to 18 and the quest detail panel, with Disable Most Weather Effects.
+    assert_eq!(
+        p.rows.len(),
+        dereth_input::presentation::ROWS.len(),
+        "one row per listed (map, action)"
+    );
+    assert_eq!(
+        bindable,
+        p.rows.len() + 10 - 1,
+        "of the {bindable} bindable entries"
+    );
     assert_eq!(
         p.failures, 0,
         "every template insertion produced an element"
@@ -780,7 +791,11 @@ fn the_gameplay_screen_builds_the_key_binding_page() {
         .entries()
         .filter(|(map, a, _)| m.action_map.is_user_bindable(*map, *a))
         .count();
-    assert_eq!(n, bindable, "one row per user-bindable (map, action)");
+    assert_eq!(
+        n,
+        dereth_input::presentation::ROWS.len(),
+        "one row per listed (map, action), of the {bindable} bindable"
+    );
     assert_eq!(s.key_bindings.failures, 0);
     assert!(
         s.key_bindings.headers > 0,
@@ -1018,7 +1033,8 @@ fn each_key_binding_tab_shows_the_bindings_its_label_names() {
             }
             rows += 1;
             assert_eq!(
-                m.action_map.action_class(r.input_map, r.action),
+                dereth_input::presentation::retail_class(r.input_map, r.action)
+                    .unwrap_or_else(|| m.action_map.action_class(r.input_map, r.action)),
                 want,
                 "the {label:?} tab shows {:?}/{:?}, which is another tab's binding",
                 r.input_map,
@@ -1456,4 +1472,92 @@ fn this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_thei
         })
         .count();
     assert_eq!(headed, 3, "movement, interface and character settings");
+}
+
+/// The rows the retail interface does nothing with -- right-click mouse look, the stretched
+/// layout, automatic shortcuts, and the classic interface's cancel and repeat-message keys -- are
+/// listed last on their tabs, under their own heading, with their key buttons and a tooltip that
+/// says why; the hidden quickslots and the quest detail panel are not listed; Disable Most
+/// Weather Effects is, among the character options.
+///
+/// Behaviour: keys.retail.the-key-page-lists-the-shared-rows-and-the-unused-ones-last
+#[test]
+fn the_key_page_lists_the_shared_rows_with_the_ones_this_interface_does_not_use_last() {
+    use dereth_input::presentation::{find, Interface, NOT_USED_HEADING};
+    let (mut ui, m, p) = page();
+    let unused: Vec<_> = p
+        .rows
+        .iter()
+        .filter(|r| {
+            find(r.input_map, r.action).is_some_and(|row| row.not_used(Interface::Retail).is_some())
+        })
+        .collect();
+    assert_eq!(unused.len(), 5);
+    for r in &unused {
+        assert_eq!(
+            r.key_buttons.len(),
+            3,
+            "bindable and clearable like any row"
+        );
+        assert!(!r.tooltip.is_empty(), "{:?} says why", r.action);
+    }
+    // Each heading is the last of its list, and every row after it is one of the five.
+    let mut headings = 0;
+    for h in p.header_elements.clone() {
+        let text = ui
+            .text_element_mut(h)
+            .map(|t| t.glyphs.inq_text(false))
+            .unwrap_or_default();
+        if text != NOT_USED_HEADING {
+            continue;
+        }
+        headings += 1;
+        let siblings = &p
+            .list_boxes
+            .iter()
+            .find(|(_, lb)| lb.items.contains(&h))
+            .expect("in a list")
+            .1
+            .items;
+        let at = siblings.iter().position(|c| *c == h).expect("in its list");
+        for e in &siblings[at + 1..] {
+            let row = p
+                .rows
+                .iter()
+                .find(|r| r.element == Some(*e))
+                .expect("a row");
+            assert!(
+                unused.iter().any(|u| u.action == row.action),
+                "{:?}",
+                row.action
+            );
+        }
+        assert!(at + 1 < siblings.len(), "the heading has rows under it");
+    }
+    assert_eq!(
+        headings, 2,
+        "on the interface and the character settings tabs"
+    );
+    let names: Vec<String> = p
+        .rows
+        .iter()
+        .map(|r| dereth_input::names::enum_name_for_action(r.action))
+        .collect();
+    for gone in [
+        "UseQuickSlot_10",
+        "UseQuickSlot_18",
+        "ToggleQuestManagementPanel",
+    ] {
+        assert!(!names.iter().any(|n| n == gone), "{gone} is not listed");
+    }
+    let weather = p
+        .rows
+        .iter()
+        .find(|r| {
+            dereth_input::names::enum_name_for_action(r.action)
+                == "PlayerOption_DisableMostWeatherEffects"
+        })
+        .expect("the weather row");
+    assert_eq!(weather.label, "Disable Most Weather Effects");
+    let _ = m;
 }

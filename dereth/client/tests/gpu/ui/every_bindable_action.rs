@@ -1,5 +1,5 @@
-//! Every action a key can be bound to does something in the retail interface: walked over the
-//! whole vocabulary (the shipped action map's bindable entries and this client's own), each one,
+//! Every action the retail key page lists outside its not-used section does something in the
+//! retail interface: walked over the one set of rows both key pages list, each one,
 //! pressed and released in the place it belongs, is answered -- a stage of the action handling
 //! takes it, one of the gameplay screen's key handlers recognises it, or a window of the
 //! interface opens, closes or takes the focus because of it -- rather than expiring unclaimed.
@@ -117,25 +117,27 @@ const LAST: [&str; 2] = ["LOGOUT", "EXITGAME"];
 fn every_bindable_action_is_taken_by_some_handler_in_the_retail_interface() {
     let mut app = in_the_world();
     let entries: Vec<(InputMapId, ActionId, ToggleType)> = {
+        use dereth_input::presentation::{Interface, ROWS};
         let input = app
             .input_manager_mut()
             .expect("the production input manager");
         let m = &input.manager.action_map;
-        m.entries()
-            .filter(|(map, action, _)| m.is_user_bindable(*map, *action))
-            .map(|(map, action, v)| (map, action, v.toggle_type))
+        ROWS.iter()
+            .filter(|r| r.not_used(Interface::Retail).is_none())
+            .map(|r| {
+                (
+                    r.input_map(),
+                    r.action(),
+                    m.toggle_type(r.input_map(), r.action()),
+                )
+            })
             .collect()
     };
-    let own = entries
-        .iter()
-        .filter(|(m, _, _)| *m == dereth_input::dereth::INPUT_MAP)
-        .count();
     assert_eq!(
-        own,
-        dereth_input::dereth::ACTIONS.len(),
-        "this client's own are bindable"
+        entries.len(),
+        dereth_input::presentation::ROWS.len() - 5,
+        "every row but the five not used here"
     );
-    assert!(entries.len() > 300, "the vocabulary: {}", entries.len());
     let name = |a: ActionId| dereth_input::names::enum_name_for_action(a);
     let mut order: Vec<(InputMapId, ActionId, ToggleType)> = entries
         .iter()

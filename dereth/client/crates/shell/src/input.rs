@@ -163,6 +163,8 @@ pub struct InputShell {
     /// `None` here is the client's keymap-file path being empty, in which
     /// case cleanup skips the save — the only state in which a rebind does not persist.
     keymap_path: Option<PathBuf>,
+    /// The classic interface's key map, once it is wanted.
+    classic: Option<ClassicKeymap>,
     /// The characters the input manager accepted this frame, kept for the text element's
     /// character handler.
     ///
@@ -235,9 +237,10 @@ pub struct InputShell {
 ///
 /// UI map `0x1000000B` (`TargetedUsage`) has its live mode-edge owner in
 /// [`InputShell::set_target_input_map`]. Player input map `0x10000006` (`Emotes`) is owned by the
-/// command interpreter, through `crate::actions::emote::command_for_action`. Still absent:
-/// `0x10000008` (`CharacterOptionCommands`), which the shipped keymaps bind **nothing** in, and
-/// the debug maps, which have no owner in this build.
+/// command interpreter, through `crate::actions::emote::command_for_action`. Player input map
+/// `0x10000008` (`CharacterOptionCommands`) binds nothing in the shipped keymaps, but a key the
+/// player gives a character option goes there, and the player system's registration is what lets
+/// it reach the option. Still absent: the debug maps, which have no owner in this build.
 ///
 /// **Input map 9 (`DialogBoxes`) is not here and does not belong here.** It has no
 /// start-up owner at all: the original intro, credits and character-management constructors are
@@ -400,6 +403,12 @@ pub const BASE_MAP_REGISTRATIONS: &[(&str, u32, i32)] = &[
         0x1000_0007,
         dereth_input::dispatch::priority::GAMEPLAY,
     ),
+    // The character options' map, which the player system registers beside the selection map.
+    (
+        "player",
+        0x1000_0008,
+        dereth_input::dispatch::priority::GAMEPLAY,
+    ),
     // **The `Emotes` map, the player system's last input-map registration.**
     //
     // Both registrations in that function pass the same explicit priority:
@@ -512,6 +521,34 @@ pub fn keymap_path_for(
 /// settings directory. Retail's equivalent is `acclient.keymap`; see [`keymap_path_for`] for why
 /// this is a constant and that one is not.
 pub const DEFAULT_KEYMAP_FILE: &str = "dereth.keymap";
+
+/// The classic interface's key map file, beside the retail one.
+pub const CLASSIC_KEYMAP_FILE: &str = "dereth-classic.keymap";
+
+/// The classic interface's key map: its file read over its default scheme, defaults included,
+/// as the retail key map is kept.
+#[derive(Debug, Clone)]
+pub struct ClassicKeymap {
+    /// The map as it is now.
+    pub map: dereth_input::MasterInputMap,
+    /// The classic default scheme it is read over.
+    pub defaults: dereth_input::MasterInputMap,
+    /// Its file, `None` when the client keeps no files.
+    pub path: Option<PathBuf>,
+}
+
+impl ClassicKeymap {
+    /// Write the map to its file.
+    ///
+    /// # Errors
+    /// [`dereth_input::InputError::Io`] if the file cannot be written.
+    pub fn save(&self) -> Result<(), dereth_input::InputError> {
+        if let Some(path) = &self.path {
+            dereth_client_runtime::platform::files::write(path, self.map.to_keymap_text())?;
+        }
+        Ok(())
+    }
+}
 
 /// The input manager's full merged keymap, written where the host keeps the client's files.
 ///
@@ -637,6 +674,7 @@ impl InputShell {
             mouse_frame: dereth_input::mouse::MouseFrameAction::None,
             mouse_left_window: false,
             keymap_path: user_keymap.cloned(),
+            classic: None,
             characters: Vec::new(),
         })
     }
@@ -743,186 +781,374 @@ impl InputShell {
                 "the shipped keymaps are unavailable".to_owned(),
             ));
         };
+        let merged = dereth_input::scheme::over_defaults(
+            user.as_ref(),
+            &[&maps.0, &maps.1],
+            Some(&self.manager.action_map),
+        );
         self.manager.keymap.clear();
-        if let Some(user) = user {
-            self.manager.keymap.merge(&user, true);
-        }
-        self.manager.keymap.merge(&maps.0, true);
-        self.manager.keymap.merge(&maps.1, true);
+        self.manager.keymap.merge(&merged, true);
         self.manager.shipped_maps = Some(maps);
         self.keymap_path = Some(path);
         Ok(true)
     }
 
     // ---------------------------------------------------------------------------------------
-    // The key map as every interface shares it
+    // The classic interface's key map
     // ---------------------------------------------------------------------------------------
 
-    /// The player's own keys: every unmodified keyboard key the key map binds otherwise than the
-    /// shipped defaults (this client's own actions' defaults among them) do, as `(scan code,
-    /// action)`.
-    #[must_use]
-    pub fn player_bindings(&self) -> Vec<(u16, ActionId)> {
-        let Some(shipped) = self.manager.shipped_maps.as_ref() else {
-            return Vec::new();
-        };
-        let keymap = &self.manager.keymap;
-        let mut out = Vec::new();
-        for section in &keymap.sections {
-            for (qc, action) in section.bindings() {
-                if qc.meta_mode != 0
-                    || keymap.device_type_of(qc.control) != Some(dereth_input::DeviceType::Keyboard)
-                {
-                    continue;
-                }
-                let shipped_here = [&shipped.0, &shipped.1].iter().any(|m| {
-                    m.section(section.input_map_id)
-                        .is_some_and(|s| s.bindings().iter().any(|(k, a)| k == qc && a == action))
-                });
-                if !shipped_here {
-                    out.push((qc.control.offset(), *action));
-                }
-            }
-        }
-        out
-    }
-
-    /// The shipped defaults' unmodified keyboard bindings the key map no longer has, as `(scan
-    /// code, action)`: the keys the player took away.
-    #[must_use]
-    pub fn removed_bindings(&self) -> Vec<(u16, ActionId)> {
-        let Some(shipped) = self.manager.shipped_maps.as_ref() else {
-            return Vec::new();
-        };
-        let keymap = &self.manager.keymap;
-        let mut out = Vec::new();
-        for m in [&shipped.0, &shipped.1] {
-            for section in &m.sections {
-                for (qc, action) in section.bindings() {
-                    if qc.meta_mode != 0
-                        || m.device_type_of(qc.control) != Some(dereth_input::DeviceType::Keyboard)
-                    {
-                        continue;
-                    }
-                    let kept = keymap
-                        .section(section.input_map_id)
-                        .is_some_and(|s| s.bindings().iter().any(|(k, a)| k == qc && a == action));
-                    if !kept {
-                        out.push((qc.control.offset(), *action));
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// Every keyboard binding of the key map held with a modifier, shipped or the player's, as
-    /// `(scan code, meta mode, action)`.
-    #[must_use]
-    pub fn chorded_bindings(&self) -> Vec<(u16, u32, ActionId)> {
-        let keymap = &self.manager.keymap;
-        let mut out = Vec::new();
-        for section in &keymap.sections {
-            for (qc, action) in section.bindings() {
-                if qc.meta_mode != 0
-                    && keymap.device_type_of(qc.control) == Some(dereth_input::DeviceType::Keyboard)
-                {
-                    out.push((qc.control.offset(), qc.meta_mode, *action));
-                }
-            }
-        }
-        out
-    }
-
-    /// The input map an action's keys go in: the one the shipped defaults bind it in, else the
-    /// first the action map allows it in, else this client's own map.
-    #[must_use]
-    pub fn home_map(&self, action: ActionId) -> InputMapId {
-        if let Some(shipped) = self.manager.shipped_maps.as_ref() {
-            for m in [&shipped.0, &shipped.1] {
-                if let Some(s) = m
-                    .sections
-                    .iter()
-                    .find(|s| s.bindings().iter().any(|(_, a)| *a == action))
-                {
-                    return s.input_map_id;
-                }
-            }
-        }
+    /// The two shipped key maps, the game's and the engine's, in the order they are read.
+    fn shipped_maps(&self) -> Vec<&dereth_input::MasterInputMap> {
         self.manager
-            .action_map
-            .input_maps()
-            .find(|m| {
-                self.manager
-                    .action_map
-                    .is_action_allowed_in_input_map(*m, action)
-            })
-            .unwrap_or(dereth_input::dereth::INPUT_MAP)
-    }
-
-    /// Bind the unmodified key `scan` to `action` in its home map ([`Self::home_map`]), in place
-    /// of whatever the key did there and in the maps that conflict with it; `replaced`, when set,
-    /// is a key `action` no longer has. Returns whether the key map changed.
-    pub fn bind_key(&mut self, scan: u16, action: ActionId, replaced: Option<u16>) -> bool {
-        let Some(shipped) = self.manager.shipped_maps.as_ref() else {
-            return false;
-        };
-        let Some(chord) = dereth_input::dereth::keyboard_chord(&shipped.1, scan) else {
-            return false;
-        };
-        let old = replaced.and_then(|r| dereth_input::dereth::keyboard_chord(&shipped.1, r));
-        let map = self.home_map(action);
-        let mut maps: Vec<InputMapId> =
-            self.manager.action_map.conflicting_input_maps(map).to_vec();
-        if !maps.contains(&map) {
-            maps.push(map);
-        }
-        for m in maps {
-            if let Some(s) = self.manager.keymap.section_mut(m) {
-                s.unbind_control(chord.control);
-            }
-        }
-        let section = self.manager.keymap.create_input_map(map);
-        if let Some(old) = old {
-            section.unbind_control_from(old.control, action);
-        }
-        section.add_mapping(chord, action);
-        true
-    }
-
-    /// `action` no longer has the unmodified key `scan`, in any map.
-    pub fn unbind_key(&mut self, scan: u16, action: ActionId) {
-        let Some(chord) = self
-            .manager
             .shipped_maps
             .as_ref()
-            .and_then(|s| dereth_input::dereth::keyboard_chord(&s.1, scan))
-        else {
-            return;
+            .map(|m| vec![&m.0, &m.1])
+            .unwrap_or_default()
+    }
+
+    /// The classic interface's default scheme, as a key map over the same keyboard as the retail
+    /// one.
+    #[must_use]
+    pub fn classic_defaults(&self) -> dereth_input::MasterInputMap {
+        dereth_classic_ui::default_keys::default_map(
+            &self.manager.keymap,
+            &self.manager.action_map,
+            &self.shipped_maps(),
+        )
+    }
+
+    /// The classic interface's key map, read the first time it is wanted: its file over its
+    /// default scheme. With no file yet the map is made once from what the classic interface's
+    /// keys were when both interfaces kept one map: its default scheme, with the keys the player
+    /// bound and cleared in that map laid over it; then it is written.
+    pub fn classic_keymap(&mut self) -> &mut ClassicKeymap {
+        if self.classic.is_none() {
+            let defaults = self.classic_defaults();
+            let path = self
+                .keymap_path
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(|dir| dir.join(CLASSIC_KEYMAP_FILE));
+            let file = path
+                .as_ref()
+                .and_then(|p| dereth_client_runtime::platform::files::read_to_string(p).ok())
+                .and_then(|text| dereth_input::MasterInputMap::from_keymap_text(&text).ok());
+            let migrate = file.is_none();
+            let map = dereth_input::scheme::over_defaults(
+                file.as_ref(),
+                &[&defaults],
+                Some(&self.manager.action_map),
+            );
+            let mut keymap = ClassicKeymap {
+                map,
+                defaults,
+                path,
+            };
+            if migrate {
+                self.carry_player_keys(&mut keymap);
+                if let Err(e) = keymap.save() {
+                    tracing::warn!("the classic key map: {e}");
+                }
+            }
+            self.classic = Some(keymap);
+        }
+        self.classic.as_mut().expect("just made")
+    }
+
+    /// Lay the keys the player bound and cleared in the retail key map over `classic`: every
+    /// keyboard key the retail map binds otherwise than the shipped maps do, and every shipped
+    /// key it no longer has, for the actions the classic page lists and that act there.
+    fn carry_player_keys(&self, classic: &mut ClassicKeymap) {
+        use dereth_input::presentation::{find, Interface};
+        let shipped = self.shipped_maps();
+        let shipped_has = |map: InputMapId, qc: &dereth_input::ControlChord, a: ActionId| {
+            shipped.iter().any(|m| {
+                m.section(map)
+                    .is_some_and(|s| s.bindings().iter().any(|(k, x)| k == qc && *x == a))
+            })
         };
-        for s in &mut self.manager.keymap.sections {
-            s.unbind_control_from(chord.control, action);
+        let acts_here = |map: InputMapId, a: ActionId| {
+            find(map, a).is_some_and(|r| r.not_used(Interface::Classic).is_none())
+        };
+        let live = &self.manager.keymap;
+        let mut bound = 0;
+        for (map, qc, action) in dereth_input::scheme::keyboard_bindings(live) {
+            if !shipped_has(map, &qc, action) && acts_here(map, action) {
+                dereth_input::scheme::bind(
+                    &mut classic.map,
+                    &self.manager.action_map,
+                    map,
+                    qc,
+                    action,
+                    None,
+                );
+                bound += 1;
+            }
+        }
+        let mut cleared = 0;
+        for m in &shipped {
+            for section in &m.sections {
+                for (qc, action) in section.bindings() {
+                    let kept = live
+                        .section(section.input_map_id)
+                        .is_some_and(|s| s.bindings().iter().any(|(k, a)| k == qc && a == action));
+                    if !kept && acts_here(section.input_map_id, *action) {
+                        dereth_input::scheme::clear(
+                            &mut classic.map,
+                            section.input_map_id,
+                            *qc,
+                            *action,
+                        );
+                        cleared += 1;
+                    }
+                }
+            }
+        }
+        tracing::info!(
+            "the classic key map is made from its defaults and the player's own keys: {bound} bound, {cleared} cleared"
+        );
+    }
+
+    /// The classic key map as the classic interface reads it.
+    pub fn classic_keys(&mut self) -> dereth_classic_ui::keystore::ClassicKeys {
+        use dereth_classic_ui::keystore::{ClassicBinding, ClassicKeys};
+        let stem = |n: &str| {
+            std::path::Path::new(n)
+                .file_stem()
+                .map_or_else(|| n.to_owned(), |s| s.to_string_lossy().into_owned())
+        };
+        let files = self
+            .keymap_files()
+            .unwrap_or_default()
+            .iter()
+            .map(|n| stem(n))
+            .collect();
+        let retail_file = self
+            .keymap_file_name()
+            .map(|n| stem(&n))
+            .unwrap_or_default();
+        let mut maps: Vec<u32> = dereth_input::presentation::ROWS
+            .iter()
+            .map(|r| r.map)
+            .collect();
+        maps.sort_unstable();
+        maps.dedup();
+        let conflicts = maps
+            .iter()
+            .map(|m| {
+                (
+                    *m,
+                    self.manager
+                        .action_map
+                        .conflicting_input_maps(InputMapId(*m))
+                        .iter()
+                        .map(|x| x.0)
+                        .collect(),
+                )
+            })
+            .collect();
+        let holds = dereth_input::presentation::ROWS
+            .iter()
+            .filter(|r| {
+                self.manager
+                    .action_map
+                    .toggle_type(r.input_map(), r.action())
+                    .is_hold()
+            })
+            .map(|r| (r.map, r.action().0))
+            .collect();
+        let classic = self.classic_keymap();
+        // The keys of the rows the key pages list: the text box's and the dialogs' keys of a
+        // retail scheme the classic map took are not this interface's to dispatch.
+        let bindings = dereth_input::scheme::keyboard_bindings(&classic.map)
+            .filter(|(map, _, action)| dereth_input::presentation::find(*map, *action).is_some())
+            .filter_map(|(map, qc, action)| {
+                Some(ClassicBinding {
+                    scan: qc.control.offset(),
+                    modifiers: dereth_classic_ui::keystore::modifiers_of_meta(qc.meta_mode)?,
+                    action: action.0,
+                    map: map.0,
+                })
+            })
+            .collect();
+        ClassicKeys {
+            bindings,
+            files,
+            own_files: [retail_file, stem(CLASSIC_KEYMAP_FILE)],
+            conflicts,
+            holds,
         }
     }
 
-    /// Write the key map file `name` (`.keymap` added): the shipped defaults with `keys` bound
-    /// ([`Self::bind_key`]). The key map in use is left as it was. `Ok(false)` when a file of that
-    /// name is already there, or there is no folder to write in.
-    pub fn save_scheme_as(
+    /// The keyboard key `scan` held with `modifiers`, as the shipped maps bind keyboard keys.
+    fn classic_key(&self, scan: u16, modifiers: u8) -> Option<dereth_input::ControlChord> {
+        dereth_input::scheme::keyboard_key(
+            &self.manager.keymap,
+            scan,
+            dereth_classic_ui::keystore::meta_of_modifiers(modifiers),
+        )
+    }
+
+    /// The scheme `scheme` as a whole key map: one of the two default schemes, a key map file in
+    /// the folder, or either interface's own map as it is now.
+    fn scheme(
+        &mut self,
+        scheme: &dereth_classic_ui::keystore::Scheme,
+    ) -> Option<dereth_input::MasterInputMap> {
+        use dereth_classic_ui::keystore::Scheme;
+        match scheme {
+            Scheme::ClassicDefaults => Some(self.classic_defaults()),
+            Scheme::RetailDefaults => Some(dereth_input::scheme::over_defaults(
+                None,
+                &self.shipped_maps(),
+                None,
+            )),
+            Scheme::File(name) => {
+                let file = format!("{name}.keymap");
+                if self
+                    .keymap_file_name()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(&file))
+                {
+                    return Some(self.manager.keymap.clone());
+                }
+                if file.eq_ignore_ascii_case(CLASSIC_KEYMAP_FILE) {
+                    return Some(self.classic_keymap().map.clone());
+                }
+                let dir = self.keymap_path.as_deref()?.parent()?;
+                let text =
+                    dereth_client_runtime::platform::files::read_to_string(&dir.join(file)).ok()?;
+                dereth_input::MasterInputMap::from_keymap_text(&text).ok()
+            }
+        }
+    }
+
+    /// Carry out one of the classic key page's requests on the classic key map, and write it.
+    pub fn classic_request(&mut self, request: dereth_classic_ui::keystore::KeyStoreRequest) {
+        use dereth_classic_ui::keystore::KeyStoreRequest as R;
+        let result = match request {
+            R::Bind {
+                scan,
+                modifiers,
+                action,
+                map,
+                replaced,
+            } => {
+                let key = self.classic_key(scan, modifiers);
+                let old = replaced.and_then(|(s, m)| self.classic_key(s, m));
+                let action_map = self.manager.action_map.clone();
+                let classic = self.classic_keymap();
+                if let Some(key) = key {
+                    dereth_input::scheme::bind(
+                        &mut classic.map,
+                        &action_map,
+                        InputMapId(map),
+                        key,
+                        ActionId(action),
+                        old,
+                    );
+                }
+                classic.save()
+            }
+            R::Clear {
+                scan,
+                modifiers,
+                action,
+                map,
+            } => {
+                let key = self.classic_key(scan, modifiers);
+                let classic = self.classic_keymap();
+                if let Some(key) = key {
+                    dereth_input::scheme::clear(
+                        &mut classic.map,
+                        InputMapId(map),
+                        key,
+                        ActionId(action),
+                    );
+                }
+                classic.save()
+            }
+            R::SaveAs { name, overwrite } => self.save_classic_as(&name, overwrite),
+            R::Load(scheme) => match self.scheme(&scheme) {
+                Some(scheme) => {
+                    let action_map = self.manager.action_map.clone();
+                    let classic = self.classic_keymap();
+                    let file = dereth_input::scheme::exactly(&scheme, &[&classic.defaults]);
+                    classic.map = dereth_input::scheme::over_defaults(
+                        Some(&file),
+                        &[&classic.defaults],
+                        Some(&action_map),
+                    );
+                    classic.save()
+                }
+                None => Err(dereth_input::InputError::KeymapFile(format!(
+                    "the key scheme {scheme:?} could not be read"
+                ))),
+            },
+            R::Delete(name) => {
+                if format!("{name}.keymap").eq_ignore_ascii_case(CLASSIC_KEYMAP_FILE) {
+                    Ok(())
+                } else {
+                    self.delete_keymap_file(&name).map(|_| ())
+                }
+            }
+        };
+        if let Err(e) = result {
+            tracing::warn!("the classic key map: {e}");
+        }
+    }
+
+    /// Write the classic key map to the key map file `name` (`.keymap` added) beside the others,
+    /// replacing one of that name only when `overwrite`. Neither interface's own file is written
+    /// this way.
+    fn save_classic_as(
         &mut self,
         name: &str,
-        keys: &[(u16, ActionId)],
-    ) -> Result<bool, dereth_input::InputError> {
-        let keymap = self.manager.keymap.clone();
-        let path = self.keymap_path.clone();
-        self.restore_shipped_keys();
-        for (scan, action) in keys {
-            self.bind_key(*scan, *action, None);
+        overwrite: bool,
+    ) -> Result<(), dereth_input::InputError> {
+        let name = name.trim();
+        let file = format!("{name}.keymap");
+        let own = self
+            .keymap_file_name()
+            .is_some_and(|n| n.eq_ignore_ascii_case(&file))
+            || file.eq_ignore_ascii_case(CLASSIC_KEYMAP_FILE);
+        let Some(dir) = self
+            .keymap_path
+            .as_deref()
+            .and_then(std::path::Path::parent)
+            .map(std::path::Path::to_path_buf)
+        else {
+            return Ok(());
+        };
+        if own || name.is_empty() || std::path::Path::new(name).file_name() != Some(name.as_ref()) {
+            return Ok(());
         }
-        let saved = self.save_keymap_as(name, false);
-        self.manager.keymap = keymap;
-        self.keymap_path = path;
-        Ok(matches!(saved?, Some(SaveKeymapAs::Saved)))
+        let path = dir.join(file);
+        if dereth_client_runtime::platform::files::exists(&path) && !overwrite {
+            return Ok(());
+        }
+        let text = self.classic_keymap().map.to_keymap_text();
+        dereth_client_runtime::platform::files::write(&path, text)?;
+        Ok(())
+    }
+
+    /// Make the retail key map exactly `scheme`, the key map file in use unchanged: the retail
+    /// page's Load menu's other interface's keys and its two default schemes.
+    pub fn load_retail_scheme(&mut self, scheme: &dereth_classic_ui::keystore::Scheme) -> bool {
+        let Some(scheme) = self.scheme(scheme) else {
+            return false;
+        };
+        let shipped: Vec<dereth_input::MasterInputMap> =
+            self.shipped_maps().into_iter().cloned().collect();
+        let shipped: Vec<&dereth_input::MasterInputMap> = shipped.iter().collect();
+        let file = dereth_input::scheme::exactly(&scheme, &shipped);
+        let map = dereth_input::scheme::over_defaults(
+            Some(&file),
+            &shipped,
+            Some(&self.manager.action_map),
+        );
+        self.manager.keymap.clear();
+        self.manager.keymap.merge(&map, true);
+        true
     }
 
     /// Back to the shipped defaults: the player's own keys are dropped.

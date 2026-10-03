@@ -240,6 +240,11 @@ pub mod dereth {
     pub const TOGGLE_STRETCH_UI: u32 = 0x2000_0008;
     /// Flip whether sounds play only while the game's window is active.
     pub const TOGGLE_MUTE_ON_LOSING_FOCUS: u32 = 0x2000_0009;
+    /// The classic interface's cancel key: end targeting, else clear the selection, else close
+    /// the windows that are open.
+    pub const CANCEL: u32 = 0x2000_000A;
+    /// The classic interface's key that puts the last line sent back into the chat entry.
+    pub const REPEAT_LAST_MESSAGE: u32 = 0x2000_000B;
 }
 
 /// The action names: the enum table the client writes an action out with (field `0x19` of a
@@ -709,6 +714,8 @@ pub mod names {
             super::dereth::TOGGLE_MUTE_ON_LOSING_FOCUS,
             "ToggleMuteOnLosingFocus",
         ),
+        (super::dereth::CANCEL, "Cancel"),
+        (super::dereth::REPEAT_LAST_MESSAGE, "RepeatLastMessage"),
     ];
 
     /// Every named action: the retail table, then this client's own.

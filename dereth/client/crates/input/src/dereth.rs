@@ -101,6 +101,12 @@ pub const ACTIONS: &[DerethAction] = {
             class::CHARACTER_SETTINGS,
             "Mute When Inactive",
         ),
+        one_shot(a::CANCEL, class::INTERFACE, "Cancel (classic interface)"),
+        one_shot(
+            a::REPEAT_LAST_MESSAGE,
+            class::INTERFACE,
+            "Repeat Last Message (classic interface)",
+        ),
     ]
 };
 

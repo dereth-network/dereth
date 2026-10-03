@@ -758,6 +758,18 @@ impl Panel for Hud {
                 "ToggleNegativeEffectsPanel" => Some("harmful-effects"),
                 "ToggleLinkStatusPanel" => Some("link-status"),
                 "ToggleVitaePanel" => Some("vitae"),
+                // The final client's windows this interface has under other names: the social
+                // window and its friends page, the journal's pages, the magic and character
+                // windows, the map, the Options window and the two forms.
+                "ToggleSocialPanel" => Some("social"),
+                "ToggleFriendsPanel" => Some("friends"),
+                "TogglePageListPanel" => quest_page(c.game),
+                "ToggleSpellManagementPanel" => Some("spellbook"),
+                "ToggleSkillManagementPanel" => Some("character-stats"),
+                "ToggleWorldPanel" => Some("map"),
+                "ToggleGameplayOptionsPanel" => Some("options"),
+                "ToggleAbusePanel" => Some("abuse"),
+                "ToggleUrgentAssistancePanel" => Some("urgent-assistance"),
                 _ => None,
             };
             if let Some(panel) = panel {
@@ -766,6 +778,45 @@ impl Panel for Hud {
                     return vec![];
                 }
                 return vec![PanelAction::Toggle(panel.into())];
+            }
+            if name == "ToggleHelp" {
+                return vec![PanelAction::Host(HostAction::LegacyHelp(51))];
+            }
+            // The keyboard window is the character screen's: going there leaves the world, so
+            // it asks first, as the Options window's Configure Keyboard does.
+            if name == "ToggleKeyboardPanel" {
+                return vec![PanelAction::Confirm {
+                    id: "configure-keyboard".into(),
+                    text: "\n\nTo configure your keyboard, you need to leave the world.\nProceed?"
+                        .into(),
+                    accept: vec![
+                        PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
+                        PanelAction::Open("keyboard".into()),
+                    ],
+                }];
+            }
+            if name == "LOGOUT" {
+                return vec![PanelAction::Confirm {
+                    id: "logout".into(),
+                    text: "\nThis will exit your character from the game world.\n\nAre you \
+                           sure?\n\n(Default is No)"
+                        .into(),
+                    accept: vec![PanelAction::Game(UiRequest::EndCharacterSession {
+                        ask: false,
+                    })],
+                }];
+            }
+            // A shortcut's select key selects what the shortcut holds.
+            if let Some(slot) = name
+                .strip_prefix("SelectQuickSlot_")
+                .and_then(|n| n.parse::<u32>().ok())
+                .filter(|n| (1..=9).contains(n))
+            {
+                return c
+                    .game
+                    .shortcut(slot - 1)
+                    .map(|object| vec![PanelAction::Game(UiRequest::Select(object))])
+                    .unwrap_or_default();
             }
             if name == "CombatToggleCombat" {
                 return vec![PanelAction::Host(HostAction::CombatMode(

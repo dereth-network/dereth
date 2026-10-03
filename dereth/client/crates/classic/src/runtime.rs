@@ -105,11 +105,8 @@ pub struct ClassicUi {
     panel_events: Vec<(String, ControlEvent)>,
     preview_click: Option<(u64, i32, i32, std::time::Instant)>,
     settings_host: Option<crate::settings_host::SettingsHost>,
-    /// The shared key map as the host last handed it over.
-    shared_keys: crate::keystore::SharedKeys,
-    /// The classic interface's old schemes, waiting for the host to carry them into the shared
-    /// key map's files.
-    legacy_schemes: Vec<(String, Vec<crate::keystore::SharedBinding>, bool)>,
+    /// The classic key map as the host last handed it over.
+    classic_keys: crate::keystore::ClassicKeys,
     ui_actions: Vec<String>,
     /// A tell to begin in the chat entry on the next refresh.
     pending_tell: Option<String>,
@@ -202,8 +199,7 @@ impl ClassicUi {
             panel_events: vec![],
             preview_click: None,
             settings_host: None,
-            shared_keys: crate::keystore::SharedKeys::default(),
-            legacy_schemes: Vec::new(),
+            classic_keys: crate::keystore::ClassicKeys::default(),
             ui_actions: vec![],
             pending_tell: None,
             initial_panel: "login".into(),
@@ -501,7 +497,23 @@ impl ClassicUi {
             .desktop
             .focused_panel()
             .is_some_and(|id| id.starts_with("help-"));
-        if !help && self.ctrl && pressed && vk == 0x52 && self.chat_recall() {
+        // The modifiers held: a key bound with them takes their chord; a key bound only plainly
+        // still works with them held.
+        let modifiers = (u8::from(self.shift) * crate::keystore::SHIFT)
+            | (u8::from(self.ctrl) * crate::keystore::CTRL)
+            | (u8::from(self.alt) * crate::keystore::ALT);
+        // The repeat-message key brings the last line back while the chat entry has the caret.
+        if !help
+            && pressed
+            && self.bindings.as_ref().is_some_and(|b| {
+                b.bound_to(
+                    vk,
+                    modifiers & !own_modifier(vk),
+                    dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE,
+                )
+            })
+            && self.chat_recall()
+        {
             return None;
         }
         // The copy key copies selected text before the key map sees it, so a selection in the
@@ -512,11 +524,6 @@ impl ClassicUi {
                 return None;
             }
         }
-        // The modifiers held: a key bound with them takes their chord; a key bound only plainly
-        // still works with them held.
-        let modifiers = (u8::from(self.shift) * crate::keystore::SHIFT)
-            | (u8::from(self.ctrl) * crate::keystore::CTRL)
-            | (u8::from(self.alt) * crate::keystore::ALT);
         let repeat = pressed && !self.held_keys.insert(vk);
         if !pressed {
             self.held_keys.remove(&vk);
@@ -546,7 +553,10 @@ impl ClassicUi {
                 _ => None,
             };
         }
+        let world_keys =
+            cx.pregame().in_world && !self.desktop.editing() && !self.desktop.modal_open() && !help;
         let key = match vk {
+            0x1B if world_keys => None,
             0x1B => Some(Key::Escape),
             0x25 => Some(if self.ctrl { Key::WordLeft } else { Key::Left }),
             0x27 => Some(if self.ctrl {
@@ -598,8 +608,15 @@ impl ClassicUi {
                 .focused_control()
                 .is_some_and(|id| id == "chat:input" || id == "input")
         {
-            // Escape and Tab leave the chat entry.
-            if vk == 0x1B || vk == 0x09 {
+            // Escape leaves the chat entry, and so does the key that enters and leaves it.
+            let toggle = self.bindings.as_ref().is_some_and(|b| {
+                b.bound_to(
+                    vk,
+                    modifiers,
+                    dereth_client_contract::actions::chat_entry::TOGGLE_CHAT_ENTRY.0,
+                )
+            });
+            if vk == 0x1B || toggle {
                 self.desktop.focus_control("");
                 return true;
             }
@@ -619,77 +636,12 @@ impl ClassicUi {
                 .desktop
                 .focused_panel()
                 .is_some_and(|id| id.starts_with("help-"));
-        // Enter is a fixed key in the world: it puts the caret in the chat entry. (The keypad's
-        // Enter is a different key, which a key map may bind.)
-        if allow
-            && pressed
-            && vk == 0x0D
-            && !self.desktop.modal_open()
-            && !self.bindings.as_ref().is_some_and(|b| b.is_capturing())
-        {
-            self.ui_actions.push("EnterChat".into());
-            return true;
-        }
-        // The number keys are fixed keys too. 1 to 9: in magic combat, cast that spell of the
-        // spell bar's tab; with a targeted use armed, make that shortcut the target; with the
-        // examine cursor, examine it; otherwise use it. 0 puts the selection on a free shortcut.
-        if allow
-            && pressed
-            && !repeat
-            && (0x30..=0x39).contains(&vk)
-            && !self
-                .bindings
-                .as_ref()
-                .is_some_and(|b| b.chorded(vk, modifiers))
-            && !self.desktop.modal_open()
-            && !self.bindings.as_ref().is_some_and(|b| b.is_capturing())
-        {
-            use dereth_client_runtime::interaction::TargetMode;
-            let target_mode = cx.target_mode();
-            let view = cx.hud().view(cx.objects());
-            if vk == 0x30 {
-                let free = (0..9).find(|slot| view.shortcut(*slot).is_none());
-                if let (Some(object), Some(slot)) = (view.selected_object(), free) {
-                    self.desktop
-                        .host_actions
-                        .push(HostAction::ClassicShortcutDrop {
-                            object,
-                            slot,
-                            from: None,
-                        });
-                    self.desktop.host_origins.push(0);
-                }
-                return true;
-            }
-            let slot = u32::from(vk - 0x31);
-            if view.combat_mode() == 8 {
-                self.panel_events.push((
-                    "spell-favorites".into(),
-                    ControlEvent::Magic(
-                        dereth_client_contract::view::MagicNotice::CastQuickslotSpell {
-                            slot: slot as usize,
-                        },
-                    ),
-                ));
-                return true;
-            }
-            if let Some(object) = view.shortcut(slot) {
-                self.desktop.requests.push(match target_mode {
-                    TargetMode::UseTarget => UiRequest::ExecuteTargetItem(object),
-                    TargetMode::Examine => UiRequest::Examine(object),
-                    _ => UiRequest::Use(object),
-                });
-            }
-            return true;
-        }
         let Some(bindings) = &mut self.bindings else {
             return false;
         };
         match bindings.key(vk, pressed, repeat, modifiers, allow) {
             Ok(outcome) => {
-                let consumed = outcome.consumed
-                    || !outcome.actions.is_empty()
-                    || !outcome.legacy_commands.is_empty();
+                let consumed = outcome.consumed || !outcome.actions.is_empty();
                 self.key_outcome(cx, outcome);
                 consumed
             }
@@ -767,40 +719,21 @@ impl ClassicUi {
             self.key_outcome(cx, result);
         }
     }
-    /// The shared key map as it now is: the keys the player bound, in either interface, over this
-    /// interface's default scheme.
-    pub fn set_shared_keys(&mut self, keys: crate::keystore::SharedKeys) {
+    /// The classic key map as it now is.
+    pub fn set_classic_keys(&mut self, keys: crate::keystore::ClassicKeys) {
         if let Some(bindings) = &mut self.bindings {
-            bindings.set_shared(&keys);
+            bindings.set_keys(&keys);
             self.keyboard = bindings.snapshot();
         }
-        self.shared_keys = keys;
+        self.classic_keys = keys;
     }
 
-    /// What the key page asked of the shared key map since the last call, oldest first.
+    /// What the key page asked of the classic key map since the last call, oldest first.
     pub fn take_key_store_requests(&mut self) -> Vec<crate::keystore::KeyStoreRequest> {
         self.bindings
             .as_mut()
             .map(|b| std::mem::take(&mut b.requests))
             .unwrap_or_default()
-    }
-
-    /// The old schemes the host is to carry into the shared key map's files, once:
-    /// `(name, keys over the default scheme, in use)`.
-    pub fn take_legacy_schemes(
-        &mut self,
-    ) -> Vec<(String, Vec<crate::keystore::SharedBinding>, bool)> {
-        std::mem::take(&mut self.legacy_schemes)
-    }
-
-    /// The host has carried the old schemes over: their folder goes, and with it the classic
-    /// interface's old settings folder when nothing else is left in it.
-    pub fn legacy_schemes_moved(&mut self) {
-        let old_keys = self.paths.state.join("keys");
-        if old_keys.is_dir() && std::fs::remove_dir_all(&old_keys).is_ok() {
-            tracing::info!("the classic interface's old key schemes moved into the shared key map");
-        }
-        retire_folder(&self.paths.state);
     }
 
     /// An action as if its key had been pressed and let go: a window toggle or a chat command to
@@ -816,13 +749,118 @@ impl ClassicUi {
         }
     }
 
+    /// One action a key fired, to whatever answers it in this interface: the shortcut bar, the
+    /// chat entry, the help book and the cancel key here; a window's toggle to the windows; the
+    /// mouse look and this interface's own settings to the host; everything else, hold sidestep
+    /// and the run key among them, to the game.
+    fn action_from_key<S: Host>(
+        &mut self,
+        cx: &mut Cx<'_, S>,
+        action: dereth_client_contract::actions::Action,
+    ) {
+        use dereth_client_contract::actions::{chat_entry, dereth as own, names};
+        let id = action.id.0;
+        let start = action.is_start();
+        let quiet = self.desktop.modal_open();
+        // The mouse look key and the keys that flip one of this interface's settings.
+        let host_command = match id {
+            0x3D => Some("ShiftView"),
+            own::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS => Some("AutoCreateShortcuts"),
+            own::TOGGLE_INVERT_MOUSE_LOOK => Some("InvertMouseLook"),
+            own::TOGGLE_RIGHT_CLICK_MOUSE_LOOK => Some("RightClickToMouseLook"),
+            own::TOGGLE_STRETCH_UI => Some("StretchUI"),
+            own::TOGGLE_MUTE_ON_LOSING_FOCUS => Some("MuteOnLosingFocus"),
+            _ => None,
+        };
+        if let Some(command) = host_command {
+            if action.phase == dereth_client_contract::actions::ActionPhase::Repeat {
+                return;
+            }
+            if let Err(error) = crate::keyboard_runtime::handle(cx, command, start) {
+                self.desktop
+                    .show_dialog("key-error".into(), error, vec![], vec![]);
+            }
+            return;
+        }
+        let name = names::enum_name_for_action(action.id);
+        let shortcut = name
+            .strip_prefix("UseQuickSlot_")
+            .and_then(|n| n.parse::<u32>().ok())
+            .filter(|n| (1..=9).contains(n));
+        match id {
+            _ if !start => {}
+            _ if shortcut.is_some() => {
+                if !quiet && action.phase != dereth_client_contract::actions::ActionPhase::Repeat {
+                    self.use_shortcut(cx, shortcut.unwrap_or(1) - 1);
+                }
+            }
+            0x1000_010D if !quiet => self.create_shortcut(cx),
+            own::CANCEL => self.inputs.push(Input::Key {
+                key: crate::widgets::Key::Escape,
+                shift: false,
+            }),
+            own::REPEAT_LAST_MESSAGE => {}
+            own::TOGGLE_TRADE_PANEL => self.ui_actions.push("TradePanel".into()),
+            own::TOGGLE_SPELL_RESEARCH_PANEL => self.ui_actions.push("SpellResearchPanel".into()),
+            _ if (id == chat_entry::BEGIN_CHAT_MODE.0 || id == chat_entry::TOGGLE_CHAT_ENTRY.0)
+                && quiet => {}
+            _ if is_ui_action(&name) => self.ui_actions.push(name.clone()),
+            _ => {}
+        }
+        if !is_ui_action(&name) && !is_interface_action(id) {
+            self.actions.push(action);
+        }
+    }
+
+    /// A shortcut's key: in magic combat, cast that spell of the spell bar's tab; with a targeted
+    /// use armed, make that shortcut the target; with the examine cursor, examine it; otherwise
+    /// use it.
+    fn use_shortcut<S: Host>(&mut self, cx: &mut Cx<'_, S>, slot: u32) {
+        use dereth_client_runtime::interaction::TargetMode;
+        let target_mode = cx.target_mode();
+        let view = cx.hud().view(cx.objects());
+        if view.combat_mode() == 8 {
+            self.panel_events.push((
+                "spell-favorites".into(),
+                ControlEvent::Magic(
+                    dereth_client_contract::view::MagicNotice::CastQuickslotSpell {
+                        slot: slot as usize,
+                    },
+                ),
+            ));
+            return;
+        }
+        if let Some(object) = view.shortcut(slot) {
+            self.desktop.requests.push(match target_mode {
+                TargetMode::UseTarget => UiRequest::ExecuteTargetItem(object),
+                TargetMode::Examine => UiRequest::Examine(object),
+                _ => UiRequest::Use(object),
+            });
+        }
+    }
+
+    /// The make-a-shortcut key: the selection goes on the first free shortcut.
+    fn create_shortcut<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
+        let view = cx.hud().view(cx.objects());
+        let free = (0..9).find(|slot| view.shortcut(*slot).is_none());
+        if let (Some(object), Some(slot)) = (view.selected_object(), free) {
+            self.desktop
+                .host_actions
+                .push(HostAction::ClassicShortcutDrop {
+                    object,
+                    slot,
+                    from: None,
+                });
+            self.desktop.host_origins.push(0);
+        }
+    }
+
     fn key_outcome<S: Host>(
         &mut self,
         cx: &mut Cx<'_, S>,
         outcome: crate::keybindings::KeyOutcome,
     ) {
         use crate::keybindings::CaptureResult;
-        use dereth_client_contract::actions::{names, ActionPhase};
         match outcome.capture {
             CaptureResult::Conflict(label) => self.desktop.show_dialog(
                 "binding-conflict".into(),
@@ -837,32 +875,7 @@ impl ClassicUi {
             _ => {}
         }
         for action in outcome.actions {
-            let name = names::enum_name_for_action(action.id);
-            if is_ui_action(&name) {
-                if action.is_start() {
-                    self.ui_actions.push(name);
-                }
-            } else {
-                self.actions.push(action);
-            }
-        }
-        for command in outcome.legacy_commands {
-            let down = command.phase != ActionPhase::End;
-            match crate::keyboard_runtime::handle(cx, &command.name, down) {
-                Ok(true) => continue,
-                Err(error) => {
-                    self.desktop
-                        .show_dialog("key-error".into(), error, vec![], vec![]);
-                    continue;
-                }
-                Ok(false) => {}
-            }
-            match command.name.as_str() {
-                "HoldRun" => cx.set_hold_run(down),
-                "HoldSidestep" => cx.set_hold_sidestep(down),
-                _ if down => self.ui_actions.push(command.name),
-                _ => {}
-            }
+            self.action_from_key(cx, action);
         }
         if let Some(bindings) = &self.bindings {
             self.keyboard = bindings.snapshot();
@@ -1362,32 +1375,7 @@ impl ClassicUi {
             let _ = std::fs::remove_file(retired.join("classic-options"));
             tracing::info!("the classic interface's own options moved into the profile");
         }
-        let catalogue = crate::key_catalogue::classic();
-        // The default key map: the one named in the environment, else the installation's own
-        // Default.map beside the early-2005 portal, else the stand-in built from the final maps.
-        let beside = self
-            .paths
-            .portal_dir
-            .as_ref()
-            .map(|d| d.join("Default.map"))
-            .filter(|p| p.is_file());
-        let defaults = std::env::var_os("DERETH_CLASSIC_DEFAULT_MAP")
-            .map(std::path::PathBuf::from)
-            .or(beside)
-            .map(|p| std::fs::read_to_string(&p).map_err(|e| e.to_string()))
-            .or_else(|| crate::default_keys::from_final_maps(&**cx.store(), &catalogue).map(Ok));
-        // The old schemes, kept in this interface's own folder, go into the shared key map.
-        let old_keys = self.paths.state.join("keys");
-        self.legacy_schemes = crate::keybindings::legacy_schemes(
-            &old_keys,
-            &catalogue,
-            defaults
-                .as_ref()
-                .and_then(|d| d.as_ref().ok())
-                .map(String::as_str),
-        )?;
-        let bindings =
-            crate::keybindings::KeyBindings::load(catalogue, defaults, &self.shared_keys)?;
+        let bindings = crate::keybindings::KeyBindings::new(&self.classic_keys);
         self.keyboard = bindings.snapshot();
         self.bindings = Some(bindings);
         let size = cx.present().size();
@@ -2580,6 +2568,7 @@ fn is_ui_action(name: &str) -> bool {
         return false;
     }
     name.starts_with("Toggle") && name.ends_with("Panel")
+        || name.starts_with("SelectQuickSlot_")
         || matches!(
             name,
             "EnterChatMode"
@@ -2590,7 +2579,37 @@ fn is_ui_action(name: &str) -> bool {
                 | "MonarchReply"
                 | "TellSelected"
                 | "SelectionSplitStack"
+                | "ToggleHelp"
+                | "LOGOUT"
         )
+}
+
+/// The actions this interface answers itself and the game is not to see: the shortcut bar's
+/// keys, the help key, and this interface's cancel, repeat-message, trade and research keys.
+fn is_interface_action(id: u32) -> bool {
+    use dereth_client_contract::actions::dereth as own;
+    let name = dereth_client_contract::actions::names::enum_name_for_action(
+        dereth_client_contract::actions::ActionId(id),
+    );
+    name.starts_with("UseQuickSlot_")
+        || matches!(
+            id,
+            0x1000_010D
+                | own::CANCEL
+                | own::REPEAT_LAST_MESSAGE
+                | own::TOGGLE_TRADE_PANEL
+                | own::TOGGLE_SPELL_RESEARCH_PANEL
+        )
+}
+
+/// The modifier a modifier key is itself, so a press of it is not counted as held with it.
+fn own_modifier(vk: u16) -> u8 {
+    match vk {
+        0x10 | 0xA0 | 0xA1 => crate::keystore::SHIFT,
+        0x11 | 0xA2 | 0xA3 => crate::keystore::CTRL,
+        0x12 | 0xA4 | 0xA5 => crate::keystore::ALT,
+        _ => 0,
+    }
 }
 
 /// The world view's field-of-view preference, in degrees, that gives the classic interface's

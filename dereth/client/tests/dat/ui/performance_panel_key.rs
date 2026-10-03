@@ -65,6 +65,7 @@ fn the_performance_panel_has_no_key_until_one_is_bound_and_then_fires_on_every_s
     assert_eq!(press(&mut input, 0.100, 101), 0, "F7 does nothing at first");
 
     // Bound by the player, it fires off the character session too: the pre-game screens keep it.
-    assert!(input.bind_key(DIK_F7, perf, None));
+    let f7 = dereth_input::scheme::keyboard_key(&input.manager.keymap, DIK_F7, 0).expect("a key");
+    assert!(input.set_binding(dereth_input::dereth::INPUT_MAP, perf, None, f7));
     assert_eq!(press(&mut input, 0.200, 201), 1);
 }

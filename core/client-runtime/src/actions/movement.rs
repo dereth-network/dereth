@@ -134,6 +134,10 @@ pub fn on_action(
             }
         }
         action::TOGGLE_RUN_WALK => MovementAction::SetHoldRun(start),
+        // This client's hold sidestep is the keyboard command's own hold key, held with its key.
+        dereth_client_contract::actions::ActionId(
+            dereth_client_contract::actions::dereth::MOVEMENT_HOLD_SIDESTEP,
+        ) => motion(command::HOLD_SIDESTEP, start),
         other => match emote_command(other) {
             Some(cmd) => motion(cmd, true),
             None => MovementAction::NotHandled,

@@ -103,3 +103,44 @@ fn parse_consumes_every_payload_exactly() {
         "melee must not conflict with magic"
     );
 }
+
+/// **The key pages' one set of rows against the shipped action map.** Every user-bindable entry
+/// is a row, apart from the quickslots 10 to 18 and the quest detail panel's toggle; the one other
+/// row is Disable Most Weather Effects, which the action map has in the character options map but
+/// gives no tab.
+#[test]
+fn the_key_pages_rows_are_the_bindable_entries_and_the_clients_own() {
+    use dereth_input::presentation::{find, ROWS};
+    let f = shipped();
+    let mut am = ActionMap::read(&f.actionmap).expect("the ActionMap must decode");
+    am.add_dereth_actions();
+    let left_out: BTreeSet<String> = (10..=18)
+        .map(|n| format!("UseQuickSlot_{n}"))
+        .chain(["ToggleQuestManagementPanel".to_owned()])
+        .collect();
+    let mut listed = 0;
+    for (map, action, _) in am.entries() {
+        if !am.is_user_bindable(map, action) {
+            continue;
+        }
+        let name = dereth_input::names::enum_name_for_action(action);
+        if left_out.contains(&name) {
+            assert!(find(map, action).is_none(), "{name} is not a row");
+        } else {
+            assert!(find(map, action).is_some(), "{name} in {map:?} is a row");
+            listed += 1;
+        }
+    }
+    let unbindable: Vec<&str> = ROWS
+        .iter()
+        .filter(|r| !am.is_user_bindable(r.input_map(), r.action()))
+        .map(|r| r.action_name)
+        .collect();
+    assert_eq!(unbindable, ["PlayerOption_DisableMostWeatherEffects"]);
+    let weather = ROWS
+        .iter()
+        .find(|r| r.action_name == unbindable[0])
+        .expect("the weather row");
+    assert!(am.is_action_allowed_in_input_map(weather.input_map(), weather.action()));
+    assert_eq!(listed + 1, ROWS.len());
+}

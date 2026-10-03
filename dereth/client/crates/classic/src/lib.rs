@@ -36,7 +36,6 @@ pub mod era_bridge;
 pub mod help;
 pub mod int;
 pub mod item_art;
-pub mod key_catalogue;
 pub mod keybindings;
 pub mod keyboard_runtime;
 pub mod keystore;
