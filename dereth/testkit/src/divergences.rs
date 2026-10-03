@@ -443,9 +443,10 @@ pub static DIVERGENCES: &[Divergence] = &[
         dereth: "Both interfaces' key pages list one set of bindings, each in its own style: \
                  every bindable action but the quickslots 10 to 18 and the quest detail panel's \
                  key, this client's own actions, and Disable Most Weather Effects among the \
-                 character options. A row that does nothing in an interface is listed last on \
-                 that page, under <<NOT USED IN THIS UI>>, with a tooltip saying why, and binds \
-                 and clears like any other. Each interface keeps its own key map: the retail \
+                 character options. A row that does nothing in an interface is not on that \
+                 interface's page and has no default key there. A key given to one of this \
+                 client's own actions is taken from whatever else had it, after the page asks, \
+                 as a shipped action's key is. Each interface keeps its own key map: the retail \
                  interface its key map file over the final client's shipped maps, the classic \
                  interface dereth-classic.keymap beside it over its own default keys, made the \
                  first time from the player's keys of the one map both used to keep. A key bound \

@@ -1630,7 +1630,10 @@ impl<H: Host> Ui<'_, '_, H> {
                 .action_map
                 .entries()
                 .filter(|(map, action, _)| {
-                    dereth_input::presentation::find(*map, *action).is_some()
+                    dereth_input::presentation::find(*map, *action).is_some_and(|r| {
+                        r.not_used(dereth_input::presentation::Interface::Retail)
+                            .is_none()
+                    })
                 })
                 .count();
             stats.init_calls += 1;

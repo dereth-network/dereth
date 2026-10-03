@@ -313,6 +313,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "keys.classic.a-row-this-interface-does-not-use-has-no-default-key",
+        says: "None of the rows the classic interface does nothing with -- the alternate camera \
+               mode and its keys, the floating chat windows, the plugin manager, the compass and \
+               side-by-side vitals -- has a default key in the classic interface, and its page \
+               does not list them.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-UNUSED-UNBOUND"),
+        station: "dereth-classic-ui::lib::default_keys::tests::every_row_this_interface_does_not_use_has_no_default_key",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "keys.classic.the-classic-map-starts-from-the-players-keys",
         says: "The first time the classic interface's key map is wanted and it has no file, it is \
                made from its default keys with the keys the player bound and cleared in the one \
@@ -369,18 +381,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "keys.retail.the-key-page-lists-the-shared-rows-and-the-unused-ones-last",
-        says: "The retail key page lists the one set of bindings both pages list: every bindable \
-               action but the quickslots 10 to 18 and the quest detail panel's toggle, this \
-               client's own, and Disable Most Weather Effects among the character options. The \
-               rows this interface does nothing with (right-click mouse look, the stretched \
-               layout, automatic shortcuts, and the classic interface's cancel and \
-               repeat-message keys) come last on their tabs under <<NOT USED IN THIS UI>>, each \
-               with its three key buttons and a tooltip saying why.",
+        id: "keys.retail.a-row-this-interface-does-not-use-has-no-default-key",
+        says: "None of the rows the retail interface does nothing with -- right-click mouse \
+               look, the stretched layout, automatic shortcuts, and the classic interface's \
+               cancel and repeat-message keys -- has a default key in the retail interface, and \
+               its page does not list them.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-KEYBIND-UNUSED-UNBOUND-RETAIL"),
+        station: "dereth-input::dat::shipped_maps::every_row_the_retail_interface_does_not_use_has_no_default_key",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "keys.retail.the-key-page-lists-the-shared-rows-this-interface-acts-on",
+        says: "The retail key page lists the rows of the one set of bindings both pages list \
+               that this interface acts on: every bindable action but the quickslots 10 to 18 \
+               and the quest detail panel's toggle, this client's own it answers, and Disable \
+               Most Weather Effects among the character options. The rows only the classic \
+               interface answers are not listed.",
         since: THIS_CLIENT,
         divergence: "CD-022",
         evidence: Evidence::Private("AC-EVID-KEYBIND-PAGES"),
-        station: "dereth-ui-screens::dat::panels::options_key_bindings::the_key_page_lists_the_shared_rows_with_the_ones_this_interface_does_not_use_last",
+        station: "dereth-ui-screens::dat::panels::options_key_bindings::the_key_page_lists_the_shared_rows_this_interface_acts_on_and_no_others",
         tier: Tier::Dat,
     },
     behaviour! {

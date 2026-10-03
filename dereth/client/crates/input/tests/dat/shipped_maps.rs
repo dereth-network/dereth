@@ -144,3 +144,33 @@ fn the_key_pages_rows_are_the_bindable_entries_and_the_clients_own() {
     assert!(am.is_action_allowed_in_input_map(weather.input_map(), weather.action()));
     assert_eq!(listed + 1, ROWS.len());
 }
+
+/// **A row the retail interface does nothing with has no default key in it**: neither shipped
+/// map, nor this client's own defaults, binds any of the five.
+///
+/// Behaviour: keys.retail.a-row-this-interface-does-not-use-has-no-default-key
+#[test]
+fn every_row_the_retail_interface_does_not_use_has_no_default_key() {
+    use dereth_input::presentation::{Interface, ROWS};
+    let f = shipped();
+    let gm = MasterInputMap::read(&f.keymap_gm).expect("keymap 0x14000000 must decode");
+    let mut dm = MasterInputMap::read(&f.keymap_default).expect("DefaultMap must decode");
+    if let Some(own) = dereth_input::dereth::default_map(&dm) {
+        dm.merge(&own, true);
+    }
+    let unused: Vec<_> = ROWS
+        .iter()
+        .filter(|r| r.not_used(Interface::Retail).is_some())
+        .collect();
+    assert_eq!(unused.len(), 5);
+    for r in unused {
+        for m in [&gm, &dm] {
+            assert!(
+                m.section(r.input_map())
+                    .is_none_or(|s| s.keys_for_action(r.action()).is_empty()),
+                "{} has a default key",
+                r.action_name
+            );
+        }
+    }
+}

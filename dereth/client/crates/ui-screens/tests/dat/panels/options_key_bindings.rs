@@ -214,16 +214,17 @@ fn the_page_draws_a_row_per_bindable_action_with_the_keys_the_merged_map_reports
         "the two halves of is_user_bindable agree on all {} entries in this map",
         m.action_map.entries().count()
     );
-    // One row per row of the set both interfaces' pages list: the bindable entries but the
-    // quickslots 10 to 18 and the quest detail panel, with Disable Most Weather Effects.
+    // One row per row of the set both interfaces' pages list that this interface acts on: the
+    // bindable entries but the quickslots 10 to 18, the quest detail panel and the five rows only
+    // the classic interface answers, with Disable Most Weather Effects.
     assert_eq!(
         p.rows.len(),
-        dereth_input::presentation::ROWS.len(),
+        dereth_input::presentation::ROWS.len() - 5,
         "one row per listed (map, action)"
     );
     assert_eq!(
         bindable,
-        p.rows.len() + 10 - 1,
+        p.rows.len() + 10 - 1 + 5,
         "of the {bindable} bindable entries"
     );
     assert_eq!(
@@ -793,7 +794,7 @@ fn the_gameplay_screen_builds_the_key_binding_page() {
         .count();
     assert_eq!(
         n,
-        dereth_input::presentation::ROWS.len(),
+        dereth_input::presentation::ROWS.len() - 5,
         "one row per listed (map, action), of the {bindable} bindable"
     );
     assert_eq!(s.key_bindings.failures, 0);
@@ -1441,7 +1442,13 @@ mod defaults {
 fn this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_their_own() {
     let (mut ui, m, p) = page();
     let own = dereth_input::dereth::INPUT_MAP;
-    for a in dereth_input::dereth::ACTIONS {
+    // Each this interface acts on: the classic interface's own settings' keys are not listed.
+    for a in dereth_input::dereth::ACTIONS.iter().filter(|a| {
+        dereth_input::presentation::find(own, ActionId(a.action)).is_some_and(|r| {
+            r.not_used(dereth_input::presentation::Interface::Retail)
+                .is_none()
+        })
+    }) {
         let i = p
             .row_of(own, ActionId(a.action))
             .unwrap_or_else(|| panic!("{} has a row", a.name));
@@ -1474,70 +1481,32 @@ fn this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_thei
     assert_eq!(headed, 3, "movement, interface and character settings");
 }
 
-/// The rows the retail interface does nothing with -- right-click mouse look, the stretched
-/// layout, automatic shortcuts, and the classic interface's cancel and repeat-message keys -- are
-/// listed last on their tabs, under their own heading, with their key buttons and a tooltip that
-/// says why; the hidden quickslots and the quest detail panel are not listed; Disable Most
-/// Weather Effects is, among the character options.
+/// The page lists the rows of the shared set this interface acts on and no others: none of the
+/// five only the classic interface answers -- right-click mouse look, the stretched layout,
+/// automatic shortcuts, and the classic cancel and repeat-message keys -- and neither the hidden
+/// quickslots nor the quest detail panel; Disable Most Weather Effects is listed, among the
+/// character options.
 ///
-/// Behaviour: keys.retail.the-key-page-lists-the-shared-rows-and-the-unused-ones-last
+/// Behaviour: keys.retail.the-key-page-lists-the-shared-rows-this-interface-acts-on
 #[test]
-fn the_key_page_lists_the_shared_rows_with_the_ones_this_interface_does_not_use_last() {
-    use dereth_input::presentation::{find, Interface, NOT_USED_HEADING};
+fn the_key_page_lists_the_shared_rows_this_interface_acts_on_and_no_others() {
+    use dereth_input::presentation::{find, Interface};
     let (mut ui, m, p) = page();
-    let unused: Vec<_> = p
-        .rows
-        .iter()
-        .filter(|r| {
-            find(r.input_map, r.action).is_some_and(|row| row.not_used(Interface::Retail).is_some())
-        })
-        .collect();
-    assert_eq!(unused.len(), 5);
-    for r in &unused {
-        assert_eq!(
-            r.key_buttons.len(),
-            3,
-            "bindable and clearable like any row"
-        );
-        assert!(!r.tooltip.is_empty(), "{:?} says why", r.action);
-    }
-    // Each heading is the last of its list, and every row after it is one of the five.
-    let mut headings = 0;
+    assert!(
+        p.rows.iter().all(|r| find(r.input_map, r.action)
+            .is_some_and(|row| row.not_used(Interface::Retail).is_none())),
+        "every row acts here"
+    );
     for h in p.header_elements.clone() {
         let text = ui
             .text_element_mut(h)
             .map(|t| t.glyphs.inq_text(false))
             .unwrap_or_default();
-        if text != NOT_USED_HEADING {
-            continue;
-        }
-        headings += 1;
-        let siblings = &p
-            .list_boxes
-            .iter()
-            .find(|(_, lb)| lb.items.contains(&h))
-            .expect("in a list")
-            .1
-            .items;
-        let at = siblings.iter().position(|c| *c == h).expect("in its list");
-        for e in &siblings[at + 1..] {
-            let row = p
-                .rows
-                .iter()
-                .find(|r| r.element == Some(*e))
-                .expect("a row");
-            assert!(
-                unused.iter().any(|u| u.action == row.action),
-                "{:?}",
-                row.action
-            );
-        }
-        assert!(at + 1 < siblings.len(), "the heading has rows under it");
+        assert!(
+            !text.contains("NOT USED"),
+            "no heading over unused rows: {text}"
+        );
     }
-    assert_eq!(
-        headings, 2,
-        "on the interface and the character settings tabs"
-    );
     let names: Vec<String> = p
         .rows
         .iter()
@@ -1547,6 +1516,11 @@ fn the_key_page_lists_the_shared_rows_with_the_ones_this_interface_does_not_use_
         "UseQuickSlot_10",
         "UseQuickSlot_18",
         "ToggleQuestManagementPanel",
+        "ToggleRightClickMouseLook",
+        "ToggleStretchUI",
+        "PlayerOption_AutoCreateShortcuts",
+        "Cancel",
+        "RepeatLastMessage",
     ] {
         assert!(!names.iter().any(|n| n == gone), "{gone} is not listed");
     }

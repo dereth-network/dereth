@@ -279,6 +279,32 @@ mod tests {
         assert_eq!(default_keys().count(), 75 + 2 * 5 + 15);
     }
 
+    /// Behaviour: keys.classic.a-row-this-interface-does-not-use-has-no-default-key
+    #[test]
+    fn every_row_this_interface_does_not_use_has_no_default_key() {
+        let defaults: Vec<(u32, u32)> = default_keys()
+            .map(|(_, _, action)| {
+                let home = dereth_input::presentation::rows_of(action)
+                    .next()
+                    .expect("a row")
+                    .map;
+                (home, action.0)
+            })
+            .collect();
+        let unused: Vec<_> = ROWS
+            .iter()
+            .filter(|r| r.not_used(Interface::Classic).is_some())
+            .collect();
+        assert_eq!(unused.len(), 18);
+        for r in unused {
+            assert!(
+                !defaults.contains(&(r.map, r.action().0)),
+                "{} has a default key here",
+                r.action_name
+            );
+        }
+    }
+
     #[test]
     fn scan_codes_become_classic_key_codes_with_the_keypad_kept_apart() {
         assert_eq!(virtual_key(0x11), Some(0x57));

@@ -1,9 +1,8 @@
 //! The classic interface's Keyboard Configuration page and its keys, over its own key map.
 //!
-//! The page lists every row of the one set of bindings both interfaces have
-//! ([`dereth_input::presentation`]), under the January 2005 page's categories and labels, three
-//! key slots a row; the rows that do nothing in this interface come last, under
-//! [`presentation::NOT_USED_HEADING`], and bind and clear like the others. A key is a keyboard
+//! The page lists the rows of the one set of bindings both interfaces have
+//! ([`dereth_input::presentation`]) that this interface acts on, under the January 2005 page's
+//! categories and labels, three key slots a row. A key is a keyboard
 //! key held with Shift, Ctrl or Alt or none, and the page shows and captures all of them. Every
 //! key the page binds or clears is asked of the host's map at once ([`KeyStoreRequest`]), so
 //! nothing is ever left unsaved; the schemes the page lists are this interface's defaults, the
@@ -224,13 +223,6 @@ impl KeyBindings {
             rows.sort_by_key(|r| r.label.to_lowercase());
             bindings.extend(rows.into_iter().map(row));
         }
-        bindings.push(header(presentation::NOT_USED_HEADING));
-        let mut rows: Vec<_> = presentation::ROWS
-            .iter()
-            .filter(|r| r.not_used(Interface::Classic).is_some())
-            .collect();
-        rows.sort_by_key(|r| (r.group, r.label.to_lowercase()));
-        bindings.extend(rows.into_iter().map(row));
         KeyboardState {
             capture_revision: self.capture_revision,
             warning: self.warning.clone(),
@@ -1028,16 +1020,16 @@ mod tests {
     }
 
     #[test]
-    fn the_page_lists_every_row_and_the_ones_not_used_here_last() {
+    fn the_page_lists_the_rows_this_interface_acts_on_and_no_others() {
         let page = KeyBindings::new(&keys()).snapshot();
         let rows = page.bindings.iter().filter(|b| b.action != 0).count();
-        assert_eq!(rows, presentation::ROWS.len());
-        let heading = page
-            .bindings
-            .iter()
-            .position(|b| b.label == presentation::NOT_USED_HEADING)
-            .unwrap();
-        assert_eq!(page.bindings.len() - heading - 1, 18);
+        assert_eq!(rows, presentation::ROWS.len() - 18);
+        assert_eq!(
+            page.bindings.iter().filter(|b| b.action == 0).count(),
+            presentation::CATEGORIES.len(),
+            "a heading for each category and no other"
+        );
+        assert!(!page.bindings.iter().any(|b| b.label.contains("alternate")));
         let combat: Vec<&str> = page
             .bindings
             .iter()

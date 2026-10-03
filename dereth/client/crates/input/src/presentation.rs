@@ -4,8 +4,7 @@
 //! belongs to, where the classic interface's page lists it and under what label, and whether it
 //! does anything in each interface. Both pages build from this table, each in its own style: the
 //! retail page by tab and section, the classic page by its January 2005 categories. A row that
-//! does nothing in an interface is still listed there, under that page's
-//! [`NOT_USED_HEADING`], where it can be bound and cleared like any other.
+//! does nothing in an interface is not on that interface's page and has no default key there.
 //!
 //! The rows are the user-bindable entries of the shipped action map (an action and the input map
 //! it is allowed in), this client's own actions, and Disable Most Weather Effects, which the
@@ -78,9 +77,6 @@ pub const CATEGORIES: [&str; 10] = [
     "Permanent Keys",
 ];
 
-/// The heading over the rows that do nothing in the interface whose page it is.
-pub const NOT_USED_HEADING: &str = "<<NOT USED IN THIS UI>>";
-
 /// Which interface's page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Interface {
@@ -88,7 +84,7 @@ pub enum Interface {
     Classic,
 }
 
-/// Why a row does nothing in one interface: the tooltip its page gives it.
+/// Why a row does nothing in one interface, and so is not on that interface's page.
 pub mod why {
     pub const ALTERNATE_CAMERA: &str = "The classic interface has no alternate camera mode: its \
         camera keys are always the camera keys.";
