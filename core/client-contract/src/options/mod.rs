@@ -12,20 +12,13 @@
 //! registry. Every item here is re-exported there, so
 //! `dereth_ui_screens::options::store::display_choice` and its siblings resolve.
 
-/// `PrefValueConst`, moved down out of `dereth_ui_screens::options::config`.
-/// The classic interface's own block of options.
 pub mod classic;
 pub mod config;
 pub mod interface;
-/// This client's own presentation options from another era: the ground's, the sky's and the
-/// objects'.
 pub mod landscape;
 pub mod performance;
-/// `UiPref` and `UI_PREFERENCES`, moved down out of `dereth_ui_screens::options::preferences`.
 pub mod preferences;
-/// The options both interfaces show: four pages of headings and rows.
 pub mod sheet;
-/// `UserPreferences`'s value store, verbatim from `dereth_ui_screens::options::store`.
 pub mod store;
 
 /// The title of the error box shown when opening a support URL fails (the shell's result is 32

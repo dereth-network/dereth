@@ -10,11 +10,11 @@
 //!
 //! The objects are the third: every object is drawn by its setup (the parts, how they are joined
 //! and how the world's motion data moves them), which stays the world's, and each part's model,
-//! surfaces, pictures and palettes, which can be the other era's. [`OBJECTS`](crate::options::landscape::OBJECTS) chooses: the
+//! surfaces, pictures and palettes, which can be the other era's. [`OBJECTS`] chooses: the
 //! files from before Throne of Destiny (Legacy) or the later ones (Modern).
 //!
-//! Three preferences choose, [`GROUND`](crate::options::landscape::GROUND), [`SKY`](crate::options::landscape::SKY) and [`OBJECTS`](crate::options::landscape::OBJECTS), each holding a [`RegionStyle`](crate::options::landscape::RegionStyle) or
-//! [`WORLD_DEFAULT`](crate::options::landscape::WORLD_DEFAULT) (the world's own). They are registered in the option value store beside the
+//! Three preferences choose, [`GROUND`], [`SKY`] and [`OBJECTS`], each holding a [`RegionStyle`] or
+//! [`WORLD_DEFAULT`] (the world's own). They are registered in the option value store beside the
 //! retail ones ([`crate::options::store::init`]) as unsigned enumerations whose choice labels are literal
 //! text, so any front end lists them from [`crate::options::store::choice_rows`] and writes them with
 //! [`crate::view::UiRequest::SetPreference`], as it does a retail option. The client applies a
