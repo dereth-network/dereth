@@ -1952,7 +1952,7 @@ pub fn enqueue_broadcast_motion(
         None => {
             enqueue_broadcast(w, this, true, &[msg]);
         }
-        Some(range) => enqueue_broadcast_range(w, this, &msg, range, None),
+        Some(range) => enqueue_update_broadcast_range(w, this, &msg, range),
     }
 
     if ENQUEUE_BROADCAST_MOTION_PHYSICS && apply_physics {
@@ -2011,13 +2011,43 @@ pub fn players_in_range(w: &mut World, this: ObjectGuid, range: f32) -> bool {
 
 // ACE: WorldObject.EnqueueBroadcast
 /// `EnqueueBroadcast(GameMessage msg, float range, ChatMessageType? squelchType = null)`: sends to
-/// the players who know about this object within `range` (and to itself, if a player).
+/// the players who know about this object within `range` (and to itself, if a player). This is how
+/// speech, emotes and local chat go out, so a speaker the listener was never sent, such as an NPC
+/// in a dungeon room the listener cannot see, is not heard.
 pub fn enqueue_broadcast_range(
     w: &mut World,
     this: ObjectGuid,
     msg: &GameMessage,
     range: f32,
     squelch_type: Option<ChatMessageType>,
+) {
+    let players = known_players(w, this);
+    broadcast_within_range(w, this, msg, range, squelch_type, players);
+}
+
+/// Not ACE's (retail captures, V286): an object update sent with a range (a motion with a maximum
+/// range) goes to the players in the broadcast reach within `range`, whether or not they have been
+/// sent the object, as every other update does. ACE sent it to the known players only.
+pub fn enqueue_update_broadcast_range(
+    w: &mut World,
+    this: ObjectGuid,
+    msg: &GameMessage,
+    range: f32,
+) {
+    let players = reach_players(w, this);
+    broadcast_within_range(w, this, msg, range, None, players);
+}
+
+/// The body of `EnqueueBroadcast(msg, range, squelchType)` over a given set of players: the object
+/// itself if a player, then each of `players` that does not squelch it, is in the same landblock
+/// when the object is in a dungeon, can see it, and is within `range`.
+fn broadcast_within_range(
+    w: &mut World,
+    this: ObjectGuid,
+    msg: &GameMessage,
+    range: f32,
+    squelch_type: Option<ChatMessageType>,
+    players: Vec<ObjectGuid>,
 ) {
     let Some(o) = w.objects.get(this) else { return };
     if o.phys.is_none() || o.current_landblock.is_none() {
@@ -2038,9 +2068,7 @@ pub fn enqueue_broadcast_range(
 
     let location = obj(w, this).location().expect("ACE: Location is null");
     let visibility = obj(w, this).visibility();
-    // Not ACE's (retail captures, V286): the range filter runs over the
-    // broadcast reach, so a speaker in range is heard whether or not the listener was sent it.
-    for player in reach_players(w, this) {
+    for player in players {
         if let (Some(self_), Some(squelch_type)) = (self_, squelch_type) {
             if shims::player_squelches_contains(w, player, self_, squelch_type) {
                 continue;

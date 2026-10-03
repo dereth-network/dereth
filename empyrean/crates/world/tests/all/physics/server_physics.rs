@@ -991,18 +991,23 @@ fn a_delete_reaches_players_in_the_reach_who_never_knew_or_forgot_the_object() {
     );
 }
 
-/// V260/V278/V286/V287/V308 stage 2c: a ranged broadcast (speech) still filters by distance, now over the reach: a
-/// listener within range is heard whether or not it knows the speaker; one in the reach but out
-/// of range is not.
+/// The chat message every ranged broadcast below sends, as speech, emotes and local chat do.
+fn chat_message() -> empyrean_world::network::game_messages::game_message::GameMessage {
+    empyrean_world::network::game_messages::game_message::GameMessage::new(
+        empyrean_world::network::game_messages::game_message_opcode::GameMessageOpcode(0xF7E0),
+        empyrean_net::GameMessageGroup::UIQueue,
+    )
+}
+
+/// A ranged broadcast (speech, emotes, local chat) goes to the players who know the object and
+/// are within range, as ACE sends it: a listener out of range is not sent it, and nor is one in
+/// range who has forgotten the object. V286's reach is for object updates.
 #[test]
-fn a_ranged_broadcast_is_still_distance_limited_over_the_reach() {
+fn a_ranged_broadcast_goes_to_the_known_players_within_range() {
     let (mut w, x, [a, _b, _c]) = reach_scene();
     let hx = phys_ext::physics_obj(&w, x).expect("a body");
     let ha = phys_ext::physics_obj(&w, a).expect("a body");
-    let msg = empyrean_world::network::game_messages::game_message::GameMessage::new(
-        empyrean_world::network::game_messages::game_message_opcode::GameMessageOpcode(0xF7E0),
-        empyrean_net::GameMessageGroup::UIQueue,
-    );
+    let msg = chat_message();
     // within 20 m: A, known
     empyrean_world::world_objects::world_object_networking::enqueue_broadcast_range(
         &mut w, x, &msg, 20.0, None,
@@ -1016,7 +1021,7 @@ fn a_ranged_broadcast_is_still_distance_limited_over_the_reach() {
     );
     assert_eq!(received(&sent, 3, 0xF7E0), 0, "C");
 
-    // A forgets the object and is still in range: still heard
+    // A forgets the object and is still in range: no longer sent it
     om::remove_object(&mut w, ha, hx, true);
     empyrean_world::world_objects::world_object_networking::enqueue_broadcast_range(
         &mut w, x, &msg, 20.0, None,
@@ -1024,10 +1029,59 @@ fn a_ranged_broadcast_is_still_distance_limited_over_the_reach() {
     let sent = sent_opcodes();
     assert_eq!(
         received(&sent, 1, 0xF7E0),
-        1,
-        "A, in range though it no longer knows the speaker"
+        0,
+        "A, in range but no longer knowing the speaker"
     );
     assert_eq!(received(&sent, 2, 0xF7E0) + received(&sent, 3, 0xF7E0), 0);
+}
+
+/// A speaker the listener was never sent is not heard, however wide the range: B is in the reach
+/// and within a 400 m range, but has never been sent the object.
+#[test]
+fn a_ranged_broadcast_does_not_reach_a_player_in_range_who_was_never_sent_the_speaker() {
+    let (mut w, x, _) = reach_scene();
+    empyrean_world::world_objects::world_object_networking::enqueue_broadcast_range(
+        &mut w,
+        x,
+        &chat_message(),
+        400.0,
+        None,
+    );
+    let sent = sent_opcodes();
+    assert_eq!(received(&sent, 1, 0xF7E0), 1, "A, who knows it");
+    assert_eq!(
+        received(&sent, 2, 0xF7E0),
+        0,
+        "B, 360 m away and in range, never sent the speaker"
+    );
+    assert_eq!(received(&sent, 3, 0xF7E0), 0, "C, outside the 3x3");
+}
+
+/// V286 stage 2c: a motion broadcast with a maximum range is an object update, so it reaches the
+/// players in the 3x3 within that range whether or not they know the object.
+#[test]
+fn a_ranged_motion_broadcast_reaches_players_in_range_who_do_not_know_the_object() {
+    let (mut w, x, _) = reach_scene();
+    let motion = empyrean_world::network::motion::movement_data::Motion::new(
+        MotionStance::NonCombat,
+        MotionCommand::Ready,
+        1.0,
+    );
+    empyrean_world::world_objects::world_object_networking::enqueue_broadcast_motion(
+        &mut w,
+        x,
+        &motion,
+        Some(400.0),
+        Some(false),
+    );
+    let sent = sent_opcodes();
+    assert_eq!(received(&sent, 1, 0xF74C), 1, "A, who knows it");
+    assert_eq!(
+        received(&sent, 2, 0xF74C),
+        1,
+        "B, in the reach and in range, never sent the object"
+    );
+    assert_eq!(received(&sent, 3, 0xF74C), 0, "C, outside the 3x3");
 }
 
 // ---------------------------------------------------------------------------------- V288
