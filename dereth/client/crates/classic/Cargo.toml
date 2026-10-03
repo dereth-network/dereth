@@ -8,6 +8,10 @@ license.workspace = true
 publish = false
 autotests = false
 
+[[test]]
+name = "cpu"
+path = "tests/cpu.rs"
+
 [features]
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
 # under $DERETH_TEST_DAT_DIR and the classic portal under $DERETH_CLASSIC_PORTAL.

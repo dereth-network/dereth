@@ -1588,7 +1588,10 @@ impl ClassicUi {
                 self.pending_split = None;
             }
         }
-        Vec::new()
+        match notice {
+            Notice::OpenContainedContainer(id) => vec![UiRequest::NewParentContainer(*id)],
+            _ => Vec::new(),
+        }
     }
     #[must_use]
     pub fn hides_world(&self) -> bool {

@@ -523,6 +523,10 @@ impl Panel for Inventory {
                     if id == "containers" || id == "backpack" {
                         self.container = Some(object);
                         self.item_scroll = 0;
+                        return vec![
+                            PanelAction::Game(UiRequest::NewParentContainer(object)),
+                            PanelAction::Game(UiRequest::Select(object)),
+                        ];
                     }
                     return vec![PanelAction::Game(UiRequest::Select(object))];
                 }
