@@ -1057,6 +1057,20 @@ mod imp {
             }
         }
 
+        /// Apply object scale on top of each part's setup scale, including its animated offset.
+        pub fn set_scale(&mut self, i: usize, scale: f32) {
+            if let Some(o) = self.objects.get_mut(i) {
+                let scale = if scale.is_finite() && scale > 0.0 {
+                    scale
+                } else {
+                    1.0
+                };
+                o.part_array
+                    .set_scale_internal(Vec3::new(scale, scale, scale));
+                o.part_array.update_parts(&o.frame, &o.sequence);
+            }
+        }
+
         /// Advance the sequence and update the parts for every object in the space.
         ///
         /// **`dt` is elapsed seconds and nothing here accumulates per frame**:

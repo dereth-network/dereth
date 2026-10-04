@@ -1130,6 +1130,12 @@ mod imp {
             }
         }
 
+        fn preview_set_scale(&mut self, id: PreviewId, index: usize, scale: f32) {
+            if let Some(s) = self.preview_mut(id) {
+                s.set_scale(index, scale);
+            }
+        }
+
         fn preview_set_sequence_animation(
             &mut self,
             id: PreviewId,

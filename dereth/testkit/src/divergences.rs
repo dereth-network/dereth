@@ -227,9 +227,9 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD-028",
-        title: "Vendor carts remain after transactions",
-        change: "Buying or selling leaves the cart rows visible through stock updates; clearing a cart, closing the vendor or visiting another vendor removes them.",
-        why: "Players can review and reuse their cart without rebuilding it after every transaction.",
+        title: "Vendor carts track completed transfers",
+        change: "Completed purchases and sales remove only their fulfilled basket rows; unfulfilled and opposite-basket rows remain until explicitly cleared or the vendor session ends. Finite stock remains listed while it is only in the buy basket.",
+        why: "A basket describes outstanding choices, and adding an item to it does not purchase the stock.",
     },
     Divergence {
         id: "CD-029",

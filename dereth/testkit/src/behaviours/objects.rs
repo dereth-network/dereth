@@ -700,6 +700,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "objects.player.described-scale-reaches-body-and-paper-doll",
+        says: "The player's described scale reaches local animation, collision and the paper doll. Later descriptions update the same body and preview, including a return to unit scale.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PLAYER-SCALE"),
+        station: "dereth-client::dat::objects::player_scale::described_player_scale_reaches_animation_and_collision_and_returns_to_normal",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "objects.player.every-player-setup-collides-with-two-spheres",
         says: "Every body a player character can have, whatever heritage, sex, hair or barber \
                choice, collides as two spheres and never as a cylinder or a detailed mesh.",

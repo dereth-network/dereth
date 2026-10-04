@@ -112,7 +112,7 @@ fn changed_stack_receipts_reseed_before_the_app_projects_the_toolbar() {
     assert_eq!(app.objects_mut().world.split.split_size, 80);
 }
 
-/// Behaviour: vendor.baskets.transactions-retain-rows-until-clear-or-close
+/// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain
 #[test]
 fn selling_one_item_removes_the_drawn_sale_marker_without_removing_its_cart_row() {
     let (mut ui, mut screen) = shipped_gameplay();

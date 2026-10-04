@@ -192,6 +192,20 @@ pub struct Shop {
     /// placeholder; when an object of the same class and exactly the split size is declared, it
     /// takes the placeholder's row. Closing the shop drops the wait with the rest of the state.
     pub pending_sell_split: Option<PendingSellSplit>,
+    /// Submitted rows awaiting the merchant's inventory refresh.
+    pub pending_transaction: Option<PendingTransaction>,
+}
+
+/// Receipt facts captured when a shop request is sent.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PendingTransaction {
+    Buy {
+        rows: Vec<ItemProfile>,
+        owned: std::collections::BTreeMap<u32, i64>,
+    },
+    Sell {
+        owned: Vec<ObjectId>,
+    },
 }
 
 /// The three things the sell list remembers about a split it asked for: the row standing in for
@@ -576,7 +590,10 @@ impl crate::world::World {
         let sell_mode = self.shop.attempt_open_vendor == Some(m.merchant_id);
         let sale_object = self.shop.attempt_sale_object;
         let same_vendor = self.shop.vendor_id == Some(m.merchant_id);
-        if !same_vendor {
+        let stock: Vec<ItemProfile> = m.items.iter().filter_map(ItemProfile::from_wire).collect();
+        if same_vendor {
+            self.complete_vendor_transaction(&stock);
+        } else {
             self.flush_sell_list_sell_state();
         }
         let buy_list = if same_vendor {
@@ -597,7 +614,6 @@ impl crate::world::World {
         let pending_sell_split = same_vendor
             .then_some(self.shop.pending_sell_split)
             .flatten();
-        let stock: Vec<ItemProfile> = m.items.iter().filter_map(ItemProfile::from_wire).collect();
         let taken = stock.len();
         self.shop = Shop {
             vendor_id: Some(m.merchant_id),
@@ -619,6 +635,7 @@ impl crate::world::World {
             total_value: self.shop.total_value,
             last_sale: 0,
             pending_sell_split,
+            pending_transaction: None,
         };
         // **The client's purse refresh.**
         // The purse has to be filled *before* the panel is told the window opened, because the
@@ -976,6 +993,7 @@ impl crate::world::World {
         if self.shop.trade_currency().is_some() {
             self.shop.last_sale = count;
         }
+        self.begin_vendor_purchase(&[(item, count)]);
         req.send(crate::Request::VendorBuy(
             dereth_protocol::trade::VendorBuy {
                 vendor_id: vendor,
@@ -1058,7 +1076,21 @@ impl crate::world::World {
         let Some((pwd, _)) = self.priced_row(item) else {
             return false;
         };
-        let count = Self::buy_count(&pwd, split);
+        let mut count = Self::buy_count(&pwd, split);
+        if let Some(stock) = self.shop.stock_item(item).filter(|row| row.amount != -1) {
+            let basketed: i64 = self
+                .shop
+                .buy_list
+                .iter()
+                .filter(|(id, _)| *id == item)
+                .map(|(_, amount)| i64::from(*amount))
+                .sum();
+            let available = (i64::from(stock.amount) - basketed).max(0);
+            count = count.min(i32::try_from(available).unwrap_or(i32::MAX));
+        }
+        if count <= 0 {
+            return false;
+        }
         self.shop.basket_descriptions.insert(item, pwd);
         self.shop.buy_list.push((item, count));
         true
@@ -1111,6 +1143,7 @@ impl crate::world::World {
             .shop
             .event_buy()
             .expect("the basket is non-empty and a vendor is open");
+        self.begin_vendor_purchase(&self.shop.buy_list.clone());
         req.send(crate::Request::VendorBuy(m));
         self.record_shop_request(vendor, now);
         Ok(true)
@@ -1301,6 +1334,7 @@ impl crate::world::World {
             return Err(PART_OF_A_STACK);
         }
         self.shop.last_sale = 0;
+        self.begin_vendor_sale(&[item]);
         req.send(crate::Request::VendorSell(
             dereth_protocol::trade::VendorSell {
                 vendor_id: vendor,
@@ -1344,6 +1378,7 @@ impl crate::world::World {
             return false;
         };
         self.shop.last_sale = 0;
+        self.begin_vendor_sale(&m.items.iter().map(|row| row.iid).collect::<Vec<_>>());
         req.send(crate::Request::VendorSell(m));
         self.record_shop_request(vendor, now);
         self.clear_sell_marks();
@@ -1614,6 +1649,111 @@ impl crate::world::World {
             }
         }
         n
+    }
+
+    fn owned_vendor_quantities(&self) -> std::collections::BTreeMap<u32, i64> {
+        let mut quantities = std::collections::BTreeMap::new();
+        for (id, w) in self.tables.weenies.iter() {
+            if self.is_owned_by_player(id) {
+                *quantities.entry(w.pwd.wcid).or_default() +=
+                    i64::from(w.pwd.stack_size.unwrap_or(1).max(1));
+            }
+        }
+        quantities
+    }
+
+    fn begin_vendor_purchase(&mut self, requested: &[(ObjectId, i32)]) {
+        let rows = requested
+            .iter()
+            .filter_map(|(id, amount)| {
+                let mut row = self.shop.stock.iter().find(|row| row.iid == *id)?.clone();
+                row.amount = (*amount).max(0);
+                Some(row)
+            })
+            .collect();
+        self.shop.pending_transaction = Some(PendingTransaction::Buy {
+            rows,
+            owned: self.owned_vendor_quantities(),
+        });
+    }
+
+    fn begin_vendor_sale(&mut self, requested: &[ObjectId]) {
+        self.shop.pending_transaction = Some(PendingTransaction::Sell {
+            owned: requested
+                .iter()
+                .copied()
+                .filter(|id| self.is_owned_by_player(*id))
+                .collect(),
+        });
+    }
+
+    /// A refusal ends receipt tracking without discarding either basket.
+    pub fn refuse_vendor_transaction(&mut self) {
+        self.shop.pending_transaction = None;
+    }
+
+    // Inventory receipts precede the matching stock refresh. Only submitted rows with an
+    // observed transfer are removed; an unrelated refresh has no pending transaction.
+    fn complete_vendor_transaction(&mut self, stock: &[ItemProfile]) {
+        let Some(transaction) = self.shop.pending_transaction.take() else {
+            return;
+        };
+        match transaction {
+            PendingTransaction::Sell { owned } => {
+                let sold: Vec<_> = owned
+                    .into_iter()
+                    .filter(|id| !self.is_owned_by_player(*id))
+                    .collect();
+                self.shop.sell_list.retain(|(id, _)| !sold.contains(id));
+            }
+            PendingTransaction::Buy { rows, owned } => {
+                let mut received = self.owned_vendor_quantities();
+                for (class, count) in &mut received {
+                    *count = (*count - owned.get(class).copied().unwrap_or(0)).max(0);
+                }
+                for row in rows {
+                    let available = received.entry(row.pwd.wcid).or_default();
+                    // Services do not create carried objects. Their successful merchant refresh
+                    // is their receipt; a failure discards the pending transaction first.
+                    let mut completed =
+                        if row.pwd.obj_type & dereth_rules::weenie::item_type::SERVICE != 0 {
+                            row.amount
+                        } else {
+                            // A finite row's stock decrease identifies which offered instance
+                            // completed when several rows share a class. Inventory corroborates
+                            // delivery even when the server splits or merges the received stack.
+                            let fulfilled = self
+                                .shop
+                                .stock
+                                .iter()
+                                .find(|offered| offered.iid == row.iid && offered.amount != -1)
+                                .map_or(row.amount, |offered| {
+                                    let remaining = stock
+                                        .iter()
+                                        .find(|next| next.iid == row.iid)
+                                        .map_or(0, |next| next.amount.max(0));
+                                    offered
+                                        .amount
+                                        .saturating_sub(remaining)
+                                        .max(0)
+                                        .min(row.amount)
+                                });
+                            let amount = i64::from(fulfilled).min(*available);
+                            *available -= amount;
+                            i32::try_from(amount).unwrap_or(i32::MAX)
+                        };
+                    for (id, amount) in &mut self.shop.buy_list {
+                        if *id == row.iid {
+                            let removed = (*amount).min(completed);
+                            *amount -= removed;
+                            completed -= removed;
+                        }
+                    }
+                }
+                self.shop.buy_list.retain(|(_, amount)| *amount > 0);
+            }
+        }
+        self.prune_vendor_basket_descriptions();
     }
 
     /// Record the outstanding shop request and increment the busy count after sending.

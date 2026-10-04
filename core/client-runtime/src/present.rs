@@ -384,6 +384,7 @@ pub trait Presentation: std::fmt::Debug {
         objdesc: Option<&dereth_animation::parts::ObjDesc>,
     ) -> Result<Option<usize>, PresentError>;
     fn preview_set_heading(&mut self, id: PreviewSpace, index: usize, degrees: f32);
+    fn preview_set_scale(&mut self, id: PreviewSpace, index: usize, scale: f32);
     fn preview_set_sequence_animation(
         &mut self,
         id: PreviewSpace,
@@ -628,6 +629,9 @@ impl Presentation for NullPresentation {
         Ok(None)
     }
     fn preview_set_heading(&mut self, _id: PreviewSpace, _index: usize, _degrees: f32) {
+        self.counts.preview_calls += 1;
+    }
+    fn preview_set_scale(&mut self, _id: PreviewSpace, _index: usize, _scale: f32) {
         self.counts.preview_calls += 1;
     }
     fn preview_set_sequence_animation(

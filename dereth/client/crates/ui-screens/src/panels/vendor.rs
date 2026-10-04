@@ -348,12 +348,8 @@ pub struct VendorPanel {
     /// The type-filter open saves the list's horizontal scroll around the filter-menu callback. The
     /// screen's callback is queued, so retain this until that MENU_CHOSEN has been delivered.
     pending_open_scroll_x: Option<(i32, u32)>,
-    /// How many stock rows the buy basket's subtraction dropped:
-    ///
-    /// The row does not appear greyed, zeroed or struck through — it **disappears**, and a
-    /// player who adds a vendor's whole stock of tapers to the basket stops seeing tapers. The
-    /// counter exists because "the row is absent" is also what a broken mask, an empty stock and a
-    /// panel that never ran look like; three states, not two.
+    /// Rows excluded by basket membership. This remains zero because advertised stock stays
+    /// visible until a purchase is received, independently of the basket.
     pub basket_drops: u32,
     /// How many stock rows the containment gate dropped:
     /// either the contained-item count or the contained-container count is nonzero.
@@ -914,7 +910,7 @@ impl VendorPanel {
     /// mask from the argument or, when that is 0, from [`Self::selected_type_filter`], and walks
     /// the vendor's profile list. Each profile is skipped when it has no live object or when `mask
     /// & type` is 0; the first row past the mask is remembered as `first`; then come the stack-size
-    /// write and the buy-basket subtraction, the examination refresh for the selected object, the
+    /// write, the examination refresh for the selected object, the
     /// containment gate, the sell mark (sell list only) and the insert. The tail selects `first`
     /// when `select_first` is set, and scrolls to row 0 when the list has rows.
     ///
@@ -928,17 +924,9 @@ impl VendorPanel {
     /// list-contains-type gates fired for — and it is why [`Self::last_mask`] has to distinguish
     /// `Some(0)` from `None`.
     ///
-    /// **What is here and what is not.** **Four** gates decide membership and all four are
-    /// here. The weenie test is the seam's own construction (a [`ShopRow`] exists only for a
-    /// profile the `0x0062` carried a `PublicWeenieDesc` for, which is precisely the set for which
-    /// the world constructs objects; see `dereth_client::vendor_view`'s `inq_type`). The mask test is
-    /// the bit test above. The other two are:
-    ///
-    /// * the **buy-basket subtraction**, which drops a
-    ///   finite stock row the basket already holds the whole of. That is corpus-reachable: the
-    ///   eighth recorded `0x0062` sells `0x80000997` "Sack" with `amount == 1`.
-    /// * the **containment gate**, which needed two new [`ShopRow`] fields, because an object's
-    ///   inventory is not part of a `PublicWeenieDesc` and the answer exists only in the world.
+    /// Membership follows the advertised object, category mask and empty-container checks.
+    /// Finite stock stays listed while basketed; the shared Add predicate prevents exceeding
+    /// its advertised quantity. Only a received merchant refresh changes the stock list.
     ///
     /// The client's stack-size write is decided here and applied by the host, because it writes a
     /// **desc** and not a widget — see [`UiRequest::VendorSetObjectStackSize`]. It is not a
@@ -1076,7 +1064,15 @@ impl VendorPanel {
         let mut wrote = 0;
         wrote += usize::from(set_text(ui, self.item_name_text, &name));
         wrote += usize::from(set_text(ui, self.item_cost_text, &cost));
-        for h in [self.buy_button, self.add_button].into_iter().flatten() {
+        for (button, adding) in [(self.buy_button, false), (self.add_button, true)] {
+            let Some(h) = button else { continue };
+            let state = if adding
+                && !selected.is_some_and(|id| dereth_client_contract::vendor::can_add_stock(s, id))
+            {
+                dereth_ui::StateId(0x0D)
+            } else {
+                state
+            };
             ui.set_state(h, state);
             wrote += 1;
         }
@@ -1694,8 +1690,12 @@ impl VendorPanel {
             BTN_SELL_ALL | BTN_SELL_CLEAR_LIST => sell.all,
             BTN_BUY | BTN_ADD_TO_LIST => {
                 shop.open
-                    && selected.is_some_and(|id| {
-                        self.rows[Tab::Items as usize].iter().any(|r| r.item == id)
+                    && selected.is_some_and(|item| {
+                        self.rows[Tab::Items as usize]
+                            .iter()
+                            .any(|r| r.item == item)
+                            && (id != BTN_ADD_TO_LIST
+                                || dereth_client_contract::vendor::can_add_stock(&shop, item))
                     })
             }
             _ => true,
@@ -1831,6 +1831,7 @@ mod tests {
     fn populated_panel() -> VendorPanel {
         let row = ShopRow {
             item: dereth_primitives::ObjectId(0x8000_0A6E),
+            amount: -1,
             ..Default::default()
         };
         VendorPanel {

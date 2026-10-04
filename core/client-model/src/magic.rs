@@ -1240,6 +1240,8 @@ impl World {
     /// cursor up until enough raises bring it back round to zero; this one floors at zero instead,
     /// so a stray acknowledgement never leaves the cursor stuck.
     pub fn use_done(&mut self, error: u32) -> u32 {
+        // A successful shop refresh precedes use-done; failure may end with a zero error too.
+        self.refuse_vendor_transaction();
         self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
         error
     }

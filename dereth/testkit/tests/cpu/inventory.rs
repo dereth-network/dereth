@@ -26,9 +26,9 @@ use dereth_testkit::{Given, HeadlessClient, Inbound, Player, ScenarioView};
 /// scenario asserts**, and the function.
 pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     (
-        "vendor_transactions_keep_baskets_through_refresh",
-        &["vendor.baskets.transactions-retain-rows-until-clear-or-close"],
-        vendor_transactions_keep_baskets_through_refresh,
+        "vendor_transactions_preserve_uncompleted_basket_rows",
+        &["vendor.baskets.completed-rows-leave-uncompleted-rows-remain"],
+        vendor_transactions_preserve_uncompleted_basket_rows,
     ),
     (
         "a_confirmed_use_prints_the_same_line",
@@ -4367,8 +4367,8 @@ fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarg
     }
 }
 
-/// A purchase and a sale retain their carts through the shard's stock refresh.
-pub fn vendor_transactions_keep_baskets_through_refresh() {
+/// Uncompleted rows survive refreshes, while transferred sale rows leave only their own basket.
+pub fn vendor_transactions_preserve_uncompleted_basket_rows() {
     let mut c = at_a_shop(&[(OIL, "Oil of Rendering", 100)]);
     add_carried(c.world_mut(), PLAYER, MY_KEY, item_type::MISC, 100);
     add_carried(c.world_mut(), PLAYER, MY_RING, item_type::MISC, 200);
@@ -4394,18 +4394,18 @@ pub fn vendor_transactions_keep_baskets_through_refresh() {
     assert_eq!(c.view().world().weenie(MY_RING).unwrap().sell_state, 1);
     c.world_mut().tables.weenies.remove(MY_KEY);
     c.when(Inbound::message(&a_shop(MERCHANT, &[])));
-    assert_eq!(c.view().world().shop.sell_list, [(MY_KEY, 1), (MY_RING, 1)]);
+    assert_eq!(c.view().world().shop.sell_list, [(MY_RING, 1)]);
     let shown = dereth_client_runtime::vendor_view::shop(c.view().world());
     assert_eq!(shown.buy_list[0].name, "Oil of Rendering");
     assert_eq!(
         shown.sell_list.iter().map(|r| r.item).collect::<Vec<_>>(),
-        [MY_KEY, MY_RING]
+        [MY_RING]
     );
     c.when(Player::ui(UiRequest::VendorSellAll));
-    assert!(matches!(c.outbound().last(), Some(Request::VendorSell(m)) if m.items.len() == 2));
+    assert!(matches!(c.outbound().last(), Some(Request::VendorSell(m)) if m.items.len() == 1));
     assert_eq!(c.view().world().weenie(MY_RING).unwrap().sell_state, 0);
     c.when(Inbound::message(&a_shop(MERCHANT, &[])));
-    assert_eq!(c.view().world().shop.sell_list.len(), 2);
+    assert_eq!(c.view().world().shop.sell_list.len(), 1);
     c.when(Player::ui(UiRequest::VendorClearList {
         sell: true,
         item: Some(MY_KEY),
@@ -4447,7 +4447,7 @@ pub fn vendor_transactions_keep_baskets_through_refresh() {
         dereth_client_net::client_session::SessionEvent::WorldReset,
     )));
     c.assert_behaviour(
-        "vendor.baskets.transactions-retain-rows-until-clear-or-close",
+        "vendor.baskets.completed-rows-leave-uncompleted-rows-remain",
         move |v| {
             closed
                 && v.world().shop.vendor_id.is_none()
@@ -4459,6 +4459,220 @@ pub fn vendor_transactions_keep_baskets_through_refresh() {
 }
 
 #[test]
-fn scenario_vendor_transactions_keep_baskets_through_refresh() {
-    scenario("vendor_transactions_keep_baskets_through_refresh");
+fn scenario_vendor_transactions_preserve_uncompleted_basket_rows() {
+    scenario("vendor_transactions_preserve_uncompleted_basket_rows");
+}
+
+/// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain
+#[test]
+fn vendor_receipts_remove_only_fulfilled_quantities_and_survive_refusal() {
+    const CARRIED: ObjectId = ObjectId(0x9000_0080);
+    let mut c = at_a_shop(&[]);
+    let mut stock = a_shop(
+        MERCHANT,
+        &[(OIL, "Oil", 1), (TAPER, "Taper", 1), (SCARAB, "Book", 1)],
+    );
+    for (index, row) in stock.items.iter_mut().enumerate() {
+        let pwd = row.pwd.as_mut().unwrap();
+        pwd.wcid = 100 + u32::try_from(index).unwrap();
+        pwd.max_stack_size = Some(100);
+        pwd.stack_size = Some(100);
+    }
+    stock.items[2].amount = 1;
+    c.when(Inbound::message(&stock));
+    add_carried(c.world_mut(), PLAYER, CARRIED, item_type::MISC, 2);
+    {
+        let w = c.world_mut().weenie_mut(CARRIED).unwrap();
+        w.pwd.wcid = 100;
+        w.pwd.stack_size = Some(2);
+        w.pwd.max_stack_size = Some(100);
+    }
+    add_carried(c.world_mut(), PLAYER, MY_KEY, item_type::MISC, 10);
+    add_carried(c.world_mut(), PLAYER, MY_RING, item_type::MISC, 10);
+    c.when(Player::Ui(vec![
+        UiRequest::VendorAddToBuyList {
+            item: OIL,
+            split: 3,
+        },
+        UiRequest::VendorAddToBuyList {
+            item: TAPER,
+            split: 1,
+        },
+        UiRequest::VendorAddToBuyList {
+            item: SCARAB,
+            split: 1,
+        },
+        UiRequest::VendorAddToSell { item: MY_KEY },
+        UiRequest::VendorAddToSell { item: MY_RING },
+        UiRequest::VendorBuyAll,
+    ]));
+    assert!(
+        matches!(c.outbound().last(), Some(Request::VendorBuy(m)) if m.items.iter().map(|r| (r.iid, r.amount)).collect::<Vec<_>>()
+            == [(OIL, 3), (TAPER, 1), (SCARAB, 1)])
+    );
+    assert_eq!(c.view().world().shop.buy_list.len(), 3);
+    c.when(Inbound::message(&new_count(1, CARRIED, 4, 4)));
+    c.when(Inbound::message(
+        &dereth_protocol::objects::ItemServerSaysContainId {
+            item: SCARAB,
+            container: PLAYER,
+            slot: 3,
+            container_properties: 0,
+        },
+    ));
+    stock.items.pop();
+    c.when(Inbound::message(&stock));
+    assert_eq!(c.view().world().shop.buy_list, [(OIL, 1), (TAPER, 1)]);
+    assert_eq!(c.view().world().shop.sell_list, [(MY_KEY, 1), (MY_RING, 1)]);
+    assert!(!c
+        .view()
+        .world()
+        .shop
+        .basket_descriptions
+        .contains_key(&SCARAB));
+
+    // A repeated refresh cannot spend the same observed inventory increase twice.
+    c.when(Inbound::message(&stock));
+    assert_eq!(c.view().world().shop.buy_list, [(OIL, 1), (TAPER, 1)]);
+    c.when(Player::ui(UiRequest::VendorSellAll));
+    c.when(Inbound::message(
+        &dereth_protocol::objects::ItemServerSaysContainId {
+            item: MY_KEY,
+            container: MERCHANT,
+            slot: 0,
+            container_properties: 0,
+        },
+    ));
+    c.when(Inbound::message(&stock));
+    assert_eq!(c.view().world().shop.sell_list, [(MY_RING, 1)]);
+    assert_eq!(c.view().world().shop.buy_list, [(OIL, 1), (TAPER, 1)]);
+
+    c.when(Player::ui(UiRequest::VendorBuyAll));
+    c.when(Inbound::message(&dereth_protocol::objects::ItemUseDone {
+        failure_type: 0,
+    }));
+    c.when(Inbound::message(&new_count(2, CARRIED, 5, 5)));
+    c.when(Inbound::message(&stock));
+    assert_eq!(c.view().world().shop.buy_list, [(OIL, 1), (TAPER, 1)]);
+    assert_eq!(c.view().world().shop.sell_list, [(MY_RING, 1)]);
+}
+
+/// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain
+#[test]
+fn partial_finite_receipts_identify_the_changed_row_even_when_classes_match() {
+    const RECEIVED: ObjectId = ObjectId(0x9000_0081);
+    for existing_stack in [false, true] {
+        let mut c = at_a_shop(&[]);
+        let mut stock = a_shop(
+            MERCHANT,
+            &[(OIL, "First quality", 1), (TAPER, "Second quality", 2)],
+        );
+        for row in &mut stock.items {
+            row.amount = 5;
+            let pwd = row.pwd.as_mut().unwrap();
+            pwd.wcid = 777;
+            pwd.stack_size = Some(5);
+            pwd.max_stack_size = Some(100);
+        }
+        c.when(Inbound::message(&stock));
+        if existing_stack {
+            add_carried(c.world_mut(), PLAYER, RECEIVED, item_type::MISC, 4);
+            let carried = c.world_mut().weenie_mut(RECEIVED).unwrap();
+            carried.pwd.wcid = 777;
+            carried.pwd.stack_size = Some(4);
+            carried.pwd.max_stack_size = Some(100);
+        } else {
+            // The transferred split has its own identity and description, separate from stock.
+            put(
+                c.world_mut(),
+                RECEIVED,
+                "Received second quality",
+                PublicWeenieDesc {
+                    wcid: 777,
+                    obj_type: item_type::MISC,
+                    stack_size: Some(2),
+                    max_stack_size: Some(100),
+                    container_id: Some(MERCHANT),
+                    ..Default::default()
+                },
+            );
+        }
+        c.when(Player::Ui(vec![
+            UiRequest::VendorAddToBuyList {
+                item: OIL,
+                split: 3,
+            },
+            UiRequest::VendorAddToBuyList {
+                item: TAPER,
+                split: 3,
+            },
+            UiRequest::VendorBuyAll,
+        ]));
+        assert!(matches!(c.outbound().last(), Some(Request::VendorBuy(m))
+            if m.items.iter().map(|r| (r.iid, r.amount)).collect::<Vec<_>>()
+                == [(OIL, 3), (TAPER, 3)]));
+        if existing_stack {
+            c.when(Inbound::message(&new_count(1, RECEIVED, 6, 6)));
+        } else {
+            c.when(Inbound::message(
+                &dereth_protocol::objects::ItemServerSaysContainId {
+                    item: RECEIVED,
+                    container: PLAYER,
+                    slot: 3,
+                    container_properties: 0,
+                },
+            ));
+        }
+        stock.items[1].amount = 3;
+        c.when(Inbound::message(&stock));
+        assert_eq!(
+            c.view().world().shop.buy_list,
+            [(OIL, 3), (TAPER, 1)],
+            "only two of the second row completed, independent of receipt identity"
+        );
+        assert!(c.view().world().is_owned_by_player(RECEIVED));
+        assert!(!c.view().world().is_owned_by_player(OIL));
+        assert!(!c.view().world().is_owned_by_player(TAPER));
+        c.when(Inbound::message(&stock));
+        assert_eq!(c.view().world().shop.buy_list, [(OIL, 3), (TAPER, 1)]);
+    }
+}
+
+/// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain
+#[test]
+fn service_baskets_complete_on_successful_refresh_but_not_after_use_done_refusal() {
+    for failure_type in [0, 0x0416] {
+        let mut c = at_a_shop(&[]);
+        let mut stock = a_shop(MERCHANT, &[(OIL, "Service", 1)]);
+        stock.items[0].pwd.as_mut().unwrap().obj_type = item_type::SERVICE;
+        c.when(Inbound::message(&stock));
+        add_carried(c.world_mut(), PLAYER, MY_KEY, item_type::MISC, 10);
+        c.when(Player::Ui(vec![
+            UiRequest::VendorAddToBuyList {
+                item: OIL,
+                split: 1,
+            },
+            UiRequest::VendorAddToSell { item: MY_KEY },
+            UiRequest::VendorBuyAll,
+        ]));
+        assert!(matches!(c.outbound().last(), Some(Request::VendorBuy(m))
+            if m.items.len() == 1 && m.items[0].iid == OIL));
+        assert_eq!(c.view().world().shop.buy_list, [(OIL, 1)]);
+        c.when(Inbound::message(&dereth_protocol::objects::ItemUseDone {
+            failure_type,
+        }));
+        c.when(Inbound::message(&stock));
+        assert_eq!(c.view().world().shop.buy_list, [(OIL, 1)]);
+        assert_eq!(c.view().world().shop.sell_list, [(MY_KEY, 1)]);
+
+        // Successful service purchases refresh the shop before ending the use.
+        c.when(Player::ui(UiRequest::VendorBuyAll));
+        c.when(Inbound::message(&stock));
+        assert!(c.view().world().shop.buy_list.is_empty());
+        c.when(Inbound::message(&dereth_protocol::objects::ItemUseDone {
+            failure_type: 0,
+        }));
+        assert!(c.view().world().shop.buy_list.is_empty());
+        assert_eq!(c.view().world().shop.sell_list, [(MY_KEY, 1)]);
+    }
 }

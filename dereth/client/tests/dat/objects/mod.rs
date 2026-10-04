@@ -6,5 +6,6 @@ mod door_opens_ethereal;
 mod held_item_frame;
 mod mesh_collision;
 mod player_collision_shape;
+mod player_scale;
 mod resting_placement_pose;
 mod server_placement;

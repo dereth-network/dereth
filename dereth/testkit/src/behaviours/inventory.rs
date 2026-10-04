@@ -3774,12 +3774,12 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "vendor.baskets.transactions-retain-rows-until-clear-or-close",
-        says: "Buying and selling retain cart rows through the same vendor updating stock, including items no longer present. Sale marks clear on submission; explicit clearing, closing, another vendor and character logout discard their cart state.",
+        id: "vendor.baskets.completed-rows-leave-uncompleted-rows-remain",
+        says: "Confirmed transfers remove only the completed submitted quantities from their basket. Failed, uncompleted and opposite-basket rows survive stock refreshes; explicit clearing, closing, another vendor and logout discard the corresponding cart state.",
         since: THIS_CLIENT,
         divergence: "CD-028",
         evidence: Evidence::Private("AC-EVID-UI-VENDOR-RETAIN"),
-        station: "dereth-testkit::cpu::inventory::scenario_vendor_transactions_keep_baskets_through_refresh",
+        station: "dereth-testkit::cpu::inventory::scenario_vendor_transactions_preserve_uncompleted_basket_rows",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3959,13 +3959,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "vendor.filter.what-is-picked-moves-only-when-a-shop-opens",
-        says: "What the player has picked in a shop moves to the first row only when a shop opens -- \
-               including walking from one merchant straight to the next, and a merchant sending its \
-               stock again. An ordinary redraw refills the same shelf and leaves the pick alone, a \
-               shop that is not open picks nothing at all, and walking away empties the strip of \
-               categories without clearing the pick.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-O790-OPEN-EDGE"),
+        says: "Opening a shop or changing merchant selects the first stock row. A same-merchant stock refresh and ordinary redraw preserve selection; closing clears categories without clearing the pick.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-VENDOR-REFRESH-SELECTION"),
         station: "dereth-testkit::dat::inventory::shop::scenario_what_is_picked_moves_only_when_a_shop_opens",
         tier: Tier::Dat,
     },
@@ -4216,35 +4213,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "vendor.shelf.a-row-the-basket-already-holds-all-of-is-gone-from-the-shelf",
-        says: "A row the buying basket already holds the whole supply of is gone from the shelf \
-               altogether -- not greyed and not zeroed -- while one of the supply still left keeps it \
-               there. The same thing added to the basket twice counts as both, and a shop that really \
-               advertises one of something stops showing it the moment that one is added.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-O740-BASKET"),
-        station: "dereth-testkit::dat::inventory::shop::scenario_a_row_the_basket_already_holds_all_of_is_gone_from_the_shelf",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "vendor.shelf.a-row-the-basket-does-not-name-is-never-counted-against-its-own-supply",
-        says: "A row the buying basket does not name at all is never counted against the supply the \
-               shop advertises, so a row the shop says it has none of is still on the shelf until \
-               something of it is actually basketed, and so is one whose advertised supply reads as \
-               less than none.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-O740-BYPASS"),
-        station: "dereth-testkit::dat::inventory::shop::scenario_a_row_the_basket_does_not_name_is_never_counted_against_its_own_supply",
+        id: "vendor.shelf.a-fully-basketed-row-stays-on-the-shelf-until-purchase",
+        says: "Finite stock stays visible when partially, fully, or repeatedly basketed; only a received purchase changes merchant stock.",
+        since: THIS_CLIENT,
+        divergence: "CD-028",
+        evidence: Evidence::Private("AC-EVID-VENDOR-ADVERTISED-MEMBERSHIP"),
+        station: "dereth-testkit::dat::inventory::shop::scenario_a_fully_basketed_row_stays_on_the_shelf_until_purchase",
         tier: Tier::Dat,
     },
     behaviour! {
         id: "vendor.shelf.a-stackable-row-is-offered-in-the-biggest-stack-the-shop-can-sell",
-        says: "A shop row that stacks is set up to the biggest stack it can be sold in: the whole \
-               stack where the supply is endless, and only as many as are actually left where it is \
-               not. A row that does not stack, and one whose stack is one, are left alone entirely.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-O740-STACK-ARMS"),
+        says: "A stock row uses the advertised quantity capped by its maximum stack, independently of the buying basket. Unlimited stock uses its maximum stack; unstackable rows remain unchanged.",
+        since: THIS_CLIENT,
+        divergence: "CD-028",
+        evidence: Evidence::Private("AC-EVID-VENDOR-ADVERTISED-STACK"),
         station: "dereth-testkit::dat::inventory::shop::scenario_a_stackable_row_is_offered_in_the_biggest_stack_the_shop_can_sell",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "vendor.shelf.basket-quantities-do-not-change-advertised-shelf-membership",
+        says: "Merchant-advertised row membership is independent of saved basket quantities, including zero or negative advertised quantities.",
+        since: THIS_CLIENT,
+        divergence: "CD-028",
+        evidence: Evidence::Private("AC-EVID-VENDOR-BASKET-INDEPENDENCE"),
+        station: "dereth-testkit::dat::inventory::shop::scenario_basket_quantities_do_not_change_advertised_shelf_membership",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -4271,7 +4263,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "vendor.shelf.the-shelf-never-scrolls-however-little-is-left-on-it",
         says: "A shop's shelf never has anywhere to scroll to, whether every row of the chosen kind \
-               has been basketed away or none of them has: the list is padded out to the width of the \
+               is excluded as a filled container or none of them is: the list is padded out to the width of the \
                window either way and the padding is what it is counting.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O740-SCROLL"),
@@ -4363,10 +4355,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "vendor.stock.shared-projection-keeps-availability-and-order",
-        says: "Stock rows subtract finite basket quantities, exclude filled containers, and retain category selection. Quantity writes and the first matching identity retain their original ordering.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-DEDUP-VENDOR-STOCK"),
-        station: "dereth-classic-ui::lib::panels::services::commerce::vendor::shared_stock_tests::classic_stock_uses_shared_remaining_quantities_and_retains_the_filter",
+        says: "Stock rows retain advertised finite quantities independently of the basket, exclude filled containers, and retain category selection. Fully basketed rows cannot be added again; quantity writes and first matching identity retain their ordering.",
+        since: THIS_CLIENT,
+        divergence: "CD-028",
+        evidence: Evidence::Private("AC-EVID-VENDOR-SHARED-ADVERTISED-STOCK"),
+        station: "dereth-classic-ui::lib::panels::services::commerce::vendor::shared_stock_tests::classic_stock_uses_advertised_quantities_and_retains_the_filter",
         tier: Tier::Cpu,
     },
     behaviour! {

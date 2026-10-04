@@ -1961,6 +1961,9 @@ impl World {
         reason: u32,
         out: &mut dyn NoticeSink,
     ) {
+        if self.request_lock.pending == crate::inventory::requests::InventoryRequest::ShopEvent {
+            self.refuse_vendor_transaction();
+        }
         let object = self.weenie(id);
         let material_name =
             object.and_then(|w| self.material_name(w.pwd.material_type.unwrap_or(0)));

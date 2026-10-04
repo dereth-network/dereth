@@ -152,9 +152,11 @@ impl Panel for Vendor {
                     rect(width - 58, y, 54, if id == "add" { 32 } else { 22 }),
                     txt,
                     s.open
-                        && rows
-                            .iter()
-                            .any(|r| Some(r.item) == c.game.selected_object()),
+                        && rows.iter().any(|r| {
+                            Some(r.item) == c.game.selected_object()
+                                && (id != "add"
+                                    || dereth_client_contract::vendor::can_add_stock(&s, r.item))
+                        }),
                 );
                 b.images = Some(art.map(|n| format!("{n:08X}")));
                 b.font = if id == "add" { "14-5" } else { "15-5" }.into();
@@ -366,7 +368,10 @@ impl Panel for Vendor {
                 "add" => c
                     .game
                     .selected_object()
-                    .filter(|id| self.rows(c).iter().any(|r| r.item == *id))
+                    .filter(|id| {
+                        self.rows(c).iter().any(|r| r.item == *id)
+                            && dereth_client_contract::vendor::can_add_stock(&s, *id)
+                    })
                     .map(|item| {
                         request(UiRequest::VendorAddToBuyList {
                             item,
@@ -473,7 +478,7 @@ mod shared_stock_tests {
 
     /// Behaviour: vendor.stock.shared-projection-keeps-availability-and-order
     #[test]
-    fn classic_stock_uses_shared_remaining_quantities_and_retains_the_filter() {
+    fn classic_stock_uses_advertised_quantities_and_retains_the_filter() {
         let row = |id, kind, amount, contained| ShopRow {
             item: ObjectId(id),
             obj_type: kind,
@@ -499,7 +504,7 @@ mod shared_stock_tests {
         with(&game, |c| {
             assert_eq!(
                 panel.rows(c).iter().map(|r| r.item).collect::<Vec<_>>(),
-                [ObjectId(2)]
+                [ObjectId(1), ObjectId(2)]
             );
             let actions = panel.event(ControlEvent::Tick, c);
             let requests: Vec<_> = actions
@@ -516,8 +521,12 @@ mod shared_stock_tests {
                 requests,
                 [
                     UiRequest::VendorSetObjectStackSize {
+                        item: ObjectId(1),
+                        size: 5
+                    },
+                    UiRequest::VendorSetObjectStackSize {
                         item: ObjectId(2),
-                        size: 7
+                        size: 10
                     },
                     UiRequest::VendorSetObjectStackSize {
                         item: ObjectId(3),

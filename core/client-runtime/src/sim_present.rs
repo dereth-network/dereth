@@ -317,6 +317,14 @@ impl Presentation for SimPresentation {
     ) {
         self.device.preview_set_heading(id, index, degrees)
     }
+    fn preview_set_scale(
+        &mut self,
+        id: dereth_client_contract::overlay::PreviewSpace,
+        index: usize,
+        scale: f32,
+    ) {
+        self.device.preview_set_scale(id, index, scale)
+    }
     fn preview_set_sequence_animation(
         &mut self,
         id: dereth_client_contract::overlay::PreviewSpace,

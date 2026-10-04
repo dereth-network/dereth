@@ -1619,6 +1619,28 @@ impl Character {
         Ok(true)
     }
 
+    /// Apply the described object scale to animation and collision together.
+    pub fn set_scale(&mut self, scale: f32) {
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        self.scale = scale;
+        {
+            let mut driver = self.driver.borrow_mut();
+            driver.scale = scale;
+            driver
+                .part_array
+                .set_scale_internal(Vec3::new(scale, scale, scale));
+        }
+        if let Some(object) = self.world.get_mut(self.handle) {
+            object.scale = scale;
+        }
+        self.world.calc_cross_cells(self.handle, false);
+        self.refresh_env();
+    }
+
     /// Take the object id the server sent in `0xF746 Login_CharacterSet`.
     ///
     /// The create-player message hands the client the player's id **before** the

@@ -1107,3 +1107,71 @@ fn the_paper_doll_draws_with_its_own_45_degree_lens_whatever_the_space_was_given
     );
     app.shutdown();
 }
+
+/// Behaviour: objects.player.described-scale-reaches-body-and-paper-doll
+#[test]
+fn the_live_paper_doll_uses_described_scale_and_updates_without_redressing() {
+    use dereth_assets::{CharGen, Decode};
+    use dereth_protocol::{
+        objects::{ItemCreateObject, ItemUpdateObject},
+        Message, Opcode,
+    };
+    let (mut app, _) = app_with_the_capture();
+    let store = store();
+    let id = DataId(0x0e00_0002);
+    let bytes = store.read_typed(CharGen::TYPE, id).unwrap();
+    let tables = CharGen::decode_payload_in(store.era_of(id), id, &bytes).unwrap();
+    let gear = &tables.heritage_groups[&6].sexes[&1];
+    assert_eq!(gear.scale, 120);
+    let corpus = dereth_client_net::client_session::testing::Corpus::load(SESSION)
+        .unwrap()
+        .unwrap();
+    let player = app.objects().player().unwrap();
+    let row = corpus
+        .blobs
+        .iter()
+        .find(|row| {
+            row.opcode == Opcode::ITEM_CREATE_OBJECT.0
+                && row.payload[4..8] == player.0.to_le_bytes()
+        })
+        .unwrap();
+    let original =
+        ItemCreateObject::read(&mut dereth_protocol::Reader::new(&row.payload[4..])).unwrap();
+    #[allow(clippy::cast_precision_loss)]
+    let large = gear.scale as f32 / 100.0;
+    let mut heights = Vec::new();
+    for (index, scale) in [1.0, large, 1.0].into_iter().enumerate() {
+        let mut create = original.0.clone();
+        create.physicsdesc.setup_id = Some(gear.setup.0);
+        create.physicsdesc.mtable_id = Some(gear.motion_table.0);
+        create.physicsdesc.object_scale = Some(scale);
+        create.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::OBJSCALE;
+        create.objdesc = Default::default();
+        app.objects_mut().apply_event(
+            &SessionEvent::WorldObject {
+                opcode: if index == 0 {
+                    Opcode::ITEM_UPDATE_OBJECT
+                } else {
+                    Opcode::ITEM_CREATE_OBJECT
+                },
+                body: dereth_protocol::write_body(&ItemUpdateObject(create)).unwrap(),
+            },
+            LocalTime(10.0 + f64::from(u32::try_from(index).unwrap())),
+        );
+        assert!(app.frame());
+        let preview = app.renderer_mut().preview(PreviewId::PaperDoll).unwrap();
+        let object = preview.object(0).unwrap();
+        assert_eq!(object.setup, gear.setup);
+        assert_eq!(
+            object.part_array.scale,
+            dereth_primitives::Vec3::new(scale, scale, scale)
+        );
+        let bounds = object.bounding_box(&store);
+        assert!(object.drawn_parts() > 0);
+        heights.push(bounds.max.z - bounds.min.z);
+    }
+    assert!(heights[0] > 0.0);
+    assert!((heights[1] / heights[0] - large).abs() < 0.001);
+    assert!((heights[2] - heights[0]).abs() < 0.001);
+    app.shutdown();
+}

@@ -877,14 +877,14 @@ pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
         shop::a_thing_the_player_owns_keeps_its_own_kind_when_the_shop_advertises_it,
     ),
     (
-        "a_row_the_basket_already_holds_all_of_is_gone_from_the_shelf",
-        &["vendor.shelf.a-row-the-basket-already-holds-all-of-is-gone-from-the-shelf"],
-        shop::a_row_the_basket_already_holds_all_of_is_gone_from_the_shelf,
+        "a_fully_basketed_row_stays_on_the_shelf_until_purchase",
+        &["vendor.shelf.a-fully-basketed-row-stays-on-the-shelf-until-purchase"],
+        shop::a_fully_basketed_row_stays_on_the_shelf_until_purchase,
     ),
     (
-        "a_row_the_basket_does_not_name_is_never_counted_against_its_own_supply",
-        &["vendor.shelf.a-row-the-basket-does-not-name-is-never-counted-against-its-own-supply"],
-        shop::a_row_the_basket_does_not_name_is_never_counted_against_its_own_supply,
+        "basket_quantities_do_not_change_advertised_shelf_membership",
+        &["vendor.shelf.basket-quantities-do-not-change-advertised-shelf-membership"],
+        shop::basket_quantities_do_not_change_advertised_shelf_membership,
     ),
     (
         "a_stackable_row_is_offered_in_the_biggest_stack_the_shop_can_sell",
@@ -16844,9 +16844,10 @@ mod shop {
                     .collect::<Vec<_>>()
                     == want;
             let reqs = take_requests(c.ui_outbox());
-            every_category_picks_the_first &= !reqs.is_empty()
+            every_category_picks_the_first &= reqs.len() >= 2
+                && reqs.first() == Some(&UiRequest::VendorFilter(i))
                 && reqs.last() == Some(&UiRequest::Select(want[0]))
-                && reqs[..reqs.len() - 1].iter().all(|r| {
+                && reqs[1..reqs.len() - 1].iter().all(|r| {
                     matches!(r, UiRequest::VendorSetObjectStackSize { item, size }
                         if want.contains(item) && *size > 1)
                 });
@@ -17168,7 +17169,7 @@ mod shop {
         let a_different_merchant_picks_the_first =
             take_requests(&mut ui.requests) == vec![UiRequest::Select(want[0])] && choices(ui) > 0;
 
-        // The same merchant sending its stock again, which is a fresh opening in the client.
+        // A stock refresh from the same merchant retains the current selection.
         let mut refreshed = other.clone();
         assert!(
             refreshed.stock.len() >= 2,
@@ -17192,8 +17193,10 @@ mod shop {
             !want4.is_empty(),
             "the premise: the shortened stock still keeps a row"
         );
-        let a_refresh_picks_the_first_of_the_new_stock =
-            take_requests(&mut ui.requests) == vec![UiRequest::Select(want4[0])] && choices(ui) > 0;
+        let a_refresh_keeps_the_pick_and_rebuilds_stock = take_requests(&mut ui.requests)
+            .is_empty()
+            && choices(ui) == 0
+            && on_the_shelf(&p) == want4;
 
         // Walking away: the strip is emptied and the pick is left alone.
         clear_requests(&mut ui.requests);
@@ -17216,7 +17219,7 @@ mod shop {
                     && a_redraw_picks_nothing
                     && a_redraw_still_refills
                     && a_different_merchant_picks_the_first
-                    && a_refresh_picks_the_first_of_the_new_stock
+                    && a_refresh_keeps_the_pick_and_rebuilds_stock
                     && walking_away_empties_the_strip
                     && walking_away_picks_nothing
             },
@@ -17500,8 +17503,8 @@ mod shop {
         (p, shelf)
     }
 
-    /// A row the basket already holds the whole supply of is gone from the shelf.
-    pub fn a_row_the_basket_already_holds_all_of_is_gone_from_the_shelf() {
+    /// A fully basketed finite row remains on the shelf until its purchase is received.
+    pub fn a_fully_basketed_row_stays_on_the_shelf_until_purchase() {
         let mut c = a_gameplay_client();
         let target = a_food_row(&a_shop_that_sells_food());
         let tab = category_for(
@@ -17514,21 +17517,14 @@ mod shop {
         let (p, with_an_empty_basket) = shelf_after_choosing(&mut c, &view, tab);
         let it_is_listed = with_an_empty_basket.contains(&target) && p.basket_drops == 0;
 
-        // Twelve advertised, twelve basketed: it is absent, not greyed and not zeroed.
+        // Twelve advertised, twelve basketed: membership and order stay unchanged.
         let mut w = a_shop_advertising(target, 12);
         w.shop.buy_list.push((target, 12));
         let view = dereth_client::vendor_view::shop(&w);
         let (p, with_a_full_basket) = shelf_after_choosing(&mut c, &view, tab);
-        let it_is_gone = !with_a_full_basket.contains(&target)
-            && p.basket_drops == 1
-            && with_a_full_basket
-                == with_an_empty_basket
-                    .iter()
-                    .copied()
-                    .filter(|i| *i != target)
-                    .collect::<Vec<_>>();
+        let it_stays = with_a_full_basket == with_an_empty_basket && p.basket_drops == 0;
 
-        // Eleven of twelve, which is one still left, and thirteen of twelve, which is none.
+        // Neither a partial basket nor an overfilled saved basket hides advertised stock.
         let mut w = a_shop_advertising(target, 12);
         w.shop.buy_list.push((target, 11));
         let view = dereth_client::vendor_view::shop(&w);
@@ -17539,7 +17535,7 @@ mod shop {
         w.shop.buy_list.push((target, 13));
         let view = dereth_client::vendor_view::shop(&w);
         let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
-        let more_than_all_takes_it = !shelf.contains(&target) && p.basket_drops == 1;
+        let more_than_all_keeps_it = shelf.contains(&target) && p.basket_drops == 0;
 
         // The same thing basketed twice counts as both.
         let mut w = a_shop_advertising(target, 12);
@@ -17548,9 +17544,9 @@ mod shop {
         let view = dereth_client::vendor_view::shop(&w);
         let really_two_entries = view.buy_list.iter().filter(|r| r.item == target).count() == 2;
         let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
-        let two_helpings_count_as_both = !shelf.contains(&target) && p.basket_drops == 1;
+        let two_helpings_keep_it = shelf.contains(&target) && p.basket_drops == 0;
 
-        // ...and the same disappearance off a shop the recordings really carry: the message, the
+        // The same retained membership in a shop the recordings really carry: the message, the
         // row, its supply and its kind are all the recording's, and the basket entry is put there
         // by the client's own add-to-list.
         let (w, sack) = a_recorded_shop_with_a_countable_supply();
@@ -17572,29 +17568,29 @@ mod shop {
             w2.add_to_buy_list(sack, 1) && w2.shop.buy_list == vec![(sack, 1)];
         let view = dereth_client::vendor_view::shop(&w2);
         let (p, shelf) = shelf_after_choosing(&mut c, &view, sack_tab);
-        let the_recorded_row_is_gone = !shelf.contains(&sack) && p.basket_drops == 1;
+        let the_recorded_row_stays = shelf.contains(&sack) && p.basket_drops == 0;
 
         c.assert_behaviour(
-            "vendor.shelf.a-row-the-basket-already-holds-all-of-is-gone-from-the-shelf",
+            "vendor.shelf.a-fully-basketed-row-stays-on-the-shelf-until-purchase",
             move |_| {
                 it_is_listed
-                    && it_is_gone
+                    && it_stays
                     && one_left_keeps_it
-                    && more_than_all_takes_it
+                    && more_than_all_keeps_it
                     && really_two_entries
-                    && two_helpings_count_as_both
+                    && two_helpings_keep_it
                     && recorded_supply == 1
                     && it_is_in_containers
                     && the_recorded_row_is_listed
                     && the_button_basketed_it
-                    && the_recorded_row_is_gone
+                    && the_recorded_row_stays
             },
         );
         c.shutdown();
     }
 
-    /// A row the basket does not name is never counted against the supply at all.
-    pub fn a_row_the_basket_does_not_name_is_never_counted_against_its_own_supply() {
+    /// Basket membership does not change which rows the merchant advertises.
+    pub fn basket_quantities_do_not_change_advertised_shelf_membership() {
         let mut c = a_gameplay_client();
         let target = a_food_row(&a_shop_that_sells_food());
         let tab = category_for(
@@ -17605,14 +17601,14 @@ mod shop {
         // (advertised supply, what the basket holds of it, is it on the shelf)
         let mut all_four = true;
         for (amount, basketed, listed) in [
-            // Nothing basketed, so the supply is never looked at.
+            // Zero advertised supply, with and without a saved basket entry.
             (0_i32, None, true),
-            // ...and once something is, it is.
-            (0, Some(1_i32), false),
-            // The same bypass on a supply a flattened rule would also have dropped.
+            // The merchant still advertises the same identity.
+            (0, Some(1_i32), true),
+            // A negative finite quantity does not alter membership either.
             (-2, None, true),
-            // The ordinary path, with nothing left.
-            (5, Some(5), false),
+            // Basketed finite stock remains visible.
+            (5, Some(5), true),
         ] {
             let mut w = a_shop_advertising(target, amount);
             if let Some(n) = basketed {
@@ -17624,7 +17620,7 @@ mod shop {
         }
 
         c.assert_behaviour(
-            "vendor.shelf.a-row-the-basket-does-not-name-is-never-counted-against-its-own-supply",
+            "vendor.shelf.basket-quantities-do-not-change-advertised-shelf-membership",
             move |_| all_four,
         );
         c.shutdown();
@@ -17677,11 +17673,11 @@ mod shop {
         }
 
         // The countable-supply arm reaches the same place from different arithmetic: what is
-        // left, held down to what the thing can stack to.
+        // advertised, held down to what the thing can stack to.
         let mut countable = true;
         for (amount, basketed, max, want) in [
             (200_i32, 50_i32, 100_u16, Some(100_i32)),
-            (200, 150, 100, Some(50)),
+            (200, 150, 100, Some(100)),
             // A row that does not stack is still left alone, however much is left.
             (200, 150, 1, None),
             (200, 0, 100, Some(100)),
@@ -17914,7 +17910,7 @@ mod shop {
         let first_row = food[0];
 
         let mut w = a_shop_advertising(first_row, 5);
-        w.shop.buy_list.push((first_row, 5));
+        put_inside(&mut w, first_row, &[ObjectId(0x8000_BEEF)], &[]);
         let view = dereth_client::vendor_view::shop(&w);
         let tab = category_for(&view, FOOD);
         let (_, shelf) = shelf_after_choosing(&mut c, &view, tab);
@@ -17951,20 +17947,15 @@ mod shop {
             .collect();
         let tab = category_for(&dereth_client::vendor_view::shop(&w0), FOOD);
 
-        // Every food row basketed out of existence: the category keeps rows, the drops empty it.
+        // Filled containers are excluded independently of basket membership.
         let mut w = a_shop_that_sells_food();
-        for p in &mut w.shop.stock {
-            if food.contains(&p.iid) {
-                p.amount = 1;
-            }
-        }
         for id in &food {
-            w.shop.buy_list.push((*id, 1));
+            put_inside(&mut w, *id, &[ObjectId(0x8000_BEEF)], &[]);
         }
         let view = dereth_client::vendor_view::shop(&w);
         let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
         let every_row_was_dropped = shelf.is_empty()
-            && usize::try_from(p.basket_drops).expect("a small count") == food.len();
+            && usize::try_from(p.container_drops).expect("a small count") == food.len();
         // It is the padding that is being counted, so the pass still takes the branch.
         let it_still_counted = p.scroll_restores == 1;
 
@@ -18071,13 +18062,13 @@ mod shop {
     }
 
     #[test]
-    fn scenario_a_row_the_basket_already_holds_all_of_is_gone_from_the_shelf() {
-        super::scenario("a_row_the_basket_already_holds_all_of_is_gone_from_the_shelf");
+    fn scenario_a_fully_basketed_row_stays_on_the_shelf_until_purchase() {
+        super::scenario("a_fully_basketed_row_stays_on_the_shelf_until_purchase");
     }
 
     #[test]
-    fn scenario_a_row_the_basket_does_not_name_is_never_counted_against_its_own_supply() {
-        super::scenario("a_row_the_basket_does_not_name_is_never_counted_against_its_own_supply");
+    fn scenario_basket_quantities_do_not_change_advertised_shelf_membership() {
+        super::scenario("basket_quantities_do_not_change_advertised_shelf_membership");
     }
 
     #[test]

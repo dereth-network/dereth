@@ -30,23 +30,10 @@ pub fn stock(shop: &ShopView, mask: u32) -> StockProjection {
         let size = if row.amount == -1 {
             (row.max_stack_size > 1).then(|| i32::try_from(row.max_stack_size).unwrap_or(i32::MAX))
         } else {
-            let mut basket = shop
-                .buy_list
-                .iter()
-                .filter(|b| b.item == row.item)
-                .peekable();
-            let remaining = if basket.peek().is_some() {
-                let n = row.amount - basket.map(|b| b.amount).sum::<i32>();
-                if n <= 0 {
-                    out.basket_drops += 1;
-                    continue;
-                }
-                n
-            } else {
+            (row.max_stack_size > 1).then(|| {
                 row.amount
-            };
-            (row.max_stack_size > 1)
-                .then(|| remaining.min(i32::try_from(row.max_stack_size).unwrap_or(i32::MAX)))
+                    .min(i32::try_from(row.max_stack_size).unwrap_or(i32::MAX))
+            })
         };
         if let Some(size) = size {
             out.sizes.push((row.item, size));
@@ -71,6 +58,26 @@ impl ShopView {
             .get(self.filter_index())
             .map_or(0, |(_, mask)| *mask)
     }
+}
+
+/// Adding to a basket reserves at most the finite quantity still advertised by the shop.
+#[must_use]
+pub fn can_add_stock(shop: &ShopView, item: ObjectId) -> bool {
+    shop.open
+        && shop
+            .stock
+            .iter()
+            .find(|row| row.item == item)
+            .is_some_and(|row| {
+                row.amount == -1
+                    || i64::from(row.amount)
+                        > shop
+                            .buy_list
+                            .iter()
+                            .filter(|row| row.item == item)
+                            .map(|row| i64::from(row.amount))
+                            .sum::<i64>()
+            })
 }
 
 /// The selected-row and whole-basket controls share the same membership decision.

@@ -197,11 +197,17 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
         // drives: the client has one physics body for the player, not two. His description still
         // has to reach that one part array.
         if local_body && stream.player() == Some(id) {
-            let (setup, mtable, phs, od) = match stream.presence(id) {
-                Some(p) => (p.setup_id, p.mtable_id, p.phs_table, p.objdesc.clone()),
+            let (setup, mtable, phs, scale, od) = match stream.presence(id) {
+                Some(p) => (
+                    p.setup_id,
+                    p.mtable_id,
+                    p.phs_table,
+                    p.scale,
+                    p.objdesc.clone(),
+                ),
                 None => continue,
             };
-            apply_player_objdesc(ws, counters, hooks, setup, mtable, &od)?;
+            apply_player_objdesc(ws, counters, hooks, setup, mtable, scale, &od)?;
             // After the setup swap, because installing a setup installs its default script table
             // and would otherwise stamp over the server's.
             if let Some(t) = phs {
@@ -324,6 +330,23 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
             ws.entering_world.push(id);
         }
     }
+    // A merged description can change scale without queuing a geometry rebuild.
+    if let Some(scale) = stream
+        .player()
+        .and_then(|id| stream.presence(id))
+        .map(|p| p.scale)
+    {
+        if let Some(character) = ws.character.as_mut() {
+            let scale = if scale.is_finite() && scale > 0.0 {
+                scale
+            } else {
+                1.0
+            };
+            if character.scale != scale {
+                character.set_scale(scale);
+            }
+        }
+    }
     hooks.creates_done(ws);
     Ok(())
 }
@@ -337,6 +360,7 @@ fn apply_player_objdesc<H: ObjectAppearance>(
     hooks: &mut H,
     setup_id: Option<DataId>,
     mtable_id: Option<DataId>,
+    scale: f32,
     od: &dereth_protocol::types::ObjDesc,
 ) -> Result<(), H::Error> {
     if ws.character.is_none() {
@@ -367,6 +391,9 @@ fn apply_player_objdesc<H: ObjectAppearance>(
                 ws.character_sound_table = crate::world_build::body_sound_table(c);
             }
         }
+    }
+    if let Some(character) = ws.character.as_mut() {
+        character.set_scale(scale);
     }
     let anim = to_anim_objdesc(od);
     if anim == dereth_animation::parts::ObjDesc::default() {
