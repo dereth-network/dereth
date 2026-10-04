@@ -26,3 +26,5 @@ pub use tooltip::TooltipState;
 /// The *gameplay* reason a confirmation is on screen. It is stored on the gameplay screen, **not**
 /// on the dialog, which is why it is a plain value rather than dialog state; the contract owns it.
 pub use dereth_client_contract::confirmation::ConfirmationType;
+
+pub mod resolution;

@@ -1357,6 +1357,8 @@ pub enum UiRequest {
     /// to the `PlayerModule`.
     SaveKeyMap,
     SetPreference(&'static str, PrefValue),
+    /// A player-initiated screen-size change or a tagged prompt answer.
+    Resolution(crate::resolution::ResolutionAction),
     /// The sound portion of one media-playback step.
     ///
     /// The fields retain the step's file id and sound type. Type 0 (invalid)

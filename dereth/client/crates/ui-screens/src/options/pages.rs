@@ -176,7 +176,6 @@ pub mod template {
 /// One row of the chat options panel's option build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChatOptionSection {
-    pub header: &'static str,
     /// The window id whose 64-bit filter this section edits, or `None` for the general section.
     pub window_id: Option<u32>,
 }
@@ -188,28 +187,20 @@ pub struct ChatOptionSection {
 /// each hold one `WideBitfieldCheckboxOption` on property `0x1000007F` with the chat-type
 /// enumeration.
 pub const CHAT_OPTIONS_PAGE: [ChatOptionSection; 6] = [
+    ChatOptionSection { window_id: None },
     ChatOptionSection {
-        header: "ID_ChatOption_GeneralOptions_Section",
-        window_id: None,
-    },
-    ChatOptionSection {
-        header: "ID_ChatOption_MainChatWindow_Section",
         window_id: Some(crate::chat::interface::window::MAIN),
     },
     ChatOptionSection {
-        header: "ID_ChatOption_FloatyChatWindow1_Section",
         window_id: Some(crate::chat::interface::window::FLOATY_1),
     },
     ChatOptionSection {
-        header: "ID_ChatOption_FloatyChatWindow2_Section",
         window_id: Some(crate::chat::interface::window::FLOATY_2),
     },
     ChatOptionSection {
-        header: "ID_ChatOption_FloatyChatWindow3_Section",
         window_id: Some(crate::chat::interface::window::FLOATY_3),
     },
     ChatOptionSection {
-        header: "ID_ChatOption_FloatyChatWindow4_Section",
         window_id: Some(crate::chat::interface::window::FLOATY_4),
     },
 ];
@@ -437,7 +428,7 @@ mod tests {
                 crate::chat::interface::default_filter(s.window_id.unwrap()),
                 want,
                 "{}",
-                s.header
+                s.window_id.unwrap()
             );
         }
         assert_eq!(CHAT_OPACITY_PROPERTIES, [0x1000_0080, 0x1000_0081]);

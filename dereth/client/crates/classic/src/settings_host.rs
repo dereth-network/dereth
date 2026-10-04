@@ -338,22 +338,6 @@ fn resolution_value(size: (u32, u32)) -> PrefValue {
     PrefValue::Int(((size.0 << 16) | size.1) as i32)
 }
 
-/// A resolution change first offers a test; the test's acceptance dialog times out after 15
-/// seconds.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ResolutionStage {
-    OfferTest,
-    Applying { test: bool },
-    Testing { deadline: f64 },
-    Reverting,
-}
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ResolutionChange {
-    pub previous: (u32, u32),
-    pub target: (u32, u32),
-    pub stage: ResolutionStage,
-    persist: bool,
-}
 fn resolution_request(size: (u32, u32)) -> UiRequest {
     preference("Display.Resolution", resolution_value(size))
 }
@@ -363,15 +347,9 @@ pub struct SettingsHost {
     current: ClassicSettings,
     saved: ClassicSettings,
     camera_value: Option<f32>,
-    pending_resolution: Option<ResolutionChange>,
-    /// When the window was asked for the size now awaited (see [`Self::resolution_report_overdue`]).
-    awaiting_since: Option<f64>,
     /// The render and camera preferences last sent, so an unchanged frame sends none.
     sent: Vec<UiRequest>,
 }
-/// How long a requested window size may go unanswered before the size the window has is taken as
-/// the answer.
-const RESIZE_REPORT_SECONDS: f64 = 2.0;
 impl SettingsHost {
     /// The page over the shared store's values ([`from_shared`]).
     pub fn load(capabilities: ClassicSettings) -> Result<Self, String> {
@@ -382,8 +360,6 @@ impl SettingsHost {
             saved: current.clone(),
             current,
             camera_value,
-            pending_resolution: None,
-            awaiting_since: None,
             sent: Vec::new(),
         })
     }
@@ -436,7 +412,7 @@ impl SettingsHost {
             ));
         }
         if save {
-            self.persist_resolution(previous)?;
+            self.persist_resolution(cx.resolution_previous().unwrap_or(previous))?;
         }
         if full_screen {
             // Full screen covers the monitor whatever size is chosen: the size is kept for the
@@ -448,29 +424,29 @@ impl SettingsHost {
                     self.persist_resolution(target)?;
                 }
             }
-        } else {
-            self.stage_resolution(previous, target, save);
+        } else if target != previous {
+            left.push(UiRequest::Resolution(
+                dereth_client_contract::resolution::ResolutionAction::Begin {
+                    size: target,
+                    policy: dereth_client_contract::resolution::ResolutionPolicy::Classic,
+                    persist: save,
+                },
+            ));
         }
         Ok(left)
-    }
-    /// A size choice already under way is left to finish; the other applied settings still apply.
-    fn stage_resolution(&mut self, previous: (u32, u32), target: (u32, u32), persist: bool) {
-        if self.pending_resolution.is_some() {
-            return;
-        }
-        self.pending_resolution = (previous != target).then_some(ResolutionChange {
-            previous,
-            target,
-            stage: ResolutionStage::OfferTest,
-            persist,
-        });
-    }
-    pub fn pending_resolution(&self) -> Option<ResolutionChange> {
-        self.pending_resolution
     }
     fn select_resolution(&mut self, size: (u32, u32)) {
         if let Some(i) = self.current.resolutions.iter().position(|r| *r == size) {
             self.current.resolution = i;
+        }
+    }
+    /// Reconcile only screen size after the shared transaction finishes.
+    pub fn resolution_readback(&mut self, size: (u32, u32), save: bool) {
+        self.select_resolution(size);
+        if save {
+            if let Some(i) = self.saved.resolutions.iter().position(|r| *r == size) {
+                self.saved.resolution = i;
+            }
         }
     }
     /// Commit the page's values to the shared store, with `size` as the window's size.
@@ -482,94 +458,6 @@ impl SettingsHost {
         let _ = store::set_value("Display.Resolution", resolution_value(size));
         Ok(())
     }
-    /// First dialog: Yes tests; No applies permanently. Second: Yes keeps; No reverts.
-    pub fn answer_resolution(&mut self, yes: bool) -> Result<Vec<UiRequest>, String> {
-        let Some(mut pending) = self.pending_resolution else {
-            return Ok(vec![]);
-        };
-        match pending.stage {
-            ResolutionStage::OfferTest => {
-                pending.stage = ResolutionStage::Applying { test: yes };
-                self.pending_resolution = Some(pending);
-                Ok(vec![resolution_request(pending.target)])
-            }
-            ResolutionStage::Testing { .. } if yes => {
-                if pending.persist {
-                    self.persist_resolution(pending.target)?;
-                }
-                self.select_resolution(pending.target);
-                self.pending_resolution = None;
-                Ok(vec![])
-            }
-            ResolutionStage::Testing { .. } => {
-                pending.stage = ResolutionStage::Reverting;
-                self.pending_resolution = Some(pending);
-                Ok(vec![resolution_request(pending.previous)])
-            }
-            _ => Ok(vec![]),
-        }
-    }
-    /// Called only after the native resize reports its actual result, never on queueing.
-    pub fn resolution_applied(&mut self, success: bool, now: f64) -> Result<(), String> {
-        let Some(mut pending) = self.pending_resolution else {
-            return Ok(());
-        };
-        match pending.stage {
-            ResolutionStage::Applying { test } => {
-                if !success {
-                    self.select_resolution(pending.previous);
-                    self.pending_resolution = None;
-                } else {
-                    self.select_resolution(pending.target);
-                    if test {
-                        pending.stage = ResolutionStage::Testing {
-                            deadline: now + 15.0,
-                        };
-                        self.pending_resolution = Some(pending);
-                    } else {
-                        if pending.persist {
-                            self.persist_resolution(pending.target)?;
-                        }
-                        self.pending_resolution = None;
-                    }
-                }
-            }
-            ResolutionStage::Reverting => {
-                if !success {
-                    self.select_resolution(pending.target);
-                    self.pending_resolution = None;
-                    return Err("Unable to restore the previous screen size!".into());
-                }
-                self.select_resolution(pending.previous);
-                self.pending_resolution = None;
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-    /// The size the window was asked for and has not yet reported.
-    pub fn awaited_size(&self) -> Option<(u32, u32)> {
-        match self.pending_resolution?.stage {
-            ResolutionStage::Applying { .. } => self.pending_resolution.map(|p| p.target),
-            ResolutionStage::Reverting => self.pending_resolution.map(|p| p.previous),
-            _ => None,
-        }
-    }
-    /// Whether a requested size has gone unanswered too long. A window that is full screen, or a
-    /// size the display refuses outright, never reports a resize; the choice must still end.
-    pub fn resolution_report_overdue(&mut self, now: f64) -> bool {
-        if self.awaited_size().is_none() {
-            self.awaiting_since = None;
-            return false;
-        }
-        let since = *self.awaiting_since.get_or_insert(now);
-        now - since >= RESIZE_REPORT_SECONDS
-    }
-    pub fn resolution_expired(&self, now: f64) -> bool {
-        matches!(self.pending_resolution.map(|p| p.stage),
-            Some(ResolutionStage::Testing { deadline }) if now >= deadline)
-    }
-
     /// Only the three immediately applied sliders reach this edge.
     pub fn preview<S: Shell>(
         &mut self,
@@ -913,111 +801,22 @@ mod tests {
         assert_eq!(migrate_settings_file(&path, &settings()).unwrap(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
-    fn resolution_host() -> SettingsHost {
+    /// Behaviour: presentation.resolution.shared-transaction
+    #[test]
+    fn completed_size_readback_preserves_unsaved_snapshot_and_other_values() {
         store::init();
         let mut host = SettingsHost::load(settings()).unwrap();
+        host.current.resolution = 0;
+        host.saved.resolution = 0;
         host.current.brightness = 0.8;
-        host.current.resolution = 1;
-        host.persist_resolution((800, 600)).unwrap();
-        host.stage_resolution((800, 600), (1024, 768), true);
-        host
-    }
-    fn saved_size(_host: &SettingsHost) -> (u32, u32) {
-        let Some(PrefValue::Float(b)) = store::inq_value("Render.ScreenBrightness") else {
-            panic!("a brightness");
-        };
-        assert!(
-            (b - 0.6).abs() < 1e-6,
-            "other applied settings remain committed"
-        );
-        let Some(PrefValue::Int(v)) = store::inq_value("Display.Resolution") else {
-            panic!("a saved size");
-        };
-        #[allow(clippy::cast_sign_loss)]
-        let v = v as u32;
-        (v >> 16, v & 0xFFFF)
-    }
-    #[test]
-    fn tested_resolution_is_saved_only_after_explicit_acceptance() {
-        let mut host = resolution_host();
-        assert_eq!(saved_size(&host), (800, 600));
-        assert_eq!(
-            host.pending_resolution().unwrap().stage,
-            ResolutionStage::OfferTest
-        );
-        assert_eq!(host.answer_resolution(true).unwrap().len(), 1);
-        assert_eq!(saved_size(&host), (800, 600));
-        host.resolution_applied(true, 20.0).unwrap();
-        assert!(!host.resolution_expired(34.999));
-        assert!(host.resolution_expired(35.0));
-        assert_eq!(saved_size(&host), (800, 600));
-        assert!(host.answer_resolution(true).unwrap().is_empty());
-        assert_eq!(saved_size(&host), (1024, 768));
-        assert!(host.pending_resolution().is_none());
-    }
-    #[test]
-    fn failed_or_rejected_resolution_keeps_previous_size_and_other_applied_settings() {
-        for reject_after_apply in [false, true] {
-            let mut host = resolution_host();
-            host.answer_resolution(true).unwrap();
-            host.resolution_applied(reject_after_apply, 20.0).unwrap();
-            if reject_after_apply {
-                let requests = host.answer_resolution(false).unwrap();
-                assert!(
-                    matches!(requests.as_slice(), [UiRequest::SetPreference(name, PrefValue::Int(n))]
-                    if *name == "Display.Resolution" && *n == ((800 << 16) | 600))
-                );
-                assert_eq!(
-                    host.pending_resolution().unwrap().stage,
-                    ResolutionStage::Reverting
-                );
-                host.resolution_applied(true, 21.0).unwrap();
-            }
-            assert!(host.pending_resolution().is_none());
-            assert_eq!(host.snapshot().resolution, 0);
-            assert_eq!(saved_size(&host), (800, 600));
-        }
-    }
-    #[test]
-    fn applying_again_while_a_size_choice_is_pending_keeps_that_choice() {
-        let mut host = resolution_host();
-        host.answer_resolution(true).unwrap();
-        host.stage_resolution((1024, 768), (800, 600), true);
-        assert_eq!(
-            host.pending_resolution().unwrap().stage,
-            ResolutionStage::Applying { test: true }
-        );
-        assert_eq!(host.pending_resolution().unwrap().target, (1024, 768));
-    }
-    #[test]
-    fn an_unanswered_resize_is_overdue_after_two_seconds() {
-        let mut host = resolution_host();
-        assert!(!host.resolution_report_overdue(10.0), "nothing asked yet");
-        host.answer_resolution(false).unwrap();
-        assert_eq!(host.awaited_size(), Some((1024, 768)));
-        assert!(!host.resolution_report_overdue(10.0));
-        assert!(!host.resolution_report_overdue(11.9));
-        assert!(host.resolution_report_overdue(12.0));
-        host.resolution_applied(false, 12.0).unwrap();
-        assert!(!host.resolution_report_overdue(13.0));
-        assert_eq!(host.awaited_size(), None);
-    }
-    #[test]
-    fn declining_the_test_saves_only_after_successful_resize() {
-        for success in [false, true] {
-            let mut host = resolution_host();
-            assert_eq!(host.answer_resolution(false).unwrap().len(), 1);
-            assert_eq!(
-                host.pending_resolution().unwrap().stage,
-                ResolutionStage::Applying { test: false }
-            );
-            assert_eq!(saved_size(&host), (800, 600));
-            host.resolution_applied(success, 20.0).unwrap();
-            assert_eq!(
-                saved_size(&host),
-                if success { (1024, 768) } else { (800, 600) }
-            );
-            assert!(host.pending_resolution().is_none());
-        }
+        let saved_brightness = host.saved.brightness;
+        host.resolution_readback((1024, 768), false);
+        assert_eq!(host.current.resolution, 1);
+        assert_eq!(host.saved.resolution, 0);
+        assert_eq!(host.current.brightness, 0.8);
+        assert_eq!(host.saved.brightness, saved_brightness);
+        host.resolution_readback((1024, 768), true);
+        assert_eq!(host.saved.resolution, 1);
+        assert_eq!(host.saved.brightness, saved_brightness);
     }
 }

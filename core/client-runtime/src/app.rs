@@ -896,6 +896,8 @@ pub struct App<S: Shell> {
     pub interaction: crate::interaction::Interaction,
     /// The questions the game has asked the player and not had answered. See [`crate::dialogs`].
     pub dialogs: crate::dialogs::DialogService,
+    /// The screen-size choice, independent of the active interface.
+    pub resolution: crate::resolution::ResolutionTransaction,
     /// This frame's actions, from the front end's device input or injected by a script, on
     /// their way through the frame's handler stages. See [`crate::actions`].
     pub actions: crate::actions::ActionQueue,
@@ -1422,6 +1424,7 @@ impl<S: Shell> App<S> {
             last_jump_request: None,
             interaction: crate::interaction::Interaction::new(),
             dialogs: crate::dialogs::DialogService::default(),
+            resolution: crate::resolution::ResolutionTransaction::default(),
             actions: crate::actions::ActionQueue::default(),
             audio: None,
             host_state: HostState::default(),
@@ -2374,6 +2377,7 @@ impl<S: Shell> App<S> {
         if std::mem::take(&mut self.duties.quit_owed) {
             self.pump.done();
         }
+        self.tick_resolution(shell, now.0);
         self.objects.world.refresh_stack_split();
         shell.service_dialogs(&mut UiContext::new(self), now);
         for request in self.objects.world.take_book_requests() {
@@ -3591,6 +3595,10 @@ impl<S: Shell> App<S> {
     /// frame. The `ask` flag on `UiRequest::EndCharacterSession` already carries the distinction;
     /// nothing reads it yet.
     pub fn log_off_character(&mut self) {
+        if let Some(effect) = self.resolution.cancel() {
+            self.apply_resolution_effect(effect);
+        }
+
         // The logoff request is sent and the log-off-requested flag is armed; that flag fades
         // the world out three seconds later,
         // plus twenty when the local player's `is_player_killer` predicate answers true — so
@@ -3790,6 +3798,9 @@ impl<S: Shell> App<S> {
     pub fn run(&mut self, shell: &mut S) -> u64 {
         self.state = AppState::Running;
         while self.frame(shell) {}
+        if let Some(effect) = self.resolution.cancel() {
+            self.apply_resolution_effect(effect);
+        }
         self.state = AppState::ShuttingDown;
         self.frames_drawn()
     }
@@ -3831,6 +3842,9 @@ impl<S: Shell> App<S> {
         if self.do_event_loop(shell) {
             // "If true, the per-frame step returns false immediately -- the network is not pumped
             // and no frame is drawn."
+            if let Some(effect) = self.resolution.cancel() {
+                self.apply_resolution_effect(effect);
+            }
             self.state = AppState::ShuttingDown;
             return false;
         }
@@ -3886,6 +3900,9 @@ impl<S: Shell> App<S> {
         // it the process exits. Nothing else runs this frame and no frame is drawn.
         if self.connect_failure_use_time() {
             self.pump.done();
+            if let Some(effect) = self.resolution.cancel() {
+                self.apply_resolution_effect(effect);
+            }
             self.state = AppState::ShuttingDown;
             return false;
         }
@@ -4169,6 +4186,9 @@ impl<S: Shell> App<S> {
         self.events.push(FrameEvent::Step(FrameStep::BeginFrame));
         if let Err(e) = self.present.start_frame() {
             tracing::error!("starting a frame failed: {e}");
+            if let Some(effect) = self.resolution.cancel() {
+                self.apply_resolution_effect(effect);
+            }
             self.state = AppState::ShuttingDown;
             return false;
         }
@@ -4211,6 +4231,9 @@ impl<S: Shell> App<S> {
         }
         if let Err(e) = self.present.end_frame() {
             tracing::error!("finishing a frame failed: {e}");
+            if let Some(effect) = self.resolution.cancel() {
+                self.apply_resolution_effect(effect);
+            }
             self.state = AppState::ShuttingDown;
             return false;
         }
@@ -4226,6 +4249,9 @@ impl<S: Shell> App<S> {
         // Shift+Escape -> EXIT -> Yes, so the account is not left logged in until the server's own timeout.
         if self.script == EnterWorldScript::Done {
             self.pump.done();
+            if let Some(effect) = self.resolution.cancel() {
+                self.apply_resolution_effect(effect);
+            }
             self.state = AppState::ShuttingDown;
             return false;
         }
@@ -4233,6 +4259,9 @@ impl<S: Shell> App<S> {
         // `--frames n` is this rebuild's test limit; the ordinary client runs until shutdown.
         if self.cfg.frames.is_some_and(|n| self.frames_drawn() >= n) {
             self.pump.done();
+            if let Some(effect) = self.resolution.cancel() {
+                self.apply_resolution_effect(effect);
+            }
             self.state = AppState::ShuttingDown;
             return false;
         }
@@ -6046,9 +6075,11 @@ impl<S: Shell> App<S> {
         if (width, height) != self.present.size() && width > 0 && height > 0 {
             if let Err(e) = self.present.resize(width, height) {
                 tracing::warn!("presentation change: {e}");
+                self.resolution_host_result(true, (width, height));
                 return;
             }
         }
+        self.resolution_host_result(false, (width, height));
         let (w, h) = self.present.size();
         // Broadcast the global refresh message, which re-lays the UI out at the new extent and
         // pushes UI global message `0x0E` at every registered listener.
@@ -6056,6 +6087,46 @@ impl<S: Shell> App<S> {
             i32::try_from(w).unwrap_or(i32::MAX),
             i32::try_from(h).unwrap_or(i32::MAX),
         ));
+    }
+
+    fn apply_resolution_effect(&mut self, effect: crate::resolution::ResolutionEffect) {
+        let packed = ((effect.size.0 << 16) | effect.size.1) as i32;
+        if effect.store {
+            dereth_client_contract::options::store::set_value(
+                "Display.Resolution",
+                dereth_client_contract::PrefValue::Int(packed),
+            );
+        }
+        self.set_display_resolution(packed);
+        if !effect.resize {
+            // A host failure reconciles the requested shadow without another native resize.
+            self.applied_resolution = self.present.size();
+        }
+    }
+
+    fn tick_resolution(&mut self, shell: &mut S, now: f64) {
+        use dereth_client_contract::options::interface::Interface;
+        self.resolution
+            .interface(Interface::chosen() == Interface::Classic);
+        if let Some(size) = self.resolution.tick(now, self.present.size()) {
+            self.apply_resolution_effect(size);
+        }
+        let prompt = self.resolution.prompt();
+        shell.resolution_prompt(&mut UiContext::new(self), prompt);
+    }
+
+    fn resolution_host_result(&mut self, failed: bool, attempted: (u32, u32)) {
+        if let Some((token, expected)) = self.resolution.awaited() {
+            if failed && attempted != expected {
+                return;
+            }
+            if let Some(size) =
+                self.resolution
+                    .host_result(token, self.present.size(), failed, self.timer.cur_time)
+            {
+                self.apply_resolution_effect(size);
+            }
+        }
     }
 
     /// Apply display-preference requests to the window state.
@@ -6080,6 +6151,35 @@ impl<S: Shell> App<S> {
             .into_iter()
             .filter(|r| {
                 match r {
+                    UiRequest::Resolution(action) => {
+                        if let dereth_client_contract::resolution::ResolutionAction::Begin {
+                            size,
+                            ..
+                        } = action
+                        {
+                            if !self.resolution.pending()
+                                && (self.use_forced_resolution
+                                    || self.pump.state.full_screen
+                                    || size.0 < 800
+                                    || size.1 < 600)
+                            {
+                                self.apply_resolution_effect(crate::resolution::ResolutionEffect {
+                                    size: *size,
+                                    resize: true,
+                                    store: true,
+                                });
+                                return false;
+                            }
+                        }
+                        if let Some(size) = self.resolution.action(
+                            *action,
+                            self.present.size(),
+                            self.timer.cur_time,
+                        ) {
+                            self.apply_resolution_effect(size);
+                        }
+                        return false;
+                    }
                     UiRequest::SetPreference(name, PrefValue::Bool(v)) => {
                         if name.eq_ignore_ascii_case("Display.FullScreen") {
                             self.cfg.display.full_screen = *v;
@@ -6109,6 +6209,7 @@ impl<S: Shell> App<S> {
                             dereth_client_contract::options::store::DISPLAY_RESOLUTION,
                         ) =>
                     {
+                        self.resolution.cancel();
                         resolution = Some(*v);
                         return false;
                     }
@@ -7094,6 +7195,9 @@ impl<S: Shell> App<S> {
     /// `tests/gpu/presentation/shutdown.rs` asserts on, because an ordering nothing checks is a comment.
     pub fn shutdown(mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
         use crate::shutdown::{Outcome, Step};
+        if let Some(effect) = self.resolution.cancel() {
+            self.apply_resolution_effect(effect);
+        }
         self.state = AppState::ShuttingDown;
         let mut log = crate::shutdown::CleanupLog::default();
 
@@ -8038,3 +8142,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "resolution_app_tests.rs"]
+mod resolution_app_tests;

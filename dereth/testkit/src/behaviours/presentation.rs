@@ -289,6 +289,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "presentation.resolution.shared-transaction",
+        says: "A screen-size test keeps its host request and acceptance deadline across interface changes. Only the current prompt may answer it; a queued resize is not success, and a refused or expired test restores only the screen size.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-RESOLUTION-TRANSACTION"),
+        station: "dereth-client-runtime::lib::resolution::tests::host_results_and_prompt_answers_have_independent_lifetimes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "presentation.screenshot.the-shipped-key-writes-the-next-free-file-beside-preferences",
         says: "The screenshot key saves a picture named ScreenShot with the first free five-digit \
                number into the folder that holds the preferences file, and posts one message \

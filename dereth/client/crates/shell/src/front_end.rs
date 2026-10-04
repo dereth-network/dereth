@@ -409,6 +409,7 @@ pub struct ClientShell<H: Host> {
     /// The classic interface, shown in this one's place while it is the one chosen.
     pub(crate) classic: crate::classic_face::ClassicFace,
     targeted_dialogs: crate::target_confirmation::TargetedDialogs,
+    resolution_dialog: dereth_ui::dialog::resolution::ResolutionDialog,
     /// How many times the gameplay screen has been constructed, so the HUD's
     /// player-module refresh runs again on a tree that was rebuilt by a mode switch.
     gameplay_serial: u64,
@@ -513,6 +514,7 @@ impl<H: Host> ClientShell<H> {
             ui_release: crate::gpu::UiReleaseReport::default(),
             ui_draw_list: Vec::new(),
             targeted_dialogs: crate::target_confirmation::TargetedDialogs::default(),
+            resolution_dialog: dereth_ui::dialog::resolution::ResolutionDialog::default(),
             gameplay_serial: 0,
             key_bindings_built: None,
             key_binding_stats: KeyBindingStats::default(),
@@ -3154,6 +3156,22 @@ impl<H: Host> Shell for ClientShell<H> {
         }
         self.targeted_dialogs
             .service_with(cx, self.ui.as_mut(), now);
+    }
+
+    fn resolution_prompt(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        prompt: Option<dereth_client_contract::resolution::ResolutionPrompt>,
+    ) {
+        if let Some(classic) = self.classic.active_mut() {
+            if let Some(ui) = self.ui.as_mut() {
+                self.resolution_dialog.clear(&mut ui.ui);
+            }
+            classic.project_resolution(prompt);
+        } else if let Some(ui) = self.ui.as_mut() {
+            ui.ui.now = dereth_primitives::LocalTime(cx.now());
+            self.resolution_dialog.project(&mut ui.ui, prompt);
+        }
     }
 
     fn before_ui_input(&mut self, player_airborne: bool) {

@@ -312,7 +312,7 @@ impl CharacterSettingsPage {
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
         use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
         for (heading, rows) in sheet::headings_for(PageId::Character, Face::Retail) {
-            self.add_literal_header(ui, heading.title);
+            self.add_literal_header(ui, &super::config::resolve_text(ui, heading.text));
             for r in rows {
                 let Value::Option(o) = r.value else { continue };
                 if let Some(i) = self.add_toggle_option(ui, o, view) {

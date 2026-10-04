@@ -63,6 +63,19 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.timer.cur_time
     }
 
+    /// Whether the screen-size choice is still waiting for the host or the player.
+    pub fn resolution_pending(&self) -> bool {
+        self.app.resolution.pending()
+    }
+    /// The size to preserve when another settings apply occurs during a test.
+    pub fn resolution_previous(&self) -> Option<(u32, u32)> {
+        self.app.resolution.previous()
+    }
+    /// The completed choice, for page draft readback without resetting a fresh selection.
+    pub fn resolution_completion(&self) -> Option<crate::resolution::ResolutionCompletion> {
+        self.app.resolution.completion()
+    }
+
     /// The pre-game state: the connection, the character list, the world's name.
     #[must_use]
     pub fn pregame(&self) -> &HostState {

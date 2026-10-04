@@ -198,7 +198,6 @@ pub enum HostAction {
     },
     LegacyCharGen(Box<LegacyCreation>),
     VendorSellAll,
-    ConfirmResolution(bool),
     CloseVendorForced,
     CloseGroundForced,
     SaveKeyMapAs {

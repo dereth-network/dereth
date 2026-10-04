@@ -211,3 +211,5 @@ pub mod actions;
 
 /// The application state machine and the frame loop.
 pub mod app;
+
+pub mod resolution;

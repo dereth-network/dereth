@@ -493,8 +493,13 @@ fn trade_accept_uses_both_displayed_counts_and_offer_scroll_is_independent() {
 /// Behaviour: options.client-page.the-classic-defaults-reset-the-texture-sizes-as-the-retail-ones-do
 #[test]
 fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
-    use dereth_client_contract::options::store;
+    use dereth_client_contract::options::{interface, store};
     use dereth_client_contract::PrefValue;
+    store::init();
+    store::set_value(interface::INTERFACE, PrefValue::Int(1));
+    store::set_value("Camera.AdjustmentSpeed", PrefValue::Float(5.0));
+    store::set_value("Input.MouseLookSensitivity", PrefValue::Float(0.01));
+    store::set_value("Sound.InterfaceSoundVolume", PrefValue::Float(0.2));
     let v = View::default();
     let pregame = PregameView::default();
     let keyboard = KeyboardState::default();
@@ -535,7 +540,30 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
     assert!(s.environment_detail && !s.landscape_detail);
     assert_eq!(s.resolution, 0, "the size the client starts at, 1024x768");
     assert_eq!(s.effects_volume, 1.0);
-    assert_eq!(s.camera_stiffness, 0.23);
+    assert!((s.camera_stiffness - 0.23).abs() < 0.000001);
+    assert!(!s.auto_degrade);
+    assert!(s.effects && s.ambient && s.interface && s.stereo);
+    assert_eq!(s.ambient_volume, 1.0);
+    assert_eq!(s.brightness, 0.5);
+    assert_eq!(s.performance, 0.5);
+    assert!(!s.full_screen);
+    let apply = p.event(ControlEvent::Activate("apply".into()), &c);
+    for (name, value) in [
+        ("Camera.AdjustmentSpeed", PrefValue::Float(40.0)),
+        ("Input.MouseLookSensitivity", PrefValue::Float(0.55)),
+        ("Sound.InterfaceSoundVolume", PrefValue::Float(1.0)),
+        ("Render.TextureFiltering", PrefValue::Int(1)),
+    ] {
+        assert!(apply.contains(&PanelAction::Game(UiRequest::SetPreference(name, value))));
+    }
+    assert!(!apply.iter().any(|a| matches!(
+        a,
+        PanelAction::Game(UiRequest::SetPreference(interface::INTERFACE, _))
+    )));
+    assert_eq!(
+        store::inq_value(interface::INTERFACE),
+        Some(PrefValue::Int(1))
+    );
     let f = p.frame(&c);
     assert!(matches!(
         &f.controls
@@ -546,14 +574,12 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
         ControlKind::Choice { .. }
     ));
     // The texture sizes at the shared set's defaults, Medium and High, written on Apply.
-    store::init();
-    let out = p.event(ControlEvent::Activate("apply".into()), &c);
     for (name, want) in [
         ("Render.LandscapeTextureDetail", 2),
         ("Render.EnvironmentTextureDetail", 1),
     ] {
         assert!(
-            out.contains(&PanelAction::Game(UiRequest::SetPreference(
+            apply.contains(&PanelAction::Game(UiRequest::SetPreference(
                 name,
                 PrefValue::Int(want)
             ))),
@@ -561,6 +587,35 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
         );
         assert_eq!(store::inq_value(name), Some(PrefValue::Int(want)), "{name}");
     }
+    // Unavailable sound stays off; detail defaults retain the shared values. A missing
+    // default display mode leaves the selected supported mode in place.
+    let unavailable = ClassicSettings {
+        sound_available: false,
+        detail_available: false,
+        resolutions: vec![(800, 600)],
+        resolution: 0,
+        effects: true,
+        ambient: true,
+        interface: true,
+        environment_detail: true,
+        landscape_detail: true,
+        ..settings.clone()
+    };
+    let limited = Context {
+        settings: &unavailable,
+        ..c
+    };
+    let mut p = make("sound-graphics").unwrap();
+    p.event(ControlEvent::Tick, &limited);
+    let out = p.event(ControlEvent::Activate("defaults".into()), &limited);
+    let PanelAction::Host(HostAction::DefaultClassicSettings(s)) = &out[0] else {
+        panic!()
+    };
+    assert!(!s.effects && !s.ambient && !s.interface);
+    assert!(s.environment_detail && !s.landscape_detail);
+    assert_eq!(s.resolutions[s.resolution], (800, 600));
+    assert_eq!(s.effects_volume, 1.0);
+    assert_eq!(s.ambient_volume, 1.0);
 }
 
 /// Every control and every piece of text the classic Client Options page draws over its whole

@@ -10,8 +10,7 @@
 //! A few rows belong to one interface only, because they mean something only there
 //! ([`Shown`]): the classic interface's own mouse look, its stretched layout and its social
 //! window's pages; the retail interface's mouse turning, its side-by-side vitals, its chat font
-//! and its floating chat windows. A row for something the world's era does not have is drawn
-//! greyed out, not left out ([`Needs`]).
+//! and its floating chat windows. A row for something the world's era does not have is left out ([`Needs`]).
 
 use crate::options::config::PrefValueConst;
 use crate::view::PlayerOption;
@@ -29,6 +28,32 @@ pub enum PageId {
     Client,
 }
 
+/// A localized options caption with an honest literal fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Text {
+    pub table_enum: u32,
+    pub token: Option<&'static str>,
+    pub fallback: &'static str,
+}
+impl Text {
+    #[must_use]
+    pub const fn literal(fallback: &'static str) -> Self {
+        Self {
+            table_enum: 0x1000_0003,
+            token: None,
+            fallback,
+        }
+    }
+    #[must_use]
+    pub const fn preference(token: &'static str, fallback: &'static str) -> Self {
+        Self {
+            table_enum: 0x1000_0003,
+            token: Some(token),
+            fallback,
+        }
+    }
+}
+
 /// One page.
 #[derive(Debug, Clone, Copy)]
 pub struct Page {
@@ -41,6 +66,7 @@ pub struct Page {
 #[derive(Debug, Clone, Copy)]
 pub struct Heading {
     pub title: &'static str,
+    pub text: Text,
     pub rows: &'static [Row],
 }
 
@@ -70,8 +96,7 @@ impl Shown {
     }
 }
 
-/// What a row needs of the world's era to mean anything. A row whose need is not met is drawn
-/// greyed out.
+/// What a row needs of the world's era to mean anything. A row whose need is not met is left out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Needs {
     /// Any world.
@@ -159,11 +184,34 @@ pub struct Row {
     /// The value the page's Defaults button gives a profile preference row; `None` for a row
     /// whose default is the character's, the chat window's, or none at all.
     pub default: Option<PrefValueConst>,
+    /// The volume half of a sound row's UI restore value.
+    pub volume_default: Option<f32>,
+    /// Preference-table tokens for a slider's end captions.
+    pub slider_ends: Option<(&'static str, &'static str)>,
+    /// Interactive edits ask whether the applied value should be retained.
+    pub confirm_change: bool,
     /// What the row does when its caption alone does not say, for a tooltip.
     pub note: Option<&'static str>,
 }
 
 impl Row {
+    /// UI restore value for either preference owned by this row.
+    #[must_use]
+    pub fn default_for(&self, preference: &str) -> Option<PrefValueConst> {
+        if preference == super::interface::INTERFACE {
+            return None;
+        }
+        if self.preference() == Some(preference) {
+            return self.default;
+        }
+        match self.value {
+            Value::Sound { volume, .. } if preference == volume => {
+                self.volume_default.map(PrefValueConst::Float)
+            }
+            _ => None,
+        }
+    }
+
     /// The caption `face` draws.
     #[must_use]
     pub fn caption_for(&self, face: Face) -> &'static str {
@@ -198,6 +246,9 @@ const fn row(caption: &'static str, value: Value) -> Row {
         needs: Needs::Nothing,
         classic: None,
         default: None,
+        volume_default: None,
+        slider_ends: None,
+        confirm_change: false,
         note: None,
     }
 }
@@ -237,8 +288,52 @@ const fn noted(note: &'static str, r: Row) -> Row {
 const fn pref(caption: &'static str, value: Value, default: PrefValueConst) -> Row {
     Row {
         default: Some(default),
+        volume_default: match value {
+            Value::Sound { .. } => Some(1.0),
+            _ => None,
+        },
         ..row(caption, value)
     }
+}
+
+const fn ends(left: &'static str, right: &'static str, r: Row) -> Row {
+    Row {
+        slider_ends: Some((left, right)),
+        ..r
+    }
+}
+const fn confirmed(r: Row) -> Row {
+    Row {
+        confirm_change: true,
+        ..r
+    }
+}
+
+/// Registered numeric bounds shared by both interfaces; an unregistered slider uses 0..1.
+#[must_use]
+pub fn preference_range(preference: &str) -> (f32, f32) {
+    super::preferences::UI_PREFERENCES
+        .iter()
+        .find(|p| p.name == preference)
+        .and_then(|p| p.range)
+        .unwrap_or((0.0, 1.0))
+}
+
+/// UI restore values in the page's presentation order, including paired volume controls.
+#[must_use]
+pub fn defaults(page: PageId, face: Face) -> Vec<(&'static str, PrefValueConst)> {
+    rows_for(page, face)
+        .flat_map(|row| {
+            let names = match row.value {
+                Value::Sound { on, volume } => [Some(on), Some(volume)],
+                _ => [row.preference(), None],
+            };
+            names
+                .into_iter()
+                .flatten()
+                .filter_map(move |p| row.default_for(p).map(|v| (p, v)))
+        })
+        .collect()
 }
 
 const fn button(caption: &'static str, act: Act) -> Row {
@@ -252,6 +347,7 @@ use PrefValueConst::{Bool, Float, Int};
 
 const GAME_SUPPORT: [Heading; 1] = [Heading {
     title: "Game and Support",
+    text: Text::literal("Game and Support"),
     rows: &[
         Row {
             classic: Some(("Leave World", false)),
@@ -273,6 +369,10 @@ const GAME_SUPPORT: [Heading; 1] = [Heading {
 const CHARACTER: [Heading; 7] = [
     Heading {
         title: "Interface Behavior",
+        text: Text::preference(
+            "ID_CharacterOption_UIBehavior_Section",
+            "Interface Behavior",
+        ),
         rows: &[
             opt_c(
                 "Keep Combat Targets in View",
@@ -319,6 +419,7 @@ const CHARACTER: [Heading; 7] = [
     },
     Heading {
         title: "World Display",
+        text: Text::preference("ID_CharacterOption_UIDisplay_Section", "World Display"),
         rows: &[
             opt("Disable Most Weather Effects", P::DisableMostWeatherEffects),
             opt("Disable Distance Fog", P::DisableDistanceFog),
@@ -334,6 +435,7 @@ const CHARACTER: [Heading; 7] = [
     },
     Heading {
         title: "Chat",
+        text: Text::preference("ID_CharacterOption_Chat_Section", "Chat"),
         rows: &[
             opt_c(
                 "Stay in Chat Mode After Sending a Message",
@@ -359,6 +461,10 @@ const CHARACTER: [Heading; 7] = [
     },
     Heading {
         title: "Fellowship and Allegiance",
+        text: Text::preference(
+            "ID_CharacterOption_Grouping_Section",
+            "Fellowship and Allegiance",
+        ),
         rows: &[
             opt_c(
                 "Ignore Allegiance Requests",
@@ -386,6 +492,7 @@ const CHARACTER: [Heading; 7] = [
     },
     Heading {
         title: "Other Players",
+        text: Text::preference("ID_CharacterOption_OtherPlayers_Section", "Other Players"),
         rows: &[
             opt("Accept Corpse-Looting Permissions", P::AcceptLootPermits),
             opt("Attempt to Deceive Other Players", P::UseDeception),
@@ -403,6 +510,7 @@ const CHARACTER: [Heading; 7] = [
     },
     Heading {
         title: "Allow Others to See Your",
+        text: Text::literal("Allow Others to See Your"),
         rows: &[
             opt_c(
                 "Date of Birth",
@@ -442,6 +550,10 @@ const CHARACTER: [Heading; 7] = [
     },
     Heading {
         title: "Combat and Movement",
+        text: Text::preference(
+            "ID_CharacterOption_CharacterBehavior_Section",
+            "Combat and Movement",
+        ),
         rows: &[
             opt("Run as Default Movement", P::ToggleRun),
             opt_c(
@@ -521,6 +633,7 @@ const FLOATY_4_FILTERS: [Row; 13] = floaty_rows(window::FLOATY_4);
 const CHAT: [Heading; 6] = [
     Heading {
         title: "Chat Windows",
+        text: Text::preference("ID_ChatOption_GeneralOptions_Section", "Chat Windows"),
         rows: &[
             only(
                 Shown::Retail,
@@ -542,22 +655,39 @@ const CHAT: [Heading; 6] = [
     },
     Heading {
         title: "Main Chat Window",
+        text: Text::preference("ID_ChatOption_MainChatWindow_Section", "Main Chat Window"),
         rows: &MAIN_FILTERS,
     },
     Heading {
         title: "Floating Chat Window 1",
+        text: Text::preference(
+            "ID_ChatOption_FloatyChatWindow1_Section",
+            "Floating Chat Window 1",
+        ),
         rows: &FLOATY_1_FILTERS,
     },
     Heading {
         title: "Floating Chat Window 2",
+        text: Text::preference(
+            "ID_ChatOption_FloatyChatWindow2_Section",
+            "Floating Chat Window 2",
+        ),
         rows: &FLOATY_2_FILTERS,
     },
     Heading {
         title: "Floating Chat Window 3",
+        text: Text::preference(
+            "ID_ChatOption_FloatyChatWindow3_Section",
+            "Floating Chat Window 3",
+        ),
         rows: &FLOATY_3_FILTERS,
     },
     Heading {
         title: "Floating Chat Window 4",
+        text: Text::preference(
+            "ID_ChatOption_FloatyChatWindow4_Section",
+            "Floating Chat Window 4",
+        ),
         rows: &FLOATY_4_FILTERS,
     },
 ];
@@ -567,6 +697,7 @@ const CHAT: [Heading; 6] = [
 const CLIENT: [Heading; 5] = [
     Heading {
         title: "Sound",
+        text: Text::preference("ID_Sound_SoundSection", "Sound Options"),
         rows: &[
             pref("Sound Output", Value::Menu("Sound.SoundFeatures"), Int(0)),
             pref(
@@ -602,31 +733,40 @@ const CLIENT: [Heading; 5] = [
     },
     Heading {
         title: "Display",
+        text: Text::literal("Display"),
         rows: &[
             pref(
                 "Interface",
                 Value::Menu(crate::options::interface::INTERFACE),
                 Int(0),
             ),
-            pref(
+            confirmed(pref(
                 "Resolution",
                 Value::Menu(crate::options::store::DISPLAY_RESOLUTION),
                 Int(0x0400_0300),
-            ),
+            )),
             pref(
                 "Full Screen",
                 Value::Check("Display.FullScreen"),
                 Bool(false),
             ),
-            pref(
-                "Screen Brightness",
-                Value::Slider("Render.ScreenBrightness"),
-                Float(0.0),
+            ends(
+                "ID_Graphics_Value_Dark",
+                "ID_Graphics_Value_Bright",
+                pref(
+                    "Screen Brightness",
+                    Value::Slider("Render.ScreenBrightness"),
+                    Float(0.0),
+                ),
             ),
-            pref(
-                "Field of View",
-                Value::Slider("Render.FieldOfView"),
-                Float(90.0),
+            ends(
+                "ID_Graphics_Value_Narrow",
+                "ID_Graphics_Value_Wide",
+                pref(
+                    "Field of View",
+                    Value::Slider("Render.FieldOfView"),
+                    Float(90.0),
+                ),
             ),
             pref(
                 "Performance Panel",
@@ -669,6 +809,7 @@ const CLIENT: [Heading; 5] = [
     },
     Heading {
         title: "Graphics Quality",
+        text: Text::literal("Graphics Quality"),
         rows: &[
             noted(
                 "Lowers the detail of distant objects to hold the frame rate.",
@@ -680,16 +821,24 @@ const CLIENT: [Heading; 5] = [
             ),
             noted(
                 "Speed or detail chosen by hand, used while Adaptive Degrade is off.",
-                pref(
-                    "Adaptive Degrade Bias",
-                    Value::Slider("Render.GraphicsPerformance"),
-                    Float(0.0),
+                ends(
+                    "ID_Graphics_Value_Speed",
+                    "ID_Graphics_Value_Detail",
+                    pref(
+                        "Adaptive Degrade Bias",
+                        Value::Slider("Render.GraphicsPerformance"),
+                        Float(0.0),
+                    ),
                 ),
             ),
-            pref(
-                "Degrade Distance",
-                Value::Slider("Render.DegradeDistance"),
-                Float(50.0),
+            ends(
+                "ID_Graphics_Value_Close",
+                "ID_Graphics_Value_Far",
+                pref(
+                    "Degrade Distance",
+                    Value::Slider("Render.DegradeDistance"),
+                    Float(50.0),
+                ),
             ),
             pref(
                 "Landscape Texture Detail",
@@ -730,6 +879,7 @@ const CLIENT: [Heading; 5] = [
     },
     Heading {
         title: "Era Look",
+        text: Text::literal("Era Look"),
         rows: &[
             pref(
                 "Terrain Mode",
@@ -750,16 +900,25 @@ const CLIENT: [Heading; 5] = [
     },
     Heading {
         title: "Camera and Mouse",
+        text: Text::literal("Camera and Mouse"),
         rows: &[
-            pref(
-                "Camera Stiffness",
-                Value::Slider("Camera.Stiffness"),
-                Float(0.45),
+            ends(
+                "ID_Graphics_Value_Soft",
+                "ID_Graphics_Value_Hard",
+                pref(
+                    "Camera Stiffness",
+                    Value::Slider("Camera.Stiffness"),
+                    Float(0.45),
+                ),
             ),
-            pref(
-                "Camera Adjustment Speed",
-                Value::Slider("Camera.AdjustmentSpeed"),
-                Float(40.0),
+            ends(
+                "ID_Graphics_Value_Slow",
+                "ID_Graphics_Value_Fast",
+                pref(
+                    "Camera Adjustment Speed",
+                    Value::Slider("Camera.AdjustmentSpeed"),
+                    Float(40.0),
+                ),
             ),
             pref(
                 "Align Camera to Slope",

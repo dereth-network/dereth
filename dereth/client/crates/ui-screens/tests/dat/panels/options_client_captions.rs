@@ -296,10 +296,10 @@ fn the_five_headings_and_the_twelve_slider_end_captions_are_the_shared_and_shipp
         headers,
         vec![
             "Sound Options",
-            "Display Options",
-            "Graphics Quality Options",
-            "Era Look Options",
-            "Camera and Mouse Options",
+            "Display",
+            "Graphics Quality",
+            "Era Look",
+            "Camera and Mouse",
         ]
     );
 
@@ -522,4 +522,29 @@ fn the_page_under_test_is_the_shipped_one() {
     assert_eq!(built.slider_end_captions, 12);
     assert_eq!(built.failures, 0);
     let _: &PlayerOptionPage = &built;
+}
+
+/// Behaviour: options.client-page.every-row-header-and-slider-end-carries-its-shipped-caption
+#[test]
+fn shared_heading_descriptors_use_each_asset_environment_or_their_fallback() {
+    use dereth_client_contract::options::sheet::{self, PageId};
+    for (store, expected) in [
+        (dereth_dat::testing::open_store_or_fail(), "Sound Options"),
+        (
+            dereth_dat::testing::open_pre_tod_store_or_fail(),
+            "Sound Options",
+        ),
+    ] {
+        let mut ui = UiSystem::new((800, 600));
+        ui.strings = Some(Rc::new(dereth_ui::text::DatStringResolver::new(
+            std::sync::Arc::new(store),
+        )));
+        let headings = sheet::page(PageId::Client).headings;
+        assert_eq!(config::resolve_text(&ui, headings[0].text), expected);
+        assert_eq!(config::resolve_text(&ui, headings[3].text), "Era Look");
+        assert_eq!(
+            config::resolve_text(&ui, headings[4].text),
+            "Camera and Mouse"
+        );
+    }
 }

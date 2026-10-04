@@ -123,11 +123,7 @@ fn hosted(preference: &str) -> bool {
 
 /// A preference's slider range, from its registration.
 fn range(preference: &str) -> (f32, f32) {
-    dereth_client_contract::options::preferences::UI_PREFERENCES
-        .iter()
-        .find(|p| p.name == preference)
-        .and_then(|p| p.range)
-        .unwrap_or((0.0, 1.0))
+    sheet::preference_range(preference)
 }
 
 /// Whether the world's era has what a row sets: the social window's Secure Trade page needs
@@ -444,29 +440,46 @@ impl Settings {
     /// The Client page's Defaults: the settings host's rows as the classic page always set them,
     /// and every other row to the shared set's default.
     fn defaults(&mut self) -> Vec<PanelAction> {
+        let defaults = sheet::defaults(PageId::Client, Face::Classic);
+        let default_of = |name: &str| {
+            defaults
+                .iter()
+                .find(|(p, _)| *p == name)
+                .map(|(_, v)| PrefValue::from(*v))
+        };
+        let float = |name: &str| match default_of(name) {
+            Some(PrefValue::Float(v)) => v,
+            _ => unreachable!("shared slider default for {name}"),
+        };
+        let boolean = |name: &str| match default_of(name) {
+            Some(PrefValue::Bool(v)) => v,
+            _ => unreachable!("shared checkbox default for {name}"),
+        };
+        let integer = |name: &str| match default_of(name) {
+            Some(PrefValue::Int(v)) => v,
+            _ => unreachable!("shared menu default for {name}"),
+        };
         let s = self.draft.as_mut().unwrap();
-        s.effects = s.sound_available;
-        s.ambient = s.sound_available;
-        s.interface = s.sound_available;
-        s.stereo = true;
-        s.effects_volume = 1.0;
-        s.ambient_volume = 1.0;
-        s.auto_degrade = true;
-        s.performance = 0.5;
-        s.brightness = 0.5;
-        s.camera_stiffness = 0.23;
-        s.full_screen = false;
-        if let Some(i) = s.resolutions.iter().position(|r| *r == (1024, 768)) {
+        s.effects = s.sound_available && boolean("Sound.SoundDisabled");
+        s.ambient = s.sound_available && boolean("Sound.AmbientSoundDisabled");
+        s.interface = s.sound_available && boolean("Sound.InterfaceSoundDisabled");
+        s.stereo = integer("Sound.SoundFeatures") == 0;
+        s.effects_volume = float("Sound.SoundVolume");
+        s.ambient_volume = float("Sound.AmbientSoundVolume");
+        s.auto_degrade = boolean("Render.AutomaticDegrades");
+        s.performance = ((float("Render.GraphicsPerformance") + 1.0) / 2.0).clamp(0.0, 1.0);
+        s.brightness = crate::settings_host::slider_of_brightness(float("Render.ScreenBrightness"));
+        s.camera_stiffness = (float("Camera.Stiffness") / 0.714_285_73 - 0.4).clamp(0.0, 1.0);
+        s.full_screen = boolean("Display.FullScreen");
+        let packed = integer("Display.Resolution") as u32;
+        if let Some(i) = s
+            .resolutions
+            .iter()
+            .position(|r| *r == (packed >> 16, packed & 0xffff))
+        {
             s.resolution = i;
         }
-        // The detail textures go back to the shared set's defaults, as the other interface's
-        // Defaults puts them; the texture sizes are rows of their own and the loop below does.
-        let default_of = |name: &str| {
-            sheet::rows_for(PageId::Client, Face::Retail)
-                .find(|r| r.preference() == Some(name))
-                .and_then(|r| r.default)
-                .map(PrefValue::from)
-        };
+        // Texture sizes are edited directly by their preference rows below.
         if let Some(PrefValue::Bool(on)) = default_of("Render.BuildingDetailTextures") {
             s.environment_detail = on;
         }
@@ -474,23 +487,9 @@ impl Settings {
             s.landscape_detail = on;
         }
         let s = s.clone();
-        for r in sheet::rows_for(PageId::Client, Face::Classic) {
-            let names: Vec<&'static str> = match r.value {
-                Value::Sound { on, volume } => vec![on, volume],
-                _ => r.preference().into_iter().collect(),
-            };
-            // The interface stays the one the player is using: Defaults does not leave it.
-            for p in names.into_iter().filter(|p| {
-                !hosted(p) && *p != dereth_client_contract::options::interface::INTERFACE
-            }) {
-                let v = if r.preference() == Some(p) {
-                    r.default.map(PrefValue::from)
-                } else {
-                    Some(PrefValue::Float(1.0))
-                };
-                if let Some(v) = v {
-                    self.set_own(p, v);
-                }
+        for (preference, value) in defaults {
+            if !hosted(preference) {
+                self.set_own(preference, value.into());
             }
         }
         self.dirty = true;

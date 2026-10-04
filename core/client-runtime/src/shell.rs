@@ -143,6 +143,13 @@ pub trait Shell: Sized {
     fn service_dialogs(&mut self, cx: &mut UiContext<'_, Self>, now: LocalTime) {
         cx.service_dialogs(None, now);
     }
+    /// Project the runtime-owned screen-size prompt through the active interface.
+    fn resolution_prompt(
+        &mut self,
+        cx: &mut UiContext<'_, Self>,
+        prompt: Option<dereth_client_contract::resolution::ResolutionPrompt>,
+    ) {
+    }
     /// Before the UI takes its input: whether the player is airborne (the log-off confirmation
     /// refuses an airborne log-off). The talk-focus notices raised since the last delivery follow,
     /// through [`Self::talk_focus_notice`].

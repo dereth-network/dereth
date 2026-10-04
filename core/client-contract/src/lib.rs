@@ -119,3 +119,5 @@ pub use renderer::RendererChoice;
 pub use snapshot::GameSnapshot;
 pub use statmgmt::XpHeader;
 pub use view::*;
+
+pub mod resolution;

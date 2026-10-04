@@ -285,14 +285,12 @@ mod tests {
     /// different registered/UI values prove that a page seeded itself from the store.
     #[test]
     fn the_registered_defaults_disagree_with_the_ui_defaults_in_exactly_three_places() {
-        use super::super::config::{CONFIG_PAGE, DEFAULT_DISAGREEMENTS};
+        use super::super::config::{config_rows, DEFAULT_DISAGREEMENTS};
         let mut differing = Vec::new();
-        for row in CONFIG_PAGE {
+        for row in config_rows() {
             let Some(p) = find(row.preference) else {
-                panic!(
-                    "{} is a page row with no preference attachment",
-                    row.preference
-                )
+                // This client's additional controls have no shipped preference attachment.
+                continue;
             };
             if p.registered_default != row.ui_default {
                 differing.push(row.preference);

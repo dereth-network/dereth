@@ -2,7 +2,7 @@
 //!
 //! The shipped `classic_gameplay` tree has the Client Options page `0x10000213` with an option box
 //! `0x10000200` carrying **0 children** and none of the seven option-control types instantiated:
-//! the rows are built at run time. This module joins the pieces — [`super::config::CONFIG_PAGE`]
+//! the rows are built at run time. This module joins the pieces — [`dereth_client_contract::options::sheet`]
 //! is the option-row initialization, [`crate::panels::listbox::ListBoxWidget::add_from_template`]
 //! is the list box's add-from-template-list, and the eight row templates are roots of the shipped
 //! `classic_options` layout `0x2100002B`.
@@ -94,14 +94,14 @@
 //! The string id for a control's own caption is **not** a literal in the option build: it comes
 //! from the preference query (name in; table, label and tooltip out) inside each preference-binding
 //! path, and that registry is [`super::preferences`]. Only the six **section** ids and the twelve
-//! **slider end** ids are literals in the option build, and those are `super::config::SECTIONS`
+//! **slider end** ids are literals in the option build, and those are `dereth_client_contract::options::sheet`
 //! and `ConfigRow::slider_ends`.
 //!
 //! **A check+slider row's slider gets no name label, and that is the shipped data, not a miss.**
 //! Template 5 (`0x10000220`) and template 7 (`0x10000221`) carry no `0x1000021B`, so
 //! the recursive child lookup answers null and the row's caption is the
 //! check box's. Six sliders on this page have end captions, not seven: the six `slider(...)` rows
-//! of [`super::config::CONFIG_PAGE`], all of them wide; `Input.MouseLookSensitivity` is the one
+//! of [`dereth_client_contract::options::sheet`], all of them wide; `Input.MouseLookSensitivity` is the one
 //! narrow slider and has none.
 
 use dereth_ui::{ElemHandle, ElementId, StateId, UiSystem};
@@ -110,7 +110,7 @@ use crate::element_types::ty;
 use crate::panels::listbox::ListBoxWidget;
 use crate::view::{PrefValue, UiRequest};
 
-use super::config::{ConfigRow, Control, PrefValueConst, SOUND_SLIDER_DEFAULT};
+use super::config::{ConfigRow, Control, PrefValueConst};
 
 // -------------------------------------------------------------------------------------------
 // The template list
@@ -461,22 +461,7 @@ pub struct PlayerOptionPage {
     /// How many of the menus got a popup out of — the denominator for
     /// [`Self::menu_entries`]. Eight on the shipped tree; 0 without an asset source.
     pub menu_popups: usize,
-    /// The menu option control's dialog and notices handling's delayed resolution confirmation.
-    /// The client registers the changed menu for global message 3 and opens only after the second
-    /// later tick; the context then remains on DialogController's non-queued list until Yes, No or
-    /// its ten-second expiry.
-    confirmation: Option<ConfirmationState>,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ConfirmationState {
-    option: usize,
-    ticks: u8,
-    context: Option<u64>,
-}
-
-const CONFIRM_CHANGE_TOKEN: &str = "ID_Option_ConfirmChange";
-const CONFIRM_CHANGE_SECONDS: f32 = 10.0;
 
 impl PlayerOptionPage {
     /// The client's first act — bind the option box (`0x10000200`).
@@ -587,7 +572,7 @@ impl PlayerOptionPage {
     /// This is the complete caption path.
     ///
     /// `token` is the `ID_*` name whose hash is the string id; the six
-    /// this page passes are [`super::config::SECTIONS`], and they are the only caption ids that
+    /// this page passes are [`dereth_client_contract::options::sheet`], and they are the only caption ids that
     /// are literals in the option build rather than coming out of the preference registry.
     pub fn add_header(&mut self, ui: &mut UiSystem, token: &str) -> bool {
         let Some(row) = self.add_row(ui, template::HEADER) else {
@@ -1298,170 +1283,20 @@ impl PlayerOptionPage {
         requests_out.emit(UiRequest::SetPreference(o.preference, o.current.clone()));
     }
 
-    /// The menu option's global-message timer for a change that requires confirmation.
-    /// This implements the two-tick delay for the confirmation dialog.
-    ///
-    /// `UiSystem::use_time` broadcasts global message 3 before it asks the input pump for this
-    /// frame's pointer work. Consequently a menu choice made later in that frame cannot count the
-    /// already-broadcast tick: the next two calls here are exactly the client's two later edges.
-    /// The preference was already written by [`Self::apply`].
+    /// Read back the runtime's resolution result without committing other page drafts.
     pub fn confirmation_tick(&mut self, ui: &mut UiSystem) -> Vec<ElemHandle> {
-        let Some(state) = self.confirmation.as_mut() else {
-            return Vec::new();
-        };
-
-        if let Some(context) = state.context {
-            let answer = ui
-                .dialogs
-                .info(context)
-                .and_then(|info| info.element)
-                .and_then(|root| dereth_ui::dialog::types::dialog_element(ui, root))
-                .and_then(|dialog| dialog.answer_property())
-                .and_then(|(_, value)| {
-                    if let dereth_assets::ui::PropertyValue::Bool(answer) = value {
-                        Some(answer)
-                    } else {
-                        None
-                    }
-                });
-            if let Some(answer) = answer {
-                self.finish_confirmation(ui, answer);
-                return Vec::new();
-            }
-            if ui.dialogs.tick(ui.now.0).contains(&context) {
-                self.finish_confirmation(ui, false);
-            } else {
-                self.update_confirmation_prompt(ui, context);
-            }
-            return Vec::new();
-        }
-
-        state.ticks = state.ticks.saturating_add(1);
-        if state.ticks < 2 {
-            return Vec::new();
-        }
-
-        let mut data = dereth_ui::PropertyCollection::new();
-        data.set(
-            dereth_ui::props::attr::DIALOG_KIND,
-            dereth_assets::ui::PropertyValue::Integer(
-                dereth_ui::dialog::DialogKind::Confirmation.property(),
-            ),
-        );
-        data.set(
-            dereth_ui::props::attr::DIALOG_QUEUE_ID,
-            dereth_assets::ui::PropertyValue::Integer(1),
-        );
-        data.set(
-            dereth_ui::props::attr::DIALOG_MODAL,
-            dereth_assets::ui::PropertyValue::Bool(true),
-        );
-        data.set(
-            dereth_ui::props::attr::DIALOG_TIMEOUT,
-            dereth_assets::ui::PropertyValue::Float(CONFIRM_CHANGE_SECONDS),
-        );
-        #[allow(clippy::cast_possible_truncation)] // a whole number of seconds
-        let prompt = confirmation_prompt(ui, i64::from(CONFIRM_CHANGE_SECONDS as i32));
-        data.set(
-            dereth_ui::props::attr::DIALOG_COUNTDOWN_TEXT,
-            dereth_assets::ui::PropertyValue::String(prompt),
-        );
-        let Some(context) = ui.dialogs.make_dialog(data, ui.now.0) else {
-            self.confirmation = None;
-            return Vec::new();
-        };
-        if let Some(state) = self.confirmation.as_mut() {
-            state.context = Some(context);
-        }
-        self.service_confirmation_element(ui)
-    }
-
-    fn update_confirmation_prompt(&self, ui: &mut UiSystem, context: u64) {
-        #[allow(clippy::cast_possible_truncation)] // a countdown of a few seconds
-        let Some((root, remaining)) = ui.dialogs.info(context).and_then(|info| {
-            Some((
-                info.element?,
-                info.dialog.as_ref()?.remaining(ui.now.0)?.max(0.0) as i64,
-            ))
-        }) else {
-            return;
-        };
-        let text = confirmation_prompt(ui, remaining);
-        if let Some(prompt) = ui
-            .get_child_recursive(root, dereth_ui::dialog::base::child::TEXT)
-            .and_then(|child| ui.text_element_mut(child))
+        if let Some(i) = self
+            .options
+            .iter()
+            .position(|o| o.preference == "Display.Resolution")
         {
-            prompt.set_text(&text);
-        }
-        dereth_ui::dialog::base::update_popup_size_and_position(ui, root);
-    }
-
-    fn service_confirmation_element(&self, ui: &mut UiSystem) -> Vec<ElemHandle> {
-        let Some(context) = self.confirmation.and_then(|state| state.context) else {
-            return Vec::new();
-        };
-        let Some(info) = ui.dialogs.info(context).cloned() else {
-            return Vec::new();
-        };
-        if info.element.is_some() {
-            return Vec::new();
-        }
-        let Ok(root) = ui.require_env().and_then(|e| {
-            e.create_and_add_root_element(
-                ui,
-                super::keybinding::DIALOG_LAYOUT,
-                info.kind.root_element_id(),
-            )
-        }) else {
-            return Vec::new();
-        };
-        ui.set_attribute_bool(
-            root,
-            dereth_ui::props::attr::DIALOG_MODAL,
-            info.data
-                .get_bool(dereth_ui::props::attr::DIALOG_MODAL)
-                .unwrap_or(false),
-        );
-        if let Some(dereth_assets::ui::PropertyValue::String(text)) =
-            info.data.get(dereth_ui::props::attr::DIALOG_COUNTDOWN_TEXT)
-        {
-            if let Some(prompt) = ui
-                .get_child_recursive(root, dereth_ui::dialog::base::child::TEXT)
-                .and_then(|child| ui.text_element_mut(child))
-            {
-                prompt.set_text(text);
+            let value = self.get_value(i);
+            if self.options[i].current != value {
+                self.options[i].current = value;
+                self.refresh(ui, i);
             }
         }
-        dereth_ui::dialog::types::set_dialog_data(ui, root, &info.data);
-        dereth_ui::dialog::base::update_popup_size_and_position(ui, root);
-        if ui.bind_dialog_element(context, root) {
-            vec![root]
-        } else {
-            ui.remove_and_delete_root(root);
-            Vec::new()
-        }
-    }
-
-    fn finish_confirmation(&mut self, ui: &mut UiSystem, keep: bool) {
-        let Some(state) = self.confirmation.take() else {
-            return;
-        };
-        if !keep {
-            if let Some(saved) = self
-                .options
-                .get(state.option)
-                .map(|option| option.saved.clone())
-            {
-                self.options[state.option].current = saved;
-                self.apply(&mut ui.requests, state.option);
-                self.refresh(ui, state.option);
-            }
-        }
-        if let Some(context) = state.context {
-            if let Some(root) = ui.dialogs.close_dialog(context, ui.now.0) {
-                ui.remove_and_delete_root(root);
-            }
-        }
+        Vec::new()
     }
 
     /// **Read the preference back out of the store.** Slider, checkbox, and menu controls
@@ -1603,7 +1438,7 @@ impl PlayerOptionPage {
             .filter(|o| is_retail_preference(o.preference))
     }
 
-    /// This client's own landscape rows ([`super::config::LANDSCAPE_ROWS`]).
+    /// This client's own landscape rows ([`dereth_client_contract::options::landscape`]).
     pub fn landscape_options(&self) -> impl Iterator<Item = &UiOption> + '_ {
         self.options.iter().filter(|o| {
             dereth_client_contract::options::landscape::Landscape::of(o.preference).is_some()
@@ -1703,13 +1538,19 @@ impl PlayerOptionPage {
             }
             _ => return None,
         }
-        self.apply(&mut ui.requests, i);
         if self.options[i].confirm_change {
-            self.confirmation = Some(ConfirmationState {
-                option: i,
-                ticks: 0,
-                context: None,
-            });
+            if let PrefValue::Int(packed) = self.options[i].current {
+                let packed = packed as u32;
+                ui.requests.emit(UiRequest::Resolution(
+                    dereth_client_contract::resolution::ResolutionAction::Begin {
+                        size: (packed >> 16, packed & 0xffff),
+                        policy: dereth_client_contract::resolution::ResolutionPolicy::Modern,
+                        persist: false,
+                    },
+                ));
+            }
+        } else {
+            self.apply(&mut ui.requests, i);
         }
         Some(i)
     }
@@ -1760,8 +1601,8 @@ impl PlayerOptionPage {
             if k > 0 {
                 self.add_separator(ui);
             }
-            // The retail page names each of its headings "... Options".
-            self.add_literal_header(ui, &format!("{} Options", heading.title));
+            let caption = super::config::resolve_text(ui, heading.text);
+            self.add_literal_header(ui, &caption);
             for r in rows {
                 let Some(p) = r.preference() else { continue };
                 if let Some(c) = super::config::config_row(p) {
@@ -1818,21 +1659,13 @@ impl PlayerOptionPage {
                     return;
                 };
                 let Some(f) = r.slider_preference else { return };
-                self.add_toggle_with_slider_option(ui, r.preference, d, f, SOUND_SLIDER_DEFAULT);
+                let Some(default) = r.slider_default else {
+                    return;
+                };
+                self.add_toggle_with_slider_option(ui, r.preference, d, f, default);
             }
         }
     }
-}
-
-fn confirmation_prompt(ui: &UiSystem, seconds: i64) -> String {
-    let id = dereth_primitives::num::hash::str_hash(CONFIRM_CHANGE_TOKEN.as_bytes());
-    ui.resolve_string_rendered(
-        super::keybinding::string_table(ui, super::keybinding::STRING_TABLE_ENUM),
-        id,
-        &[seconds.to_string()],
-    )
-    .filter(|text| !text.is_empty())
-    .unwrap_or_else(|| CONFIRM_CHANGE_TOKEN.to_owned())
 }
 
 /// Bind the option box, then run the option build.
@@ -1938,7 +1771,7 @@ mod tests {
             "no registry, no range"
         );
         assert_eq!(super::super::preferences::init_ui_preferences(), 34);
-        for r in super::super::config::CONFIG_PAGE {
+        for r in super::super::config::config_rows() {
             let names: Vec<&str> = match r.control {
                 Control::Slider { .. } => vec![r.preference],
                 Control::CheckSlider => r.slider_preference.into_iter().collect(),

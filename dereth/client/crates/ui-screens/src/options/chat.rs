@@ -1,7 +1,7 @@
 //! `ChatOptionsPanel` (type `0x10000042`) — the Chat Options page's two sliders and five filter
 //! controls.
 //!
-//! `super::pages::CHAT_OPTIONS_PAGE` holds six section headers and a window id each; the
+//! The shared options sheet supplies section captions; `super::pages::CHAT_OPTIONS_PAGE` supplies window ids. The
 //! client's masks live in [`crate::chat::interface::FILTER_GROUPS`]; the opacity properties
 //! `0x10000080`/`0x10000081` are read by the chat window's fade. This module is what writes them:
 //! the retail chat-option initialization, plus the option-registration fan-out the options-page
@@ -502,9 +502,13 @@ impl ChatOptionsPage {
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
         use super::pages::{CHAT_OPACITY_PROPERTIES, CHAT_OPTIONS_PAGE};
         let [idle_prop, active_prop] = CHAT_OPACITY_PROPERTIES;
+        let headings = dereth_client_contract::options::sheet::page(
+            dereth_client_contract::options::sheet::PageId::Chat,
+        )
+        .headings;
 
         // The general section: two sliders, narrow then wide.
-        self.add_header(ui, CHAT_OPTIONS_PAGE[0].header);
+        self.add_header(ui, headings[0].text);
         let idle = self.add_slider_option(ui, idle_prop, false, view);
         let active = self.add_slider_option(ui, active_prop, true, view);
         if let Some(i) = active {
@@ -522,7 +526,7 @@ impl ChatOptionsPage {
         // followed by a separator. The **trailing** separator after floaty 4 is present in the
         // observed client sequence and is not a transcription slip.
         for (k, section) in CHAT_OPTIONS_PAGE.iter().enumerate().skip(1) {
-            self.add_header(ui, section.header);
+            self.add_header(ui, headings[k].text);
             if let Some(window_id) = section.window_id {
                 self.add_checkbox_bitfield64_option(ui, window_id, CHAT_FILTER_PROPERTY, view);
             }
@@ -547,17 +551,20 @@ impl ChatOptionsPage {
         h
     }
 
-    /// Add a header `(stringId)` — template 0, the row **is** the text.
-    pub fn add_header(&mut self, ui: &mut UiSystem, token: &str) -> bool {
+    /// Add a section caption resolved from the shared sheet, with its literal fallback.
+    pub fn add_header(
+        &mut self,
+        ui: &mut UiSystem,
+        text: dereth_client_contract::options::sheet::Text,
+    ) -> bool {
         let Some(row) = self.add_row(ui, super::page::template::HEADER) else {
             return false;
         };
         self.headers += 1;
-        let sid = dereth_primitives::num::hash::str_hash(token.as_bytes());
-        let ok =
-            super::page::set_string_info(ui, row, super::preferences::table(ui), sid).is_some();
-        self.header_captions += usize::from(ok);
-        ok
+        let caption = super::config::resolve_text(ui, text);
+        super::page::set_literal_text(ui, row, &caption);
+        self.header_captions += 1;
+        true
     }
 
     /// The player-option page's separator insert — template 1.

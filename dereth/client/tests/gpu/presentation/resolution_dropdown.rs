@@ -279,18 +279,18 @@ fn choosing_a_row_writes_display_resolution() {
 
     let want = store::mode_desc(1280, 720);
     let mut reqs = ui.requests.take();
-    reqs.retain(|r| matches!(r, UiRequest::SetPreference(n, _) if *n == RESOLUTION));
+    reqs.retain(|r| matches!(r, UiRequest::Resolution(_)));
     assert_eq!(
         reqs,
-        vec![UiRequest::SetPreference(RESOLUTION, PrefValue::Int(want))],
+        vec![UiRequest::Resolution(
+            dereth_client_contract::resolution::ResolutionAction::Begin {
+                size: (1280, 720),
+                policy: dereth_client_contract::resolution::ResolutionPolicy::Modern,
+                persist: false,
+            }
+        )],
         "row selection stores the packed mode descriptor 1280 << 16 | 720"
     );
-    assert_eq!(
-        store::inq_value(RESOLUTION),
-        Some(PrefValue::Int(want)),
-        "the registered display-resolution value matches the request"
-    );
-
     // A registered choice list converts the numeric value back to its label. The profile therefore
     // stores a legible label, and the same choice table parses it when preferences are loaded.
     assert_eq!(
@@ -508,6 +508,14 @@ mod wired {
         let mut stamp = 100_000;
 
         open_config_tab(&mut a, &mut pump, &mut stamp);
+        let saved_resolution = store::inq_value(RESOLUTION).unwrap();
+        with_screen(&mut a, |ui, screen| {
+            let i = super::index_of(&screen.config_page, "Render.ScreenBrightness");
+            assert_eq!(screen.config_page.options[i].saved, PrefValue::Float(0.0));
+            screen.config_page.options[i].current = PrefValue::Float(0.4);
+            screen.config_page.apply(&mut ui.requests, i);
+        });
+        assert!(a.frame());
         let menu = reveal_resolution(&mut a);
         press(&mut a, &mut pump, &mut stamp, menu, "the resolution menu");
         let (row, selected_size) = {
@@ -611,10 +619,35 @@ mod wired {
             selected_size,
             "Yes keeps the applied resolution"
         );
+        let cancel = with_screen(&mut a, |ui, screen| {
+            let i = super::index_of(&screen.config_page, "Render.ScreenBrightness");
+            assert_eq!(
+                screen.config_page.options[i].saved,
+                PrefValue::Float(0.0),
+                "resolution Yes cannot apply unrelated page drafts"
+            );
+            assert_eq!(screen.config_page.options[i].current, PrefValue::Float(0.4));
+            ui.get_child_recursive(
+                screen.config_page.page.unwrap(),
+                dereth_ui_screens::options::config::button::CANCEL,
+            )
+            .unwrap()
+        });
+        press(
+            &mut a,
+            &mut pump,
+            &mut stamp,
+            cancel,
+            "Cancel after keeping a tested size",
+        );
+        assert_eq!(
+            store::inq_value("Render.ScreenBrightness"),
+            Some(PrefValue::Float(0.0))
+        );
+        assert_eq!(store::inq_value(RESOLUTION), Some(saved_resolution));
     }
 
-    /// Physical No and the strict ten-second expiry both restore the value saved when the page
-    /// opened. The deadline is tested at equality and just after it: the dialog expires only when
+    /// Physical No and the strict ten-second expiry both restore the actual size before the test. The deadline is tested at equality and just after it: the dialog expires only when
     /// `now > expiration`.
     #[test]
     fn no_and_expiry_restore_the_saved_resolution() {
@@ -628,10 +661,12 @@ mod wired {
         pump.state.is_active_app = true;
         let mut stamp = 200_000;
         open_config_tab(&mut a, &mut pump, &mut stamp);
-        let saved = match store::inq_value(RESOLUTION).expect("the registered resolution") {
-            PrefValue::Int(mode) => store::mode_size(mode),
-            other => panic!("resolution has the wrong type: {other:?}"),
-        };
+        let saved = a.renderer().size();
+        assert_eq!(
+            saved,
+            (800, 600),
+            "the actual screen, distinct from the uncommitted registered default"
+        );
         let menu = reveal_resolution(&mut a);
         let row = {
             let ui = &a.ui().expect("shell").ui;
@@ -706,16 +741,16 @@ mod wired {
             (
                 info.context,
                 info.element.expect("the expiry dialog element"),
-                info.dialog
-                    .as_ref()
-                    .and_then(|dialog| dialog.expiration)
-                    .expect("ten-second timeout"),
+                a.resolution
+                    .prompt()
+                    .and_then(|p| p.deadline)
+                    .expect("runtime deadline"),
             )
         };
-        with_screen(&mut a, |ui, screen| {
-            ui.now = dereth_primitives::LocalTime(expiration - 5.0);
-            let _ = screen.config_page.confirmation_tick(ui);
-        });
+        a.clock = Box::new(dereth_client_runtime::platform::clock::FixedStepClock::new(
+            expiration - 5.0 - a.timer.cur_time,
+        ));
+        assert!(a.frame());
         let five_second_prompt = {
             let child = a
                 .ui()
@@ -746,22 +781,25 @@ mod wired {
             five_second_prompt, expected_five,
             "global ticks refresh native `time`"
         );
-        with_screen(&mut a, |ui, screen| {
-            ui.now = dereth_primitives::LocalTime(expiration);
-            let _ = screen.config_page.confirmation_tick(ui);
-        });
+        a.clock = Box::new(dereth_client_runtime::platform::clock::FixedStepClock::new(
+            expiration - a.timer.cur_time,
+        ));
+        assert!(a.frame());
         assert!(
             a.ui().expect("shell").ui.dialogs.info(context).is_some(),
             "equality is not expiry"
         );
-        with_screen(&mut a, |ui, screen| {
-            ui.now = dereth_primitives::LocalTime(expiration + 0.001);
-            let _ = screen.config_page.confirmation_tick(ui);
-        });
+        a.clock = Box::new(dereth_client_runtime::platform::clock::FixedStepClock::new(
+            expiration + 0.001 - a.timer.cur_time,
+        ));
+        assert!(a.frame());
         assert!(
             a.ui().expect("shell").ui.dialogs.info(context).is_none(),
             "just after expiry closes"
         );
+        a.clock = Box::new(dereth_client_runtime::platform::clock::FixedStepClock::new(
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
+        ));
         assert!(a.frame(), "the restore request reaches the presentation");
         assert_eq!(
             a.renderer().size(),

@@ -1,4 +1,4 @@
-//! The Client Options page, its six sections and the defaults that disagree with the
+//! The Client Options controls projected from the shared sheet, with defaults distinct from
 //! preference registration.
 //!
 //! The trap here is deliberate and must **not** be reconciled: the value the page passes as its
@@ -9,6 +9,27 @@
 //! (retail's page put it at 800×600).
 
 use crate::view::{PrefValue, UiRequest};
+
+/// Resolve a shared caption through the current UI's existing string service.
+#[must_use]
+pub fn resolve_text(
+    ui: &dereth_ui::UiSystem,
+    text: dereth_client_contract::options::sheet::Text,
+) -> String {
+    text.token
+        .and_then(|token| {
+            let strings = ui.strings.as_ref()?;
+            let table = ui
+                .env()
+                .and_then(|env| env.did_by_enum(4, text.table_enum))
+                .unwrap_or(dereth_primitives::DataId(
+                    0x2300_0000 | (text.table_enum & 0xffff),
+                ));
+            dereth_ui::text::render_token(strings.as_ref(), table, token, &[])
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| text.fallback.to_owned())
+}
 
 /// Which control type a row is, and therefore which page helper built it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,13 +47,15 @@ pub enum Control {
 /// One row of the config panel's option build.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ConfigRow {
-    /// The section header this row sits under, a string id in table enum `0x10000003`.
+    /// The fallback caption of the shared section containing this row.
     pub section: &'static str,
     pub control: Control,
     /// The preference name the control writes.
     pub preference: &'static str,
     /// For a check+slider row, the float preference the slider writes.
     pub slider_preference: Option<&'static str>,
+    /// The shared default of the paired volume.
+    pub slider_default: Option<f32>,
     /// The default the page gives the option — what *Restore Defaults* restores.
     pub ui_default: PrefValueConst,
     /// The slider's two end captions, where it has them.
@@ -50,247 +73,45 @@ pub use dereth_client_contract::options::config::PrefValueConst;
 use Control::{Check, CheckSlider, Menu, Slider};
 use PrefValueConst::{Bool, Float, Int};
 
-const fn row(
-    section: &'static str,
-    control: Control,
-    preference: &'static str,
-    ui_default: PrefValueConst,
-) -> ConfigRow {
-    ConfigRow {
-        section,
-        control,
-        preference,
-        slider_preference: None,
-        ui_default,
-        slider_ends: None,
-        confirm_change: false,
-    }
-}
-
-const fn pair(
-    section: &'static str,
-    bool_pref: &'static str,
-    float_pref: &'static str,
-) -> ConfigRow {
-    ConfigRow {
-        section,
-        control: CheckSlider,
-        preference: bool_pref,
-        slider_preference: Some(float_pref),
-        // The check box's own default. The slider's is 1.0 for all three sound pairs.
-        ui_default: Bool(true),
-        slider_ends: None,
-        confirm_change: false,
-    }
-}
-
-const fn slider(
-    section: &'static str,
-    preference: &'static str,
-    left: &'static str,
-    right: &'static str,
-    d: f32,
-    wide: bool,
-) -> ConfigRow {
-    ConfigRow {
-        section,
-        control: Slider { wide },
-        preference,
-        slider_preference: None,
-        ui_default: Float(d),
-        slider_ends: Some((left, right)),
-        confirm_change: false,
-    }
-}
-
-/// The six section headers, in page order.
-pub const SECTIONS: [&str; 6] = [
-    "ID_Sound_SoundSection",
-    "ID_Camera_CameraSection",
-    "ID_Graphics_GraphicsSection",
-    "ID_Graphics_TextureSection",
-    "ID_Input_InputSection",
-    "ID_UI_UISection",
-];
-
-const SOUND: &str = SECTIONS[0];
-const CAMERA: &str = SECTIONS[1];
-const GRAPHICS: &str = SECTIONS[2];
-const TEXTURES: &str = SECTIONS[3];
-const INPUT: &str = SECTIONS[4];
-const INTERFACE: &str = SECTIONS[5];
-
-/// The Client Options page, row by row, in the order the option build adds them.
-///
-/// The three `Sound.*Disabled` preferences are **inverted** — `True` means the sound is *on*,
-/// despite the name. The UI default is `on` for all three,
-/// which is the `True` this table carries.
-pub const CONFIG_PAGE: [ConfigRow; 27] = [
-    // --- Sound -------------------------------------------------------------------------------
-    row(SOUND, Menu, "Sound.SoundFeatures", Int(0)),
-    pair(SOUND, "Sound.SoundDisabled", "Sound.SoundVolume"),
-    pair(
-        SOUND,
-        "Sound.AmbientSoundDisabled",
-        "Sound.AmbientSoundVolume",
-    ),
-    pair(
-        SOUND,
-        "Sound.InterfaceSoundDisabled",
-        "Sound.InterfaceSoundVolume",
-    ),
-    row(SOUND, Check, "Sound.PlaySoundOnlyWhenActive", Bool(true)),
-    // --- Camera ------------------------------------------------------------------------------
-    slider(
-        CAMERA,
-        "Camera.Stiffness",
-        "ID_Graphics_Value_Soft",
-        "ID_Graphics_Value_Hard",
-        0.45,
-        true,
-    ),
-    slider(
-        CAMERA,
-        "Camera.AdjustmentSpeed",
-        "ID_Graphics_Value_Slow",
-        "ID_Graphics_Value_Fast",
-        40.0,
-        true,
-    ),
-    slider(
-        CAMERA,
-        "Render.FieldOfView",
-        "ID_Graphics_Value_Narrow",
-        "ID_Graphics_Value_Wide",
-        90.0,
-        true,
-    ),
-    row(CAMERA, Check, "Camera.AlignToSlope", Bool(true)),
-    // --- Graphics ----------------------------------------------------------------------------
-    ConfirmedResolution::ROW,
-    row(GRAPHICS, Check, "Display.FullScreen", Bool(false)),
-    row(GRAPHICS, Check, "Display.SyncToRefresh", Bool(false)),
-    slider(
-        GRAPHICS,
-        "Render.ScreenBrightness",
-        "ID_Graphics_Value_Dark",
-        "ID_Graphics_Value_Bright",
-        0.0,
-        true,
-    ),
-    row(GRAPHICS, Check, "Render.AutomaticDegrades", Bool(false)),
-    slider(
-        GRAPHICS,
-        "Render.GraphicsPerformance",
-        "ID_Graphics_Value_Speed",
-        "ID_Graphics_Value_Detail",
-        0.0,
-        true,
-    ),
-    slider(
-        GRAPHICS,
-        "Render.DegradeDistance",
-        "ID_Graphics_Value_Close",
-        "ID_Graphics_Value_Far",
-        50.0,
-        true,
-    ),
-    // --- Textures ----------------------------------------------------------------------------
-    row(TEXTURES, Menu, "Render.LandscapeTextureDetail", Int(2)),
-    row(TEXTURES, Menu, "Render.EnvironmentTextureDetail", Int(1)),
-    row(TEXTURES, Menu, "Render.TextureFiltering", Int(1)),
-    row(TEXTURES, Menu, "Render.LandscapeDrawDistance", Int(8)),
-    row(TEXTURES, Check, "Render.BuildingDetailTextures", Bool(true)),
-    row(TEXTURES, Check, "Render.MultiPassAlpha", Bool(false)),
-    // --- Input -------------------------------------------------------------------------------
-    ConfigRow {
-        section: INPUT,
-        control: Slider { wide: false },
-        preference: "Input.MouseLookSensitivity",
-        slider_preference: None,
-        ui_default: Float(0.55),
-        slider_ends: None,
-        confirm_change: false,
-    },
-    row(INPUT, Check, "Input.InvertMouseLookYAxis", Bool(false)),
-    row(INPUT, Check, "Input.UseMouseTurning", Bool(false)),
-    // --- Interface ---------------------------------------------------------------------------
-    row(INTERFACE, Menu, "UI.ChatFontFace", Int(2)),
-    row(INTERFACE, Menu, "UI.ChatFontSize", Int(1)),
-];
-
-/// This client's own three rows, the presentation options from another era
-/// ([`dereth_client_contract::options::landscape`]): the ground's era, the sky's and the objects'
-/// look. Not retail rows, and not in [`CONFIG_PAGE`]; the page adds them at the end of the
-/// Graphics section, after its retail rows. Each is a menu of literal captions (the world's own
-/// and its styles), so it needs no string table, and *Restore Defaults* puts it back to World
-/// Default.
-pub const LANDSCAPE_ROWS: [ConfigRow; 3] = [
-    row(
-        GRAPHICS,
-        Menu,
-        dereth_client_contract::options::landscape::GROUND,
-        Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
-    ),
-    row(
-        GRAPHICS,
-        Menu,
-        dereth_client_contract::options::landscape::SKY,
-        Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
-    ),
-    row(
-        GRAPHICS,
-        Menu,
-        dereth_client_contract::options::landscape::OBJECTS,
-        Int(dereth_client_contract::options::landscape::WORLD_DEFAULT),
-    ),
-];
-
-/// The section [`LANDSCAPE_ROWS`] close.
-pub const LANDSCAPE_SECTION: &str = GRAPHICS;
-
-/// This client's interface choice (the retail interface or the classic one), after the landscape
-/// rows: a menu of literal captions. *Restore Defaults* leaves it at the interface being shown.
-pub const INTERFACE_ROW: ConfigRow = row(
-    GRAPHICS,
-    Menu,
-    dereth_client_contract::options::interface::INTERFACE,
-    Int(0),
-);
-
-/// The performance panel, after the interface row: a check box with a literal caption, and
-/// *Restore Defaults* turns it off.
-pub const PERFORMANCE_ROW: ConfigRow = row(
-    GRAPHICS,
-    Check,
-    dereth_client_contract::options::performance::PERFORMANCE_PANEL,
-    Bool(false),
-);
-
-/// The landscape's detail texture, a preference retail registers and draws no row for: a check
-/// box with a literal caption, off at first.
-pub const LANDSCAPE_DETAIL_ROW: ConfigRow = row(
-    TEXTURES,
-    Check,
-    "Render.LandscapeDetailTextures",
-    Bool(false),
-);
-
-/// The row the Client Options page builds for `preference`: retail's own row where retail has
-/// one ([`CONFIG_PAGE`]), else this client's ([`LANDSCAPE_ROWS`], [`INTERFACE_ROW`],
-/// [`PERFORMANCE_ROW`], [`LANDSCAPE_DETAIL_ROW`]).
+/// Derive a control from the shared sheet, including controls hosted by the Chat page.
 #[must_use]
 pub fn config_row(preference: &str) -> Option<ConfigRow> {
-    CONFIG_PAGE
-        .iter()
-        .chain(LANDSCAPE_ROWS.iter())
-        .chain([INTERFACE_ROW, PERFORMANCE_ROW, LANDSCAPE_DETAIL_ROW].iter())
-        .find(|r| r.preference == preference)
-        .copied()
+    config_rows().find(|r| r.preference == preference)
 }
 
-/// The volume every one of the three sound check+slider pairs defaults its slider to.
-pub const SOUND_SLIDER_DEFAULT: f32 = 1.0;
+/// Every preference row available to this interface, in shared page order.
+pub fn config_rows() -> impl Iterator<Item = ConfigRow> {
+    use dereth_client_contract::options::sheet::{self, Face, Value};
+    sheet::PAGES.iter().flat_map(|p| p.headings).flat_map(|h| {
+        h.rows
+            .iter()
+            .filter(|r| r.shown.on(Face::Retail))
+            .filter_map(|r| {
+                let control = match r.value {
+                    Value::Check(_) => Check,
+                    Value::Slider(_) => Slider {
+                        wide: r.slider_ends.is_some(),
+                    },
+                    Value::Menu(_) => Menu,
+                    Value::Sound { .. } => CheckSlider,
+                    _ => return None,
+                };
+                Some(ConfigRow {
+                    section: h.text.fallback,
+                    control,
+                    preference: r.preference()?,
+                    slider_preference: match r.value {
+                        Value::Sound { volume, .. } => Some(volume),
+                        _ => None,
+                    },
+                    slider_default: r.volume_default,
+                    ui_default: r.default?,
+                    slider_ends: r.slider_ends,
+                    confirm_change: r.confirm_change,
+                })
+            })
+    })
+}
 
 /// The menus the page adds as **user**-preference menus rather than UI-preference ones.
 ///
@@ -307,22 +128,6 @@ pub const SOUND_SLIDER_DEFAULT: f32 = 1.0;
 /// ids. UI-preference initialisation attaches no enum choices for it either, so routing it
 /// through the UI-preference leg would produce a drop-down with a popup and no rows.
 pub const USER_PREFERENCE_MENUS: [&str; 1] = ["Display.Resolution"];
-
-/// The one control in the whole client that confirms its change: changing the resolution applies
-/// first and opens a confirmation whose No/expiry arm restores the saved resolution.
-struct ConfirmedResolution;
-impl ConfirmedResolution {
-    const ROW: ConfigRow = ConfigRow {
-        section: GRAPHICS,
-        control: Menu,
-        preference: "Display.Resolution",
-        slider_preference: None,
-        // 0x04000300 = 1024 << 16 | 768, the size the client starts at.
-        ui_default: Int(0x0400_0300),
-        slider_ends: None,
-        confirm_change: true,
-    };
-}
 
 /// One preference whose *Restore Defaults* value differs from its registration default.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -438,22 +243,11 @@ pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
 /// retail interface shows it.
 #[must_use]
 pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
-    use dereth_client_contract::options::sheet::{rows_for, Face, PageId};
-    let mut out = Vec::new();
-    for row in rows_for(PageId::Client, Face::Retail) {
-        let Some(r) = row.preference().and_then(config_row) else {
-            continue;
-        };
-        // The interface choice stays the interface being shown.
-        if r.preference == dereth_client_contract::options::interface::INTERFACE {
-            continue;
-        }
-        out.push((r.preference, r.ui_default.into()));
-        if let Some(s) = r.slider_preference {
-            out.push((s, PrefValue::Float(SOUND_SLIDER_DEFAULT)));
-        }
-    }
-    out
+    use dereth_client_contract::options::sheet::{self, Face, PageId};
+    sheet::defaults(PageId::Client, Face::Retail)
+        .into_iter()
+        .map(|(name, value)| (name, value.into()))
+        .collect()
 }
 
 /// The three buttons the options-page base puts under every page.
@@ -510,10 +304,7 @@ pub const OPTION_BOX: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_0200);
 /// each `Sound.*` key directly to the sound-manager global with a **null** change callback, so
 /// the store *is* the global's store; there is no apply step and no reload.
 ///
-/// **The one thing this build supplies statically.** In the client the walk is over the page's
-/// option array, which page initialization fills. Here the row list comes from [`CONFIG_PAGE`],
-/// which is that function transcribed; the values written are the same either way, because both
-/// use the initialization defaults' arguments.
+/// The shared sheet supplies each row's UI restore value, including the paired sound volume.
 #[must_use]
 pub fn restore_defaults_requests() -> Vec<UiRequest> {
     restore_default_values()
@@ -522,34 +313,53 @@ pub fn restore_defaults_requests() -> Vec<UiRequest> {
         .collect()
 }
 
-/// The string table enum every option label and tooltip comes from. Labels and tooltips on option
-/// pages come from string table enum `0x10000003`; every other UI string comes from `0x10000001`
-/// (and error/status strings from `0x10000002`).
+/// The string table enum used by preference labels, tooltips and section headings.
 pub const OPTION_STRING_TABLE_ENUM: u32 = 0x1000_0003;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered options behavior's six section tables, row by row and in page order.
+    /// Behaviour: options.client-page.every-row-header-and-slider-end-carries-its-shipped-caption
     #[test]
-    fn the_client_options_page_is_the_documented_twenty_seven_rows_in_six_sections() {
-        assert_eq!(CONFIG_PAGE.len(), 27);
-        let counts = SECTIONS.map(|s| CONFIG_PAGE.iter().filter(|r| r.section == s).count());
-        assert_eq!(counts, [5, 4, 7, 6, 3, 2], "the six sections' row counts");
-        // Rows are grouped: the page never returns to a section it has left.
-        let mut order: Vec<&str> = Vec::new();
-        for r in CONFIG_PAGE {
-            if order.last() != Some(&r.section) {
-                assert!(
-                    !order.contains(&r.section),
-                    "section {} is not contiguous",
-                    r.section
-                );
-                order.push(r.section);
+    fn heading_descriptors_resolve_escaped_text_and_fall_back_when_missing() {
+        use dereth_client_contract::options::sheet::Text;
+        use dereth_primitives::DataId;
+        #[derive(Debug)]
+        struct Strings;
+        impl dereth_ui::text::StringResolver for Strings {
+            fn resolve_raw(&self, table: DataId, id: u32) -> Option<String> {
+                (table == DataId(0x2300_0003)
+                    && id == dereth_primitives::num::hash::str_hash(b"ID_Sound_SoundSection"))
+                .then(|| r"Sound\nOptions".to_owned())
             }
         }
-        assert_eq!(order, SECTIONS.to_vec());
+        let mut ui = dereth_ui::UiSystem::new((800, 600));
+        ui.strings = Some(std::rc::Rc::new(Strings));
+        let text = Text::preference("ID_Sound_SoundSection", "Sound");
+        assert_eq!(resolve_text(&ui, text), "Sound\nOptions");
+        assert_eq!(
+            resolve_text(&ui, Text::preference("absent", "Honest fallback")),
+            "Honest fallback"
+        );
+        assert_eq!(resolve_text(&ui, Text::literal("Era Look")), "Era Look");
+        ui.strings = None;
+        assert_eq!(resolve_text(&ui, text), "Sound");
+    }
+
+    /// Every rendered preference row has its own shared control metadata.
+    #[test]
+    fn every_shared_preference_row_builds_a_control() {
+        use dereth_client_contract::options::sheet::{self, Face};
+        for page in sheet::PAGES {
+            for row in sheet::rows_for(page.id, Face::Retail) {
+                if let Some(name) = row.preference() {
+                    let config = config_row(name).expect(name);
+                    assert_eq!(config.ui_default, row.default.unwrap());
+                }
+            }
+        }
+        assert!(config_row("Display.SyncToRefresh").is_none());
     }
 
     /// Oracle: two of the historical differences in §2 and the configuration-registration table,
@@ -561,8 +371,7 @@ mod tests {
         assert_eq!(DEFAULT_DISAGREEMENTS.len(), 3);
         for d in DEFAULT_DISAGREEMENTS {
             assert_ne!(d.registered, d.ui_restore, "{} must disagree", d.preference);
-            let row = CONFIG_PAGE
-                .iter()
+            let row = config_rows()
                 .find(|r| r.preference == d.preference)
                 .unwrap_or_else(|| panic!("{} is not on the page", d.preference));
             assert_eq!(
@@ -579,16 +388,14 @@ mod tests {
 
         // The resolution is restored to the size the client starts at, 1024x768: the words pack
         // as width<<16 | height.
-        let resolution = CONFIG_PAGE
-            .iter()
+        let resolution = config_rows()
             .find(|r| r.preference == "Display.Resolution")
             .unwrap();
         assert_eq!(resolution.ui_default, Int(0x0400_0300));
         assert_eq!(0x0400_0300 >> 16, 1024);
         assert_eq!(0x0400_0300 & 0xFFFF, 768);
         // Full screen is off, registered and restored.
-        let full = CONFIG_PAGE
-            .iter()
+        let full = config_rows()
             .find(|r| r.preference == "Display.FullScreen")
             .unwrap();
         assert_eq!(full.ui_default, Bool(false));
@@ -599,8 +406,7 @@ mod tests {
     /// transcription slip.
     #[test]
     fn the_float_defaults_match_the_recovered_ieee_words() {
-        let f = |p: &str| match CONFIG_PAGE
-            .iter()
+        let f = |p: &str| match config_rows()
             .find(|r| r.preference == p)
             .unwrap()
             .ui_default
@@ -621,8 +427,7 @@ mod tests {
     /// `Display.Resolution`.
     #[test]
     fn exactly_one_control_confirms_its_change() {
-        let confirming: Vec<&str> = CONFIG_PAGE
-            .iter()
+        let confirming: Vec<&str> = config_rows()
             .filter(|r| r.confirm_change)
             .map(|r| r.preference)
             .collect();
@@ -633,17 +438,14 @@ mod tests {
     /// and the `*Disabled` inversion note.
     #[test]
     fn the_three_sound_pairs_default_to_on_at_full_volume() {
-        let pairs: Vec<&ConfigRow> = CONFIG_PAGE
-            .iter()
-            .filter(|r| r.control == CheckSlider)
-            .collect();
+        let pairs: Vec<ConfigRow> = config_rows().filter(|r| r.control == CheckSlider).collect();
         assert_eq!(pairs.len(), 3);
-        for p in pairs {
+        for p in &pairs {
             assert!(p.preference.ends_with("Disabled"), "{}", p.preference);
             assert_eq!(p.ui_default, Bool(true), "True means the sound is ON");
             assert!(p.slider_preference.unwrap().ends_with("Volume"));
         }
-        assert_eq!(SOUND_SLIDER_DEFAULT, 1.0);
+        assert!(pairs.iter().all(|p| p.slider_default == Some(1.0)));
     }
 
     /// The page's Defaults restores every control on the page, including the slider half of each
@@ -708,7 +510,7 @@ mod tests {
         // Every one is a control on the Client Options page.
         for p in &MOUSE_TURNING_PRESET {
             assert!(
-                CONFIG_PAGE.iter().any(|r| r.preference == p.preference),
+                config_rows().any(|r| r.preference == p.preference),
                 "{} should be a row on the page",
                 p.preference
             );

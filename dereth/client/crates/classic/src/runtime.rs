@@ -93,7 +93,8 @@ pub struct ClassicUi {
     overlay: crate::world_overlay::OverlayState,
     flash_notices: Vec<Option<ObjectId>>,
     game_visible: bool,
-    resolution_timed_out: bool,
+    resolution_prompt: Option<dereth_client_contract::resolution::ResolutionPrompt>,
+    resolution_completion: u64,
     cursor_commands: Vec<crate::Command>,
     /// The pointer the window system shows this frame; `None` hides it (the mouse is looking
     /// around, or a dragged icon is drawn in its place).
@@ -196,7 +197,8 @@ impl ClassicUi {
             overlay: Default::default(),
             flash_notices: vec![],
             game_visible: false,
-            resolution_timed_out: false,
+            resolution_prompt: None,
+            resolution_completion: 0,
             cursor_commands: vec![],
             system_pointer: None,
             selection_queries: Default::default(),
@@ -303,6 +305,14 @@ impl ClassicUi {
         let height = cx.present().size().1.saturating_sub(118);
         self.game_status_area = stretched && height >= 413;
         if let Some(mut host) = self.settings_host.take() {
+            if let Some(done) = cx
+                .resolution_completion()
+                .filter(|d| d.serial != self.resolution_completion)
+            {
+                self.resolution_completion = done.serial;
+                host.resolution_readback(done.size, done.save);
+                self.settings.resolution = host.snapshot().resolution;
+            }
             let result = host.sync(cx);
             self.settings_host = Some(host);
             result?;
@@ -329,76 +339,57 @@ impl ClassicUi {
                 }
             }
         }
-        self.poll_resolution(cx)
-    }
-    fn poll_resolution<S: Host>(&mut self, cx: &mut Cx<'_, S>) -> Result<(), String> {
-        use crate::settings_host::ResolutionStage;
-        let Some(host) = &mut self.settings_host else {
-            return Ok(());
-        };
-        if host.resolution_report_overdue(cx.now()) {
-            let granted = host.awaited_size() == Some(cx.present().size());
-            return self.resolution_completed(cx, granted);
-        }
-        if host.resolution_expired(cx.now()) {
-            self.resolution_timed_out = true;
-            self.desktop.dismiss_dialog("resolution");
-            let requests = host.answer_resolution(false)?;
-            cx.queue(Vec::new(), requests);
-        }
-        let Some(host) = &self.settings_host else {
-            return Ok(());
-        };
-        let text = host
-            .pending_resolution()
-            .and_then(|change| match change.stage {
-                ResolutionStage::OfferTest => Some("Test new screen size first, for 15 seconds?"),
-                ResolutionStage::Testing { .. } => Some("Accept this setting?"),
-                _ => None,
-            });
-        if let Some(text) = text {
-            self.desktop.show_dialog(
-                "resolution".into(),
-                text.into(),
-                vec![PanelAction::Host(HostAction::ConfirmResolution(true))],
-                vec![PanelAction::Host(HostAction::ConfirmResolution(false))],
-            );
-        }
         Ok(())
     }
-    /// The window reported the size a resolution change asked for, or refused it.
-    pub fn resolution_completed<S: Host>(
+    /// Draw the current prompt without owning its clock or rollback.
+    pub fn project_resolution(
         &mut self,
-        cx: &mut Cx<'_, S>,
-        success: bool,
-    ) -> Result<(), String> {
-        if let Some(host) = &mut self.settings_host {
-            use crate::settings_host::ResolutionStage;
-            if !host.pending_resolution().is_some_and(|p| {
-                matches!(
-                    p.stage,
-                    ResolutionStage::Applying { .. } | ResolutionStage::Reverting
-                )
-            }) {
-                return Ok(());
-            }
-            host.resolution_applied(success, cx.now())?;
-            self.settings = host.snapshot();
+        prompt: Option<dereth_client_contract::resolution::ResolutionPrompt>,
+    ) {
+        use dereth_client_contract::resolution::{ResolutionAction, ResolutionPromptKind};
+        if self.resolution_prompt == prompt {
+            return;
         }
-        let text = if !success {
-            Some("Unable to change screen size!")
-        } else if std::mem::take(&mut self.resolution_timed_out) {
-            Some("Resolution Reset")
-        } else {
-            None
+        self.desktop.dismiss_dialog("resolution");
+        self.resolution_prompt = prompt;
+        let Some(p) = prompt else {
+            return;
         };
-        if let Some(text) = text {
+        let text = match p.kind {
+            ResolutionPromptKind::OfferTest => "Test new screen size first, for 15 seconds?",
+            ResolutionPromptKind::Accept => "Accept this setting?",
+            ResolutionPromptKind::ApplyFailed => "Unable to change screen size!",
+            ResolutionPromptKind::RevertFailed => "Unable to restore the previous screen size!",
+            ResolutionPromptKind::Reset => "Resolution Reset",
+        };
+        let question = matches!(
+            p.kind,
+            ResolutionPromptKind::OfferTest | ResolutionPromptKind::Accept
+        );
+        let action = |yes| {
+            PanelAction::Game(UiRequest::Resolution(if question {
+                ResolutionAction::Answer {
+                    token: p.token,
+                    yes,
+                }
+            } else {
+                ResolutionAction::Dismiss { token: p.token }
+            }))
+        };
+        self.desktop.show_dialog(
+            "resolution".into(),
+            text.into(),
+            vec![action(true)],
+            if question {
+                vec![action(false)]
+            } else {
+                vec![]
+            },
+        );
+        if !question {
             self.desktop
-                .show_dialog("resolution-result".into(), text.into(), vec![], vec![]);
-            self.desktop
-                .set_dialog_labels("resolution-result", "OK".into(), None);
+                .set_dialog_labels("resolution", "OK".into(), None);
         }
-        self.poll_resolution(cx)
     }
     /// The window's device events this frame, as the classic interface takes them: keys through
     /// its key map and its text fields, the pointer and buttons to its windows and the world.
@@ -986,13 +977,6 @@ impl ClassicUi {
             HostAction::Quit => {
                 self.quit_requested = true;
                 cx.quit();
-            }
-            HostAction::ConfirmResolution(yes) => {
-                if let Some(host) = &mut self.settings_host {
-                    let requests = host.answer_resolution(yes)?;
-                    self.settings = host.snapshot();
-                    cx.queue(Vec::new(), requests);
-                }
             }
             HostAction::VendorSellAll => ask(cx, UiRequest::VendorSellAll),
             HostAction::CloseGroundForced => {

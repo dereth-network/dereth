@@ -44,6 +44,7 @@ pub(super) struct TestShell {
     world_inputs: bool,
     arm_target: bool,
     pub(super) no_ui: bool,
+    in_world: bool,
     nearby: Option<dereth_primitives::ObjectId>,
 }
 struct EmptyClipboard;
@@ -56,6 +57,9 @@ impl Clipboard for EmptyClipboard {
 impl Shell for TestShell {
     type Hud = TestHud;
     type Present = dyn Presentation;
+    fn in_gameplay(&self) -> bool {
+        self.in_world
+    }
     fn has_ui(&self) -> bool {
         !self.no_ui
     }
@@ -209,6 +213,7 @@ pub(super) fn fixture() -> (App<TestShell>, TestShell) {
             world_inputs: false,
             arm_target: false,
             no_ui: false,
+            in_world: false,
             nearby: None,
         },
     )
@@ -395,4 +400,135 @@ fn app_installs_the_chat_target_sweep_with_classic_or_no_interface() {
         assert_eq!(shell.ui.desktop.is_open("hud"), !no_ui);
         app.shutdown(&mut shell);
     }
+}
+
+/// Behaviour: presentation.resolution.shared-transaction
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn classic_resolution_draft_survives_idle_frames_and_rejected_choice_reads_back_once() {
+    use dereth_client_contract::{options::store, resolution::ResolutionAction};
+    let (mut app, mut shell) = fixture();
+    store::init();
+    shell.in_world = true;
+    app.use_forced_resolution = false;
+    app.cfg.width = 800;
+    app.cfg.height = 600;
+    app.applied_resolution = (800, 600);
+    app.cfg.display.full_screen = false;
+    app.pump.state.full_screen = false;
+    shell.ui.settings = ClassicSettings {
+        resolutions: vec![(800, 600), (1024, 768)],
+        resolution: 0,
+        full_screen: false,
+        ..Default::default()
+    };
+    shell.ui.settings_host =
+        Some(crate::settings_host::SettingsHost::load(shell.ui.settings.clone()).unwrap());
+    let mut panel = crate::panels::factory("sound-graphics").unwrap();
+    let event =
+        |shell: &TestShell, app: &App<TestShell>, panel: &mut dyn crate::panels::Panel, e| {
+            let view = app.hud.view(&app.objects);
+            let c = Context {
+                game: &view,
+                pregame: &app.host_state,
+                keyboard: &shell.ui.keyboard,
+                settings: &shell.ui.settings,
+                map_teleport_allowed: false,
+                classic: &shell.ui.classic,
+            };
+            panel.event(e, &c)
+        };
+    event(
+        &shell,
+        &app,
+        &mut *panel,
+        ControlEvent::Select {
+            id: "row:Display.Resolution".into(),
+            index: 1,
+        },
+    );
+    shell.ui.sync_settings(&mut app.ui_context()).unwrap();
+    let requests = event(
+        &shell,
+        &app,
+        &mut *panel,
+        ControlEvent::Activate("apply".into()),
+    );
+    let chosen = requests
+        .into_iter()
+        .find_map(|r| {
+            if let PanelAction::Host(HostAction::ApplyClassicSettings(s)) = r {
+                Some(s)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        chosen.resolution, 1,
+        "an idle frame cannot erase the uncommitted picker"
+    );
+    assert!(!chosen.full_screen);
+    shell
+        .ui
+        .host_action(
+            &mut app.ui_context(),
+            0,
+            HostAction::ApplyClassicSettings(chosen),
+        )
+        .unwrap();
+    assert!(app.frame(&mut shell));
+    let offer = app.resolution.prompt().unwrap();
+    app.submit_requests(vec![UiRequest::Resolution(ResolutionAction::Answer {
+        token: offer.token,
+        yes: true,
+    })]);
+    assert!(app.frame(&mut shell));
+    assert_eq!(app.present.size(), (1024, 768));
+    let accept = app.resolution.prompt().unwrap();
+    app.submit_requests(vec![UiRequest::Resolution(ResolutionAction::Answer {
+        token: accept.token,
+        yes: false,
+    })]);
+    assert!(app.frame(&mut shell));
+    shell.ui.sync_settings(&mut app.ui_context()).unwrap();
+    assert_eq!(shell.ui.settings.resolution, 0);
+    assert_eq!(app.present.size(), (800, 600));
+    event(
+        &shell,
+        &app,
+        &mut *panel,
+        ControlEvent::Check {
+            id: "row:Render.AutomaticDegrades".into(),
+            checked: false,
+        },
+    );
+    let requests = event(
+        &shell,
+        &app,
+        &mut *panel,
+        ControlEvent::Activate("apply".into()),
+    );
+    for r in requests {
+        if let PanelAction::Host(action) = r {
+            shell
+                .ui
+                .host_action(&mut app.ui_context(), 0, action)
+                .unwrap();
+        }
+    }
+    assert!(app.frame(&mut shell));
+    assert!(
+        !app.resolution.pending(),
+        "applying another setting cannot resubmit the rejected size"
+    );
+    shell.ui.settings.resolution = 1;
+    shell.ui.sync_settings(&mut app.ui_context()).unwrap();
+    assert_eq!(
+        shell.ui.settings.resolution, 1,
+        "one completed transaction is read back once"
+    );
 }
