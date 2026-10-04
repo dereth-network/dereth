@@ -90,6 +90,29 @@ impl RealDats {
         })
     }
 
+    /// Open the set under `dir` that a world drawn from the files of `era` reads: `portal.dat` and
+    /// `cell.dat` for the files before Throne of Destiny, the later files (and `client_highres.dat`
+    /// when it is there) otherwise. One folder may hold both sets; the era chooses, and a folder
+    /// without the chosen set is refused rather than read as the other.
+    ///
+    /// # Errors
+    ///
+    /// A required file of that set is missing or does not open.
+    pub fn open_era(dir: &Path, era: ContainerEra) -> Result<Self, DatError> {
+        let store = match era {
+            ContainerEra::PreTod => RetailDatStore::open_pre_tod_dir(dir)?,
+            ContainerEra::Tod => {
+                let store = RetailDatStore::open_dir(dir)?;
+                store.grant_highres()?;
+                store
+            }
+        };
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            store,
+        })
+    }
+
     /// The directory the files came from.
     #[must_use]
     pub fn dir(&self) -> &Path {

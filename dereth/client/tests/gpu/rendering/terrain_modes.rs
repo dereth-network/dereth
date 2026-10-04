@@ -414,19 +414,15 @@ fn a_terrain_type_the_ground_region_does_not_name_takes_its_neighbours_ground() 
 }
 
 /// A headless client over the end-of-retail world at Holtburg (no body, no UI, a pinned clock),
-/// with `legacy` beside it for presentation and `set_at` settings made part way through, as
-/// `--legacy-dat-dir` and `--set-at` make them.
-fn client(
-    legacy: Option<std::path::PathBuf>,
-    set_at: Vec<(u64, String)>,
-) -> dereth_client::app::App {
+/// its data files from the one folder `dat_dir` (the older set beside the later one when it holds
+/// both) and `set_at` settings made part way through, as `--dat-dir` and `--set-at` make them.
+fn client(dat_dir: std::path::PathBuf, set_at: Vec<(u64, String)>) -> dereth_client::app::App {
     let config = dereth_client::config::Config {
         headless: true,
         sound: false,
         ui: false,
         preferences_file: std::env::temp_dir().join("dereth-terrain-modes-not-created/prefs.ini"),
-        dat_dir: dereth_dat::testing::dat_dir(),
-        legacy_dat_dir: legacy,
+        dat_dir,
         set_at,
         ..dereth_client::config::Config::default()
     };
@@ -456,7 +452,7 @@ fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() 
     use dereth_client_contract::options::{landscape, store};
     store::init();
     let mut app = client(
-        None,
+        dereth_dat::testing::dat_dir(),
         vec![
             (3, "Render.Ground=Legacy Blend".to_string()),
             (3, "Render.Sky=LegacySoftware".to_string()),
@@ -512,10 +508,8 @@ fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() 
 fn the_client_switches_the_ground_when_the_option_changes() {
     use dereth_client_contract::options::{landscape, store};
     store::init();
-    let legacy = dereth_dat::testing::pre_tod_dat_dir()
-        .unwrap_or_else(|| panic!("{:?}", dereth_dat::testing::pre_tod_shortfall()));
     let mut app = client(
-        Some(legacy),
+        dereth_dat::testing::both_sets_dir(),
         vec![(3, "Render.Ground=PaletteShift".to_string())],
     );
     for _ in 0..3 {

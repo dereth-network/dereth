@@ -124,10 +124,10 @@ impl<S: Shell> App<S> {
         // Step 10: open the data files.
         let store = match store {
             Some(store) => store,
-            None => std::sync::Arc::new(crate::assets::open_data_files_for(
+            None => std::sync::Arc::new(crate::assets::open_world_files(
                 &cfg.dat_dir,
-                cfg.world_dat_dir.as_deref(),
-                cfg.legacy_dat_dir.as_deref(),
+                cfg.classic_dat_dir.as_deref(),
+                cfg.era,
             )?),
         };
 

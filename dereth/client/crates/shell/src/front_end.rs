@@ -3237,14 +3237,10 @@ fn build_classic<H: Host>(
             std::path::Path::to_path_buf,
         )
         .join("classic");
-    let portal_dir = cfg
-        .legacy_dat_dir
-        .clone()
-        .or_else(|| cfg.world_dat_dir.clone());
     let size = cx.present().size();
     let mut ui = dereth_classic_ui::runtime::ClassicUi::new(
         resources,
-        dereth_classic_ui::art::ClassicPaths { portal_dir, state },
+        dereth_classic_ui::art::ClassicPaths { state },
         dereth_classic_ui::panels::factory,
         size,
     );

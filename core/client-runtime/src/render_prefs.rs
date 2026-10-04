@@ -77,10 +77,6 @@ pub const fn objects_style(style: RegionStyle) -> RegionStyle {
     }
 }
 
-/// `[Render] LegacyDatDir`: a folder holding a `portal.dat` from before Throne of Destiny, read
-/// for the older grounds, skies and object looks alone. `--legacy-dat-dir` wins over it.
-pub const LEGACY_DAT_DIR: &str = "Render.LegacyDatDir";
-
 /// One landscape option from the profile: `None` (the world's own) when it is absent or names
 /// nothing this client reads.
 #[must_use]

@@ -896,10 +896,10 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
-        match crate::assets::open_data_files_for(
+        match crate::assets::open_world_files(
             &self.cfg.dat_dir,
-            self.cfg.world_dat_dir.as_deref(),
-            self.cfg.legacy_dat_dir.as_deref(),
+            self.cfg.classic_dat_dir.as_deref(),
+            self.cfg.era,
         ) {
             Ok(fresh) => {
                 self.store = std::sync::Arc::new(fresh);
@@ -947,10 +947,10 @@ impl<S: Shell> App<S> {
             // The patch is on disk; the land source is still reading through the handle it took
             // at world entry. `invalidate_after_ddd` replaced `App::store` for the *patch* phase;
             // a run-time answer arrives with no `0xF7EA` behind it, so the reopen happens here.
-            match crate::assets::open_data_files_for(
+            match crate::assets::open_world_files(
                 &self.cfg.dat_dir,
-                self.cfg.world_dat_dir.as_deref(),
-                self.cfg.legacy_dat_dir.as_deref(),
+                self.cfg.classic_dat_dir.as_deref(),
+                self.cfg.era,
             ) {
                 Ok(fresh) => {
                     let fresh = std::sync::Arc::new(fresh);

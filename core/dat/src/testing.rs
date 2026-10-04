@@ -246,6 +246,67 @@ pub fn open_pre_tod_store_or_fail() -> RetailDatStore {
     })
 }
 
+/// One folder holding both dat sets, as a player's one `--dat-dir` does: the retail files of
+/// [`dat_dir`] and the February 2005 `portal.dat` and `cell.dat` of [`pre_tod_dat_dir`], hard-linked
+/// into a folder under the temp directory (no copy is made). The folder is named after the two it
+/// joins, so every test process reuses it, and it is protected for the run as the install is.
+///
+/// # Panics
+///
+/// With the shortfall line when either set is not there, or when a file cannot be linked (the
+/// temp directory on another volume than the dats).
+#[must_use]
+pub fn both_sets_dir() -> PathBuf {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        if let Some(msg) = shortfall() {
+            panic!("{msg}");
+        }
+        if let Some(msg) = pre_tod_shortfall() {
+            panic!("{msg}");
+        }
+        let later = dat_dir();
+        let older = pre_tod_dat_dir().unwrap_or_default();
+        // FNV-1a over the two folders' spellings: a stable name for the pair.
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in format!("{}|{}", later.display(), older.display()).bytes() {
+            hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+        let dir = std::env::temp_dir().join(format!("dereth-both-dat-sets-{hash:016x}"));
+        std::fs::create_dir_all(&dir)
+            .unwrap_or_else(|e| panic!("the folder {} could not be made: {e}", dir.display()));
+        let files = RetailDat::ALL
+            .iter()
+            .map(|d| d.in_dir(&later))
+            .chain(crate::PreTodDat::ALL.iter().map(|d| d.in_dir(&older)))
+            .filter(|p| p.is_file());
+        for src in files {
+            let dst = dir.join(src.file_name().unwrap_or_default());
+            let current = std::fs::metadata(&dst)
+                .ok()
+                .zip(std::fs::metadata(&src).ok())
+                .is_some_and(|(d, s)| d.len() == s.len() && d.modified().ok() == s.modified().ok());
+            if current {
+                continue;
+            }
+            let _ = std::fs::remove_file(&dst);
+            if let Err(e) = std::fs::hard_link(&src, &dst) {
+                // Another test process may have linked it first.
+                if !dst.is_file() {
+                    panic!(
+                        "{} could not be linked into {}: {e}",
+                        src.display(),
+                        dir.display()
+                    );
+                }
+            }
+        }
+        crate::protect_install(&dir);
+        dir
+    })
+    .clone()
+}
+
 /// The test-only variable naming a directory of historical dat captures: one folder per capture,
 /// named by its date, holding the files of that capture (`portal.dat`, `cell.dat`,
 /// `client_portal.dat`, `client_cell_1.dat`, `client_highres.dat`, `client_local_english.dat`,

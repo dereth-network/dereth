@@ -124,7 +124,6 @@ impl Client {
                 None,
             ),
             dereth_classic_ui::art::ClassicPaths {
-                portal_dir: portal.parent().map(ToOwned::to_owned),
                 state: std::env::temp_dir().join("dereth-feedback-no-writes"),
             },
             dereth_classic_ui::panels::factory,

@@ -17,7 +17,7 @@
 //!   [`crate::config::Config`] and is not yet acted on. Dat *writing* and the DDD patch protocol
 //!   are out of scope here.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
@@ -45,80 +45,114 @@ pub struct DataFilesError {
     pub cause: String,
 }
 
-/// The dat half of client database initialisation.
+/// The dat half of client database initialisation, for a world whose era the data files decide
+/// and whose older set, if any, is beside the later one ([`open_world_files`] with neither).
 ///
 /// # Errors
-/// [`DataFilesError`] — carrying corestrings 201 verbatim — when any of the three required files is
+/// [`DataFilesError`] -- carrying corestrings 201 verbatim -- when any of the three required files is
 /// missing or unreadable. `client_highres.dat` is optional and is "silently skipped if the file is
 /// absent", which is `RetailDatStore::open_dir`'s behaviour too.
 pub fn open_data_files(dat_dir: &Path) -> Result<RetailDatStore, DataFilesError> {
-    open_data_files_with(dat_dir, None)
+    open_world_files(dat_dir, None, None)
 }
 
-/// [`open_data_files`], with the world drawn from an older dat set when `world_dat_dir` names one:
-/// its `portal.dat` and `cell.dat` answer the world, and `dat_dir`'s later files the interface
-/// and every record the older ones lack ([`RetailDatStore::open_pre_tod_with_later`]).
+/// Where the set from before Throne of Destiny (`portal.dat`, with `cell.dat` beside it) is read
+/// from: `classic_dat_dir` when it holds one, else `dat_dir` when it does, else nowhere. Naming a
+/// folder only says where to look; what the client does follows from what is found.
+#[must_use]
+pub fn classic_set_dir(dat_dir: &Path, classic_dat_dir: Option<&Path>) -> Option<PathBuf> {
+    let holds = |dir: &Path| dereth_dat::PreTodDat::Portal.in_dir(dir).is_file();
+    let beside = holds(dat_dir);
+    match classic_dat_dir {
+        Some(classic) if holds(classic) => {
+            if beside && classic != dat_dir {
+                tracing::info!(
+                    "the files from before Throne of Destiny are read from {} (--classic-dat-dir), \
+                     not the ones in {}",
+                    classic.display(),
+                    dat_dir.display()
+                );
+            }
+            Some(classic.to_path_buf())
+        }
+        Some(classic) => {
+            tracing::warn!(
+                "--classic-dat-dir {} holds no portal.dat from before Throne of Destiny{}",
+                classic.display(),
+                if beside {
+                    format!("; the one in {} is read instead", dat_dir.display())
+                } else {
+                    String::new()
+                }
+            );
+            beside.then(|| dat_dir.to_path_buf())
+        }
+        None => beside.then(|| dat_dir.to_path_buf()),
+    }
+}
+
+/// The world's files, chosen by the era the world plays from what the folders hold.
+///
+/// `dat_dir` holds the later set (`client_portal.dat`, `client_cell_1.dat`,
+/// `client_local_English.dat`, and `client_highres.dat` when there) and may hold the set from before
+/// Throne of Destiny (`portal.dat`, `cell.dat`) too: the names never collide. `classic_dat_dir`, when
+/// given, is where to look for the older set instead ([`classic_set_dir`]).
+///
+/// - An era before Throne of Destiny draws its world from the older set, with the later files
+///   beside it answering the later interface and every record the older ones lack
+///   ([`RetailDatStore::open_pre_tod_with_later`]). With no later files, the older set alone.
+/// - Any other era, and no era at all, draws the later world, with the older `portal.dat` beside
+///   it for the classic interface and the older grounds, skies and object looks when one is found
+///   ([`RetailDatStore::with_legacy_portal`]). An older portal that will not open is reported and
+///   left out: the world still opens, and what needs it is refused as it is with none.
+/// - With no era, a `dat_dir` holding only the older set opens that set.
 ///
 /// # Errors
 /// [`DataFilesError`] as [`open_data_files`].
-pub fn open_data_files_with(
+pub fn open_world_files(
     dat_dir: &Path,
-    world_dat_dir: Option<&Path>,
+    classic_dat_dir: Option<&Path>,
+    era: Option<dereth_primitives::EraId>,
 ) -> Result<RetailDatStore, DataFilesError> {
-    if let Some(world) = world_dat_dir {
-        return RetailDatStore::open_pre_tod_with_later(world, dat_dir).map_err(|e| {
-            DataFilesError {
-                cause: format!("{} with {}: {e}", world.display(), dat_dir.display()),
-            }
+    let later = dereth_dat::holds_retail_dats(dat_dir);
+    let classic = classic_set_dir(dat_dir, classic_dat_dir);
+    let pre_tod_world = match era {
+        Some(era) => era.container_era() == dereth_dat::ContainerEra::PreTod,
+        None => !later && classic.is_some(),
+    };
+    if pre_tod_world {
+        let Some(older) = classic.as_deref() else {
+            return Err(DataFilesError {
+                cause: format!(
+                    "the world's era is before Throne of Destiny and no portal.dat and cell.dat \
+                     were found in {}{}",
+                    dat_dir.display(),
+                    classic_dat_dir.map_or_else(String::new, |c| format!(" or {}", c.display()))
+                ),
+            });
+        };
+        return if later {
+            RetailDatStore::open_pre_tod_with_later(older, dat_dir)
+        } else {
+            RetailDatStore::open_pre_tod_dir(older)
+        }
+        .map_err(|e| DataFilesError {
+            cause: format!("{}: {e}", older.display()),
         });
     }
-    // A folder holding the dat set from before Throne of Destiny (`portal.dat`, `cell.dat`) and
-    // no `client_portal.dat` opens as that set.
-    let opened =
-        if !dereth_dat::holds_retail_dats(dat_dir) && dereth_dat::holds_pre_tod_dats(dat_dir) {
-            RetailDatStore::open_pre_tod_dir(dat_dir)
-        } else {
-            RetailDatStore::open_dir(dat_dir)
-        };
-    opened.map_err(|e| DataFilesError {
+    let store = RetailDatStore::open_dir(dat_dir).map_err(|e| DataFilesError {
         cause: format!("{}: {e}", dat_dir.display()),
-    })
-}
-
-/// [`open_data_files_with`], with a folder of older files beside a later world for presentation
-/// alone (`--legacy-dat-dir`): its `portal.dat` from before Throne of Destiny answers the older
-/// grounds and skies and nothing else ([`RetailDatStore::with_legacy_portal`]). Beside an older
-/// world it is not needed, since the world's own files are the older ones, and it is not opened.
-/// A folder that will not open is reported and left out: the world still opens, and the older
-/// styles are refused as they are with no folder.
-///
-/// # Errors
-/// [`DataFilesError`] as [`open_data_files`].
-pub fn open_data_files_for(
-    dat_dir: &Path,
-    world_dat_dir: Option<&Path>,
-    legacy_dat_dir: Option<&Path>,
-) -> Result<RetailDatStore, DataFilesError> {
-    let store = open_data_files_with(dat_dir, world_dat_dir)?;
-    let Some(legacy) = legacy_dat_dir else {
+    })?;
+    let Some(classic) = classic else {
         return Ok(store);
     };
-    if store.era() != dereth_dat::ContainerEra::Tod {
-        return Ok(store);
-    }
-    match store.clone().with_legacy_portal(legacy) {
-        Ok(with) => {
-            tracing::info!(
-                "older grounds, skies and object looks are read from {}",
-                legacy.display()
-            );
-            Ok(with)
-        }
+    match store.clone().with_legacy_portal(&classic) {
+        Ok(with) => Ok(with),
         Err(e) => {
             tracing::warn!(
-                "the legacy dat folder {} will not open ({e}); the older grounds, skies and \
-                 object looks are unavailable",
-                legacy.display()
+                "the older portal.dat in {} will not open ({e}); the classic interface and the \
+                 older grounds, skies and object looks are unavailable",
+                classic.display()
             );
             Ok(store)
         }
@@ -203,6 +237,144 @@ mod tests {
             "the four headers are the documented ones"
         );
         assert!(store.exists(DataId(FIRST_PIXEL_SURFACE)));
+    }
+
+    /// What one opened store makes available, as the client decides it from the files found.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Available {
+        /// The world's set.
+        world: dereth_dat::ContainerEra,
+        /// The classic interface's portal (the older set, as the world or beside it).
+        classic: bool,
+        /// The later interface's files (the later set, as the world or beside it).
+        modern: bool,
+        /// The other era's object look.
+        other_objects: bool,
+    }
+
+    fn available(store: &RetailDatStore) -> Available {
+        let world = store.era();
+        let other = match world {
+            dereth_dat::ContainerEra::PreTod => dereth_dat::ContainerEra::Tod,
+            dereth_dat::ContainerEra::Tod => dereth_dat::ContainerEra::PreTod,
+        };
+        Available {
+            world,
+            classic: world == dereth_dat::ContainerEra::PreTod || store.legacy_files().is_some(),
+            modern: store.modern_files().is_some(),
+            other_objects: store.object_files(other).is_some(),
+        }
+    }
+
+    const EOR: Option<dereth_primitives::EraId> = Some(dereth_primitives::EraId::Eor);
+    const INFILTRATION: Option<dereth_primitives::EraId> =
+        Some(dereth_primitives::EraId::Infiltration);
+
+    fn both(world: dereth_dat::ContainerEra) -> Available {
+        Available {
+            world,
+            classic: true,
+            modern: true,
+            other_objects: true,
+        }
+    }
+
+    /// Behaviour: none (tooling: which data files open from the folders given)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn both_sets_in_one_folder_make_both_interfaces_and_looks_available_and_the_era_picks_the_world(
+    ) {
+        let dir = dereth_dat::testing::both_sets_dir();
+        for era in [None, EOR] {
+            let store = open_world_files(&dir, None, era).expect("both sets open");
+            assert_eq!(
+                available(&store),
+                both(dereth_dat::ContainerEra::Tod),
+                "{era:?}"
+            );
+        }
+        let store = open_world_files(&dir, None, INFILTRATION).expect("both sets open");
+        assert_eq!(available(&store), both(dereth_dat::ContainerEra::PreTod));
+    }
+
+    /// Behaviour: none (tooling: which data files open from the folders given)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn the_sets_in_two_folders_make_the_same_things_available_as_one_folder() {
+        let later = dereth_dat::testing::dat_dir();
+        let older = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+            panic!(
+                "{}",
+                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            )
+        });
+        assert_eq!(classic_set_dir(&later, Some(&older)), Some(older.clone()));
+        for era in [None, EOR] {
+            let store = open_world_files(&later, Some(&older), era).expect("both sets open");
+            assert_eq!(
+                available(&store),
+                both(dereth_dat::ContainerEra::Tod),
+                "{era:?}"
+            );
+        }
+        let store = open_world_files(&later, Some(&older), INFILTRATION).expect("both sets open");
+        assert_eq!(available(&store), both(dereth_dat::ContainerEra::PreTod));
+        // The named folder wins over a set beside the later one.
+        let one = dereth_dat::testing::both_sets_dir();
+        assert_eq!(classic_set_dir(&one, Some(&older)), Some(older.clone()));
+        assert_eq!(classic_set_dir(&one, None), Some(one.clone()));
+    }
+
+    /// Behaviour: none (tooling: which data files open from the folders given)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn the_later_set_alone_draws_the_later_world_with_no_classic_interface_or_older_looks() {
+        let later = dereth_dat::testing::dat_dir();
+        assert_eq!(classic_set_dir(&later, None), None);
+        let alone = Available {
+            world: dereth_dat::ContainerEra::Tod,
+            classic: false,
+            modern: true,
+            other_objects: false,
+        };
+        for era in [None, EOR] {
+            let store = open_world_files(&later, None, era).expect("the later set opens");
+            assert_eq!(available(&store), alone, "{era:?}");
+        }
+        // An older world needs the older set, and says where it looked.
+        let err = open_world_files(&later, None, INFILTRATION).expect_err("no older set");
+        assert!(err.cause.contains("portal.dat"), "{}", err.cause);
+    }
+
+    /// Behaviour: none (tooling: which data files open from the folders given)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_classic_folder_holding_no_older_set_changes_nothing_the_later_folder_makes_available() {
+        let empty = dereth_dat::testing::ScratchDir::new("classic-dat-dir-empty").expect("scratch");
+        let later = dereth_dat::testing::dat_dir();
+        assert_eq!(classic_set_dir(&later, Some(empty.path())), None);
+        let store = open_world_files(&later, Some(empty.path()), None).expect("the later set");
+        assert_eq!(
+            available(&store),
+            available(&open_world_files(&later, None, None).expect("the later set"))
+        );
+        // Beside a later folder that holds the older set, that set is still found.
+        let one = dereth_dat::testing::both_sets_dir();
+        assert_eq!(classic_set_dir(&one, Some(empty.path())), Some(one.clone()));
+        let store = open_world_files(&one, Some(empty.path()), None).expect("both sets");
+        assert_eq!(available(&store), both(dereth_dat::ContainerEra::Tod));
     }
 
     // Oracle: the retail `DidMapper 0x25000000` and the four mappers it names. These are the ids the client

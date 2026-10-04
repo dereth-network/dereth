@@ -46,8 +46,20 @@ pub fn dat_directory(configured: &str, base: &PathBase) -> PathBuf {
     }
 }
 
-/// [`dat_directory`] for this process: the loaded configuration under `base`.
+/// [`dat_directory`] for this process: the loaded configuration under `base`. A world whose era
+/// draws from the files before Throne of Destiny (`[era] profile`) takes the first candidate
+/// holding `portal.dat` and `cell.dat` instead, since one folder may hold both sets.
 #[must_use]
 pub fn configured_dat_directory(config: &MasterConfiguration, base: &PathBase) -> PathBuf {
-    dat_directory(&config.server.dat_files_directory, base)
+    let configured = &config.server.dat_files_directory;
+    if config.era.profile.container_era() == dereth_dat::ContainerEra::PreTod {
+        let candidates = dat_directory_candidates(configured, base);
+        if let Some(dir) = candidates
+            .iter()
+            .find(|d| dereth_dat::holds_pre_tod_dats(d))
+        {
+            return dir.clone();
+        }
+    }
+    dat_directory(configured, base)
 }

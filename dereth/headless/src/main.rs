@@ -20,7 +20,13 @@ dereth-headless -- the dere client with no window and no graphics device
   dereth-headless --script <file>      run a script; `-` reads it from stdin
 
   --dat-dir <dir>      the retail dats (default: the working directory, else the
-                       directory holding this program, whichever has client_portal.dat)
+                       directory holding this program, whichever has client_portal.dat);
+                       the files from before Throne of Destiny (portal.dat, cell.dat) may
+                       be beside them
+  --classic-dat-dir <dir>  where portal.dat and cell.dat are when they are not beside the
+                       retail dats
+  --era <name>         the era the world plays (eor, infiltration); it chooses which set
+                       draws the world
   --captures <dir>     the recorded sessions `login` resolves a name in
   --size <w>x<h>       the null presentation's extent (default: 800x600)
   --account <name>     the name the replay endpoint is built with
@@ -76,6 +82,16 @@ fn real_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
                 opts.dat_dir = PathBuf::from(value("--dat-dir")?);
                 dat_dir_given = true;
             }
+            "--classic-dat-dir" => {
+                opts.classic_dat_dir = Some(PathBuf::from(value("--classic-dat-dir")?));
+            }
+            "--era" => {
+                let v = value("--era")?;
+                opts.era = Some(
+                    dereth_client_sdk::primitives::EraId::parse(&v)
+                        .ok_or_else(|| format!("unknown --era {v:?}"))?,
+                );
+            }
             "--captures" => opts.captures_dir = PathBuf::from(value("--captures")?),
             "--account" => opts.account = value("--account")?,
             "--world" => opts.world = true,
@@ -106,6 +122,9 @@ fn real_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     }
     // The install is read, never written: a data-patch message that would save into it is refused.
     dereth_client_sdk::dat::protect_install(&opts.dat_dir);
+    if let Some(classic) = &opts.classic_dat_dir {
+        dereth_client_sdk::dat::protect_install(classic);
+    }
 
     let text = if script == "-" {
         let mut s = String::new();

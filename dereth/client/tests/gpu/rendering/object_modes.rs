@@ -365,19 +365,15 @@ fn an_object_mode_without_its_files_is_refused_and_the_world_keeps_its_own() {
 }
 
 /// A headless client over the end-of-retail world at Holtburg (no body, no UI, a pinned clock),
-/// with `legacy` beside it for presentation and `set_at` settings made part way through, as
-/// `--legacy-dat-dir` and `--set-at` make them.
-fn client(
-    legacy: Option<std::path::PathBuf>,
-    set_at: Vec<(u64, String)>,
-) -> dereth_client::app::App {
+/// its data files from the one folder `dat_dir` (the older set beside the later one when it holds
+/// both) and `set_at` settings made part way through, as `--dat-dir` and `--set-at` make them.
+fn client(dat_dir: std::path::PathBuf, set_at: Vec<(u64, String)>) -> dereth_client::app::App {
     let config = dereth_client::config::Config {
         headless: true,
         sound: false,
         ui: false,
         preferences_file: std::env::temp_dir().join("dereth-object-modes-not-created/prefs.ini"),
-        dat_dir: dereth_dat::testing::dat_dir(),
-        legacy_dat_dir: legacy,
+        dat_dir,
         set_at,
         ..dereth_client::config::Config::default()
     };
@@ -398,7 +394,10 @@ fn client(
 fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_they_are_there() {
     use dereth_client_contract::options::{landscape, store};
     store::init();
-    let mut app = client(None, vec![(3, "Render.Objects=Legacy".to_string())]);
+    let mut app = client(
+        dereth_dat::testing::dat_dir(),
+        vec![(3, "Render.Objects=Legacy".to_string())],
+    );
     let before = app.objects().world.scroll.added;
     for _ in 0..4 {
         assert!(app.frame());
@@ -427,9 +426,10 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
     drop(app);
 
     store::init();
-    let legacy = dereth_dat::testing::pre_tod_dat_dir()
-        .unwrap_or_else(|| panic!("{:?}", dereth_dat::testing::pre_tod_shortfall()));
-    let mut app = client(Some(legacy), vec![(3, "Render.Objects=Legacy".to_string())]);
+    let mut app = client(
+        dereth_dat::testing::both_sets_dir(),
+        vec![(3, "Render.Objects=Legacy".to_string())],
+    );
     for _ in 0..3 {
         assert!(app.frame());
     }
@@ -640,15 +640,12 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
     store::init();
     // The cache goes to a store in memory on this thread, never the player's own folder.
     dereth_client_runtime::platform::files::install(memory_files::HOST);
-    let legacy = dereth_dat::testing::pre_tod_dat_dir()
-        .unwrap_or_else(|| panic!("{:?}", dereth_dat::testing::pre_tod_shortfall()));
     let config = dereth_client::config::Config {
         headless: true,
         sound: false,
         ui: false,
         preferences_file: std::env::temp_dir().join("dereth-object-modes-not-created/prefs.ini"),
-        dat_dir: dereth_dat::testing::dat_dir(),
-        legacy_dat_dir: Some(legacy),
+        dat_dir: dereth_dat::testing::both_sets_dir(),
         set_at: vec![(3, "Render.Objects=Legacy".to_string())],
         object_identity_ms: Some(3),
         ..dereth_client::config::Config::default()

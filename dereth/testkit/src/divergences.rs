@@ -108,8 +108,10 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-010",
         title: "The world of February 2005 under today's screens",
-        change: "Given the February 2005 data files (--world-dat-dir), the client draws that \
-                 world under the end-of-retail screens, leaving out the windows and buttons for \
+        change: "Given the February 2005 data files (beside the later ones, or in \
+                 --classic-dat-dir) and an Infiltration world (--era infiltration), the client \
+                 draws that world \
+                 under the end-of-retail screens, leaving out the windows and buttons for \
                  systems the world lacks.",
         why: "Every era is played over one set of screens.",
     },

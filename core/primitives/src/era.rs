@@ -46,6 +46,16 @@ impl EraId {
         }
     }
 
+    /// The dat set the era's world is drawn from: the files from before Throne of Destiny
+    /// (`portal.dat`, `cell.dat`) for an era before it, the later `client_*.dat` files otherwise.
+    #[must_use]
+    pub const fn container_era(self) -> crate::ContainerEra {
+        match self {
+            Self::Infiltration => crate::ContainerEra::PreTod,
+            Self::Eor => crate::ContainerEra::Tod,
+        }
+    }
+
     /// How much experience wins back a point of vitae in the era.
     #[must_use]
     pub const fn vitae_recovery(self) -> VitaeRecovery {

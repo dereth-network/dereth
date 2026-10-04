@@ -794,7 +794,9 @@ fn offline_tools(config: &MasterConfiguration, paths: &PathBase) {
 /// executable).
 fn open_dats(config: &MasterConfiguration, paths: &PathBase) -> Result<Arc<DatManager>, String> {
     let dir = dat_directory::configured_dat_directory(config, paths);
-    let source = RealDats::open(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // Not ACE: one folder may hold both dat sets, and the world's era chooses which it reads.
+    let source = RealDats::open_era(&dir, config.era.profile.container_era())
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
     DatManager::initialize(Arc::new(source)).map_err(|e| e.to_string())
 }
 

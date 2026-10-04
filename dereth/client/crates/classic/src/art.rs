@@ -39,9 +39,6 @@ pub const FONTS: [(&str, i32, i32, i32, &str); 17] = [
 /// Where the classic interface finds its inputs and keeps its own files.
 #[derive(Debug, Clone)]
 pub struct ClassicPaths {
-    /// The folder holding the early-2005 `portal.dat`, where an installation's own `Default.map`
-    /// key scheme sits beside it; `None` when that is not known.
-    pub portal_dir: Option<PathBuf>,
     /// Where the classic interface's own settings and key schemes live.
     pub state: PathBuf,
 }

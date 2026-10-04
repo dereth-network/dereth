@@ -314,7 +314,6 @@ pub(super) fn fixture() -> (App<TestShell>, TestShell) {
             None,
         ),
         crate::art::ClassicPaths {
-            portal_dir: path.parent().map(ToOwned::to_owned),
             state: std::env::temp_dir().join("dereth-chat-keyboard-no-writes"),
         },
         |id, now, resources| {

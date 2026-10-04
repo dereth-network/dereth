@@ -121,6 +121,9 @@ pub fn start<P: Product>(argv: &[String]) -> Result<Config, String> {
         ));
     }
     dereth_dat::protect_install(&cfg.dat_dir);
+    if let Some(classic) = &cfg.classic_dat_dir {
+        dereth_dat::protect_install(classic);
+    }
     // The settings directory is the installer's job in retail and there is no installer here, so
     // the binary makes it. This is the *only* place it is made: `App` must not, and
     // `physical_window_resize_reaches_the_backbuffer_and_ui_without_changing_preferences` names a

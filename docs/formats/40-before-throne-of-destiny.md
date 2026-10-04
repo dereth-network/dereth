@@ -224,7 +224,8 @@ the same in every region.
 The two older files have no interface records of the later kind (layout properties, fonts, the
 enum and id maps, interface images, the language file's layouts and strings). A store that opens
 the older world with the end-of-retail files beside it (`RetailDatStore::open_pre_tod_with_later`,
-the client's `--world-dat-dir`) answers every record the older portal and cell files hold from
+the client's world when `--era` names an era before Throne of Destiny and both sets are found:
+beside each other in `--dat-dir`, or the older set in `--classic-dat-dir`) answers every record the older portal and cell files hold from
 them, in their layouts, and every other portal record and every language record from the later
 files, in the later layouts; `RetailDatStore::era_of` says which layout a record is in.
 

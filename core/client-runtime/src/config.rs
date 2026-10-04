@@ -257,26 +257,25 @@ pub struct Config {
     /// `main` therefore reads the switch straight out of `argv` with [`no_console_in_argv`], and
     /// this field only records the same answer for anything downstream that wants it.
     pub console: bool,
-    /// Where the four retail dats live.
+    /// `--dat-dir <dir>`: the data files. The folder holds the later set (`client_portal.dat`,
+    /// `client_cell_1.dat`, `client_local_English.dat`, optional `client_highres.dat`) and may hold
+    /// the set from before Throne of Destiny (`portal.dat`, `cell.dat`) beside it. [`Self::era`]
+    /// chooses which set draws the world ([`crate::assets::open_world_files`]).
     pub dat_dir: PathBuf,
-    /// `--world-dat-dir <dir>`: an older dat set to draw the world from (`portal.dat` and
-    /// `cell.dat`, from before Throne of Destiny), with [`Self::dat_dir`]'s files answering the
-    /// interface and whatever else the older files do not have. `None`: the world is
-    /// [`Self::dat_dir`]'s.
-    pub world_dat_dir: Option<PathBuf>,
-    /// `--legacy-dat-dir <dir>`, or `[Render] LegacyDatDir`: a folder holding a `portal.dat` from
-    /// before Throne of Destiny, read for the older grounds, skies and object looks alone
-    /// (`[Render] Ground`, `[Render] Sky` and `[Render] Objects`) beside a later world. The world
-    /// never reads it. The switch wins over the preference. `None`: no older files beside a later
-    /// world, and choosing an older ground, sky or object look there is refused.
-    pub legacy_dat_dir: Option<PathBuf>,
+    /// `--classic-dat-dir <dir>`: where to look for the set from before Throne of Destiny when it
+    /// is not beside the later one. It wins over a set in [`Self::dat_dir`]. Only where the older
+    /// files are read from follows from it: the classic interface, the older looks and an older
+    /// world are available whenever an older set is found, wherever it is. `None`: look in
+    /// [`Self::dat_dir`] alone.
+    pub classic_dat_dir: Option<PathBuf>,
     /// `--object-visuals <world|legacy|modern>`: the era whose look the world's objects draw
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
     pub object_visuals: Option<Option<crate::render_prefs::RegionStyle>>,
     /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
-    /// launcher reads it from the world's status. It wins over the era read from the data files;
-    /// `None`: the data files decide.
+    /// launcher reads it from the world's status. It wins over the era read from the data files,
+    /// and chooses which of [`Self::dat_dir`]'s sets draws the world; `None`: the end of retail's
+    /// set when the folder has it, and the data files decide.
     pub era: Option<dereth_primitives::EraId>,
     /// `--era-features <name=true,...>`: the systems the server says its world has, as the
     /// launcher reads them from the world's status. Each one named wins over the era's table; a
@@ -507,9 +506,8 @@ impl Default for Config {
             action_at: Vec::new(),
             console: true,
             dat_dir: default_dat_dir(),
-            world_dat_dir: None,
-            legacy_dat_dir: None,
             object_visuals: None,
+            classic_dat_dir: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
         }
@@ -659,15 +657,9 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
+    // Where the files from before Throne of Destiny are, when they are not beside the later ones.
     Switch {
-        long: "world-dat-dir",
-        short: None,
-        arity: Arity::Required,
-    },
-    // The older files the older grounds, skies and object looks are read from, beside a later
-    // world.
-    Switch {
-        long: "legacy-dat-dir",
+        long: "classic-dat-dir",
         short: None,
         arity: Arity::Required,
     },
@@ -1136,14 +1128,6 @@ impl Config {
         // `Render.AutomaticDegrades` is the player's switch for the governor, registered true.
         self.auto_degrades = self.render.automatic_degrades;
         self.terrain_blending = crate::render_prefs::terrain_blending(prefs);
-        // `[Render] LegacyDatDir`, which `--legacy-dat-dir` overrides.
-        if self.legacy_dat_dir.is_none() {
-            self.legacy_dat_dir = prefs
-                .get(crate::render_prefs::LEGACY_DAT_DIR)
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from);
-        }
         // `Renderer=vulkan|d3d12`, in `[Render]` or with no section at all.
         // A name this build does not understand leaves the choice where it was, exactly as an
         // unparsable numeric preference leaves its registered default standing.
@@ -1424,8 +1408,7 @@ impl Config {
             "log-file" => self.log_file = true,
             "log-spans" => self.log_spans = true,
             "dat-dir" => self.dat_dir = PathBuf::from(v),
-            "world-dat-dir" => self.world_dat_dir = Some(PathBuf::from(v)),
-            "legacy-dat-dir" => self.legacy_dat_dir = Some(PathBuf::from(v)),
+            "classic-dat-dir" => self.classic_dat_dir = Some(PathBuf::from(v)),
             "object-visuals" => {
                 let style = dereth_client_contract::options::landscape::parse(v)
                     .ok_or_else(|| {
@@ -1957,15 +1940,6 @@ mod tests {
         Config::from_args_and_prefs_with(&argv, &Preferences::default())
     }
 
-    /// `--world-dat-dir` names the older world's files; without it the world is `--dat-dir`'s.
-    #[test]
-    fn the_world_dat_dir_switch_names_an_older_world_beside_the_dat_dir() {
-        let c = parse(&["--dat-dir", "eor", "--world-dat-dir", "feb2005"]).expect("parses");
-        assert_eq!(c.dat_dir, PathBuf::from("eor"));
-        assert_eq!(c.world_dat_dir, Some(PathBuf::from("feb2005")));
-        assert_eq!(parse(&[]).expect("parses").world_dat_dir, None);
-    }
-
     /// `[Render] Ground` and `[Render] Sky` choose a style each, read in any of their spellings
     /// (the older `software`, `hardware` and `later` included); absent, or anything else, is the
     /// world's own.
@@ -2037,28 +2011,16 @@ mod tests {
         assert!(Config::from_args_and_prefs_with(&argv, &Preferences::parse("")).is_err());
     }
 
-    /// `--legacy-dat-dir` names the older presentation files, and wins over `[Render]
-    /// LegacyDatDir`.
+    /// Behaviour: none (tooling: the switch only says where the older data files are)
     #[test]
-    fn the_legacy_dat_dir_comes_from_the_switch_before_the_preference() {
-        let with = |args: &[&str], text: &str| {
-            let argv: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
-            Config::from_args_and_prefs_with(&argv, &Preferences::parse(text))
-                .expect("parses")
-                .legacy_dat_dir
-        };
-        assert_eq!(with(&[], ""), None);
-        assert_eq!(
-            with(&[], "[Render]\nLegacyDatDir=C:\\dats\\2005\n"),
-            Some(PathBuf::from("C:\\dats\\2005"))
-        );
-        assert_eq!(
-            with(
-                &["--legacy-dat-dir", "older"],
-                "[Render]\nLegacyDatDir=C:\\dats\\2005\n"
-            ),
-            Some(PathBuf::from("older"))
-        );
+    fn the_classic_dat_dir_switch_names_where_the_older_files_are_and_is_optional() {
+        let c = parse(&["--dat-dir", "eor", "--classic-dat-dir", "feb2005"]).expect("parses");
+        assert_eq!(c.dat_dir, PathBuf::from("eor"));
+        assert_eq!(c.classic_dat_dir, Some(PathBuf::from("feb2005")));
+        assert_eq!(parse(&[]).expect("parses").classic_dat_dir, None);
+        for retired in ["--world-dat-dir", "--legacy-dat-dir"] {
+            assert!(parse(&[retired, "x"]).is_err(), "{retired}");
+        }
     }
 
     /// `--set-at` and `--capture-at` collect a frame and what to do there, in order.

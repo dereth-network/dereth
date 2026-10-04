@@ -225,3 +225,20 @@ fn the_february_2005_dats_are_never_asked_for_a_record_they_lack() {
     );
     assert!(with_detail > 0, "no part read its implied detail record");
 }
+
+/// One folder may hold both dat sets; the world's era chooses which the server reads, and a folder
+/// without the chosen set is refused rather than read as the other.
+#[test]
+fn the_era_chooses_the_set_a_folder_holding_both_serves_and_a_missing_set_is_refused() {
+    let both = dereth_dat::testing::both_sets_dir();
+    let older = RealDats::open_era(&both, ContainerEra::PreTod).expect("the older set");
+    assert_eq!(older.container_era(), ContainerEra::PreTod);
+    assert!(!older.has_database(DatDatabaseType::HighRes));
+    let later = RealDats::open_era(&both, ContainerEra::Tod).expect("the later set");
+    assert_eq!(later.container_era(), ContainerEra::Tod);
+    // Neither set stands in for the other.
+    let only_older = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    assert!(RealDats::open_era(&only_older, ContainerEra::Tod).is_err());
+    let only_later = dereth_dat::testing::dat_dir();
+    assert!(RealDats::open_era(&only_later, ContainerEra::PreTod).is_err());
+}

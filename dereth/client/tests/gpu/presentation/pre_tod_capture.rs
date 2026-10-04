@@ -1,6 +1,7 @@
 //! The world of February 2005 (the `portal.dat` and `cell.dat` from before Throne of Destiny)
-//! draws under today's screens: the client binary, with no window, draws one frame of Holtburg from
-//! the older world set with the end-of-retail files beside it for the interface, and saves it.
+//! draws under today's screens: the client binary, with no window, given one data folder holding
+//! both sets and the Infiltration era, draws one frame of Holtburg from the older world set with
+//! the end-of-retail files beside it for the interface, and saves it.
 //! The landscape is the older files' own (their hardware region's blended ground), the buildings
 //! and scenery the older art, and the screens the end-of-retail ones.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`), the February 2005 dats
@@ -23,7 +24,8 @@ fn the_february_2005_holtburg_draws_under_todays_screens() {
     if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
         panic!("{msg}");
     }
-    let world = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    // The one folder a player's `--dat-dir` names, holding both sets.
+    let both = dereth_dat::testing::both_sets_dir();
 
     let dir = std::env::temp_dir().join("dere-client-pre-tod-capture");
     std::fs::create_dir_all(&dir).expect("a scratch directory");
@@ -37,9 +39,8 @@ fn the_february_2005_holtburg_draws_under_todays_screens() {
         .args(["--headless", "--frames", "3", "--capture"])
         .arg(&out)
         .arg("--dat-dir")
-        .arg(&dat_dir)
-        .arg("--world-dat-dir")
-        .arg(&world)
+        .arg(&both)
+        .args(["--era", "infiltration"])
         .env("USERPROFILE", &home)
         .env("APPDATA", &home)
         .env("HOME", &home)
