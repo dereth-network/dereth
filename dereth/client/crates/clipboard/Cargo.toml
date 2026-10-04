@@ -1,6 +1,6 @@
 [package]
 name = "dereth-clipboard"
-description = "The two clipboard calls, copy out and paste in, kept in their own crate because on Windows they need unsafe code."
+description = "Text copy, paste and clipboard sequence queries, kept in their own crate because on Windows they need unsafe code."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

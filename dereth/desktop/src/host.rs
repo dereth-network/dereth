@@ -18,7 +18,7 @@ pub struct Desktop<P: Product>(PhantomData<P>);
 impl<P: Product> Host for Desktop<P> {
     const BUILD_ID: &'static str = P::BUILD_ID;
 
-    type Clipboard = crate::clipboard::Win32Clipboard;
+    type Clipboard = crate::clipboard::SystemClipboard;
 
     fn open_platform(
         cfg: &Config,
@@ -40,7 +40,7 @@ impl<P: Product> Host for Desktop<P> {
     }
 
     fn clipboard() -> Self::Clipboard {
-        crate::clipboard::Win32Clipboard
+        crate::clipboard::SystemClipboard
     }
 
     fn cursor_images(window: Option<isize>) -> Box<dyn CursorImages> {

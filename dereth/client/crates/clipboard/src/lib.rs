@@ -1,5 +1,5 @@
-//! The two clipboard calls, copy out and paste in, kept in their own crate because on Windows they
-//! need unsafe code.
+//! Text copy, paste and clipboard sequence queries, kept in their own crate because on Windows
+//! they need unsafe code.
 //!
 //! **Depends on** no other workspace crate (`windows-sys` on Windows, `arboard` elsewhere). **Used
 //! by** the desktop host (`dereth-desktop`), which hands it the text the UI's selection produced.

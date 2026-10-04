@@ -6,13 +6,13 @@ pub use dereth_client_shell::clipboard::*;
 
 /// The real one. Every method is a straight forward to [`dereth_clipboard`].
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Win32Clipboard;
+pub struct SystemClipboard;
 
 fn host_error(e: dereth_clipboard::Error) -> ClipboardError {
     ClipboardError(format!("{e:?}"))
 }
 
-impl HostClipboard for Win32Clipboard {
+impl HostClipboard for SystemClipboard {
     fn set_text(&mut self, text: &str) -> Result<(), ClipboardError> {
         dereth_clipboard::set_text(text).map_err(host_error)
     }
