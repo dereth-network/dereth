@@ -903,7 +903,7 @@ pub static ROWS: &[Behaviour] = &[
                normal sharpness back afterwards, even when it fails.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-ASTRA-SAMPLER-BIAS-SAMPLERS"),
-        station: "dereth-render::lib::d3d12::tests::sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline",
+        station: "dereth-render::lib::d3d12::tests::sampler::sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1074,7 +1074,7 @@ pub static ROWS: &[Behaviour] = &[
                single-pixel images alike.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-ASTRA-RUNTIME-MIPS-TEXTURES"),
-        station: "dereth-render::lib::d3d12::tests::runtime_mips_preserve_every_channel_and_handle_rectangles_and_odd_extents",
+        station: "dereth-render::lib::d3d12::tests::mipgen::runtime_mips_preserve_every_channel_and_handle_rectangles_and_odd_extents",
         tier: Tier::Cpu,
     },
     behaviour! {

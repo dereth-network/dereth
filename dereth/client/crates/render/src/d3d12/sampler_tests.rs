@@ -1,3 +1,5 @@
+use super::*;
+
 // Synthetic provided mip colors isolate SAMPLING policy from the separately tested ImgTex
 // generator. Device descriptors are immutable and actual shader readback, not a smoothness score.
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
@@ -5,7 +7,11 @@
 fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
     let mut gpu = Gpu::new(
         None,
-        &DeviceConfig { width: 16, height: 16, ..Default::default() },
+        &DeviceConfig {
+            width: 16,
+            height: 16,
+            ..Default::default()
+        },
     )
     .unwrap();
     let colors = [
@@ -21,7 +27,11 @@ fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
         width: 64,
         height: 64,
         format: TextureFormat::Bgra8,
-        levels: colors.iter().enumerate().map(|(i, c)| c.repeat((64usize >> i).pow(2))).collect(),
+        levels: colors
+            .iter()
+            .enumerate()
+            .map(|(i, c)| c.repeat((64usize >> i).pow(2)))
+            .collect(),
     };
     let slot = gpu.upload_texture(&t).unwrap();
     let make_quad = |left, right| {
@@ -66,7 +76,11 @@ fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
         gpu.end_frame().unwrap();
         samples.push(gpu.capture().unwrap().bgra);
     }
-    assert_eq!(&samples[0][0..3], &[255, 255, 0], "Bilinear chooses nearest mip3");
+    assert_eq!(
+        &samples[0][0..3],
+        &[255, 255, 0],
+        "Bilinear chooses nearest mip3"
+    );
     assert_ne!(samples[0], samples[1], "fractional trilinear blends mips");
     assert_ne!(samples[1], samples[2], "Sharp changes mip footprint");
 
@@ -136,7 +150,11 @@ fn sampler_banks_sample_the_selected_mip_and_survive_mid_frame_changes() {
 fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline() {
     let mut gpu = Gpu::new(
         None,
-        &DeviceConfig { width: 1, height: 1, ..Default::default() },
+        &DeviceConfig {
+            width: 1,
+            height: 1,
+            ..Default::default()
+        },
     )
     .unwrap();
     let slot = gpu
@@ -152,8 +170,14 @@ fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_basel
     gpu.set_texture_filtering(2);
     gpu.bind_texture(slot, 1);
     let desc = gpu.bound_sampler_description().unwrap();
-    assert_eq!(desc.Filter, D3D12_FILTER_MIN_MAG_MIP_LINEAR, "filter mode reads live preference");
-    assert_eq!(desc.MipLODBias, 0.0, "normal bias is not updated until BeginScene");
+    assert_eq!(
+        desc.Filter, D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+        "filter mode reads live preference"
+    );
+    assert_eq!(
+        desc.MipLODBias, 0.0,
+        "normal bias is not updated until BeginScene"
+    );
     gpu.end_frame().unwrap();
     gpu.begin_frame().unwrap();
     gpu.bind_texture(slot, 1);
@@ -162,7 +186,10 @@ fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_basel
     gpu.bind_texture(slot, 1);
     let desc = gpu.bound_sampler_description().unwrap();
     assert_eq!(desc.Filter, D3D12_FILTER_ANISOTROPIC);
-    assert_eq!(desc.MipLODBias, -1.4, "existing bias survives a mid-frame preference write");
+    assert_eq!(
+        desc.MipLODBias, -1.4,
+        "existing bias survives a mid-frame preference write"
+    );
     gpu.with_preview_sharp(true, |gpu| {
         gpu.bind_texture(slot, 1);
     });
@@ -189,9 +216,15 @@ fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_basel
             gpu.begin_frame().unwrap();
             let error: Result<(), &'static str> = gpu.with_preview_sharp(enabled, |gpu| {
                 gpu.bind_texture(slot, 1);
-                let expected =
-                    if preference == 2 || (enabled && preference < 2) { -1.4 } else { 0.0 };
-                assert_eq!(gpu.bound_sampler_description().unwrap().MipLODBias, expected);
+                let expected = if preference == 2 || (enabled && preference < 2) {
+                    -1.4
+                } else {
+                    0.0
+                };
+                assert_eq!(
+                    gpu.bound_sampler_description().unwrap().MipLODBias,
+                    expected
+                );
                 Err("synthetic preview error")
             });
             assert!(error.is_err());

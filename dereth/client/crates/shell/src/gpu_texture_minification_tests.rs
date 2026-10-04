@@ -1,14 +1,20 @@
+use super::*;
+
 // A-F18: actual UI image/font/movie upload owners must not inherit world ImgTex AUTOGEN.
 // The draw request is synthetic; pixels and font metrics are unchanged installed retail DATs.
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
     let store = dereth_dat::testing::open_store().expect("required pristine retail DATs");
     let id = DataId(0x0600_7576); // real character-screen JPEG, with encoded (not DAT-header) extent.
     let font = DataId(0x4000_0001);
-    let texture =
-        crate::textures::TextureStore::new(&store).texture_data(id).expect("retail UI JPEG");
+    let texture = crate::textures::TextureStore::new(&store)
+        .texture_data(id)
+        .expect("retail UI JPEG");
     assert!(texture.width > 1 && texture.height > 1);
     let cmd = dereth_ui::UiDrawCmd {
         who: dereth_ui::ElemHandle::for_test(0),
@@ -39,12 +45,17 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         "a capable device is the discriminating negative"
     );
     renderer.prepare_ui(&store, std::slice::from_ref(&cmd));
-    let (image, size) = renderer.ui_textures[&(id, None, dereth_ui::ImageSource::Interface)].expect("actual UI image upload");
+    let (image, size) = renderer.ui_textures[&(id, None, dereth_ui::ImageSource::Interface)]
+        .expect("actual UI image upload");
     let image_slot = renderer.overlay_slot(image).expect("the image is resident");
     assert_eq!(size, (texture.width, texture.height));
     assert_eq!(renderer.gpu.texture_mip_levels(image_slot), Some(1));
     assert_eq!(
-        renderer.gpu.capture_texture_level(image_slot, 0).expect("UI bytes").bgra,
+        renderer
+            .gpu
+            .capture_texture_level(image_slot, 0)
+            .expect("UI bytes")
+            .bgra,
         texture.levels[0]
     );
     let (_, sheet, outline) = *renderer.ui_fonts[&font]
@@ -55,12 +66,17 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
     let glyph_slot = renderer.overlay_slot(sheet).expect("the sheet is resident");
     assert_eq!(renderer.gpu.texture_mip_levels(glyph_slot), Some(1));
     if let Some(outline) = outline {
-        let outline_slot = renderer.overlay_slot(outline).expect("the outline is resident");
+        let outline_slot = renderer
+            .overlay_slot(outline)
+            .expect("the outline is resident");
         assert_eq!(renderer.gpu.texture_mip_levels(outline_slot), Some(1));
     }
     let uploaded = renderer.ui_stats.uploaded;
     renderer.prepare_ui(&store, &[cmd]);
-    assert_eq!(renderer.ui_stats.uploaded, uploaded, "same UI request does not regenerate");
+    assert_eq!(
+        renderer.ui_stats.uploaded, uploaded,
+        "same UI request does not regenerate"
+    );
     // The movie setter is the production uncached frame-replacement owner. The small frame is
     // synthetic and explicitly not decoded from a retail movie.
     let movie = dereth_primitives::TextureData {
@@ -70,11 +86,16 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
         levels: vec![[20, 40, 80, 255].repeat(64)],
     };
     renderer.set_movie_frame(id, &movie);
-    let (frame, _) = renderer.ui_textures[&(id, None, dereth_ui::ImageSource::Interface)].expect("actual movie frame upload");
+    let (frame, _) = renderer.ui_textures[&(id, None, dereth_ui::ImageSource::Interface)]
+        .expect("actual movie frame upload");
     let movie_slot = renderer.overlay_slot(frame).expect("the frame is resident");
     assert_eq!(renderer.gpu.texture_mip_levels(movie_slot), Some(1));
     assert_eq!(
-        renderer.gpu.capture_texture_level(movie_slot, 0).expect("movie bytes").bgra,
+        renderer
+            .gpu
+            .capture_texture_level(movie_slot, 0)
+            .expect("movie bytes")
+            .bgra,
         movie.levels[0]
     );
     renderer.release_ui_textures();

@@ -27,6 +27,7 @@ pub use dereth_scene::gpu::SceneRenderer;
 pub use imp::*;
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[path = "."]
 mod imp {
     use std::path::Path;
 
@@ -1253,9 +1254,6 @@ mod imp {
     }
 
     #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        include!("gpu_texture_minification_tests.rs");
-    }
+    #[path = "gpu_texture_minification_tests.rs"]
+    mod tests;
 }

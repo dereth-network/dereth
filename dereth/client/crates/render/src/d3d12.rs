@@ -2756,11 +2756,14 @@ fn test_requires_software() -> bool {
 }
 
 #[cfg(test)]
+#[path = "d3d12"]
 mod tests {
     use super::*;
 
-    include!("d3d12/mipgen_tests.rs");
-    include!("d3d12/sampler_tests.rs");
+    #[path = "mipgen_tests.rs"]
+    mod mipgen;
+    #[path = "sampler_tests.rs"]
+    mod sampler;
 
     /// A D3D12 device for these tests: the hardware adapter, or WARP on a machine without one (the
     /// adapter ladder decides). D3D12 is present on every supported Windows, so failing to make a

@@ -1,7 +1,9 @@
 use super::*;
 
-include!("mipgen_tests.rs");
-include!("sampler_tests.rs");
+#[path = "mipgen_tests.rs"]
+mod mipgen;
+#[path = "sampler_tests.rs"]
+mod sampler;
 
 /// A MoltenVK shipped with the program is looked for in the application bundle's `Frameworks`
 /// folder first, then beside the executable, before anything installed on the machine.

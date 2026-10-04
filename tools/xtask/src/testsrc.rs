@@ -765,6 +765,7 @@ impl Walk<'_> {
                 } else if is_p(toks.get(j + 2), "{") {
                     let close = close_of(toks, j + 2);
                     let inner_dir = match &path_attr {
+                        Some(p) if file_level => file_dir.join(p),
                         Some(p) => child_dir.join(p),
                         None => child_dir.join(name.trim_start_matches("r#")),
                     };
@@ -1268,6 +1269,51 @@ mod tests {
         assert_eq!(names, ["checks", "helper", "LIMIT", "works"]);
         assert_eq!(inv.declarations[1].file, "helpers.rs");
         assert_eq!(inv.tests[0].libtest_name(), "checks::works");
+    }
+
+    #[test]
+    fn inline_path_modules_use_the_containing_file_directory() {
+        let scratch = dereth_dat::testing::ScratchDir::new("testsrc-inline-path").unwrap();
+        let dir = scratch.path();
+        std::fs::create_dir_all(dir.join("backend/nested")).unwrap();
+        let root = dir.join("lib.rs");
+        std::fs::write(&root, "mod backend;").unwrap();
+        std::fs::write(
+            dir.join("backend.rs"),
+            r#"#[cfg(test)] #[path = "backend"] mod tests {
+                #[path = "checks.rs"] mod checks;
+                #[path = "nested"] mod inner { mod more; }
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("backend/checks.rs"),
+            "#[test] fn works() { assert!(true); }",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("backend/nested/more.rs"),
+            "#[test] fn nested_works() { assert!(true); }",
+        )
+        .unwrap();
+        let inv = read(
+            dir,
+            &[Target {
+                package: "sample".into(),
+                name: "lib".into(),
+                root,
+            }],
+        );
+        let names: Vec<_> = inv.tests.iter().map(TestFn::durable).collect();
+        assert_eq!(
+            names,
+            [
+                "sample::lib::backend::tests::checks::works",
+                "sample::lib::backend::tests::inner::more::nested_works",
+            ]
+        );
+        assert_eq!(inv.tests[0].file, "backend/checks.rs");
+        assert_eq!(inv.tests[1].file, "backend/nested/more.rs");
     }
 
     #[test]

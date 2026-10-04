@@ -1,3 +1,5 @@
+use super::*;
+
 // Synthetic provided mip colors isolate SAMPLING policy from the separately tested ImgTex
 // generator. Device descriptors are immutable and actual shader readback, not a smoothness score.
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
@@ -18,7 +20,10 @@ fn a_bias_applied_in_the_pixel_shader_samples_exactly_what_the_sampler_bias_samp
     };
     assert_eq!(in_sampler.len(), in_shader.len());
     for (i, (a, b)) in in_sampler.iter().zip(&in_shader).enumerate() {
-        assert_eq!(a, b, "capture {i} differs between the sampler's bias and the shader's");
+        assert_eq!(
+            a, b,
+            "capture {i} differs between the sampler's bias and the shader's"
+        );
     }
 }
 
@@ -36,7 +41,11 @@ fn a_splat_takes_the_sharp_bias_in_the_sampler_or_in_the_pixel_shader_alike() {
             ..Default::default()
         })?;
         let base = gpu.upload_texture(&mip_chain_64()).unwrap();
-        let splat = crate::device::TerrainSplat { base: Some(base), base_tiling: 1, overlays: Vec::new() };
+        let splat = crate::device::TerrainSplat {
+            base: Some(base),
+            base_tiling: 1,
+            overlays: Vec::new(),
+        };
         // U spans 0..1 and V 0..0.75 across 16 pixels: 64 texels to 16 pixels, level 2 exactly,
         // which Sharp's bias pulls to a blend of levels 0 and 1.
         let mut q = quad_142(-1.0, -1.0, 1.0, 1.0, 0.5, 0xFFFF_FFFF);
@@ -50,8 +59,14 @@ fn a_splat_takes_the_sharp_bias_in_the_sampler_or_in_the_pixel_shader_alike() {
         for preference in [1, 2] {
             gpu.set_texture_filtering(preference);
             gpu.begin_frame().unwrap();
-            gpu.draw_terrain_splat(&opaque_key(), &splat, &identity_frame(), &PerDrawConstants::identity(), &q)
-                .unwrap();
+            gpu.draw_terrain_splat(
+                &opaque_key(),
+                &splat,
+                &identity_frame(),
+                &PerDrawConstants::identity(),
+                &q,
+            )
+            .unwrap();
             gpu.end_frame().unwrap();
             captures.push(gpu.capture().unwrap().bgra);
         }
@@ -61,9 +76,18 @@ fn a_splat_takes_the_sharp_bias_in_the_sampler_or_in_the_pixel_shader_alike() {
     let (Some(in_sampler), Some(in_shader)) = (splat_captures(false), splat_captures(true)) else {
         return;
     };
-    assert_ne!(in_sampler[0], in_sampler[1], "Sharp changes the splat's mip footprint");
-    assert_ne!(in_shader[0], in_shader[1], "Sharp changes the splat's mip footprint");
-    assert_eq!(in_sampler, in_shader, "the splat samples the same texels either way");
+    assert_ne!(
+        in_sampler[0], in_sampler[1],
+        "Sharp changes the splat's mip footprint"
+    );
+    assert_ne!(
+        in_shader[0], in_shader[1],
+        "Sharp changes the splat's mip footprint"
+    );
+    assert_eq!(
+        in_sampler, in_shader,
+        "the splat samples the same texels either way"
+    );
 }
 
 /// A 64x64 texture whose seven levels are each a different solid colour.
@@ -81,7 +105,11 @@ fn mip_chain_64() -> TextureData {
         width: 64,
         height: 64,
         format: TextureFormat::Bgra8,
-        levels: colors.iter().enumerate().map(|(i, c)| c.repeat((64usize >> i).pow(2))).collect(),
+        levels: colors
+            .iter()
+            .enumerate()
+            .map(|(i, c)| c.repeat((64usize >> i).pow(2)))
+            .collect(),
     }
 }
 
@@ -140,17 +168,30 @@ fn sampler_bank_captures(shader_lod_bias: bool) -> Option<Vec<Vec<u8>>> {
         gpu.begin_frame().unwrap();
         draw(&mut gpu, &make_quad(-1.0, 1.0), 1);
         let desc = gpu.bound_sampler_description().unwrap();
-        let aniso = if gpu.anisotropy_supported { SamplerFilter::Anisotropic } else { SamplerFilter::Linear };
+        let aniso = if gpu.anisotropy_supported {
+            SamplerFilter::Anisotropic
+        } else {
+            SamplerFilter::Linear
+        };
         assert_eq!(
             desc.filter,
-            [SamplerFilter::LinearMipPoint, SamplerFilter::Linear, SamplerFilter::Linear, aniso][preference as usize]
+            [
+                SamplerFilter::LinearMipPoint,
+                SamplerFilter::Linear,
+                SamplerFilter::Linear,
+                aniso
+            ][preference as usize]
         );
         assert_eq!(desc.mip_lod_bias, if preference == 2 { -1.4 } else { 0.0 });
         assert_eq!(desc.max_anisotropy, gpu.max_anisotropy);
         gpu.end_frame().unwrap();
         samples.push(gpu.capture().unwrap().bgra);
     }
-    assert_eq!(&samples[0][0..3], &[255, 255, 0], "Bilinear chooses nearest mip3");
+    assert_eq!(
+        &samples[0][0..3],
+        &[255, 255, 0],
+        "Bilinear chooses nearest mip3"
+    );
     assert_ne!(samples[0], samples[1], "fractional trilinear blends mips");
     assert_ne!(samples[1], samples[2], "Sharp changes mip footprint");
 
@@ -190,15 +231,26 @@ fn sampler_bank_captures(shader_lod_bias: bool) -> Option<Vec<Vec<u8>>> {
             assert_eq!(desc.filter, SamplerFilter::Point);
             assert_eq!(
                 desc.address_u,
-                if request == 3 || request == 7 { AddressMode::Clamp } else { AddressMode::Wrap }
+                if request == 3 || request == 7 {
+                    AddressMode::Clamp
+                } else {
+                    AddressMode::Wrap
+                }
             );
             assert_eq!(
                 desc.address_v,
-                if request == 3 || request == 6 { AddressMode::Clamp } else { AddressMode::Wrap }
+                if request == 3 || request == 6 {
+                    AddressMode::Clamp
+                } else {
+                    AddressMode::Wrap
+                }
             );
             let i = gpu.bound_sampler.get().unwrap() as usize;
             if request == 7 {
-                assert_eq!(gpu.sampler_descriptions[i].filter, gpu.sampler_descriptions[i + 1].filter);
+                assert_eq!(
+                    gpu.sampler_descriptions[i].filter,
+                    gpu.sampler_descriptions[i + 1].filter
+                );
             }
         }
         gpu.end_frame().unwrap();
@@ -210,8 +262,11 @@ fn sampler_bank_captures(shader_lod_bias: bool) -> Option<Vec<Vec<u8>>> {
 /// Behaviour: rendering.samplers.bias-changes-apply-at-begin-scene-and-banks-survive-mid-frame-changes
 #[test]
 fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_baseline() {
-    let Some(mut gpu) = device_or_skip(&DeviceConfig { width: 1, height: 1, ..Default::default() })
-    else {
+    let Some(mut gpu) = device_or_skip(&DeviceConfig {
+        width: 1,
+        height: 1,
+        ..Default::default()
+    }) else {
         return;
     };
     let slot = gpu
@@ -227,8 +282,15 @@ fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_basel
     gpu.set_texture_filtering(2);
     gpu.bind_texture(slot, 1);
     let desc = gpu.bound_sampler_description().unwrap();
-    assert_eq!(desc.filter, SamplerFilter::Linear, "filter mode reads live preference");
-    assert_eq!(desc.mip_lod_bias, 0.0, "normal bias is not updated until BeginScene");
+    assert_eq!(
+        desc.filter,
+        SamplerFilter::Linear,
+        "filter mode reads live preference"
+    );
+    assert_eq!(
+        desc.mip_lod_bias, 0.0,
+        "normal bias is not updated until BeginScene"
+    );
     gpu.end_frame().unwrap();
     gpu.begin_frame().unwrap();
     gpu.bind_texture(slot, 1);
@@ -236,9 +298,16 @@ fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_basel
     gpu.set_texture_filtering(3);
     gpu.bind_texture(slot, 1);
     let desc = gpu.bound_sampler_description().unwrap();
-    let aniso = if gpu.anisotropy_supported { SamplerFilter::Anisotropic } else { SamplerFilter::Linear };
+    let aniso = if gpu.anisotropy_supported {
+        SamplerFilter::Anisotropic
+    } else {
+        SamplerFilter::Linear
+    };
     assert_eq!(desc.filter, aniso);
-    assert_eq!(desc.mip_lod_bias, -1.4, "existing bias survives a mid-frame preference write");
+    assert_eq!(
+        desc.mip_lod_bias, -1.4,
+        "existing bias survives a mid-frame preference write"
+    );
     gpu.with_preview_sharp(true, |gpu| {
         gpu.bind_texture(slot, 1);
     });
@@ -265,9 +334,15 @@ fn sampler_bias_changes_at_begin_scene_and_guarded_preview_restores_global_basel
             gpu.begin_frame().unwrap();
             let error: Result<(), &'static str> = gpu.with_preview_sharp(enabled, |gpu| {
                 gpu.bind_texture(slot, 1);
-                let expected =
-                    if preference == 2 || (enabled && preference < 2) { -1.4 } else { 0.0 };
-                assert_eq!(gpu.bound_sampler_description().unwrap().mip_lod_bias, expected);
+                let expected = if preference == 2 || (enabled && preference < 2) {
+                    -1.4
+                } else {
+                    0.0
+                };
+                assert_eq!(
+                    gpu.bound_sampler_description().unwrap().mip_lod_bias,
+                    expected
+                );
                 Err("synthetic preview error")
             });
             assert!(error.is_err());
