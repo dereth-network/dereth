@@ -16,6 +16,9 @@ use crate::error::DatError;
 ///
 /// Single values are written with bit 31 masked off, so the reader restores it when bit 30 is set,
 /// as the client's reader does.
+///
+/// A list may come from a server's overlay, so it is not trusted: a count above [`MAX_VALUES`], or
+/// a run that would go past the count, is [`DatError::Overrun`] before anything is expanded.
 pub fn decode(bytes: &[u8]) -> Result<Vec<u32>, DatError> {
     let mut c = Cursor::new(bytes);
     let count = c.i32()?;
@@ -24,11 +27,18 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<u32>, DatError> {
         c.expect_end()?;
         return Ok(out);
     }
-    while out.len() < count as usize {
+    let count = count.unsigned_abs() as usize;
+    if count > MAX_VALUES {
+        return Err(DatError::Overrun(count));
+    }
+    while out.len() < count {
         let v = c.i32()?;
         if v < 0 {
             let start = c.i32()?;
             let n = v.unsigned_abs();
+            if out.len() + n as usize > count {
+                return Err(DatError::Overrun(out.len() + n as usize));
+            }
             for k in 0..n {
                 out.push((start as u32).wrapping_add(k));
             }
@@ -43,6 +53,10 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<u32>, DatError> {
     c.expect_end()?;
     Ok(out)
 }
+
+/// The most values a set may decode to: far past any real file's (the end of retail's portal
+/// holds 2,072), and small enough that decoding one costs a few megabytes at most.
+pub const MAX_VALUES: usize = 1 << 20;
 
 /// How many values an encoded set holds and the highest of them, without expanding its runs: what
 /// a reader that only compares counts needs, at a cost bounded by the bytes rather than by the
@@ -117,6 +131,23 @@ pub fn encode(values: &[u32]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_list_claiming_a_huge_run_is_refused_before_it_is_expanded() {
+        // Count and run both claim two billion values, in twelve bytes.
+        let mut huge = 0x7FFF_FFFFu32.to_le_bytes().to_vec();
+        huge.extend_from_slice(&(-0x7FFF_FFFFi32).to_le_bytes());
+        huge.extend_from_slice(&1u32.to_le_bytes());
+        assert!(matches!(decode(&huge), Err(DatError::Overrun(_))));
+        // A small count with a run past it.
+        let mut over = 3u32.to_le_bytes().to_vec();
+        over.extend_from_slice(&(-0x7FFF_FFFFi32).to_le_bytes());
+        over.extend_from_slice(&1u32.to_le_bytes());
+        assert!(matches!(decode(&over), Err(DatError::Overrun(_))));
+        // The largest list allowed still decodes.
+        let max: Vec<u32> = (1..=u32::try_from(MAX_VALUES).unwrap()).collect();
+        assert_eq!(decode(&encode(&max)).unwrap().len(), MAX_VALUES);
+    }
 
     #[test]
     fn summarize_counts_what_decode_produces_without_expanding_runs() {
