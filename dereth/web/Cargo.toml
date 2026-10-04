@@ -14,31 +14,31 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # The data store the page's files are opened into.
-dereth-client-sdk = { path = "../../core/client-sdk" }
+dereth-client-sdk.workspace = true
 # The graphics device on its `wgpu` backend: WebGPU in a browser that has it, WebGL 2 in one that
 # does not. The page prepares the device and the client comes up on it.
-dereth-render = { path = "../client/crates/render", default-features = false, features = ["wgpu"] }
+dereth-render = { workspace = true, features = ["wgpu"] }
 dereth-primitives.workspace = true
-dereth-client-contract = { path = "../../core/client-contract" }
+dereth-client-contract.workspace = true
 # The application: the client shell's front end, on this crate's host, and the scene it draws.
-dereth-client-shell = { path = "../client/crates/shell" }
-dereth-scene = { path = "../client/crates/scene" }
+dereth-client-shell = { workspace = true, default-features = true }
+dereth-scene = { workspace = true, default-features = true }
 # What the host and the playable client name by crate: the runtime's platform seams and
 # configuration, the session's host parsing, the data store, the retail UI's display modes and the
 # shared key codes.
-dereth-client-runtime = { path = "../../core/client-runtime" }
-dereth-client-net = { path = "../../core/client-net" }
+dereth-client-runtime.workspace = true
+dereth-client-net = { workspace = true, default-features = true }
 # The WebSocket frame, shared with the server's endpoint and the relay.
-dereth-transport = { path = "../../core/transport" }
-dereth-dat = { path = "../../core/dat" }
-dereth-ui-screens = { path = "../client/crates/ui-screens" }
-dereth-input = { path = "../client/crates/input" }
+dereth-transport.workspace = true
+dereth-dat.workspace = true
+dereth-ui-screens.workspace = true
+dereth-input.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-dereth-client-sdk = { path = "../../core/client-sdk", features = ["test-support"] }
+dereth-client-sdk = { workspace = true, features = ["test-support"] }
 # Blocks on the GPU backend's asynchronous set-up in the native tests.
-pollster = "0.4"
+pollster.workspace = true
 
 [features]
 # Tier switch only: the few lib tests that read the retail data run with it and are ignored
@@ -54,7 +54,7 @@ js-sys = "0.3.104"
 tracing-subscriber.workspace = true
 # The GPU backend's set-up is asynchronous in a browser; this turns it into a promise.
 wasm-bindgen-futures = "0.4.77"
-web-sys = { version = "0.3.104", features = ["OffscreenCanvas"] }
+web-sys = { workspace = true, features = ["OffscreenCanvas"] }
 
 [lints]
 workspace = true

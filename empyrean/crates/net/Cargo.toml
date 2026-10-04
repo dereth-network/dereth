@@ -28,7 +28,7 @@ log.workspace = true
 
 [dev-dependencies]
 # Self dev-dependency: turns on `testing` for tests/all without making it a default feature.
-empyrean-net = { path = ".", features = ["testing"] }
+empyrean-net = { workspace = true, features = ["testing"] }
 
 [[test]]
 name = "all"

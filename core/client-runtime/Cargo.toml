@@ -23,39 +23,39 @@ retail-dats = []
 # `host-nls`: platform/text.rs -- the host's ANSI code page. See below.
 dereth-primitives = { workspace = true, features = ["host-nls"] }
 # chat.rs -- the six built-in speech templates are composed against `dereth_client_model::chat`'s text types.
-dereth-client-model    = { path = "../client-model" }
+dereth-client-model.workspace = true
 # net.rs -- the UDP transport and the session above it. `ClientNetwork` hands the client session
 # (`dereth_client_net::client_session`) a socket and reads nothing else.
-dereth-client-net = { path = "../client-net" }
-dereth-transport = { path = "../transport" }
-dereth-protocol   = { path = "../protocol" }
-dereth-animation    = { path = "../animation" }
+dereth-client-net = { workspace = true, default-features = true }
+dereth-transport.workspace = true
+dereth-protocol.workspace = true
+dereth-animation.workspace = true
 # The dat -> physics / animation adapters (`anim_assets`, `land_source`,
 # `env_cells`, `landblock`, the setup geometry, the physics-setup facts), shared with the server.
 # Re-exported at their old paths here.
-dereth-world-data = { path = "../world-data" }
-dereth-assets  = { path = "../assets" }
-dereth-dat     = { path = "../dat" }
+dereth-world-data.workspace = true
+dereth-assets.workspace = true
+dereth-dat.workspace = true
 # The landscape's block window, which the world streamer keeps resident around the viewer. The
 # drawing side builds each slot's mesh and reads the same window.
-dereth-landscape = { path = "../landscape" }
+dereth-landscape.workspace = true
 # The landscape's geometry and static contents: the world builder places the same scenery and
 # statics over the same landblock meshes the drawing uses.
-dereth-terrain = { path = "../terrain" }
+dereth-terrain.workspace = true
 # platform/text.rs -- the host's ANSI code page -- is `dereth-primitives`' `text` module
 # with its `host-nls` feature, enabled above: the audited kernel32 NLS boundary, which names no
 # other crate. It is the same kind of host call `net.rs`'s socket and `assets.rs`'s dat reads
 # already make here, and this crate is the application side that is allowed to switch it on.
 # `character.rs` drives the collision and movement engine and the motion tables; it names no
 # device: `dereth-physics` is `dereth-primitives` alone.
-dereth-physics = { path = "../physics" }
+dereth-physics.workspace = true
 # `camera.rs`'s `apply_preference_requests` filters `UiRequest::SetPreference`, which is
 # `dereth-client-contract`'s type; `dereth_ui_screens::{PrefValue, UiRequest}` are re-exports of
 # these.
-dereth-client-contract = { path = "../client-contract" }
+dereth-client-contract.workspace = true
 # `teleport.rs` names the two portal sound ids. `dereth-audio` is the mixer and the
 # decoders; the device is `cpal`, which is `dereth-desktop`'s dependency and not this crate's.
-dereth-audio   = { path = "../audio" }
+dereth-audio.workspace = true
 thiserror.workspace = true
 # The runtime's progress lines, problems and frame-loop spans. A facade only: whoever runs the
 # runtime (the client, the headless binary) installs the subscriber that receives them.
@@ -63,14 +63,14 @@ tracing.workspace = true
 # The monotonic and wall clocks. On every native target these are `std::time::Instant` and
 # `SystemTime` re-exported unchanged; in a browser, where `std`'s clocks panic, they read the
 # page's `performance.now()` and `Date.now()`.
-web-time = "0.2"
+web-time.workspace = true
 # object_identity.rs -- the cache of which ids two eras' files share as the same object is keyed
 # by both files' hashes.
 blake3.workspace = true
 
 [dev-dependencies]
-dereth-client-net = { path = "../client-net", features = ["test-support"] }
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-client-net = { workspace = true, default-features = true, features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

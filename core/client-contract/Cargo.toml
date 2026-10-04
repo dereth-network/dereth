@@ -19,13 +19,13 @@ dereth-primitives.workspace = true
 # `dereth-render`, no `winit`, no `windows` -- is unchanged.
 # `camera.rs`'s `ViewParams::view` is a `Mat4`. The same glam the rest of the tree uses,
 # so the matrix that crosses this seam is the one `dereth-render` builds.
-glam = "0.30"
+glam.workspace = true
 # `window.rs`'s `WindowHandles` is the raw display/window handle pair a device is
 # created from. `raw-window-handle` is a crate of type definitions and depends on nothing; the
 # pair is plain data, and `dereth_client_runtime::platform::window::WindowHost` returns it, which is
 # what `dereth-client`'s window trait needed to leave that crate. `dereth-render` re-exports the
 # type at `device::WindowHandles` and still owns every use of it.
-raw-window-handle = "0.6"
+raw-window-handle.workspace = true
 
 [lints]
 workspace = true

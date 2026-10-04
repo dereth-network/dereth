@@ -34,8 +34,8 @@ dereth-transport.workspace = true
 dereth-dat = { workspace = true, features = ["test-support"] }
 # The command line the launcher builds is read back by the Dereth client's own parser into the
 # client's era view: one test follows a world's announced era and systems that far.
-dereth-client-runtime = { path = "../../../../core/client-runtime" }
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-runtime.workspace = true
+dereth-client-contract.workspace = true
 dereth-primitives.workspace = true
 
 [features]

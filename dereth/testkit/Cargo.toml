@@ -24,55 +24,55 @@ retail-dats = []
 # The client. `App::with_platform(cfg, NullPresentation, Platform::headless(w, h))` is what the
 # retail-assets backend is; `default-features = false` because the default is a graphics backend and
 # a scenario never has a device.
-dereth-client = { path = "../client", default-features = false }
+dereth-client.workspace = true
 # The headless half: `ObjectStream`, `ClientNetwork` and the frame steps the no-assets backend runs
 # without an `App`.
-dereth-client-runtime = { path = "../../core/client-runtime" }
+dereth-client-runtime.workspace = true
 # `GameSnapshot` (what `snapshot()` answers with) and `UiRequest`.
-dereth-client-contract = { path = "../../core/client-contract" }
+dereth-client-contract.workspace = true
 # `World`, `Request`, `Notice` -- the model a scenario asserts over, and the requests it watches go
 # out.
-dereth-client-model = { path = "../../core/client-model" }
+dereth-client-model.workspace = true
 # `InputEvent` and the named movement actions a `Player` step injects.
-dereth-input = { path = "../client/crates/input" }
+dereth-input.workspace = true
 # The typed messages `Inbound::message` takes and the opcodes `outbound_opcodes` reports.
-dereth-protocol = { path = "../../core/protocol" }
+dereth-protocol.workspace = true
 # `Corpus` (the decoded corpus), `capture` (the raw one),
 # `MockTransport` and `Session`, which is how an outbound request is turned back into an opcode:
 # all `dereth_client_net::client_session`, from the `dereth-client-net` dependency below.
 # `ChatMessage` -- the type `Hud::apply_events` answers with, which is what `chat_lines()` is.
-dereth-ui-screens = { path = "../client/crates/ui-screens" }
+dereth-ui-screens.workspace = true
 # `dereth_dat::testing` -- the one lookup of the retail dats every test uses.
-dereth-dat = { path = "../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 # `framework::mode::GAME_PLAY` -- the screen a gameplay scenario asks the shell to put up.
-dereth-ui = { path = "../client/crates/ui" }
+dereth-ui.workspace = true
 dereth-primitives.workspace = true
 # The one thing a raw-capture login replay needs that `dereth_client_net::client_session::testing::capture`
 # cannot hold: the recorded connection sequence number, which is read by parsing a datagram header,
 # the transport's work, which the client session does not name (its isolation rule). Rather than write a
 # second copy, the harness calls the one that exists. See `src/login.rs`.
-dereth-headless = { path = "../headless" }
+dereth-headless.workspace = true
 # One seeded behaviour is about where a body may enter the world, which is the collision walk's
 # question and not the frame's.
-dereth-physics = { path = "../../core/physics" }
+dereth-physics.workspace = true
 # A normal dependency, not a dev one: `src/replay.rs` and `src/wire.rs` build a `ConnectRequest`
 # datagram and parse the ones a scenario sends, so the crate that frames and parses a datagram is
 # library code here. Path-only, and nothing in `tools/`,
 # `core/*/src` or `dereth/*/src` gains an edge, because nothing there may depend on this crate at all.
-dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
-dereth-transport = { path = "../../core/transport" }
+dereth-client-net = { workspace = true, default-features = true, features = ["test-support"] }
+dereth-transport.workspace = true
 
 [dev-dependencies]
-dereth-chargen = { path = "../../core/chargen" }
+dereth-chargen.workspace = true
 # `dereth_primitives::num::math`: the scenarios build headings with the same portable trigonometry as the client.
 dereth-primitives.workspace = true
 # The scenario modules whose drives build animation and asset records. Path-only and dev-only.
-dereth-animation = { path = "../../core/animation" }
-dereth-assets = { path = "../../core/assets" }
+dereth-animation.workspace = true
+dereth-assets.workspace = true
 # The mouse messages one seeded scenario delivers. It is `dereth-client`'s own window dependency,
 # taken here at the same version and with the same features so that a `Win32Message` this crate
 # builds is the one the client's pump reads.
-winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+winit = { workspace = true, features = ["rwh_06"] }
 
 [lints]
 workspace = true

@@ -15,8 +15,8 @@ test-support = []
 
 [dependencies]
 dereth-primitives.workspace = true
-dereth-assets = { path = "../assets" }
-dereth-landscape = { path = "../landscape" }
+dereth-assets.workspace = true
+dereth-landscape.workspace = true
 
 [lints]
 workspace = true

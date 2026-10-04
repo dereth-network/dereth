@@ -13,9 +13,9 @@ autotests = false
 dereth-primitives.workspace = true
 # The read-only view the rules are functions of (`AppraisalView`, `CharacterInfo`), the digit
 # grouping and the character sheet's tables.
-dereth-client-contract = { path = "../client-contract" }
+dereth-client-contract.workspace = true
 # The item level arithmetic, the burden load mod and the elemental modifier. Off the wire crate.
-dereth-rules = { path = "../rules", default-features = false }
+dereth-rules.workspace = true
 
 [lints]
 workspace = true

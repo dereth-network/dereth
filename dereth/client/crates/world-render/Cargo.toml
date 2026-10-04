@@ -19,15 +19,15 @@ dereth-primitives.workspace = true
 # World data only: the decoded landblock / Region / Scene / GfxObjDegradeInfo structs. This crate
 # consumes decoded structs; it decodes nothing itself. The renderer is reached only through
 # the `RenderBackend` trait in dereth-primitives, and no renderer crate is linked.
-dereth-assets = { path = "../../../../core/assets" }
+dereth-assets.workspace = true
 # The landscape's geometry and static contents: every module of it is re-exported here at the path
 # it had before it moved.
-dereth-terrain = { path = "../../../../core/terrain" }
+dereth-terrain.workspace = true
 
 [dev-dependencies]
 # Tests read the retail dats directly. That is the oracle: real landblocks, real region tables.
-dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
-dereth-terrain = { path = "../../../../core/terrain", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
+dereth-terrain = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

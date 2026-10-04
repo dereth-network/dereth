@@ -22,10 +22,10 @@ dereth-primitives.workspace = true
 # types it carries -- live in `dereth-client-contract`, because `dereth_client_runtime::present::Scene`
 # names `ViewParams` and may not depend on a renderer. This crate re-exports them at their
 # `camera` paths and keeps all the arithmetic.
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 thiserror.workspace = true
 # `camera.rs` builds the projection and view matrices; `pso.rs` and `ui.rs` use the vector types.
-glam = "0.30"
+glam.workspace = true
 # `jpeg.rs` only. The decoder for the dat's JPEG surfaces.
 zune-jpeg = "0.5"
 

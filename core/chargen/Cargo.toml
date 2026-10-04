@@ -12,11 +12,11 @@ autotests = false
 [dependencies]
 dereth-primitives.workspace = true
 # The creation tables: `CharGen`, `SkillTable`, `ClothingTable`. Decoded values only.
-dereth-assets = { path = "../assets" }
+dereth-assets.workspace = true
 # The creation arithmetic shared with the server. Off the wire crate, as the UI crates take it.
-dereth-rules = { path = "../rules", default-features = false }
+dereth-rules.workspace = true
 # `CharGenResultData`, the finished creation the session sends.
-dereth-client-contract = { path = "../client-contract" }
+dereth-client-contract.workspace = true
 
 [lints]
 workspace = true
@@ -25,7 +25,7 @@ workspace = true
 retail-dats = []
 
 [dev-dependencies]
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [[test]]
 name = "dat"

@@ -23,7 +23,7 @@ rusqlite = { workspace = true, features = ["functions"] }
 # The content hash that makes ingest incremental.
 blake3.workspace = true
 # zip members are stored or deflated; both are read in memory.
-flate2 = "1"
+flate2.workspace = true
 crc32fast = "1"
 # 7z members, read in memory. LZMA/LZMA2 only; no encryption, no C codecs.
 sevenz-rust2 = { version = "0.23", default-features = false }

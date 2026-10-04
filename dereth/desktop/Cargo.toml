@@ -13,34 +13,34 @@ autotests = false
 dereth-primitives.workspace = true
 # The host trait this implements, and the shell's own halves of the window, pump, clipboard and
 # cursor that the desktop's are built over.
-dereth-client-shell = { path = "../client/crates/shell", default-features = false }
+dereth-client-shell.workspace = true
 # The configuration, the platform seams (`Platform`, the clock, the pacer, the window host) and
 # the mixer's output seam.
-dereth-client-runtime = { path = "../../core/client-runtime" }
+dereth-client-runtime.workspace = true
 # The display-mode list the options page's drop-downs are built from.
-dereth-client-contract = { path = "../../core/client-contract" }
+dereth-client-contract.workspace = true
 # The window placement arithmetic and the monitor work area.
-dereth-render = { path = "../client/crates/render", default-features = false, features = ["mock"] }
+dereth-render = { workspace = true, features = ["mock"] }
 # The key and scan-code tables the pump turns a key into.
-dereth-input = { path = "../client/crates/input" }
+dereth-input.workspace = true
 # Finding the retail dats, and protecting the install, at start-up.
-dereth-dat = { path = "../../core/dat" }
+dereth-dat.workspace = true
 # The two unsafe hops, each confined to its own crate: the system clipboard, and the console and
 # the OS error box.
-dereth-clipboard = { path = "../client/crates/clipboard" }
-dereth-console = { path = "../client/crates/console" }
+dereth-clipboard.workspace = true
+dereth-console.workspace = true
 # The system fonts the classic interface's text is drawn with.
-dereth-classic-dat = { path = "../client/crates/classic-dat" }
-dereth-classic-gdi = { path = "../client/crates/classic-gdi" }
+dereth-classic-dat.workspace = true
+dereth-classic-gdi.workspace = true
 tracing.workspace = true
 # The one subscriber a product's `main` installs (`logging`).
 tracing-subscriber.workspace = true
 # The window and the message pump; Linux's backends are added below.
-winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+winit = { workspace = true, features = ["rwh_06"] }
 # The window icon, decoded for the window systems that take pixels.
-png = "0.17"
+png.workspace = true
 # The sound device.
-cpal = { version = "0.15", default-features = false }
+cpal.workspace = true
 
 # The local clock and the URL launch on Windows (WinRT, safe bindings).
 [target.'cfg(windows)'.dependencies]
@@ -52,7 +52,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 open = "5"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
 
 [lints]
 workspace = true

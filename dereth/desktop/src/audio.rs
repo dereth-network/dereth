@@ -33,7 +33,7 @@ impl dereth_client_runtime::platform::audio_out::AudioOutput for CpalOutput {
                     .map(|c| (d, c))
                     .map_err(|e| e.to_string())
             })?;
-        let found = (cfg.sample_rate().0, cfg.channels());
+        let found = (cfg.sample_rate(), cfg.channels());
         self.endpoint = Some((device, cfg));
         Ok(found)
     }

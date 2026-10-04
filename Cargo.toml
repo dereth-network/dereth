@@ -87,7 +87,64 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+# Workspace members share versions and explicit per-consumer feature choices.
+dereth-animation = { path = "core/animation" }
+dereth-assets = { path = "core/assets" }
+dereth-audio = { path = "core/audio" }
+dereth-chargen = { path = "core/chargen" }
+dereth-classic-dat = { path = "dereth/client/crates/classic-dat" }
+dereth-classic-gdi = { path = "dereth/client/crates/classic-gdi" }
+dereth-classic-ui = { path = "dereth/client/crates/classic" }
+dereth-client = { path = "dereth/client", default-features = false }
+dereth-client-contract = { path = "core/client-contract" }
+dereth-client-model = { path = "core/client-model" }
+dereth-client-net = { path = "core/client-net", default-features = false }
+dereth-client-runtime = { path = "core/client-runtime" }
+dereth-client-sdk = { path = "core/client-sdk" }
+dereth-client-shell = { path = "dereth/client/crates/shell", default-features = false }
+dereth-clipboard = { path = "dereth/client/crates/clipboard" }
+dereth-console = { path = "dereth/client/crates/console" }
+dereth-corpus = { path = "tools/corpus" }
+dereth-dat = { path = "core/dat" }
+dereth-desktop = { path = "dereth/desktop" }
+dereth-headless = { path = "dereth/headless" }
+dereth-input = { path = "dereth/client/crates/input" }
+dereth-landscape = { path = "core/landscape" }
+dereth-launch = { path = "dereth/launcher/crates/launch" }
+dereth-pcap = { path = "tools/pcap" }
+dereth-physics = { path = "core/physics" }
+dereth-presentation = { path = "core/presentation" }
 dereth-primitives = { path = "core/primitives" }
+dereth-protocol = { path = "core/protocol" }
+dereth-render = { path = "dereth/client/crates/render", default-features = false }
+dereth-render-cpu = { path = "dereth/client/crates/render-cpu", default-features = false }
+dereth-rules = { path = "core/rules", default-features = false }
+dereth-scene = { path = "dereth/client/crates/scene", default-features = false }
+dereth-terrain = { path = "core/terrain" }
+dereth-testkit = { path = "dereth/testkit" }
+dereth-text = { path = "core/text" }
+dereth-transport = { path = "core/transport" }
+dereth-ui = { path = "dereth/client/crates/ui" }
+dereth-ui-screens = { path = "dereth/client/crates/ui-screens" }
+dereth-web = { path = "dereth/web" }
+dereth-web-dev = { path = "tools/web-dev" }
+dereth-web-relay = { path = "tools/web-relay" }
+dereth-world-data = { path = "core/world-data" }
+dereth-world-render = { path = "dereth/client/crates/world-render" }
+empyrean-command = { path = "empyrean/crates/command" }
+empyrean-common = { path = "empyrean/crates/common" }
+empyrean-content = { path = "empyrean/crates/content" }
+empyrean-dat = { path = "empyrean/crates/dat" }
+empyrean-entity = { path = "empyrean/crates/entity" }
+empyrean-import = { path = "empyrean/import" }
+empyrean-net = { path = "empyrean/crates/net" }
+empyrean-server = { path = "empyrean/server" }
+empyrean-store = { path = "empyrean/crates/store" }
+empyrean-tables = { path = "empyrean/crates/tables" }
+empyrean-testkit = { path = "empyrean/testkit" }
+empyrean-world = { path = "empyrean/crates/world" }
+xtask = { path = "tools/xtask" }
+
 thiserror = "2"
 # Logging. The shared crates and the client emit `tracing` events and spans (a facade: no output
 # of its own); each binary installs the one subscriber that receives them. `tracing-subscriber`
@@ -97,53 +154,36 @@ thiserror = "2"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "registry", "smallvec", "tracing-log"] }
 
-# The core crates as the server names them (`dereth-x.workspace = true`). The client crates still
-# name most of these by path directly; the entries are the same crates either way.
-dereth-protocol   = { path = "core/protocol" }
-dereth-client-net = { path = "core/client-net", default-features = false }
-dereth-transport  = { path = "core/transport" }
-dereth-dat        = { path = "core/dat" }
-dereth-assets     = { path = "core/assets" }
-dereth-text       = { path = "core/text" }
-dereth-physics    = { path = "core/physics" }
-dereth-animation  = { path = "core/animation" }
-dereth-rules      = { path = "core/rules" }
-dereth-world-data = { path = "core/world-data" }
-dereth-landscape  = { path = "core/landscape" }
-# Test-only: empyrean-world cross-checks its ACE port against the
-# client's retail-derived rules. A dev-dependency of empyrean-world only.
-dereth-client-model = { path = "core/client-model" }
-
-# The server's crates (AGPL-3.0-only).
-empyrean-common  = { path = "empyrean/crates/common" }
-empyrean-entity  = { path = "empyrean/crates/entity" }
-empyrean-tables  = { path = "empyrean/crates/tables" }
-empyrean-content = { path = "empyrean/crates/content" }
-empyrean-store   = { path = "empyrean/crates/store" }
-empyrean-dat     = { path = "empyrean/crates/dat" }
-empyrean-net     = { path = "empyrean/crates/net" }
-empyrean-world   = { path = "empyrean/crates/world" }
-empyrean-command = { path = "empyrean/crates/command" }
-empyrean-testkit = { path = "empyrean/testkit" }
-
 # Third-party dependencies of the server crates.
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# The native configuration file, empyrean.toml (empyrean-common). `preserve_order` keeps a
-# table's keys in file order, as Config.js's are (the thread multiplier setters run in that order).
-toml = { version = "1", features = ["preserve_order"] }
 memmap2 = "0.9"
 blake3 = { version = "1", default-features = false }
 # Shard/auth persistence (empyrean-store). `bundled` compiles SQLite into the binary: no system library.
 rusqlite = { version = "0.31", features = ["bundled"] }
-# Legacy SHA512 account passwords (empyrean-store, AccountExtensions.GetPasswordHash).
-sha2 = "0.10"
 # bcrypt salts (empyrean-store, BCryptProvider.HashPassword): the OS random source.
-getrandom = "0.3"
+getrandom = "0.4"
 # DDDManager.Compress (empyrean-world): ZLibStream at SmallestSize. .NET 10 compresses with
 # zlib-ng; zlib-rs is its memory-safe Rust port (vectored against ACE's own output).
 zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
+
+# Shared versions; platform, optional and feature choices remain on each consumer.
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+cpal = { version = "0.17.3", default-features = false }
+ctrlc = "3.5"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+glam = "0.30"
+png = "0.17"
+pollster = "0.4"
+raw-window-handle = "0.6"
+serde_json = "1"
+# Legacy SHA512 account password hashes.
+sha2 = "0.10"
+# Configuration consumers retain ordered table keys through their preserve_order feature.
+toml = "1"
+web-sys = "0.3.104"
+web-time = "1"
+winit = { version = "0.30", default-features = false }
 
 # Lints applied to every client and shared crate via `[lints] workspace = true`. The server crates do
 # not inherit these: each carries its own `[lints]` tables with the server's levels (no

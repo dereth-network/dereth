@@ -21,31 +21,31 @@ retail-dats = []
 dereth-primitives.workspace = true
 dereth-text.workspace = true
 dereth-dat.workspace = true
-dereth-client-contract = { path = "../../../../core/client-contract" }
-dereth-client-runtime = { path = "../../../../core/client-runtime" }
-dereth-client-model = { path = "../../../../core/client-model" }
-dereth-animation = { path = "../../../../core/animation" }
-dereth-physics = { path = "../../../../core/physics" }
-dereth-chargen = { path = "../../../../core/chargen" }
-dereth-assets = { path = "../../../../core/assets" }
-dereth-protocol = { path = "../../../../core/protocol" }
-dereth-rules = { path = "../../../../core/rules" }
-dereth-input = { path = "../input" }
+dereth-client-contract.workspace = true
+dereth-client-runtime.workspace = true
+dereth-client-model.workspace = true
+dereth-animation.workspace = true
+dereth-physics.workspace = true
+dereth-chargen.workspace = true
+dereth-assets.workspace = true
+dereth-protocol.workspace = true
+dereth-rules = { workspace = true, default-features = true }
+dereth-input.workspace = true
 # The game's presentation rules, shared with the retail interface.
-dereth-presentation = { path = "../../../../core/presentation" }
-dereth-ui = { path = "../ui" }
+dereth-presentation.workspace = true
+dereth-ui.workspace = true
 # The item and spell icons are pictures of the world's own dats, decoded as the scene decodes them.
-dereth-scene = { path = "../scene", default-features = false }
-dereth-classic-dat = { path = "../classic-dat" }
+dereth-scene.workspace = true
+dereth-classic-dat.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-dereth-client-net = { path = "../../../../core/client-net" }
+dereth-client-net = { workspace = true, default-features = true }
 dereth-dat = { workspace = true, features = ["test-support"] }
 # One layout test measures the title with the fonts the desktop draws it with.
-dereth-classic-gdi = { path = "../classic-gdi" }
+dereth-classic-gdi.workspace = true
 
 [lints]
 workspace = true

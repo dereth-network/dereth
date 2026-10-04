@@ -15,12 +15,12 @@ autotests = false
 retail-dats = []
 
 [dependencies]
-dereth-dat = { path = "../dat" }
+dereth-dat.workspace = true
 dereth-primitives.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

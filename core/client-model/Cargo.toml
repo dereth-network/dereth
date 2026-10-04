@@ -16,17 +16,17 @@ retail-dats = []
 
 [dependencies]
 dereth-primitives.workspace = true
-dereth-protocol = { path = "../protocol" }
-dereth-assets = { path = "../assets" }
+dereth-protocol.workspace = true
+dereth-assets.workspace = true
 # The pure retail rules (curves, formulas, stacking, chess, the name filter, slot tables) live
 # here; each of those modules is re-exported at its `dereth_client_model` path.
-dereth-rules = { path = "../rules" }
+dereth-rules = { workspace = true, default-features = true }
 # The chat-entry and console action ids the command interpreter's entry points are keyed by.
-dereth-client-contract = { path = "../client-contract" }
+dereth-client-contract.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 # The kernel32 NLS arm is not in the production graph, so Windows FFI is not a normal dependency
 # of the game logic: the chat model, `taboo.rs` and `turbine.rs` go through
 # `dereth_primitives::HostEncoding`, which the application implements over
@@ -39,7 +39,7 @@ dereth-primitives = { workspace = true, features = ["host-nls"] }
 # `fixtures/message-corpus` so that the suite's denominators are not integers typed into assertions,
 # through `dereth_client_net::client_session::testing`. `dereth-client-model` itself does not depend
 # on `dereth-client-net`.
-dereth-client-net = { path = "../client-net", features = ["test-support"] }
+dereth-client-net = { workspace = true, default-features = true, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -49,7 +49,7 @@ dereth-primitives.workspace = true
 # The `wgpu` backend. WebGL 2 is compiled in for a browser without WebGPU; natively `wgpu` takes
 # its platform's own API. `pollster` makes its asynchronous set-up synchronous outside a browser.
 wgpu = { version = "30", optional = true, features = ["webgl"] }
-pollster = { version = "0.4", optional = true }
+pollster = { workspace = true, optional = true }
 thiserror.workspace = true
 # The validation layer's reports. A facade: the client binary installs the subscriber.
 tracing.workspace = true
@@ -57,15 +57,15 @@ tracing.workspace = true
 # the font atlas, the UI quad path, the camera, the descriptor tables and the recording backend.
 # This crate re-exports every item of it under `dereth_render::`, so `dereth-client`
 # and the two test binaries never name `dereth_render_cpu` at all.
-dereth-render-cpu = { path = "../render-cpu", default-features = false }
+dereth-render-cpu.workspace = true
 # `device::Backend`'s *selection* half -- the `vulkan` / `d3d12` spellings a command
 # line or a preferences file names -- is `dereth_client_contract::RendererChoice`, so
 # that `dereth_client::config` can hold one without naming a renderer. `Backend::compiled_in`
 # reads this crate's own features and stays here; the conversion between them is in `device.rs`.
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 # `device.rs`'s `hlsl_matrix` and the two backends' matrix plumbing. The camera that produces
 # those matrices is in `dereth-render-cpu`, which depends on `glam` for the same reason.
-glam = "0.30"
+glam.workspace = true
 
 # The Vulkan backend. `ash` is the raw binding, `ash-window` turns a `raw-window-handle` into a
 # `VkSurfaceKHR` on every platform (including the CAMetalLayer dance on macOS), `gpu-allocator`
@@ -76,7 +76,7 @@ ash = { version = "0.38", optional = true, default-features = false, features = 
 ash-window = { version = "0.13", optional = true }
 # Ungated: `device::WindowHandles` is part of the backend-neutral surface, so the two raw handle
 # types are named by `src/device.rs`, which every build compiles.
-raw-window-handle = "0.6"
+raw-window-handle.workspace = true
 gpu-allocator = { version = "0.28", optional = true, default-features = false, features = ["vulkan", "std"] }
 naga = { version = "30", optional = true, features = ["wgsl-in", "spv-out"] }
 
@@ -109,4 +109,4 @@ required-features = ["retail-dats", "vulkan"]
 
 # A browser device is made on an `OffscreenCanvas` the page hands over.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3.104", optional = true, features = ["OffscreenCanvas"] }
+web-sys = { workspace = true, features = ["OffscreenCanvas"], optional = true }

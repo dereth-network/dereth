@@ -18,16 +18,16 @@ retail-dats = []
 
 [dependencies]
 dereth-primitives.workspace = true
-dereth-dat     = { path = "../dat" }
-dereth-assets  = { path = "../assets" }
-dereth-physics = { path = "../physics" }
-dereth-animation    = { path = "../animation" }
+dereth-dat.workspace = true
+dereth-assets.workspace = true
+dereth-physics.workspace = true
+dereth-animation.workspace = true
 thiserror.workspace = true
 # Diagnostics (a facade: this crate installs no subscriber and writes no output of its own).
 tracing.workspace = true
 
 [dev-dependencies]
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

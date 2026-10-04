@@ -25,14 +25,14 @@ retail-dats = []
 # is the whole of what this binary is, and every type that crosses that seam -- the snapshot, the
 # input actions, the session state, the capture reader, the dat store's directory -- is one of the
 # crates the SDK re-exports.
-dereth-client-sdk = { path = "../../core/client-sdk" }
+dereth-client-sdk.workspace = true
 thiserror.workspace = true
 # The subscriber for the runtime's events: stderr only, so the script transcript keeps stdout to
 # itself. `tracing-log` bridges the `log` records of the sound decoders.
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-dereth-client-sdk = { path = "../../core/client-sdk", features = ["test-support"] }
+dereth-client-sdk = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -18,15 +18,15 @@ retail-dats = []
 dereth-primitives.workspace = true
 # The action vocabulary this pipeline ends in: the action ids, their names and the action the
 # runtime takes.
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 # The byte decoders for the action map and the master input maps; this crate builds its typed
 # input maps from what they read.
-dereth-assets = { path = "../../../../core/assets" }
+dereth-assets.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 # The `dat` binary reads the shipped ActionMap and master keymaps off the retail dats.
-dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

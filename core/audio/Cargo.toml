@@ -18,7 +18,7 @@ retail-dats = []
 dereth-primitives.workspace = true
 # The one hard edge: this crate takes the decoders' `Wave`,
 # `SoundTable` and region ambient descriptors and decodes none of the dat itself.
-dereth-assets = { path = "../assets" }
+dereth-assets.workspace = true
 thiserror.workspace = true
 # The single 5 KB MP3 in the shipped data (`0A000393`). symphonia decodes it in place of the
 # Windows ACM codec the original handed it to, which is a system component and not portable.
@@ -28,7 +28,7 @@ symphonia-core = "0.6"
 [dev-dependencies]
 # Tests read the retail dats directly as their oracle, exactly as the decoders' do, and skip when
 # the install is absent. No production code path touches dereth-dat.
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

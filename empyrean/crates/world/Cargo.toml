@@ -22,7 +22,7 @@ dereth-animation.workspace = true
 dereth-assets.workspace = true
 dereth-physics.workspace = true
 dereth-protocol.workspace = true
-dereth-rules.workspace = true
+dereth-rules = { workspace = true, default-features = true }
 dereth-primitives.workspace = true
 # `anim_convert`: the decoded dat records turned into dereth-animation's runtime shapes.
 dereth-world-data.workspace = true
@@ -37,7 +37,7 @@ zlib-rs.workspace = true
 
 [dev-dependencies]
 dereth-client-net = { workspace = true, features = ["test-support"] }
-dereth-dat = { path = "../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true
 dereth-client-model.workspace = true
 # The flat-land + synthetic-setup helper (`empyrean_testkit::land`). Integration tests only; a

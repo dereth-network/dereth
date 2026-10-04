@@ -263,7 +263,6 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         | "dereth-client-net"
         | "dereth-transport"
         | "dereth-protocol"
-        | "dereth-primitives"
         | "dereth-ui"
         | "dereth-ui-screens"
         | "dereth-world-render"
@@ -893,6 +892,16 @@ mod tests {
         assert_eq!(
             ui,
             vec!["test --profile test-release -p dereth-ui --features retail-dats"]
+        );
+        assert_eq!(declared_test_binaries("dereth-primitives"), ["cpu"]);
+        assert_eq!(
+            rendered(
+                "dereth-primitives",
+                &tier_features("dereth-primitives").join(","),
+                Threads::Serial,
+            ),
+            ["test --profile test-release -p dereth-primitives"],
+            "the data-free vocabulary has no tier feature"
         );
         let bare = rendered("dereth-console", "", Threads::Serial);
         assert_eq!(

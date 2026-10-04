@@ -21,12 +21,12 @@ proto = ["dep:dereth-protocol"]
 dereth-primitives.workspace = true
 # The dat tables the rules read: `XpTable`, `SkillTable`, `Attribute2ndTable`, `SkillFormula`,
 # `TabooTable`, `CharGen`. Decoded values only; nothing here opens a file.
-dereth-assets = { path = "../assets" }
-dereth-protocol = { path = "../protocol", optional = true }
+dereth-assets.workspace = true
+dereth-protocol = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Enchantment tests build wire registry values.
-dereth-protocol = { path = "../protocol" }
+dereth-protocol.workspace = true
 
 [lints]
 workspace = true

@@ -31,7 +31,7 @@ log.workspace = true
 # level filter as every other server line. The server installs no `tracing` subscriber.
 tracing = { workspace = true, features = ["log"] }
 # Ctrl-C as a graceful shutdown.
-ctrlc = { version = "3.5", features = ["termination"] }
+ctrlc = { workspace = true, features = ["termination"] }
 # The WebSocket endpoint (`src/websocket.rs`): the frame's codec, the WebSocket handshake and
 # framing (blocking, one thread per connection), and wss:// with rustls on its ring provider, the
 # same TLS stack `empyrean-import fetch` already builds. Only this crate listens, so only it
@@ -44,13 +44,13 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # their checksums, and the JSON of `release.json`, the releases API and the updater's record.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+flate2.workspace = true
 sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-dereth-dat = { path = "../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 # The WebSocket endpoint's tests log a real client in over it: the test client and its accounts.
 empyrean-net = { workspace = true, features = ["testing"] }
 # A self-signed certificate made at test time for the wss:// test, so no key is kept in the tree.

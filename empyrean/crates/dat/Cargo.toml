@@ -27,7 +27,7 @@ thiserror.workspace = true
 log.workspace = true
 
 [dev-dependencies]
-dereth-dat = { path = "../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [[test]]
 name = "all"

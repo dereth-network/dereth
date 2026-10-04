@@ -21,38 +21,38 @@ d3d12 = ["dereth-scene/d3d12", "dereth-render/d3d12"]
 retail-dats = []
 
 [dependencies]
-dereth-chargen = { path = "../../../../core/chargen" }
+dereth-chargen.workspace = true
 dereth-primitives.workspace = true
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 # The application state machine, its frame loop and the platform seams the host fills.
-dereth-client-runtime = { path = "../../../../core/client-runtime" }
-dereth-client-model = { path = "../../../../core/client-model" }
-dereth-client-net = { path = "../../../../core/client-net" }
-dereth-protocol = { path = "../../../../core/protocol" }
-dereth-dat = { path = "../../../../core/dat" }
-dereth-assets = { path = "../../../../core/assets" }
-dereth-physics = { path = "../../../../core/physics" }
-dereth-animation = { path = "../../../../core/animation" }
-dereth-audio = { path = "../../../../core/audio" }
+dereth-client-runtime.workspace = true
+dereth-client-model.workspace = true
+dereth-client-net = { workspace = true, default-features = true }
+dereth-protocol.workspace = true
+dereth-dat.workspace = true
+dereth-assets.workspace = true
+dereth-physics.workspace = true
+dereth-animation.workspace = true
+dereth-audio.workspace = true
 # The drawn world and the device it is on.
-dereth-scene = { path = "../scene", default-features = false }
-dereth-render = { path = "../render", default-features = false, features = ["mock"] }
-dereth-world-render = { path = "../world-render" }
+dereth-scene.workspace = true
+dereth-render = { workspace = true, features = ["mock"] }
+dereth-world-render.workspace = true
 # The UI framework, the retail screens and the device input under them.
-dereth-ui = { path = "../ui" }
-dereth-ui-screens = { path = "../ui-screens" }
-dereth-input = { path = "../input" }
+dereth-ui.workspace = true
+dereth-ui-screens.workspace = true
+dereth-input.workspace = true
 # The classic interface, which the shell runs in the retail interface's place when it is chosen.
-dereth-classic-ui = { path = "../classic" }
-dereth-classic-dat = { path = "../classic-dat" }
+dereth-classic-ui.workspace = true
+dereth-classic-dat.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 # `dereth_dat::testing`: where the tests find the retail dats.
-dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 # `DERETH_TEST_RENDERER`: the backend a test's device comes up on.
-dereth-render = { path = "../render", default-features = false, features = ["mock", "test-support"] }
+dereth-render = { workspace = true, features = ["mock", "test-support"] }
 
 [lints]
 workspace = true

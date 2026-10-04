@@ -18,8 +18,8 @@ thiserror.workspace = true
 # These are dev-only, so the library keeps the dependency set its own spec mandates: nothing but
 # `dereth-primitives` at build time.
 [dev-dependencies]
-dereth-dat = { path = "../dat", features = ["test-support"] }
-dereth-assets = { path = "../assets" }
+dereth-dat = { workspace = true, features = ["test-support"] }
+dereth-assets.workspace = true
 
 [features]
 # Tier switch only: no code is gated on it. It selects the `dat` test binary, whose

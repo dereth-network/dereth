@@ -17,10 +17,10 @@ publish = false
 test-support = ["dereth-dat/test-support", "dereth-client-net/test-support"]
 
 [dependencies]
-dereth-client-runtime = { path = "../client-runtime" }
-dereth-client-model = { path = "../client-model" }
-dereth-client-contract = { path = "../client-contract" }
-dereth-audio = { path = "../audio" }
+dereth-client-runtime.workspace = true
+dereth-client-model.workspace = true
+dereth-client-contract.workspace = true
+dereth-audio.workspace = true
 dereth-primitives.workspace = true
 dereth-dat.workspace = true
 dereth-assets.workspace = true
@@ -31,7 +31,7 @@ dereth-landscape.workspace = true
 dereth-transport.workspace = true
 dereth-client-net.workspace = true
 dereth-protocol.workspace = true
-dereth-rules.workspace = true
+dereth-rules = { workspace = true, default-features = true }
 
 [lints]
 workspace = true

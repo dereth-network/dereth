@@ -20,7 +20,7 @@ cast_possible_truncation = "warn"
 undocumented_unsafe_blocks = "warn"
 
 [dependencies]
-dereth-classic-dat = { path = "../classic-dat" }
+dereth-classic-dat.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }

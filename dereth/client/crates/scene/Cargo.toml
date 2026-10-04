@@ -27,37 +27,37 @@ retail-dats = []
 dereth-primitives.workspace = true
 # The simulation the scene draws: the world state, the object stream, the models, the movement,
 # the landblock window's residency, and the presentation seam the scene implements.
-dereth-client-runtime = { path = "../../../../core/client-runtime" }
-dereth-render = { path = "../render", default-features = false, features = ["mock"] }
-dereth-world-render = { path = "../world-render" }
-dereth-dat = { path = "../../../../core/dat" }
-dereth-assets = { path = "../../../../core/assets" }
-dereth-physics = { path = "../../../../core/physics" }
-dereth-animation = { path = "../../../../core/animation" }
+dereth-client-runtime.workspace = true
+dereth-render = { workspace = true, features = ["mock"] }
+dereth-world-render.workspace = true
+dereth-dat.workspace = true
+dereth-assets.workspace = true
+dereth-physics.workspace = true
+dereth-animation.workspace = true
 # The landscape's terrain neighbourhood, which picks the ambient sounds.
-dereth-audio = { path = "../../../../core/audio" }
+dereth-audio.workspace = true
 # The wire appearance a server object arrives with.
-dereth-protocol = { path = "../../../../core/protocol" }
+dereth-protocol.workspace = true
 # The target reticule's projection and the preferences the renderer applies.
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 # The character-generation state the preview spaces read.
-dereth-chargen = { path = "../../../../core/chargen" }
+dereth-chargen.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 # The matrix type `dereth_render::camera` is expressed in. Same version as dereth-render's.
-glam = "0.30"
+glam.workspace = true
 # A monotonic clock a browser can read too; natively it is the standard library's.
-web-time = "0.2"
+web-time.workspace = true
 # The capture writes a PNG.
-png = "0.17"
+png.workspace = true
 
 [dev-dependencies]
 # The options page's restore-defaults list, which one test checks the renderer's seed against.
-dereth-ui-screens = { path = "../ui-screens" }
+dereth-ui-screens.workspace = true
 # `dereth_dat::testing`: where the tests find the retail dats.
-dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 # `DERETH_TEST_RENDERER`: the backend a test's device comes up on.
-dereth-render = { path = "../render", default-features = false, features = ["mock", "test-support"] }
+dereth-render = { workspace = true, features = ["mock", "test-support"] }
 
 [lints]
 workspace = true

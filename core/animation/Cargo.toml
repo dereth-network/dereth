@@ -17,16 +17,16 @@ retail-dats = []
 [dependencies]
 dereth-primitives.workspace = true
 # The movement formulas (run rate, jump height) have one implementation, in dereth-rules.
-dereth-rules = { path = "../rules", default-features = false }
+dereth-rules.workspace = true
 thiserror.workspace = true
 
 # No dependency on the decoders (`dereth-assets`): the runtime shapes here are built from decoded
 # records by `dereth_world_data::anim_convert`, and the records the two share are `dereth_primitives`'.
 [dev-dependencies]
-dereth-dat = { path = "../dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 # The `dat` tier reads the retail dats through the decoders and the shared converters.
-dereth-assets = { path = "../assets" }
-dereth-world-data = { path = "../world-data" }
+dereth-assets.workspace = true
+dereth-world-data.workspace = true
 
 [lints]
 workspace = true

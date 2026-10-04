@@ -43,47 +43,47 @@ retail-dats = []
 # their shared subsystems directly.
 [dependencies]
 dereth-primitives.workspace = true
-dereth-render = { path = "crates/render", default-features = false, features = ["mock"] }
-dereth-client-shell = { path = "crates/shell", default-features = false }
-dereth-desktop = { path = "../desktop" }
-dereth-scene = { path = "crates/scene", default-features = false }
-dereth-ui = { path = "crates/ui" }
-dereth-console = { path = "crates/console" }
+dereth-render = { workspace = true, features = ["mock"] }
+dereth-client-shell.workspace = true
+dereth-desktop.workspace = true
+dereth-scene.workspace = true
+dereth-ui.workspace = true
+dereth-console.workspace = true
 # The headless replay translates recorded host events and physical controls.
-dereth-input = { path = "crates/input" }
+dereth-input.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Register the product's desktop entry and icon with the launcher conventions.
-dereth-launch = { path = "../launcher/crates/launch" }
+dereth-launch.workspace = true
 
 [dev-dependencies]
-dereth-chargen = { path = "../../core/chargen" }
-dereth-client-contract = { path = "../../core/client-contract" }
-dereth-client-runtime = { path = "../../core/client-runtime" }
-dereth-world-render = { path = "crates/world-render" }
-dereth-assets = { path = "../../core/assets" }
-dereth-animation = { path = "../../core/animation" }
-dereth-transport = { path = "../../core/transport" }
-dereth-protocol = { path = "../../core/protocol" }
-dereth-client-model = { path = "../../core/client-model" }
-dereth-ui-screens = { path = "crates/ui-screens" }
-dereth-audio = { path = "../../core/audio" }
-dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
+dereth-chargen.workspace = true
+dereth-client-contract.workspace = true
+dereth-client-runtime.workspace = true
+dereth-world-render.workspace = true
+dereth-assets.workspace = true
+dereth-animation.workspace = true
+dereth-transport.workspace = true
+dereth-protocol.workspace = true
+dereth-client-model.workspace = true
+dereth-ui-screens.workspace = true
+dereth-audio.workspace = true
+dereth-client-net = { workspace = true, default-features = true, features = ["test-support"] }
 # Recorded movement comparisons retain the physics trace recorder.
-dereth-physics = { path = "../../core/physics", features = ["trace"] }
-dereth-dat = { path = "../../core/dat", features = ["test-support"] }
-dereth-render = { path = "crates/render", default-features = false, features = ["mock", "test-support"] }
-dereth-world-data = { path = "../../core/world-data" }
-dereth-classic-ui = { path = "crates/classic" }
-glam = "0.30"
-winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+dereth-physics = { workspace = true, features = ["trace"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
+dereth-render = { workspace = true, features = ["mock", "test-support"] }
+dereth-world-data.workspace = true
+dereth-classic-ui.workspace = true
+glam.workspace = true
+winit = { workspace = true, features = ["rwh_06"] }
 # Capture tests inspect PNGs; production encoding belongs to the scene and icon decoding
 # belongs to the desktop host.
-png = "0.17"
+png.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
+winit = { workspace = true, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
 
 [lints]
 workspace = true

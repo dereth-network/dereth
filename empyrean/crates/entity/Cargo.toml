@@ -20,7 +20,7 @@ dereth-primitives.workspace = true
 [dev-dependencies]
 dereth-animation.workspace = true
 dereth-physics.workspace = true
-dereth-rules.workspace = true
+dereth-rules = { workspace = true, default-features = true }
 # The golden-vector tests (tests/all/vectors.rs) build the harness's JSON shapes.
 serde_json.workspace = true
 

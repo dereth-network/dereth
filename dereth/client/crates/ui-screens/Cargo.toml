@@ -19,32 +19,32 @@ retail-dats = []
 dereth-primitives.workspace = true
 # The read-only view (`GameView`), the request enum (`UiRequest`) and the value structs they
 # carry. Shared with `dereth-client`, so neither crate has to depend on the other.
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 # The hard edge: this crate implements `dereth_ui::Screen` and subclasses `dereth_ui::Element`.
-dereth-ui = { path = "../ui" }
+dereth-ui.workspace = true
 # Only for `PropertyValue`, which `dereth-ui` re-exports from `dereth-assets`; the layout byte
 # format belongs to that crate and this one never decodes a layout itself.
-dereth-assets = { path = "../../../../core/assets" }
+dereth-assets.workspace = true
 # The game's presentation rules (the appraisal lines, the character sheet's rules, the
 # coordinates, the target indicator's placement), shared with every other interface.
-dereth-presentation = { path = "../../../../core/presentation" }
+dereth-presentation.workspace = true
 # Character creation's model, which the wizard's pages are views over.
-dereth-chargen = { path = "../../../../core/chargen" }
+dereth-chargen.workspace = true
 # The key-binding page calls the input crate's `pub` binding surface (`capture_key_hit`,
 # `set_binding`, `find_keys_for_action`) and reads the shipped `ActionMap` to know which actions
 # are bindable. `dereth-input` depends on nothing in the UI crates, so this edge is acyclic.
-dereth-input = { path = "../input" }
+dereth-input.workspace = true
 # The chargen credit arithmetic and the burden bands, from the shared rules crate.
 # `default-features = false` keeps `dereth-protocol` (the wire) out of this crate's graph: the two
 # modules that need it, `enchant` and `taboo`, are not used here.
-dereth-rules = { path = "../../../../core/rules", default-features = false }
+dereth-rules.workspace = true
 # The gameplay screen's trace lines. A facade: the client binary installs the subscriber.
 tracing.workspace = true
 
 [dev-dependencies]
 # Test-only: the acceptance gate constructs every screen from the retail
 # `client_local_English.dat` when it is present.
-dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

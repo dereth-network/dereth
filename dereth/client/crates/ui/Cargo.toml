@@ -17,7 +17,7 @@ retail-dats = []
 [dependencies]
 # `ElementId` and `UiMode` live in the contract crate, because `UiRequest` carries them.
 # `dereth_ui::ElementId` and `dereth_ui::framework::UiMode` are `pub use`s of them.
-dereth-client-contract = { path = "../../../../core/client-contract" }
+dereth-client-contract.workspace = true
 dereth-primitives.workspace = true
 dereth-text.workspace = true
 thiserror.workspace = true
@@ -26,15 +26,15 @@ thiserror.workspace = true
 # *in-memory* description objects, the full-description query, incorporation and the description
 # cache; it reads the payload through `dereth-assets` rather than shipping a second copy of the
 # payload decoder and its property-type-map plumbing.
-dereth-assets = { path = "../../../../core/assets" }
+dereth-assets.workspace = true
 # The input-action catalogue. `focus::action` and `focus::DRAG_THRESHOLD_SQUARED` are re-exports
 # of `dereth_input::action`. There is no cycle -- `dereth-input` depends only on
 # `dereth-primitives`.
-dereth-input = { path = "../input" }
+dereth-input.workspace = true
 
 [dev-dependencies]
 # Test-only: the acceptance gate reads the retail `client_local_English.dat` when it is present.
-dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

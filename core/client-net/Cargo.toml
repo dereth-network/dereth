@@ -11,16 +11,16 @@ autotests = false
 
 [dependencies]
 # The role-neutral transport this crate is the client of.
-dereth-transport = { path = "../transport" }
+dereth-transport.workspace = true
 dereth-primitives.workspace = true
 # The client session (`client_session`) decodes message bodies.
 # The transport half of this crate still never looks past a blob's first byte; only the session
 # layer above it reads bodies, and it reaches the transport only through `dereth_primitives::Transport`
 # (checked by the `cpu` test `client_session::isolation`).
-dereth-protocol = { path = "../protocol" }
+dereth-protocol.workspace = true
 thiserror.workspace = true
 # Only the replay harness parses JSON; the transport itself has no serialisation dependency.
-serde_json = { version = "1", optional = true }
+serde_json = { workspace = true, optional = true }
 
 # SO_RCVBUF and interface binding, which std's UdpSocket does not expose. Named by the track spec.
 # It is also what keeps this crate free of `unsafe` despite being permitted it. A browser has no
@@ -50,8 +50,8 @@ replay = ["dep:serde_json"]
 
 [dev-dependencies]
 # Integration tests use the fixture helpers without enabling them for ordinary clients.
-dereth-client-net = { path = ".", default-features = false, features = ["test-support"] }
-serde_json = "1"
+dereth-client-net = { workspace = true, features = ["test-support"] }
+serde_json.workspace = true
 
 # This crate is one of the two allowed unsafe (socket interop). It does NOT inherit the workspace
 # lints, because those forbid unsafe outright -- but it uses none, and `lib.rs` carries its own

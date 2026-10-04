@@ -14,9 +14,9 @@ autotests = false
 # runner is its own binary rather than part of xtask, which every tier builds.
 wasm-bindgen-cli-support = "=0.2.127"
 # The four retail data files' names, the only files `--dat-dir` serves.
-dereth-dat = { path = "../../core/dat" }
+dereth-dat.workspace = true
 # Stops the relay the runner started when the runner is interrupted.
-ctrlc = "3.5"
+ctrlc.workspace = true
 
 [lints]
 workspace = true
