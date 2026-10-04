@@ -360,3 +360,58 @@ fn classic_profession_random_applies_twice_and_explicit_custom_applies_row_zero(
         "Custom replaces the edited build"
     );
 }
+
+/// Behaviour: chargen.palette.samples-follow-entry-layout
+#[test]
+fn color_choices_sample_the_decoded_palette_layout() {
+    use dereth_assets::material::{Palette, PaletteSet};
+    use dereth_chargen::palette::{PaletteLayout, PaletteSample};
+    use std::collections::BTreeSet;
+    assert_eq!(PaletteLayout::from_entry_count(0), None);
+    assert_eq!(PaletteLayout::from_entry_count(257), None);
+    for old in [true, false] {
+        let store = if old {
+            dereth_dat::testing::open_pre_tod_store_or_fail()
+        } else {
+            RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).unwrap()
+        };
+        let t = tables(old);
+        let sex = &t.chargen.heritage_groups[&1].sexes[&2];
+        let sample = |id: DataId, part: PaletteSample| {
+            let p = Palette::decode_payload(id, &store.read_portal(id).unwrap()).unwrap();
+            let layout = PaletteLayout::from_entry_count(p.colors_argb.len()).unwrap();
+            p.colors_argb[part.index(layout)]
+        };
+        let eye_colors: BTreeSet<_> = sex
+            .eye_colors
+            .iter()
+            .map(|&id| sample(DataId(id), PaletteSample::Eyes))
+            .collect();
+        assert_eq!(eye_colors.len(), sex.eye_colors.len());
+        let hair_colors: BTreeSet<_> = sex
+            .hair_colors
+            .iter()
+            .map(|&id| {
+                let set =
+                    PaletteSet::decode_payload(DataId(id), &store.read_portal(DataId(id)).unwrap())
+                        .unwrap();
+                sample(set.palette_ids[0], PaletteSample::Hair)
+            })
+            .collect();
+        assert!(
+            hair_colors.len() >= 3,
+            "hair choices must not collapse to one unrelated color"
+        );
+        let set = PaletteSet::decode_payload(
+            sex.skin_palset,
+            &store.read_portal(sex.skin_palset).unwrap(),
+        )
+        .unwrap();
+        let shades: BTreeSet<_> = set
+            .palette_ids
+            .iter()
+            .map(|&id| sample(id, PaletteSample::Skin))
+            .collect();
+        assert_eq!(shades.len(), set.palette_ids.len());
+    }
+}

@@ -623,6 +623,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.palette.samples-follow-entry-layout",
+        says: "Creation color choices use representative entries from the decoded palette layout, preserving distinct eye, hair and skin choices in both supported layouts.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CREATION-PALETTE-LAYOUT"),
+        station: "dereth-chargen::dat::color_choices_sample_the_decoded_palette_layout",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.random.classic-entry-keeps-nested-draw-order",
         says: "Classic entry and page randomization preserve their nested draws over the world tables, while summary completes only missing choices.",
         since: RETAIL,

@@ -34,6 +34,7 @@ use dereth_assets::tables::{CharGen, SkillTable};
 use dereth_primitives::num::math;
 use dereth_primitives::DataId;
 
+pub mod palette;
 mod policy;
 pub use policy::{CreationEntry, CreationPolicy, CreationRandom, CreationTables};
 
