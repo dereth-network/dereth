@@ -254,3 +254,125 @@ fn movement_events(c: &Client) -> usize {
         .filter(|event| matches!(event, FrameEvent::ActionRouted(ActionRoute::Movement)))
         .count()
 }
+
+/// Behaviour: feedback.delivery.active-face-switches-do-not-replay-pending-transients
+#[test]
+fn active_face_switches_drop_old_pending_transients_without_replaying_chat_history() {
+    use dereth_client_contract::feedback::Feedback;
+    use dereth_client_contract::options::{
+        interface::{Interface, INTERFACE},
+        store,
+    };
+    use dereth_client_contract::{panels::HudPanels, PrefValue};
+    struct Fonts;
+    impl dereth_classic_dat::fonts::FontSource for Fonts {
+        fn rasterize(
+            &self,
+            _: &dereth_classic_dat::fonts::FontSpec,
+        ) -> Result<dereth_classic_dat::fonts::FontAtlas, String> {
+            Ok(Default::default())
+        }
+    }
+    let mut c = Client::new();
+    let portal = std::path::PathBuf::from(
+        std::env::var_os("DERETH_CLASSIC_PORTAL").expect("classic portal"),
+    );
+    let art = std::sync::Arc::new(
+        dereth_classic_ui::art::ClassicArt::new(
+            dereth_classic_dat::ClassicPortal::open(&portal).unwrap(),
+            &Fonts,
+        )
+        .unwrap(),
+    );
+    c.shell.classic.ui = Some(dereth_classic_ui::runtime::ClassicUi::new(
+        art,
+        dereth_classic_ui::art::ClassicPaths {
+            portal_dir: portal.parent().map(ToOwned::to_owned),
+            state: std::env::temp_dir().join("dereth-feedback-no-writes"),
+        },
+        dereth_classic_ui::panels::factory,
+        (800, 600),
+    ));
+    c.app
+        .ui_context()
+        .add_feedback_line("before Classic switch", 0x1a, Feedback::WARNING);
+    c.app.apply_hud_events(&mut c.shell, &[]);
+    assert_eq!(
+        c.app.hud.panels.spew.model.pending,
+        ["before Classic switch"]
+    );
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    assert!(c.app.hud.classic_active);
+    assert!(c.app.hud.panels.spew.model.pending.is_empty());
+    assert!(c.app.hud.classic.transient.is_empty());
+    c.app
+        .ui_context()
+        .add_feedback_line("before Modern switch", 0x1a, Feedback::INFORMATION);
+    c.app.apply_hud_events(&mut c.shell, &[]);
+    assert_eq!(c.app.hud.classic.transient.len(), 1);
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    assert!(!c.app.hud.classic_active);
+    assert!(c.app.hud.classic.transient.is_empty());
+    assert!(c.app.hud.panels.spew.model.pending.is_empty());
+    // A queued network/scroll notice at logoff is not delivered to the next session.
+    c.app
+        .ui_context()
+        .add_feedback_line("before logoff", 0x1a, Feedback::WARNING);
+    c.app.apply_hud_events(
+        &mut c.shell,
+        &[dereth_client_net::client_session::SessionEvent::LoggedOff],
+    );
+    assert!(c.app.hud.panels.spew.model.pending.is_empty());
+    assert!(c.app.hud.pending_chat.is_empty());
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    assert!(c.app.hud.classic.transient.is_empty());
+    // The ordinary textbox route may still reach Modern's channel-based receiver.
+    assert!(!c
+        .app
+        .hud
+        .classic
+        .spew_offer(0x1a, "ordinary", Feedback::ORDINARY));
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+}
+
+/// Behaviour: feedback.modern.typed-lines-keep-yellow-replacement-and-expiry
+#[test]
+fn typed_lines_reach_the_bound_modern_bubble_and_keep_replacement_and_expiry() {
+    use dereth_client_contract::feedback::Feedback;
+    let mut c = Client::new();
+    for feedback in [Feedback::INFORMATION, Feedback::WARNING, Feedback::ORDINARY] {
+        c.app
+            .ui_context()
+            .add_feedback_line("same bubble", 0x1a, feedback);
+        for _ in 0..3 {
+            assert!(c.app.frame(&mut c.shell));
+        }
+        let spew = &c.app.hud.panels.spew;
+        assert_eq!(spew.model.items, ["same bubble"]);
+        let list = spew.list.as_ref().expect("actual bound list");
+        assert_eq!(list.items.len(), 1);
+        let handle = list.items[0];
+        assert_eq!(
+            c.ui().ui.text_element_mut(handle).unwrap().font_color,
+            0xffffff00
+        );
+    }
+    for _ in 0..180 {
+        assert!(c.app.frame(&mut c.shell));
+    }
+    assert!(c.app.hud.panels.spew.model.items.is_empty());
+    assert!(c
+        .app
+        .hud
+        .panels
+        .spew
+        .list
+        .as_ref()
+        .unwrap()
+        .items
+        .is_empty());
+}

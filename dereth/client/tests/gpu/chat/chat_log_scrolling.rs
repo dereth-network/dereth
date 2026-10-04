@@ -395,6 +395,7 @@ fn a_trailing_newline_is_trimmed_at_the_chat_log_and_the_log_still_follows() {
     let mut app = app_in_gameplay(4);
     let log = find(&app, LOG);
     let welcome = ChatMessage {
+feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty: 0,
         body: "Welcome to Asheron's Call\n  powered by ACEmulator\n\nFor more information on commands supported by this server, type @acehelp\n".into(),
         prefix: None,
@@ -444,6 +445,7 @@ fn a_trailing_newline_is_trimmed_at_the_chat_log_and_the_log_still_follows() {
 
     for i in 0..8 {
         let m = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 0,
             body: format!("ordinary follow-up line {i}"),
             prefix: None,

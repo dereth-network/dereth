@@ -736,6 +736,7 @@ impl ExaminationPanel {
         requests_out.emit(crate::view::UiRequest::DisplayChatText {
             channel: 0x1A,
             text,
+            feedback: dereth_client_contract::feedback::Feedback::LOCAL,
         });
     }
 

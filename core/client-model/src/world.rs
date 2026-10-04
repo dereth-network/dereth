@@ -1981,6 +1981,7 @@ impl World {
         out.emit(Notice::DisplayString {
             channel: crate::inventory::requests::FEEDBACK_CHANNEL,
             text,
+            feedback: dereth_client_contract::feedback::Feedback::LOCAL,
         });
         out.emit(Notice::AttemptFailed { object: id, reason });
     }

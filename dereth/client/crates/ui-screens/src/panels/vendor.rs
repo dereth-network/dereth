@@ -490,6 +490,7 @@ impl VendorPanel {
         });
         if split < max {
             ui.requests.emit(UiRequest::DisplayChatText {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: 0x1A,
                 text: CANNOT_SPLIT_FROM_PANEL.to_owned(),
             });

@@ -898,7 +898,13 @@ impl crate::world::World {
     pub fn drain_minigame_text(&mut self) -> usize {
         let lines = std::mem::take(&mut self.minigame.lines);
         for (chat_type, text) in &lines {
-            self.scroll.add_text_to_scroll(text, *chat_type, true, 0);
+            self.scroll.add_feedback_to_scroll(
+                text,
+                *chat_type,
+                true,
+                0,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
         }
         lines.len()
     }

@@ -1660,7 +1660,7 @@ struct Notices {
     count: u64,
     last: Option<String>,
     /// `(channel, text)`, in arrival order.
-    strings: Vec<(u32, String)>,
+    strings: Vec<(u32, String, dereth_client_contract::feedback::Feedback)>,
     /// `(id)` in arrival order; `ObjectId(0)` is a close.
     ground: Vec<ObjectId>,
     external_container: Vec<ExternalContainerNotice>,
@@ -1731,8 +1731,12 @@ impl dereth_client_model::NoticeSink for Notices {
     fn emit(&mut self, n: Notice) {
         self.count += 1;
         match n {
-            Notice::DisplayString { channel, text } => {
-                self.strings.push((channel, text.clone()));
+            Notice::DisplayString {
+                channel,
+                text,
+                feedback,
+            } => {
+                self.strings.push((channel, text.clone(), feedback));
                 self.last = Some(text);
             }
             Notice::SetGroundObject(id) => {
@@ -2253,7 +2257,13 @@ impl Interaction {
             self.pending_chat_entries.push(update);
         }
         if let Some(warning) = warning {
-            game.scroll.add_text_to_scroll(warning, 0x1a, true, window);
+            game.scroll.add_feedback_to_scroll(
+                warning,
+                0x1a,
+                true,
+                window,
+                dereth_client_contract::feedback::Feedback::WARNING,
+            );
         }
     }
 
@@ -3345,6 +3355,7 @@ impl Interaction {
             out.emit(dereth_client_model::Notice::DisplayString {
                 channel: 0x1A,
                 text,
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
             });
             false
         };
@@ -4130,10 +4141,11 @@ impl Interaction {
                         })
                         .into_iter()
                         .map(|effect| match effect {
-                            dereth_client_model::housing::PaymentEffect::Notice(text) => {
+                            dereth_client_model::housing::PaymentEffect::Notice(text, feedback) => {
                                 UiRequest::DisplayChatText {
                                     channel: 0x1A,
                                     text,
+                                    feedback,
                                 }
                             }
                             dereth_client_model::housing::PaymentEffect::Split {
@@ -4161,7 +4173,8 @@ impl Interaction {
                     )
                     .unwrap_or(false);
                     Some(game.salvage_action(*action, multiple).into_iter().map(|effect| match effect {
-                        dereth_client_model::inventory::salvage::SalvageEffect::Notice(text) => UiRequest::DisplayChatText {channel: 0x1A, text},
+                        dereth_client_model::inventory::salvage::SalvageEffect::Notice(text, feedback) => UiRequest::DisplayChatText {
+feedback,channel: 0x1A, text},
                         dereth_client_model::inventory::salvage::SalvageEffect::Submit {tool, items} => UiRequest::SalvageItems {tool, items},
                     }).collect::<Vec<_>>())
                 }
@@ -5002,6 +5015,7 @@ impl Interaction {
                             out.emit(dereth_client_model::Notice::DisplayString {
                                 channel: dereth_client_model::chat::REFUSAL_CHANNEL,
                                 text,
+                                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                             });
                         }
                         mode
@@ -5079,6 +5093,7 @@ impl Interaction {
                         != dereth_client_model::combat::CombatMode::NonCombat
                     {
                         out.emit(dereth_client_model::Notice::DisplayString {
+                            feedback: dereth_client_contract::feedback::Feedback::WARNING,
                             channel: dereth_client_model::chat::REFUSAL_CHANNEL,
                             text: "You need to be in peace mode to trade.".into(),
                         });
@@ -5421,8 +5436,13 @@ impl Interaction {
                 // `(channel, text)` from a panel. It goes
                 // through the same `Scroll` entry point the notice sink's own `DisplayString` arm
                 // uses, so a panel's line and a game-side refusal land in one ordered stream.
-                UiRequest::DisplayChatText { channel, text } => {
-                    game.scroll.on_display_string_info(channel, &text);
+                UiRequest::DisplayChatText {
+                    channel,
+                    text,
+                    feedback,
+                } => {
+                    game.scroll
+                        .add_feedback_to_scroll(&text, channel, true, 0, feedback);
                     self.stats.panel_notice_strings += 1;
                 }
                 UiRequest::ChannelBroadcast { channel, text } => {
@@ -6132,6 +6152,7 @@ impl Interaction {
                             game.set_selected_object(Some(to), false, &mut out);
                         } else {
                             out.emit(dereth_client_model::Notice::DisplayString {
+                                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                                 channel: dereth_client_model::chat::REFUSAL_CHANNEL,
                                 text: "You must select a creature or a character to give that \
                                        to.\n"
@@ -6156,6 +6177,7 @@ impl Interaction {
                             );
                         } else {
                             out.emit(dereth_client_model::Notice::DisplayString {
+                                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                                 channel: dereth_client_model::chat::REFUSAL_CHANNEL,
                                 text: "You must pick that up first".into(),
                             });
@@ -7030,11 +7052,12 @@ impl Interaction {
                 );
                 let (_, trimmed) = crate::chat::language_marker(&name);
                 let line = crate::chat::hear_emote_line(trimmed, text);
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     &line,
                     dereth_client_model::chat::text_type::EMOTE,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.pose_echoes_printed += 1;
             }
@@ -7077,15 +7100,26 @@ impl Interaction {
     ) {
         let _ = out;
         for (text, ty) in &cmd.lines {
-            game.scroll
-                .add_text_to_scroll(text, *ty, true, self.chat.current_command_source);
+            game.scroll.add_feedback_to_scroll(
+                text,
+                *ty,
+                true,
+                self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
             self.stats.chat_command_lines += 1;
             if *ty == dereth_client_model::chat_cmd::REFUSAL_CHAT_TYPE {
                 self.stats.chat_commands_refused += 1;
             }
         }
         for (text, ty) in &cmd.failure_lines {
-            game.scroll.add_text_to_scroll(text, *ty, true, 0);
+            game.scroll.add_feedback_to_scroll(
+                text,
+                *ty,
+                true,
+                0,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
             self.stats.chat_command_lines += 1;
             self.stats.chat_commands_refused += 1;
         }
@@ -7121,11 +7155,12 @@ impl Interaction {
         }
         self.stats.chat_command_requests += cmd.sent;
         if !cmd.handled {
-            game.scroll.add_text_to_scroll(
+            game.scroll.add_feedback_to_scroll(
                 dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                 0x1A,
                 true,
                 self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
             );
             self.stats.chat_commands_refused += 1;
         }
@@ -7286,6 +7321,7 @@ impl Interaction {
                 dereth_client_model::NoticeSink::emit(
                     out,
                     Notice::DisplayString {
+                        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                         channel: dereth_client_model::chat::REFUSAL_CHANNEL,
                         text: text.to_owned(),
                     },
@@ -7337,11 +7373,12 @@ impl Interaction {
                 None
             };
             if let Some(text) = refusal {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     text,
                     dereth_client_model::chat::text_type::DEFAULT,
                     true,
                     source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -7358,30 +7395,33 @@ impl Interaction {
         if handler == "version" {
             let source = self.chat.current_command_source;
             if !args.is_empty() {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Unexpected arguments to @version",
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
                 return;
             }
             if game.chat.using_turbine_chat {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Using Turbine Chat.\n",
                     dereth_client_model::chat::text_type::DEFAULT,
                     true,
                     source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
             }
-            game.scroll.add_text_to_scroll(
+            game.scroll.add_feedback_to_scroll(
                 &format!("Client version {}\n", self.client_build_id),
                 dereth_client_model::chat::text_type::DEFAULT,
                 true,
                 source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
             );
             self.stats.chat_command_lines += 1;
             let psr = game
@@ -7404,11 +7444,12 @@ impl Interaction {
         // source, and returns true without a request; even extra arguments therefore print it.
         if handler == "messagetypes" {
             let line = message_types_text();
-            game.scroll.add_text_to_scroll(
+            game.scroll.add_feedback_to_scroll(
                 &line,
                 dereth_client_model::chat::text_type::DEFAULT,
                 true,
                 self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
             );
             self.stats.chat_command_lines += 1;
             return;
@@ -7447,8 +7488,13 @@ impl Interaction {
             } else {
                 "Normality has been restored."
             };
-            game.scroll
-                .add_text_to_scroll(line, 0x1A, true, self.chat.current_command_source);
+            game.scroll.add_feedback_to_scroll(
+                line,
+                0x1A,
+                true,
+                self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
             self.stats.chat_command_lines += 1;
             return;
         }
@@ -7461,24 +7507,38 @@ impl Interaction {
             const USAGE: &str = "Usage:\n@render <option> <value>\n  radius #        : set landscape radius (between 5 and 25)\n  fov #           : set field of view (between 10 and 160)\n";
             let source = self.chat.current_command_source;
             let Some(option) = args.first() else {
-                game.scroll.add_text_to_scroll(USAGE, 0, true, source);
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
+                    USAGE,
+                    0,
+                    true,
+                    source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 2;
                 self.stats.chat_commands_refused += 1;
                 return;
             };
             if option.eq_ignore_ascii_case("usage") {
-                game.scroll.add_text_to_scroll(USAGE, 0, true, source);
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
+                    USAGE,
+                    0,
+                    true,
+                    source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 2;
                 self.stats.chat_commands_refused += 1;
@@ -7520,7 +7580,13 @@ impl Interaction {
                 None
             };
             if let Some(output) = output {
-                game.scroll.add_text_to_scroll(output, 0x1A, true, source);
+                game.scroll.add_feedback_to_scroll(
+                    output,
+                    0x1A,
+                    true,
+                    source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
                 self.stats.chat_command_lines += 1;
             }
             return;
@@ -7534,11 +7600,12 @@ impl Interaction {
                 self.framerate_display = !self.framerate_display;
                 self.pending_framerate_display.push(self.framerate_display);
             } else {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Unexpected arguments to @framerate",
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
             }
@@ -7552,11 +7619,12 @@ impl Interaction {
         if handler == "loadfile" {
             let source = self.chat.current_command_source;
             if joined.is_empty() {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "You must provide a file name.",
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -7567,11 +7635,12 @@ impl Interaction {
             let mut file = match std::fs::File::open(path) {
                 Ok(file) => file,
                 Err(_) => {
-                    game.scroll.add_text_to_scroll(
+                    game.scroll.add_feedback_to_scroll(
                         &format!("Cannot open file {joined}"),
                         dereth_client_model::chat::text_type::LOCAL_ERROR,
                         true,
                         source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
                     );
                     self.stats.chat_command_lines += 1;
                     self.stats.chat_commands_refused += 1;
@@ -7601,7 +7670,13 @@ impl Interaction {
                     &narrow_line,
                     &date,
                 );
-                game.scroll.add_text_to_scroll(&line, 0, true, source);
+                game.scroll.add_feedback_to_scroll(
+                    &line,
+                    0,
+                    true,
+                    source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
                 self.stats.chat_command_lines += 1;
                 let focus =
                     dereth_client_model::cmd::TalkFocus::from_raw(game.chat.talk_focus as u32)
@@ -7633,7 +7708,13 @@ impl Interaction {
                 } else {
                     "Please specify a file to append chat messages to."
                 };
-                game.scroll.add_text_to_scroll(line, 0, true, source);
+                game.scroll.add_feedback_to_scroll(
+                    line,
+                    0,
+                    true,
+                    source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
                 self.stats.chat_command_lines += 1;
                 return;
             }
@@ -7657,7 +7738,13 @@ impl Interaction {
                 self.stats.chat_commands_refused += 1;
                 format!("Failed to redirect to file {name}!")
             };
-            game.scroll.add_text_to_scroll(&line, 0, true, source);
+            game.scroll.add_feedback_to_scroll(
+                &line,
+                0,
+                true,
+                source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
             self.stats.chat_command_lines += 1;
             return;
         }
@@ -7700,11 +7787,12 @@ impl Interaction {
                 // The scroll write of type `0x1A` to the current command source's window — the
                 // chat window the command was typed into, which this path *does* carry, unlike the
                 // `Notice::DisplayString` route, which loses it.
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     CHANNEL_COMMAND_NEEDS_TEXT,
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.channel_commands_without_text += 1;
                 return;
@@ -7727,11 +7815,12 @@ impl Interaction {
                 // *does* fire here. No word registered against this handler resolves to 0 or
                 // 0x400, so this arm is unreachable from the shipped table and exists because the
                 // two halves refuse for different reasons and only one of them is silent.
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
             }
@@ -7766,11 +7855,12 @@ impl Interaction {
                     // The remove-all-friends chat command prints its
                     // acknowledgement *before* any answer from the shard, on chat type 0.
                     if matches!(outcome, F::Cleared) {
-                        game.scroll.add_text_to_scroll(
+                        game.scroll.add_feedback_to_scroll(
                             dereth_client_model::friends::FRIENDS_LIST_CLEARED,
                             dereth_client_model::friends::LISTING_CHAT_TYPE,
                             true,
                             0,
+                            dereth_client_contract::feedback::Feedback::LOCAL,
                         );
                     }
                 }
@@ -7779,21 +7869,23 @@ impl Interaction {
                 // print and the refusals are the command handler's.
                 F::Listed { lines, .. } => {
                     for line in lines {
-                        game.scroll.add_text_to_scroll(
+                        game.scroll.add_feedback_to_scroll(
                             &line,
                             dereth_client_model::friends::LISTING_CHAT_TYPE,
                             true,
                             0,
+                            dereth_client_contract::feedback::Feedback::LOCAL,
                         );
                     }
                     self.stats.friends_listings += 1;
                 }
                 F::Refused(text) => {
-                    game.scroll.add_text_to_scroll(
+                    game.scroll.add_feedback_to_scroll(
                         text,
                         dereth_client_model::friends::REFUSAL_CHAT_TYPE,
                         true,
                         self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
                     );
                     self.stats.chat_commands_refused += 1;
                 }
@@ -7816,11 +7908,12 @@ impl Interaction {
                     if let Some(m) =
                         dereth_client_contract::chat::failure::handle_failure_event(code, "")
                     {
-                        game.scroll.add_text_to_scroll(
+                        game.scroll.add_feedback_to_scroll(
                             crate::chat::add_text_to_scroll_trim(&m.body),
                             u32::from(m.ty),
                             true,
                             0,
+                            m.feedback,
                         );
                     }
                 }
@@ -7883,8 +7976,13 @@ impl Interaction {
             // this family passes the command's own window, including `do_allegiance_boot`'s
             // acknowledgement, which is the one that is **not** a refusal (chat type 0).
             for (text, ty) in &cmd.lines {
-                game.scroll
-                    .add_text_to_scroll(text, *ty, true, self.chat.current_command_source);
+                game.scroll.add_feedback_to_scroll(
+                    text,
+                    *ty,
+                    true,
+                    self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
                 if *ty == dereth_client_model::allegiance_cmd::REFUSAL_CHAT_TYPE {
                     self.stats.chat_commands_refused += 1;
                 }
@@ -7894,11 +7992,12 @@ impl Interaction {
             // (it always returns true and prints its own hint); `@motd wibble`, `@ab` with no text
             // and `@ah` are the entries that can.
             if !cmd.handled {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
             }
@@ -7921,11 +8020,12 @@ impl Interaction {
         // the scroll write's to trim (`chat::add_text_to_scroll_trim`), as it is for every line.
         if handler == "loc" {
             if !args.is_empty() {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Unexpected arguments to @loc",
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -7934,7 +8034,7 @@ impl Interaction {
                 return;
             };
             if p.cell.0 == 0 {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     if self.chat_interface
                         == dereth_client_contract::options::interface::Interface::Classic
                     {
@@ -7951,6 +8051,7 @@ impl Interaction {
                     },
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -7969,8 +8070,13 @@ impl Interaction {
             } else {
                 format!("Your location is: {}\n", position_to_string(&p))
             };
-            game.scroll
-                .add_text_to_scroll(&line, 0, true, self.chat.current_command_source);
+            game.scroll.add_feedback_to_scroll(
+                &line,
+                0,
+                true,
+                self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
             self.stats.loc_lines_printed += 1;
             return;
         }
@@ -7987,11 +8093,12 @@ impl Interaction {
                 self.pending_ui_layout_commands
                     .push(UiLayoutCommand::SetLockUi(locked));
             } else {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Please use @help lockui for proper usage.",
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -8014,8 +8121,13 @@ impl Interaction {
             if (auto && !args.is_empty()) || (!auto && args.len() > 1) {
                 let auto_word = if auto { "auto" } else { "" };
                 let line = format!("Please use @help {operation}{auto_word}ui for proper usage.");
-                game.scroll
-                    .add_text_to_scroll(&line, 0x1A, true, self.chat.current_command_source);
+                game.scroll.add_feedback_to_scroll(
+                    &line,
+                    0x1A,
+                    true,
+                    self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -8030,11 +8142,12 @@ impl Interaction {
             // each CP-1252 source byte to one scalar, so counting UTF-8 bytes here would
             // incorrectly reject valid non-ASCII names.
             if !auto && name.chars().count() >= 16 {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "The file name must be 16 characters or less.",
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -8055,11 +8168,12 @@ impl Interaction {
         // missing-row rules; this arm only preserves the command's argc/category/price grammar.
         if handler == "fillcomps" {
             if args.len() > 2 {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Please use @help fillcomps for proper usage.",
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -8070,11 +8184,12 @@ impl Interaction {
                 .is_some_and(|arg| arg.eq_ignore_ascii_case("clear"))
             {
                 game.clear_desired_components(req);
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Component list cleared.",
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.desired_comp_sets += 1;
                 self.stats.chat_command_requests += 1;
@@ -8093,11 +8208,12 @@ impl Interaction {
             };
             let max_price = match price_word.and_then(|word| word.parse::<i32>().ok()) {
                 Some(price) if price < 1 => {
-                    game.scroll.add_text_to_scroll(
+                    game.scroll.add_feedback_to_scroll(
                         "Please specify a value greater than 0.",
                         dereth_client_model::chat::text_type::LOCAL_ERROR,
                         true,
                         self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
                     );
                     self.stats.chat_command_lines += 1;
                     self.stats.chat_commands_refused += 1;
@@ -8106,11 +8222,12 @@ impl Interaction {
                 Some(price) => price,
                 None if category.is_some() || args.is_empty() => 0,
                 None => {
-                    game.scroll.add_text_to_scroll(
+                    game.scroll.add_feedback_to_scroll(
                         "Invalid component type specified.",
                         dereth_client_model::chat::text_type::LOCAL_ERROR,
                         true,
                         self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
                     );
                     self.stats.chat_command_lines += 1;
                     self.stats.chat_commands_refused += 1;
@@ -8136,11 +8253,12 @@ impl Interaction {
         if matches!(handler, "squelch" | "unsquelch") {
             if args.is_empty() {
                 let line = squelch_query(&game.chat);
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     &line,
                     dereth_client_model::chat::text_type::DEFAULT,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 return;
@@ -8148,11 +8266,12 @@ impl Interaction {
             let parsed = match process_squelch_args(args, &game.chat.last_teller_name, true) {
                 Ok(parsed) => parsed,
                 Err(line) => {
-                    game.scroll.add_text_to_scroll(
+                    game.scroll.add_feedback_to_scroll(
                         &line,
                         dereth_client_model::chat::text_type::LOCAL_ERROR,
                         true,
                         self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
                     );
                     self.stats.chat_command_lines += 1;
                     self.stats.chat_commands_refused += 1;
@@ -8160,11 +8279,12 @@ impl Interaction {
                 }
             };
             if let Some(line) = parsed.warning {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     line,
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -8194,21 +8314,23 @@ impl Interaction {
         if matches!(handler, "filter" | "unfilter") {
             if args.is_empty() {
                 let line = global_squelch_query(&game.chat);
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     &line,
                     dereth_client_model::chat::text_type::DEFAULT,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 return;
             }
             if !args.first().is_some_and(|arg| arg.starts_with('-')) {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "You must specify a valid message type prefixed by a dash.",
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -8217,11 +8339,12 @@ impl Interaction {
             let parsed = match process_squelch_args(args, &game.chat.last_teller_name, false) {
                 Ok(parsed) => parsed,
                 Err(line) => {
-                    game.scroll.add_text_to_scroll(
+                    game.scroll.add_feedback_to_scroll(
                         &line,
                         dereth_client_model::chat::text_type::LOCAL_ERROR,
                         true,
                         self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
                     );
                     self.stats.chat_command_lines += 1;
                     self.stats.chat_commands_refused += 1;
@@ -8229,21 +8352,23 @@ impl Interaction {
                 }
             };
             if let Some(line) = parsed.warning {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     line,
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
             }
             if parsed.account || !parsed.name.is_empty() {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     "Incorrect usage, use @help for proper arguements.",
                     dereth_client_model::chat::text_type::LOCAL_ERROR,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_command_lines += 1;
                 self.stats.chat_commands_refused += 1;
@@ -8272,11 +8397,12 @@ impl Interaction {
         // `0x0E` instead produces a handled apology.
         if handler == "corpse" {
             let Some(qualities) = game.player_qualities() else {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -8297,8 +8423,13 @@ impl Interaction {
                     )
                 },
             );
-            game.scroll
-                .add_text_to_scroll(&line, 0, true, self.chat.current_command_source);
+            game.scroll.add_feedback_to_scroll(
+                &line,
+                0,
+                true,
+                self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
             self.stats.chat_command_lines += 1;
             return;
         }
@@ -8318,8 +8449,13 @@ impl Interaction {
         // `do_command`'s failure event `0x26` never fires for it.
         if handler == "help" {
             for (text, ty) in self.chat.do_help(args) {
-                game.scroll
-                    .add_text_to_scroll(&text, ty, true, self.chat.current_command_source);
+                game.scroll.add_feedback_to_scroll(
+                    &text,
+                    ty,
+                    true,
+                    self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
                 self.stats.chat_command_lines += 1;
                 if ty == dereth_client_model::chat_cmd::REFUSAL_CHAT_TYPE {
                     self.stats.chat_commands_refused += 1;
@@ -8336,11 +8472,12 @@ impl Interaction {
         // Missing or unknown tokens return FALSE and let `do_command` print its ordinary failure.
         if matches!(handler, "join" | "leave") {
             let Some(ordinal) = join_leave_channel_option(args.first().map(String::as_str)) else {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -8440,11 +8577,12 @@ impl Interaction {
         if handler == "say" {
             let text = joined.trim_matches(dereth_client_model::chat::WHITESPACE);
             if text.is_empty() {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::chat_cmd::YOU_MUST_SPECIFY_TEXT_TO_SAY,
                     0x1A,
                     true,
                     self.chat.current_command_source,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -8467,11 +8605,12 @@ impl Interaction {
             // Each explicit handler refuses zero arguments itself; command dispatch also reports
             // error `0x26` when the handler returns false. No fallback public-speech packet.
             if args.is_empty() {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
             }
             // The allegiance-channel handler (`@a`) is the **only** one of the seven
@@ -8498,14 +8637,20 @@ impl Interaction {
                 ) {
                     // A scroll write of type `0x1a` to window 0, not the command
                     // source, exactly as the failure-event handler's own arm passes it.
-                    game.scroll
-                        .add_text_to_scroll(&m.body, u32::from(m.ty), true, 0);
+                    game.scroll.add_feedback_to_scroll(
+                        &m.body,
+                        u32::from(m.ty),
+                        true,
+                        0,
+                        m.feedback,
+                    );
                 }
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
                 return;
@@ -8520,11 +8665,12 @@ impl Interaction {
                     chat_real_time(),
                 )
             {
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     dereth_client_model::cmd::NOT_A_VALID_COMMAND,
                     0x1A,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 self.stats.chat_commands_refused += 1;
             }
@@ -8570,6 +8716,7 @@ impl Interaction {
                 dereth_client_model::NoticeSink::emit(
                     out,
                     Notice::DisplayString {
+                        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                         channel: dereth_client_model::chat::REFUSAL_CHANNEL,
                         text: text.to_owned(),
                     },
@@ -8590,11 +8737,12 @@ impl Interaction {
     /// `(text, 0x1A, true, 0)` to the scroll, reaching the same channel as
     /// `DisplayString` one step earlier in the chain.
     fn refuse(&mut self, game: &mut dereth_client_model::World, text: &str) {
-        game.scroll.add_text_to_scroll(
+        game.scroll.add_feedback_to_scroll(
             text,
             dereth_client_model::scroll::LOCAL_ERROR_TYPE,
             true,
             0,
+            dereth_client_contract::feedback::Feedback::LOCAL,
         );
         self.stats.notice_strings_scrolled += 1;
         self.last_refusal = Some(text.to_owned());
@@ -8741,9 +8889,12 @@ impl Interaction {
         for notice in &out.salvage {
             for effect in game.salvage_notice(*notice, multiple) {
                 match effect {
-                    dereth_client_model::inventory::salvage::SalvageEffect::Notice(text) => {
-                        game.scroll.on_display_string_info(0x1A, &text)
-                    }
+                    dereth_client_model::inventory::salvage::SalvageEffect::Notice(
+                        text,
+                        feedback,
+                    ) => game
+                        .scroll
+                        .add_feedback_to_scroll(&text, 0x1A, true, 0, feedback),
                     dereth_client_model::inventory::salvage::SalvageEffect::Submit {
                         tool,
                         items,
@@ -8782,8 +8933,9 @@ impl Interaction {
         self.pending_selection_changes = self
             .pending_selection_changes
             .saturating_add(out.selection_changes);
-        for (channel, text) in out.strings {
-            game.scroll.on_display_string_info(channel, &text);
+        for (channel, text, feedback) in out.strings {
+            game.scroll
+                .add_feedback_to_scroll(&text, channel, true, 0, feedback);
             self.stats.notice_strings_scrolled += 1;
         }
         // The two notices resolving a pending trade split. An authoritative
@@ -8837,9 +8989,12 @@ impl Interaction {
                     self.stats.trade_for_dummies_offered += 1;
                 }
                 dereth_client_model::trade::ForDummies::MustSplit => {
-                    game.scroll.on_display_string_info(
-                        dereth_client_model::trade::TRADE_MESSAGE_CHANNEL,
+                    game.scroll.add_feedback_to_scroll(
                         dereth_client_model::trade::messages::MUST_SPLIT,
+                        dereth_client_model::trade::TRADE_MESSAGE_CHANNEL,
+                        true,
+                        0,
+                        dereth_client_contract::feedback::Feedback::WARNING,
                     );
                     self.stats.notice_strings_scrolled += 1;
                     self.stats.trade_for_dummies_refused += 1;
@@ -8927,18 +9082,20 @@ pub fn apply_events(
 /// Returns how many rows went out, which is `names.len()` — returned rather than assumed so the
 /// caller's counter has a producer it did not compute itself.
 fn channel_report(game: &mut dereth_client_model::World, header: &str, names: &[String]) -> u64 {
-    game.scroll.add_text_to_scroll(
+    game.scroll.add_feedback_to_scroll(
         header,
         dereth_client_model::chat::text_type::DEFAULT,
         true,
         0,
+        dereth_client_contract::feedback::Feedback::LOCAL,
     );
     for n in names {
-        game.scroll.add_text_to_scroll(
+        game.scroll.add_feedback_to_scroll(
             &format!("   {n}\n"),
             dereth_client_model::chat::text_type::DEFAULT,
             true,
             0,
+            dereth_client_contract::feedback::Feedback::LOCAL,
         );
     }
     u64::try_from(names.len()).unwrap_or(u64::MAX)
@@ -9175,12 +9332,11 @@ pub fn apply_events_at_boundary(
                     if let Some(c) =
                         dereth_client_contract::chat::failure::handle_failure_event(m.reason, "")
                     {
-                        game.scroll.add_text_to_scroll(
+                        game.scroll.add_feedback_to_scroll(
                             crate::chat::add_text_to_scroll_trim(&c.body),
                             u32::from(c.ty),
                             true,
-                            0,
-                        );
+                            0, c.feedback);
                     }
                 }
             }
@@ -9530,11 +9686,12 @@ pub fn apply_events_at_boundary(
                 } else {
                     format!("{} has played for {}.\n", m.target_name, m.age)
                 };
-                game.scroll.add_text_to_scroll(
+                game.scroll.add_feedback_to_scroll(
                     &line,
                     dereth_client_model::chat::text_type::DEFAULT,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
                 inter.stats.age_responses += 1;
             }
@@ -11707,3 +11864,6 @@ mod shared_social_tests {
         assert!(matches!(sent.as_slice(), [Request::FellowshipQuit(quit)] if quit.disband == 1));
     }
 }
+
+#[cfg(test)]
+mod feedback_tests;

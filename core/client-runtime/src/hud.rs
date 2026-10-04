@@ -58,7 +58,12 @@ pub use dereth_client_contract::panels::HudPanels;
 pub struct NoPanels;
 
 impl HudPanels for NoPanels {
-    fn spew_offer(&mut self, _ty: u8, _body: &str) -> bool {
+    fn spew_offer(
+        &mut self,
+        _ty: u8,
+        _body: &str,
+        _feedback: dereth_client_contract::feedback::Feedback,
+    ) -> bool {
         false
     }
     fn spew_trace(&self) -> (bool, usize, u64) {
@@ -2319,7 +2324,7 @@ impl Hud {
                     // side notices escape only because they flow through `collect_scroll`, which
                     // makes the same offer; this is that offer for the network arm.
                     for m in &chat[before..] {
-                        let took = panels.spew_offer(m.ty, &m.body);
+                        let took = panels.spew_offer(m.ty, &m.body, m.feedback);
                         if took {
                             self.stats.spew_lines += 1;
                         }
@@ -2461,7 +2466,7 @@ impl Hud {
         let mut lines = Vec::new();
         for line in world.scroll.drain() {
             let ty = u8::try_from(line.chat_type).unwrap_or(0);
-            let took = panels.spew_offer(ty, &line.body);
+            let took = panels.spew_offer(ty, &line.body, line.feedback);
             if took {
                 self.stats.spew_lines += 1;
             }
@@ -2476,6 +2481,7 @@ impl Hud {
                 );
             }
             lines.push(ChatMessage {
+                feedback: line.feedback,
                 ty,
                 body: line.body,
                 prefix: line.prefix,
@@ -2524,6 +2530,7 @@ impl Hud {
             return;
         }
         chat.push(ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: u8::try_from(text_type).unwrap_or(0),
             body,
             prefix: None,
@@ -2918,6 +2925,7 @@ impl Hud {
                             );
                         }
                         chat.push(ChatMessage {
+                            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
                             ty: u8::try_from(m.text_type).unwrap_or(0),
                             body: m.text,
                             prefix: None,
@@ -3281,6 +3289,7 @@ impl Hud {
                             );
                         }
                         chat.push(ChatMessage {
+                            feedback: dereth_client_contract::feedback::Feedback::SERVER_TRANSIENT,
                             ty: u8::try_from(dereth_client_model::chat::text_type::LOCAL_ERROR)
                                 .unwrap_or(0),
                             body: m.text,
@@ -5218,6 +5227,7 @@ fn wall_clock_unix() -> i64 {
 /// window whose 64-bit text-type filter accepts the type.
 fn speech(text_type: u32, body: String) -> ChatMessage {
     ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty: u8::try_from(text_type).unwrap_or(0),
         body,
         prefix: None,

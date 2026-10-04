@@ -885,7 +885,12 @@ impl RemainingPanels {
 
 /// The HUD model's two direct receivers on this panel set.
 impl dereth_client_contract::panels::HudPanels for RemainingPanels {
-    fn spew_offer(&mut self, ty: u8, body: &str) -> bool {
+    fn spew_offer(
+        &mut self,
+        ty: u8,
+        body: &str,
+        _feedback: dereth_client_contract::feedback::Feedback,
+    ) -> bool {
         self.spew.recv_display_final_string_info(ty, body)
     }
     fn spew_trace(&self) -> (bool, usize, u64) {

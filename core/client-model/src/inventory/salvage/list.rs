@@ -11,7 +11,7 @@ pub struct SalvageList {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SalvageEffect {
-    Notice(String),
+    Notice(String, dereth_client_contract::feedback::Feedback),
     Submit {
         tool: ObjectId,
         items: Vec<ObjectId>,
@@ -85,6 +85,7 @@ impl World {
                     if self.weenie(id).is_some() {
                         effects.push(SalvageEffect::Notice(
                             "You can only salvage items that you own!".into(),
+                            dereth_client_contract::feedback::Feedback::WARNING,
                         ));
                     }
                 } else {
@@ -135,6 +136,7 @@ impl World {
         if !children.is_empty() {
             effects.push(SalvageEffect::Notice(
                 w.object_name(crate::weenie::NameType::Appropriate),
+                dereth_client_contract::feedback::Feedback::INFORMATION,
             ));
             for &child in children {
                 self.offer_salvage_tree(list, child, multiple, seen, effects);
@@ -190,8 +192,14 @@ mod tests {
         assert_eq!(
             world.salvage_notice(SalvageNotice::Add(ObjectId(2)), false),
             vec![
-                SalvageEffect::Notice("Outer".into()),
-                SalvageEffect::Notice("Inner".into())
+                SalvageEffect::Notice(
+                    "Outer".into(),
+                    dereth_client_contract::feedback::Feedback::INFORMATION
+                ),
+                SalvageEffect::Notice(
+                    "Inner".into(),
+                    dereth_client_contract::feedback::Feedback::INFORMATION
+                )
             ]
         );
         assert_eq!(

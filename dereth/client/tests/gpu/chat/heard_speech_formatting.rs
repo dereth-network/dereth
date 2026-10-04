@@ -860,6 +860,7 @@ fn the_stamp_is_a_grey_run_in_front_of_the_bodys_run() {
     {
         let (ui, screen) = gameplay(&mut app);
         let line = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 3,
             body: body.clone(),
             prefix: Some(stamp.clone()),

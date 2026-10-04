@@ -442,6 +442,20 @@ impl<'a, S: Shell> UiContext<'a, S> {
             .add_text_to_scroll(text, kind, true, 0);
     }
 
+    /// Insert a line whose producer supplies viewport meaning.
+    pub fn add_feedback_line(
+        &mut self,
+        text: &str,
+        kind: u32,
+        feedback: dereth_client_contract::feedback::Feedback,
+    ) {
+        self.app
+            .objects
+            .world
+            .scroll
+            .add_feedback_to_scroll(text, kind, true, 0, feedback);
+    }
+
     /// The external-container panel's range watches end (the panel that held them is gone).
     pub fn end_external_container_watches(&mut self) {
         self.app

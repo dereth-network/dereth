@@ -320,6 +320,7 @@ fn targeted_confirmation_gates_and_callback_keep_identity_and_busy_order() {
         out.0,
         vec![
             Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: 0x1a,
                 text: format!(
                     "Using the {} with the {}",
@@ -375,7 +376,7 @@ fn targeted_confirmation_gates_and_callback_keep_identity_and_busy_order() {
     assert!(req.0.is_empty());
     assert_eq!(world.magic.busy_count, 0);
     assert!(
-        matches!(&out.0[..], [Notice::DisplayString { channel: 0x1a, .. }, Notice::DisplayString { channel: 0, text }] if text.contains("\"Retained\""))
+        matches!(&out.0[..], [Notice::DisplayString { channel: 0x1a, .. }, Notice::DisplayString { channel: 0, text , ..}] if text.contains("\"Retained\""))
     );
     world.weenie_mut(BOW).unwrap().pwd.bitfield &= !0x0100_0000;
     world.weenie_mut(OIL).unwrap().pwd.obj_type = 0x4000_0000;
@@ -453,6 +454,7 @@ fn accepted_targeted_callback_requires_ids_and_runs_using_item_tail_after_the_se
         out.0,
         vec![
             Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: 0x1a,
                 text: "Using the Bronze Oil of Rendering with the Bronze Training Shortbow".into()
             },

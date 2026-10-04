@@ -1818,6 +1818,7 @@ pub fn the_autorun_line_reaches_the_strip_and_the_chat_windows_drop_it() {
     // The filter itself, so the drop above is explained rather than only observed -- and a player
     // who asks for this kind of line does get it.
     let m = ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty: CLIENT_FEEDBACK_CHANNEL as u8,
         body: AUTORUN_ON.to_owned(),
         prefix: None,

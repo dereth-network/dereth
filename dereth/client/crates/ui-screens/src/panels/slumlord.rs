@@ -430,6 +430,7 @@ impl SlumlordPanel {
         if !view.item_owned_by_player(id) {
             if !quiet {
                 requests_out.emit(UiRequest::DisplayChatText {
+                    feedback: dereth_client_contract::feedback::Feedback::WARNING,
                     channel: NOTICE_CHANNEL,
                     text: NOT_CARRYING.to_owned(),
                 });

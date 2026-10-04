@@ -194,6 +194,7 @@ impl AbusePanel {
             .map_or_else(String::new, |h| entry_text(ui, h));
         if name.is_empty() || complaint.is_empty() {
             ui.requests.emit(UiRequest::DisplayChatText {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: NOTICE_CHANNEL,
                 text: EMPTY_REPORT.to_owned(),
             });

@@ -1973,6 +1973,7 @@ pub enum UiRequest {
     /// This differs from [`UiRequest::ChatLine`], which is player input parsed for
     /// slash commands before it reaches the scroll.
     DisplayChatText {
+        feedback: crate::feedback::Feedback,
         channel: u32,
         text: String,
     },

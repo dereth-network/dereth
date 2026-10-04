@@ -168,6 +168,7 @@ impl SpellSelection {
             }
         } else {
             UiRequest::DisplayChatText {
+                feedback: crate::feedback::Feedback::LOCAL,
                 channel: 0x1a,
                 text: "You must select a spell to cast".into(),
             }

@@ -152,7 +152,11 @@ pub enum Notice {
     PlayerObjDescChanged,
     /// `(channel, text)` — every user-visible refusal in this
     /// crate goes out this way. Channel `0x1A` is the inventory/system feedback channel.
-    DisplayString { channel: u32, text: String },
+    DisplayString {
+        channel: u32,
+        text: String,
+        feedback: dereth_client_contract::feedback::Feedback,
+    },
     //
     // There is deliberately no chat-line notice: **retail has none**. An incoming line is
     // composed by the message handler and handed straight to the UI, and the hearing gate —

@@ -88,6 +88,7 @@ impl crate::World {
                 "That person is already in your fellowship"
             };
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: 0x1a,
                 text: text.into(),
             });
@@ -115,6 +116,7 @@ impl crate::World {
         };
         if let Some(text) = refusal {
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: 0x1a,
                 text: text.into(),
             });
@@ -142,6 +144,7 @@ impl crate::World {
         };
         if let Some(text) = refusal {
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: 0x1a,
                 text: text.into(),
             });

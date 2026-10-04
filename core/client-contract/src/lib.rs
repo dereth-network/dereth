@@ -121,3 +121,5 @@ pub use statmgmt::XpHeader;
 pub use view::*;
 
 pub mod resolution;
+
+pub mod feedback;

@@ -861,6 +861,7 @@ impl World {
                     self.material_name(w.pwd.material_type.unwrap_or(0)),
                 );
                 out.emit(crate::Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::WARNING,
                     channel: super::FEEDBACK_CHANNEL,
                     text: format!("The {name} is being wielded by someone else"),
                 });
@@ -932,6 +933,7 @@ impl World {
                         )
                     });
                     out.emit(crate::Notice::DisplayString {
+                        feedback: dereth_client_contract::feedback::Feedback::WARNING,
                         channel: super::FEEDBACK_CHANNEL,
                         text: format!("{READY_SLOT_BLOCKED_MESSAGE} {name}"),
                     });
@@ -957,6 +959,7 @@ impl World {
                     // passes `quiet = 0` and `unblock = 1`, shows none. One argument, two jobs.
                     for m in messages {
                         out.emit(crate::Notice::DisplayString {
+                            feedback: dereth_client_contract::feedback::Feedback::WARNING,
                             channel: super::FEEDBACK_CHANNEL,
                             text: m.to_string(),
                         });
@@ -1016,6 +1019,7 @@ impl World {
             )
         });
         let mut text = format!("Moving {name} to your backpack");
+        let mut feedback = dereth_client_contract::feedback::Feedback::INFORMATION;
 
         // Attempt to place the blocking item in the player's container: no requested
         // container, auto-merge on, place 0 — so `spill_target` picks the main pack and falls
@@ -1039,12 +1043,14 @@ impl World {
             // still a known object. One notice either way — the send is at the merge point.
             if self.weenie(blocking).is_some() {
                 text.push_str(&format!(" - cannot unwield the {name}"));
+                feedback = dereth_client_contract::feedback::Feedback::WARNING;
             }
             self.unblock.reset();
         }
         out.emit(crate::Notice::DisplayString {
             channel: super::FEEDBACK_CHANNEL,
             text,
+            feedback,
         });
         ok
     }
@@ -1234,6 +1240,53 @@ mod tests {
     use super::*;
     use crate::weenie::Weenie;
     use dereth_protocol::types::PublicWeenieDesc;
+
+    /// Behaviour: feedback.producers.composed-unblock-emphasis-follows-the-appended-refusal
+    #[test]
+    fn unblock_emphasis_follows_the_actual_suffix_even_when_a_blocker_disappears() {
+        use dereth_client_contract::feedback::Feedback;
+        for known in [false, true] {
+            let mut world = world_with(&[]);
+            if known {
+                let mut blocker = Weenie::new(ObjectId(2));
+                blocker.pwd.name = "Novel Sword".into();
+                world.tables.weenies.insert(ObjectId(2), blocker);
+            }
+            // A busy inventory rejects placement before a request can be sent.
+            world.attack_in_progress = true;
+            let mut notices = crate::RecordingSink::default();
+            let mut requests = crate::RecordingRequests::default();
+            assert!(!world.begin_unblock(
+                &mut requests,
+                &mut notices,
+                ObjectId(3),
+                ObjectId(2),
+                SlotSide::Null,
+                SplitState::default(),
+                ServerTime(1.0)
+            ));
+            let Some(crate::Notice::DisplayString { text, feedback, .. }) = notices.0.last() else {
+                panic!("{notices:?}")
+            };
+            assert_eq!(
+                *feedback,
+                if known {
+                    Feedback::WARNING
+                } else {
+                    Feedback::INFORMATION
+                }
+            );
+            assert_eq!(
+                text,
+                if known {
+                    "Moving Novel Sword to your backpack - cannot unwield the Novel Sword"
+                } else {
+                    "Moving  to your backpack"
+                }
+            );
+            assert!(requests.0.is_empty());
+        }
+    }
 
     fn world_with(items: &[(u32, PublicWeenieDesc)]) -> World {
         let mut w = World::new();

@@ -103,8 +103,13 @@ impl World {
     pub fn portal_storm_struck(&mut self) {
         self.portal_storm_level = 0.0;
         self.portal_storms_struck += 1;
-        self.scroll
-            .add_text_to_scroll(STRUCK, crate::chat::text_type::DEFAULT, true, 0);
+        self.scroll.add_feedback_to_scroll(
+            STRUCK,
+            crate::chat::text_type::DEFAULT,
+            true,
+            0,
+            dereth_client_contract::feedback::Feedback::LOCAL,
+        );
     }
 
     /// Behavior: **`0x02CC`**. The notice line and

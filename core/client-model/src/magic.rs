@@ -904,6 +904,7 @@ impl World {
         fn refuse(out: &mut dyn NoticeSink, quiet: bool, text: String) -> Result<(), String> {
             if !quiet && !text.is_empty() {
                 out.emit(crate::Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::WARNING,
                     channel: crate::chat::REFUSAL_CHANNEL,
                     text: text.clone(),
                 });
@@ -1108,6 +1109,7 @@ impl World {
         // the target-type compatibility test, and on success prints `"Casting %hs"`.
         self.object_compatible_with_spell_target_type(out, Some(selected), target_type, false)?;
         out.emit(crate::Notice::DisplayString {
+            feedback: dereth_client_contract::feedback::Feedback::WARNING,
             channel: crate::chat::REFUSAL_CHANNEL,
             text: messages::casting(&base.name),
         });
@@ -1165,6 +1167,7 @@ impl World {
     /// The cast refusal tail: a display-string notice on channel `0x1A` with the literal, then return.
     fn refuse_cast(&self, out: &mut dyn NoticeSink, text: String) -> Result<(), String> {
         out.emit(crate::Notice::DisplayString {
+            feedback: dereth_client_contract::feedback::Feedback::WARNING,
             channel: crate::chat::REFUSAL_CHANNEL,
             text: text.clone(),
         });
@@ -1548,6 +1551,67 @@ impl MagicState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: feedback.producers.successful-casting-keeps-warning-emphasis
+    #[test]
+    fn real_targeted_cast_announces_dynamic_spell_name_as_warning_and_unknown_stays_silent() {
+        use dereth_client_contract::feedback::Feedback;
+        let base = SpellBase {
+            name: "Novel Spell".into(),
+            description: String::new(),
+            school: 1,
+            icon: 0,
+            category: 0,
+            bitfield: 0,
+            base_mana: 0,
+            base_range_constant: 0.0,
+            base_range_mod: 0.0,
+            power: 0,
+            spell_economy_mod: 0.0,
+            formula_version: 0,
+            component_loss: 0.0,
+            meta_spell_type: 2,
+            meta_spell_id: 0,
+            duration: None,
+            portal_lifetime: None,
+            raw_comps: [1, 2, 3, 4, 0x31, 0, 0, 0],
+            comp_key: 0,
+            comps: Vec::new(),
+            caster_effect: 0,
+            target_effect: 0,
+            fizzle_effect: 0,
+            recovery_interval: 0.0,
+            recovery_amount: 0.0,
+            display_order: 0,
+            non_component_target_type: 0x0008_8B8F,
+            mana_mod: 0,
+        };
+        let mut world = World::new();
+        let mut target = crate::Weenie::new(ObjectId(2));
+        target.pwd.obj_type = 0x10;
+        target.pwd.bitfield = 0x10;
+        world.player = Some(ObjectId(1));
+        world
+            .tables
+            .weenies
+            .insert(ObjectId(1), crate::Weenie::new(ObjectId(1)));
+        world.tables.weenies.insert(target.id, target);
+        world.selected = Some(ObjectId(2));
+        world.magic.spell_table = Some(std::sync::Arc::new(dereth_assets::tables::SpellTable {
+            id: dereth_primitives::DataId(0x0e00000e),
+            spell_buckets: 1,
+            spells: [(1, base)].into_iter().collect(),
+            spellset_bucket_index: 0,
+            spellsets: Default::default(),
+        }));
+        let mut notices = crate::RecordingSink::default();
+        let mut requests = crate::RecordingRequests::default();
+        assert_eq!(world.cast_spell(&mut requests, &mut notices, 999), Ok(()));
+        assert!(notices.0.is_empty());
+        assert_eq!(world.cast_spell(&mut requests, &mut notices, 1), Ok(()));
+        assert!(notices.0.iter().any(|n| matches!(n, crate::Notice::DisplayString { text, feedback, .. } if text == "Casting Novel Spell" && *feedback == Feedback::WARNING)));
+        assert!(!requests.0.is_empty());
+    }
 
     /// Oracle: the client's scarab table, including the fact that 0x6F maps to 0.
     #[test]
@@ -1935,7 +1999,9 @@ mod tests {
             .0
             .iter()
             .filter_map(|n| match n {
-                crate::Notice::DisplayString { channel, text } => Some((*channel, text.clone())),
+                crate::Notice::DisplayString { channel, text, .. } => {
+                    Some((*channel, text.clone()))
+                }
                 _ => None,
             })
             .collect();

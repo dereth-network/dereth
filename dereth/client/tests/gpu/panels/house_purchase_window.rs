@@ -707,7 +707,7 @@ fn emitted(app: &mut App) -> Vec<(u32, String)> {
         .take()
         .into_iter()
         .filter_map(|r| match r {
-            dereth_ui_screens::view::UiRequest::DisplayChatText { channel, text } => {
+            dereth_ui_screens::view::UiRequest::DisplayChatText { channel, text, .. } => {
                 Some((channel, text))
             }
             _ => None,

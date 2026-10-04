@@ -20279,7 +20279,7 @@ mod pickup {
         ) == UseOutcome::Busy;
         let sent_nothing = req.0.is_empty();
         let said_so = notices.0.iter().any(|n| {
-            matches!(n, dereth_client_model::Notice::DisplayString { channel, text }
+            matches!(n, dereth_client_model::Notice::DisplayString { channel, text , ..}
                 if *channel == FEEDBACK && text == BUSY)
         });
 
@@ -21218,6 +21218,7 @@ mod use_refusal {
                 Notice::DisplayString {
                     channel: 0x1A,
                     text,
+                    ..
                 } => Some(text.clone()),
                 _ => None,
             })

@@ -33,6 +33,7 @@ pub mod window {
 /// One message as the final-string-info notice delivers it: type, body, prefix, and window id.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChatMessage {
+    pub feedback: crate::feedback::Feedback,
     pub ty: u8,
     pub body: String,
     /// The optional timestamp prefix, drawn in colour index 12 whatever `ty` is.

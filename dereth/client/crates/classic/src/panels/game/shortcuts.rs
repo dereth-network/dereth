@@ -915,6 +915,7 @@ mod magic_tests {
                 assert_eq!(
                     p.magic(MagicNotice::CastCurrentSpell, ctx),
                     [PanelAction::Game(UiRequest::DisplayChatText {
+                        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                         channel: 0x1a,
                         text: "You must select a spell to cast".into(),
                     })]

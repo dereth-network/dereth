@@ -3392,6 +3392,9 @@ impl<H: Host> ClientShell<H> {
                 flush_panel_sessions(cx);
                 service_journal(cx);
                 <ModernFrontEnd as FrontEnd<H>>::suspend(&mut self.modern, cx);
+                dereth_client_contract::panels::HudPanels::spew_clear_pending(
+                    &mut cx.hud_mut().panels,
+                );
                 if let Some(input) = self.shared.input.as_mut() {
                     cx.accept_actions(input.release_actions());
                     input.activate_classic(true);
@@ -3429,6 +3432,9 @@ impl<H: Host> ClientShell<H> {
                 if let Some(ui) = self.classic.ui.as_mut() {
                     ui.suspend(cx);
                 }
+                dereth_client_contract::panels::HudPanels::spew_clear_pending(
+                    &mut cx.hud_mut().classic,
+                );
                 if let Some(input) = self.shared.input.as_mut() {
                     cx.accept_actions(input.release_actions());
                     input.activate_classic(false);

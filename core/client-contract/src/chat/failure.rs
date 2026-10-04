@@ -985,6 +985,7 @@ pub fn handle_failure_event(error_code: u32, text: &str) -> Option<ChatMessage> 
     // The scroll gets `(text, <type>, true, 0)` -- the type is the arm's, not the function's.
     let (ty, arm) = arm_for(error_code)?;
     Some(ChatMessage {
+        feedback: crate::feedback::Feedback::numeric(error_code),
         ty,
         body: arm.render(text)?,
         prefix: None,

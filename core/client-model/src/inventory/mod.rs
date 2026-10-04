@@ -86,6 +86,7 @@ impl World {
     fn refuse(&self, out: &mut dyn NoticeSink, quiet: bool, msg: &str) {
         if !quiet {
             out.emit(Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: FEEDBACK_CHANNEL,
                 text: msg.to_string(),
             });
@@ -1845,7 +1846,7 @@ mod tests {
                 ServerTime(1.0),
             );
             out.0.iter().rev().find_map(|n| match n {
-                Notice::DisplayString { channel, text } if *channel == FEEDBACK_CHANNEL => {
+                Notice::DisplayString { channel, text, .. } if *channel == FEEDBACK_CHANNEL => {
                     Some(text.clone())
                 }
                 _ => None,
@@ -1986,6 +1987,7 @@ mod tests {
         assert_eq!(
             out.0.last(),
             Some(&Notice::DisplayString {
+feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: FEEDBACK_CHANNEL,
                 text: "Already attempting to place Training Wand here".into(),
             }),
@@ -2015,6 +2017,7 @@ mod tests {
         assert_eq!(
             out2.0.last(),
             Some(&Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: FEEDBACK_CHANNEL,
                 text: crate::inventory::requests::BUSY_MESSAGE.into(),
             }),

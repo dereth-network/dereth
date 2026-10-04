@@ -272,7 +272,9 @@ fn use_mouse_turning_settings_sets_the_preset_and_nothing_else() {
     let lines: Vec<&str> = rs
         .iter()
         .filter_map(|r| match r {
-            UiRequest::DisplayChatText { channel, text } if *channel == MOUSE_TURNING_CHANNEL => {
+            UiRequest::DisplayChatText { channel, text, .. }
+                if *channel == MOUSE_TURNING_CHANNEL =>
+            {
                 Some(text.as_str())
             }
             _ => None,

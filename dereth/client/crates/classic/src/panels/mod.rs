@@ -121,11 +121,7 @@ pub struct KeyBinding {
     pub keys: Vec<String>,
 }
 /// How a line of local feedback is shown: information, or a warning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FeedbackSeverity {
-    Information,
-    Warning,
-}
+pub use dereth_client_contract::feedback::FeedbackSeverity;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostAction {

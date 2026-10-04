@@ -1573,6 +1573,7 @@ impl crate::world::World {
         out.emit(crate::Notice::DisplayString {
             channel: crate::inventory::requests::FEEDBACK_CHANNEL,
             text,
+            feedback: dereth_client_contract::feedback::Feedback::WARNING,
         });
     }
 
@@ -1646,6 +1647,7 @@ impl crate::world::World {
                 self.shop.buy_list.pop();
                 r.aborted = true;
                 out.emit(crate::Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                     channel: crate::inventory::requests::FEEDBACK_CHANNEL,
                     text: BUYING_ABORTED.to_string(),
                 });
@@ -1686,6 +1688,7 @@ impl crate::world::World {
         r.total = running;
         if !missing.is_empty() {
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: crate::inventory::requests::FEEDBACK_CHANNEL,
                 text: missing.clone(),
             });

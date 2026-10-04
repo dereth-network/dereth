@@ -76,6 +76,7 @@ mod feedback_tests {
             assert_eq!(
                 out.0,
                 vec![Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::WARNING,
                     channel: 0x1a,
                     text: expected.into()
                 }]
@@ -102,10 +103,12 @@ mod feedback_tests {
             out.0,
             vec![
                 Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                     channel: 0x1a,
                     text: "Using the Gems with the Ring".into()
                 },
                 Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                     channel: 0x1a,
                     text: "Using the Gems on Ring".into()
                 },
@@ -136,6 +139,7 @@ mod feedback_tests {
         assert_eq!(
             out.0,
             vec![Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: 0x1a,
                 text: "Cannot use the Bronze Gems with the Bronze Ring".into()
             }]
@@ -265,6 +269,11 @@ impl World {
         out.emit(Notice::DisplayString {
             channel: 0x1a,
             text,
+            feedback: if result.is_ok() {
+                dereth_client_contract::feedback::Feedback::INFORMATION
+            } else {
+                dereth_client_contract::feedback::Feedback::WARNING
+            },
         });
         result.is_ok()
     }
@@ -289,6 +298,7 @@ impl World {
             if src.inq_type() & 0x0008_0000 != 0 && src.pwd.effects.unwrap_or(0) & 1 == 0 {
                 if tgt.pwd.bitfield & 0x0100_0000 != 0 {
                     out.emit(Notice::DisplayString {
+                        feedback: dereth_client_contract::feedback::Feedback::WARNING,
                         channel: 0,
                         text:
                             "You cannot drain the mana of this item because it is \"Retained\".\n"

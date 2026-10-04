@@ -47,7 +47,7 @@ pub mod spellcomponent;
 /// for its panel set.
 pub trait HudPanels: std::fmt::Debug {
     /// The speech-bubble strip's final-string receiver. Whether it took the line.
-    fn spew_offer(&mut self, ty: u8, body: &str) -> bool;
+    fn spew_offer(&mut self, ty: u8, body: &str, _feedback: crate::feedback::Feedback) -> bool;
     /// For the notice trace: whether the strip's list is bound, how many lines are pending, and
     /// how many it has drawn.
     fn spew_trace(&self) -> (bool, usize, u64);

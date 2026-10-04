@@ -15,7 +15,7 @@ pub struct PaymentLists {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaymentEffect {
-    Notice(String),
+    Notice(String, dereth_client_contract::feedback::Feedback),
     Split {
         item: ObjectId,
         split: u32,
@@ -202,6 +202,7 @@ impl World {
                     if self.weenie(id).is_some() && list.state.op != HouseOp::Undef {
                         effects.push(PaymentEffect::Notice(
                             "You can only trade items you are carrying".into(),
+                            dereth_client_contract::feedback::Feedback::WARNING,
                         ));
                     }
                 } else if list.allowed() {

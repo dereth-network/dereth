@@ -169,6 +169,7 @@ impl BookState {
                 && b.page(old).is_some_and(|p| p.author_id == player))
         {
             self.requests.push(UiRequest::DisplayChatText {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: 0x1a,
                 text: format!("The {name} is already open to a blank page"),
             });
@@ -513,7 +514,7 @@ mod tests {
             "a refused gesture refreshes the displayed menu selection"
         );
         assert!(
-            matches!(world.take_book_requests().as_slice(), [UiRequest::DisplayChatText { channel: 0x1a, text }] if text == "The  is already open to a blank page")
+            matches!(world.take_book_requests().as_slice(), [UiRequest::DisplayChatText { channel: 0x1a, text , ..}] if text == "The  is already open to a blank page")
         );
         world.book_action(BookAction::Turn {
             book: ObjectId(5),

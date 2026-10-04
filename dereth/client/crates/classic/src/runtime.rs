@@ -18,17 +18,22 @@ pub struct ClassicHudPanels {
     pub abuse: Option<u32>,
     /// Lines of the default text type, as they reach the chat. A game's status line is one.
     pub default_lines: Vec<String>,
-    pub transient: Vec<(String, Option<crate::panels::FeedbackSeverity>)>,
+    pub transient: Vec<(String, dereth_client_contract::feedback::Feedback)>,
 }
 impl HudPanels for ClassicHudPanels {
-    fn spew_offer(&mut self, ty: u8, body: &str) -> bool {
+    fn spew_offer(
+        &mut self,
+        ty: u8,
+        body: &str,
+        feedback: dereth_client_contract::feedback::Feedback,
+    ) -> bool {
         if ty == 0 {
             self.default_lines.push(body.into());
         }
-        if ty != 0x1a {
+        if ty != 0x1a || feedback.kind == dereth_client_contract::feedback::FeedbackKind::Ordinary {
             return false;
         }
-        self.transient.push((body.into(), None));
+        self.transient.push((body.into(), feedback));
         true
     }
     fn spew_trace(&self) -> (bool, usize, u64) {
@@ -63,7 +68,6 @@ pub trait Clipboard {
 
 pub struct ClassicUi {
     pub quit_requested: bool,
-    local_severity: Vec<(String, crate::panels::FeedbackSeverity)>,
     game_status_area: bool,
     /// Which kinds of message the chat window shows: the main chat window's filter, which the
     /// Chat Options page sets.
@@ -176,7 +180,6 @@ impl ClassicUi {
         let previews = crate::previews::Previews::default();
         Self {
             quit_requested: false,
-            local_severity: Vec::new(),
             game_status_area: false,
             chat_filter: dereth_client_contract::options::sheet::MAIN_WINDOW_DEFAULT_FILTER,
             examine_seen: None,
@@ -249,23 +252,33 @@ impl ClassicUi {
             errors: vec![],
         }
     }
-    /// A line of local feedback from the classic panels. It takes the same route as the shared
-    /// model's own feedback lines (the text scroll, then the panels and the chat), and its
-    /// severity is kept beside it until the line comes back out, because the shared route carries
-    /// text only.
+    fn present_feedback(
+        &mut self,
+        text: &str,
+        feedback: dereth_client_contract::feedback::Feedback,
+        now: f64,
+    ) -> Option<UiRequest> {
+        let warning = feedback.severity == Some(crate::panels::FeedbackSeverity::Warning);
+        (self.overlay.message(text, false, warning, now) && self.settings.interface).then_some(
+            UiRequest::PlaySound {
+                file: DataId(0x2000004b),
+                sound_type: 0x6e,
+            },
+        )
+    }
+
+    /// Insert panel feedback through the shared scroll with its operation meaning.
     fn local_feedback<S: Host>(
         &mut self,
         cx: &mut Cx<'_, S>,
         text: String,
         severity: crate::panels::FeedbackSeverity,
     ) {
-        cx.add_scroll_line(&text, 0x1a);
-        self.local_severity.push((text, severity));
-    }
-    /// The severity a classic panel gave `text`, if the line is one of theirs.
-    fn take_local_severity(&mut self, text: &str) -> Option<crate::panels::FeedbackSeverity> {
-        let at = self.local_severity.iter().position(|(t, _)| t == text)?;
-        Some(self.local_severity.remove(at).1)
+        cx.add_feedback_line(
+            &text,
+            0x1a,
+            dereth_client_contract::feedback::Feedback::local(severity),
+        );
     }
     #[must_use]
     pub fn composed_screen(&self) -> &Screen {
@@ -1062,7 +1075,8 @@ impl ClassicUi {
                     ask(
                         cx,
                         UiRequest::DisplayChatText {
-                            channel: 1,
+                            feedback: dereth_client_contract::feedback::Feedback::WARNING,
+                            channel: 0x1a,
                             text: "Can not run help in windowed mode!".into(),
                         },
                     );
@@ -1807,17 +1821,9 @@ impl ClassicUi {
         let talk_focus = cx.model().chat.talk_focus;
         self.classic.chat_focus = Some((talk_focus as u8, cx.model().chat.selectable_focuses()));
         let transient = std::mem::take(&mut cx.hud_mut().classic_panels().transient);
-        for (text, severity) in transient {
-            let warning = severity
-                .or_else(|| self.take_local_severity(&text))
-                .map(|s| s == crate::panels::FeedbackSeverity::Warning)
-                .or_else(|| crate::world_overlay::feedback_warning(&text))
-                .unwrap_or(false);
-            if self.overlay.message(&text, false, warning, now.0) && self.settings.interface {
-                cx.play_sounds(vec![UiRequest::PlaySound {
-                    file: DataId(0x2000004b),
-                    sound_type: 0x6e,
-                }]);
+        for (text, feedback) in transient {
+            if let Some(sound) = self.present_feedback(&text, feedback, now.0) {
+                cx.play_sounds(vec![sound]);
             }
         }
         self.deliver_power_bar_notices(notices.power_bar);

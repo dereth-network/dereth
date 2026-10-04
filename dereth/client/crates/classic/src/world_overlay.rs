@@ -10,110 +10,6 @@ use dereth_primitives::ObjectId;
 pub const FONT: &str = "15-6";
 const LINE_HEIGHT: i32 = 15;
 
-/// Recover only known classic feedback severities when a later model has
-/// flattened the classic replace and append steps into one string. None means the
-/// producer metadata is still required, not that the line is informational.
-pub fn feedback_warning(text: &str) -> Option<bool> {
-    // These complete lines are always shown with the same severity.
-    // Do not include "Moving ... to your backpack": both severities produce it.
-    if matches!(
-        text,
-        "Logging off..."
-            | "Break Allegiance cancelled"
-            | "Choose an object to use"
-            | "Choose an object to examine"
-            | "Capturing screenshot to file..."
-    ) {
-        return Some(false);
-    }
-    if matches!(
-        text,
-        "The trade has been cancelled."
-            | "The Portal Storm has subsided"
-            | "This area is getting too crowded - a Portal Storm is brewing."
-            | "A Portal Storm is imminent - leave this crowded area!"
-            | "This spell would require no target"
-            | "This spell would require a target"
-            | "You cannot cast this spell upon yourself"
-            | "Cannot cast spell on a stack of items."
-            | "You do not have all of this spell's components"
-            | "The creature can't be picked up"
-            | "You must own the house to manipulate the hook."
-            | "You must split the stack before selling it."
-            | "Move cancelled"
-            | "You cannot do that in mid air"
-            | "You can only trade items you are carrying"
-            | "You can't do that while trading"
-            | "You must split the stack before trading it."
-            | "You can only salvage items that you own!"
-            | "You are already the leader."
-            | "You can't dismiss yourself."
-            | "You can't recruit yourself."
-            | "You are already playing this game."
-            | "You are already playing another game."
-            | "Please specify the character to log."
-            | "You cannot change this page"
-            | "You must select a spell to cast"
-            | "That item has no value and cannot be sold"
-            | "That item is too valuable to sell here"
-            | "You can only sell items you are carrying"
-            | "You must empty some slots in your backpack first"
-            | "You need an open vendor."
-            | "Textures reloading, please wait..."
-            | "Unable to change screen size!"
-            | "You cannot select that while in combat mode"
-            | "You must select a target before attacking"
-            | "You're already wearing jewelry on your neck."
-            | "You're already wearing rings on both hands."
-            | "You are encumbered"
-            | "That is not a salvaging tool."
-            | "There are no free shortcut slots"
-            | "Only items that can be picked up can go here"
-            | "Move the split item before making a shortcut"
-            | "You must pick that up first"
-            | "Action interrupted"
-            | "You must be outdoors to use Map View."
-            | "Someone must @tell you first!"
-            | "One of your vassals must @m you first!"
-            | "One of your vassals must @p you first!."
-            | "You must specify the text you wish to say!"
-            | "Please specify an actual name."
-            | "Please specify a valid consent command."
-            | "Incorrect usage, use @help for proper arguements."
-            | "You can only move or use one item at a time"
-            | "You cannot move or use an item while attacking"
-            | "Can not run help in windowed mode!"
-    ) {
-        return Some(true);
-    }
-    // Using an item, choosing a target, and the trade, salvage and vendor lists: every
-    // fragment of these composed lines uses the same severity.
-    if [
-        "Using the ",
-        "Choose a target for the ",
-        "Trading contents of ",
-        "Adding contents of ",
-        "Selling contents of ",
-    ]
-    .iter()
-    .any(|prefix| {
-        text.strip_prefix(prefix)
-            .is_some_and(|tail| !tail.is_empty())
-    }) || (text.starts_with("Removing ")
-        && (text.ends_with(" from salvage list") || text.ends_with(" from shopping list")))
-    {
-        return Some(false);
-    }
-    // "Casting " and the spell name appended to it are both warnings.
-    if text
-        .strip_prefix("Casting ")
-        .is_some_and(|name| !name.is_empty())
-    {
-        return Some(true);
-    }
-    None
-}
-
 /// The selection indicator's colour images by colour index (the radar's colours: 1 blue, 2 gold,
 /// 3 white, 4 purple, 5 red, 6 pink, 7 green, 8 yellow, 9 cyan, 10 bright green), for the 24-pixel
 /// arrows and the 12-pixel corners.
@@ -768,21 +664,6 @@ mod tests {
         assert!(target_marks(None, view, 3).is_empty());
         // Up-right is the arrow pointing up and to the right.
         assert_eq!(dids(Projection::OffScreen(45.0))[0].0, "060019CC+060019E0");
-    }
-    #[test]
-    fn feedback_severity_leaves_ambiguous_or_later_literals_unclassified() {
-        assert_eq!(feedback_warning("Logging off..."), Some(false));
-        assert_eq!(
-            feedback_warning("Using the Gem with the Sword"),
-            Some(false)
-        );
-        assert_eq!(feedback_warning("Casting Strength Self I"), Some(true));
-        assert_eq!(
-            feedback_warning("You can only move or use one item at a time"),
-            Some(true)
-        );
-        assert_eq!(feedback_warning("Moving Sword to your backpack"), None);
-        assert_eq!(feedback_warning("Unreviewed feedback"), None);
     }
     use dereth_client_model::weenie::Weenie;
     fn world() -> World {

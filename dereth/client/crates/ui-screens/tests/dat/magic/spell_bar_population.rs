@@ -431,6 +431,7 @@ fn the_bound_bar_refuses_an_explicit_empty_cast_once_but_empty_quickslots_stay_s
     assert_eq!(
         ui.requests.take(),
         [UiRequest::DisplayChatText {
+            feedback: dereth_client_contract::feedback::Feedback::LOCAL,
             channel: 0x1a,
             text: "You must select a spell to cast".into()
         }]

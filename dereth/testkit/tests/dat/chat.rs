@@ -2890,6 +2890,7 @@ fn scenario_the_clickable_name_is_drawn_in_its_own_colour() {
 pub fn markup_the_client_does_not_know_is_drawn_as_it_stands() {
     let raw = "give <IIDString:Name:0x50001234:x>Shard<\\IIDString> to";
     let m = dereth_ui_screens::chat::interface::ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty: GENERAL_TYPE,
         body: raw.to_owned(),
         prefix: None,
@@ -4270,6 +4271,7 @@ fn log_font_and_heights(
 /// Put a line in the log the way the shard's own broadcast puts one there.
 fn say_in_the_log(c: &mut HeadlessClient, text: &str) {
     let m = dereth_ui_screens::chat::interface::ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         window: 0,
         ty: 0,
         prefix: None,
@@ -6320,6 +6322,7 @@ fn element_text_of(c: &mut HeadlessClient, h: ElemHandle) -> String {
 /// over the first letter of that name.
 fn a_clickable_name_on_the_log(c: &mut HeadlessClient, name: &str) -> (ElemHandle, (i32, i32)) {
     let line = dereth_ui_screens::chat::interface::ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty: 17,
         body: format!("<Tell:IIDString:0:{name}>{name}<\\Tell> says, \"hello\""),
         prefix: None,
@@ -6863,6 +6866,7 @@ pub fn two_recorded_channels_draw_in_two_different_colours() {
         let want = OPAQUE | dereth_ui_screens::chat::colors::color_for_type(ty).hex;
         let before = colour_runs(&mut c).len();
         let line = dereth_ui_screens::chat::interface::ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty,
             body: (*body).to_owned(),
             prefix: None,
@@ -6955,6 +6959,7 @@ pub fn your_own_echo_and_a_remote_speaker_are_drawn_apart() {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
     for body in [&echo, &remote] {
         let line = dereth_ui_screens::chat::interface::ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: kind,
             body: body.clone(),
             prefix: None,
@@ -7081,6 +7086,7 @@ pub fn the_scroll_keys_move_the_log_and_the_history_keys_fill_the_entry() {
     // Enough in the window that the log has somewhere to go.
     for i in 0..12 {
         let m = dereth_ui_screens::chat::interface::ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 0,
             body: format!("line number {i} of the backlog"),
             prefix: None,

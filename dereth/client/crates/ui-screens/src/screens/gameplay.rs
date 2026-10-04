@@ -4269,6 +4269,7 @@ impl GamePlayScreen {
                     ui.requests.emit(UiRequest::DisplayChatText {
                         channel: crate::options::config::MOUSE_TURNING_CHANNEL,
                         text,
+                        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                     });
                 }
                 self.mouse_turning_keys_pending = true;
@@ -4693,6 +4694,7 @@ impl GamePlayScreen {
         if std::mem::take(&mut self.mouse_turning_keys_pending) {
             for line in self.key_bindings.set_mouse_turning_defaults(ui, m) {
                 ui.requests.emit(UiRequest::DisplayChatText {
+                    feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                     channel: crate::options::config::MOUSE_TURNING_CHANNEL,
                     text: line.to_owned(),
                 });
@@ -6317,6 +6319,7 @@ impl Screen for GamePlayScreen {
             self.ending_session = false;
             self.logoff_refusals += 1;
             ui.requests.emit(UiRequest::DisplayChatText {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: logout::AIRBORNE_REFUSAL_CHAT_TYPE,
                 text: logout::AIRBORNE_REFUSAL.to_owned(),
             });
@@ -6480,6 +6483,7 @@ mod tests {
         let said = ui.requests.take();
         assert!(
             said.contains(&UiRequest::DisplayChatText {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: 0x1A,
                 text: "Cannot log off while in mid-air.".to_owned(),
             }),
@@ -6865,6 +6869,7 @@ mod tests {
 
         // A system line broadcasts and the main window takes it.
         let sys = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             // `LogTextType` 5 = System (the recovered chat and social behavior).
             ty: 5,
             body: "Welcome to Asheron's Call".into(),
@@ -6878,6 +6883,7 @@ mod tests {
         // Type 0x1A is the over-head bubble channel and the main window's default filter masks it
         // out (`0xFBFFFFFF`).
         let bubble = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 0x1A,
             body: "hi".into(),
             prefix: None,
@@ -6889,6 +6895,7 @@ mod tests {
 
         // A line addressed to floaty 2 goes only there, filter or no filter.
         let direct = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 0x1A,
             body: "tell".into(),
             prefix: None,

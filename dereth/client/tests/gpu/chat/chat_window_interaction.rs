@@ -191,6 +191,7 @@ const ARROW_UP: ElementId = ElementId(0x1000_0072);
 /// One line in the shape delivered by the broadcast-chat notice.
 fn line(ty: u8, body: &str) -> ChatMessage {
     ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty,
         body: body.to_owned(),
         prefix: None,
@@ -376,6 +377,7 @@ fn a_line_is_drawn_in_its_own_channels_colour_and_a_prefix_is_always_grey() {
     ];
     for (ty, body, want) in cases {
         let m = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty,
             body: body.to_owned(),
             prefix: None,
@@ -391,6 +393,7 @@ fn a_line_is_drawn_in_its_own_channels_colour_and_a_prefix_is_always_grey() {
     // the message's own type is. This is asserted against a `Speech` (white body) so the two
     // cannot be confused.
     let m = ChatMessage {
+        feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
         ty: 2,
         body: "hello there".to_owned(),
         prefix: Some("Tarinell".to_owned()),

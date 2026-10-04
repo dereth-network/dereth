@@ -820,3 +820,116 @@ fn classic_resolution_draft_survives_idle_frames_and_rejected_choice_reads_back_
         "one completed transaction is read back once"
     );
 }
+
+/// Behaviour: feedback.classic.explicit-emphasis-survives-identical-panel-text
+#[test]
+fn actual_abuse_feedback_survives_an_identical_ordinary_line_and_controls_color_and_audio() {
+    use dereth_client_contract::feedback::Feedback;
+    let (mut app, mut shell) = fixture();
+    let body = "Please specify the character to log.";
+    for (name, expected, color) in [
+        ("", Feedback::INFORMATION, 0xffd2d2c8),
+        ("   ", Feedback::WARNING, 0xffffff00),
+        ("", Feedback::INFORMATION, 0xffffffff),
+    ] {
+        let actions = {
+            let cx = app.ui_context();
+            let view = cx.hud().view(cx.objects());
+            let context = Context {
+                game: &view,
+                pregame: cx.pregame(),
+                keyboard: &shell.ui.keyboard,
+                settings: &shell.ui.settings,
+                map_teleport_allowed: false,
+                classic: &shell.ui.classic,
+            };
+            let mut panel = crate::panels::factory("abuse").unwrap();
+            panel.event(ControlEvent::Activate("begin".into()), &context);
+            panel.event(
+                ControlEvent::Edit {
+                    id: "name".into(),
+                    text: name.into(),
+                },
+                &context,
+            );
+            panel.event(
+                ControlEvent::Edit {
+                    id: "text".into(),
+                    text: "reason".into(),
+                },
+                &context,
+            );
+            panel.event(ControlEvent::Activate("send".into()), &context)
+        };
+        for action in actions {
+            let PanelAction::Host(action) = action else {
+                panic!("unexpected panel action")
+            };
+            shell
+                .ui
+                .host_action(&mut app.ui_context(), 0, action)
+                .unwrap();
+        }
+        app.ui_context().add_scroll_line(body, 0x1a);
+        assert!(app.frame(&mut shell));
+        let queued = app.ui_context().hud().panels.transient.clone();
+        assert_eq!(
+            queued,
+            [(body.into(), expected)],
+            "ordinary same-text event is not a viewport callback"
+        );
+        shell.ui.ui_frame(
+            &mut app.ui_context(),
+            dereth_primitives::LocalTime(1.0),
+            Default::default(),
+        );
+        let commands = shell.ui.overlay.commands(800, false, false, |s| {
+            i32::try_from(s.len()).unwrap_or(i32::MAX)
+        });
+        assert!(commands.iter().any(|c| matches!(c, crate::Command::Text {text,color:c,..} if text == body && *c == color)), "{commands:?}");
+        assert!(app.ui_context().hud().panels.transient.is_empty());
+    }
+    shell.ui.settings.interface = true;
+    let sound = UiRequest::PlaySound {
+        file: DataId(0x2000004b),
+        sound_type: 0x6e,
+    };
+    assert_eq!(
+        shell
+            .ui
+            .present_feedback("dynamic warning", Feedback::WARNING, 2.0),
+        Some(sound.clone())
+    );
+    assert_eq!(
+        shell
+            .ui
+            .present_feedback("replacement same tick", Feedback::WARNING, 2.0),
+        None
+    );
+    shell.ui.settings.interface = false;
+    assert_eq!(
+        shell
+            .ui
+            .present_feedback("muted warning", Feedback::WARNING, 3.0),
+        None
+    );
+    shell.ui.settings.interface = true;
+    assert_eq!(
+        shell
+            .ui
+            .present_feedback("same muted tick", Feedback::WARNING, 3.0),
+        None
+    );
+    assert_eq!(
+        shell
+            .ui
+            .present_feedback("new warning", Feedback::WARNING, 4.0),
+        Some(sound)
+    );
+    assert_eq!(
+        shell
+            .ui
+            .present_feedback("information", Feedback::INFORMATION, 5.0),
+        None
+    );
+}

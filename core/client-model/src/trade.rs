@@ -570,6 +570,7 @@ impl crate::World {
         // partner declining, the partner walking out of range, the window being closed, the
         // partner logging off. Without it a trade that ends says nothing whatsoever.
         out.emit(crate::Notice::DisplayString {
+            feedback: dereth_client_contract::feedback::Feedback::WARNING,
             channel: TRADE_MESSAGE_CHANNEL,
             text: messages::CANCELLED.to_string(),
         });
@@ -872,6 +873,7 @@ impl crate::World {
     ) -> bool {
         if let Some(text) = self.trade_item_acceptable(item) {
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: TRADE_MESSAGE_CHANNEL,
                 text: text.to_owned(),
             });
@@ -894,6 +896,7 @@ impl crate::World {
             .attempt_to_place_in_container(req, out, item, player, container, false, 0, split, now)
         {
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: TRADE_MESSAGE_CHANNEL,
                 text: messages::CANNOT_SPLIT.to_owned(),
             });
@@ -905,6 +908,7 @@ impl crate::World {
             stack_size,
         });
         out.emit(crate::Notice::DisplayString {
+            feedback: dereth_client_contract::feedback::Feedback::LOCAL,
             channel: TRADE_MESSAGE_CHANNEL,
             text: messages::splitting_before_trading(&name),
         });
@@ -1031,6 +1035,7 @@ impl crate::World {
         // not inside it — so the recursion below does not repeat it, exactly as retail does not.
         if let Some(text) = self.trade_item_acceptable(item) {
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: TRADE_MESSAGE_CHANNEL,
                 text: text.to_string(),
             });
@@ -1087,6 +1092,7 @@ impl crate::World {
                 w.object_name(crate::weenie::NameType::Appropriate)
             });
             out.emit(crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                 channel: TRADE_MESSAGE_CHANNEL,
                 text: messages::trading_contents(&name),
             });
@@ -1936,6 +1942,7 @@ mod tests {
         assert_eq!(
             out.0,
             vec![crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: 0x1A,
                 text: "You can only trade items you are carrying".to_string(),
             }]

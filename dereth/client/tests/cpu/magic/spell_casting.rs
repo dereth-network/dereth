@@ -913,7 +913,7 @@ fn display_strings(out: &RecordingSink) -> Vec<(u32, String)> {
     out.0
         .iter()
         .filter_map(|n| match n {
-            dereth_client_model::Notice::DisplayString { channel, text } => {
+            dereth_client_model::Notice::DisplayString { channel, text, .. } => {
                 Some((*channel, text.clone()))
             }
             _ => None,
@@ -942,6 +942,7 @@ fn the_spell_bars_cast_button_raises_the_request_and_the_endowment_wins() {
     p.sub_menus = vec![Default::default(); 8];
     // An explicit empty cast is local feedback, without a spell request.
     let refusal = UiRequest::DisplayChatText {
+        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
         channel: 0x1a,
         text: "You must select a spell to cast".into(),
     };

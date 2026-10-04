@@ -40,6 +40,7 @@
 /// One final string-info notice carrying type, body, prefix, and window id.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FinalString {
+    pub feedback: dereth_client_contract::feedback::Feedback,
     /// The chat type, which is a notice's channel unchanged.
     pub chat_type: u32,
     /// The body: the trimmed text.
@@ -303,6 +304,24 @@ impl Scroll {
         announce_to_plugins: bool,
         window: u32,
     ) {
+        self.add_feedback_to_scroll(
+            text,
+            chat_type,
+            announce_to_plugins,
+            window,
+            dereth_client_contract::feedback::Feedback::ORDINARY,
+        );
+    }
+
+    /// Insert a line with the meaning supplied by its producing operation.
+    pub fn add_feedback_to_scroll(
+        &mut self,
+        text: &str,
+        chat_type: u32,
+        announce_to_plugins: bool,
+        window: u32,
+        feedback: dereth_client_contract::feedback::Feedback,
+    ) {
         let _ = announce_to_plugins;
         self.added += 1;
         let body = text.trim();
@@ -316,6 +335,7 @@ impl Scroll {
             .then(|| timestamp_prefix(self.now_unix, self.utc_offset_secs));
         let _ = self.copy_final_to_log(chat_type, prefix.as_deref(), &body);
         self.pending.push(FinalString {
+            feedback,
             chat_type,
             body,
             prefix,
@@ -326,7 +346,13 @@ impl Scroll {
     /// The communication system's incoming display-string notice — the four arguments
     /// described in this module's header.
     pub fn on_display_string_info(&mut self, channel: u32, text: &str) {
-        self.add_text_to_scroll(text, channel, true, 0);
+        self.add_feedback_to_scroll(
+            text,
+            channel,
+            true,
+            0,
+            dereth_client_contract::feedback::Feedback::LOCAL,
+        );
     }
 
     /// Take what is queued. The consumer fans it out.
@@ -356,8 +382,12 @@ impl Scroll {
 /// caller can count what it routed rather than assuming.
 pub fn recv_notice(scroll: &mut Scroll, n: &crate::Notice) -> bool {
     match n {
-        crate::Notice::DisplayString { channel, text } => {
-            scroll.on_display_string_info(*channel, text);
+        crate::Notice::DisplayString {
+            channel,
+            text,
+            feedback,
+        } => {
+            scroll.add_feedback_to_scroll(text, *channel, true, 0, *feedback);
             true
         }
         _ => false,
@@ -543,6 +573,7 @@ mod tests {
         assert!(recv_notice(
             &mut s,
             &crate::Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
                 channel: 0x1A,
                 text: "x".into()
             }

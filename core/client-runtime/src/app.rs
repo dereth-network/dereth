@@ -2744,11 +2744,12 @@ impl<S: Shell> App<S> {
             }
             let text = which.notice(files);
             tracing::warn!("{text}");
-            self.objects.world.scroll.add_text_to_scroll(
+            self.objects.world.scroll.add_feedback_to_scroll(
                 text,
                 dereth_client_model::scroll::LOCAL_ERROR_TYPE,
                 true,
                 0,
+                dereth_client_contract::feedback::Feedback::LOCAL,
             );
         }
     }
@@ -2773,11 +2774,12 @@ impl<S: Shell> App<S> {
             Ok(()) => {
                 self.events.push(FrameEvent::ScreenshotSaved);
                 let text = format!("Screenshot saved to file '{}'", path.display());
-                self.objects.world.scroll.add_text_to_scroll(
+                self.objects.world.scroll.add_feedback_to_scroll(
                     &text,
                     dereth_client_model::scroll::LOCAL_ERROR_TYPE,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
             }
             Err(e) => {
@@ -3027,11 +3029,12 @@ impl<S: Shell> App<S> {
             // Deviation 2 in [`apply_open_url_requests`]: retail's `MessageBoxA` is out
             // of reach of a `forbid(unsafe_code)` crate, so its **own text** goes to the scroll.
             if let ShellCall::ErrorBox { text, .. } = c {
-                self.objects.world.scroll.add_text_to_scroll(
+                self.objects.world.scroll.add_feedback_to_scroll(
                     &text,
                     dereth_client_model::scroll::LOCAL_ERROR_TYPE,
                     true,
                     0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
                 );
             }
         }
@@ -5253,11 +5256,12 @@ impl<S: Shell> App<S> {
             let text = "The objects' look is still being prepared; it is drawn as soon as it is \
                         ready.";
             tracing::info!("{text}");
-            self.objects.world.scroll.add_text_to_scroll(
+            self.objects.world.scroll.add_feedback_to_scroll(
                 text,
                 dereth_client_model::scroll::LOCAL_ERROR_TYPE,
                 true,
                 0,
+                dereth_client_contract::feedback::Feedback::LOCAL,
             );
         }
     }

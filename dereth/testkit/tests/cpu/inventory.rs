@@ -301,6 +301,7 @@ fn bubble_lines<'a>(v: &ScenarioView<'a>) -> Vec<&'a str> {
             Notice::DisplayString {
                 channel: BUBBLE,
                 text,
+                ..
             } => Some(text.as_str()),
             _ => None,
         })
@@ -390,6 +391,7 @@ pub fn a_confirmed_use_prints_the_same_line() {
             Notice::DisplayString {
                 channel: BUBBLE,
                 text,
+                ..
             } => Some(text.clone()),
             _ => None,
         })
@@ -2267,7 +2269,7 @@ pub fn a_broke_or_full_player_buys_nothing() {
         && out.0.iter().any(|n| {
             matches!(
                 n,
-                Notice::DisplayString { channel: BUBBLE, text }
+                Notice::DisplayString { channel: BUBBLE, text , ..}
                     if text == "You don't have enough money"
             )
         });

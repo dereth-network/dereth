@@ -648,6 +648,7 @@ mod tests {
     fn an_accepted_message_appends_a_grey_prefix_and_a_typed_body() {
         let mut w = ChatInterface::new(window::MAIN);
         let m = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 2,
             body: "hello".into(),
             prefix: Some("Kupo says, ".into()),
@@ -715,6 +716,7 @@ mod tests {
         let mut w = ChatInterface::new(window::MAIN);
         w.log = vec![(2, "x".repeat(9_999))];
         let m = ChatMessage {
+            feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
             ty: 2,
             body: "y".into(),
             window: 0,

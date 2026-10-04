@@ -651,6 +651,7 @@ impl World {
             // [`messages::SELECT_YOUR_TARGET_BEFORE_USING`].
             self.targeting_object = item;
             out.emit(Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                 channel: crate::chat::REFUSAL_CHANNEL,
                 text: messages::choose_a_target_for(&self.notice_name(item)),
             });
@@ -666,6 +667,7 @@ impl World {
             // It is *after* `using_item` because the client's is: the tail of `using_item` can
             // open the object as a ground container, and its notices are raised first.
             out.emit(Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                 channel: crate::chat::REFUSAL_CHANNEL,
                 text: self.using_notice(item),
             });
@@ -719,6 +721,7 @@ impl World {
             out.emit(Notice::DisplayString {
                 channel: crate::chat::REFUSAL_CHANNEL,
                 text,
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
             });
         }
         UseOutcome::Refused(reason)
@@ -788,6 +791,7 @@ impl World {
         // does carry one behaves as retail does.
         let name = self.notice_name(item);
         out.emit(Notice::DisplayString {
+            feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
             channel: crate::chat::REFUSAL_CHANNEL,
             text: messages::using_the(&name),
         });
@@ -970,6 +974,7 @@ impl World {
             // Retail's text: compare the mode with noncombat (1), then display
             // "You need to be in peace mode to trade." on channel 0x1A.
             out.emit(Notice::DisplayString {
+                feedback: dereth_client_contract::feedback::Feedback::WARNING,
                 channel: crate::trade::TRADE_MESSAGE_CHANNEL,
                 text: crate::trade::messages::PEACE_MODE.to_string(),
             });
@@ -1429,6 +1434,7 @@ impl World {
             } else {
                 // Retail's already-trading literal, an ordinary wide literal sent on channel 0x1A.
                 out.emit(Notice::DisplayString {
+                    feedback: dereth_client_contract::feedback::Feedback::WARNING,
                     channel: crate::trade::TRADE_MESSAGE_CHANNEL,
                     text: crate::trade::messages::ALREADY_TRADING.to_string(),
                 });
