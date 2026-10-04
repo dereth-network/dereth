@@ -448,6 +448,66 @@ fn a_wheel_click_over_the_scrollbar_itself_is_refused() {
     );
 }
 
+/// Behaviour: chargen.controls.wheel-over-scrollbars
+///
+/// Direct content-wheel input updates the linked text and the live thumb together, even while
+/// the scrollbar's message handler owns its behavior during the nested content notification.
+#[test]
+fn an_opted_in_content_bar_moves_text_and_thumb_once_and_back() {
+    use dereth_ui::widgets::scrollbar::{self, DirectWheel, Scrollbar};
+
+    let mut ui = UiSystem::new((800, 600));
+    let (_container, log, bar) = tree(&mut ui);
+    let layout = LayoutDesc {
+        did: DataId(0x2100_0001),
+        display_width: 800,
+        display_height: 600,
+        ..LayoutDesc::default()
+    };
+    let thumb = ui
+        .create_element(&NoAssets, &layout, &desc(1, ty::FIELD, 0, 0, 16, 20))
+        .unwrap()
+        .unwrap();
+    ui.set_parent(thumb, Some(bar));
+    ui.initialize_tree(thumb);
+    scrollbar::update_layout_of(&mut ui, bar);
+    ui.node_mut(bar)
+        .unwrap()
+        .behaviour
+        .as_mut()
+        .unwrap()
+        .as_any_mut()
+        .unwrap()
+        .downcast_mut::<Scrollbar>()
+        .unwrap()
+        .direct_wheel = Some(DirectWheel::Content);
+
+    let before = ui.screen_box(thumb);
+    assert_eq!(offset(&mut ui, log), (0, 0));
+    assert_eq!(Scrollbar::position(&ui, bar), 0.0);
+    ui.mouse_move(LocalTime(1.0), 207, 50);
+    assert_eq!(ui.hit_test_screen(207, 50), Some(bar));
+    ui.mouse_down(action::WHEEL_DOWN, 207, 50);
+    assert_eq!(offset(&mut ui, log), (0, LINE), "one line, not two");
+    assert!((Scrollbar::position(&ui, bar) - 16.0 / 236.0).abs() < 0.00001);
+    let after = ui.screen_box(thumb);
+    assert_eq!(
+        after.y0,
+        before.y0 + 5,
+        "the thumb follows the new position"
+    );
+    assert_eq!((after.width(), after.height()), (16, 20));
+
+    ui.mouse_down(action::WHEEL_UP, 207, 50);
+    assert_eq!(offset(&mut ui, log), (0, 0));
+    assert_eq!(Scrollbar::position(&ui, bar), 0.0);
+    assert_eq!(
+        ui.screen_box(thumb),
+        before,
+        "the inverse restores the thumb"
+    );
+}
+
 /// The same guard, asserted directly on [`Scrollable::wheel_target`]'s contract.
 ///
 /// **The end-to-end test above passes for two reasons and this one isolates the guard.** A press
