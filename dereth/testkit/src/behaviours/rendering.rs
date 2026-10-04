@@ -690,6 +690,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.particles.an-emitter-s-particles-take-their-place-among-the-parts",
+        says: "Smoke, sparks and other particles are drawn in their place by distance among the \
+               creatures' and objects' translucent parts, so a chimney's smoke behind a \
+               lifestone's crystal shows under the crystal and never over it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PARTICLE-ORDER"),
+        station: "dereth-client::gpu::rendering::object_part_submission::a_far_emitter_s_blended_particles_draw_before_a_nearer_blended_object",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.particles.emitters-in-unreached-cells-are-not-drawn",
         says: "From a villa's courtyard, the particle effects in basement rooms that cannot be \
                seen from there add nothing to the picture: the courtyard floor looks the same with \

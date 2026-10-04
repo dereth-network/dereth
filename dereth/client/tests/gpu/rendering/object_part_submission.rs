@@ -1273,3 +1273,92 @@ fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_
         "no flush held both a soft second pass and a blended part, so the order was never tested"
     );
 }
+
+/// Behaviour: rendering.particles.an-emitter-s-particles-take-their-place-among-the-parts
+/// **Rejecting.** An emitter's particles are parts of their object: they are sorted by viewer
+/// distance with every other part and go out through the same alpha list, so a far chimney's
+/// blended smoke is drawn before a nearer blended object and never over it. Drawn after the whole
+/// object pass, a far particle would follow every nearer blended part, which writes no depth to
+/// stop it.
+#[test]
+fn a_far_emitter_s_blended_particles_draw_before_a_nearer_blended_object() {
+    use dereth_client::world::AlphaDraw;
+    let store = store();
+    let mut gpu = warp();
+    for multi_pass_alpha in [false, true] {
+        // A fresh replay per scene: the object stream hands its objects to the scene that
+        // syncs it.
+        let mut r = populated("first-login-walk-jump");
+        let cfg = SceneConfig {
+            landblock: r.landblock,
+            character: false,
+            land_radius: 1,
+            // The scripted statics around the town are the chimneys and their smoke.
+            scenery_radius: 1,
+            particles: true,
+            part_degrade_levels: true,
+            part_billboards: true,
+            part_depth_sort: true,
+            part_alpha_lists: true,
+            object_viewcone: false,
+            render: dereth_client::render_prefs::RenderPreferences {
+                multi_pass_alpha,
+                ..dereth_client::render_prefs::RenderPreferences::default()
+            },
+            ..SceneConfig::default()
+        };
+        let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
+        scene.set_weather_enabled(false);
+        let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
+        let mut crossings = 0usize;
+        for (i, dz) in [8.0f32, 25.0, 80.0].into_iter().enumerate() {
+            scene.camera.position = Vec3::new(centre.x, centre.y, centre.z + dz);
+            // Several frames, so the emitters have particles alive.
+            for f in 0..20 {
+                // LINT-OK: a station and frame index.
+                #[allow(clippy::cast_precision_loss)]
+                let t = 50.0 + i as f64 + f64::from(f) * 0.1;
+                frame(&store, &mut gpu, &mut scene, &mut r.objects, t);
+            }
+            let blend = scene.drawn_blend_order();
+            let particles = blend
+                .iter()
+                .filter(|(k, _)| *k == AlphaDraw::ParticleBlend)
+                .count();
+            let parts = blend.len() - particles;
+            eprintln!(
+                "  multipass {multi_pass_alpha}, +{dz:3.0} m: {parts} blended part draw(s), \
+                 {particles} blended particle draw(s)"
+            );
+            // Far to near, parts and particles together, in every frame's blend list.
+            for w in blend.windows(2) {
+                assert!(
+                    w[0].1 >= w[1].1,
+                    "station {i}: {:?} at {:.2} m was drawn before {:?} at {:.2} m",
+                    w[0].0,
+                    w[0].1,
+                    w[1].0,
+                    w[1].1
+                );
+            }
+            // How many blended particles lie farther than some blended part of the same frame:
+            // the case drawing particles last gets wrong.
+            let nearest_part = blend
+                .iter()
+                .filter(|(k, _)| *k == AlphaDraw::PartBlend)
+                .map(|(_, d)| *d)
+                .reduce(f32::min);
+            if let Some(near) = nearest_part {
+                crossings += blend
+                    .iter()
+                    .filter(|(k, d)| *k == AlphaDraw::ParticleBlend && *d > near)
+                    .count();
+            }
+        }
+        assert!(
+            crossings > 0,
+            "multipass {multi_pass_alpha}: no blended particle lay beyond a blended part, so the \
+             order was never tested"
+        );
+    }
+}
