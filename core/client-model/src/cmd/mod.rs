@@ -1,5 +1,5 @@
 //! The chat command interpreter: a line beginning `/` or `@` is normalised, tokenised, and looked
-//! up case-insensitively in a table of ~130 client-side handlers.
+//! up case-insensitively in a table of command names and aliases.
 //!
 //! These commands belong to chat and communication. Movement commands are interpreted
 //! by the runtime's movement handler, while dotted console names are registered in `console`.
@@ -18,4 +18,4 @@ pub mod table;
 
 pub use help::HelpType;
 pub use interp::{CommandInterp, CommandOutcome, TalkFocus, NOT_A_VALID_COMMAND};
-pub use table::CommandEntry;
+pub use table::{CommandEntry, CommandHandler};

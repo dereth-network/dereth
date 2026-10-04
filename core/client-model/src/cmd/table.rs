@@ -1,7 +1,7 @@
 //! The command table.
 //!
 //! Taken from the retail client's own registration sequences: the first registration pass
-//! (**116** entries) and the
+//! (**115** entries) and the
 //! Turbine chat pass (**15** more, added once the chat client connects).
 //!
 //! Order is load-bearing. Registration is "add if not already present", so the **first
@@ -18,21 +18,87 @@
 //! a summary, and typing it as a command falls through to the channel command and then to the
 //! server.
 
+/// The local meaning selected by an exact command-table lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CommandHandler {
+    Afk,
+    Age,
+    Allegiance,
+    AllegianceBroadcast,
+    AllegianceHometown,
+    Birth,
+    ChannelShortcut,
+    Chat,
+    Clist,
+    Consent,
+    Corpse,
+    Day,
+    Die,
+    Emote,
+    Emotes,
+    Endurance,
+    Fillcomps,
+    Filter,
+    Framerate,
+    Friends,
+    FriendsAdd,
+    FriendsRemove,
+    General,
+    Guild,
+    Help,
+    House,
+    HouseRecall,
+    Hslist,
+    Index,
+    Join,
+    Leave,
+    Lfg,
+    Lifestone,
+    Loadautoui,
+    Loadfile,
+    Loadui,
+    Loc,
+    Lockui,
+    Log,
+    MansionRecall,
+    Marketplace,
+    Messagetypes,
+    Motd,
+    Notell,
+    Off,
+    Olthoi,
+    On,
+    Permit,
+    Pkarena,
+    Pklarena,
+    Pklite,
+    Render,
+    Reply,
+    Retell,
+    Roleplay,
+    Saveautoui,
+    Saveui,
+    Say,
+    Society,
+    Speaker,
+    Squelch,
+    Tell,
+    Title,
+    Trade,
+    Unfilter,
+    Unsquelch,
+    Version,
+}
+
 /// One command-table record (24 bytes in the client): the name, the handler and the help text.
 ///
-/// The handler and help keys are this client's own names, never shown to the player. A handler
-/// key is the full command word the handler runs, as typed (`allegiance`, `friends_add`,
-/// `messagetypes`); a handler reached only through abbreviations is spelled out
-/// (`allegiance_broadcast` for `@ab`, `house_recall` for `@hr`, `mansion_recall` for `@hom`), the
-/// Turbine-chat allegiance channel is `guild` (its full word, `@guild`), and the one handler behind
-/// the fellowship and allegiance channel words (`@f`, `@m`, `@p`, `@v`, …) is `channel_shortcut`.
-/// A help key is `help_` plus its handler's key (`help_house`), or plus the group's name for a
-/// help group (`help_commands`, `help_status`).
+/// Aliases share a handler meaning while retaining their own command spelling and help key.
+/// Help keys are internal strings used to look up command or group descriptions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandEntry {
     pub name: &'static str,
     /// `None` is a real value: a help-group entry has no handler.
-    pub handler: Option<&'static str>,
+    pub handler: Option<CommandHandler>,
     pub help: Option<&'static str>,
 }
 
@@ -40,12 +106,12 @@ pub struct CommandEntry {
 pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     CommandEntry {
         name: "?",
-        handler: Some("help"),
+        handler: Some(CommandHandler::Help),
         help: None,
     },
     CommandEntry {
         name: "help",
-        handler: Some("help"),
+        handler: Some(CommandHandler::Help),
         help: None,
     },
     CommandEntry {
@@ -60,37 +126,37 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "allegiance",
-        handler: Some("allegiance"),
+        handler: Some(CommandHandler::Allegiance),
         help: Some("help_allegiance"),
     },
     CommandEntry {
         name: "all",
-        handler: Some("allegiance"),
+        handler: Some(CommandHandler::Allegiance),
         help: Some("help_allegiance"),
     },
     CommandEntry {
         name: "ab",
-        handler: Some("allegiance_broadcast"),
+        handler: Some(CommandHandler::AllegianceBroadcast),
         help: Some("help_allegiance"),
     },
     CommandEntry {
         name: "alh",
-        handler: Some("allegiance_hometown"),
+        handler: Some(CommandHandler::AllegianceHometown),
         help: Some("help_allegiance"),
     },
     CommandEntry {
         name: "ah",
-        handler: Some("allegiance_hometown"),
+        handler: Some(CommandHandler::AllegianceHometown),
         help: Some("help_allegiance"),
     },
     CommandEntry {
         name: "motd",
-        handler: Some("motd"),
+        handler: Some(CommandHandler::Motd),
         help: Some("help_motd"),
     },
     CommandEntry {
         name: "speaker",
-        handler: Some("speaker"),
+        handler: Some(CommandHandler::Speaker),
         help: Some("help_speaker"),
     },
     CommandEntry {
@@ -100,107 +166,107 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "a",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "co-vassals",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "covassals",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "covassal",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "c",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "fellowship",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "fellows",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "fellow",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "f",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "group",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: Some("help_channel_shortcut"),
     },
     CommandEntry {
         name: "g",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "party",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "monarch",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "m",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "patron",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "p",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "vassals",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "vassal",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "v",
-        handler: Some("channel_shortcut"),
+        handler: Some(CommandHandler::ChannelShortcut),
         help: None,
     },
     CommandEntry {
         name: "join",
-        handler: Some("join"),
+        handler: Some(CommandHandler::Join),
         help: Some("help_join"),
     },
     CommandEntry {
         name: "leave",
-        handler: Some("leave"),
+        handler: Some(CommandHandler::Leave),
         help: Some("help_leave"),
     },
     CommandEntry {
@@ -210,27 +276,27 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "chat",
-        handler: Some("chat"),
+        handler: Some(CommandHandler::Chat),
         help: Some("help_chat"),
     },
     CommandEntry {
         name: "notell",
-        handler: Some("notell"),
+        handler: Some(CommandHandler::Notell),
         help: Some("help_notell"),
     },
     CommandEntry {
         name: "reply",
-        handler: Some("reply"),
+        handler: Some(CommandHandler::Reply),
         help: Some("help_reply"),
     },
     CommandEntry {
         name: "r",
-        handler: Some("reply"),
+        handler: Some(CommandHandler::Reply),
         help: Some("help_reply"),
     },
     CommandEntry {
         name: "rp",
-        handler: Some("reply"),
+        handler: Some(CommandHandler::Reply),
         help: Some("help_reply"),
     },
     CommandEntry {
@@ -245,52 +311,52 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "retell",
-        handler: Some("retell"),
+        handler: Some(CommandHandler::Retell),
         help: Some("help_retell"),
     },
     CommandEntry {
         name: "rt",
-        handler: Some("retell"),
+        handler: Some(CommandHandler::Retell),
         help: Some("help_retell"),
     },
     CommandEntry {
         name: "say",
-        handler: Some("say"),
+        handler: Some(CommandHandler::Say),
         help: Some("help_say"),
     },
     CommandEntry {
         name: "s",
-        handler: Some("say"),
+        handler: Some(CommandHandler::Say),
         help: Some("help_say"),
     },
     CommandEntry {
         name: "tell",
-        handler: Some("tell"),
+        handler: Some(CommandHandler::Tell),
         help: Some("help_tell"),
     },
     CommandEntry {
         name: "t",
-        handler: Some("tell"),
+        handler: Some(CommandHandler::Tell),
         help: Some("help_tell"),
     },
     CommandEntry {
         name: "send",
-        handler: Some("tell"),
+        handler: Some(CommandHandler::Tell),
         help: Some("help_tell"),
     },
     CommandEntry {
         name: "whisper",
-        handler: Some("tell"),
+        handler: Some(CommandHandler::Tell),
         help: Some("help_tell"),
     },
     CommandEntry {
         name: "w",
-        handler: Some("tell"),
+        handler: Some(CommandHandler::Tell),
         help: Some("help_tell"),
     },
     CommandEntry {
         name: "afk",
-        handler: Some("afk"),
+        handler: Some(CommandHandler::Afk),
         help: Some("help_afk"),
     },
     CommandEntry {
@@ -300,192 +366,192 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "consent",
-        handler: Some("consent"),
+        handler: Some(CommandHandler::Consent),
         help: Some("help_consent"),
     },
     CommandEntry {
         name: "corpse",
-        handler: Some("corpse"),
+        handler: Some(CommandHandler::Corpse),
         help: Some("help_corpse"),
     },
     CommandEntry {
         name: "cor",
-        handler: Some("corpse"),
+        handler: Some(CommandHandler::Corpse),
         help: Some("help_corpse"),
     },
     CommandEntry {
         name: "die",
-        handler: Some("die"),
+        handler: Some(CommandHandler::Die),
         help: Some("help_die"),
     },
     CommandEntry {
         name: "lifestone",
-        handler: Some("lifestone"),
+        handler: Some(CommandHandler::Lifestone),
         help: Some("help_lifestone"),
     },
     CommandEntry {
         name: "lif",
-        handler: Some("lifestone"),
+        handler: Some(CommandHandler::Lifestone),
         help: Some("help_lifestone"),
     },
     CommandEntry {
         name: "ls",
-        handler: Some("lifestone"),
+        handler: Some(CommandHandler::Lifestone),
         help: Some("help_lifestone"),
     },
     CommandEntry {
         name: "marketplace",
-        handler: Some("marketplace"),
+        handler: Some(CommandHandler::Marketplace),
         help: Some("help_marketplace"),
     },
     CommandEntry {
         name: "mar",
-        handler: Some("marketplace"),
+        handler: Some(CommandHandler::Marketplace),
         help: Some("help_marketplace"),
     },
     CommandEntry {
         name: "mp",
-        handler: Some("marketplace"),
+        handler: Some(CommandHandler::Marketplace),
         help: Some("help_marketplace"),
     },
     CommandEntry {
         name: "permit",
-        handler: Some("permit"),
+        handler: Some(CommandHandler::Permit),
         help: Some("help_permit"),
     },
     CommandEntry {
         name: "pkarena",
-        handler: Some("pkarena"),
+        handler: Some(CommandHandler::Pkarena),
         help: Some("help_pkarena"),
     },
     CommandEntry {
         name: "pka",
-        handler: Some("pkarena"),
+        handler: Some(CommandHandler::Pkarena),
         help: Some("help_pkarena"),
     },
     CommandEntry {
         name: "pklarena",
-        handler: Some("pklarena"),
+        handler: Some(CommandHandler::Pklarena),
         help: Some("help_pklarena"),
     },
     CommandEntry {
         name: "pla",
-        handler: Some("pklarena"),
+        handler: Some(CommandHandler::Pklarena),
         help: Some("help_pklarena"),
     },
     CommandEntry {
         name: "e",
-        handler: Some("emote"),
+        handler: Some(CommandHandler::Emote),
         help: Some("help_emote"),
     },
     CommandEntry {
         name: "em",
-        handler: Some("emote"),
+        handler: Some(CommandHandler::Emote),
         help: Some("help_emote"),
     },
     CommandEntry {
         name: "emote",
-        handler: Some("emote"),
+        handler: Some(CommandHandler::Emote),
         help: Some("help_emote"),
     },
     CommandEntry {
         name: "me",
-        handler: Some("emote"),
+        handler: Some(CommandHandler::Emote),
         help: Some("help_emote"),
     },
     CommandEntry {
         name: "emotes",
-        handler: Some("emotes"),
+        handler: Some(CommandHandler::Emotes),
         help: Some("help_emotes"),
     },
     CommandEntry {
         name: "fillcomps",
-        handler: Some("fillcomps"),
+        handler: Some(CommandHandler::Fillcomps),
         help: Some("help_fillcomps"),
     },
     CommandEntry {
         name: "loadfile",
-        handler: Some("loadfile"),
+        handler: Some(CommandHandler::Loadfile),
         help: Some("help_loadfile"),
     },
     CommandEntry {
         name: "friends",
-        handler: Some("friends"),
+        handler: Some(CommandHandler::Friends),
         help: Some("help_friends"),
     },
     CommandEntry {
         name: "friends_add",
-        handler: Some("friends_add"),
+        handler: Some(CommandHandler::FriendsAdd),
         help: Some("help_friends"),
     },
     CommandEntry {
         name: "friends_remove",
-        handler: Some("friends_remove"),
+        handler: Some(CommandHandler::FriendsRemove),
         help: Some("help_friends"),
     },
     CommandEntry {
         name: "house",
-        handler: Some("house"),
+        handler: Some(CommandHandler::House),
         help: Some("help_house"),
     },
     CommandEntry {
         name: "hou",
-        handler: Some("house"),
+        handler: Some(CommandHandler::House),
         help: Some("help_house"),
     },
     CommandEntry {
         name: "hslist",
-        handler: Some("hslist"),
+        handler: Some(CommandHandler::Hslist),
         help: Some("help_hslist"),
     },
     CommandEntry {
         name: "hor",
-        handler: Some("house_recall"),
+        handler: Some(CommandHandler::HouseRecall),
         help: Some("help_house"),
     },
     CommandEntry {
         name: "hr",
-        handler: Some("house_recall"),
+        handler: Some(CommandHandler::HouseRecall),
         help: Some("help_house"),
     },
     CommandEntry {
         name: "hom",
-        handler: Some("mansion_recall"),
+        handler: Some(CommandHandler::MansionRecall),
         help: Some("help_house"),
     },
     CommandEntry {
         name: "hoa",
-        handler: Some("mansion_recall"),
+        handler: Some(CommandHandler::MansionRecall),
         help: Some("help_house"),
     },
     CommandEntry {
         name: "squelch",
-        handler: Some("squelch"),
+        handler: Some(CommandHandler::Squelch),
         help: Some("help_squelch"),
     },
     CommandEntry {
         name: "unsquelch",
-        handler: Some("unsquelch"),
+        handler: Some(CommandHandler::Unsquelch),
         help: Some("help_squelch"),
     },
     CommandEntry {
         name: "messagetypes",
-        handler: Some("messagetypes"),
+        handler: Some(CommandHandler::Messagetypes),
         help: Some("help_messagetypes"),
     },
     CommandEntry {
         name: "message_types",
-        handler: Some("messagetypes"),
+        handler: Some(CommandHandler::Messagetypes),
         help: Some("help_messagetypes"),
     },
     CommandEntry {
         name: "msgtypes",
-        handler: Some("messagetypes"),
+        handler: Some(CommandHandler::Messagetypes),
         help: Some("help_messagetypes"),
     },
     CommandEntry {
         name: "msg_types",
-        handler: Some("messagetypes"),
+        handler: Some(CommandHandler::Messagetypes),
         help: Some("help_messagetypes"),
     },
     CommandEntry {
@@ -495,77 +561,77 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "age",
-        handler: Some("age"),
+        handler: Some(CommandHandler::Age),
         help: Some("help_age"),
     },
     CommandEntry {
         name: "birth",
-        handler: Some("birth"),
+        handler: Some(CommandHandler::Birth),
         help: Some("help_birth"),
     },
     CommandEntry {
         name: "day",
-        handler: Some("day"),
+        handler: Some(CommandHandler::Day),
         help: Some("help_day"),
     },
     CommandEntry {
         name: "endurance",
-        handler: Some("endurance"),
+        handler: Some(CommandHandler::Endurance),
         help: Some("help_endurance"),
     },
     CommandEntry {
         name: "framerate",
-        handler: Some("framerate"),
+        handler: Some(CommandHandler::Framerate),
         help: Some("help_framerate"),
     },
     CommandEntry {
         name: "loc",
-        handler: Some("loc"),
+        handler: Some(CommandHandler::Loc),
         help: Some("help_loc"),
     },
     CommandEntry {
         name: "pklite",
-        handler: Some("pklite"),
+        handler: Some(CommandHandler::Pklite),
         help: Some("help_pklite"),
     },
     CommandEntry {
         name: "pkl",
-        handler: Some("pklite"),
+        handler: Some(CommandHandler::Pklite),
         help: Some("help_pklite"),
     },
     CommandEntry {
         name: "render",
-        handler: Some("render"),
+        handler: Some(CommandHandler::Render),
         help: None,
     },
     CommandEntry {
         name: "version",
-        handler: Some("version"),
+        handler: Some(CommandHandler::Version),
         help: Some("help_version"),
     },
     CommandEntry {
         name: "saveui",
-        handler: Some("saveui"),
+        handler: Some(CommandHandler::Saveui),
         help: Some("help_saveui"),
     },
     CommandEntry {
         name: "loadui",
-        handler: Some("loadui"),
+        handler: Some(CommandHandler::Loadui),
         help: Some("help_loadui"),
     },
     CommandEntry {
         name: "saveautoui",
-        handler: Some("saveautoui"),
+        handler: Some(CommandHandler::Saveautoui),
         help: Some("help_saveautoui"),
     },
     CommandEntry {
         name: "loadautoui",
-        handler: Some("loadautoui"),
+        handler: Some(CommandHandler::Loadautoui),
         help: Some("help_loadautoui"),
     },
     CommandEntry {
         name: "lockui",
-        handler: Some("lockui"),
+        handler: Some(CommandHandler::Lockui),
         help: Some("help_lockui"),
     },
     CommandEntry {
@@ -575,42 +641,42 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
     },
     CommandEntry {
         name: "filter",
-        handler: Some("filter"),
+        handler: Some(CommandHandler::Filter),
         help: Some("help_filter"),
     },
     CommandEntry {
         name: "unfilter",
-        handler: Some("unfilter"),
+        handler: Some(CommandHandler::Unfilter),
         help: Some("help_unfilter"),
     },
     CommandEntry {
         name: "log",
-        handler: Some("log"),
+        handler: Some(CommandHandler::Log),
         help: Some("help_log"),
     },
     CommandEntry {
         name: "title",
-        handler: Some("title"),
+        handler: Some(CommandHandler::Title),
         help: Some("help_title"),
     },
     CommandEntry {
         name: "index",
-        handler: Some("index"),
+        handler: Some(CommandHandler::Index),
         help: None,
     },
     CommandEntry {
         name: "clist",
-        handler: Some("clist"),
+        handler: Some(CommandHandler::Clist),
         help: None,
     },
     CommandEntry {
         name: "on",
-        handler: Some("on"),
+        handler: Some(CommandHandler::On),
         help: None,
     },
     CommandEntry {
         name: "off",
-        handler: Some("off"),
+        handler: Some(CommandHandler::Off),
         help: None,
     },
 ];
@@ -620,77 +686,77 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
 pub const TURBINE_CHAT_COMMANDS: &[CommandEntry] = &[
     CommandEntry {
         name: "a",
-        handler: Some("guild"),
+        handler: Some(CommandHandler::Guild),
         help: Some("help_guild"),
     },
     CommandEntry {
         name: "guild",
-        handler: Some("guild"),
+        handler: Some(CommandHandler::Guild),
         help: Some("help_guild"),
     },
     CommandEntry {
         name: "gu",
-        handler: Some("guild"),
+        handler: Some(CommandHandler::Guild),
         help: Some("help_guild"),
     },
     CommandEntry {
         name: "general",
-        handler: Some("general"),
+        handler: Some(CommandHandler::General),
         help: Some("help_general"),
     },
     CommandEntry {
         name: "cg",
-        handler: Some("general"),
+        handler: Some(CommandHandler::General),
         help: Some("help_general"),
     },
     CommandEntry {
         name: "trade",
-        handler: Some("trade"),
+        handler: Some(CommandHandler::Trade),
         help: Some("help_trade"),
     },
     CommandEntry {
         name: "ct",
-        handler: Some("trade"),
+        handler: Some(CommandHandler::Trade),
         help: Some("help_trade"),
     },
     CommandEntry {
         name: "lfg",
-        handler: Some("lfg"),
+        handler: Some(CommandHandler::Lfg),
         help: Some("help_lfg"),
     },
     CommandEntry {
         name: "clfg",
-        handler: Some("lfg"),
+        handler: Some(CommandHandler::Lfg),
         help: Some("help_lfg"),
     },
     CommandEntry {
         name: "roleplay",
-        handler: Some("roleplay"),
+        handler: Some(CommandHandler::Roleplay),
         help: Some("help_roleplay"),
     },
     CommandEntry {
         name: "crp",
-        handler: Some("roleplay"),
+        handler: Some(CommandHandler::Roleplay),
         help: Some("help_roleplay"),
     },
     CommandEntry {
         name: "society",
-        handler: Some("society"),
+        handler: Some(CommandHandler::Society),
         help: Some("help_society"),
     },
     CommandEntry {
         name: "soc",
-        handler: Some("society"),
+        handler: Some(CommandHandler::Society),
         help: Some("help_society"),
     },
     CommandEntry {
         name: "olthoi",
-        handler: Some("olthoi"),
+        handler: Some(CommandHandler::Olthoi),
         help: Some("help_olthoi"),
     },
     CommandEntry {
         name: "o",
-        handler: Some("olthoi"),
+        handler: Some(CommandHandler::Olthoi),
         help: Some("help_olthoi"),
     },
 ];

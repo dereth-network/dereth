@@ -3,21 +3,18 @@
 //!
 //! # Why this file exists
 //!
-//! [`crate::cmd::table::INITIALIZE_COMMANDS`] names **122** handlers across 131 registered names.
-//! `@tell`/`@reply`/`@retell`, the pre-Turbine-chat `@a` channel handler, `@friends*`, the seven
-//! Turbine channels, `@loc`, `@e` and `@allegiance`/`@motd`/`@ah`/`@ab` live elsewhere. Every name
-//! the table registers reaches its handler; `chat_command`'s catch-all, which would count a name
-//! with none in `chat_commands_unimplemented` and answer *"That is not a valid command."*, is a
-//! tripwire only.
+//! The command tables map names and aliases to typed handler meanings. Character queries,
+//! communication settings and teleport commands are implemented here; other handlers delegate
+//! to their owning models through the runtime's exhaustive command dispatch.
 //!
 //! The chat entry is the whole production path for every event below. In retail each
 //! character, communication, and house-teleport event below has exactly one caller: its
 //! corresponding chat-command handler.
 //!
-//! These handlers query character facts, clear local chat, manage channel membership
+//! These handlers query character facts, manage channel membership
 //! and global squelch, teleport to the supported destinations, manage player permissions
 //! and consent, set away status, and request suicide after confirmation. Local-only
-//! commands update the chat buffer or display derived character information without a
+//! commands display derived character information without a
 //! request. Each networked command has exactly one request-producing chat entry.
 //!
 //! # The three shapes, and the `bool` that decides what a refusal looks like

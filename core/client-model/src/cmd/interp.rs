@@ -3,7 +3,7 @@
 //! re-join. An unrecognised command falls through to the server verbatim, **confirmed live**:
 //! a command only the server knows produced the server's answer in the chat window.
 
-use super::table::{CommandEntry, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS};
+use super::table::{CommandEntry, CommandHandler, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS};
 
 /// The talk-focus enumeration, with values 1 through 13.
 ///
@@ -112,12 +112,10 @@ impl TalkFocus {
 /// What `on_chat_command` decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandOutcome {
-    /// The verb resolved to a registered handler. The handler name is the client's own
-    /// handler name, so a caller can dispatch on it without this crate knowing what a
-    /// command *does*.
+    /// The verb resolved to a registered local meaning; this crate does not execute it.
     Handled {
         verb: String,
-        handler: &'static str,
+        handler: CommandHandler,
         args: Vec<String>,
     },
     /// Everything unrecognised. The **whole original line**, `@` and all, goes to the server as
@@ -183,7 +181,7 @@ impl Default for CommandInterp {
 }
 
 impl CommandInterp {
-    /// The first command registration pass -- 116 entries, first registration
+    /// The first command registration pass -- 115 entries, first registration
     /// of a name wins.
     #[must_use]
     pub fn new() -> Self {
@@ -401,6 +399,25 @@ mod tests {
             c.on_chat_command("/smite", 1, TalkFocus::Say),
             CommandOutcome::ForwardVerbatim("@smite".into())
         );
+        for group in [
+            "commands",
+            "allegiances",
+            "channels",
+            "chatting",
+            "mr",
+            "pr",
+            "death",
+            "status",
+            "text",
+        ] {
+            assert_eq!(c.lookup(group).unwrap().handler, None);
+            let line = format!("@{group}   retained spacing");
+            assert_eq!(
+                c.on_chat_command(&line, 1, TalkFocus::Say),
+                CommandOutcome::ForwardVerbatim(line)
+            );
+        }
+        assert!(c.lookup("clear").is_none());
         // GM commands, and every access level, go the same way.
         assert_eq!(
             c.on_chat_command("@teleto somewhere", 1, TalkFocus::Say),
@@ -412,10 +429,14 @@ mod tests {
     #[test]
     fn abbreviations_are_not_prefixes() {
         let mut c = CommandInterp::new();
-        assert!(matches!(
-            c.on_chat_command("@all", 1, TalkFocus::Say),
-            CommandOutcome::Handled { .. }
-        ));
+        assert_eq!(
+            c.on_chat_command("@ALL chat on", 1, TalkFocus::Say),
+            CommandOutcome::Handled {
+                verb: "ALL".into(),
+                handler: CommandHandler::Allegiance,
+                args: vec!["chat".into(), "on".into()],
+            }
+        );
         assert!(matches!(
             c.on_chat_command("@allegi", 1, TalkFocus::Say),
             CommandOutcome::ForwardVerbatim(_)
@@ -427,15 +448,25 @@ mod tests {
     #[test]
     fn turbine_chat_replaces_only_the_a_entry() {
         let mut c = CommandInterp::new();
-        assert_eq!(c.lookup("a").unwrap().handler, Some("channel_shortcut"));
+        assert_eq!(
+            c.lookup("a").unwrap().handler,
+            Some(CommandHandler::ChannelShortcut)
+        );
         let before = c.entries().len();
         c.add_turbine_chat_commands();
-        assert_eq!(c.lookup("a").unwrap().handler, Some("guild"));
+        assert_eq!(c.lookup("a").unwrap().handler, Some(CommandHandler::Guild));
         // 15 registrations, one of which replaces rather than adds.
         assert_eq!(c.entries().len(), before + 14);
-        assert_eq!(c.lookup("guild").unwrap().handler, Some("guild"));
+        assert_eq!(
+            c.lookup("guild").unwrap().handler,
+            Some(CommandHandler::Guild)
+        );
         // `o` was not previously registered, so it is added.
-        assert_eq!(c.lookup("o").unwrap().handler, Some("olthoi"));
+        assert_eq!(c.lookup("o").unwrap().handler, Some(CommandHandler::Olthoi));
+        c.add_turbine_chat_commands();
+        assert_eq!(c.entries().len(), before + 14);
+        assert_eq!(c.entries().iter().filter(|e| e.name == "a").count(), 1);
+        assert_eq!(c.lookup("A").unwrap().handler, Some(CommandHandler::Guild));
     }
 
     /// Oracle: the recovered command-interpreter behavior §2 — only windows 1 and 8 are routed by talk focus.
