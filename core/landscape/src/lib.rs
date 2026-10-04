@@ -2,9 +2,8 @@
 //! detail, and which way each one stitches to its neighbours.
 //!
 //! **Depends on** no other workspace crate. **Used by** the client runtime's world streamer
-//! (`dereth-client-runtime`), which keeps the window resident as the viewer moves; world drawing
-//! (`dereth-world-render`), which builds each block's mesh at the detail and stitch direction the
-//! window assigned; and the SDK (`dereth-client-sdk`).
+//! (`dereth-client-runtime`), which keeps the window resident as the viewer moves, and the SDK
+//! (`dereth-client-sdk`).
 //!
 //! **Must never** draw, read a file or know about a device: it is index arithmetic over the
 //! window's own slots, and a slot's geometry is the caller's own type.

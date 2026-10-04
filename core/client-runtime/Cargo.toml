@@ -54,11 +54,8 @@ dereth-physics = { path = "../physics" }
 # these.
 dereth-client-contract = { path = "../client-contract" }
 # `teleport.rs` names the two portal sound ids. `dereth-audio` is the mixer and the
-# decoders; the device is `cpal`, which is `dereth-client`'s own dependency and not this crate's.
+# decoders; the device is `cpal`, which is `dereth-desktop`'s dependency and not this crate's.
 dereth-audio   = { path = "../audio" }
-# The same glam the rest of the tree uses, so the `Mat4`/`Vec4` that cross the boundary are the
-# same types `dereth-client` and `dereth-render` see.
-glam = "0.30"
 thiserror.workspace = true
 # The runtime's progress lines, problems and frame-loop spans. A facade only: whoever runs the
 # runtime (the client, the headless binary) installs the subscriber that receives them.

@@ -61,7 +61,6 @@ dereth-physics = { path = "../../core/physics" }
 # `core/*/src` or `dereth/*/src` gains an edge, because nothing there may depend on this crate at all.
 dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
 dereth-transport = { path = "../../core/transport" }
-thiserror.workspace = true
 
 [dev-dependencies]
 dereth-chargen = { path = "../../core/chargen" }

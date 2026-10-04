@@ -38,7 +38,6 @@ zlib-rs.workspace = true
 [dev-dependencies]
 dereth-client-net = { workspace = true, features = ["test-support"] }
 dereth-dat = { path = "../../../core/dat", features = ["test-support"] }
-dereth-transport.workspace = true
 serde_json.workspace = true
 dereth-client-model.workspace = true
 # The flat-land + synthetic-setup helper (`empyrean_testkit::land`). Integration tests only; a

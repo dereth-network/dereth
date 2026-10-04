@@ -1,14 +1,10 @@
 //! The Dereth 3D client: the window, the graphics device, the renderer, the retail UI and the sound
 //! device, plugged into the runtime's frame loop.
 //!
-//! **Depends on** the client shell (`dereth-client-shell`) and the scene (`dereth-scene`), which are
-//! the application, the desktop host under them (`dereth-desktop`), and the runtime and everything
-//! they are built from (`dereth-client-runtime`, `dereth-client-model`, `dereth-client-contract`,
-//! `dereth-client-net`, `dereth-audio`, `dereth-primitives`, `dereth-dat`, `dereth-assets`,
-//! `dereth-physics`, `dereth-animation`, `dereth-transport`, `dereth-protocol`) and its own crates
-//! under `dereth/client/crates/`: drawing (`dereth-render`, `dereth-world-render`), the UI
-//! (`dereth-ui`, `dereth-ui-screens`), the device input (`dereth-input`) and the console
-//! (`dereth-console`); on Linux, the launcher's desktop-entry registration (`dereth-launch`).
+//! **Depends on** the client shell (`dereth-client-shell`), scene (`dereth-scene`) and desktop
+//! host (`dereth-desktop`), with renderer backend selection (`dereth-render`), the UI
+//! (`dereth-ui`), host input replay (`dereth-input`), shared types (`dereth-primitives`) and
+//! console (`dereth-console`). On Linux, `dereth-launch` registers its desktop entry.
 //! **Used by** nothing but the client's test kit (`dereth-testkit`).
 //!
 //! **Must never** do another crate's work: if something here starts decoding an asset, transforming

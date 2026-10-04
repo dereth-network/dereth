@@ -20,8 +20,6 @@ dereth-primitives.workspace = true
 # consumes decoded structs; it decodes nothing itself. The renderer is reached only through
 # the `RenderBackend` trait in dereth-primitives, and no renderer crate is linked.
 dereth-assets = { path = "../../../../core/assets" }
-# The landscape's block window: the ring and stitch direction each block's mesh is generated for.
-dereth-landscape = { path = "../../../../core/landscape" }
 # The landscape's geometry and static contents: every module of it is re-exported here at the path
 # it had before it moved.
 dereth-terrain = { path = "../../../../core/terrain" }

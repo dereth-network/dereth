@@ -35,7 +35,6 @@ dereth-input = { path = "../input" }
 [dev-dependencies]
 # Test-only: the acceptance gate reads the retail `client_local_English.dat` when it is present.
 dereth-dat = { path = "../../../../core/dat", features = ["test-support"] }
-serde_json = "1"
 
 [lints]
 workspace = true

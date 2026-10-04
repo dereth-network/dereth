@@ -1,7 +1,7 @@
 //! The corpus tool: records sessions through a logging proxy, pseudonymises them before they are
 //! kept, and generates the message corpus and capture index from them.
 //!
-//! **Depends on** `dereth-primitives`, the transport (`dereth-transport`), the codecs
+//! **Depends on** the transport (`dereth-transport`), the codecs
 //! (`dereth-protocol`) and the client's capture harness (`dereth-client-net`). **Used by** nothing:
 //! it is a tool, and its tests keep the committed corpus equal to what the recordings generate
 //! (`dereth-corpus corpus --check`).

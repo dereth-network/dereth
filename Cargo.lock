@@ -969,7 +969,6 @@ dependencies = [
  "embed-resource",
  "glam",
  "png",
- "thiserror 2.0.20",
  "tracing",
  "winit",
 ]
@@ -1029,7 +1028,6 @@ dependencies = [
  "dereth-terrain",
  "dereth-transport",
  "dereth-world-data",
- "glam",
  "thiserror 2.0.20",
  "tracing",
  "web-time 0.2.4",
@@ -1101,7 +1099,6 @@ version = "0.0.0"
 dependencies = [
  "ctrlc",
  "dereth-client-net",
- "dereth-primitives",
  "dereth-protocol",
  "dereth-transport",
  "serde_json",
@@ -1325,7 +1322,6 @@ dependencies = [
  "dereth-transport",
  "dereth-ui",
  "dereth-ui-screens",
- "thiserror 2.0.20",
  "winit",
 ]
 
@@ -1356,7 +1352,6 @@ dependencies = [
  "dereth-input",
  "dereth-primitives",
  "dereth-text",
- "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -1373,7 +1368,6 @@ dependencies = [
  "dereth-primitives",
  "dereth-rules",
  "dereth-ui",
- "thiserror 2.0.20",
  "tracing",
 ]
 
@@ -1438,7 +1432,6 @@ version = "0.0.0"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
- "dereth-landscape",
  "dereth-primitives",
  "dereth-terrain",
 ]
@@ -1669,7 +1662,6 @@ dependencies = [
  "empyrean-common",
  "empyrean-net",
  "log",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1760,7 +1752,6 @@ dependencies = [
  "dereth-primitives",
  "dereth-protocol",
  "dereth-rules",
- "dereth-transport",
  "dereth-world-data",
  "empyrean-common",
  "empyrean-content",

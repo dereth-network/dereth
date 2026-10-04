@@ -39,115 +39,51 @@ d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12
 # whose modules read the retail dats under $DERETH_TEST_DAT_DIR.
 retail-dats = []
 
-# The one crate that is an application. It may depend on many subsystems -- that is what an
-# application is -- which is exactly why nothing else may depend on it.
+# The product composes the desktop host and application shell. Tests additionally exercise
+# their shared subsystems directly.
 [dependencies]
 dereth-primitives.workspace = true
-# The contract this binary implements and dispatches -- `GameView` for `HudView` and
-# `GameSnapshot`, `UiRequest` for `run_ui_requests`. Naming it directly keeps this crate from
-# depending upward on `dereth-ui-screens` for it; the `dereth_ui_screens::view::…` paths also
-# resolve, through that crate's re-export.
-dereth-client-contract = { path = "../../core/client-contract" }
-# The headless half of the client. Its modules are re-exported from `lib.rs` under
-# `dereth_client::…` paths, so call sites and tests can name either.
-dereth-client-runtime = { path = "../../core/client-runtime" }
 dereth-render = { path = "crates/render", default-features = false, features = ["mock"] }
-# The application: the front end over the runtime, generic over its host, and the drawn world it
-# renders. This crate is the desktop host under them.
 dereth-client-shell = { path = "crates/shell", default-features = false }
-# The desktop host under it: the window, the pump, the folders, the sound device, the clipboard,
-# the cursors, the log and the crash log. This crate is the product on top of it.
 dereth-desktop = { path = "../desktop" }
 dereth-scene = { path = "crates/scene", default-features = false }
-dereth-dat    = { path = "../../core/dat" }
-dereth-assets = { path = "../../core/assets" }
-# Decides everything about the world's appearance: the mesh, the texture merge, the LOD window,
-# the lighting, the draw order and where scenery grows. This crate calls it and hands the result to
-# `dereth-render`; see the table at the top of src/world_scene.rs.
-dereth-world-render = { path = "crates/world-render" }
-# `dereth-physics` owns collision and movement; `dereth-animation` owns motion tables, animation
-# sequencing and the part array. They meet at `dereth_primitives::MotionSource`, which animation
-# implements and physics consumes; the client runtime supplies the two things neither owns -- a
-# `LandSource` over the retail cell dat and an `AnimAssets` over the retail portal dat -- and then
-# drives the pair once per frame.
-dereth-physics = { path = "../../core/physics" }
-dereth-animation    = { path = "../../core/animation" }
-# `dereth-transport` owns the UDP transport and implements `dereth_primitives::Transport`, so this
-# crate hands it a real socket rather than writing an adapter. `dereth-client-net` owns everything
-# above a blob and reaches the network only through that trait -- an isolation this crate does not
-# breach, because it gives `Session` a `Net` and changes nothing else. The session itself is
-# `dereth_client_net::client_session`.
-dereth-client-net = { path = "../../core/client-net" }
-dereth-transport = { path = "../../core/transport" }
-# The wire message types, for the two things the application itself must read out of a decoded
-# message: the character list it picks a character from, and the player description that puts it in
-# the world. It decodes nothing -- the client session does that -- it only names the results.
-dereth-protocol   = { path = "../../core/protocol" }
-# Owns the object tables, the create/merge/recreate rules and the destruction queue; this crate
-# hands it decoded messages and asks it nothing else.
-dereth-client-model    = { path = "../../core/client-model" }
-# The shell. `dereth-ui` owns the element model, the message buses and `UiFlow`;
-# `dereth-ui-screens` owns the eight screens and every panel; `dereth-input` owns the whole input
-# pipeline below a `MSG`; `dereth-audio` owns the mixer and every sound decision. This crate owns
-# four seams between them and nothing else: the UI manager's per-frame step and its slot in the
-# frame (src/ui.rs), the 2D blit the frame end performs (src/ui_draw.rs), the `MSG` the pump
-# already builds (src/input.rs) and the sound device `dereth-audio` deliberately does not wire
-# (src/audio.rs).
-dereth-ui         = { path = "crates/ui" }
-# The console, under the windows subsystem. `main.rs` is linked with
-# `#![windows_subsystem = "windows"]` so that `--no-console` can mean "no console" rather than
-# "a console window that closes again"; that makes borrowing one an explicit act, and
-# `AttachConsole` is unsafe, so the hop lives in its own crate under `deny` for the same reason
-# `dereth-clipboard` does. `dereth-client` itself keeps `forbid`.
-dereth-console    = { path = "crates/console" }
-dereth-ui-screens = { path = "crates/ui-screens" }
-dereth-input      = { path = "crates/input" }
-dereth-audio      = { path = "../../core/audio" }
-thiserror.workspace = true
-# The client's own events and spans; the subscriber is the desktop host's (`dereth_desktop::logging`).
+dereth-ui = { path = "crates/ui" }
+dereth-console = { path = "crates/console" }
+# The headless replay translates recorded host events and physical controls.
+dereth-input = { path = "crates/input" }
 tracing.workspace = true
-# The matrix type dereth_render::camera is expressed in. Same version as dereth-render's, so there is one
-# glam in the tree and the Mat4 that crosses the boundary is the same type.
-glam = "0.30"
 
-# The window and the message pump, keeping the retail window-procedure-to-message mapping, and
-# the dat cursors as the window system's own on every platform. Default features off; `rwh_06` is
-# what yields the raw window and display handles that `dereth_render::device::Gpu::new` turns into
-# a surface. The X11 and Wayland backends are added for Linux only, below, so the Windows and
-# macOS builds carry neither.
-winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
-# `--capture out.png` writes a PNG. dereth-render's own smoke example writes a PPM to avoid adding
-# an encoder to the renderer; the application is the right place for the encoder. The decoder is
-# the other half of the same dependency: off Windows and macOS the window's icon is a picture the
-# window system is handed as pixels, and `assets/dereth-256.png` is where they come from. (macOS
-# takes no icon from a window at all: it reads one out of the application bundle that
-# `cargo xtask bundle-macos` builds.)
-png = "0.17"
-
-# The Linux window backends. winit's defaults are off above so that Windows and macOS do not carry
-# them; Linux needs both, because which one a session runs is the user's compositor's choice.
 [target.'cfg(target_os = "linux")'.dependencies]
-winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
-# The desktop entry that gives the window its icon on Linux, shared with the launcher so the two
-# write the same file the same way.
+# Register the product's desktop entry and icon with the launcher conventions.
 dereth-launch = { path = "../launcher/crates/launch" }
 
-# The physics trace recorder and its comparison. `dereth-physics` is already a dependency; the
-# feature only adds `dereth_physics::trace`, which the embodied-movement test uses to show a script
-# replays bit-identically. See tests/gpu/movement/embodied_character.rs for why that is reproducibility and not
-# fidelity.
 [dev-dependencies]
 dereth-chargen = { path = "../../core/chargen" }
+dereth-client-contract = { path = "../../core/client-contract" }
+dereth-client-runtime = { path = "../../core/client-runtime" }
+dereth-world-render = { path = "crates/world-render" }
+dereth-assets = { path = "../../core/assets" }
+dereth-animation = { path = "../../core/animation" }
+dereth-transport = { path = "../../core/transport" }
+dereth-protocol = { path = "../../core/protocol" }
+dereth-client-model = { path = "../../core/client-model" }
+dereth-ui-screens = { path = "crates/ui-screens" }
+dereth-audio = { path = "../../core/audio" }
 dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
+# Recorded movement comparisons retain the physics trace recorder.
 dereth-physics = { path = "../../core/physics", features = ["trace"] }
-# `dereth_dat::testing`: where the tests find the retail dats.
 dereth-dat = { path = "../../core/dat", features = ["test-support"] }
-# `DERETH_TEST_RENDERER`: the backend a GPU test's device comes up on.
 dereth-render = { path = "crates/render", default-features = false, features = ["mock", "test-support"] }
-# The tests build animation runtime shapes from decoded records with `anim_convert`.
 dereth-world-data = { path = "../../core/world-data" }
-# The classic interface's key map requests, which the key map tests make as its page does.
 dereth-classic-ui = { path = "crates/classic" }
+glam = "0.30"
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+# Capture tests inspect PNGs; production encoding belongs to the scene and icon decoding
+# belongs to the desktop host.
+png = "0.17"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"] }
 
 [lints]
 workspace = true

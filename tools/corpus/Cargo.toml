@@ -17,8 +17,6 @@ dereth-transport = { path = "../../core/transport" }
 # The four readers discovery is allowed to use: the character set, enter-world, character-delete
 # and create-object. Nothing else in a payload is decoded.
 dereth-protocol = { path = "../../core/protocol" }
-# `ObjectId`, which keys the player's own create-object.
-dereth-primitives.workspace = true
 # The recordings and `pseudonyms.json` are JSON.
 serde_json = "1"
 # Ctrl-C ends a recording cleanly, so it is still split and scrubbed.

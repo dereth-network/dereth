@@ -24,7 +24,6 @@ dereth-transport.workspace = true
 dereth-client-net = { workspace = true, optional = true }
 dereth-protocol.workspace = true
 dereth-primitives.workspace = true
-thiserror.workspace = true
 log.workspace = true
 
 [dev-dependencies]

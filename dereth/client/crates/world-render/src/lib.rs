@@ -2,7 +2,7 @@
 //!
 //! **Depends on** `dereth-primitives` (the vocabulary, the arithmetic policy and the
 //! [`RenderBackend`](dereth_primitives::RenderBackend) seam), the decoded world records of
-//! `dereth-assets`, the block window of `dereth-landscape` and the landscape's geometry and static
+//! `dereth-assets` and the landscape's geometry and static
 //! contents in `dereth-terrain`, whose modules it re-exports at their old paths (`land::mesh`,
 //! `scenery`, `consts` and the rest). **Used by** the client (`dereth-client`).
 //!

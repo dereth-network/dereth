@@ -20,7 +20,6 @@ dereth-primitives.workspace = true
 # The read-only view (`GameView`), the request enum (`UiRequest`) and the value structs they
 # carry. Shared with `dereth-client`, so neither crate has to depend on the other.
 dereth-client-contract = { path = "../../../../core/client-contract" }
-thiserror.workspace = true
 # The hard edge: this crate implements `dereth_ui::Screen` and subclasses `dereth_ui::Element`.
 dereth-ui = { path = "../ui" }
 # Only for `PropertyValue`, which `dereth-ui` re-exports from `dereth-assets`; the layout byte
