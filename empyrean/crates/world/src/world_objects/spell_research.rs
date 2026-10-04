@@ -4,9 +4,8 @@
 //! ACE has no such request; this is Empyrean's (V432). A formula is the player's own: the spell
 //! whose formula for this account (the formula a cast of it asks for, tapers included) is the
 //! laid components, in order. A formula that makes no spell is refused with "You've attempted an
-//! impossible spell path!"; one that makes a spell the player does not know teaches it, as a
-//! scroll does; then the spell is cast on the target through the ordinary cast, which checks and
-//! consumes the components and answers the client as any cast does.
+//! impossible spell path!". A recognized formula follows normal target and cast checks. Only a
+//! successful cast teaches the spell and acknowledges the tested formula.
 
 use empyrean_dat::file_types::spell_table as dat_spell_table;
 use empyrean_entity::enums::WeenieError;
@@ -40,7 +39,7 @@ pub fn spell_of_formula(w: &World, account: &str, components: &[u32]) -> Option<
 }
 
 /// The test: refuse it on a world without spell research or for a formula that makes no spell;
-/// otherwise teach the spell if it is new and cast it.
+/// otherwise cast it and teach it only on success.
 pub fn handle_test_spell_formula(
     w: &mut World,
     player: ObjectGuid,
@@ -68,14 +67,32 @@ pub fn handle_test_spell_formula(
         .spells
         .get(&spell_id)
         .map_or((0, 0), |s| (s.bitfield, s.non_component_target_type));
+    let target = if bitfield & SELF_TARGETED != 0 {
+        Some(player.full())
+    } else if target_type == 0 {
+        None
+    } else {
+        Some(target_guid)
+    };
+    player_magic::cast_research_spell(w, player, target, spell_id);
+}
+
+/// Completes only the formula test attached to this successful cast. Known spells still send
+/// their update so the client can distinguish a successful test from a refused use.
+pub(crate) fn complete_successful_cast(w: &mut World, player: ObjectGuid, spell_id: u32) {
+    let state = &mut player_magic::fields_mut(w, player).magic_state;
+    if state.research_spell != Some(spell_id) {
+        return;
+    }
+    state.research_spell = None;
     if !player_spells::spell_is_known(w, player, spell_id) {
         player_spells::learn_spell_with_networking(w, player, spell_id, true);
-    }
-    if bitfield & SELF_TARGETED != 0 {
-        player_magic::handle_action_cast_targeted_spell(w, player, player.full(), spell_id, None);
-    } else if target_type == 0 {
-        player_magic::handle_action_magic_cast_un_targeted_spell(w, player, spell_id);
-    } else {
-        player_magic::handle_action_cast_targeted_spell(w, player, target_guid, spell_id, None);
+    } else if let Some(session) = crate::managers::player_manager::player_session(w, player) {
+        use crate::network::game_event::events::game_event_magic_update_spell::game_event_magic_update_spell;
+        use crate::network::game_event::game_event_message::session_data;
+        use crate::network::game_messages::game_message::enqueue_send;
+        let spell = u16::try_from(spell_id).expect("a research spell fits its update message");
+        let message = game_event_magic_update_spell(session_data(w, session), spell, 0);
+        enqueue_send(w, session, message);
     }
 }

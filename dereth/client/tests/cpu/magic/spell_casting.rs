@@ -1261,3 +1261,107 @@ fn a_test_outside_magic_mode_or_without_a_target_is_refused_and_never_sent() {
     assert_eq!(inter.stats.requests_refused, 1);
     assert_eq!(w.magic.busy_count, 0);
 }
+
+/// Behaviour: magic.research.confirmed-success-clears-the-tested-formula
+#[test]
+fn research_confirmation_requires_matching_update_and_successful_completion() {
+    use dereth_client::hud::Hud;
+    use dereth_client_net::client_session::SessionEvent;
+    use dereth_protocol::Message;
+    fn event<M: Message>(m: &M) -> SessionEvent {
+        let mut blob = M::OPCODE.0.to_le_bytes().to_vec();
+        blob.extend(dereth_protocol::write_body(m).unwrap());
+        SessionEvent::UiEvent {
+            opcode: M::OPCODE,
+            blob,
+        }
+    }
+    let update = |id| {
+        event(&dereth_protocol::qualities::MagicUpdateSpell {
+            layered_spell_id: id,
+        })
+    };
+    let done = |failure_type| event(&dereth_protocol::objects::ItemUseDone { failure_type });
+    let laid = vec![1006, 1070, 1071, 1072, 1073];
+    for (updates, failure, successful) in [
+        (vec![], 0, false),
+        (vec![STRENGTH_SELF], 0, false),
+        (vec![FLAME_BOLT], 0x0402, false),
+        (vec![FLAME_BOLT], 0, true),
+    ] {
+        let (mut world, mut inter) = research_world();
+        let mut hud = Hud::new();
+        test_formula(&mut world, &mut inter, laid.clone());
+        if successful {
+            let requests = test_formula(&mut world, &mut inter, vec![1001]);
+            assert_eq!(
+                requests.len(),
+                1,
+                "a second pending Test cannot replace the first"
+            );
+            assert_eq!(inter.stats.requests_refused, 1);
+        }
+        let mut events: Vec<_> = updates.into_iter().map(update).collect();
+        events.push(done(failure));
+        // Actual delivery applies the Interaction batch before the Hud batch.
+        dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+        hud.apply_events(&events, &mut world);
+        assert_eq!(world.magic.research_success.is_some(), successful);
+        if successful {
+            assert_eq!(
+                world.magic.research_success.as_ref().unwrap().components,
+                laid
+            );
+            let learned = world.magic.last_learned_spell;
+            let receipt = world.magic.research_success.clone();
+            let snapshot = dereth_client_contract::snapshot::GameSnapshot::from_view(
+                &dereth_client::hud::HudView {
+                    hud: &hud,
+                    world: &world,
+                },
+            );
+            assert_eq!(snapshot.last_learned_spell, learned);
+            assert_eq!(snapshot.research_success, receipt);
+            hud.apply_events(&[update(FLAME_BOLT), done(0)], &mut world);
+            assert_eq!(
+                world.magic.last_learned_spell, learned,
+                "duplicate is not newly learned"
+            );
+            assert_eq!(world.magic.research_success, receipt, "no pending test");
+            test_formula(&mut world, &mut inter, laid.clone());
+            let events = [update(FLAME_BOLT), done(0)];
+            dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+            hud.apply_events(&events, &mut world);
+            assert_eq!(
+                world.magic.research_success.as_ref().unwrap().serial,
+                2,
+                "known successful test still completes"
+            );
+            assert_eq!(world.magic.last_learned_spell, learned);
+        }
+    }
+}
+
+/// Behaviour: magic.research.confirmed-success-clears-the-tested-formula
+#[test]
+fn research_waits_for_an_outstanding_cast_but_not_an_appraisal() {
+    let (mut world, mut inter) = research_world();
+    let mut requests = RecordingRequests::default();
+    let mut notices = RecordingSink::default();
+    world
+        .cast_spell(&mut requests, &mut notices, STRENGTH_SELF)
+        .unwrap();
+    assert_eq!(world.magic.busy_count, 1);
+    assert!(test_formula(&mut world, &mut inter, vec![1006, 1070, 1071, 1072, 1073]).is_empty());
+    assert_eq!(inter.stats.requests_refused, 1);
+    assert_eq!(world.magic.busy_count, 1);
+    world.use_done(0);
+    world.examine_object(&mut requests, TARGET);
+    assert_eq!(world.magic.busy_count, 1);
+    assert_eq!(world.appraisal.awaiting_answer, Some(TARGET));
+    assert_eq!(
+        test_formula(&mut world, &mut inter, vec![1006, 1070, 1071, 1072, 1073]).len(),
+        1
+    );
+    assert_eq!(world.appraisal.awaiting_answer, Some(TARGET));
+}

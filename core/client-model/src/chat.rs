@@ -968,6 +968,18 @@ impl SpamGate {
 }
 
 impl crate::world::World {
+    /// The named, other player currently selected by the chat target menu.
+    #[must_use]
+    pub fn selected_chat_player(&self) -> Option<ObjectId> {
+        let id = self.selected.filter(|id| Some(*id) != self.player)?;
+        let object = self.weenie(id)?;
+        (object.is_player()
+            && !object
+                .object_name(crate::weenie::NameType::Appropriate)
+                .is_empty())
+        .then_some(id)
+    }
+
     /// Recomputes chat talk focuses from the two notices that drive it in the client.
     ///
     /// Its two callers, and there are no others:

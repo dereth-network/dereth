@@ -36,6 +36,9 @@ pub struct MagicState {
     /// becomes FALSE when their recoil animation has started.
     pub is_casting: bool,
 
+    /// The formula test attached to this cast, acknowledged only on success.
+    pub research_spell: Option<u32>,
+
     /// Returns TRUE if the first half of the 'launch spell' motion has made its way through the
     /// motion queue.
     pub cast_motion_done: bool,
@@ -99,6 +102,7 @@ impl MagicState {
     pub fn new() -> Self {
         MagicState {
             is_casting: false,
+            research_spell: None,
             cast_motion_done: false,
             turn_started: false,
             is_turning: false,
@@ -132,6 +136,7 @@ pub fn on_cast_start(w: &mut World, player: ObjectGuid) {
     let now = w.now.utc;
     let s = state_mut(w, player);
     s.is_casting = true;
+    s.research_spell = None;
     s.cast_motion_done = false;
     s.turn_started = false;
     s.is_turning = false;
@@ -169,6 +174,7 @@ pub fn on_cast_done(w: &mut World, player: ObjectGuid) {
     {
         let s = state_mut(w, player);
         s.is_casting = false;
+        s.research_spell = None;
         s.cast_motion_done = false;
         s.turn_started = false;
         s.is_turning = false;

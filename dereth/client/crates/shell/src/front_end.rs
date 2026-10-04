@@ -2446,8 +2446,14 @@ impl<H: Host> Ui<'_, '_, H> {
         let player = self.cx.objects().player().or(self.cx.hud().player);
         let dress = player
             .and_then(|p| self.cx.objects().presence(p))
-            .and_then(|p| Some((p.setup_id?, crate::world::to_anim_objdesc(&p.objdesc))));
-        let Some((setup, objdesc)) = dress else {
+            .and_then(|p| {
+                Some((
+                    p.setup_id?,
+                    crate::world::to_anim_objdesc(&p.objdesc),
+                    p.scale,
+                ))
+            });
+        let Some((setup, objdesc, scale)) = dress else {
             return;
         };
 
@@ -2524,6 +2530,8 @@ impl<H: Host> Ui<'_, '_, H> {
                 }
             }
         }
+
+        self.cx.present_mut().preview_set_scale(id, 0, scale);
 
         // Re-apply the heritage camera every tick because setting the camera is idempotent and
         // heritage arrives with `0x0013`, which may be after the first build.
@@ -3693,6 +3701,10 @@ impl<H: Host> Shell for ClientShell<H> {
     /// generation through the deferred Hud delivery, not across a rebuild.
     fn chat_generation(&self) -> Option<u64> {
         self.front().chat_generation()
+    }
+
+    fn clear_chat_history(&mut self) {
+        self.classic.clear_history();
     }
 
     fn ui_requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox> {

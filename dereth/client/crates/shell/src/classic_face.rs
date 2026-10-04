@@ -86,6 +86,14 @@ impl ClassicFace {
         }
     }
 
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+        self.missed.clear();
+        if let Some(ui) = &mut self.ui {
+            ui.classic.chat.clear();
+        }
+    }
+
     /// The lines the retail interface missed while the classic one was shown.
     pub fn take_missed(&mut self) -> Vec<dereth_client_contract::chat::interface::ChatMessage> {
         std::mem::take(&mut self.missed)

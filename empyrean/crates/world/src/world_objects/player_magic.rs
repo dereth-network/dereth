@@ -316,6 +316,31 @@ pub fn handle_action_cast_targeted_spell(
     spell_id: u32,
     caster_item: Option<ObjectGuid>,
 ) {
+    cast_targeted_spell(w, this, target_guid, spell_id, caster_item, false);
+}
+
+/// Casts a researched formula without first adding it to the spellbook.
+pub(crate) fn cast_research_spell(
+    w: &mut World,
+    this: ObjectGuid,
+    target: Option<u32>,
+    spell_id: u32,
+) {
+    if let Some(target) = target {
+        cast_targeted_spell(w, this, target, spell_id, None, true);
+    } else {
+        cast_untargeted_spell(w, this, spell_id, true);
+    }
+}
+
+fn cast_targeted_spell(
+    w: &mut World,
+    this: ObjectGuid,
+    target_guid: u32,
+    spell_id: u32,
+    caster_item: Option<ObjectGuid>,
+    research: bool,
+) {
     //Console.WriteLine($"{Name}.HandleActionCastTargetedSpell({targetGuid:X8}, {spellId}, {builtInSpell})");
 
     if creature_combat::combat_mode(w, this) != CombatMode::Magic {
@@ -341,7 +366,7 @@ pub fn handle_action_cast_targeted_spell(
         return;
     }
 
-    if is_busy(w, this) && ms(w, this).can_queue {
+    if !research && is_busy(w, this) && ms(w, this).can_queue {
         let s = ms_mut(w, this);
         s.cast_queue = Some(CastQueue::new(
             CastQueueType::Targeted,
@@ -359,7 +384,7 @@ pub fn handle_action_cast_targeted_spell(
 
     // verify spell is contained in player's spellbook,
     // or in the weapon's spellbook in the case of built-in spells
-    if !verify_spell(w, this, spell_id, caster_item) {
+    if !research && !verify_spell(w, this, spell_id, caster_item) {
         send_use_done_event(w, this, WeenieError::MagicInvalidSpellType);
         return;
     }
@@ -372,6 +397,7 @@ pub fn handle_action_cast_targeted_spell(
     };
 
     magic_state::on_cast_start(w, this);
+    ms_mut(w, this).research_spell = research.then_some(spell_id);
     magic_state::set_windup_params(w, this, target_guid, spell_id, caster_item);
 
     let start_pos = physics_position(w, this);
@@ -576,6 +602,10 @@ pub fn get_target_category(
 /// Handles player untargeted casting message.
 // ACE: Player.HandleActionMagicCastUnTargetedSpell
 pub fn handle_action_magic_cast_un_targeted_spell(w: &mut World, this: ObjectGuid, spell_id: u32) {
+    cast_untargeted_spell(w, this, spell_id, false);
+}
+
+fn cast_untargeted_spell(w: &mut World, this: ObjectGuid, spell_id: u32, research: bool) {
     //Console.WriteLine($"{Name}.HandleActionCastUnTargetedSpell({spellId})");
 
     if creature_combat::combat_mode(w, this) != CombatMode::Magic {
@@ -599,7 +629,7 @@ pub fn handle_action_magic_cast_un_targeted_spell(w: &mut World, this: ObjectGui
         return;
     }
 
-    if is_busy(w, this) && ms(w, this).can_queue {
+    if !research && is_busy(w, this) && ms(w, this).can_queue {
         let s = ms_mut(w, this);
         s.cast_queue = Some(CastQueue::new(CastQueueType::Untargeted, 0, spell_id, None));
         s.can_queue = false;
@@ -612,7 +642,7 @@ pub fn handle_action_magic_cast_un_targeted_spell(w: &mut World, this: ObjectGui
 
     // verify spell is contained in player's spellbook,
     // or in the weapon's spellbook in the case of built-in spells
-    if !verify_spell(w, this, spell_id, None) {
+    if !research && !verify_spell(w, this, spell_id, None) {
         return;
     }
 
@@ -622,6 +652,7 @@ pub fn handle_action_magic_cast_un_targeted_spell(w: &mut World, this: ObjectGui
     }
 
     magic_state::on_cast_start(w, this);
+    ms_mut(w, this).research_spell = research.then_some(spell_id);
 
     let start_pos = physics_position(w, this);
     fields_mut(w, this).start_pos = Some(start_pos);
@@ -1480,6 +1511,7 @@ pub fn do_cast_spell_inner(
 
     match casting_pre_check_status {
         CastingPreCheckStatus::Success => {
+            crate::world_objects::spell_research::complete_successful_cast(w, this, spell.id());
             if !spell.is_fellowship_spell() {
                 create_player_spell_on(w, this, target, spell, is_weapon_spell);
             } else {

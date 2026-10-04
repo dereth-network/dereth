@@ -117,6 +117,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "chat.classic-later-channel-colors",
+        says: "Classic keeps distinct colors for later chat channels while retaining its earlier palette overrides.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-POST-P09-CHAT-COLORS"),
+        station: "dereth-classic-ui::lib::panels::hud::tests::later_channel_lines_draw_in_their_distinct_colors",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.classic.global-room-callbacks-reach-the-active-chat-window",
         says: "General and Trade room callbacks reach the active Classic chat window once; callbacks outside gameplay and pending lines at logoff do not enter the next character's chat.",
         since: THIS_CLIENT,
@@ -499,7 +508,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "chat.interface-colors",
-        says: "Each interface keeps its chat palette, including the Classic overrides and green fallback outside the table.",
+        says: "Modern keeps its full chat palette; Classic retains its earlier channel overrides, and both fall back to green outside the table.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-CHAT-SHARED-COLORS"),
         station: "dereth-client-contract::lib::chat::colors::tests::classic_overrides_are_narrow_and_modern_keeps_the_full_table",
@@ -1112,7 +1121,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A line typed with the talk-to menu on Tell to <name> goes to the one the menu names \
                -- the chat target, which is taken up from what the player picked out and then kept \
                while it stays near -- and not to whatever the player has picked out since. With no \
-               chat target the line goes nowhere. The menu's squelch row asks about the same one.",
+               chat target the line goes nowhere.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-CHAT-TARGET-TELL"),
         station: "dereth-testkit::cpu::chat::scenario_a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection",
@@ -1195,6 +1204,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O109-ROWS"),
         station: "dereth-testkit::dat::chat::scenario_a_rows_place_in_the_list_is_not_the_order_of_the_channels",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.target-menu.requires-current-named-player",
+        says: "Tell and Squelch menu actions require a currently selected named other player; changing selection does not redirect an already active Tell.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-POST-P09-CHAT-TARGET"),
+        station: "dereth-testkit::cpu::chat::scenario_target_menu_and_activation_require_the_current_named_player",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "chat.target-sweep",

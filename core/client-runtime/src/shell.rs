@@ -115,6 +115,8 @@ pub trait Shell: Sized {
     fn chat_generation(&self) -> Option<u64> {
         None
     }
+    /// Retire displayed chat and interface-switch history when the character session ends.
+    fn clear_chat_history(&mut self) {}
     /// The UI's request queue, which the HUD model writes the requests it raises into.
     fn ui_requests(&mut self) -> Option<&mut Outbox> {
         None

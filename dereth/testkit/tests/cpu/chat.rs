@@ -32,6 +32,11 @@ use dereth_ui_screens::panels::inventory::HERITAGE_GROUP_PROPERTY;
 /// scenario asserts**, and the function.
 pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     (
+        "target_menu_and_activation_require_the_current_named_player",
+        &["chat.target-menu.requires-current-named-player"],
+        target_menu_and_activation_require_the_current_named_player,
+    ),
+    (
         "turbine_text_conversion_runs_before_the_markup",
         &["chat.turbine.host-text-conversion-happens-before-the-markup-is-read"],
         turbine_text_conversion_runs_before_the_markup,
@@ -2703,7 +2708,9 @@ pub fn the_squelch_row_is_a_toggle_and_names_the_speaker() {
     let missing_is_inert = c.outbound().is_empty();
     let mut object = dereth_client_model::Weenie::new(target);
     object.pwd.name = "Alba".into();
+    object.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
     c.world_mut().tables.weenies.insert(target, object);
+    c.world_mut().selected = Some(target);
 
     // A namesake and an account matching the displayed name do not identify this character.
     // A partial squelch on the right id also does not mean all message types are squelched.
@@ -2768,6 +2775,90 @@ pub fn the_squelch_row_is_a_toggle_and_names_the_speaker() {
 #[test]
 fn scenario_the_squelch_row_is_a_toggle_and_names_the_speaker() {
     scenario("the_squelch_row_is_a_toggle_and_names_the_speaker");
+}
+
+/// Menu eligibility follows the current named player while an active Tell keeps its target.
+pub fn target_menu_and_activation_require_the_current_named_player() {
+    use dereth_client_model::weenie::bitfield;
+    let mut c = a_client_with_a_named_player();
+    let peer = ObjectId(0x5000_2000);
+    let npc = ObjectId(0x7000_2001);
+    let nameless = ObjectId(0x5000_2002);
+    let missing = ObjectId(0x5000_2003);
+    for (id, name, player) in [
+        (peer, "Alba", true),
+        (npc, "Merchant", false),
+        (nameless, "", true),
+    ] {
+        let mut object = dereth_client_model::Weenie::new(id);
+        object.pwd.name = name.into();
+        object.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        if player {
+            object.pwd.bitfield |= bitfield::PLAYER;
+        }
+        c.world_mut().tables.weenies.insert(id, object);
+    }
+    let mut ui = dereth_ui::UiSystem::new((800, 600));
+    let mut menu = MainChatPanel::default();
+    for selected in [
+        None,
+        Some(npc),
+        Some(nameless),
+        Some(missing),
+        c.view().world().player,
+    ] {
+        c.world_mut().selected = selected;
+        let facts = c.view().hud().chat_focus_view(c.view().world());
+        assert!(facts.target.is_none());
+        assert!(!facts.selectable[ROW_SELECTED]);
+        menu.project_communication(&mut ui, &facts);
+        assert_eq!(menu.last_speakable_target, 0);
+        assert_eq!(
+            menu.row_state(&ui, 2),
+            Some(dereth_ui_screens::chat::mainchat::STATE_DISABLED)
+        );
+        c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
+        c.when(Player::ui(UiRequest::ToggleCharacterSquelch(
+            selected.unwrap_or(peer),
+        )));
+        assert_eq!(c.view().world().chat.talk_focus, TalkFocus::All);
+        assert!(c.outbound().is_empty());
+    }
+    c.world_mut().selected = Some(peer);
+    let facts = c.view().hud().chat_focus_view(c.view().world());
+    assert!(facts.selectable[ROW_SELECTED]);
+    assert_eq!(
+        facts.target.as_ref().map(|t| (t.id, t.name.as_str())),
+        Some((peer.0, "Alba"))
+    );
+    menu.project_communication(&mut ui, &facts);
+    assert_eq!(menu.last_speakable_target, peer.0);
+    c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
+    assert_eq!(c.view().world().chat.talk_focus, TalkFocus::Selected);
+    assert_eq!(c.view().world().chat.last_speakable_target, Some(peer));
+    c.world_mut().selected = Some(npc);
+    let facts = c.view().hud().chat_focus_view(c.view().world());
+    menu.project_communication(&mut ui, &facts);
+    assert_eq!(menu.last_speakable_target, 0);
+    assert!(!facts.selectable[ROW_SELECTED]);
+    // A stale open row cannot act on its previous identity.
+    c.when(Player::ui(UiRequest::ToggleCharacterSquelch(peer)));
+    assert!(c.outbound().is_empty());
+    assert_eq!(c.view().world().chat.talk_focus, TalkFocus::Selected);
+    assert_eq!(c.view().world().chat.last_speakable_target, Some(peer));
+    c.assert_behaviour("chat.target-menu.requires-current-named-player", |view| {
+        let facts = view.hud().chat_focus_view(view.world());
+        facts.target.is_none()
+            && !facts.selectable[ROW_SELECTED]
+            && view.world().chat.talk_focus == TalkFocus::Selected
+            && view.world().chat.last_speakable_target == Some(peer)
+    });
+}
+
+/// Behaviour: chat.target-menu.requires-current-named-player
+#[test]
+fn scenario_target_menu_and_activation_require_the_current_named_player() {
+    scenario("target_menu_and_activation_require_the_current_named_player");
 }
 
 /// Who the player is talking to follows what he has selected, while that is near him -- and is
@@ -2850,7 +2941,9 @@ pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
     let mut object = dereth_client_model::Weenie::new(npc);
     object.pwd.name = "Ulgrim".into();
     object.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+    object.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
     c.world_mut().tables.weenies.insert(npc, object);
+    c.world_mut().selected = Some(npc);
     let facts = dereth_client_contract::chat::mainchat::AutoTargetWorld {
         selected_id: npc.0,
         selected_name: "Ulgrim".into(),
@@ -2865,15 +2958,15 @@ pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
     let mut menu = MainChatPanel::default();
     menu.project_communication(&mut ui, &c.view().hud().chat_focus_view(c.view().world()));
     let told = menu.last_speakable_target == npc.0 && ui.requests.take().is_empty();
-    // The player has since selected a door; the menu still says Ulgrim, so the line is his.
-    c.world_mut().selected = Some(door);
     c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
+    // An active Tell retains its recipient after a different object is selected.
+    c.world_mut().selected = Some(door);
     let sent = type_line(&mut c, "well met");
     let to_the_target = matches!(
         sent.as_slice(),
         [Request::TalkDirect(m)] if m.target == npc && m.message == "well met"
     );
-    // The squelch row reads the same target: Ulgrim silenced, the host says so.
+    // Squelch lookup still uses the retained recipient identity.
     let mut everything = SquelchEntry::default();
     everything.squelch_everything();
     c.world_mut()
@@ -2893,7 +2986,9 @@ pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
     menu.project_communication(&mut ui, &c.view().hud().chat_focus_view(c.view().world()));
     let cleared =
         c.view().world().chat.last_speakable_target.is_none() && menu.last_speakable_target == 0;
-    c.when(Player::ui(UiRequest::SetTalkFocus { focus: 2 }));
+    c.world_mut()
+        .chat
+        .set_talk_focus(dereth_client_model::chat::TalkFocus::Selected);
     let nowhere = type_line(&mut c, "anyone?").is_empty();
 
     c.assert_behaviour(

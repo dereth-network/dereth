@@ -237,6 +237,12 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "The client forwards @clear to the shard instead of accepting it as a local command, and text-management help no longer lists it. Existing chat text stays visible.",
         why: "An unsupported local command must not silently accept a request it cannot perform.",
     },
+    Divergence {
+        id: "CD-030",
+        title: "Successful research clears the tested formula",
+        change: "A confirmed successful formula test clears the formula in either interface, including a successful test of an already-known spell. Failed tests keep the formula.",
+        why: "The completed formula leaves room for the next experiment while failures remain available for correction.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

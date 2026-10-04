@@ -6,7 +6,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -278,6 +278,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-RESEARCH-TEST"),
         station: "dereth-client::cpu::magic::spell_casting::a_tested_formula_goes_out_as_component_ids_and_the_target",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "magic.research.confirmed-success-clears-the-tested-formula",
+        says: "A formula test clears its matching formula only after the tested spell update and successful completion; a known spell can complete another test without becoming newly learned again.",
+        since: THIS_CLIENT,
+        divergence: "CD-030",
+        evidence: Evidence::Private("AC-EVID-RESEARCH-SUCCESS-PRESENTATION"),
+        station: "dereth-client::cpu::magic::spell_casting::research_confirmation_requires_matching_update_and_successful_completion",
         tier: Tier::Cpu,
     },
     behaviour! {

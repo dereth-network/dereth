@@ -442,6 +442,7 @@ fn classic_global_room_callbacks_reach_chat_once_and_stop_outside_gameplay() {
         (124, "Trade", "trade echo"),
     ] {
         deliver(&mut c, room, text);
+        c.shell.follow_interface(&mut c.app.ui_context());
         refresh(&mut c, true);
         refresh(&mut c, true);
         let lines = &c.shell.classic.ui.as_ref().unwrap().classic.chat;
@@ -449,10 +450,14 @@ fn classic_global_room_callbacks_reach_chat_once_and_stop_outside_gameplay() {
         assert_eq!(matches.len(), 1, "one callback is drawn once");
         assert!(matches[0].1.contains(name));
     }
+    assert_eq!(c.shell.classic.history().count(), 2);
     deliver(&mut c, 123, "pending at logoff");
     c.app
         .apply_hud_events(&mut c.shell, &[SessionEvent::LoggedOff]);
     assert!(c.app.hud.pending_chat.is_empty());
+    assert!(c.shell.classic.ui.as_ref().unwrap().classic.chat.is_empty());
+    assert_eq!(c.shell.classic.history().count(), 0);
+    assert!(c.shell.classic.take_missed().is_empty());
     refresh(&mut c, false);
     deliver(&mut c, 123, "after logoff");
     refresh(&mut c, true);
@@ -488,4 +493,227 @@ fn global_room_event(room: u32, text: &str) -> Vec<u8> {
     let mut packet = packet.into_inner();
     packet.extend(body);
     packet
+}
+
+/// Behaviour: none (actual intro media and physical input ordering).
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail layouts and key maps"
+)]
+fn skipped_intro_movies_finish_without_an_extra_click() {
+    use dereth_ui::framework::mode;
+    use dereth_ui_screens::screens::intro::IntroScreen;
+    let mut c = Client::new();
+    c.ui().queue(mode::INTRO);
+    for _ in 0..4 {
+        assert!(c.app.frame(&mut c.shell));
+    }
+    let state = |c: &mut Client| {
+        let screen = c.ui().flow.current_mut().expect("intro screen");
+        let any: &mut dyn std::any::Any = screen.as_mut();
+        any.downcast_ref::<IntroScreen>()
+            .expect("intro")
+            .current_state
+    };
+    assert_eq!(state(&mut c), Some(0x1000_0039));
+    for expected in [0x1000_003a, 0x1000_003e] {
+        c.event(HostEvent::CursorMoved { x: 300.0, y: 200.0 });
+        c.event(HostEvent::MouseInput {
+            button: MouseButton::Left,
+            pressed: true,
+        });
+        c.event(HostEvent::MouseInput {
+            button: MouseButton::Left,
+            pressed: false,
+        });
+        assert_eq!(state(&mut c), Some(expected));
+    }
+    for _ in 0..4 {
+        assert!(c.app.frame(&mut c.shell));
+    }
+    assert_eq!(c.ui().flow.current_mode(), Some(mode::CHARACTER_MANAGEMENT));
+    c.finish();
+}
+
+/// Behaviour: none (the first physical panel click after interface transitions).
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn first_toolbar_click_after_mode_and_interface_switch_toggles_once() {
+    use dereth_client_contract::options::{
+        interface::{Interface, INTERFACE},
+        store,
+    };
+    use dereth_client_contract::PrefValue;
+    let mut c = Client::new();
+    c.install_classic();
+    let button = {
+        let screen = crate::hud_drive::game_screen(&mut c.ui().flow).expect("gameplay");
+        let any: &mut dyn std::any::Any = screen;
+        any.downcast_ref::<dereth_ui_screens::screens::gameplay::GamePlayScreen>()
+            .unwrap()
+            .toolbar
+            .buttons[0]
+            .handle
+    };
+    for switch in [false, true] {
+        if switch {
+            store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+            c.shell.follow_interface(&mut c.app.ui_context());
+            store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+            c.shell.follow_interface(&mut c.app.ui_context());
+        }
+        let box_ = c.ui().ui.screen_box(button);
+        let (x, y) = ((box_.x0 + box_.x1) / 2, (box_.y0 + box_.y1) / 2);
+        assert_eq!(c.ui().ui.hit_test_screen(x, y), Some(button));
+        for state in [
+            dereth_ui_screens::toolbar::STATE_PANEL_OPEN,
+            dereth_ui_screens::toolbar::STATE_PANEL_CLOSED,
+        ] {
+            c.event(HostEvent::CursorMoved {
+                x: f64::from(x),
+                y: f64::from(y),
+            });
+            c.event(HostEvent::MouseInput {
+                button: MouseButton::Left,
+                pressed: true,
+            });
+            c.event(HostEvent::MouseInput {
+                button: MouseButton::Left,
+                pressed: false,
+            });
+            assert_eq!(
+                c.ui().ui.node(button).unwrap().state,
+                state,
+                "switch={switch}"
+            );
+            assert!(c.app.frame(&mut c.shell));
+            assert_eq!(
+                c.ui().ui.node(button).unwrap().state,
+                state,
+                "frame does not repeat the click"
+            );
+        }
+    }
+    c.finish();
+}
+
+/// Behaviour: none (persistent spellbook adapter observes receipts after the real session reset).
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail layouts and key maps"
+)]
+fn a_persistent_spellbook_selects_the_next_sessions_first_new_spell() {
+    use dereth_client_contract::{snapshot::GameSnapshot, SpellEntry};
+    use dereth_client_net::client_session::SessionEvent;
+    use dereth_primitives::{LocalTime, ObjectId};
+    use dereth_ui_screens::panels::{remaining::SPELL_PAGE, spellbook::SpellbookPanel};
+    let mut client = Client::new();
+    let window = client
+        .ui()
+        .ui
+        .get_element(SPELL_PAGE)
+        .expect("magic window");
+    let mut panel = SpellbookPanel::default();
+    panel.post_init(&mut client.ui().ui, window);
+    for (player, spell, serial) in [(1, 7, 1), (2, 8, 2)] {
+        client.app.objects.world.player = Some(ObjectId(player));
+        client.app.objects.world.research_spell_update(spell, true);
+        let mut view = GameSnapshot::from_view(&dereth_client_runtime::hud::HudView {
+            hud: &client.app.hud,
+            world: &client.app.objects.world,
+        });
+        view.spellbook = vec![SpellEntry {
+            id: spell,
+            name: format!("Spell {spell}"),
+            school: 4,
+            level: 1,
+            icon: None,
+            icon_power: 1,
+            display_order: 0,
+            bitfield: 0,
+        }];
+        assert_eq!(view.last_learned_spell, Some((serial, spell)));
+        panel.update(&mut client.ui().ui, &view);
+        assert_eq!(panel.selected_spell, spell);
+        assert!(panel
+            .list
+            .as_ref()
+            .unwrap()
+            .slots
+            .iter()
+            .any(|s| s.selected && s.spell == Some(spell)));
+        client
+            .app
+            .objects
+            .apply_event(&SessionEvent::WorldReset, LocalTime(0.0));
+        assert!(client.app.objects.world.magic.last_learned_spell.is_none());
+    }
+    client.finish();
+}
+
+/// Behaviour: none (physical pending-connection Cancel reaches the real shell and App shutdown).
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail layouts and key maps"
+)]
+fn modern_pending_connection_cancel_stops_without_another_click() {
+    use dereth_ui::framework::mode;
+    use dereth_ui_screens::screens::datapatch::{DataPatchScreen, QUIT_BUTTON};
+    let mut client = Client::new();
+    let network =
+        dereth_client_runtime::net::ClientNetwork::new("127.0.0.1", 19601, "pending", "pending", 1)
+            .unwrap();
+    client
+        .app
+        .attach_replay_network(network)
+        .expect("socket-free pending connection");
+    client.ui().queue(mode::DATA_PATCH);
+    for _ in 0..2 {
+        assert!(client.app.frame(&mut client.shell));
+    }
+    assert_eq!(client.ui().flow.current_mode(), Some(mode::DATA_PATCH));
+    let screen = client.ui().flow.current_mut().unwrap();
+    let any: &mut dyn std::any::Any = screen.as_mut();
+    let progress = any.downcast_ref::<DataPatchScreen>().unwrap();
+    assert!(progress.has_packet_controller);
+    assert!(!progress.connected && !progress.received_set);
+    let button = client.ui().ui.get_element(QUIT_BUTTON).unwrap();
+    let rect = client.ui().ui.screen_box(button);
+    let (x, y) = ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2);
+    assert_eq!(client.ui().ui.hit_test_screen(x, y), Some(button));
+    client.event(HostEvent::CursorMoved {
+        x: f64::from(x),
+        y: f64::from(y),
+    });
+    client.event(HostEvent::MouseInput {
+        button: MouseButton::Left,
+        pressed: true,
+    });
+    client.event(HostEvent::MouseInput {
+        button: MouseButton::Left,
+        pressed: false,
+    });
+    let mut trace = Vec::new();
+    let stopped = (0..4).any(|_| {
+        let keep = client.app.frame(&mut client.shell);
+        let mode = client.ui().flow.current_mode();
+        let epilogue = client.ui().flow.current_mut().and_then(|screen| {
+            let any: &mut dyn std::any::Any = screen.as_mut();
+            any.downcast_ref::<dereth_ui_screens::screens::epilogue::EpilogueScreen>()
+                .map(|s| (s.done, s.log_off_requested))
+        });
+        trace.push((mode, epilogue));
+        !keep
+    });
+    assert!(
+        stopped,
+        "the first Cancel click ends the pending connection: {trace:?}"
+    );
+    client.finish();
 }

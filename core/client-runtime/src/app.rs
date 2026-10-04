@@ -2092,6 +2092,18 @@ impl<S: Shell> App<S> {
             .scroll
             .taboo_table
             .clone_from(&self.taboo_table);
+        if events.iter().any(|event| {
+            use dereth_client_net::client_session::{SessionEvent, SessionState};
+            matches!(
+                event,
+                SessionEvent::LoggedOff
+                    | SessionEvent::StateChanged(
+                        SessionState::CharacterSelect | SessionState::Disconnected(_)
+                    )
+            )
+        }) {
+            shell.clear_chat_history();
+        }
         // A Turbine callback is a synchronous notice to the CURRENT chat subscribers.
         // Preserve that generation through the deferred Hud delivery, not across a rebuild.
         let chat_generation = shell.chat_generation();

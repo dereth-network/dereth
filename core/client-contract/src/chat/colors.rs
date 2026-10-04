@@ -104,7 +104,7 @@ pub fn interface_color(ty: u32, interface: crate::options::interface::Interface)
         match ty {
             9 => return c((0.863, 0.627, 0.627), 0xDCA0A0),
             20 => return BRIGHT_PURPLE,
-            19 | 26..=33 => return GREEN,
+            19 | 26 => return GREEN,
             _ => {}
         }
     }
@@ -215,6 +215,23 @@ mod tests {
             }
         }
     }
+    /// Behaviour: chat.classic-later-channel-colors
+    #[test]
+    fn classic_later_channels_keep_their_distinct_colors() {
+        use crate::options::interface::Interface;
+        for (ty, expected) in [
+            (27, 0xB4DCF0),
+            (28, 0xB4DCF0),
+            (29, 0xB4DCF0),
+            (30, 0xB4DCF0),
+            (31, 0xFFFF3F),
+            (32, 0xB4DCF0),
+            (33, 0xEE921E),
+        ] {
+            assert_eq!(interface_color(ty, Interface::Classic).hex, expected);
+        }
+    }
+
     /// Behaviour: chat.interface-colors
     #[test]
     fn classic_overrides_are_narrow_and_modern_keeps_the_full_table() {
@@ -222,10 +239,13 @@ mod tests {
         for ty in 0..=255 {
             let modern = color_for_type(u8::try_from(ty).unwrap()).hex;
             assert_eq!(interface_color(ty, Interface::Retail).hex, modern);
+            if (27..=33).contains(&ty) {
+                continue;
+            }
             let classic = match ty {
                 9 => 0xDCA0A0,
                 20 => 0xFF7FFF,
-                19 | 26..=33 => 0x80FF7F,
+                19 | 26 => 0x80FF7F,
                 _ => modern,
             };
             assert_eq!(interface_color(ty, Interface::Classic).hex, classic, "{ty}");

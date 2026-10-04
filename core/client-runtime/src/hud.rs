@@ -2735,7 +2735,10 @@ impl Hud {
             // the busy-count decrement — is `interaction::apply_events`', because it is world state and this
             // function owns the chat scroll. Both arms read the same blob; neither can see the
             // other's effect.
-            Opcode::ITEM_USE_DONE => match dereth_protocol::objects::ItemUseDone::read(&mut r) {
+            Opcode::ITEM_USE_DONE => match dereth_protocol::objects::ItemUseDone::read(&mut r)
+                .inspect(|m| {
+                    world.research_use_done(m.failure_type);
+                }) {
                 Ok(m) if crate::trace::notice() && m.failure_type == 0 => {
                     tracing::debug!(
                         target: "dereth::trace::notice",
@@ -3503,8 +3506,8 @@ impl Hud {
             //
             // The rebuild is [`Self::handle_magic_remove_spell`]'s, for the same reason: the
             // panel's join is a pure function of the qualities, so a changed book rebuilds it.
-            // **Not done here:** the panel also selects the new spell when the current filter would
-            // show it. That is the panel's own state, not the book's.
+            // The receipt serial lets each panel select a newly learned spell if its current
+            // filter shows it, without mistaking a duplicate book update for a new spell.
             Opcode::MAGIC_UPDATE_SPELL => {
                 match dereth_protocol::qualities::MagicUpdateSpell::read(&mut r) {
                     Ok(m) => self.handle_magic_update_spell(m.layered_spell_id, world),
@@ -3823,10 +3826,10 @@ impl Hud {
         let Some(q) = world.player_qualities_mut() else {
             return;
         };
-        q.spell_book
-            .get_or_insert_with(Default::default)
-            .entry(spell_id)
-            .or_insert_with(Default::default);
+        let book = q.spell_book.get_or_insert_with(Default::default);
+        let newly_learned = !book.contains_key(&spell_id);
+        book.entry(spell_id).or_insert_with(Default::default);
+        world.research_spell_update(spell_id, newly_learned);
         self.spells = self.build_spells(world);
     }
 
@@ -4210,12 +4213,17 @@ impl Hud {
         &self,
         world: &dereth_client_model::World,
     ) -> dereth_client_contract::chat::mainchat::ChatFocusView {
+        let selected = world.selected_chat_player();
+        let mut enabled = world.chat.enabled_focuses();
+        let mut selectable = world.chat.selectable_focuses();
+        enabled[2] = selected.is_some();
+        selectable[2] = selected.is_some();
         dereth_client_contract::chat::mainchat::ChatFocusView {
             focus: world.chat.talk_focus as u32,
-            enabled: world.chat.enabled_focuses(),
-            selectable: world.chat.selectable_focuses(),
+            enabled,
+            selectable,
             is_olthoi: self.is_olthoi(world),
-            target: world.chat.last_speakable_target.and_then(|id| {
+            target: selected.and_then(|id| {
                 world.weenie(id).map(
                     |w| dereth_client_contract::chat::mainchat::SpeakableTarget {
                         id: id.0,
@@ -5672,7 +5680,13 @@ impl GameView for HudView<'_> {
         &self.hud.skills
     }
 
-    /// The player's spellbook joined with the `SpellTable` — see [`Hud::build_spells`].
+    fn last_learned_spell(&self) -> Option<(u64, u32)> {
+        self.world.magic.last_learned_spell
+    }
+    fn research_success(&self) -> Option<dereth_client_contract::research::ResearchSuccess> {
+        self.world.magic.research_success.clone()
+    }
+    /// The player spellbook joined with the spell table; see [`Hud::build_spells`].
     fn spellbook(&self) -> &[SpellEntry] {
         &self.hud.spells
     }

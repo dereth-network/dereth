@@ -1,7 +1,7 @@
 //! The spell research page, as clients up to January 2002 had it: up to eight carried components
 //! laid into a formula, and the formula tested on the selected target in magic mode. A formula
 //! that makes a spell casts it, and teaches it if it is new; one that makes none is refused like any
-//! cast. The page itself is told nothing of the outcome: a spell learned opens the spellbook on it.
+//! cast. A confirmed successful test clears its formula; a spell learned opens the spellbook on it.
 //! The formula and the test's rules are the game's ([`dereth_client_contract::research`]); this
 //! is the page.
 use super::super::*;
@@ -20,6 +20,7 @@ const TOP: i32 = 25;
 pub struct SpellResearch {
     /// The formula: component class ids, in the order they were laid.
     formula: Formula,
+    success_seen: u64,
     /// How far the components grid is scrolled, in rows.
     scroll: i32,
 }
@@ -157,6 +158,14 @@ impl Panel for SpellResearch {
         if !super::magic::research_on(c.game) && matches!(e, ControlEvent::Tick) {
             return vec![PanelAction::Open("spellbook".into())];
         }
+        if let Some(success) = c.game.research_success() {
+            if self.success_seen != success.serial {
+                self.success_seen = success.serial;
+                if self.formula.components() == success.components {
+                    self.formula.clear();
+                }
+            }
+        }
         let carried = carried(c.game);
         let at = |index: usize| {
             carried
@@ -220,11 +229,15 @@ mod tests {
 
     #[derive(Debug, Default)]
     struct Game {
+        success: Option<dereth_client_contract::research::ResearchSuccess>,
         mode: u32,
         selected: Option<ObjectId>,
         era: Option<dereth_client_contract::EraView>,
     }
     impl GameView for Game {
+        fn research_success(&self) -> Option<dereth_client_contract::research::ResearchSuccess> {
+            self.success.clone()
+        }
         fn era(&self) -> Option<&dereth_client_contract::EraView> {
             self.era.as_ref()
         }
@@ -274,6 +287,7 @@ mod tests {
             mode: 8,
             selected: Some(ObjectId(0x5000_0001)),
             era: None,
+            success: None,
         };
         with(&game, |c| {
             // Only carried components show: the second (none carried) is left out.
@@ -349,6 +363,45 @@ mod tests {
             );
             let book = super::super::magic::Spellbook::new(false).frame(c);
             assert!(!book.controls.iter().any(|b| b.id == "create-spell"));
+        });
+    }
+    #[test]
+    fn confirmed_test_clears_once_without_removing_an_edited_formula() {
+        let mut era = dereth_client_contract::EraView::default();
+        era.announced_features.set("spell_research", true);
+        let mut game = Game {
+            era: Some(era),
+            ..Default::default()
+        };
+        let mut page = SpellResearch::default();
+        page.add(0x2b1);
+        game.success = Some(dereth_client_contract::research::ResearchSuccess {
+            serial: 1,
+            components: vec![0x2b3],
+        });
+        with(&game, |c| {
+            page.event(ControlEvent::Tick, c);
+        });
+        assert_eq!(page.formula.components(), [0x2b1]);
+        game.success = Some(dereth_client_contract::research::ResearchSuccess {
+            serial: 2,
+            components: vec![0x2b1],
+        });
+        with(&game, |c| {
+            page.event(ControlEvent::Tick, c);
+            assert!(page.formula.is_empty());
+            assert!(
+                !page
+                    .frame(c)
+                    .controls
+                    .iter()
+                    .find(|c| c.id == "test")
+                    .unwrap()
+                    .enabled
+            );
+            page.add(0x2b1);
+            page.event(ControlEvent::Tick, c);
+            assert_eq!(page.formula.components(), [0x2b1]);
         });
     }
 }

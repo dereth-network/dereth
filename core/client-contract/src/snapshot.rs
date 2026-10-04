@@ -217,6 +217,10 @@ pub struct GameSnapshot {
     pub skills: Vec<SkillEntry>,
     /// [`GameView::spellbook`].
     pub spellbook: Vec<SpellEntry>,
+    /// [`GameView::last_learned_spell`].
+    pub last_learned_spell: Option<(u64, u32)>,
+    /// [`GameView::research_success`].
+    pub research_success: Option<crate::research::ResearchSuccess>,
     /// [`GameView::spell_filters`].
     pub spell_filters: u32,
     /// [`GameView::spell_tab`], slots `0..`[`SPELL_TABS`].
@@ -544,6 +548,8 @@ impl GameSnapshot {
             utc_offset_secs: view.utc_offset_secs(),
             skills,
             spellbook,
+            last_learned_spell: view.last_learned_spell(),
+            research_success: view.research_success(),
             spell_filters: view.spell_filters(),
             spell_tabs,
             spell_components,
@@ -758,6 +764,12 @@ impl GameView for GameSnapshot {
     }
     fn skills(&self) -> &[SkillEntry] {
         &self.skills
+    }
+    fn last_learned_spell(&self) -> Option<(u64, u32)> {
+        self.last_learned_spell
+    }
+    fn research_success(&self) -> Option<crate::research::ResearchSuccess> {
+        self.research_success.clone()
     }
     fn spellbook(&self) -> &[SpellEntry] {
         &self.spellbook

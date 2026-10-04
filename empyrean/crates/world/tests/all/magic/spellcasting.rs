@@ -425,11 +425,21 @@ fn component(name: &str, component_type: u32, gesture: u32) -> SpellComponent {
 }
 
 fn dats() -> Arc<empyrean_dat::DatManager> {
-    let defs = defs();
+    dats_with(defs(), 0)
+}
+
+fn dats_with(defs: Vec<Def>, target_type: u32) -> Arc<empyrean_dat::DatManager> {
     let table = SpellTable {
         id: DataId(0x0E00_000E),
         spell_buckets: 64,
-        spells: defs.iter().map(|d| (d.id, spell_base(d))).collect(),
+        spells: defs
+            .iter()
+            .map(|d| {
+                let mut base = spell_base(d);
+                base.non_component_target_type = target_type;
+                (d.id, base)
+            })
+            .collect(),
         spellset_bucket_index: 1,
         spellsets: BTreeMap::new(),
     };
@@ -548,10 +558,14 @@ struct H {
 
 impl H {
     fn new() -> Self {
+        Self::with_dats(dats())
+    }
+
+    fn with_dats(dats: Arc<empyrean_dat::DatManager>) -> Self {
         let clock = VirtualClock::default();
         let timers = TimersState::new(&clock);
         let now = ClockSnapshot::take(&clock, timers.portal_year_ticks);
-        let mut w = World::new(now, dats());
+        let mut w = World::new(now, dats);
         w.content = Arc::new(content());
         w.timers = timers;
         gm::initialize(&mut w, &mut EmptyShard);
@@ -836,6 +850,60 @@ fn registry_ids(w: &World, g: ObjectGuid) -> Vec<i32> {
         .iter()
         .map(|e| e.spell_id)
         .collect()
+}
+
+/// A recognized research formula follows target checks before learning. A successful cast
+/// acknowledges both newly learned and already-known spells; a refusal teaches nothing.
+/// Divergence: V432
+#[test]
+fn research_teaches_only_after_a_successful_cast_and_acknowledges_known_success() {
+    use empyrean_world::world_objects::spell_research::handle_test_spell_formula;
+    let mut definition = defs().remove(0);
+    definition.flags = BENEFICIAL;
+    let mut h = H::with_dats(dats_with(vec![definition], ItemType::Creature.0));
+    let mut features = h.w.era.features;
+    features.spell_research = true;
+    h.w.era = empyrean_common::era::with_features(h.w.era, features);
+    h.player(100.0, 100.0);
+    let items = h.give_components();
+    assert!(player_spells::remove_known_spell(
+        &mut h.w,
+        PLAYER,
+        STRENGTH_SELF
+    ));
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, items[0].full());
+    assert!(!player_spells::spell_is_known(&h.w, PLAYER, STRENGTH_SELF));
+    assert!(
+        events(&sent(), 0x02C1).is_empty(),
+        "wrong target must not teach"
+    );
+    assert!(!player_magic::fields(&h.w, PLAYER).magic_state.is_casting);
+
+    for was_known in [false, true] {
+        // The first successful cast may consume formula components.
+        if was_known {
+            let _ = h.give_components();
+        }
+        start_capture();
+        handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, PLAYER.full());
+        assert_eq!(
+            player_spells::spell_is_known(&h.w, PLAYER, STRENGTH_SELF),
+            was_known,
+            "starting the test does not teach before the cast succeeds"
+        );
+        assert!(h.run_until(2.0, |h| !player_magic::is_busy(&h.w, PLAYER)));
+        assert!(player_spells::spell_is_known(&h.w, PLAYER, STRENGTH_SELF));
+        let got = sent();
+        assert_eq!(events(&got, 0x02C1), [STRENGTH_SELF], "{got:?}");
+        assert_eq!(events(&got, EV_USE_DONE), [0], "{got:?}");
+        assert_eq!(
+            player_magic::fields(&h.w, PLAYER)
+                .magic_state
+                .research_spell,
+            None
+        );
+    }
 }
 
 // ------------------------------------------------------------------------------------ scenarios

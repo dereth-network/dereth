@@ -2770,6 +2770,7 @@ impl ObjectStream {
         // longer exists.
         self.player_motion_dispatches.clear();
         let mut fresh = new_world();
+        fresh.magic.preserve_receipt_serials_from(&self.world.magic);
         self.world.journal.set_identity(None);
         fresh.journal = std::mem::take(&mut self.world.journal);
         // The local chat DLL and communication-system rooms/spam bucket are process-owned,
@@ -2823,6 +2824,21 @@ mod tests {
 
     fn ev(op: Opcode, body: Vec<u8>) -> SessionEvent {
         SessionEvent::WorldObject { opcode: op, body }
+    }
+
+    /// Behaviour: none (actual session reset preserves only spell receipt counters).
+    #[test]
+    fn character_session_reset_discards_spell_receipts_but_not_their_identity_sequence() {
+        let mut objects = ObjectStream::new();
+        objects.world.player = Some(ObjectId(1));
+        objects.world.research_spell_update(7, true);
+        assert_eq!(objects.world.magic.last_learned_spell, Some((1, 7)));
+        objects.reset();
+        assert_eq!(objects.world.magic.last_learned_spell, None);
+        assert_eq!(objects.world.magic.research_success, None);
+        objects.world.player = Some(ObjectId(2));
+        objects.world.research_spell_update(8, true);
+        assert_eq!(objects.world.magic.last_learned_spell, Some((2, 8)));
     }
 
     #[test]

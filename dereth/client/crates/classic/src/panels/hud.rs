@@ -2494,6 +2494,23 @@ mod tests {
             },
         );
     }
+    /// Behaviour: chat.classic-later-channel-colors
+    #[test]
+    fn later_channel_lines_draw_in_their_distinct_colors() {
+        let resources = crate::resources::Resources::default();
+        let world = World::default();
+        let (pregame, keyboard, settings) = Default::default();
+        for (channel, color) in [(27, 0xffb4dcf0), (31, 0xffffff3f), (33, 0xffee921e)] {
+            let mut state = ClassicState::default();
+            state.chat.push((channel, "Channel line".into()));
+            let cx = context(&resources, &world, &state, &pregame, &keyboard, &settings);
+            let frame = Chat::default().frame(&cx);
+            assert!(frame.screen.commands.iter().any(|command| matches!(command,
+                Command::TextBox { text, color: actual, .. } if text == "Channel line" && *actual == color
+            )));
+        }
+    }
+
     #[test]
     fn chat_submission_emits_one_main_window_line_and_default_color_is_green() {
         with_context(&World::default(), |c| {

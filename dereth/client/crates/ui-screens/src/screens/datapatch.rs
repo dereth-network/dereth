@@ -230,6 +230,7 @@ impl Screen for DataPatchScreen {
             .and_then(|e| e.create_and_add_root_element(ui, LAYOUT, ROOT))?;
         self.roots.push(root);
         self.bound = bind_children(ui, root, CHILDREN);
+        ui.register_for_element_messages(root, dereth_ui::ListenerId::External(LAYOUT.0));
         // The constructor "forces both to 0.0" after initialising them to -1.0.
         self.set_connect_level(ui, 0.0);
         self.set_patch_level(ui, 0.0);
@@ -239,6 +240,15 @@ impl Screen for DataPatchScreen {
             dereth_ui::ListenerId::External(LAYOUT.0),
         );
         Ok(())
+    }
+
+    fn destroy(&mut self, cx: &mut ScreenCx<'_>) {
+        let listener = dereth_ui::ListenerId::External(LAYOUT.0);
+        cx.ui
+            .unregister_for_global_message(dereth_ui::msg::global::TICK, listener);
+        for root in &self.roots {
+            cx.ui.unregister_from_element(*root, listener);
+        }
     }
 
     fn update(&mut self, cx: &mut ScreenCx<'_>, now: LocalTime) -> Option<UiMode> {

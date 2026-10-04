@@ -1510,6 +1510,11 @@ impl ClassicUi {
         let in_world = cx.pregame().in_world;
         let initial = if in_world {
             "hud".to_owned()
+        } else if self.initial_panel == "login"
+            && !cx.pregame().received_set
+            && (cx.pregame().has_packet_controller || cx.config().connect)
+        {
+            "startup".to_owned()
         } else {
             self.initial_panel.clone()
         };
@@ -1824,15 +1829,9 @@ impl ClassicUi {
         let split = cx.model().split;
         self.classic.stack_split = Some((split.split_size, split.max_split_size));
         self.refresh_classic(cx);
-        let target = cx.model().chat.last_speakable_target;
-        self.classic.chat_target = target.and_then(|id| {
-            cx.hud()
-                .view(cx.objects())
-                .name(id)
-                .map(|name| (id, name.to_owned()))
-        });
-        let talk_focus = cx.model().chat.talk_focus;
-        self.classic.chat_focus = Some((talk_focus as u8, cx.model().chat.selectable_focuses()));
+        let chat = cx.hud().chat_focus_view(cx.model());
+        self.classic.chat_target = chat.target.map(|target| (ObjectId(target.id), target.name));
+        self.classic.chat_focus = Some((u8::try_from(chat.focus).unwrap_or(0), chat.selectable));
         let transient = std::mem::take(&mut cx.hud_mut().classic_panels().transient);
         for (text, feedback) in transient {
             if let Some(sound) = self.present_feedback(&text, feedback, now.0) {

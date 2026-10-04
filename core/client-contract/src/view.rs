@@ -2710,6 +2710,16 @@ pub trait GameView: std::fmt::Debug {
         &[]
     }
 
+    /// The most recent newly learned spell, as a receipt serial and spell id.
+    fn last_learned_spell(&self) -> Option<(u64, u32)> {
+        None
+    }
+
+    /// The most recent confirmed successful formula test.
+    fn research_success(&self) -> Option<crate::research::ResearchSuccess> {
+        None
+    }
+
     /// Look up `spell_id` in the spell table — **one row, whether
     /// or not the player knows the spell.**
     ///

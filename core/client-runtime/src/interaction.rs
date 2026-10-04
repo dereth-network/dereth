@@ -3361,7 +3361,14 @@ feedback,channel: 0x1A, text},
                 // by enable_selection's current-focus fallback. Nothing is sent here.
                 UiRequest::SetTalkFocus { focus } => {
                     if let Some(focus) = dereth_client_model::chat::TalkFocus::from_raw(focus) {
-                        game.chat.set_talk_focus(focus);
+                        if focus == dereth_client_model::chat::TalkFocus::Selected {
+                            if let Some(target) = game.selected_chat_player() {
+                                game.chat.set_speakable_target(Some(target), true);
+                                game.chat.set_talk_focus(focus);
+                            }
+                        } else {
+                            game.chat.set_talk_focus(focus);
+                        }
                     }
                     self.stats.ui_requests_handled += 1;
                     continue;
@@ -4045,7 +4052,7 @@ feedback,channel: 0x1A, text},
                     self.stats.trade_control_sent += 1;
                 }
                 UiRequest::ToggleCharacterSquelch(object) => {
-                    if object.0 != 0 && game.weenie(object).is_some() {
+                    if game.selected_chat_player() == Some(object) {
                         let squelched = game.chat.is_squelched(object, "", 1);
                         game.modify_character_squelch(&mut req, object, !squelched, "", 1);
                         self.stats.squelch_requests += 1;

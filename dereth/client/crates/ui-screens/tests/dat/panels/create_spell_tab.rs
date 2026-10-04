@@ -20,9 +20,13 @@ const LISTENER: u32 = 0x7F0;
 struct World {
     era: EraView,
     components: Vec<ComponentRow>,
+    success: Option<dereth_client_contract::research::ResearchSuccess>,
 }
 
 impl GameView for World {
+    fn research_success(&self) -> Option<dereth_client_contract::research::ResearchSuccess> {
+        self.success.clone()
+    }
     fn era(&self) -> Option<&EraView> {
         Some(&self.era)
     }
@@ -63,7 +67,11 @@ fn world(research: bool) -> World {
             object: Some(ObjectId(0x5000_0000 + i)),
         })
         .collect();
-    World { era, components }
+    World {
+        era,
+        components,
+        success: None,
+    }
 }
 
 fn screen() -> (UiSystem, GamePlayScreen) {
@@ -472,4 +480,43 @@ fn the_create_spell_grid_scrolls_by_rows_when_more_kinds_are_carried_than_it_sho
         [0x308],
         "the first slot shows the second row"
     );
+}
+
+/// Behaviour: magic.research.confirmed-success-clears-the-tested-formula
+#[test]
+fn successful_test_clears_only_its_matching_formula_and_redraws_the_buttons() {
+    let (mut ui, mut screen) = screen();
+    let (_, mut page) = magic_window(&mut ui, &screen);
+    let mut view = world(true);
+    page.update(&mut ui, &view);
+    open_page(&mut ui, &mut screen, &mut page, &view);
+    let grid = page.grid_slots().to_vec();
+    double_click(&mut ui, &mut screen, &mut page, &view, grid[0]);
+    assert_eq!(page.formula.components(), [0x2B0]);
+    view.success = Some(dereth_client_contract::research::ResearchSuccess {
+        serial: 1,
+        components: vec![0x2B1],
+    });
+    page.update(&mut ui, &view);
+    assert_eq!(
+        page.formula.components(),
+        [0x2B0],
+        "another formula's completion"
+    );
+    view.success = Some(dereth_client_contract::research::ResearchSuccess {
+        serial: 2,
+        components: vec![0x2B0],
+    });
+    page.update(&mut ui, &view);
+    assert!(page.formula.is_empty());
+    let test = ui.get_element(research::TEST_BUTTON).unwrap();
+    assert!(disabled(&ui, test));
+    double_click(&mut ui, &mut screen, &mut page, &view, grid[0]);
+    page.update(&mut ui, &view);
+    assert_eq!(
+        page.formula.components(),
+        [0x2B0],
+        "receipt is consumed only once"
+    );
+    assert!(!disabled(&ui, test));
 }

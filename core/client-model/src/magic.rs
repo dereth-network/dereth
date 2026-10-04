@@ -1,8 +1,8 @@
 //! The spellbook, components, the casting state machine and the spell-economy fields.
 //!
 //! **The client never plays the windup or the gesture.** No animation, no mana deduction, no fizzle
-//! roll, and no range check happens locally; the busy counter is the entire client-side casting
-//! state.
+//! roll, and no range check happens locally. The client tracks outstanding actions and spell
+//! receipts without simulating the cast.
 //!
 //! The enchantment registry itself lives in [`crate::enchant`].
 
@@ -1147,6 +1147,10 @@ impl World {
         if self.combat.combat_mode != crate::combat::CombatMode::Magic {
             return self.refuse_cast(out, messages::RESEARCH_NEEDS_MAGIC_MODE.into());
         }
+        let appraisal_wait = u32::from(self.appraisal.awaiting_answer.is_some());
+        if self.magic.pending_research.is_some() || self.magic.busy_count > appraisal_wait {
+            return self.refuse_cast(out, "You're too busy!".into());
+        }
         let Some(target) = self.selected.filter(|t| t.0 != 0) else {
             return self.refuse_cast(out, messages::RESEARCH_NEEDS_TARGET.into());
         };
@@ -1154,6 +1158,22 @@ impl World {
         for (slot, wcid) in slots.iter_mut().zip(components) {
             *slot = self.magic.catalogue.wcid_to_scid(*wcid);
         }
+        let expected_spell = self.magic.spell_table.as_ref().and_then(|table| {
+            table.spells.iter().find_map(|(&id, base)| {
+                let mut formula = decrypt_formula(&base.raw_comps, base.comp_key);
+                randomize_for_name(
+                    &mut formula,
+                    &self.player_system.account,
+                    base.formula_version,
+                );
+                (formula == slots).then_some(id)
+            })
+        });
+        self.magic.pending_research = Some(PendingResearch {
+            components: components.iter().take(8).copied().collect(),
+            expected_spell,
+            updated: false,
+        });
         req.send(Request::TestSpellFormula(
             dereth_protocol::combat::MagicTestSpellFormula {
                 components: slots,
@@ -1162,6 +1182,34 @@ impl World {
         ));
         self.magic.busy_count += 1;
         Ok(())
+    }
+
+    /// Records new-book selection and an update matching the pending formula test.
+    pub fn research_spell_update(&mut self, spell_id: u32, newly_learned: bool) {
+        if newly_learned {
+            self.magic.learned_serial = self.magic.learned_serial.wrapping_add(1);
+            self.magic.last_learned_spell = Some((self.magic.learned_serial, spell_id));
+        }
+        if let Some(pending) = self.magic.pending_research.as_mut() {
+            if pending.expected_spell == Some(spell_id) {
+                pending.updated = true;
+            }
+        }
+    }
+
+    /// Consumes completion in the same receipt order as spell updates. A successful use alone
+    /// is insufficient: refused target checks can also finish without a numeric failure.
+    pub fn research_use_done(&mut self, failure: u32) {
+        let Some(pending) = self.magic.pending_research.take() else {
+            return;
+        };
+        if failure == 0 && pending.updated {
+            self.magic.research_serial = self.magic.research_serial.wrapping_add(1);
+            self.magic.research_success = Some(dereth_client_contract::research::ResearchSuccess {
+                serial: self.magic.research_serial,
+                components: pending.components,
+            });
+        }
     }
 
     /// The cast refusal tail: a display-string notice on channel `0x1A` with the literal, then return.
@@ -1480,9 +1528,23 @@ pub fn formula_target_type(comps: &[u32; 8]) -> u32 {
     dereth_rules::weenie::spell_target_type_of_component(comps[i - 1])
 }
 
+#[derive(Debug, Clone)]
+struct PendingResearch {
+    components: Vec<u32>,
+    expected_spell: Option<u32>,
+    updated: bool,
+}
+
 /// Client-side spell-casting state.
 #[derive(Debug, Clone, Default)]
 pub struct MagicState {
+    pending_research: Option<PendingResearch>,
+    research_serial: u64,
+    learned_serial: u64,
+    /// Latest successfully completed formula, projected by either interface.
+    pub research_success: Option<dereth_client_contract::research::ResearchSuccess>,
+    /// Latest new spell's receipt serial and id; duplicate book updates do not replace it.
+    pub last_learned_spell: Option<(u64, u32)>,
     pub components: ComponentTracker,
     /// The spell-component table joined to the WCID mapper; see
     /// [`ComponentCatalogue`]. The host fills it from the dats once; until it does, every category
@@ -1517,8 +1579,7 @@ pub struct MagicState {
     /// the client's `notify = 0` walk plus one trailing notice does by hand.
     pub component_serial: u64,
     /// The busy count: how many actions the player asked for are still waiting on their answer.
-    /// While it is not zero the pointer is the hourglass. It is also the **whole** of the
-    /// client's casting state.
+    /// While it is not zero the pointer is the hourglass.
     pub busy_count: u32,
     /// The spell table the client lazily loads as `(6, 2, 0x10000005)` on the **first** cast or
     /// spell-compatibility test and then keeps.
@@ -1539,9 +1600,43 @@ pub struct MagicState {
     pub school_pack_wcid: BTreeMap<u32, u32>,
 }
 
+impl MagicState {
+    /// Receipt identities outlive a character session; the pending test and its result do not.
+    pub fn preserve_receipt_serials_from(&mut self, previous: &Self) {
+        self.research_serial = previous.research_serial;
+        self.learned_serial = previous.learned_serial;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: none (receipt identity survives session state replacement).
+    #[test]
+    fn new_session_keeps_receipt_sequence_but_discards_pending_test_and_result() {
+        let previous = MagicState {
+            learned_serial: 4,
+            research_serial: 7,
+            research_success: Some(dereth_client_contract::research::ResearchSuccess {
+                serial: 7,
+                components: vec![1],
+            }),
+            last_learned_spell: Some((4, 10)),
+            pending_research: Some(PendingResearch {
+                expected_spell: Some(11),
+                components: vec![2],
+                updated: true,
+            }),
+            ..Default::default()
+        };
+        let mut fresh = MagicState::default();
+        fresh.preserve_receipt_serials_from(&previous);
+        assert_eq!((fresh.learned_serial, fresh.research_serial), (4, 7));
+        assert!(fresh.pending_research.is_none());
+        assert!(fresh.research_success.is_none());
+        assert!(fresh.last_learned_spell.is_none());
+    }
 
     /// Behaviour: feedback.producers.successful-casting-keeps-warning-emphasis
     #[test]

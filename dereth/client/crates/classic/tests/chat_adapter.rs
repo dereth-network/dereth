@@ -1023,3 +1023,36 @@ fn actual_abuse_feedback_survives_an_identical_ordinary_line_and_controls_color_
         None
     );
 }
+
+/// Behaviour: none (actual connection-panel startup and quit delivery).
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn pending_connection_opens_progress_and_its_first_cancel_click_quits() {
+    let (mut app, mut shell) = fixture();
+    dereth_client_contract::options::store::init();
+    app.cfg.connect = true;
+    app.host_state.has_packet_controller = true;
+    shell.ui.start(&mut app.ui_context()).unwrap();
+    assert!(shell.ui.desktop.is_open("startup"));
+    assert!(!shell.ui.desktop.is_open("login"));
+    shell.ui.window_input(
+        &mut app.ui_context(),
+        &click(742.0, 50.0),
+        &mut EmptyClipboard,
+    );
+    shell.ui.process_inputs(
+        &mut app.ui_context(),
+        dereth_primitives::LocalTime(0.0),
+        false,
+    );
+    shell
+        .ui
+        .carry_out_requests(&mut app.ui_context(), dereth_primitives::LocalTime(0.0));
+    assert!(
+        !app.frame(&mut shell),
+        "Cancel terminates the actual App while connection is pending"
+    );
+}

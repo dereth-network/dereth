@@ -303,3 +303,49 @@ fn actual_filter_button_resets_scroll_after_refill() {
         0
     );
 }
+
+/// Behaviour: magic.research.confirmed-success-clears-the-tested-formula
+#[test]
+fn a_new_spell_receipt_selects_its_visible_row_once_without_changing_filters() {
+    #[derive(Debug)]
+    struct Learned<'a> {
+        book: &'a Book,
+        receipt: (u64, u32),
+    }
+    impl GameView for Learned<'_> {
+        fn spellbook(&self) -> &[SpellEntry] {
+            self.book.spellbook()
+        }
+        fn last_learned_spell(&self) -> Option<(u64, u32)> {
+            Some(self.receipt)
+        }
+    }
+    let (mut ui, mut panel, book) = env();
+    panel.set_selected(&mut ui, 1);
+    let view = Learned {
+        book: &book,
+        receipt: (1, 40),
+    };
+    assert!(panel.update(&mut ui, &view));
+    assert_eq!(panel.selected_spell, 40);
+    assert!(panel
+        .list
+        .as_ref()
+        .unwrap()
+        .slots
+        .iter()
+        .all(|s| s.selected == (s.spell == Some(40))));
+    assert!(panel.list.as_ref().unwrap().scroll(&ui).1 > 0);
+    panel.set_selected(&mut ui, 1);
+    panel.update(&mut ui, &view);
+    assert_eq!(panel.selected_spell, 1, "unchanged receipt cannot reselect");
+    let absent = Learned {
+        book: &book,
+        receipt: (2, 999),
+    };
+    panel.update(&mut ui, &absent);
+    assert_eq!(
+        panel.selected_spell, 1,
+        "filtered or absent spells do not select another row"
+    );
+}

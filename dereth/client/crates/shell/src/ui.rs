@@ -865,6 +865,9 @@ impl UiShell {
             input.begin_action_dispatch(true);
         }
         self.deliver_pending(&mut dispatch);
+        // A physical input can start a movie or sound before the next media tick.
+        // Hand those effects to their host before that tick starts a new batch.
+        self.tick_media(now);
         self.sync_text_mode(input, false);
         if key_scope {
             input.end_action_dispatch();

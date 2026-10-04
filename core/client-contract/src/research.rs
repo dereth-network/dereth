@@ -4,6 +4,13 @@
 //! any cast is. Every interface's research page edits one of these and sends it with
 //! [`crate::UiRequest::TestSpellFormula`].
 
+/// A successful formula test, identified by receipt order and the components it tested.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResearchSuccess {
+    pub serial: u64,
+    pub components: Vec<u32>,
+}
+
 /// The most components a formula holds.
 pub const FORMULA_SLOTS: usize = 8;
 

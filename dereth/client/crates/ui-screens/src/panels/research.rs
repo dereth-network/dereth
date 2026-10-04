@@ -17,7 +17,8 @@
 //! The page works as the classic interface's does: a double click on a carried component lays it
 //! at the formula's end, a component dragged from the pack onto the formula is laid the same way,
 //! a double click on a laid component takes it out, Test sends the formula as
-//! [`UiRequest::TestSpellFormula`] and Clear empties it. Test and Clear wait for a component.
+//! [`UiRequest::TestSpellFormula`] and Clear empties it. A confirmed successful test clears its
+//! matching formula. Test and Clear wait for a component.
 //! What the test teaches reaches the spellbook as any learned spell does; the page is told
 //! nothing.
 //!
@@ -117,6 +118,7 @@ struct Drawn {
 pub struct ResearchPanel {
     /// The formula being laid.
     pub formula: Formula,
+    success_seen: u64,
     /// The magic window: the tabbed panel the tab is registered with.
     window: Option<ElemHandle>,
     /// The three tabs, in strip order; the last is Create Spell.
@@ -528,6 +530,14 @@ impl ResearchPanel {
         let Some(window) = self.window else {
             return false;
         };
+        if let Some(success) = view.research_success() {
+            if self.success_seen != success.serial {
+                self.success_seen = success.serial;
+                if self.formula.components() == success.components {
+                    self.formula.clear();
+                }
+            }
+        }
         let has = view.era_features().spell_research;
         let mut wrote = false;
         if self.shown != Some(has) {

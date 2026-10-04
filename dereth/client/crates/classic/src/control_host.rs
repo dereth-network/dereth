@@ -424,6 +424,26 @@ impl ControlHost {
     pub fn popup_open(&self) -> bool {
         self.choice.is_some()
     }
+    fn popup_label(&self, text: &str, font: &str, width: i32) -> String {
+        let measure = |text: &str| {
+            self.fonts
+                .text_width(font, text)
+                .unwrap_or_else(|| text.chars().fold(0i32, |total, _| total.saturating_add(6)))
+        };
+        if measure(text) <= width {
+            return text.to_owned();
+        }
+        let mut shortened = text.to_owned();
+        while !shortened.is_empty() {
+            shortened.pop();
+            let candidate = format!("{shortened}...");
+            if measure(&candidate) <= width {
+                return candidate;
+            }
+        }
+        String::new()
+    }
+
     /// Where an open dropdown's popup lies: below its face, or above it when it would run off
     /// the bottom of the screen.
     fn choice_popup(&self, c: &Control, count: usize) -> Popup {
@@ -1547,10 +1567,10 @@ impl ControlHost {
                             out.label(
                                 row.x + 18,
                                 row.y + 1,
-                                option,
+                                self.popup_label(option, &c.font, row.w - 22),
                                 &c.font,
                                 if enabled(i) { c.color } else { 0xff646464 },
-                                None,
+                                Some([row.x + 18, row.y, row.x + row.w - 4, row.y + row.h]),
                             );
                         } else if let Some(skin) = c.list_skin {
                             out.image_native(
@@ -2112,6 +2132,63 @@ mod tests {
         assert_eq!(cycle_choice(1, 3, true, |i: usize| i == 1), 1);
         assert_eq!(cycle_choice(0, 0, true, all), 0);
     }
+    #[test]
+    fn chat_popup_shortens_long_names_without_changing_the_choice() {
+        let mut frame = PanelFrame::new(800, 600);
+        let long = "Tell to A Very Long Character Name With More Words";
+        let c = frame.control(
+            "destination",
+            rect(0, 500, 48, 17),
+            ControlKind::Choice {
+                options: vec![long.into(), "Chat to All".into()],
+                selected: 1,
+            },
+            true,
+        );
+        c.chat_popup = true;
+        let mut host = ControlHost::default();
+        host.sync(&frame);
+        let now = dereth_primitives::LocalTime(0.0);
+        host.handle(Input::PointerDown { x: 10, y: 508 }, now);
+        host.handle(Input::PointerUp { x: 10, y: 508 }, now);
+        assert!(host.popup_open());
+        let drawn = host.draw(&frame);
+        let rows: Vec<_> = drawn
+            .commands
+            .iter()
+            .filter_map(|command| {
+                if let Command::Text {
+                    text,
+                    x,
+                    clip: Some(clip),
+                    ..
+                } = command
+                {
+                    Some((text.as_str(), *x, *clip))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let first = rows
+            .iter()
+            .find(|(text, _, _)| text.starts_with("Tell to"))
+            .unwrap();
+        assert!(first.0.ends_with("..."));
+        assert!(first.0.len() < long.len());
+        assert_eq!(first.1, first.2[0]);
+        assert!(rows.iter().any(|(text, _, _)| *text == "Chat to All"));
+        assert!(matches!(&frame.controls[0].kind,
+            ControlKind::Choice { options, .. } if options[0] == long));
+        assert_eq!(
+            host.handle(Input::PointerUp { x: 25, y: 523 }, now),
+            vec![ControlEvent::Select {
+                id: "destination".into(),
+                index: 0
+            }]
+        );
+    }
+
     #[test]
     fn art_choice_draws_row_art_and_arrow_and_escape_closes_its_popup() {
         let mut frame = PanelFrame::new(800, 600);

@@ -234,6 +234,7 @@ pub struct SpellbookPanel {
     pub shown: Vec<u32>,
     /// The selected spell id, updated when a spell row is selected.
     pub selected_spell: u32,
+    learned_seen: u64,
     /// The last `(filters, spellbook)` the list was built for, so an unchanged frame rebuilds
     /// nothing.
     ///
@@ -511,7 +512,17 @@ impl SpellbookPanel {
     ///
     /// Returns true on a frame that actually rewrote the list.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        self.update_filtered(ui, view, view.spell_filters())
+        let changed = self.update_filtered(ui, view, view.spell_filters());
+        if let Some((serial, spell)) = view.last_learned_spell() {
+            if serial != self.learned_seen {
+                self.learned_seen = serial;
+                if self.shown.contains(&spell) {
+                    self.set_selected(ui, spell);
+                    return true;
+                }
+            }
+        }
+        changed
     }
 
     fn update_filtered(&mut self, ui: &mut UiSystem, view: &dyn GameView, filters: u32) -> bool {
