@@ -1609,6 +1609,8 @@ dependencies = [
 name = "empyrean-import"
 version = "0.1.2"
 dependencies = [
+ "dereth-dat",
+ "dereth-primitives",
  "empyrean-common",
  "empyrean-content",
  "empyrean-entity",

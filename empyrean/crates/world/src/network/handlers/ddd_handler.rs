@@ -9,6 +9,7 @@ use empyrean_dat::DatDatabaseType;
 use empyrean_entity::enums::ChatMessageType;
 use empyrean_net::{SessionId, SessionTerminationReason};
 
+use crate::managers::dat_overlay;
 use crate::managers::ddd_manager::{self, dat_file_type, HI_FI_STRING_AS_INT};
 use crate::managers::property_manager;
 use crate::network::game_event::events::game_event_communication_transient_string::game_event_communication_transient_string;
@@ -102,6 +103,10 @@ fn set_dat_warn(w: &mut World, session: SessionId, which: DatWarn) {
 pub const PRE_TOD_OTHER_CLIENT_REASON: &str = " because this world plays the data files of     February 2005, and your client's are from another time.
 Play it with the Dereth client,     which draws that world, or with a client of that time";
 
+/// Not ACE: why a client holding other base data files than a world's data overlay was made
+/// against is booted (the account-booted message puts it after "because").
+pub const OVERLAY_OTHER_BASE_REASON: &str = "this world's data overlay was made against other data files than your client's. Install the data files the world names";
+
 /// The client's iteration lists: boot it when its dats are newer than the server's; when they
 /// are older, start patching (or boot it when patching is off); otherwise end DDD at once.
 pub fn ddd_interrogation_response(
@@ -137,7 +142,7 @@ pub fn ddd_interrogation_response_with(
 
     let show_dat_warning = property_manager::get_bool(w, "show_dat_warning", false, true).item;
 
-    message.read_u32()?; // the client's language
+    let client_language = message.read_u32()?; // the client's language
 
     // `message.Payload.ReadCAllIterationList()`: the structure reader runs over the rest of the
     // payload, which the handler reads no further.
@@ -148,12 +153,57 @@ pub fn ddd_interrogation_response_with(
     // message.Payload.ReadUInt32(); // the flags - We don't need this
 
     let dats = std::sync::Arc::clone(&w.dats);
+    // DIVERGE (V437): the overlay extension. A client that keeps overlays sets a flag after the
+    // lists and names the bases it holds; ACE reads neither. Over a world with a data overlay, such
+    // a client is patched to the world (when `[dat_overlay] patching` is on) and checked first to
+    // hold the bases the overlay was made against.
+    let extension = {
+        let mut body = client_language.to_le_bytes().to_vec();
+        body.extend_from_slice(&rest);
+        dereth_protocol::read_body::<dereth_protocol::admin::DddInterrogationResponse>(&body)
+            .ok()
+            .filter(|r| {
+                r.flags & dereth_protocol::admin::DddInterrogationResponse::FLAG_OVERLAY != 0
+            })
+    };
+    let overlay_world = !dat_overlay::overlaid(&dats).is_empty();
+    let overlay_patching = overlay_world
+        && extension.is_some()
+        && empyrean_common::config_manager::ConfigManager::config()
+            .dat_overlay
+            .patching;
+    if overlay_patching {
+        let bases = extension.as_ref().map_or(&[][..], |r| &r.overlay_bases[..]);
+        if let Some(why) = dat_overlay::base_mismatch(&dats, bases) {
+            log::info!(
+                "[DDD] client {} holds other data files than this world's overlay was made against: {why}",
+                account(w, session)
+            );
+            // The manifest first, so the client can say which files it needs.
+            enqueue_send(
+                w,
+                session,
+                dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(&dats)),
+            );
+            let boot =
+                game_message_boot_account(Some(&format!(" because {OVERLAY_OTHER_BASE_REASON}")));
+            terminate(
+                w,
+                session,
+                SessionTerminationReason::DATsPatchingDisabled,
+                boot,
+            );
+            return Ok(());
+        }
+    }
     // DIVERGE: on the dat set from before Throne of Destiny there is no language file (the
     // portal file holds the strings) and no patching (those files have no iteration lists to
     // patch from): the portal and cell iterations are compared, the language list is not, and a
     // client missing iterations is booted as when patching is off.
     let pre_tod = dats.portal_dat().container_era() == dereth_primitives::ContainerEra::PreTod;
-    let enable_dat_patching = enable_dat_patching && !pre_tod;
+    // DIVERGE (V437): a client that keeps overlays is patched to a world with a data overlay,
+    // before Throne of Destiny too (the overlay carries its own iteration list).
+    let enable_dat_patching = (enable_dat_patching && !pre_tod) || overlay_patching;
     let portal_iteration = dats.portal_dat().iteration();
     let cell_iteration = dats.cell_dat().iteration();
     let language_iteration = dats.language_dat().iteration();
@@ -291,7 +341,8 @@ pub fn ddd_interrogation_response_with(
     }
     log::info!("{log_msg}");
 
-    if pre_tod && (client_has_extra_iterations || client_is_missing_iterations) {
+    if pre_tod && !overlay_patching && (client_has_extra_iterations || client_is_missing_iterations)
+    {
         // DIVERGE: a client whose files are not the February 2005 set a world plays is told
         // which files the world plays, rather than that its own are newer than expected or
         // incomplete.
@@ -317,21 +368,65 @@ pub fn ddd_interrogation_response_with(
             boot,
         );
     } else if client_is_missing_iterations && enable_dat_patching {
+        // DIVERGE (V437): before Throne of Destiny the language reads are the portal file's, and
+        // the client's language list is its own later file's: nothing of it is patched.
+        let language_set = if pre_tod {
+            let n = language_iteration;
+            CMostlyConsecutiveIntSet {
+                iterations: n,
+                ints: vec![-n, 1],
+            }
+        } else {
+            client_language_dat_int_set.clone()
+        };
         let r = ddd_manager::get_missing_iterations(
             &w.ddd_manager,
             &client_portal_dat_int_set,
             &client_cell_dat_int_set,
-            &client_language_dat_int_set,
+            &language_set,
             &client_high_res_dat_int_set,
         );
         let total_missing_iterations = r.total_missing_iterations;
-        let total_file_size = r.total_file_size;
+        let mut total_file_size = r.total_file_size;
         let missing_iterations = r.iterations;
-        let patch_status_message = game_message_ddd_begin_ddd(
-            total_missing_iterations,
-            total_file_size,
-            &missing_iterations,
-        );
+        let patch_status_message = if overlay_world {
+            // DIVERGE (V437, V438): the manifest ahead of the patch, the world's cell records in
+            // it, and the overlay's deletions purged.
+            if overlay_patching {
+                enqueue_send(
+                    w,
+                    session,
+                    dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(&dats)),
+                );
+                if let Some(cells) = missing_iterations.get(&DatDatabaseType::Cell) {
+                    let sizes = w.ddd_manager.dat_file_sizes.get(&DatDatabaseType::Cell);
+                    for files in cells.values() {
+                        for f in files {
+                            let size = sizes.and_then(|s| s.get(f)).map_or(0, |z| {
+                                if z.compressed_file_size > 0 {
+                                    z.compressed_file_size
+                                } else {
+                                    z.uncompressed_file_size
+                                }
+                            });
+                            total_file_size = total_file_size.wrapping_add(size.cast_unsigned());
+                        }
+                    }
+                }
+            }
+            dat_overlay::game_message_ddd_begin_ddd(
+                total_file_size,
+                &missing_iterations,
+                &dat_overlay::deletions(&dats),
+                overlay_patching,
+            )
+        } else {
+            game_message_ddd_begin_ddd(
+                total_missing_iterations,
+                total_file_size,
+                &missing_iterations,
+            )
+        };
         enqueue_send(w, session, patch_status_message);
         let now = w.now.utc;
         if let Some(s) = w.sessions.get_mut(session) {
@@ -346,18 +441,25 @@ pub fn ddd_interrogation_response_with(
             format(total_file_size / 1024, "N0")
         );
 
+        // DIVERGE (V437): a client that keeps overlays takes the world's cell records in the
+        // patch.
+        let cell = overlay_patching.then_some((DatDatabaseType::Cell, "CellDat"));
         for (dat_database_type, name) in [
             (DatDatabaseType::Portal, "PortalDat"),
             (DatDatabaseType::Language, "LanguageDat"),
             (DatDatabaseType::HighRes, "HighResDat"),
-        ] {
+        ]
+        .into_iter()
+        .chain(cell)
+        {
             let Some(dat_missing_iterations) = missing_iterations.get(&dat_database_type) else {
                 continue;
             };
             let db = match dat_database_type {
                 DatDatabaseType::Portal => Some(&**dats.portal_dat()),
                 DatDatabaseType::Language => Some(&**dats.language_dat()),
-                _ => dats.high_res_dat(),
+                DatDatabaseType::Cell => Some(&**dats.cell_dat()),
+                DatDatabaseType::HighRes => dats.high_res_dat(),
             }
             .expect("NullReferenceException: DatManager.HighResDat is null");
             for iteration in dat_missing_iterations.values() {

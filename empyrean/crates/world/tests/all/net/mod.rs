@@ -1,4 +1,6 @@
 pub(crate) mod action_decode;
+#[cfg(feature = "real-content")]
+pub(crate) mod dat_overlay;
 pub(crate) mod ddd;
 pub(crate) mod dispatch;
 pub(crate) mod era_motion_wire;

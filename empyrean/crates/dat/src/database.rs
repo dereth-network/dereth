@@ -375,6 +375,24 @@ impl DatDatabase {
         None
     }
 
+    /// Not ACE: the world's data overlay over this database, when one is laid over it.
+    #[must_use]
+    pub fn overlay(&self) -> Option<&dereth_dat::overlay::Layer> {
+        self.source.overlay(self.database_type)
+    }
+
+    /// Not ACE: the fingerprint of this database's base file.
+    #[must_use]
+    pub fn base_fingerprint(&self) -> Option<[u8; 32]> {
+        self.source.base_fingerprint(self.database_type)
+    }
+
+    /// Not ACE: the world the data overlay belongs to, when one is laid over the files.
+    #[must_use]
+    pub fn overlay_world_key(&self) -> Option<String> {
+        self.source.overlay_world_key()
+    }
+
     /// The dat's total iteration (its version), 0 when it cannot be read.
     // ACE: DatDatabase.Iteration
     #[must_use]

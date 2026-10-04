@@ -94,6 +94,9 @@ fn every_kept_key_parses() {
         [ddd]
         enable_dat_patching = true
         precache_compressed_dat_files = true
+        [dat_overlay]
+        path = "overlays/world"
+        patching = false
         "#,
     );
     assert!(
@@ -101,6 +104,11 @@ fn every_kept_key_parses() {
         "{parsed:?}"
     );
     let c = parsed.config;
+    assert_eq!(
+        (c.dat_overlay.path.as_str(), c.dat_overlay.patching),
+        ("overlays/world", false)
+    );
+    assert!(MasterConfiguration::default().dat_overlay.patching);
     let s = &c.server;
     assert_eq!(s.world_name, "Kept World");
     assert_eq!(s.dat_files_directory, "D:\\ac\\");

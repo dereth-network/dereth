@@ -101,6 +101,33 @@ A **data** message carries the container's type and id, the resource's type and 
 compression byte, a version, a declared size and the payload. The declared size includes the version
 dword, which is the same convention the containers use.
 
+### 5.2 The overlay extension (this client and Empyrean only)
+
+This client never writes the data files a player installed. What a server patches goes into that
+world's **overlay** (see [the container page](../../formats/01-dat-container.md#12-world-overlays)), and
+the iterations it reports are the installed files' and the overlay's together, so an ordinary
+server's patch logic works unchanged. A server that knows the extension can do more:
+
+- **The capability.** The response's flag word, which the retail client sends as 0, has bit 0 set,
+  and after it comes a packed list of the base files the client holds: each a type dword, an id
+  dword (the tagged list's pair) and the file's 32-byte fingerprint (the SHA-256 of its header and
+  directory). A server that reads only the first list sees a retail message.
+- **`0xF7EC` overlay manifest** (server to client, queue 5, before `0xF7E7`; outside the client's
+  `0xF7E2`–`0xF7EB` range, so a retail client never dispatches it): the world's name (a string), the
+  bytes the patch will send, then a packed list of files, each with its tagged pair, its base file's
+  name (a string), fingerprint and iteration count, a dword whose bit 0 says the overlay carries the
+  world's own iteration list (reported as it is) rather than revisions over the base's, the
+  revisions (a packed list of dwords), the records (a packed list of id, iteration, inflated size and
+  SHA-256) and the deletions (a packed list of id, mask and iteration; a mask of 0 is the one record).
+- **What the client does with it.** It refuses the world's overlay, writes nothing and ends the
+  patch at once when a file's base is not the one it holds, when the world is on its blocklist, or
+  when its overlay folder holds another world's overlay. Otherwise it refuses any record whose
+  inflated bytes do not have the manifest's SHA-256, and applies the single-record deletions only the
+  manifest can say (a cell purge takes a whole landblock).
+- **What the server does.** It refuses, with the reason, a client holding another base. A cell
+  revision downloads its records in the patch itself instead of purging them for the client to ask
+  for one by one, and purges only the overlay's whole-landblock deletions.
+
 ## 6. Where reimplementations differ
 
 | topic | the client | common reimplementations |

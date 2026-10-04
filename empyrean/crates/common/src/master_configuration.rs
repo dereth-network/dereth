@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dat_overlay_configuration::DatOverlayConfiguration;
 use crate::database_configuration::DatabaseConfiguration;
 use crate::ddd_configuration::DDDConfiguration;
 use crate::era::EraConfiguration;
@@ -40,4 +41,9 @@ pub struct MasterConfiguration {
     /// DIVERGE: an extra section; ACE has one set of rules.
     #[serde(rename = "Era")]
     pub era: EraConfiguration,
+
+    /// Not ACE: the world's data overlay over the base data files (`[dat_overlay]`).
+    /// DIVERGE: an extra section; ACE serves whole data files.
+    #[serde(rename = "DatOverlay")]
+    pub dat_overlay: DatOverlayConfiguration,
 }

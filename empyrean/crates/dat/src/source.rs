@@ -53,6 +53,21 @@ pub trait DatSource: Send + Sync + fmt::Debug {
     fn header_iteration(&self, _db: DatDatabaseType) -> Option<u32> {
         None
     }
+
+    /// Not ACE: the world's data overlay over the database, when one is laid over it.
+    fn overlay(&self, _db: DatDatabaseType) -> Option<&dereth_dat::overlay::Layer> {
+        None
+    }
+
+    /// Not ACE: the fingerprint of the database's base file, as an overlay names its base.
+    fn base_fingerprint(&self, _db: DatDatabaseType) -> Option<[u8; 32]> {
+        None
+    }
+
+    /// Not ACE: the world the data overlay belongs to, when one is laid over the files.
+    fn overlay_world_key(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The retail dats from one directory.
@@ -65,6 +80,8 @@ pub trait DatSource: Send + Sync + fmt::Debug {
 pub struct RealDats {
     dir: PathBuf,
     store: RetailDatStore,
+    /// Not ACE: the world the data overlay over the files belongs to, when one is laid over them.
+    overlay_world: Option<String>,
 }
 
 impl RealDats {
@@ -87,6 +104,7 @@ impl RealDats {
         Ok(Self {
             dir: dir.to_path_buf(),
             store,
+            overlay_world: None,
         })
     }
 
@@ -110,7 +128,28 @@ impl RealDats {
         Ok(Self {
             dir: dir.to_path_buf(),
             store,
+            overlay_world: None,
         })
+    }
+
+    /// Not ACE: these files with the world's data overlay in `dir` over them, so every read is the
+    /// world's: a record the overlay holds is its own, a record it deletes is not there, and its
+    /// revisions are among each file's iterations. Each container must have been made against the
+    /// file it lies over, and all of them for one world.
+    ///
+    /// # Errors
+    /// The folder holds no overlay, holds base data files, or a container is refused.
+    pub fn with_overlay(mut self, dir: &Path) -> Result<Self, String> {
+        let folder = dereth_dat::overlay::OverlayDir::new(dir).map_err(|e| e.to_string())?;
+        let key = folder
+            .world_key()
+            .ok_or_else(|| format!("{} holds no data overlay", dir.display()))?;
+        self.store = self
+            .store
+            .with_overlay(&folder, Some(&key))
+            .map_err(|e| e.to_string())?;
+        self.overlay_world = Some(key);
+        Ok(self)
     }
 
     /// The directory the files came from.
@@ -172,6 +211,18 @@ impl DatSource for RealDats {
 
     fn container_era(&self) -> ContainerEra {
         self.store.era()
+    }
+
+    fn overlay(&self, db: DatDatabaseType) -> Option<&dereth_dat::overlay::Layer> {
+        self.file(db)?.layer()
+    }
+
+    fn base_fingerprint(&self, db: DatDatabaseType) -> Option<[u8; 32]> {
+        Some(dereth_dat::overlay::fingerprint(self.file(db)?))
+    }
+
+    fn overlay_world_key(&self) -> Option<String> {
+        self.overlay_world.clone()
     }
 
     fn header_iteration(&self, db: DatDatabaseType) -> Option<u32> {

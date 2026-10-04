@@ -46,13 +46,26 @@ pub fn dat_directory(configured: &str, base: &PathBase) -> PathBuf {
     }
 }
 
-/// [`dat_directory`] for this process: the loaded configuration under `base`. A world whose era
-/// draws from the files before Throne of Destiny (`[era] profile`) takes the first candidate
-/// holding `portal.dat` and `cell.dat` instead, since one folder may hold both sets.
+/// The dat set the world is drawn from: the one the world's data overlay (`[dat_overlay] path`)
+/// was made against when there is one, else the era's (`[era] profile`). The era is only the
+/// default: a world made outside Dereth may play an early era over the later files.
+#[must_use]
+pub fn world_set(config: &MasterConfiguration, base: &PathBase) -> dereth_dat::ContainerEra {
+    let overlay = config.dat_overlay.path.trim();
+    let from_overlay = (!overlay.is_empty())
+        .then(|| dereth_dat::overlay::OverlayDir::new(&base.resolve(overlay)).ok())
+        .flatten()
+        .and_then(|d| d.base_era());
+    from_overlay.unwrap_or_else(|| config.era.profile.container_era())
+}
+
+/// [`dat_directory`] for this process: the loaded configuration under `base`. A world drawn from
+/// the files before Throne of Destiny ([`world_set`]) takes the first candidate holding
+/// `portal.dat` and `cell.dat` instead, since one folder may hold both sets.
 #[must_use]
 pub fn configured_dat_directory(config: &MasterConfiguration, base: &PathBase) -> PathBuf {
     let configured = &config.server.dat_files_directory;
-    if config.era.profile.container_era() == dereth_dat::ContainerEra::PreTod {
+    if world_set(config, base) == dereth_dat::ContainerEra::PreTod {
         let candidates = dat_directory_candidates(configured, base);
         if let Some(dir) = candidates
             .iter()

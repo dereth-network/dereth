@@ -13,6 +13,9 @@ publish.workspace = true
 [dependencies]
 empyrean-common.workspace = true
 empyrean-content.workspace = true
+# `dat-overlay`: the data files, compared and written as an overlay.
+dereth-dat.workspace = true
+dereth-primitives.workspace = true
 serde_json.workspace = true
 # `fetch`: downloading ACE-World's release over HTTPS (rustls with its ring provider and the
 # bundled web roots, so no system TLS library), verifying it, and unzipping it. Only this binary

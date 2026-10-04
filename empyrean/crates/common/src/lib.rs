@@ -38,6 +38,7 @@ pub mod clock;
 pub mod config_manager;
 pub mod config_paths;
 pub mod cryptography;
+pub mod dat_overlay_configuration;
 pub mod database_configuration;
 pub mod ddd_configuration;
 pub mod dereth_date_time;

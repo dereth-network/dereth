@@ -2,13 +2,15 @@
 
 Empyrean is a port of [ACE](https://github.com/ACEmulator/ACE) (at commit `47edade3`), and this is
 the list of places where it deliberately behaves differently. The code names a row by its number
-(`V336`). Each row has one of five kinds:
+(`V336`). Each row has one of six kinds:
 
 - **retail**: Empyrean follows the retail client and server, or the crates it shares with the
   Dereth client, where ACE does not;
 - **arch**: forced by Rust or by the server's architecture, with no observable difference intended;
 - **fix**: an ACE defect deliberately not ported;
 - **brand**: Empyrean's own name, commands, sites and tracker where ACE named ACEmulator;
+- **dereth**: a feature for the Dereth client, used only with a client that asks for it; a
+  retail client keeps ACE's behaviour;
 - **era**: a rule of an earlier era than the end of retail, chosen by `[era] profile` in
   `empyrean.toml`; the end of retail (the default) keeps ACE's behaviour.
 
@@ -439,3 +441,5 @@ the evidence behind each row. Edit the register, not this file.
 | V434 | era | On an Infiltration world, experience keeps arriving at level 126 up to a 32-bit cap. | empyrean-world `empyrean-world::all::players::death_xp::an_era_before_throne_of_destiny_keeps_earning_at_the_level_cap_up_to_32_bit_counts` |
 | V435 | era | On a world with the oath cost, swearing after a break from a patron costs unassigned experience. | empyrean-world `empyrean-world::all::social::allegiance::an_era_charges_an_oath_after_a_break_from_a_patron` |
 | V436 | era | On a world with the oath cost, breaking from one's patron counts a break. | empyrean-world `empyrean-world::all::social::allegiance::an_era_charges_an_oath_after_a_break_from_a_patron` |
+| V437 | dereth | A client that keeps data overlays is sent the world's overlay manifest and its cell records in the patch, and is refused when it holds other base files than the overlay was made against. | empyrean-world `empyrean-world::all::net::dat_overlay::a_client_that_keeps_overlays_is_sent_the_manifest_the_records_and_the_deletions`, `empyrean-world::all::net::dat_overlay::a_client_holding_another_base_is_refused_with_the_reason_and_one_without_overlays_as_ace_does`, `empyrean-world::all::net::dat_overlay::a_february_2005_world_with_an_overlay_patches_a_client_that_keeps_overlays` |
+| V438 | dereth | A world can be served as base data files plus an overlay of its own changes. | empyrean-world `empyrean-world::all::net::dat_overlay::a_client_that_keeps_overlays_is_sent_the_manifest_the_records_and_the_deletions`; empyrean-common `empyrean-common::all::config::toml_config::every_kept_key_parses` |

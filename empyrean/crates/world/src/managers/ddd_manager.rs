@@ -113,6 +113,14 @@ fn init_iterations(
     }
 
     let precache_compressed_dat_files = ConfigManager::config().ddd.precache_compressed_dat_files;
+    // Not ACE: the base's iterations, under a data overlay.
+    let base_total: Option<u32> = dat_database.overlay().map(|l| {
+        l.own_iterations()
+            .first()
+            .map_or(l.manifest().base_iterations, |first| {
+                first.saturating_sub(1)
+            })
+    });
 
     let mut file_count = 0;
     for file_name in dat_database.all_files() {
@@ -130,6 +138,29 @@ fn init_iterations(
             .get_reader_for_file(file_name)
             .unwrap_or_default();
         let uncompressed_file_size = len_i32(&dat_file);
+        // DIVERGE (V437): under a data overlay, a base file (one at or below the base's
+        // iterations) is what every client patched to the world already holds; it is not
+        // compressed ahead of time, and is sent as it is if it is ever sent.
+        if base_total.is_some_and(|b| file_iter <= b) {
+            state
+                .iterations
+                .entry(dat_database_type)
+                .or_default()
+                .entry(file_iter)
+                .or_default()
+                .push(file_name);
+            file_count += 1;
+            state
+                .dat_file_sizes
+                .entry(dat_database_type)
+                .or_default()
+                .entry(file_name)
+                .or_insert(DatFileSize {
+                    uncompressed_file_size,
+                    compressed_file_size: 0,
+                });
+            continue;
+        }
         let compressed_dat_file = compress(&dat_file);
         let compressed_file_size = len_i32(&compressed_dat_file);
         let use_compressed_file = compressed_file_size.wrapping_add(4) < uncompressed_file_size;

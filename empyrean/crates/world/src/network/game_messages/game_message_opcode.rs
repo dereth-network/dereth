@@ -92,4 +92,6 @@ impl GameMessageOpcode {
     pub const DDD_BeginPullDDD: Self = Self(0xF7E8);
     pub const DDD_IterationData: Self = Self(0xF7E9);
     pub const DDD_EndDDD: Self = Self(0xF7EA);
+    // Not ACE: the overlay extension's manifest (V437).
+    pub const DDD_OverlayManifest: Self = Self(0xF7EC);
 }

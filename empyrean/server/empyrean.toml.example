@@ -350,6 +350,22 @@ enable_dat_patching = false
 precache_compressed_dat_files = false
 
 # ----------------------------------------------------------------------------------------------
+[dat_overlay]
+# The world's data overlay: the records the world adds, replaces and deletes over the base
+# data files (`dat_files_directory`), as `empyrean-import dat-overlay` writes them. The
+# server reads its world as the base with the overlay over it, and patches clients that
+# keep overlays of their own to the same world.
+
+# default: "" (Empyrean only)
+# The overlay folder. Empty: the world is the base files.
+path = ""
+
+# default: true (Empyrean only)
+# Patch a client that keeps overlays to the world (the manifest, the revisions and the
+# world's cell records). Off, such a client missing the overlay is refused.
+patching = true
+
+# ----------------------------------------------------------------------------------------------
 [era]
 # The era the world plays. Every era speaks the end-of-retail client protocol; the era
 # selects the world's rules (start positions, level cap, what the character list tells

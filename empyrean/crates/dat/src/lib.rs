@@ -30,6 +30,8 @@ pub use dat_manager::{
     file_id, CellDatDatabase, DatManager, DatManagerError, LanguageDatDatabase, PortalDatDatabase,
 };
 pub use database::{DatDatabase, DatDatabaseType, DatFileType, UnpackError};
+/// Not ACE: the world's data overlay over the base files, as `dereth-dat` reads and writes it.
+pub use dereth_dat::overlay as data_overlay;
 pub use fake::FakeDats;
 pub use file_types::AceThrow;
 pub use source::{DatSource, RealDats};

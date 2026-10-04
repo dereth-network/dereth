@@ -38,6 +38,7 @@ pub mod archive;
 pub mod btree;
 pub mod container;
 pub mod cursor;
+pub mod decompose;
 pub mod divine;
 pub mod error;
 pub mod inflate;

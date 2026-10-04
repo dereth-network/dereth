@@ -436,6 +436,31 @@ pub const SECTIONS: &[Section] = &[
         ],
     },
     Section {
+        toml: &["dat_overlay"],
+        ace: &["DatOverlay"],
+        array: false,
+        help: "The world's data overlay: the records the world adds, replaces and deletes over the base\n\
+               data files (`dat_files_directory`), as `empyrean-import dat-overlay` writes them. The\n\
+               server reads its world as the base with the overlay over it, and patches clients that\n\
+               keep overlays of their own to the same world.",
+        keys: &[
+            e(
+                "path",
+                "Path",
+                "The overlay folder. Empty: the world is the base files.",
+            ),
+            Key {
+                unset: "true",
+                ..e(
+                    "patching",
+                    "Patching",
+                    "Patch a client that keeps overlays to the world (the manifest, the revisions and the\n\
+                     world's cell records). Off, such a client missing the overlay is refused.",
+                )
+            },
+        ],
+    },
+    Section {
         toml: &["era"],
         ace: &["Era"],
         array: false,

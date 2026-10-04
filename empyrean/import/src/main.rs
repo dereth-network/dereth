@@ -2,7 +2,8 @@
 //! and reports what the server's corrections do to one.
 //!
 //! **Depends on** `empyrean-common` and the content crate (`empyrean-content`), whose importer it
-//! runs, and for `fetch` on an HTTP client (`ureq`, over rustls), `zip` and `sha2`. **Used by**
+//! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), and for
+//! `fetch` on an HTTP client (`ureq`, over rustls), `zip` and `sha2`. **Used by**
 //! nothing: it is the `empyrean-import` binary.
 //!
 //! **Must never** read the wall clock or overwrite the pack an overlay sits on: `--now` (default
@@ -20,6 +21,7 @@
 //!             [--report <diff.json>]
 //! empyrean-import --corrections <world.pack> [--report <corrections.json>]
 //! empyrean-import --version
+//! empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era <era>]
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
 //! ```
@@ -65,11 +67,14 @@
 //! file. Compare packs built from ACE's dumps alone, so the diff is upstream's change and not ours.
 //! Exit status 0 means no differences, 1 differences, 2 a usage or input error.
 //!
+//! `dat-overlay` writes a world's data overlay: see [`dat_overlay`].
+//!
 //! `--corrections` lists every correction entry of this build (applies, stale or absent, with the
 //! stored and corrected values and the divergence row), every value each correction rule changes,
 //! and the corrections digest the server logs at start-up. Exit status 0 means every entry applies,
 //! 1 that some entry is stale or absent, 2 an error.
 
+mod dat_overlay;
 mod fetch;
 
 use std::path::{Path, PathBuf};
@@ -101,6 +106,8 @@ fn usage() -> ExitCode {
          \x20                  [--report <diff.json>]\n\
          \x20      empyrean-import --corrections <world.pack> [--report <corrections.json>]\n\
          \x20      empyrean-import --version\n\
+         \x20      empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era eor|infiltration]\n\
+         \x20                  (a world's data files taken apart against their base, as the overlay the server serves)\n\
          \x20      empyrean-import --sql <dump.sql> [--patches ...] [--json ...] [--era ...] --overlay <overlay.sqlite> [--overlay-journal <dir>]\n\
          \x20                  --out <world.pack> [--report <report.json>]\n\
          \x20  --era      the era the pack is for, recorded in it: eor (default, the end of retail) or infiltration\n\
@@ -171,6 +178,9 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "fetch") {
         return run_fetch(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "dat-overlay") {
+        return dat_overlay::run(&argv[1..]);
     }
     let mut args = argv.into_iter().peekable();
     while let Some(a) = args.next() {

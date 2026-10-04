@@ -320,3 +320,44 @@ Throne of Destiny, so an older file's iteration is not comparable with a later f
 
 The records that later moved to the language file (string tables, interface layouts) are in the
 portal file, so a reader routes language-type requests to it; there is no high-resolution file.
+
+## 12. World overlays
+
+This client keeps everything a world changes over the installed files in an **overlay** of that
+world's own, and never writes the installed files. An overlay folder holds one container per file it
+changes, each an ordinary container in the later layout:
+
+| file | overlay container |
+|---|---|
+| `client_portal.dat` or `portal.dat` | `overlay_portal.dat` |
+| `client_cell_1.dat` or `cell.dat` | `overlay_cell.dat` |
+| `client_local_English.dat` | `overlay_local.dat` |
+| `client_highres.dat` | `overlay_highres.dat` |
+
+Three records of each container are its own, never a world record:
+
+| id | contents |
+|---|---|
+| `0xFFFF0001` | The overlay's iterations, in the iteration file's encoding. |
+| `0xFFFF0002` | The deletions: a count, then `(id, mask, iteration)` per deletion. A mask of 0 deletes the one id; otherwise every id whose bits under the mask are the id's (`0xFFFF0000` is a landblock with its cells). |
+| `0xFFFF0003` | The manifest: `DOVL`, a format dword (1), the world's name and the base file's name (each a 16-bit length and UTF-8 bytes), the base file's 32-byte fingerprint, its iteration count, a flags dword (bit 0: the iterations are the world's own list), then a count and `(id, SHA-256)` per record the overlay holds. |
+
+The **fingerprint** is the SHA-256 of `dereth dat fingerprint 1`, then the block size, data set,
+data subset, tree root, master map id, whether the layout is the older one, and the header
+iteration (or 0), each a dword, then every directory entry's id, flag word, offset, size, date and
+iteration, ascending. A write to a file moves a record's place or date, so it names one state of a
+file without reading its records.
+
+**A read through the overlay** asks it first: a record the overlay holds is its own (an addition or a
+replacement, in the base file's record layout), a record a deletion covers is not there, and every
+other record is the base file's. The iteration list read through it is the base file's iterations and
+the overlay's together — or the overlay's alone when the manifest says they are the world's own
+list. An overlay opens only over the file its manifest's fingerprint names, and only for the world it
+names.
+
+**Taking a world apart.** `empyrean-import dat-overlay` compares a world's files with their base by
+bytes: a record the world adds or changes goes into the overlay, a removed one becomes a deletion (a
+landblock none of whose base records the world keeps as they are is one family deletion), and a
+record whose bytes are the base's is left to it whatever its iteration says. By default every change
+goes into one revision, one past the base's iterations; `--iterations world` keeps the world's own
+list instead.
