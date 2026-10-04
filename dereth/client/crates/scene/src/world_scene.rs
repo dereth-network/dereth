@@ -13876,6 +13876,13 @@ mod imp {
                 }
                 let world =
                     dereth_world_render::objects::parts::combine_scaled(frame, &part.frame, s);
+                // The part's mesh scale, `gfxobj_scale`: the setup's default scale for the part
+                // times the object's. The offset above takes the object's scale alone.
+                let mesh_scale = Vec3::new(
+                    part.scale.x * scale,
+                    part.scale.y * scale,
+                    part.scale.z * scale,
+                );
                 // Part initialization fills `gfxobj[i]` from
                 // `degrades[i].gfxobj_id`, **not** from the part's own id, and
                 // the viewer-distance update re-picks `i` every frame. So a part with a
@@ -13890,7 +13897,7 @@ mod imp {
                     self.append_mesh(
                         part.gfxobj,
                         &world,
-                        scale,
+                        mesh_scale,
                         NO_PLACEMENT,
                         0,
                         false,
@@ -13903,7 +13910,11 @@ mod imp {
                 // not move when the level does.
                 let centre = {
                     let sc = self.cache.sort_center(store, info.degrades[0].gfxobj_id);
-                    let c = Vec3::new(sc.x * scale, sc.y * scale, sc.z * scale);
+                    let c = Vec3::new(
+                        sc.x * mesh_scale.x,
+                        sc.y * mesh_scale.y,
+                        sc.z * mesh_scale.z,
+                    );
                     world
                         .origin
                         .add(dereth_world_render::math::localtoglobalvec(
@@ -13932,7 +13943,7 @@ mod imp {
                     } else {
                         Some(frame.origin)
                     },
-                    scale_z: scale,
+                    scale_z: mesh_scale.z,
                     info: Arc::clone(&info),
                     level: 0,
                     billboards,
@@ -13954,7 +13965,7 @@ mod imp {
                     self.append_mesh(
                         e.gfxobj_id,
                         &world,
-                        scale,
+                        mesh_scale,
                         placement,
                         level,
                         billboards,
@@ -13972,7 +13983,7 @@ mod imp {
             &mut self,
             gfxobj: DataId,
             world: &Frame,
-            scale: f32,
+            scale: Vec3,
             placement: u32,
             level: u32,
             local: bool,
@@ -14018,8 +14029,9 @@ mod imp {
                 #[allow(clippy::cast_possible_truncation)]
                 let start = buf.len() as u32;
                 let rot = dereth_world_render::math::l2g(world.rotation);
+                let uniform = scale.x == scale.y && scale.y == scale.z;
                 for (i, (p, u, v)) in g.vertices.iter().enumerate() {
-                    let scaled = Vec3::new(p.x * scale, p.y * scale, p.z * scale);
+                    let scaled = Vec3::new(p.x * scale.x, p.y * scale.y, p.z * scale.z);
                     // A billboarding placement is baked in the part's own frame
                     // and transformed at assembly time by `draw_pos`; everything else is baked in
                     // world space. With mode 1 the two are the same
@@ -14034,9 +14046,22 @@ mod imp {
                     buf.extend_from_slice(&w.z.to_le_bytes());
                     // The vertex normal, in the same space as the position: the
                     // placement's rotation for a world-space bake, the part's own for a
-                    // billboarding one (which `append_billboarded` rotates at assembly). The
-                    // uniform `scale` does not touch it -- `D3DRS_NORMALIZENORMALS = 1`.
+                    // billboarding one (which `append_billboarded` rotates at assembly). A
+                    // uniform `scale` does not touch it -- `D3DRS_NORMALIZENORMALS = 1`. A
+                    // part's own scale can differ per axis, and then the normal goes through the
+                    // inverse transpose, `n / scale`, before it is renormalised.
                     let n = g.normals.get(i).copied().unwrap_or(Vec3::ZERO);
+                    let n = if uniform {
+                        n
+                    } else {
+                        let m = Vec3::new(n.x / scale.x, n.y / scale.y, n.z / scale.z);
+                        let len = m.magnitude();
+                        if len > 0.0 && len.is_finite() {
+                            Vec3::new(m.x / len, m.y / len, m.z / len)
+                        } else {
+                            n
+                        }
+                    };
                     let n = if local {
                         n
                     } else {
@@ -15749,6 +15774,13 @@ mod imp {
         use super::*;
         use crate::world::DEFAULT_LANDBLOCK;
         include!("world_building_shell_visibility_tests.rs");
+    }
+
+    #[cfg(test)]
+    mod part_scale {
+        use super::*;
+        use dereth_primitives::CellId;
+        include!("world_part_scale_tests.rs");
     }
 
     #[cfg(test)]

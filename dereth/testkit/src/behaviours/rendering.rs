@@ -906,6 +906,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.scenery.a-setups-part-scale-sizes-its-baked-parts",
+        says: "A tree, shrub or rock whose model shrinks or stretches its own pieces is drawn with \
+               each piece at that size times the object's placed size, so the flowering shrub by \
+               the water west of the Holtburg dungeon stands a little over two metres tall and \
+               narrow rather than as a six-metre bush.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCENERY-PART-SCALE"),
+        station: "dereth-scene::lib::world_scene::imp::part_scale::a_ranged_scenery_shrub_is_drawn_at_its_scale_times_each_parts_own_scale",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.scenery.scenery-stops-at-the-full-detail-ring",
         says: "Trees, rocks and other scenery are placed only on land drawn at full detail: the \
                block the player stands on and the eight around it, exactly that three-by-three \

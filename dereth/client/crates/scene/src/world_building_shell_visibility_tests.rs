@@ -65,7 +65,7 @@ fn batches(
     surface: DataId,
 ) -> Vec<StaticBatch> {
     let id = DataId(0x0100_0000);
-    cache.parts.insert(id, vec![dereth_client_runtime::models::ModelPart { gfxobj: id, frame: Frame::default() }]);
+    cache.parts.insert(id, vec![dereth_client_runtime::models::ModelPart { gfxobj: id, frame: Frame::default(), scale: Vec3::new(1.0, 1.0, 1.0) }]);
     cache.geometry.insert(id, vec![quad(surface)]);
     let mut baker = ObjectBaker::new(store, cache, false, false, false);
     baker.add_object(id, &Frame::default(), 1.0);

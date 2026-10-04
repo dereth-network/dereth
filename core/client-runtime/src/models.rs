@@ -26,11 +26,17 @@ use dereth_assets::{Decode, GfxObj, Setup};
 use dereth_dat::{divine_type, DbType, RetailDatStore};
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 
-/// One drawable piece of a setup: a `GfxObj` and where it sits in the object's own space.
+/// One drawable piece of a setup: a `GfxObj`, where it sits in the object's own space, and the
+/// scale its mesh is drawn at before the object's own.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ModelPart {
     pub gfxobj: DataId,
     pub frame: Frame,
+    /// The setup's default scale for this part, `(1, 1, 1)` when the setup has none. It scales
+    /// the part's **mesh** only: an object's scale multiplies it component-wise, while the part's
+    /// offset in `frame` is scaled by the object's scale alone. A shrub whose leaves are a
+    /// quarter-size copy of a full-size mesh is drawn small only through this.
+    pub scale: Vec3,
 }
 
 /// The placement the client actually installs — `0x65`, 101, ACE's `Placement.Resting`
@@ -168,6 +174,7 @@ pub fn resolve_parts_at(store: &RetailDatStore, id: DataId, placement: u32) -> V
         Some(DbType::GfxObj) => vec![ModelPart {
             gfxobj: id,
             frame: identity(),
+            scale: UNIT_SCALE,
         }],
         Some(DbType::Setup) => {
             let Ok(bytes) = store.read_typed(DbType::Setup, id) else {
@@ -187,6 +194,14 @@ pub fn resolve_parts_at(store: &RetailDatStore, id: DataId, placement: u32) -> V
                         .and_then(|f| f.get(i))
                         .copied()
                         .unwrap_or_else(identity),
+                    // Part-array setup copies the setup's default scale into each part when
+                    // the setup has one; a part past the end of a short list keeps 1.
+                    scale: setup
+                        .default_scale
+                        .as_ref()
+                        .and_then(|d| d.get(i))
+                        .copied()
+                        .unwrap_or(UNIT_SCALE),
                 })
                 .collect()
         }
@@ -516,6 +531,9 @@ fn part_for_look(
     ov.texture_maps = maps;
     Some(out)
 }
+
+/// A part's mesh scale when its setup names none.
+const UNIT_SCALE: Vec3 = Vec3::new(1.0, 1.0, 1.0);
 
 fn identity() -> Frame {
     Frame::new(Vec3::ZERO, Quat::IDENTITY)
