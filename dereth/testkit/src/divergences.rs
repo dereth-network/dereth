@@ -231,6 +231,12 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "Buying or selling leaves the cart rows visible through stock updates; clearing a cart, closing the vendor or visiting another vendor removes them.",
         why: "Players can review and reuse their cart without rebuilding it after every transaction.",
     },
+    Divergence {
+        id: "CD-029",
+        title: "Clear is handled as an unregistered chat command",
+        change: "The client forwards @clear to the shard instead of accepting it as a local command, and text-management help no longer lists it. Existing chat text stays visible.",
+        why: "An unsupported local command must not silently accept a request it cannot perform.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

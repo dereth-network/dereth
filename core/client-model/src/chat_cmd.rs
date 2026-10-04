@@ -184,9 +184,6 @@ pub struct ChatCommand {
     pub sent: u32,
     /// A player-option change the caller must apply through `PlayerSystem::set_option`.
     pub option: Option<(usize, bool)>,
-    /// Clear a chat buffer: `Some(0)` is every window, `Some(1)` is the
-    /// one the command was typed into. and nothing else.
-    pub clear_chat: Option<u32>,
     /// Create the current-UI callback dialog for the death prompt.
     /// Set by `@die` and nothing else.
     pub die_confirmation: Option<&'static str>,
@@ -834,27 +831,6 @@ impl World {
             ..ChatCommand::done()
         }
     }
-
-    /// `do_clear` — `@clear`.
-    ///
-    /// ```text
-    ///   window = the command's source window
-    ///   if argc == 0, clear this window
-    ///   _stricmp(argv[0], "all") == 0 -> window = 0, every window
-    ///   clear that chat buffer
-    /// ```
-    ///
-    /// The clear goes over the client's own notice bus, not the wire: nothing leaves the process.
-    /// Any first argument that is not `"all"` leaves the window as the command's own, so
-    /// `@clear wibble` clears the window it was typed into. `None` here means "the command's own
-    /// window", which the caller resolves.
-    pub fn do_clear(&mut self, args: &[String]) -> ChatCommand {
-        let all = args.first().is_some_and(|a| eq(a, "all"));
-        ChatCommand {
-            clear_chat: Some(u32::from(!all)),
-            ..ChatCommand::done()
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1493,22 +1469,10 @@ mod tests {
         assert!(matches!(r.0[2], Request::ChannelList(_)));
     }
 
-    /// `@clear` and the three local prints.
+    /// The three local prints.
     #[test]
     fn the_local_handlers_print_and_send_nothing() {
         let mut w = World::new();
-        assert_eq!(
-            w.do_clear(&[]).clear_chat,
-            Some(1),
-            "the command's own window"
-        );
-        assert_eq!(
-            w.do_clear(&a(&["all"])).clear_chat,
-            Some(0),
-            "window 0 is every window"
-        );
-        assert_eq!(w.do_clear(&a(&["ALL"])).clear_chat, Some(0), "_stricmp");
-        assert_eq!(w.do_clear(&a(&["wibble"])).clear_chat, Some(1));
         assert_eq!(w.do_speaker(&[]).lines[0].0, SPEAKER_RETIRED);
         assert!(w.do_endurance(&[]).lines[0]
             .0

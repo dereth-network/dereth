@@ -150,6 +150,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "chat.commands.clear-is-forwarded-without-clearing-local-chat",
+        says: "Typing @clear, including its all argument, forwards the text to the shard without clearing local chat or producing a local refusal. Text-management help does not advertise it; other local commands still work.",
+        since: THIS_CLIENT,
+        divergence: "CD-029",
+        evidence: Evidence::Private("AC-EVID-CHAT-CLEAR-REMOVAL"),
+        station: "dereth-client::dat::chat::chat_commands::typed_clear_is_forwarded_without_clearing_local_chat",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chat.commands.every-wired-command-reaches-the-wire-from-a-typed-line",
         says: "Every chat command that asks the shard for something -- recall to the lifestone, \
                the marketplace or the house, the arenas, age and birth, turning chat on and off \

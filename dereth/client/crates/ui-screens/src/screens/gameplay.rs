@@ -5161,37 +5161,6 @@ impl GamePlayScreen {
         self.chat.len()
     }
 
-    /// The chat interface's clear-chat-buffer notice, offered to all
-    /// five windows — `windowId == 0` is every window and any other value is the one that owns it.
-    ///
-    /// Beside the model half this clears the **element**: the chat log's glyph list, which is what
-    /// a player sees. Returns
-    /// the window ids that cleared.
-    ///
-    /// **Its producer is not wired here.** The client has exactly one caller: the communication
-    /// system's clear step, which the command initialisation installs as the `/clear` chat command
-    /// (`"all"` as the first argument passes window 0, i.e. every window). The chat-command table
-    /// is the other side of that seam.
-    pub fn on_clear_chat_buffer(&mut self, ui: &mut UiSystem, window_id: u32) -> Vec<u32> {
-        let mut out = Vec::new();
-        for i in 0..self.chat.len() {
-            if window_id != 0 && window_id != self.chat[i].window_id {
-                continue;
-            }
-            self.chat[i].recv_clear_chat_buffer(window_id);
-            if let Some(log) = self.chat_windows.get(i).and_then(|w| w.log) {
-                if let Some(t) = ui.text_element_mut(log) {
-                    t.set_text("");
-                }
-            }
-            if let Some(arrow) = self.chat_windows.get(i).and_then(|w| w.new_text_below) {
-                ui.set_state(arrow, crate::chat::window::NEW_TEXT_BELOW_OFF);
-            }
-            out.push(self.chat[i].window_id);
-        }
-        out
-    }
-
     /// The client's `case 0x12`, delivered to whichever of
     /// the five windows owns the entry the character was typed into.
     ///

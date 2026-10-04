@@ -11,7 +11,7 @@
 //! comms      @chat  @notell  @index  @clist  @on  @off  @afk
 //! consent    @consent  @permit
 //! speech     @say @s
-//! local      @speaker  @endurance  @emotes  @clear  @corpse
+//! local      @speaker  @endurance  @emotes  @corpse
 //! layout     @saveui @loadui (and the automatic pair)  @lockui  @title
 //! squelch    @squelch @unsquelch  @filter @unfilter  @messagetypes
 //! other      @fillcomps  @log  @loadfile  @version
@@ -702,12 +702,12 @@ fn the_refusals_print_retails_sentence_and_send_nothing() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 3. The four local handlers, and the option write
+// 3. The local handlers, and the option write
 // ---------------------------------------------------------------------------------------------
 
 /// Behaviour: chat.commands.a-command-the-client-handles-is-never-spoken-to-the-shard
 ///
-/// `@speaker`, `@endurance`, `@emotes` and `@clear` send nothing and each does its own local
+/// `@speaker`, `@endurance` and `@emotes` send nothing and each does its own local
 /// thing; `@emotes` prints `emote_list_text`.
 #[test]
 fn the_local_commands_print_their_literal_and_send_nothing() {
@@ -715,27 +715,20 @@ fn the_local_commands_print_their_literal_and_send_nothing() {
     let mut hand = Hand::new();
 
     let unimplemented = app.interaction().stats.chat_commands_unimplemented;
-    for line in ["@speaker", "@endurance", "@emotes", "@clear", "@clear all"] {
+    for line in ["@speaker", "@endurance", "@emotes"] {
         hand.submit(&mut app, line);
         assert!(app.interaction().last_sent.is_empty(), "{line}: local only");
     }
     assert_eq!(
         app.interaction().stats.chat_commands_unimplemented,
         unimplemented,
-        "none of the five reaches the catch-all any more"
+        "none of the three reaches the catch-all"
     );
     assert_eq!(
         app.interaction().stats.chat_command_lines,
         3,
-        "@speaker, @endurance and @emotes each print one line; the two @clears print none"
+        "@speaker, @endurance and @emotes each print one line"
     );
-    // Clear the command's own window first, then window 0 for "all".
-    assert_eq!(
-        app.interaction().chat_clears_pending(),
-        &[1, 0],
-        "`all` adds window 0 after clearing the command's own window"
-    );
-
     // `@consent on|off` writes the accept-loot-permits option, then reports option ordinal 16.
     // Ordinal 16 is an auto-save option, so it leaves as a `0x0005` immediately.
     let sent = app.interaction().stats.option_changes_sent;
@@ -758,6 +751,68 @@ fn the_local_commands_print_their_literal_and_send_nothing() {
         app.interaction().last_sent.is_empty(),
         "the equality guard means a repeated value sends nothing"
     );
+}
+
+/// Behaviour: chat.commands.clear-is-forwarded-without-clearing-local-chat
+#[test]
+fn typed_clear_is_forwarded_without_clearing_local_chat() {
+    let mut app = app();
+    let mut hand = Hand::new();
+    hand.submit(&mut app, "@speaker");
+    assert!(app.interaction().last_sent.is_empty());
+    for _ in 0..3 {
+        assert!(app.frame());
+    }
+    assert!(chat_log(&mut app).contains(cmd::SPEAKER_RETIRED.trim()));
+    let refused = app.interaction().stats.chat_commands_refused;
+    let unimplemented = app.interaction().stats.chat_commands_unimplemented;
+
+    for line in ["@clear", "@clear all", "@unregistered-chat-control"] {
+        hand.submit(&mut app, line);
+        let sent = app.interaction().last_sent.to_vec();
+        assert_eq!(
+            sent,
+            vec![Request::Talk(dereth_protocol::comms::CommunicationTalk {
+                message: line.to_owned(),
+            })],
+            "the typed line takes the ordinary unknown-command route"
+        );
+        let mut session = Session::new(MockTransport::new());
+        assert!(send_request(&mut session, &sent[0]));
+        let packet = session.transport.sent.last().expect("encoded talk");
+        assert_eq!((packet.queue, packet.ordered), (NetQueue::Weenie, true));
+        assert_eq!(packet.payload, action(1, 0x0015, &pstr(line)));
+        for _ in 0..3 {
+            assert!(app.frame());
+        }
+        let log = chat_log(&mut app);
+        assert!(
+            log.contains(cmd::SPEAKER_RETIRED.trim()),
+            "prior text remains: {log:?}"
+        );
+        assert!(!log.contains(dereth_client_model::cmd::NOT_A_VALID_COMMAND));
+        assert_eq!(app.interaction().stats.chat_commands_refused, refused);
+        assert_eq!(
+            app.interaction().stats.chat_commands_unimplemented,
+            unimplemented
+        );
+    }
+
+    hand.submit(&mut app, "@help text");
+    assert!(app.interaction().last_sent.is_empty());
+    for _ in 0..3 {
+        assert!(app.frame());
+    }
+    let log = chat_log(&mut app);
+    assert!(
+        log.contains("@filter"),
+        "the text-management help is displayed: {log:?}"
+    );
+    assert!(
+        !log.contains("@clear"),
+        "help does not advertise a local clear: {log:?}"
+    );
+    assert!(log.contains(cmd::SPEAKER_RETIRED.trim()));
 }
 
 /// `@corpse` is local: it asks the player description for position quality `0x0E`,
@@ -1975,7 +2030,6 @@ fn the_handler_names_with_no_arm_are_exactly_these() {
         "speaker",
         "endurance",
         "emotes",
-        "clear",
         "say",
         "corpse",
         "join",

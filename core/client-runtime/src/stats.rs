@@ -702,9 +702,6 @@ pub struct InteractionStats {
     /// with sender 0, `"You"` and the pose's own emote. Counted apart from the send because the
     /// two carry **different** strings.
     pub pose_echoes_printed: u64,
-    /// The clear command's clear-chat-buffer notices. See
-    /// `Interaction::pending_chat_clears` for what is and is not built behind it.
-    pub chat_buffer_clears: u32,
     // ---- the channel-command words ------------------------------------------------
     /// Channel broadcasts (`0x0147`) sent because one of the channel-command handler's nineteen
     /// command words was typed. Kept apart from the talk-focus dropdown's own `0x0147`s, because

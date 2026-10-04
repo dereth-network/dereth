@@ -324,15 +324,6 @@ impl ChatInterface {
         self.log = out;
     }
 
-    /// The clear-chat-buffer notice `(window_id)` — clears the log when `window_id` is 0 or
-    /// matches this window.
-    pub fn recv_clear_chat_buffer(&mut self, window_id: u32) {
-        if window_id == 0 || window_id == self.window_id {
-            self.log.clear();
-            self.new_non_visible_text = false;
-        }
-    }
-
     /// Process one submitted command, the six documented steps.
     ///
     /// Step 2: "Empty (length 1, i.e. just the terminator) → do nothing" — an empty entry submits
@@ -790,20 +781,5 @@ mod tests {
         // The mouse arrives: engagement changed, so the window re-subscribes.
         assert!(w.fade_tick(true).is_some());
         assert!(w.fading);
-    }
-
-    /// Oracle: — "clears the log when `windowId` is 0 or
-    /// matches".
-    #[test]
-    fn clear_chat_buffer_takes_zero_or_this_window() {
-        let mut w = ChatInterface::new(window::FLOATY_2);
-        w.log = vec![(2, "x".into())];
-        w.recv_clear_chat_buffer(window::FLOATY_1);
-        assert_eq!(w.log.len(), 1, "another window's clear is ignored");
-        w.recv_clear_chat_buffer(0);
-        assert!(w.log.is_empty());
-        w.log = vec![(2, "x".into())];
-        w.recv_clear_chat_buffer(window::FLOATY_2);
-        assert!(w.log.is_empty());
     }
 }

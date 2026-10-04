@@ -574,11 +574,6 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
         help: Some("help_text"),
     },
     CommandEntry {
-        name: "clear",
-        handler: Some("clear"),
-        help: Some("help_clear"),
-    },
-    CommandEntry {
         name: "filter",
         handler: Some("filter"),
         help: Some("help_filter"),
@@ -749,7 +744,6 @@ pub const HELP_TEXTS: &[(&str, &[&str], &[&str])] = &[
     ("help_channels", &["@help channels - How to communicate with people in your allegiance or fellowship.\n"], &["a", "c", "m", "p", "v", "f"]),
     ("help_chat", &["@chat - Sets whether or not you receive normal chat.\n"], &["@chat <on/off> - Sets whether or not you receive normal chat. When set to \"off\", you will no longer receive any spoken speech (normal chat).  However, you will still receive tells.\n"]),
     ("help_chatting", &["@help chatting - How to chat publically and privately.\n"], &["@chat - Sets whether or not you receive normal chat.\n", "@notell - Sets whether or not you receive @tell's.\n", "@reply", "@retell - Sends some text to the last person you @tell'd.\n", "@say - Says some text to everyone around you.", "@tell - Sends a private message to another character.\n", "a", "c", "m", "p", "v", "f", "@afk - Set your away-from-keyboard status.\n"]),
-    ("help_clear", &["@clear - Clears the chat box of all text.\n"], &["@clear - Clears the chat box of all text.\n"]),
     ("help_consent", &["@consent - Commands to help you manage the corpse-looting permissions that others give you.\n"], &["The @consent commands allow you to display and manage your corpse-looting consent list. This list lets you control whether others may permit you to loot their corpse and also allows you to monitor who has given you permission. You may have a maximum of 20 separate permissions at any given time. You will not be able to loot a corpse that was the victim of a player killer, even if its owner has given you permission. Also, players who have squelched you are not able to permit you to loot their corpse. Note that you can toggle your consent on/off via the Character Options panel as well as through these commands.\n@consent on - Turns on your ability to accept permissions from other players.\n@consent off - Turns off your ability to accept permissions from other players.\n@consent who - Lists those who have given you permission to loot their corpses.\n@consent remove <name> - Removes the permission a player granted to you.\n@consent clear - Clears your entire consent list.\n\n"]),
     ("help_corpse", &["@corpse - Displays the location of your last outdoor death.\n"], &["@corpse - Displays the location of your last outdoor death. Even if your corpse has disappeared or if you have subsequently died indoors, typing this command will display your last outdoor corpse location.\n"]),
     ("help_day", &["@day - A toggle that lightens the outdoor landscape. Note that this command may take several seconds to take effect. \n"], &["@day - A toggle that lightens the outdoor landscape. Note that this command may take several seconds to take effect. \n"]),
@@ -790,7 +784,7 @@ pub const HELP_TEXTS: &[(&str, &[&str], &[&str])] = &[
     ("help_status", &["@help status - Commands that display useful information.\n"], &["@age", "@birth", "@day", "@endurance - Explains how endurance affects your character.\n", "@framerate", "@loc - Displays your current position.\n", "@pklite - Sets your status to Player Killer Lite. Type @help pklite for more details.\n", "@version"]),
     ("help_channel_shortcut", &[".\n", " - Sends a broadcast to your ", "@"], &[".\n", " - Sends a broadcast to your ", "@"]),
     ("help_tell", &["@tell - Sends a private message to another character.\n"], &["@tell <name>, <text>  - Sends a long-distance, private message to the specified character. Note that you must put a comma after the character's name.\nAlso: @t, @send, @whisper, @w\n"]),
-    ("help_text", &["@help text - Commands that help you manage your text window.\n"], &["@clear", "@filter - Commands to filter out incoming messages.\n", "@unfilter - Commands to remove filters from incoming messages.\n", "@loadfile - Reads in the given text file and executes each line in the chat entry field.\n", "@log - Commands to echo chat text to a logfile.\n", "@title"]),
+    ("help_text", &["@help text - Commands that help you manage your text window.\n"], &["@filter - Commands to filter out incoming messages.\n", "@unfilter - Commands to remove filters from incoming messages.\n", "@loadfile - Reads in the given text file and executes each line in the chat entry field.\n", "@log - Commands to echo chat text to a logfile.\n", "@title"]),
     ("help_title", &["@title <new title> - Sets the title of the popup chat window.\n"], &["@title <new title> - Sets the title of the popup chat window.\n"]),
     ("help_guild", &["@a - Sends a message to your Allegiance. Also: @guild, @gu\n"], &["@a - Sends a message to your Allegiance. Also: @guild, @gu\n"]),
     ("help_general", &["@general - Sends a message to the global General chat channel. Also: @cg\n"], &["@general - Sends a message to the global General chat channel. Also: @cg\n"]),

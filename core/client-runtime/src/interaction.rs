@@ -744,16 +744,6 @@ pub struct Interaction {
     /// two's Yes sends the abandon-house request.
     pending_house_abandon_first: Vec<&'static str>,
     pending_house_abandon_second: Vec<&'static str>,
-    /// `@clear`'s clear-buffer notice carrying the
-    /// window the player asked to clear, `0` meaning every window.
-    ///
-    /// **This queue has no consumer yet.** The
-    /// chat log itself lives in the chat interface, inside
-    /// `GamePlayScreen::chat_windows`, on the far side of the UI shell; the hop from here into it
-    /// is `hud.rs` plus `gameplay.rs` plus the shell wiring. What
-    /// the arm does buy today is that `@clear` stops answering *"That is not a valid command."*
-    /// and that the window-selection rule (`"all"` -> `0`) is transcribed and tested.
-    pending_chat_clears: Vec<u32>,
     /// `ChatPoseTable` — the enum lookup for `(7, 2, 0x11)`, the first
     /// operation the pose command performs and the one whose failure makes
     /// the pose command return `false` before anything else happens.
@@ -1200,14 +1190,6 @@ impl Interaction {
         self.stats.chat_command_requests += 1;
         let out = Notices::default();
         self.absorb(game, out, req);
-    }
-
-    /// The `@clear` windows nothing consumes yet — see
-    /// `Interaction::pending_chat_clears`. Exposed so a test can prove the arm reached the queue
-    /// rather than inferring it from a counter alone.
-    #[must_use]
-    pub fn chat_clears_pending(&self) -> &[u32] {
-        &self.pending_chat_clears
     }
 
     pub fn take_allegiance_confirmations(&mut self) -> Vec<(AllegianceAction, ObjectId, String)> {
@@ -6289,10 +6271,6 @@ feedback,channel: 0x1A, text},
                 self.stats.option_changes_deferred += 1;
             }
         }
-        if let Some(window) = cmd.clear_chat {
-            self.pending_chat_clears.push(window);
-            self.stats.chat_buffer_clears += 1;
-        }
         if let Some(prompt) = cmd.die_confirmation {
             self.pending_die_confirmations.push(prompt);
             self.stats.die_confirmations_raised += 1;
@@ -7699,7 +7677,6 @@ feedback,channel: 0x1A, text},
             "speaker" => Some(game.do_speaker(args)),
             "endurance" => Some(game.do_endurance(args)),
             "emotes" => Some(game.do_emote_list(args)),
-            "clear" => Some(game.do_clear(args)),
             // ---- `@house`/`@hou` and `@hslist` -----------------------------------
             //
             // The `house` handler is handed the whole of `argv`; its own `next_arg` takes the
