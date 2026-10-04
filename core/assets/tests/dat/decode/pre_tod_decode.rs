@@ -198,7 +198,23 @@ fn the_february_2005_chargen_has_three_heritages_and_six_outdoor_starter_areas()
         assert_eq!(h.sexes[&1].hair_styles.len(), 4);
         assert!(!h.sexes[&2].shirts.is_empty());
     }
+    assert_eq!(cg.heritage_order, [1, 2, 3]);
+    assert_eq!(cg.help_strings.len(), 8);
+    assert!(cg.help_strings.iter().all(|id| id.0 != 0));
+    for h in cg.heritage_groups.values() {
+        assert_eq!(h.sex_order, [2, 1]);
+        assert!(h.description.is_some());
+        assert!(h.sexes.values().all(|s| s.naming_help.is_some()));
+        assert!(h.templates.iter().all(|t| t.title == 0));
+    }
     let aluvian = &cg.heritage_groups[&1];
+    for (sex, icon) in [(2, 0x0600_1152), (1, 0x0600_1153)] {
+        let presentation = aluvian.template_presentation(sex, 0).unwrap();
+        assert_eq!(presentation.icon, icon);
+        assert!(presentation.description.is_some());
+    }
+    assert!(aluvian.template_presentation(99, 0).is_none());
+    assert!(aluvian.template_presentation(1, usize::MAX).is_none());
     assert_eq!(aluvian.primary_start_areas, [0, 1]);
     assert_eq!(aluvian.skills, [(4, 0, 4), (19, 0, 2)]);
     assert_eq!(aluvian.templates[1].name, "Bow Hunter");
@@ -316,4 +332,29 @@ fn a_february_2005_gfxobj_reaches_its_degrade_record_by_its_own_id() {
     let no_record: GfxObj = read(&s, 0x0100_04B6);
     assert_eq!(no_record.did_degrade, Some(DataId(0x1100_04B6)));
     assert!(s.read_portal(DataId(0x1100_04B6)).is_err());
+}
+
+/// Decoded sex-specific rule differences cannot silently select the first sex's budget.
+#[test]
+fn differing_sex_budgets_are_refused_before_sharing_creation_rules() {
+    let store = store();
+    let mut bytes = store.read_portal(DataId(0x0e00_0002)).unwrap();
+    let budget: Vec<u8> = [330u32, 0, 50]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect();
+    let matches: Vec<_> = bytes
+        .windows(budget.len())
+        .enumerate()
+        .filter_map(|(i, b)| (b == budget).then_some(i))
+        .collect();
+    assert_eq!(matches.len(), 6, "one encoded budget per sex");
+    bytes[matches[1]..matches[1] + 4].copy_from_slice(&331u32.to_le_bytes());
+    assert!(matches!(
+        CharGen::decode_payload_in(ContainerEra::PreTod, DataId(0x0e00_0002), &bytes),
+        Err(dereth_assets::AssetError::Unsupported {
+            what: "sex-specific character-generation rules",
+            value: 1
+        })
+    ));
 }

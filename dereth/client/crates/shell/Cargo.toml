@@ -22,6 +22,7 @@ d3d12 = ["dereth-scene/d3d12", "dereth-render/d3d12"]
 retail-dats = []
 
 [dependencies]
+dereth-chargen = { path = "../../../../core/chargen" }
 dereth-primitives.workspace = true
 dereth-client-contract = { path = "../../../../core/client-contract" }
 # The application state machine, its frame loop and the platform seams the host fills.

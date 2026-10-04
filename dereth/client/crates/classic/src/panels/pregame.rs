@@ -7,14 +7,17 @@ mod presentation;
 mod startup;
 #[cfg(test)]
 mod tests;
-pub mod wire;
+
 use super::*;
 use crate::int::{i32_from, u32_from};
 use data::*;
+use dereth_chargen::{
+    Attr, CharGenState, CreationEntry, CreationPolicy, CreationRandom, SkillAdvancementClass,
+};
 use dereth_client_contract::pregame::{CharGenAction, CharacterAction};
 use dereth_primitives::num::to_i32_f64;
 pub use model::format_name;
-use model::Creation;
+use model::SelectionView;
 
 pub const IDS: &[&str] = &[
     "login",
@@ -52,7 +55,7 @@ pub fn make(id: &str) -> Option<Box<dyn Panel>> {
         .iter()
         .find(|&&v| v == id.strip_prefix("pregame/").unwrap_or(id))?;
     let page = external.strip_prefix("create-").unwrap_or(external);
-    Some(Box::new(Pregame::new(page, crate::art::creation())))
+    Some(Box::new(Pregame::new(page, data::current())))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -65,8 +68,15 @@ struct Pregame {
     page: &'static str,
     startup: startup::Startup,
     startup_error: Option<String>,
-    data: Result<std::sync::Arc<CreationData>, String>,
-    state: Creation,
+    data: Result<std::rc::Rc<CreationData>, String>,
+    state: CharGenState,
+    selected_skill: Option<usize>,
+    rotation_velocity: f32,
+    zoom_face: bool,
+    choice_scroll: i32,
+    hair_scroll: i32,
+    name_edit: String,
+    custom_selected: bool,
     selected: Option<usize>,
     selected_slot: Option<usize>,
     heritage_chosen: bool,
@@ -153,6 +163,7 @@ fn plate_list<'a>(
     bounds: crate::widgets::Rect,
     rows: impl ExactSizeIterator<Item = (&'a str, u32)>,
     selected: Option<usize>,
+    offset: i32,
 ) {
     const ROW: i32 = 64;
     f.control(
@@ -162,13 +173,16 @@ fn plate_list<'a>(
             row_count: rows.len(),
             row_height: ROW,
             selected,
-            offset: 0,
+            offset,
         },
         true,
     );
     let clip = [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h];
     for (i, (name, icon)) in rows.enumerate() {
-        let y = bounds.y + i32_from(i) * ROW;
+        let y = bounds.y + i32_from(i) * ROW - offset;
+        if y + ROW <= bounds.y {
+            continue;
+        }
         if y >= bounds.y + bounds.h {
             break;
         }
@@ -198,7 +212,7 @@ fn plate_list<'a>(
 }
 /// `did` drawn to fill `r`, cut to `clip`.
 fn clipped(f: &mut PanelFrame, did: u32, r: crate::widgets::Rect, clip: [i32; 4], keyed: bool) {
-    f.image(&format!("{did:08X}"), r, false, keyed);
+    f.image(&format!("world:{did:08X}"), r, false, keyed);
     if let Some(crate::Command::Image { clip: c, .. }) = f.screen.commands.last_mut() {
         *c = Some(clip);
     }
@@ -260,11 +274,13 @@ fn text(f: &mut PanelFrame, r: crate::widgets::Rect, value: impl Into<String>) {
 }
 
 impl Pregame {
-    fn new(page: &'static str, data: Result<std::sync::Arc<CreationData>, String>) -> Self {
-        let mut state = Creation::default();
-        state.enter_preview_page(page);
+    fn new(page: &'static str, mut data: Result<std::rc::Rc<CreationData>, String>) -> Self {
+        if let (Ok(data), Some(art)) = (&mut data, crate::art::installed()) {
+            std::rc::Rc::make_mut(data).read_chrome(&art);
+        }
+        let mut state = CharGenState::with_policy(CreationPolicy::Classic);
         if let Ok(d) = &data {
-            state.constrain(d);
+            state.begin_creation(&d.tables, CreationEntry::Normal, true);
         }
         Self {
             page,
@@ -272,6 +288,13 @@ impl Pregame {
             startup_error: None,
             data,
             state,
+            selected_skill: None,
+            rotation_velocity: 0.0,
+            zoom_face: page != "clothing",
+            choice_scroll: 0,
+            hair_scroll: 0,
+            name_edit: String::new(),
+            custom_selected: false,
             selected: None,
             selected_slot: None,
             heritage_chosen: !matches!(page, "login" | "heritage"),
@@ -302,17 +325,117 @@ impl Pregame {
             creation_slot: None,
         }
     }
-    fn sequence(&self, d: &CreationData) -> Vec<&'static str> {
-        let mut pages = vec!["heritage", "sex", "appearance", "clothing"];
-        if self.state.heraldry.is_some() {
-            pages.push("heraldry");
+    fn view<'a>(&'a self, d: &CreationData) -> SelectionView<'a> {
+        SelectionView::new(&self.state, d)
+    }
+    fn sequence(&self, _d: &CreationData) -> Vec<&'static str> {
+        if matches!(
+            self.state.heritage_group,
+            dereth_chargen::HERITAGE_OLTHOI | dereth_chargen::HERITAGE_OLTHOI_ACID
+        ) {
+            vec!["heritage", "sex", "name-summary"]
+        } else {
+            vec![
+                "heritage",
+                "sex",
+                "appearance",
+                "clothing",
+                "profession",
+                "attributes",
+                "skills",
+                "name-summary",
+            ]
         }
-        pages.extend(["profession", "attributes", "skills"]);
-        if self.state.sex(d).legacy_60 > 0 && self.state.skills.get(&17).is_some_and(|&v| v >= 2) {
-            pages.push("starting-spells");
+    }
+    fn enter_page(&mut self, page: &'static str) {
+        self.page = page;
+        self.choice_scroll = 0;
+        if page == "appearance" {
+            self.zoom_face = true;
         }
-        pages.push("name-summary");
-        pages
+        if page == "clothing" {
+            self.zoom_face = false;
+        }
+        if page == "name-summary" {
+            if let Ok(d) = &self.data {
+                self.state.prepare_summary(&d.tables);
+            }
+        }
+        if page == "profession" && self.state.template == -1 {
+            if let Ok(d) = &self.data {
+                self.state
+                    .randomize_page(&d.tables, CreationRandom::Template, true);
+                self.custom_selected = false;
+            }
+        }
+    }
+    fn rotate(&mut self, left: bool) {
+        #[allow(clippy::approx_constant)]
+        let speed = 6.283_f32 / 2.5;
+        self.rotation_velocity = if left {
+            if self.rotation_velocity >= 0.0 {
+                -speed
+            } else {
+                0.0
+            }
+        } else if self.rotation_velocity <= 0.0 {
+            speed
+        } else {
+            0.0
+        };
+    }
+    fn attribute(&mut self, i: usize, value: i32) {
+        if let Some(&a) = Attr::BALANCE_ORDER.get(i) {
+            self.state.set_attribute_balanced(a, value, true);
+            if let Ok(d) = &self.data {
+                self.state.fit_template_to_character(&d.tables.chargen);
+            }
+            self.custom_selected = self.state.template == 0;
+        }
+    }
+    fn skill(&mut self, d: &CreationData, id: u32, level: i32) {
+        let level = match level {
+            1 => SkillAdvancementClass::Untrained,
+            2 => SkillAdvancementClass::Trained,
+            3 => SkillAdvancementClass::Specialized,
+            _ => return,
+        };
+        self.state
+            .set_skill_level(&d.tables.chargen, &d.tables.skills, id, level);
+        self.state.fit_template_to_character(&d.tables.chargen);
+        self.custom_selected = self.state.template == 0;
+    }
+    fn set_style(&mut self, d: &CreationData, i: usize, value: i32) {
+        match i {
+            0 => self.state.set_headgear_style(&d.tables.chargen, value),
+            1 => self.state.set_shirt_style(&d.tables.chargen, value),
+            2 => self.state.set_trousers_style(&d.tables.chargen, value),
+            3 => self.state.set_footwear_style(&d.tables.chargen, value),
+            _ => {}
+        }
+    }
+    fn color_mut(&mut self, i: usize) -> &mut i32 {
+        match i {
+            0 => &mut self.state.headgear_color,
+            1 => &mut self.state.shirt_color,
+            2 => &mut self.state.trousers_color,
+            _ => &mut self.state.footwear_color,
+        }
+    }
+    fn shade_mut(&mut self, i: usize) -> &mut f64 {
+        match i {
+            0 => &mut self.state.headgear_shade,
+            1 => &mut self.state.shirt_shade,
+            2 => &mut self.state.trousers_shade,
+            _ => &mut self.state.footwear_shade,
+        }
+    }
+    fn face_mut(&mut self, i: usize) -> &mut i32 {
+        match i {
+            0 => &mut self.state.eyes_strip,
+            1 => &mut self.state.nose_strip,
+            _ => &mut self.state.mouth_strip,
+        }
     }
     /// Menu: after the player agrees to lose the character's choices, back to the character list.
     fn leave_creation() -> PanelAction {
@@ -326,13 +449,12 @@ impl Pregame {
         }
     }
     fn navigate(&mut self, direction: isize) {
-        if let Ok(d) = &self.data {
-            let seq = self.sequence(d);
+        if let Ok(d) = self.data.clone() {
+            let seq = self.sequence(&d);
             if let Some(i) = seq.iter().position(|&p| p == self.page) {
                 let n = i as isize + direction;
                 if n >= 0 && (n as usize) < seq.len() {
-                    self.page = seq[n as usize];
-                    self.state.enter_preview_page(self.page);
+                    self.enter_page(seq[n as usize]);
                     self.help_scroll = 0;
                 }
             }
@@ -379,7 +501,7 @@ impl Pregame {
             "zoom-face",
             rect(268, 529, 40, 43),
             "",
-            self.state.zoom_face,
+            self.zoom_face,
             true,
         );
         c.images = Some(["06000288".into(), "0600028A".into(), "06000288".into()]);
@@ -389,53 +511,13 @@ impl Pregame {
         if !self.heritage_chosen || !self.sex_chosen {
             return;
         }
-        let s = self.state.sex(d);
-        let state = &self.state;
-        let hair = s.hair_styles.get(state.hair_style);
-        let bald = hair.is_some_and(|h| h.bald != 0);
-        let mut overlays = vec![];
-        if let Some(h) = hair {
-            overlays.push(h.appearance.clone());
-        }
-        if let Some(e) = s.eyes.get(state.face[0]) {
-            overlays.push(if bald && !e.bald_appearance.is_empty() {
-                e.bald_appearance.clone()
-            } else {
-                e.appearance.clone()
-            });
-        }
-        if let Some(n) = s.noses.get(state.face[1]) {
-            overlays.push(n.appearance.clone());
-        }
-        if let Some(m) = s.mouths.get(state.face[2]) {
-            overlays.push(m.appearance.clone());
-        }
         let appearance = Appearance {
-            heraldry: s.heraldry(state.heraldry, state.heraldry_color),
-            base_palette_id: s.base_palette,
-            setup_id: s.setup,
-            environment_setup_id: d.heritages[state.heritage].environment,
-            base_objdesc_hex: s.appearance.clone(),
-            appearance_overlays_hex: overlays,
-            skin_palette_set: s.skin_palette,
-            skin_shade: state.skin_shade,
-            hair_palette_set: s.hair_colors.get(state.hair_color).copied().unwrap_or(0),
-            hair_shade: state.hair_shade,
-            eye_palette_id: s.eye_colors.get(state.eye_color).copied().unwrap_or(0),
-            clothing: [0, 2, 1, 3]
-                .into_iter()
-                .filter_map(|i| {
-                    s.clothes(i).get(state.styles[i]).map(|c| Clothing {
-                        table_id: c.icon,
-                        palette_template: state.clothing_color(d, i),
-                        shade: state.shades[i],
-                    })
-                })
-                .collect(),
+            animation: DataId(d.heritages[self.view(d).heritage].animation),
+            tables: std::rc::Rc::clone(&d.tables),
+            state: self.state.clone(),
+            rotation_velocity: self.rotation_velocity,
+            zoom_face: self.zoom_face,
             heading_degrees: 150.0,
-            rotation_velocity: state.rotation_velocity,
-            zoom_face: state.zoom_face,
-            show_clothes: true,
         };
         f.preview(Preview {
             kind: PreviewKind::CharGen,
@@ -478,7 +560,7 @@ impl Pregame {
                 rect(648, 534, 119, 57),
                 [0x6000291, 0x600029e, 0x6000291],
                 !self.waiting
-                    && !self.state.name.trim().is_empty()
+                    && !self.name_edit.trim().is_empty()
                     && self.state.name != "Enter name",
             );
         } else {
@@ -492,7 +574,8 @@ impl Pregame {
                     && match self.page {
                         "heritage" => self.heritage_chosen,
                         "sex" => self.sex_chosen,
-                        "profession" => self.state.template < self.state.sex(d).templates.len(),
+                        "profession" => usize::try_from(self.state.template)
+                            .is_ok_and(|i| i < self.view(d).sex(d).templates.len()),
                         _ => true,
                     },
             );
@@ -823,7 +906,7 @@ impl Pregame {
         self.preview(&mut f, d);
         self.preview_controls(&mut f);
         self.navigation(&mut f, d);
-        let state = &self.state;
+        let state = self.view(d);
         let sex = state.sex(d);
         let heritage = &d.heritages[state.heritage];
         if let Some(index) = match self.page {
@@ -852,6 +935,7 @@ impl Pregame {
                     rect(451, 276, 300, 192),
                     d.heritages.iter().map(|v| (v.name.as_str(), v.icon)),
                     self.heritage_chosen.then_some(state.heritage),
+                    self.choice_scroll,
                 );
             }
             "sex" => {
@@ -864,6 +948,7 @@ impl Pregame {
                     rect(444, 286, 300, 192),
                     heritage.sexes.iter().map(|v| (v.name.as_str(), v.icon)),
                     self.sex_chosen.then_some(state.sex),
+                    self.choice_scroll,
                 );
             }
             "profession" => {
@@ -878,7 +963,8 @@ impl Pregame {
                 // The credit vial: the full (red) art over the empty, shown from the bottom up to
                 // the share of credits left, with the count of them on top.
                 f.image_native("060002CB", 379, 141, rect(379, 141, 128, 108), false);
-                let full = vial_height(state.remaining_attributes(d), sex.attribute_credits);
+                let full =
+                    vial_height(state.remaining_attributes(d), self.state.total_atrb_credits);
                 f.image_native(
                     "060002CA",
                     379,
@@ -970,80 +1056,6 @@ impl Pregame {
                 title(&mut f, "Appearance");
                 self.appearance_frame(&mut f, d);
             }
-            "heraldry" => {
-                title(&mut f, "Heraldry Symbol");
-                f.list(
-                    "heraldry",
-                    rect(368, 177, 240, 320),
-                    sex.legacy_80
-                        .iter()
-                        .enumerate()
-                        .map(|(i, v)| ListRow {
-                            text: (i + 1).to_string(),
-                            icon: v.get(8).copied().map(DataId),
-                            color: COLOR,
-                        })
-                        .collect(),
-                    state.heraldry,
-                    40,
-                );
-                for y in [222, 285] {
-                    f.label(
-                        646,
-                        y,
-                        if y == 222 {
-                            "Foreground Color"
-                        } else {
-                            "Background Color"
-                        },
-                        "16-7",
-                        COLOR,
-                        None,
-                    );
-                }
-                f.slider(
-                    "heraldry-color",
-                    rect(634, 242, 152, 32),
-                    0,
-                    15,
-                    i32_from(state.heraldry_color),
-                    1,
-                );
-            }
-            "starting-spells" => {
-                title(&mut f, "Starting Spells");
-                text(&mut f, rect(459, 199, 100, 20), "Spell Credits");
-                f.label(561, 201, sex.legacy_60.to_string(), "16-7", COLOR, None);
-                for (known, x) in [(false, 386), (true, 620)] {
-                    text(
-                        &mut f,
-                        rect(x, 240, 150, 20),
-                        if known {
-                            "Known Spells"
-                        } else {
-                            "Available Spells"
-                        },
-                    );
-                    f.list(
-                        if known {
-                            "known-spells"
-                        } else {
-                            "available-spells"
-                        },
-                        rect(x, 260, 150, 218),
-                        sex.legacy_68
-                            .iter()
-                            .enumerate()
-                            .filter(|(i, _)| {
-                                state.spells.get(*i).copied().unwrap_or(false) == known
-                            })
-                            .map(|(_, v)| v.name.clone().into())
-                            .collect(),
-                        None,
-                        24,
-                    );
-                }
-            }
             "name-summary" => {
                 title(&mut f, "Name and Summary");
 
@@ -1051,7 +1063,7 @@ impl Pregame {
                 f.edit(
                     "name",
                     rect(385, 182, 132, 25),
-                    &state.name,
+                    &self.name_edit,
                     32,
                     false,
                     !self.waiting,
@@ -1343,68 +1355,57 @@ impl Panel for Pregame {
                     }
                 }
                 _ => {
-                    if let Ok(d) = &self.data {
+                    if let Ok(d) = self.data.clone() {
                         match id.as_str() {
                             "heritage" if index < d.heritages.len() => {
-                                self.state.heritage = index;
+                                self.state
+                                    .choose_heritage(&d.tables, d.heritages[index].key);
                                 self.heritage_chosen = true;
-                                self.state.constrain(d);
+                                self.name_edit.clear();
+                                self.custom_selected = false;
                             }
-                            "sex" if index < d.heritages[self.state.heritage].sexes.len() => {
-                                self.state.sex = index;
+                            "sex" if index < d.heritages[self.view(&d).heritage].sexes.len() => {
+                                self.state.choose_gender(
+                                    &d.tables,
+                                    d.heritages[self.view(&d).heritage].sexes[index].key,
+                                );
                                 self.sex_chosen = true;
-                                self.state.constrain(d);
+                                self.name_edit.clear();
+                                self.custom_selected = false;
                             }
-                            "profession" => self.state.apply_template(d, index + 1),
-                            "custom" => self.state.apply_template(d, 0),
+                            "profession" => {
+                                self.state.choose_template(&d.tables, i32_from(index));
+                                self.custom_selected = false;
+                            }
+                            "custom" => {
+                                self.state.choose_template(&d.tables, -1);
+                                self.custom_selected = true;
+                            }
                             "skills" => {
                                 self.skill_help_scroll = 0;
-                                self.state.selected_skill =
-                                    presentation::skill_rows(d, &self.state)
-                                        .get(index)
-                                        .and_then(|v| v.skill);
+                                self.selected_skill = presentation::skill_rows(&d, &self.view(&d))
+                                    .get(index)
+                                    .and_then(|v| v.skill);
                             }
                             "area" => {
-                                if let Some(&v) = d.heritages[self.state.heritage]
+                                if let Some(&v) = d.heritages[self.view(&d).heritage]
                                     .primary_areas
                                     .iter()
-                                    .chain(&d.heritages[self.state.heritage].secondary_areas)
+                                    .chain(&d.heritages[self.view(&d).heritage].secondary_areas)
                                     .nth(index)
                                 {
-                                    self.state.area = v;
-                                }
-                            }
-                            "heraldry" => {
-                                if index < self.state.sex(d).legacy_80.len() {
-                                    self.state.heraldry = Some(index);
-                                }
-                            }
-                            "available-spells" | "known-spells" => {
-                                let known = id == "known-spells";
-                                if let Some(i) = self
-                                    .state
-                                    .spells
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, v)| **v == known)
-                                    .nth(index)
-                                    .map(|(i, _)| i)
-                                {
-                                    self.state.spell(d, i, !known);
+                                    self.state.set_start_area(u32_from(v));
                                 }
                             }
                             _ => {
                                 if let Some(i) = suffix(&id, "style-") {
                                     if i < 4 {
-                                        let count = self.state.sex(d).clothes(i).len();
+                                        let count = self.view(&d).sex(&d).clothes(i).len();
                                         if index < count + usize::from(i == 0) {
-                                            self.state.styles[i] =
-                                                if i == 0 { index.wrapping_sub(1) } else { index };
-                                            self.state.colors[i] = self.state.colors[i].min(
-                                                self.state
-                                                    .clothing_colors(d, i)
-                                                    .len()
-                                                    .saturating_sub(1),
+                                            self.set_style(
+                                                &d,
+                                                i,
+                                                i32_from(index) - i32::from(i == 0),
                                             );
                                         }
                                     }
@@ -1415,6 +1416,8 @@ impl Panel for Pregame {
                 }
             },
             ControlEvent::Scroll { id, value } => match id.as_str() {
+                "heritage" | "sex" => self.choice_scroll = value.max(0),
+                "hairstyles-scroll" => self.hair_scroll = value.max(0),
                 "skills" | "skills-scroll" => self.skill_scroll = value.max(0),
                 "profession" | "profession-scroll" => self.profession_scroll = value.max(0),
                 "skill-help" | "skill-help-scroll" => self.skill_help_scroll = value.max(0),
@@ -1433,41 +1436,41 @@ impl Panel for Pregame {
                 "delete-name" => self.delete_name = text,
                 "scheme-name" => self.save_scheme = Some(text),
                 "name" => {
-                    if text.len() <= 32 {
-                        self.state.name = text;
+                    if text.is_empty() || self.state.set_name(&text) {
+                        self.name_edit = text;
                     }
                 }
                 _ => {
-                    if let (Some(i), Ok(v), Ok(d)) = (
+                    if let (Some(i), Ok(v), Ok(_)) = (
                         suffix(&id, "attr-value-").or_else(|| suffix(&id, "attr-")),
                         text.parse::<i32>(),
                         &self.data,
                     ) {
-                        self.state.attribute(d, i, v);
+                        self.attribute(i, v);
                     }
                 }
             },
             ControlEvent::Check { id, checked } => {
                 if id == "zoom-face" {
-                    self.state.zoom_face = checked;
+                    self.zoom_face = checked;
                 }
             }
             ControlEvent::Value { id, value } => {
-                if let Ok(d) = &self.data {
+                if let Ok(d) = self.data.clone() {
                     if let Some(i) = suffix(&id, "attr-") {
-                        self.state.attribute(d, i, value);
+                        self.attribute(i, value);
                     } else if let Some(i) = suffix(&id, "shade-") {
                         if i < 4 {
-                            self.state.shades[i] = f64::from(value.clamp(0, 1000)) / 1000.;
+                            *self.shade_mut(i) = f64::from(value.clamp(0, 1000)) / 1000.;
                         }
                     } else if let Some(i) = suffix(&id, "face-") {
                         if i < 3 {
                             let n = [
-                                self.state.sex(d).eyes.len(),
-                                self.state.sex(d).noses.len(),
-                                self.state.sex(d).mouths.len(),
+                                self.view(&d).sex(&d).eyes.len(),
+                                self.view(&d).sex(&d).noses.len(),
+                                self.view(&d).sex(&d).mouths.len(),
                             ][i];
-                            self.state.face[i] = (value.max(0) as usize).min(n.saturating_sub(1));
+                            *self.face_mut(i) = value.max(0).min(i32_from(n.saturating_sub(1)));
                         }
                     } else {
                         match id.as_str() {
@@ -1478,19 +1481,19 @@ impl Panel for Pregame {
                                 self.state.hair_shade = f64::from(value.clamp(0, 1000)) / 1000.
                             }
                             "hair-style" => {
-                                self.state.hair_style = (value.max(0) as usize)
-                                    .min(self.state.sex(d).hair_styles.len().saturating_sub(1))
+                                self.state.hair_style = value.max(0).min(i32_from(
+                                    self.view(&d).sex(&d).hair_styles.len().saturating_sub(1),
+                                ))
                             }
                             "hair-color" => {
-                                self.state.hair_color = (value.max(0) as usize)
-                                    .min(self.state.sex(d).hair_colors.len().saturating_sub(1))
+                                self.state.hair_color = value.max(0).min(i32_from(
+                                    self.view(&d).sex(&d).hair_colors.len().saturating_sub(1),
+                                ))
                             }
                             "eye-color" => {
-                                self.state.eye_color = (value.max(0) as usize)
-                                    .min(self.state.sex(d).eye_colors.len().saturating_sub(1))
-                            }
-                            "heraldry-color" => {
-                                self.state.heraldry_color = value.clamp(0, 15) as usize
+                                self.state.eye_color = value.max(0).min(i32_from(
+                                    self.view(&d).sex(&d).eye_colors.len().saturating_sub(1),
+                                ))
                             }
                             _ => {}
                         }
@@ -1525,17 +1528,29 @@ impl Panel for Pregame {
                         self.status = "All character slots are full.".into();
                         return actions;
                     }
-                    if let Ok(d) = &self.data {
+                    if let Ok(d) = self.data.clone() {
                         self.heritage_chosen = false;
                         self.sex_chosen = false;
-                        self.state = Creation::default();
-                        self.state.seed(c.pregame.chargen_seeds.map_or(1, |v| v.1));
-                        self.state.constrain(d);
+                        self.state = CharGenState::with_policy(CreationPolicy::Classic);
+                        let (ran, crt) = c.pregame.chargen_seeds.unwrap_or((1, 1));
+                        self.state.rng = dereth_chargen::CharGenRng::new(ran, crt);
+                        self.state.begin_creation(
+                            &d.tables,
+                            if id == "quick" {
+                                CreationEntry::Quick
+                            } else {
+                                CreationEntry::Normal
+                            },
+                            c.pregame.account_has_tod,
+                        );
                         self.page = "heritage";
+                        self.name_edit = self.state.name.clone();
+                        self.custom_selected = false;
                         if id == "quick" {
                             self.heritage_chosen = true;
                             self.sex_chosen = true;
-                            self.state.quick(d);
+                            self.name_edit.clear();
+                            self.custom_selected = false;
                             self.page = "name-summary";
                         }
                     }
@@ -1593,7 +1608,7 @@ impl Panel for Pregame {
                         && self
                             .data
                             .as_ref()
-                            .is_ok_and(|d| self.state.remaining_attributes(d) > 0) =>
+                            .is_ok_and(|_| self.state.remaining_atrb_credits > 0) =>
                 {
                     actions.push(PanelAction::Confirm {
                         id: "unspent-attributes".into(),
@@ -1604,12 +1619,25 @@ impl Panel for Pregame {
                     })
                 }
                 "next" | "next-confirmed" => self.navigate(1),
-                "summary" => self.page = "name-summary",
-                "rotate-left" => self.state.rotate(true),
-                "rotate-right" => self.state.rotate(false),
+                "summary" => self.enter_page("name-summary"),
+                "rotate-left" => self.rotate(true),
+                "rotate-right" => self.rotate(false),
                 "random" => {
-                    if let Ok(d) = &self.data {
-                        self.state.randomize(d, self.page);
+                    if let Ok(d) = self.data.clone() {
+                        let target = match self.page {
+                            "heritage" => CreationRandom::Heritage,
+                            "sex" => CreationRandom::Sex,
+                            "appearance" => CreationRandom::Appearance,
+                            "clothing" => CreationRandom::Clothing,
+                            "profession" => CreationRandom::Template,
+                            "attributes" => CreationRandom::Attributes,
+                            "skills" => CreationRandom::Skills,
+                            _ => CreationRandom::Town,
+                        };
+                        self.state
+                            .randomize_page(&d.tables, target, c.pregame.account_has_tod);
+                        self.custom_selected = false;
+                        self.name_edit = self.state.name.clone();
                         if self.page == "heritage" {
                             self.heritage_chosen = true;
                         }
@@ -1619,14 +1647,13 @@ impl Panel for Pregame {
                     }
                 }
                 "train" | "specialize" | "untrain" => {
-                    if let Ok(d) = &self.data {
+                    if let Ok(d) = self.data.clone() {
                         if let Some(s) = self
-                            .state
                             .selected_skill
                             .and_then(|i| d.skills.get(i).filter(|s| s.chargen != 0))
                         {
-                            self.state.skill(
-                                d,
+                            self.skill(
+                                &d,
                                 s.id,
                                 match id.as_str() {
                                     "train" => 2,
@@ -1638,13 +1665,15 @@ impl Panel for Pregame {
                     }
                 }
                 "create-submit" | "create-confirmed" => {
-                    if let Ok(d) = &self.data {
-                        self.state.name = model::format_name(&self.state.name);
-                        if self.state.name.trim().is_empty() || self.state.name == "Enter name" {
+                    if self.data.is_ok() {
+                        if self.name_edit.trim().is_empty()
+                            || self.state.name.trim().is_empty()
+                            || self.state.name == "Enter name"
+                        {
                             self.status = "Enter a character name.".into();
                         } else if !c.pregame.connected {
                             self.status = "The network is not connected.".into();
-                        } else if id == "create-submit" && self.state.remaining_attributes(d) > 0 {
+                        } else if id == "create-submit" && self.state.remaining_atrb_credits > 0 {
                             actions.push(PanelAction::Confirm{id:"unspent-creation".into(),text:"You have not spent all your Attribute Credits. Create this character anyway?".into(),accept:vec![PanelAction::Control(ControlEvent::Activate("create-confirmed".into()))]});
                         } else {
                             let Some(slot) = self
@@ -1654,13 +1683,12 @@ impl Panel for Pregame {
                                 self.status = "All character slots are full.".into();
                                 return actions;
                             };
-                            actions.push(PanelAction::Host(HostAction::LegacyCharGen(Box::new(
-                                LegacyCreation {
-                                    result: self.state.result(d, slot),
-                                    heraldry_symbol: self.state.heraldry.map_or(-1, i32_from),
-                                    heraldry_color: u32_from(self.state.heraldry_color),
-                                },
-                            ))));
+                            self.state.set_slot(slot);
+                            actions.push(PanelAction::Game(UiRequest::CharGenAction(
+                                CharGenAction::SendCharGenResult(Box::new(
+                                    self.state.get_char_gen_result(),
+                                )),
+                            )));
                             self.waiting = true;
                             self.created_name = Some(self.state.name.clone());
                             self.creation_verified = false;
@@ -1781,7 +1809,7 @@ impl Panel for Pregame {
                     }
                 }
                 _ => {
-                    if let Ok(d) = &self.data {
+                    if let Ok(d) = self.data.clone() {
                         for (prefix, kind) in [
                             ("hair-color-pick-", 0),
                             ("eye-color-pick-", 1),
@@ -1789,9 +1817,9 @@ impl Panel for Pregame {
                         ] {
                             if let Some(i) = suffix(&id, prefix) {
                                 match kind {
-                                    0 => self.state.hair_color = i,
-                                    1 => self.state.eye_color = i,
-                                    _ => self.state.hair_style = i,
+                                    0 => self.state.set_hair_color(i32_from(i)),
+                                    1 => self.state.set_eye_color(i32_from(i)),
+                                    _ => self.state.set_hair_style(i32_from(i)),
                                 };
                             }
                         }
@@ -1802,8 +1830,9 @@ impl Panel for Pregame {
                             if let (Ok(slot), Ok(index)) =
                                 (slot.parse::<usize>(), index.parse::<usize>())
                             {
-                                if slot < 4 && index < self.state.clothing_colors(d, slot).len() {
-                                    self.state.colors[slot] = index;
+                                if slot < 4 && index < self.view(&d).clothing_colors(&d, slot).len()
+                                {
+                                    *self.color_mut(slot) = i32_from(index);
                                 }
                             }
                         }
@@ -1815,7 +1844,7 @@ impl Panel for Pregame {
                                 (part.parse::<usize>(), index.parse::<usize>())
                             {
                                 if part < 3 {
-                                    self.state.face[part] = index;
+                                    *self.face_mut(part) = i32_from(index);
                                 }
                             }
                         }
@@ -1824,14 +1853,12 @@ impl Panel for Pregame {
                                 for part in 0..3 {
                                     if value == "all" || value.parse::<usize>() == Ok(part) {
                                         let n = [
-                                            self.state.sex(d).eyes.len(),
-                                            self.state.sex(d).noses.len(),
-                                            self.state.sex(d).mouths.len(),
+                                            self.view(&d).sex(&d).eyes.len(),
+                                            self.view(&d).sex(&d).noses.len(),
+                                            self.view(&d).sex(&d).mouths.len(),
                                         ][part];
-                                        self.state.face[part] = (i32_from(self.state.face[part])
-                                            + delta)
-                                            .clamp(0, i32_from(n.saturating_sub(1)))
-                                            as usize;
+                                        *self.face_mut(part) = (*self.face_mut(part) + delta)
+                                            .clamp(0, i32_from(n.saturating_sub(1)));
                                     }
                                 }
                             }
@@ -1839,12 +1866,15 @@ impl Panel for Pregame {
                     }
                     for (prefix, delta) in [("skill-up-", 1), ("skill-down-", -1)] {
                         if let Some(i) = suffix(&id, prefix) {
-                            if let Ok(d) = &self.data {
+                            if let Ok(d) = self.data.clone() {
                                 if let Some(skill) = d.skills.get(i) {
-                                    self.state.selected_skill = Some(i);
-                                    let level =
-                                        self.state.skills.get(&skill.id).copied().unwrap_or(1);
-                                    self.state.skill(d, skill.id, level + delta);
+                                    self.selected_skill = Some(i);
+                                    let level = self
+                                        .state
+                                        .skill_levels
+                                        .get(skill.id as usize)
+                                        .map_or(0, |v| *v as i32);
+                                    self.skill(&d, skill.id, level + delta);
                                 }
                             }
                         }

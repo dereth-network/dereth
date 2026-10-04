@@ -18,69 +18,181 @@ pub(super) fn context(f: impl FnOnce(&Context<'_>)) {
         classic: &classic,
     });
 }
-fn data() -> CreationData {
+pub(super) fn tables() -> dereth_chargen::CreationTables {
+    use dereth_assets::tables::*;
+    use std::collections::BTreeMap;
+    use std::rc::Rc;
+    let desc = ObjDesc {
+        version: 0x11,
+        palette: None,
+        subpalettes: vec![],
+        texture_changes: vec![],
+        anim_part_changes: vec![],
+    };
     let clothes = vec![
-        Named {
+        GearItem {
             name: "First".into(),
-            colors: vec![ClothingColor {
-                key: 1,
-                ..Default::default()
-            }],
-            ..Default::default()
+            clothing_table: DataId(0x10000001),
+            weenie_default: 0,
         },
-        Named {
+        GearItem {
             name: "Last".into(),
-            ..Default::default()
+            clothing_table: DataId(0x10000002),
+            weenie_default: 0,
         },
     ];
-    CreationData {
-        heritages: vec![Heritage {
-            sexes: vec![Sex {
-                attribute_credits: 330,
-                skill_credits: 100,
-                headgear: clothes.clone(),
-                shirts: clothes,
-                templates: vec![Template {
-                    profiles: vec![Profile {
-                        attributes: [50; 6],
-                        ..Default::default()
-                    }],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            }],
-            ..Default::default()
+    let sex = SexCg {
+        naming_help: None,
+        name: "Female".into(),
+        scale: 100,
+        setup: DataId(0x2000001),
+        sound_table: DataId(0),
+        icon: 0,
+        base_palette: DataId(0),
+        skin_palset: DataId(0),
+        physics_table: DataId(0),
+        motion_table: DataId(0),
+        combat_table: DataId(0),
+        base_objdesc: desc.clone(),
+        hair_colors: vec![],
+        hair_styles: vec![],
+        eye_colors: vec![],
+        eye_strips: vec![],
+        nose_strips: vec![],
+        mouth_strips: vec![],
+        headgear: clothes.clone(),
+        shirts: clothes,
+        pants: vec![],
+        footwear: vec![],
+        clothing_colors: vec![1, 2, 3, 4, 5, 6],
+    };
+    let heritage = HeritageGroup {
+        description: None,
+        name: "Aluvian".into(),
+        icon: 0,
+        setup: DataId(0),
+        environment_setup: DataId(0),
+        attribute_credits: 330,
+        skill_credits: 100,
+        primary_start_areas: vec![0, 1],
+        secondary_start_areas: vec![],
+        skills: vec![],
+        templates: vec![CharGenTemplate {
+            name: "Adventurer".into(),
+            icon: 0,
+            title: 0,
+            attributes: [50; 6],
+            normal_skills: vec![],
+            primary_skills: vec![],
         }],
-        skills: vec![
-            Skill {
-                id: 1,
-                chargen: 0,
-                ..Default::default()
-            },
-            Skill {
-                id: 7,
-                name: "First skill".into(),
-                chargen: 1,
-                trained: 4,
-                specialized: 8,
-                ..Default::default()
-            },
-            Skill {
-                id: 8,
-                name: "Second skill".into(),
-                chargen: 1,
-                trained: 6,
-                specialized: 12,
-                ..Default::default()
-            },
-        ],
-        ..Default::default()
+        sex_table_marker: 0,
+        sex_order: vec![2],
+        sexes: BTreeMap::from([(2, sex)]),
+        template_presentations: BTreeMap::new(),
+    };
+    let skills = BTreeMap::from([
+        (1, ("Unused", 0, 0, 0)),
+        (7, ("First skill", 1, 4, 8)),
+        (8, ("Second skill", 1, 6, 12)),
+    ])
+    .into_iter()
+    .map(
+        |(id, (name, chargen_use, trained_cost, specialized_cost))| {
+            (
+                id,
+                SkillBase {
+                    description: String::new(),
+                    name: name.into(),
+                    icon: 0,
+                    trained_cost,
+                    specialized_cost,
+                    category: 0,
+                    chargen_use,
+                    min_level: 1,
+                    formula: SkillFormula {
+                        w: 0,
+                        x: 1,
+                        y: 1,
+                        z: 4,
+                        attr1: 1,
+                        attr2: 4,
+                    },
+                    upper_bound: 0.0,
+                    lower_bound: 0.0,
+                    learn_mod: 0.0,
+                },
+            )
+        },
+    )
+    .collect();
+    let clothing = (1..=2)
+        .map(|n| {
+            let id = DataId(0x10000000 + n);
+            (
+                id,
+                dereth_assets::motion::ClothingTable {
+                    id,
+                    clothing_base_buckets: 0,
+                    clothing_bases: BTreeMap::new(),
+                    palette_template_buckets: 1,
+                    palette_templates: if n == 1 {
+                        (1..=6)
+                            .map(|i| {
+                                (
+                                    i,
+                                    dereth_assets::motion::PaletteTemplate {
+                                        icon: DataId(0),
+                                        subpalette_effects: vec![
+                                            dereth_assets::motion::PaletteEffect {
+                                                ranges: vec![],
+                                                palette_set: DataId(0),
+                                            },
+                                        ],
+                                    },
+                                )
+                            })
+                            .collect()
+                    } else {
+                        BTreeMap::new()
+                    },
+                },
+            )
+        })
+        .collect();
+    dereth_chargen::CreationTables {
+        chargen: CharGen {
+            help_strings: vec![],
+            id: DataId(0),
+            second_data_id: DataId(0),
+            starter_areas: vec![
+                StarterArea {
+                    name: "North".into(),
+                    locations: vec![],
+                },
+                StarterArea {
+                    name: "South".into(),
+                    locations: vec![],
+                },
+            ],
+            hg_table_marker: 0,
+            heritage_order: vec![1],
+            heritage_groups: BTreeMap::from([(1, heritage)]),
+        },
+        skills: SkillTable {
+            id: DataId(0),
+            buckets: 0,
+            skills,
+        },
+        clothing: Rc::new(clothing),
     }
+}
+pub(super) fn data() -> CreationData {
+    CreationData::from_tables(std::rc::Rc::new(tables()))
 }
 #[test]
 fn choosing_heritage_and_sex_enables_normal_next_navigation() {
     context(|c| {
-        let mut p = Pregame::new("heritage", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("heritage", Ok(std::rc::Rc::new(data())));
         assert!(
             !p.frame(c)
                 .controls
@@ -128,8 +240,8 @@ fn choosing_heritage_and_sex_enables_normal_next_navigation() {
 #[test]
 fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
     context(|c| {
-        let mut p = Pregame::new("clothing", Ok(std::sync::Arc::new(data())));
-        p.state.colors[0] = 5;
+        let mut p = Pregame::new("clothing", Ok(std::rc::Rc::new(data())));
+        p.state.headgear_color = 99;
         p.event(
             ControlEvent::Select {
                 id: "style-0".into(),
@@ -137,8 +249,8 @@ fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
             },
             c,
         );
-        assert_eq!(p.state.styles[0], 0);
-        assert_eq!(p.state.colors[0], 0);
+        assert_eq!(p.state.headgear_style, 0);
+        assert_eq!(p.state.headgear_color, 5);
         p.event(
             ControlEvent::Select {
                 id: "style-0".into(),
@@ -146,7 +258,7 @@ fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
             },
             c,
         );
-        assert_eq!(p.state.styles[0], 1);
+        assert_eq!(p.state.headgear_style, 1);
         p.event(
             ControlEvent::Select {
                 id: "style-0".into(),
@@ -154,7 +266,7 @@ fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
             },
             c,
         );
-        assert_eq!(p.state.styles[0], usize::MAX);
+        assert_eq!(p.state.headgear_style, -1);
         p.event(
             ControlEvent::Select {
                 id: "style-1".into(),
@@ -162,13 +274,13 @@ fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
             },
             c,
         );
-        assert_eq!(p.state.styles[1], 1);
+        assert_eq!(p.state.shirt_style, 1);
     });
 }
 #[test]
 fn attribute_slider_and_numeric_editor_have_distinct_routing_ids() {
     context(|c| {
-        let mut p = Pregame::new("attributes", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("attributes", Ok(std::rc::Rc::new(data())));
         let f = p.frame(c);
         let mut ids = std::collections::BTreeSet::new();
         for control in &f.controls {
@@ -183,7 +295,7 @@ fn attribute_slider_and_numeric_editor_have_distinct_routing_ids() {
             },
             c,
         );
-        assert_eq!(p.state.attrs[0], 60);
+        assert_eq!(p.state.get(Attr::Strength), 60);
         p.event(
             ControlEvent::Edit {
                 id: "attr-value-0".into(),
@@ -191,17 +303,18 @@ fn attribute_slider_and_numeric_editor_have_distinct_routing_ids() {
             },
             c,
         );
-        assert_eq!(p.state.attrs[0], 75);
+        assert_eq!(p.state.get(Attr::Strength), 75);
     });
 }
 #[test]
 fn selected_skill_uses_original_table_index_across_hidden_rows_and_regrouping() {
     context(|c| {
-        let mut p = Pregame::new("skills", Ok(std::sync::Arc::new(data())));
-        let row = presentation::skill_rows(p.data.as_ref().unwrap(), &p.state)
-            .iter()
-            .position(|r| r.skill == Some(1))
-            .unwrap();
+        let mut p = Pregame::new("skills", Ok(std::rc::Rc::new(data())));
+        let row =
+            presentation::skill_rows(p.data.as_ref().unwrap(), &p.view(p.data.as_ref().unwrap()))
+                .iter()
+                .position(|r| r.skill == Some(1))
+                .unwrap();
         p.event(
             ControlEvent::Select {
                 id: "skills".into(),
@@ -210,11 +323,11 @@ fn selected_skill_uses_original_table_index_across_hidden_rows_and_regrouping() 
             c,
         );
         p.event(ControlEvent::Activate("train".into()), c);
-        assert_eq!(p.state.skills.get(&7), Some(&2));
-        assert_eq!(p.state.skills.get(&8), Some(&1));
-        assert_eq!(p.state.selected_skill, Some(1));
+        assert_eq!(p.state.skill_levels.get(7).map(|v| *v as i32), Some(2));
+        assert_eq!(p.state.skill_levels.get(8).map(|v| *v as i32), Some(1));
+        assert_eq!(p.selected_skill, Some(1));
         p.event(ControlEvent::Activate("specialize".into()), c);
-        assert_eq!(p.state.skills.get(&7), Some(&3));
+        assert_eq!(p.state.skill_levels.get(7).map(|v| *v as i32), Some(3));
     });
 }
 
@@ -239,7 +352,7 @@ fn deletion_waits_only_after_confirmation_and_releases_on_character_set_notice()
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
         p.selected = Some(0);
         p.delete_name = "Test Character".into();
         let actions = p.event(ControlEvent::Activate("delete".into()), &c);
@@ -297,7 +410,7 @@ fn more_characters_than_the_six_slots_scroll_in_the_six() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
         let shown = |p: &Pregame| {
             let f = p.frame(&c);
             let list = f
@@ -362,7 +475,7 @@ fn character_list_refresh_keeps_wire_slot_when_display_sort_order_changes() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
         p.event(
             ControlEvent::Select {
                 id: "characters".into(),
@@ -417,7 +530,7 @@ fn successful_creation_enters_from_verification_identity_without_new_list_notice
                 map_teleport_allowed: base.map_teleport_allowed,
                 classic: base.classic,
             };
-            let mut p = Pregame::new("name-summary", Ok(std::sync::Arc::new(data())));
+            let mut p = Pregame::new("name-summary", Ok(std::rc::Rc::new(data())));
             p.created_name = Some("New Character".into());
             p.waiting = true;
             let mut actions = p.event(ControlEvent::Tick, &c);
@@ -465,7 +578,7 @@ fn successful_creation_enters_when_the_server_prefixes_a_privileged_name() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("name-summary", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("name-summary", Ok(std::rc::Rc::new(data())));
         p.created_name = Some("New Character".into());
         p.waiting = true;
         assert!(matches!(
@@ -491,7 +604,7 @@ fn successful_restore_clears_waiting_without_creation_status_or_logon() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
         p.waiting = true;
         assert!(p.event(ControlEvent::Tick, &c).is_empty());
         assert!(!p.waiting);
@@ -502,7 +615,7 @@ fn successful_restore_clears_waiting_without_creation_status_or_logon() {
 #[test]
 fn confirmed_login_quit_requests_process_exit_without_dropping_only_the_panel() {
     context(|c| {
-        let mut p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
         let actions = p.event(ControlEvent::Activate("quit".into()), c);
         let [PanelAction::Confirm { accept, .. }] = actions.as_slice() else {
             panic!("quit must confirm first")
@@ -515,7 +628,7 @@ fn confirmed_login_quit_requests_process_exit_without_dropping_only_the_panel() 
 #[test]
 fn startup_cancel_exits_immediately_without_creation_abandon_prompt() {
     context(|c| {
-        let mut p = Pregame::new("startup", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("startup", Ok(std::rc::Rc::new(data())));
         assert_eq!(
             p.event(ControlEvent::Activate("cancel".into()), c),
             vec![PanelAction::Host(HostAction::Quit)]
@@ -543,7 +656,7 @@ fn enter_confirmation_initializes_the_current_character_selection() {
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("enter-confirmation", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("enter-confirmation", Ok(std::rc::Rc::new(data())));
         p.event(ControlEvent::Tick, &c);
         assert_eq!(p.selected, Some(0));
         assert!(p
@@ -567,7 +680,7 @@ fn startup_error_blocks_advance_and_acknowledgement_exits_once() {
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("startup", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("startup", Ok(std::rc::Rc::new(data())));
         let actions = p.event(ControlEvent::Tick, &c);
         assert!(
             matches!(actions.as_slice(),[PanelAction::Message {id,accept,..}]
@@ -591,7 +704,7 @@ fn save_as_existing_name_only_emits_overwrite_after_confirmation() {
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("keyboard", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
         p.save_scheme = Some("existing".into());
         let actions = p.event(ControlEvent::Activate("key-save-confirm".into()), &c);
         assert!(
@@ -616,7 +729,7 @@ fn dirty_keyboard_exit_and_switch_offer_save_and_preserve_pending_transition_unt
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("keyboard", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
         let ask = p.event(ControlEvent::Activate("key-done".into()), &c);
         let [PanelAction::Question { accept, reject, .. }] = ask.as_slice() else {
             panic!("dirty exit asks")
@@ -681,7 +794,7 @@ fn same_key_or_cancel_completion_closes_capture_without_requiring_changed_labels
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("keyboard", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
         p.event(ControlEvent::Activate("key-save".into()), &c);
         assert_eq!(p.save_scheme.as_deref(), Some("Named"));
         assert!(matches!(
@@ -726,7 +839,7 @@ fn credit_vial_shows_the_share_of_credits_left_above_the_attribute_minimums() {
 #[test]
 fn attributes_page_draws_the_vial_from_the_bottom_with_no_balance_toggle() {
     context(|c| {
-        let p = Pregame::new("attributes", Ok(std::sync::Arc::new(data())));
+        let p = Pregame::new("attributes", Ok(std::rc::Rc::new(data())));
         let f = p.frame(c);
         assert!(!f.controls.iter().any(|v| v.id == "balance"));
         // 330 credits, 300 spent: 30 of the 270 spendable left fill 12 of the 108 rows.
@@ -740,7 +853,7 @@ fn attributes_page_draws_the_vial_from_the_bottom_with_no_balance_toggle() {
 #[test]
 fn preview_rotate_and_zoom_controls_exist_before_there_is_a_model() {
     context(|c| {
-        let p = Pregame::new("heritage", Ok(std::sync::Arc::new(data())));
+        let p = Pregame::new("heritage", Ok(std::rc::Rc::new(data())));
         let f = p.frame(c);
         assert!(f.previews.is_empty());
         for id in ["rotate-left", "rotate-right", "zoom-face"] {
@@ -751,7 +864,7 @@ fn preview_rotate_and_zoom_controls_exist_before_there_is_a_model() {
 #[test]
 fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
     context(|c| {
-        let mut p = Pregame::new("clothing", Ok(std::sync::Arc::new(data())));
+        let mut p = Pregame::new("clothing", Ok(std::rc::Rc::new(data())));
         let f = p.frame(c);
         let style = f.controls.iter().find(|v| v.id == "style-1").unwrap();
         assert!(style.choice_art);
@@ -767,7 +880,7 @@ fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
 #[test]
 fn the_trademark_sign_sits_after_the_title_not_over_it() {
     use dereth_classic_gdi::fonts::{rasterize, FontSpec};
-    let p = Pregame::new("login", Ok(std::sync::Arc::new(data())));
+    let p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
     let mut boxes = vec![];
     context(|c| {
         for command in p.login(c).screen.commands {
@@ -819,4 +932,343 @@ fn the_trademark_sign_sits_after_the_title_not_over_it() {
         span(title),
         span(tm)
     );
+}
+
+/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+#[test]
+fn allocated_credits_and_raw_name_edits_reach_the_real_finish_action() {
+    context(|base| {
+        let mut view = base.pregame.clone();
+        view.connected = true;
+        view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
+        let c = Context {
+            pregame: &view,
+            ..*base
+        };
+        let mut p = Pregame::new("name-summary", Ok(std::rc::Rc::new(data())));
+        p.attribute(0, 80);
+        assert_eq!(p.state.remaining_atrb_credits, 0);
+        assert_eq!(
+            p.view(p.data.as_ref().unwrap())
+                .remaining_attributes(p.data.as_ref().unwrap()),
+            0
+        );
+        p.event(
+            ControlEvent::Edit {
+                id: "name".into(),
+                text: "probe ".into(),
+            },
+            &c,
+        );
+        assert_eq!(p.name_edit, "probe ");
+        p.event(
+            ControlEvent::Edit {
+                id: "name".into(),
+                text: "probe walker".into(),
+            },
+            &c,
+        );
+        assert_eq!(p.name_edit, "probe walker");
+        let actions = p.event(ControlEvent::Activate("create-submit".into()), &c);
+        assert!(
+            matches!(
+                actions.as_slice(),
+                [PanelAction::Game(UiRequest::CharGenAction(
+                    CharGenAction::SendCharGenResult(_)
+                ))]
+            ),
+            "{actions:?}"
+        );
+        p.waiting = false;
+        p.event(
+            ControlEvent::Edit {
+                id: "name".into(),
+                text: String::new(),
+            },
+            &c,
+        );
+        assert!(p.name_edit.is_empty());
+        assert!(
+            !p.frame(&c)
+                .controls
+                .iter()
+                .find(|v| v.id == "create-submit")
+                .unwrap()
+                .enabled
+        );
+        assert!(p
+            .event(ControlEvent::Activate("create-confirmed".into()), &c)
+            .is_empty());
+        assert_eq!(p.status, "Enter a character name.");
+    });
+}
+
+/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+#[test]
+fn later_appearance_choices_and_clothing_palette_order_are_reachable() {
+    context(|c| {
+        let mut t = tables();
+        let sx = t
+            .chargen
+            .heritage_groups
+            .get_mut(&1)
+            .unwrap()
+            .sexes
+            .get_mut(&2)
+            .unwrap();
+        sx.hair_colors = (0..9).collect();
+        sx.hair_styles = (0..14)
+            .map(|_| dereth_assets::tables::HairStyle {
+                icon: 0,
+                bald: 0,
+                alternate_setup: DataId(0),
+                objdesc: sx.base_objdesc.clone(),
+            })
+            .collect();
+        sx.clothing_colors.reverse();
+        let mut p = Pregame::new(
+            "appearance",
+            Ok(std::rc::Rc::new(CreationData::from_tables(
+                std::rc::Rc::new(t),
+            ))),
+        );
+        p.event(
+            ControlEvent::Value {
+                id: "hair-color".into(),
+                value: 8,
+            },
+            c,
+        );
+        assert_eq!(p.state.hair_color, 8);
+        assert!(p
+            .frame(c)
+            .controls
+            .iter()
+            .any(|v| v.id == "hair-color-pick-8"));
+        p.event(
+            ControlEvent::Scroll {
+                id: "hairstyles-scroll".into(),
+                value: 96,
+            },
+            c,
+        );
+        let f = p.frame(c);
+        let last = f
+            .controls
+            .iter()
+            .find(|v| v.id == "hair-style-pick-13")
+            .expect("last style");
+        assert!(last.rect.y + last.rect.h <= 503);
+        p.event(ControlEvent::Activate("hair-style-pick-13".into()), c);
+        assert_eq!(p.state.hair_style, 13);
+        p.page = "clothing";
+        p.event(
+            ControlEvent::Select {
+                id: "style-1".into(),
+                index: 0,
+            },
+            c,
+        );
+        let projected = p
+            .view(p.data.as_ref().unwrap())
+            .clothing_colors(p.data.as_ref().unwrap(), 1);
+        assert_eq!(
+            projected.iter().map(|v| v.key).collect::<Vec<_>>(),
+            p.state.shirt_palette_template_ids
+        );
+        assert_eq!(projected.first().unwrap().key, 1);
+        p.event(ControlEvent::Activate("color-pick-1-0".into()), c);
+        assert_eq!(p.state.get_char_gen_result().shirt_color, 1);
+    });
+}
+
+/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "needs installed world and interface data"
+)]
+fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
+    use dereth_assets::{
+        tables::{CharGen, SkillTable},
+        Decode,
+    };
+    use dereth_primitives::AssetSource;
+    use std::{collections::BTreeMap, rc::Rc, sync::Arc};
+    struct Fonts;
+    impl dereth_classic_dat::fonts::FontSource for Fonts {
+        fn rasterize(
+            &self,
+            _: &dereth_classic_dat::fonts::FontSpec,
+        ) -> Result<dereth_classic_dat::fonts::FontAtlas, String> {
+            Ok(Default::default())
+        }
+    }
+    let portal = std::path::PathBuf::from(
+        std::env::var_os("DERETH_CLASSIC_PORTAL").expect("interface portal"),
+    );
+    let art = Arc::new(
+        crate::art::ClassicArt::new(
+            dereth_classic_dat::ClassicPortal::open(&portal).unwrap(),
+            &Fonts,
+        )
+        .unwrap(),
+    );
+    for old in [true, false] {
+        let store = if old {
+            dereth_dat::testing::open_pre_tod_store_or_fail()
+        } else {
+            dereth_dat::testing::open_store_or_fail()
+        };
+        let id = DataId(0x0e000002);
+        let cg =
+            CharGen::decode_payload_in(store.container_era_of(id), id, &store.read(id).unwrap())
+                .unwrap();
+        let id = DataId(0x0e000004);
+        let skills =
+            SkillTable::decode_payload_in(store.container_era_of(id), id, &store.read(id).unwrap())
+                .unwrap();
+        let mut clothing = BTreeMap::new();
+        for sx in cg.heritage_groups.values().flat_map(|h| h.sexes.values()) {
+            for item in sx
+                .headgear
+                .iter()
+                .chain(&sx.shirts)
+                .chain(&sx.pants)
+                .chain(&sx.footwear)
+            {
+                let id = item.clothing_table;
+                clothing.entry(id).or_insert_with(|| {
+                    dereth_assets::motion::ClothingTable::decode_payload_in(
+                        store.container_era_of(id),
+                        id,
+                        &store.read(id).unwrap(),
+                    )
+                    .unwrap()
+                });
+            }
+        }
+        let t = Rc::new(dereth_chargen::CreationTables {
+            chargen: cg,
+            skills,
+            clothing: Rc::new(clothing),
+        });
+        let mut data = CreationData::load(Rc::clone(&t), &store);
+        data.read_chrome(&art);
+        for id in [0x31000020u32, 0x31000022] {
+            assert!(!data.help_text[&id.to_string()].is_empty());
+        }
+        assert_eq!(
+            data.heritages.iter().map(|h| h.key).collect::<Vec<_>>(),
+            t.heritage_keys()
+        );
+        let mut canvas = crate::renderer::Canvas::new(Arc::clone(&art), (800, 600)).unwrap();
+        let mut screen = crate::Screen {
+            width: 800,
+            height: 600,
+            commands: vec![],
+        };
+        for h in &data.heritages {
+            eprintln!(
+                "world_old={old} heritage={} {} sexes={:?} towns={:?}",
+                h.key,
+                h.name,
+                h.sexes.iter().map(|s| s.key).collect::<Vec<_>>(),
+                h.primary_areas
+            );
+            for sx in &h.sexes {
+                eprintln!(
+                    "  sex={} hair_colors={} styles={}",
+                    sx.key,
+                    sx.hair_colors.len(),
+                    sx.hair_styles.len()
+                );
+                for strip in sx.eyes.iter().chain(&sx.noses).chain(&sx.mouths) {
+                    for did in [&strip.texture, &strip.bald_texture]
+                        .into_iter()
+                        .filter(|s| !s.is_empty())
+                    {
+                        screen.commands.push(crate::Command::IndexedImage {
+                            did: did.clone(),
+                            palette: data.appearance.palettes[&format!("{:08X}", sx.base_palette)]
+                                .clone(),
+                            x: 0,
+                            y: 0,
+                            width: 64,
+                            height: 48,
+                            clip: None,
+                            flip_x: false,
+                        });
+                    }
+                }
+                assert!(!store.read(DataId(h.animation)).unwrap().is_empty());
+            }
+        }
+        canvas
+            .load_runtime_images(&screen, &store)
+            .expect("every face strip decodes through Canvas");
+        canvas
+            .compose(
+                &mut dereth_client_runtime::present::NullPresentation::new(800, 600),
+                &screen,
+                &|_| None,
+            )
+            .expect("every face strip uploads with its complete palette");
+        context(|base| {
+            let mut view = base.pregame.clone();
+            view.connected = true;
+            view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
+            let c = Context {
+                pregame: &view,
+                ..*base
+            };
+            let data = Rc::new(data);
+            let mut p = Pregame::new("heritage", Ok(Rc::clone(&data)));
+            for (hi, h) in data.heritages.iter().enumerate() {
+                p.event(
+                    ControlEvent::Select {
+                        id: "heritage".into(),
+                        index: hi,
+                    },
+                    &c,
+                );
+                for (si, sx) in h.sexes.iter().enumerate() {
+                    p.event(
+                        ControlEvent::Select {
+                            id: "sex".into(),
+                            index: si,
+                        },
+                        &c,
+                    );
+                    p.enter_page("name-summary");
+                    let f = p.frame(&c);
+                    let a = f.previews[0].appearance.as_ref().unwrap();
+                    assert_eq!((a.state.heritage_group, a.state.gender), (h.key, sx.key));
+                    assert_eq!(a.animation.0, h.animation);
+                    assert!(!store
+                        .read(a.state.get_setup_id(&t.chargen))
+                        .unwrap()
+                        .is_empty());
+                    p.event(
+                        ControlEvent::Edit {
+                            id: "name".into(),
+                            text: "World Tester".into(),
+                        },
+                        &c,
+                    );
+                    p.creation_slot = Some(6);
+                    let out = p.event(ControlEvent::Activate("create-confirmed".into()), &c);
+                    let [PanelAction::Game(UiRequest::CharGenAction(
+                        CharGenAction::SendCharGenResult(result),
+                    ))] = out.as_slice()
+                    else {
+                        panic!("missing result: {out:?}")
+                    };
+                    assert_eq!((result.heritage_group, result.gender), (h.key, sx.key));
+                    assert_eq!(result.slot, 6);
+                    p.waiting = false;
+                }
+            }
+        });
+    }
 }

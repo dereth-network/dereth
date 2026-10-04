@@ -26,6 +26,7 @@ dereth-client-runtime = { path = "../../../../core/client-runtime" }
 dereth-client-model = { path = "../../../../core/client-model" }
 dereth-animation = { path = "../../../../core/animation" }
 dereth-physics = { path = "../../../../core/physics" }
+dereth-chargen = { path = "../../../../core/chargen" }
 dereth-assets = { path = "../../../../core/assets" }
 dereth-protocol = { path = "../../../../core/protocol" }
 dereth-rules = { path = "../../../../core/rules" }

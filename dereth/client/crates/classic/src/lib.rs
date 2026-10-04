@@ -10,7 +10,7 @@
 //!
 //! **Depends on** the shared crates (`dereth-primitives`, `dereth-client-contract`,
 //! `dereth-client-model`, `dereth-client-runtime`, `dereth-protocol`, `dereth-rules`,
-//! `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`), the client's
+//! `dereth-chargen`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`), the client's
 //! `dereth-scene` (item icons decoded as the scene decodes them, the preview dressing rules),
 //! `dereth-ui` (its clip regions), `dereth-text` (tags and string-table composition), the game's presentation rules
 //! (`dereth-presentation`: the appraisal and character sheet text it shares with the other
@@ -32,7 +32,6 @@ pub mod cursor;
 pub mod default_keys;
 pub mod desktop;
 pub mod dialogs;
-pub mod era_bridge;
 pub mod help;
 pub mod int;
 pub mod item_art;

@@ -21,7 +21,7 @@ fn set_palette(d: &CreationData, id: u32, shade: f64) -> Option<&[[u8; 4]]> {
         set[usize::try_from(to_i32_f64((set.len() as f64 - 0.000001) * shade)).unwrap_or(0)],
     )
 }
-fn combined_palette(d: &CreationData, state: &Creation) -> Vec<[u8; 4]> {
+fn combined_palette(d: &CreationData, state: &SelectionView<'_>) -> Vec<[u8; 4]> {
     let sex = state.sex(d);
     let mut result = palette(d, sex.base_palette).map_or(vec![[0, 0, 0, 255]; 256], |v| v.to_vec());
     let hair = sex
@@ -38,7 +38,11 @@ fn combined_palette(d: &CreationData, state: &Creation) -> Vec<[u8; 4]> {
         (32, 40, eyes),
     ] {
         if let Some(p) = source {
-            result[start..end].copy_from_slice(&p[start..end]);
+            let scale = if result.len() == 2048 { 8 } else { 1 };
+            let range = start * scale..end * scale;
+            if let (Some(to), Some(from)) = (result.get_mut(range.clone()), p.get(range)) {
+                to.copy_from_slice(from);
+            }
         }
     }
     result
@@ -50,7 +54,10 @@ fn set_entry(d: &CreationData, set: u32, entry: usize) -> Vec<[u8; 4]> {
         .get(&format!("{set:08X}"))
         .map_or_else(Vec::new, |ids| {
             ids.iter()
-                .filter_map(|&id| palette(d, id).and_then(|v| v.get(entry)))
+                .filter_map(|&id| {
+                    palette(d, id)
+                        .and_then(|v| v.get(if v.len() == 2048 { entry * 8 } else { entry }))
+                })
                 .copied()
                 .collect()
         })
@@ -101,7 +108,7 @@ impl Pregame {
     /// scrolled a swatch at a time) and a shade bar with its slider.
     pub(super) fn clothing_frame(&self, f: &mut PanelFrame, d: &CreationData) {
         const SWATCH: i32 = 32;
-        let state = &self.state;
+        let state = self.view(d);
         let sex = state.sex(d);
         for (i, name) in ["Headgear:", "Shirt:", "Trousers:", "Footwear:"]
             .into_iter()
@@ -197,9 +204,9 @@ impl Pregame {
         }
     }
     pub(super) fn appearance_frame(&self, f: &mut PanelFrame, d: &CreationData) {
-        let state = &self.state;
+        let state = self.view(d);
         let sex = state.sex(d);
-        let pal = combined_palette(d, state);
+        let pal = combined_palette(d, &state);
         f.image("0600028C", rect(368, 177, 421, 140), false, false);
         f.label(390, 160, "Facial Features", "16-7", COLOR, None);
         let bald = sex
@@ -261,14 +268,14 @@ impl Pregame {
                 &format!("face-prev-{part}"),
                 rect(399, ly, 16, lh),
                 [left, left + 1, left],
-                state.face[part] > 0,
+                state.face[part] > 0 && state.face[part] < choices.len(),
             );
             art_button(
                 f,
                 &format!("face-next-{part}"),
                 rect(737, ry, rw, rh),
                 [right, right + 1, right],
-                state.face[part] + 1 < choices.len(),
+                state.face[part].saturating_add(1) < choices.len(),
             );
         }
         art_button(
@@ -325,16 +332,31 @@ impl Pregame {
         }
         // The swatch and hairstyle frames mark the selected choice.
         f.label(381, 387, "Hair Color", "16-7", COLOR, None);
-        for (i, &set) in sex.hair_colors.iter().enumerate() {
-            let r = rect(381 + i32_from(i) * 32, 407, 32, 32);
-            if r.x >= 573 {
-                break;
-            }
+        let first = state.hair_color.saturating_sub(5);
+        for (cell, (i, &set)) in sex
+            .hair_colors
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(6)
+            .enumerate()
+        {
+            let r = rect(381 + i32_from(cell) * 32, 407, 32, 32);
             gradient(f, d, set, 30, r, true);
             if i == state.hair_color {
                 f.image("06000506", r, false, true);
             }
             f.button(format!("hair-color-pick-{i}"), r, "", true).paint = false;
+        }
+        if sex.hair_colors.len() > 6 {
+            f.slider(
+                "hair-color",
+                rect(381, 440, 192, 19),
+                0,
+                i32_from(sex.hair_colors.len().saturating_sub(1)),
+                i32_from(state.hair_color),
+                1,
+            );
         }
         f.label(586, 319, "Eye Color", "16-7", COLOR, None);
         let start = state.eye_color.saturating_sub(5);
@@ -364,18 +386,45 @@ impl Pregame {
             1,
         );
         f.label(586, 387, "Hairstyle", "16-7", COLOR, None);
-        for (i, hair) in sex.hair_styles.iter().enumerate() {
+        let rows = i32_from(sex.hair_styles.len().div_ceil(4));
+        let max = (rows * 48 - 96).max(0);
+        let first = usize::try_from(self.hair_scroll.min(max) / 48).unwrap_or(0) * 4;
+        for (cell, (i, hair)) in sex
+            .hair_styles
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(8)
+            .enumerate()
+        {
             let r = rect(
-                586 + i32_from(i % 4) * 48,
-                407 + i32_from(i / 4) * 48,
+                586 + i32_from(cell % 4) * 48,
+                407 + i32_from(cell / 4) * 48,
                 48,
                 48,
             );
-            f.image(&format!("{:08X}", hair.icon), r, false, false);
+            f.image(&format!("world:{:08X}", hair.icon), r, false, false);
             if i == state.hair_style {
                 f.image("06000F51", r, false, true);
             }
             f.button(format!("hair-style-pick-{i}"), r, "", true).paint = false;
+        }
+        if max > 0 {
+            f.control(
+                "hairstyles-scroll",
+                rect(780, 407, 16, 96),
+                ControlKind::ScrollBar {
+                    min: 0,
+                    max,
+                    value: self.hair_scroll.min(max),
+                    page: 96,
+                    step: 48,
+                    vertical: true,
+                    arrow_size: 16,
+                    thumb_size: 16,
+                },
+                true,
+            );
         }
     }
 }
@@ -386,7 +435,7 @@ mod tests {
     use super::*;
     #[test]
     fn palette_endpoint_and_half_boundaries_use_retail_epsilon() {
-        let mut d = CreationData::default();
+        let mut d = super::super::tests::data();
         d.appearance
             .palette_sets
             .insert("0F000001".into(), vec![0x04000001, 0x04000002]);
@@ -402,23 +451,7 @@ mod tests {
     }
     #[test]
     fn clothing_swatch_runs_top_to_bottom_through_its_slots_entry_of_each_palette_in_the_set() {
-        let mut d = CreationData::default();
-        let sex = Sex {
-            shirts: vec![Named {
-                name: "Shirt".into(),
-                colors: vec![ClothingColor {
-                    key: 1,
-                    icon: 0,
-                    palette_set: 0x0F00_0002,
-                }],
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        d.heritages = vec![Heritage {
-            sexes: vec![sex],
-            ..Default::default()
-        }];
+        let mut d = super::super::tests::data();
         d.appearance
             .palette_sets
             .insert("0F000002".into(), vec![0x0400_0010, 0x0400_0011]);
@@ -430,8 +463,12 @@ mod tests {
             p[CLOTHING_ENTRY[1]] = shade;
             d.appearance.palettes.insert(id.into(), p);
         }
-        let d = std::sync::Arc::new(d);
-        let p = Pregame::new("clothing", Ok(d.clone()));
+        let d = std::rc::Rc::new(d);
+        let mut p = Pregame::new("clothing", Ok(d.clone()));
+        p.state.set_shirt_style(&d.tables.chargen, 0);
+        p.state.shirt_color = 0;
+        p.state.shirt_palette_template_ids = vec![1];
+        p.state.shirt_pal_set_ids = vec![DataId(0x0f000002)];
         let mut f = PanelFrame::new(800, 600);
         p.clothing_frame(&mut f, &d);
         let fill = |x: i32, y: i32, w: u32| {
@@ -455,26 +492,11 @@ mod tests {
     }
     #[test]
     fn clothing_colour_strip_scrolls_a_whole_swatch_and_picks_by_table_index() {
-        let mut d = CreationData::default();
-        let sex = Sex {
-            shirts: vec![Named {
-                colors: (0..6)
-                    .map(|key| ClothingColor {
-                        key,
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        d.heritages = vec![Heritage {
-            sexes: vec![sex],
-            ..Default::default()
-        }];
-        let d = std::sync::Arc::new(d);
+        let d = super::super::tests::data();
+        let d = std::rc::Rc::new(d);
         super::super::tests::context(|c| {
             let mut p = Pregame::new("clothing", Ok(d.clone()));
+            p.state.set_shirt_style(&d.tables.chargen, 0);
             p.event(
                 ControlEvent::Scroll {
                     id: "color-scroll-1".into(),
@@ -501,7 +523,7 @@ mod tests {
                 ]
             );
             p.event(ControlEvent::Activate("color-pick-1-4".into()), c);
-            assert_eq!(p.state.colors[1], 4);
+            assert_eq!(p.state.shirt_color, 4);
         });
     }
 }

@@ -91,6 +91,7 @@ fn gear(weenie_default: u32) -> GearItem {
 fn char_gen() -> empyrean_dat::file_types::CharGen {
     let mut cg = sample::char_gen();
     let sex = SexCg {
+        naming_help: None,
         name: "Male".into(),
         scale: 110,
         setup: DataId(0x0200_0001),
@@ -141,6 +142,9 @@ fn char_gen() -> empyrean_dat::file_types::CharGen {
         primary_skills: Vec::new(),
     };
     let heritage = |name: &str| CgHeritage {
+        description: None,
+        sex_order: vec![1],
+        template_presentations: std::collections::BTreeMap::new(),
         name: name.into(),
         icon: 0,
         setup: DataId(0x0200_0001),

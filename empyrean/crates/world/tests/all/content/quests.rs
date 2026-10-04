@@ -159,6 +159,7 @@ fn objdesc(textures: &[(u32, u32)], parts: &[u32]) -> ObjDesc {
 /// single valid choice per feature.
 fn char_gen() -> CharGen {
     let sex = || SexCg {
+        naming_help: None,
         name: "Male".into(),
         scale: 100,
         setup: DataId(0x0200_0001),
@@ -193,6 +194,9 @@ fn char_gen() -> CharGen {
         clothing_colors: Vec::new(),
     };
     let heritage = |name: &str| HeritageGroupCG {
+        description: None,
+        sex_order: vec![1],
+        template_presentations: std::collections::BTreeMap::new(),
         name: name.into(),
         icon: 0,
         setup: DataId(0x0200_0001),
@@ -207,6 +211,8 @@ fn char_gen() -> CharGen {
         sexes: std::collections::BTreeMap::from([(1, sex())]),
     };
     CharGen {
+        heritage_order: vec![1, 9],
+        help_strings: Vec::new(),
         id: DataId(file_id::CHAR_GEN),
         second_data_id: DataId(0),
         starter_areas: Vec::new(),

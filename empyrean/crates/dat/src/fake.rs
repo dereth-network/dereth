@@ -253,6 +253,7 @@ pub mod sample {
     #[must_use]
     pub fn char_gen() -> CharGen {
         let sex = SexCg {
+            naming_help: None,
             name: "Male".into(),
             scale: 100,
             setup: DataId(0x0200_0001),
@@ -277,6 +278,9 @@ pub mod sample {
             clothing_colors: vec![0x0F00_0004],
         };
         let heritage = HeritageGroup {
+            description: None,
+            sex_order: vec![1],
+            template_presentations: std::collections::BTreeMap::new(),
             name: "Aluvian".into(),
             icon: 0x0600_0002,
             setup: DataId(0x0200_0001),
@@ -295,6 +299,8 @@ pub mod sample {
             Frame::new(Vec3::new(84.0, 7.1, 94.005), Quat::IDENTITY),
         );
         CharGen {
+            heritage_order: vec![1],
+            help_strings: Vec::new(),
             id: DataId(file_id::CHAR_GEN),
             second_data_id: DataId(0),
             starter_areas: vec![StarterArea {

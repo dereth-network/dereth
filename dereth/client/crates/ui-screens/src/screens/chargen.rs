@@ -30,6 +30,7 @@
 
 use std::rc::Rc;
 
+#[cfg(test)]
 use dereth_assets::tables::{CharGen, SkillTable};
 use dereth_primitives::num::to_i32;
 use dereth_primitives::DataId;
@@ -1187,11 +1188,11 @@ pub const ANIM_ENUMS_OLTHOI_ACID: (u32, u32, [u32; 5]) =
 /// 0, 0)` where zoom-out's is `(0, -3.8, 1.15)`.
 #[must_use]
 pub fn zoomed_out_camera(heritage: u32) -> [f32; 3] {
-    match heritage {
-        HERITAGE_OLTHOI => [0.0, -3.8, 1.15],
-        HERITAGE_OLTHOI_ACID => [0.0, -5.7, 1.65],
-        _ => [0.0, -2.5, 0.95],
-    }
+    dereth_presentation::creation::camera(
+        heritage,
+        false,
+        dereth_presentation::DisplayVariant::Modern,
+    )
 }
 
 /// The appearance page's zoom-in step's target camera.
@@ -1201,12 +1202,11 @@ pub fn zoomed_out_camera(heritage: u32) -> [f32; 3] {
 /// OlthoiAcid zoom-out value confirms independently.
 #[must_use]
 pub fn zoomed_in_camera(heritage: u32) -> [f32; 3] {
-    match heritage {
-        HERITAGE_OLTHOI => [0.0, -1.85, 1.85],
-        HERITAGE_OLTHOI_ACID => [0.0, -3.05, 2.75],
-        7 => [0.0, -0.85, 1.65],
-        _ => [0.0, -0.55, 1.65],
-    }
+    dereth_presentation::creation::camera(
+        heritage,
+        true,
+        dereth_presentation::DisplayVariant::Modern,
+    )
 }
 
 /// The rotation period — the wizard's constructor writes the double **3.0**, so a full turn of the
@@ -1300,22 +1300,21 @@ impl Cg3dView {
 /// `Weenie_SkillTable`.
 #[derive(Debug)]
 pub struct CharGenTables {
-    pub chargen: CharGen,
-    pub skills: SkillTable,
-    /// Every `ClothingTable` the gear lists name, keyed by DataID.
-    ///
-    /// Each style loads one as resource type `0x19`;
-    /// this crate has no data cache, so the host resolves the closed set and hands it over with the
-    /// other two.
-    pub clothing: std::rc::Rc<
-        std::collections::BTreeMap<dereth_primitives::DataId, dereth_assets::motion::ClothingTable>,
-    >,
+    /// The world rules and appearance resources shared by both creation interfaces.
+    pub world: Rc<dereth_chargen::CreationTables>,
     /// The four `UIASSET` images the colour wheel is generated from.
     pub color_wheel_art: ColorWheelArt,
     /// The colour source across the host seam, or `None` where a caller has no dat behind it -- in
     /// which case the nine spots all draw `ColorEmpty`, which is what the client shows when the
     /// colour lookup finds nothing.
     pub colors: Option<std::rc::Rc<dyn CgColorSource>>,
+}
+
+impl std::ops::Deref for CharGenTables {
+    type Target = dereth_chargen::CreationTables;
+    fn deref(&self) -> &Self::Target {
+        &self.world
+    }
 }
 
 /// What the wizard asks the host to do. Handed over as
@@ -4707,6 +4706,7 @@ mod tests {
         sexes.insert(
             1u32,
             SexCg {
+                naming_help: None,
                 name: "Female".into(),
                 scale: 100,
                 setup: dereth_primitives::DataId(0),
@@ -4742,6 +4742,7 @@ mod tests {
             heritage_groups.insert(
                 id,
                 HeritageGroup {
+                    description: None,
                     name: format!("H{id}"),
                     icon: 0,
                     setup: dereth_primitives::DataId(0),
@@ -4753,24 +4754,30 @@ mod tests {
                     skills: Vec::new(),
                     templates: Vec::new(),
                     sex_table_marker: 0,
+                    sex_order: sexes.keys().copied().collect(),
+                    template_presentations: BTreeMap::new(),
                     sexes: sexes.clone(),
                 },
             );
         }
         Rc::new(CharGenTables {
-            chargen: CharGen {
-                id: dereth_primitives::DataId(0x0E00_0002),
-                second_data_id: dereth_primitives::DataId(0),
-                starter_areas: Vec::new(),
-                hg_table_marker: 0,
-                heritage_groups,
-            },
-            skills: SkillTable {
-                id: dereth_primitives::DataId(0x0E00_0004),
-                buckets: 0,
-                skills: BTreeMap::new(),
-            },
-            clothing: Rc::new(BTreeMap::new()),
+            world: Rc::new(dereth_chargen::CreationTables {
+                chargen: CharGen {
+                    help_strings: vec![],
+                    id: dereth_primitives::DataId(0x0E00_0002),
+                    second_data_id: dereth_primitives::DataId(0),
+                    starter_areas: Vec::new(),
+                    hg_table_marker: 0,
+                    heritage_order: heritage_groups.keys().copied().collect(),
+                    heritage_groups,
+                },
+                skills: SkillTable {
+                    id: dereth_primitives::DataId(0x0E00_0004),
+                    buckets: 0,
+                    skills: BTreeMap::new(),
+                },
+                clothing: Rc::new(BTreeMap::new()),
+            }),
             // No dat behind this fixture, so the wheel has no art and no colours -- which is
             // exactly the Get returned null case the client also draws as nothing.
             color_wheel_art: ColorWheelArt::default(),

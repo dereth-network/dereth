@@ -595,6 +595,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.name.accepted-edits-use-shared-narrow-formatting",
+        says: "Accepted name edits use the shared narrow-byte formatter; refused edits preserve the accepted name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CREATION-NAME-FORMAT"),
+        station: "dereth-chargen::lib::tests::accepted_ascii_names_use_shared_formatting_without_overwriting_refused_edits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chargen.preview.the-portal-space-plays-at-forty-frames-a-second-inside-its-viewport",
         says: "The portal tunnel's animation starts on its first frame and moves on at forty \
                frames for every second that passes, so half a second after it starts it is twenty \
@@ -612,6 +620,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O70-SLIDERS"),
         station: "dereth-testkit::dat::shell::scenario_the_six_attribute_sliders_are_named_and_sit_at_their_values",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chargen.random.classic-entry-keeps-nested-draw-order",
+        says: "Classic entry and page randomization preserve their nested draws over the world tables, while summary completes only missing choices.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CREATION-CLASSIC-RANDOM"),
+        station: "dereth-chargen::dat::classic_entry_keeps_nested_draws_and_summary_only_completes_missing_choices",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -774,6 +790,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.skills.changes-refund-prior-cost-and-refuse-unaffordable-classes",
+        says: "Skill changes refund the prior class before checking affordability and refuse unavailable classes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CREATION-SKILL-AFFORDABILITY"),
+        station: "dereth-chargen::dat::skill_changes_refund_prior_cost_and_refuse_unaffordable_or_unavailable_classes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.skills.every-row-is-drawn-under-its-new-heading-and-back-again",
         says: "Every skill on the page that can be moved between groups is drawn under its new \
                heading the moment it moves there, in name order among the rows already there, and \
@@ -906,6 +930,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O70-NAME"),
         station: "dereth-testkit::dat::shell::scenario_the_name_box_prompts_takes_the_keyboard_and_keeps_what_replaced_the_prompt",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chargen.tables.world-keys-and-costs-remain-authoritative",
+        says: "Both creation interfaces use the active world keys, costs, resources and result identities without substituting interface-era choices.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CREATION-WORLD-RULES"),
+        station: "dereth-chargen::dat::classic_choices_keep_world_keys_and_templates_keep_unavailable_skills_inactive",
         tier: Tier::Dat,
     },
     behaviour! {

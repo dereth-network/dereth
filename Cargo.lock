@@ -886,6 +886,7 @@ version = "0.0.0"
 dependencies = [
  "dereth-assets",
  "dereth-client-contract",
+ "dereth-dat",
  "dereth-primitives",
  "dereth-rules",
 ]
@@ -914,6 +915,7 @@ version = "0.0.0"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
+ "dereth-chargen",
  "dereth-classic-dat",
  "dereth-classic-gdi",
  "dereth-client-contract",
@@ -1059,6 +1061,7 @@ dependencies = [
  "dereth-animation",
  "dereth-assets",
  "dereth-audio",
+ "dereth-chargen",
  "dereth-classic-dat",
  "dereth-classic-ui",
  "dereth-client-contract",

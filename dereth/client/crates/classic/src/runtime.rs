@@ -173,7 +173,7 @@ impl ClassicUi {
         factory: fn(&str) -> Option<Box<dyn Panel>>,
         size: (u32, u32),
     ) -> Self {
-        let previews = crate::previews::Previews::new(art.portal().store().cloned());
+        let previews = crate::previews::Previews::default();
         Self {
             quit_requested: false,
             local_severity: Vec::new(),
@@ -1125,20 +1125,7 @@ impl ClassicUi {
                     None => self.callbacks.push((origin, ControlEvent::SplitFailed)),
                 }
             }
-            HostAction::LegacyCharGen(creation) => {
-                // A final-era world: carry the classic choices onto the final tables.
-                let data = self.art.creation()?;
-                let tables = crate::era_bridge::FinalTables::load(cx.store())?;
-                let (result, notes) = crate::era_bridge::to_final(&creation, &data, &tables)?;
-                for note in &notes {
-                    tracing::info!("classic creation: {note}");
-                }
-                cx.run_chargen_actions(vec![
-                    dereth_client_contract::pregame::CharGenAction::SendCharGenResult(Box::new(
-                        result,
-                    )),
-                ]);
-            }
+
             HostAction::CharacterOptions {
                 words,
                 timestamp_format,

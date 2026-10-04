@@ -20,6 +20,27 @@ type KeyedAs = (Option<[u8; 3]>, [u8; 3]);
 /// A palette-indexed image's colours.
 type Palette = Vec<[u8; 4]>;
 
+#[derive(Clone)]
+struct IndexedImage {
+    width: u32,
+    height: u32,
+    indices: Vec<u16>,
+}
+
+impl IndexedImage {
+    fn mirror_half(&mut self) {
+        let mut indices = Vec::with_capacity(self.indices.len() * 2);
+        if self.width > 0 {
+            for row in self.indices.chunks(self.width as usize) {
+                indices.extend_from_slice(row);
+                indices.extend(row.iter().rev());
+            }
+        }
+        self.width *= 2;
+        self.indices = indices;
+    }
+}
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn keyed_layer(destination: &mut [u8], source: &[u8], width: u32, height: u32) {
@@ -36,7 +57,7 @@ fn keyed_layer(destination: &mut [u8], source: &[u8], width: u32, height: u32) {
     }
 }
 
-fn expand_indices(indices: &[u8], palette: &[[u8; 4]]) -> Vec<u8> {
+fn expand_indices(indices: &[u16], palette: &[[u8; 4]]) -> Vec<u8> {
     let mut pixels = Vec::with_capacity(indices.len() * 4);
     for index in indices {
         let p = palette[*index as usize];
@@ -70,6 +91,24 @@ mod indexed_tests {
         keyed_layer(&mut pixels, &[60, 60, 60, 0, 60, 60, 60, 255], 2, 1);
         assert_eq!(&pixels[..4], &[20; 4]);
         assert_eq!(&pixels[4..8], &[60, 60, 60, 255]);
+    }
+    /// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+    #[test]
+    fn world_eye_half_keeps_full_palette_indices_in_both_mirrored_halves() {
+        let mut image = IndexedImage {
+            width: 2,
+            height: 2,
+            indices: vec![256, 2047, 1, 300],
+        };
+        image.mirror_half();
+        assert_eq!((image.width, image.height), (4, 2));
+        assert_eq!(image.indices, [256, 2047, 2047, 256, 1, 300, 300, 1]);
+        let mut colors = vec![[0, 0, 0, 255]; 2048];
+        colors[2047] = [255, 255, 255, 255];
+        assert_eq!(
+            &expand_indices(&image.indices, &colors)[4..8],
+            &[248, 252, 248, 255]
+        );
     }
     #[test]
     fn palette_expansion_preserves_classic_565_black_sentinel() {
@@ -212,16 +251,6 @@ fn recolour_white(base: &mut [u8], colour: &[u8]) {
         }
     }
 }
-static PALETTES: std::sync::RwLock<Option<BTreeMap<String, Vec<[u8; 4]>>>> =
-    std::sync::RwLock::new(None);
-pub fn classic_palette(id: u32) -> Option<Vec<[u8; 4]>> {
-    PALETTES
-        .read()
-        .ok()?
-        .as_ref()?
-        .get(&format!("{id:08X}"))
-        .cloned()
-}
 static FONT_METRICS: std::sync::RwLock<Option<BTreeMap<String, Arc<Font>>>> =
     std::sync::RwLock::new(None);
 pub fn font_line_height(font: &str) -> Option<i32> {
@@ -259,6 +288,7 @@ pub fn measure_rich_text_height(font: &str, runs: &[crate::TextRun], width: i32)
 
 pub struct Canvas {
     runtime_pixels: BTreeMap<String, Vec<u8>>,
+    world_indexed: BTreeMap<String, IndexedImage>,
     manifest: Manifest,
     /// Uploaded images and font sheets by file, then by colour key and key precision.
     textures: BTreeMap<String, BTreeMap<KeyedAs, TextureSlot>>,
@@ -321,10 +351,77 @@ impl Canvas {
         screen: &Screen,
         store: &dereth_dat::RetailDatStore,
     ) -> Result<()> {
+        let lookup = dereth_assets::texture_lookup::TextureLookup::new(store, 0);
+        for command in &screen.commands {
+            if let Command::IndexedImage { did, .. } = command {
+                let Some(key) = did.strip_prefix("world:") else {
+                    continue;
+                };
+                if self.world_indexed.contains_key(did) {
+                    continue;
+                }
+                let (key, mirror) = key
+                    .strip_suffix("-mirror")
+                    .map_or((key, false), |v| (v, true));
+                let id = dereth_primitives::DataId(u32::from_str_radix(key, 16)?);
+                let (_, surface, bytes) = lookup.resolve(id)?;
+                let payload = surface.payload(&bytes).ok_or("missing face pixels")?;
+                let indices: Vec<u16> = match surface.format {
+                    dereth_assets::material::PFID_P8 => {
+                        payload.iter().copied().map(u16::from).collect()
+                    }
+                    dereth_assets::material::PFID_INDEX16 => payload
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|v| u16::from_le_bytes([v[0], v[1]]))
+                        .collect(),
+                    _ => return Err("creation face texture is not indexed".into()),
+                };
+                let mut texture = IndexedImage {
+                    width: surface.width,
+                    height: surface.height,
+                    indices,
+                };
+                if mirror {
+                    texture.mirror_half();
+                }
+                self.world_indexed.insert(did.clone(), texture);
+            }
+            if let Command::Image { did, .. } = command {
+                if let Some(raw) = did.strip_prefix("world:") {
+                    if self.manifest.assets.contains_key(did) {
+                        continue;
+                    }
+                    let id = dereth_primitives::DataId(u32::from_str_radix(raw, 16)?);
+                    if id.0 == 0 {
+                        continue;
+                    }
+                    let decoded = dereth_scene::textures::TextureStore::new(store).bgra8(id)?;
+                    let pixels = decoded
+                        .pixels
+                        .into_iter()
+                        .flat_map(|[b, g, r, a]| [r, g, b, a])
+                        .collect();
+                    let file = format!("active-dat:{did}");
+                    self.runtime_pixels.insert(file.clone(), pixels);
+                    self.manifest.assets.insert(
+                        did.clone(),
+                        Image {
+                            width: decoded.width,
+                            height: decoded.height,
+                            rgba_file: file,
+                        },
+                    );
+                }
+            }
+        }
         let mut ids = std::collections::BTreeSet::new();
         for command in &screen.commands {
             match command {
-                Command::Image { did, .. } if !self.manifest.contains(did) => {
+                Command::Image { did, .. }
+                    if !did.starts_with("world:") && !self.manifest.contains(did) =>
+                {
                     ids.insert(u32::from_str_radix(did, 16)?);
                 }
                 Command::ItemIcon { recipe, .. } => {
@@ -445,8 +542,8 @@ impl Canvas {
         did: &str,
         palette: &[[u8; 4]],
     ) -> Result<TextureSlot> {
-        if palette.len() != 256 {
-            return Err("indexed image needs 256 palette entries".into());
+        if !matches!(palette.len(), 256 | 2048) {
+            return Err("indexed image needs 256 or 2048 palette entries".into());
         }
         if let Some((_, slot)) = self
             .indexed
@@ -456,13 +553,26 @@ impl Canvas {
             return Ok(*slot);
         }
         let asset = self
-            .manifest
-            .art
-            .indexed_texture(did)
+            .world_indexed
+            .get(did)
+            .cloned()
+            .or_else(|| {
+                self.manifest
+                    .art
+                    .indexed_texture(did)
+                    .map(|v| IndexedImage {
+                        width: v.width,
+                        height: v.height,
+                        indices: v.indices.into_iter().map(u16::from).collect(),
+                    })
+            })
             .ok_or_else(|| format!("missing indexed image {did}"))?;
         let indices = &asset.indices;
         if indices.len() != asset.width as usize * asset.height as usize {
             return Err(format!("wrong indexed image size: {did}").into());
+        }
+        if indices.iter().any(|&i| usize::from(i) >= palette.len()) {
+            return Err(format!("palette index outside table: {did}").into());
         }
         let pixels = expand_indices(indices, palette);
         let slot = self.upload(
@@ -573,17 +683,12 @@ impl Canvas {
             return Err("invalid screen dimensions".into());
         }
         let manifest = Manifest::new(art);
-        let palettes = manifest
-            .art
-            .creation()
-            .map(|c| c.appearance.palettes.clone())
-            .unwrap_or_default();
-        *PALETTES.write().map_err(|_| "palette lock poisoned")? = Some(palettes);
         *FONT_METRICS
             .write()
             .map_err(|_| "font metrics lock poisoned")? = Some(manifest.fonts.clone());
         Ok(Self {
             runtime_pixels: BTreeMap::new(),
+            world_indexed: BTreeMap::new(),
             manifest,
             textures: BTreeMap::new(),
             item_icons: std::collections::HashMap::new(),

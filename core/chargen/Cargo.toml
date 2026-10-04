@@ -20,3 +20,14 @@ dereth-client-contract = { path = "../client-contract" }
 
 [lints]
 workspace = true
+
+[features]
+retail-dats = []
+
+[dev-dependencies]
+dereth-dat = { path = "../dat", features = ["test-support"] }
+
+[[test]]
+name = "dat"
+path = "tests/dat.rs"
+required-features = ["retail-dats"]

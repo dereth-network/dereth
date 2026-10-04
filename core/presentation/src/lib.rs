@@ -20,6 +20,7 @@
 pub mod appraisal;
 pub mod character;
 pub mod coordinates;
+pub mod creation;
 pub mod journal;
 pub mod social;
 pub mod spell;

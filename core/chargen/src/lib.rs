@@ -34,6 +34,9 @@ use dereth_assets::tables::{CharGen, SkillTable};
 use dereth_primitives::num::math;
 use dereth_primitives::DataId;
 
+mod policy;
+pub use policy::{CreationEntry, CreationPolicy, CreationRandom, CreationTables};
+
 /// The client's two global pseudo-random streams, as character generation reaches them.
 ///
 /// **They must never be merged, and character generation is the clearest example of why**: it draws
@@ -256,6 +259,8 @@ pub use dereth_client_contract::pregame::CharGenResultData;
 /// Character-generation choices, credits, appearance, and randomization state.
 #[derive(Debug, Clone)]
 pub struct CharGenState {
+    policy: CreationPolicy,
+    heraldry_color: i32,
     /// The chosen heritage. 0 until a heritage is chosen.
     pub heritage_group: u32,
     /// The chosen gender. The keys of the heritage's `sexes` map; 0 until chosen.
@@ -370,15 +375,15 @@ pub struct CharGenState {
     /// The heritage-, sex- and appearance-frozen flags -- set by [`Self::randomize_character`]'s
     /// last three lines and cleared on reset.
     ///
-    /// **Written twice and never read by the retail client.** They are carried because they are
-    /// part of the two functions reproduced here and because the barber may turn out to be the
-    /// reader; nothing in this build reads them either.
+    /// The Classic refresh policy reads these before making any nested selections.
     pub frozen: [bool; 3],
 }
 
 impl Default for CharGenState {
     fn default() -> Self {
         Self {
+            policy: CreationPolicy::Modern,
+            heraldry_color: 7,
             heritage_group: 0,
             gender: 0,
             template: -1,
@@ -790,11 +795,15 @@ impl CharGenState {
     /// **The odd-pass gate is not decoration.** Without it phase one trains twice as fast, the walk
     /// in phase two never runs, and a normal 52-credit heritage lands on a different skill set.
     pub fn randomize_skills(&mut self, cg: &CharGen, skills: &SkillTable) {
+        self.randomize_skills_in_range(cg, skills, TOTAL_NUM_SKILLS);
+    }
+
+    fn randomize_skills_in_range(&mut self, cg: &CharGen, skills: &SkillTable, draw_range: usize) {
         if self.heritage_group == 0 || self.gender == 0 || self.sex(cg).is_none() {
             return;
         }
         self.reset_skill_levels(cg, skills);
-        let total = len_i32(TOTAL_NUM_SKILLS);
+        let total = len_i32(draw_range);
         let mut pass: u32 = 0;
         loop {
             let draw = self.rng.rand_int(total);
@@ -1400,6 +1409,9 @@ impl CharGenState {
                 continue;
             };
             let (trained, specialized) = Self::skill_costs(cg, skills, self.heritage_group, *s);
+            if self.skill_levels[idx] == SkillAdvancementClass::Inactive {
+                continue;
+            }
             let refund = match self.skill_levels[idx] {
                 SkillAdvancementClass::Trained => trained,
                 SkillAdvancementClass::Specialized => specialized,
@@ -1484,7 +1496,11 @@ impl CharGenState {
         self.shirt_palette_template_ids = ids;
         self.shirt_pal_set_ids = pal_sets;
         if n > 0 {
-            self.shirt_color = self.shirt_color.clamp(0, n - 1);
+            self.shirt_color = if self.policy == CreationPolicy::Classic {
+                self.shirt_color.min(n - 1)
+            } else {
+                self.shirt_color.clamp(0, n - 1)
+            };
         }
         self.shirt_style = style;
     }
@@ -1496,7 +1512,11 @@ impl CharGenState {
         self.trousers_palette_template_ids = ids;
         self.trousers_pal_set_ids = pal_sets;
         if n > 0 {
-            self.trousers_color = self.trousers_color.clamp(0, n - 1);
+            self.trousers_color = if self.policy == CreationPolicy::Classic {
+                self.trousers_color.min(n - 1)
+            } else {
+                self.trousers_color.clamp(0, n - 1)
+            };
         }
         self.trousers_style = style;
     }
@@ -1508,7 +1528,11 @@ impl CharGenState {
         self.footwear_palette_template_ids = ids;
         self.footwear_pal_set_ids = pal_sets;
         if n > 0 {
-            self.footwear_color = self.footwear_color.clamp(0, n - 1);
+            self.footwear_color = if self.policy == CreationPolicy::Classic {
+                self.footwear_color.min(n - 1)
+            } else {
+                self.footwear_color.clamp(0, n - 1)
+            };
         }
         self.footwear_style = style;
     }
@@ -1636,13 +1660,8 @@ impl CharGenState {
         self.hair_shade = shade;
     }
 
-    /// The char-gen state's skill level write followed by
-    /// The remaining skill credits update.
-    ///
-    /// The credit recomputation is a **full re-sum**, not a delta: the client walks every skill and
-    /// adds its trained or specialised cost, which is why an unaffordable change simply leaves the
-    /// remaining count negative rather than being refused here. The skills page is where the
-    /// affordability test lives.
+    /// Change an available skill's class, refunding its prior cost before charging the new class.
+    /// Unavailable skills and unaffordable changes leave both the class and credits unchanged.
     pub fn set_skill_level(
         &mut self,
         cg: &CharGen,
@@ -1656,8 +1675,24 @@ impl CharGenState {
         else {
             return;
         };
+        if dereth_rules::chargen::default_skill_class(cg, skills, self.heritage_group, skill)
+            == SkillAdvancementClass::Inactive
+            || level == SkillAdvancementClass::Inactive
+        {
+            return;
+        }
+        let (trained, specialized) = Self::skill_costs(cg, skills, self.heritage_group, skill);
+        let cost = |class| match class {
+            SkillAdvancementClass::Trained => trained,
+            SkillAdvancementClass::Specialized => specialized,
+            _ => 0,
+        };
+        let remaining = self.remaining_skill_credits + cost(self.skill_levels[idx]) - cost(level);
+        if remaining < 0 {
+            return;
+        }
         self.skill_levels[idx] = level;
-        self.update_remaining_skill_credits(cg, skills);
+        self.remaining_skill_credits = remaining;
     }
 
     /// The char-gen state's remaining-skill-credits update. Note the loop starts at **1**.
@@ -1671,19 +1706,18 @@ impl CharGenState {
         self.remaining_skill_credits = self.total_skill_credits - used;
     }
 
-    /// The char-gen state's name write, with the summary page's own guard
-    /// (its element-message handler):
-    ///
-    /// an empty box (length 1, just the NUL) is ignored; a length below `0x22` is stored; anything
-    /// longer reverts the edit and shows the name-limit dialog.
-    ///
-    /// The name buffer is 33 bytes, so the limit is **32 characters**. Returns false when the edit
-    /// was rejected, which is what makes the page revert the box.
+    /// Accept the summary's bounded nonempty edit, then format it through the supported narrow
+    /// text conversion. The UI-facing length guard remains separate from name formatting.
     pub fn set_name(&mut self, s: &str) -> bool {
         if !dereth_rules::chargen::name_length_ok(s) {
             return false;
         }
-        self.name = s.to_string();
+        let units: Vec<u16> = s.encode_utf16().collect();
+        let Ok(narrow) = dereth_primitives::text::ChatConversion::default().to_spstring(&units)
+        else {
+            return false;
+        };
+        self.name = dereth_rules::names::format_name(&narrow.bytes);
         true
     }
 
@@ -1819,10 +1853,12 @@ mod tests {
     fn no_tables() -> (CharGen, SkillTable) {
         (
             CharGen {
+                help_strings: Vec::new(),
                 id: DataId(0),
                 second_data_id: DataId(0),
                 starter_areas: Vec::new(),
                 hg_table_marker: 0,
+                heritage_order: Vec::new(),
                 heritage_groups: BTreeMap::new(),
             },
             SkillTable {
@@ -1952,6 +1988,28 @@ mod tests {
         // A state with no heritage has run no skill-level reset, so every entry is the array's zero
         // — `INVALID` / `Inactive`, which is the value ACE `continue`s on.
         assert!(r.skill_advancement_classes.iter().all(|c| *c == 0));
+    }
+
+    /// Behaviour: chargen.name.accepted-edits-use-shared-narrow-formatting
+    #[test]
+    fn accepted_ascii_names_use_shared_formatting_without_overwriting_refused_edits() {
+        let mut state = CharGenState::default();
+        for (input, expected) in [
+            ("probe walker", "Probe walker"),
+            ("probe Walker", "Probe Walker"),
+            ("  tEST123  IV  ", "Test IV"),
+            ("mAcDonald", "MacDonald"),
+            ("o'BRIEN-smith", "O'Brien-smith"),
+        ] {
+            assert!(state.set_name(input));
+            assert_eq!(state.name, expected);
+            assert_eq!(state.get_char_gen_result().name, expected);
+        }
+        assert!(state.set_name(&"a".repeat(32)));
+        let accepted = state.name.clone();
+        assert!(!state.set_name(""));
+        assert!(!state.set_name(&"b".repeat(33)));
+        assert_eq!(state.name, accepted);
     }
 
     /// Oracle: the verification-response table in the recovered character-creation behavior.

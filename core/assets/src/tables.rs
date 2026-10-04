@@ -696,6 +696,8 @@ pub struct EyeStrip {
 /// One sex within a heritage group.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SexCg {
+    /// Optional naming guidance supplied by this sex record.
+    pub naming_help: Option<DataId>,
     pub name: String,
     pub scale: u32,
     pub setup: DataId,
@@ -720,9 +722,18 @@ pub struct SexCg {
     pub clothing_colors: Vec<u32>,
 }
 
+/// A template's presentation for one sex, separate from its shared creation rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TemplatePresentation {
+    pub icon: u32,
+    pub description: Option<DataId>,
+}
+
 /// One heritage group.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeritageGroup {
+    /// Optional heritage description supplied by the table.
+    pub description: Option<DataId>,
     pub name: String,
     pub icon: u32,
     pub setup: DataId,
@@ -734,13 +745,40 @@ pub struct HeritageGroup {
     /// `(skill, normal_cost, primary_cost)`.
     pub skills: Vec<(u32, i32, i32)>,
     pub templates: Vec<CharGenTemplate>,
+    /// Sex keys in the table's selection order, independent of keyed lookup order.
+    pub sex_order: Vec<u32>,
+    /// Presentation overrides when a table stores templates separately for each sex.
+    pub template_presentations: BTreeMap<u32, Vec<TemplatePresentation>>,
     pub sex_table_marker: u8,
     pub sexes: BTreeMap<u32, SexCg>,
+}
+
+impl HeritageGroup {
+    /// The selected sex's presentation, or the shared template's icon when it has no override.
+    #[must_use]
+    pub fn template_presentation(
+        &self,
+        sex_key: u32,
+        index: usize,
+    ) -> Option<TemplatePresentation> {
+        if !self.sexes.contains_key(&sex_key) {
+            return None;
+        }
+        if let Some(rows) = self.template_presentations.get(&sex_key) {
+            return rows.get(index).copied();
+        }
+        self.templates.get(index).map(|t| TemplatePresentation {
+            icon: t.icon,
+            description: None,
+        })
+    }
 }
 
 /// Character-generation table payload for data id `0x0E000002`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CharGen {
+    /// Page help strings supplied by layouts that store them in the creation table.
+    pub help_strings: Vec<DataId>,
     pub id: DataId,
     /// One format question remains: the decoder reads a second `DataID` after the object id and
     /// passes it through unresolved dispatch. It is retained; the record ends correctly either way.
@@ -748,6 +786,8 @@ pub struct CharGen {
     pub starter_areas: Vec<StarterArea>,
     /// The `u8` that precedes the heritage-group hash table.
     pub hg_table_marker: u8,
+    /// Heritage keys in the decoded selection order.
+    pub heritage_order: Vec<u32>,
     pub heritage_groups: BTreeMap<u32, HeritageGroup>,
 }
 
@@ -811,10 +851,11 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
     {
         let id = c.data_id()?;
         let second_data_id = c.data_id()?;
-        if launch {
-            // Seven help-text string ids.
-            c.skip(7 * 4)?;
-        }
+        let help_strings = if launch {
+            read_n(c, 7, Cursor::data_id)?
+        } else {
+            Vec::new()
+        };
         let n = c.compressed_u32()? as usize;
         let starter_areas = read_n(c, n, |c| {
             let name = c.archive_string()?;
@@ -827,15 +868,18 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
         let hg_table_marker = c.u8()?;
         let nh = c.compressed_u32()?;
         let mut heritage_groups = BTreeMap::new();
+        let mut heritage_order = Vec::new();
         for _ in 0..nh {
             let key = c.u32()?;
+            heritage_order.push(key);
             let name = c.archive_string()?;
             let icon = c.u32()?;
             let setup = c.data_id()?;
-            if launch {
-                // The heritage's description string id.
-                c.u32()?;
-            }
+            let description = if launch {
+                Some(c.data_id()?).filter(|id| id.0 != 0)
+            } else {
+                None
+            };
             let environment_setup = c.data_id()?;
             let attribute_credits = c.u32()?;
             let skill_credits = c.u32()?;
@@ -877,13 +921,16 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
             let sex_table_marker = c.u8()?;
             let ns = c.compressed_u32()?;
             let mut sexes = BTreeMap::new();
+            let mut sex_order = Vec::new();
             for _ in 0..ns {
                 let sk = c.u32()?;
+                sex_order.push(sk);
                 sexes.insert(sk, read_sex(c, layout)?);
             }
             heritage_groups.insert(
                 key,
                 HeritageGroup {
+                    description,
                     name,
                     icon,
                     setup,
@@ -895,15 +942,19 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
                     skills,
                     templates,
                     sex_table_marker,
+                    sex_order,
+                    template_presentations: BTreeMap::new(),
                     sexes,
                 },
             );
         }
         Ok(CharGen {
+            help_strings,
             id,
             second_data_id,
             starter_areas,
             hg_table_marker,
+            heritage_order,
             heritage_groups,
         })
     }
@@ -913,8 +964,8 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
 // one. Counts are full `u32`s, heritages and sexes are ordered lists with no keys, and the credits,
 // skill costs and templates belong to each sex. It is read into the later shape: heritages keyed
 // 1, 2, 3 in list order, sexes keyed by name (Male 1, Female 2), and the heritage's credits, skill
-// costs and templates taken from its first sex (the February 2005 table gives every sex of a
-// heritage the same ones, only the template icons differing). What the older table does not have
+// costs and templates shared only after equality validation. Sex-specific template presentation
+// and the original list ordering remain separate from those shared rules. What the older table does not have
 // (a sex's scale, physics, motion and combat tables, a hair style's alternate setup) reads as zero.
 
 /// A string of the older table: a `u32` length and the bytes, padded to four bytes, unless the
@@ -953,17 +1004,21 @@ fn pre_tod_named_pair(c: &mut Cursor<'_>) -> Result<(), AssetError> {
 }
 
 /// The heritage-level parts the older table keeps on each sex.
+#[derive(Debug)]
 struct PreTodSexExtras {
     attribute_credits: u32,
     skill_credits: u32,
     skills: Vec<(u32, i32, i32)>,
     templates: Vec<CharGenTemplate>,
+    presentation: Vec<TemplatePresentation>,
 }
 
-fn pre_tod_template(c: &mut Cursor<'_>) -> Result<CharGenTemplate, AssetError> {
+fn pre_tod_template(
+    c: &mut Cursor<'_>,
+) -> Result<(CharGenTemplate, TemplatePresentation), AssetError> {
     let name = pre_tod_string(c)?;
     let icon = c.u32()?;
-    let _description = c.u32()?;
+    let description = c.data_id()?;
     let profiles = pre_tod_list(c, |c| {
         let mut attributes = [0u32; 6];
         for a in &mut attributes {
@@ -987,14 +1042,20 @@ fn pre_tod_template(c: &mut Cursor<'_>) -> Result<CharGenTemplate, AssetError> {
             value: u32::try_from(third.len()).unwrap_or(u32::MAX),
         });
     }
-    Ok(CharGenTemplate {
-        name,
-        icon,
-        title: 0,
-        attributes,
-        normal_skills,
-        primary_skills,
-    })
+    Ok((
+        CharGenTemplate {
+            name,
+            icon,
+            title: 0,
+            attributes,
+            normal_skills,
+            primary_skills,
+        },
+        TemplatePresentation {
+            icon,
+            description: (description.0 != 0).then_some(description),
+        },
+    ))
 }
 
 fn pre_tod_gear(c: &mut Cursor<'_>) -> Result<Vec<GearItem>, AssetError> {
@@ -1012,7 +1073,7 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
     let setup = c.data_id()?;
     let sound_table = c.data_id()?;
     let icon = c.u32()?;
-    let _naming_help = c.u32()?;
+    let naming_help = c.data_id()?;
     let base_objdesc = read_objdesc(c)?;
     c.u32()?;
     c.u32()?;
@@ -1028,7 +1089,7 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
     let skill_credits = c.u32()?;
     pre_tod_list(c, pre_tod_named_pair)?;
     let skills = pre_tod_list(c, |c| Ok((c.u32()?, c.i32()?, c.i32()?)))?;
-    let templates = pre_tod_list(c, pre_tod_template)?;
+    let (templates, presentation) = pre_tod_list(c, pre_tod_template)?.into_iter().unzip();
     pre_tod_list(c, |c| Ok(c.skip(17 * 4)?))?;
     let base_palette = c.data_id()?;
     let skin_palset = c.data_id()?;
@@ -1068,6 +1129,7 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
     let clothing_colors = read_n(c, n, Cursor::u32)?;
     Ok((
         SexCg {
+            naming_help: (naming_help.0 != 0).then_some(naming_help),
             name,
             scale: 0,
             setup,
@@ -1096,14 +1158,28 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
             skill_credits,
             skills,
             templates,
+            presentation,
         },
     ))
 }
 
+fn same_creation_rules(a: &PreTodSexExtras, b: &PreTodSexExtras) -> bool {
+    a.attribute_credits == b.attribute_credits
+        && a.skill_credits == b.skill_credits
+        && a.skills == b.skills
+        && a.templates.len() == b.templates.len()
+        && a.templates.iter().zip(&b.templates).all(|(a, b)| {
+            a.name == b.name
+                && a.title == b.title
+                && a.attributes == b.attributes
+                && a.normal_skills == b.normal_skills
+                && a.primary_skills == b.primary_skills
+        })
+}
+
 fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
     let id = c.data_id()?;
-    // Eight help-text string ids.
-    c.skip(8 * 4)?;
+    let help_strings = read_n(c, 8, Cursor::data_id)?;
     let starter_areas = pre_tod_list(c, |c| {
         let name = pre_tod_string(c)?;
         let locations = pre_tod_list(c, |c| Ok(read_position(c)?))?;
@@ -1113,7 +1189,7 @@ fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
         let name = pre_tod_string(c)?;
         let icon = c.u32()?;
         let setup = c.data_id()?;
-        let _description = c.u32()?;
+        let description = c.data_id()?;
         let environment_setup = c.data_id()?;
         let primary_start_areas = pre_tod_list(c, |c| Ok(c.u32()?))?;
         let secondary_start_areas = pre_tod_list(c, |c| Ok(c.u32()?))?;
@@ -1123,23 +1199,37 @@ fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
             icon,
             setup,
             environment_setup,
+            description,
             primary_start_areas,
             secondary_start_areas,
             sexes,
         ))
     })?;
     let mut heritage_groups = BTreeMap::new();
-    for (i, (name, icon, setup, environment_setup, primary, secondary, sexes)) in
+    let mut heritage_order = Vec::new();
+    for (i, (name, icon, setup, environment_setup, description, primary, secondary, sexes)) in
         heritages.into_iter().enumerate()
     {
-        let mut extras = None;
+        let mut extras: Option<PreTodSexExtras> = None;
         let mut by_key = BTreeMap::new();
+        let mut sex_order = Vec::new();
+        let mut template_presentations = BTreeMap::new();
         for (j, (sex, sex_extras)) in sexes.into_iter().enumerate() {
             let key = match sex.name.as_str() {
                 "Male" => 1,
                 "Female" => 2,
                 _ => u32::try_from(j + 1).unwrap_or(u32::MAX),
             };
+            if let Some(first) = &extras {
+                if !same_creation_rules(first, &sex_extras) {
+                    return Err(AssetError::Unsupported {
+                        what: "sex-specific character-generation rules",
+                        value: key,
+                    });
+                }
+            }
+            sex_order.push(key);
+            template_presentations.insert(key, sex_extras.presentation.clone());
             extras.get_or_insert(sex_extras);
             by_key.insert(key, sex);
         }
@@ -1148,10 +1238,14 @@ fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
             skill_credits: 0,
             skills: Vec::new(),
             templates: Vec::new(),
+            presentation: Vec::new(),
         });
+        let heritage_key = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        heritage_order.push(heritage_key);
         heritage_groups.insert(
-            u32::try_from(i + 1).unwrap_or(u32::MAX),
+            heritage_key,
             HeritageGroup {
+                description: (description.0 != 0).then_some(description),
                 name,
                 icon,
                 setup,
@@ -1163,15 +1257,19 @@ fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
                 skills: extras.skills,
                 templates: extras.templates,
                 sex_table_marker: 0,
+                sex_order,
+                template_presentations,
                 sexes: by_key,
             },
         );
     }
     Ok(CharGen {
+        help_strings,
         id,
         second_data_id: DataId(0),
         starter_areas,
         hg_table_marker: 0,
+        heritage_order,
         heritage_groups,
     })
 }
@@ -1199,10 +1297,11 @@ fn read_sex(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<SexCg, AssetErr
     let setup = c.data_id()?;
     let sound_table = c.data_id()?;
     let icon = c.u32()?;
-    if layout == ChargenLayout::Launch {
-        // The naming-help string id.
-        c.u32()?;
-    }
+    let naming_help = if layout == ChargenLayout::Launch {
+        Some(c.data_id()?).filter(|id| id.0 != 0)
+    } else {
+        None
+    };
     let base_palette = c.data_id()?;
     let skin_palset = c.data_id()?;
     let (physics_table, motion_table, combat_table) = if tables {
@@ -1256,6 +1355,7 @@ fn read_sex(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<SexCg, AssetErr
     let n = c.compressed_u32()? as usize;
     let clothing_colors = read_n(c, n, Cursor::u32)?;
     Ok(SexCg {
+        naming_help,
         name,
         scale,
         setup,

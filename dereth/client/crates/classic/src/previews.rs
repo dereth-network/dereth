@@ -1,14 +1,11 @@
 //! The classic interface's two 3D previews: the paper doll in the inventory and the creation
-//! wizard's model, drawn in the shared preview spaces. The creation model is built from the
-//! early-2005 portal's own models when that portal belongs to a dat set, else from the world's;
-//! the paper doll shows the player as the server describes them, in the world's own data.
+//! wizard model, both assembled from the connected world data.
 use crate::int::{i32_from, u32_from};
 use crate::panels::{Appearance, Preview, PreviewKind};
 use crate::runtime::Cx;
-use dereth_animation::parts::{ObjDesc, PaletteRange};
-use dereth_assets::{motion::ClothingTable, Decode};
+use dereth_animation::parts::ObjDesc;
+use dereth_assets::Decode;
 use dereth_client_contract::overlay::{PreviewLight, PreviewSpace};
-use dereth_client_runtime::anim_assets::DatAnimAssets;
 use dereth_client_runtime::movement::to_anim_objdesc;
 use dereth_client_runtime::present::Presentation;
 use dereth_client_runtime::shell::Shell;
@@ -45,14 +42,11 @@ pub struct Previews {
     built: BTreeMap<PreviewSpace, BuiltPreview>,
     palettes: PaletteSetCache,
     pick_meshes: BTreeMap<DataId, Option<PickMesh>>,
-    clothing: BTreeMap<DataId, ClothingTable>,
     last_time: Option<f64>,
     chargen_heading: Option<f32>,
     chargen_zoom: Option<Zoom>,
     doll_lighting: DollLighting,
     doll_selected: Option<dereth_primitives::ObjectId>,
-    /// The early-2005 dat set the creation model is built from, and its animations.
-    classic: Option<(RetailDatStore, Arc<DatAnimAssets>)>,
     /// The spaces this frame draws, and where.
     shown: Vec<(PreviewSpace, crate::widgets::Rect)>,
 }
@@ -65,18 +59,6 @@ impl std::fmt::Debug for Previews {
     }
 }
 impl Previews {
-    /// The creation model's dat set: the early-2005 portal's own, when it came from one.
-    #[must_use]
-    pub fn new(classic: Option<RetailDatStore>) -> Self {
-        Self {
-            classic: classic.map(|store| {
-                let assets = Arc::new(DatAnimAssets::new(Arc::new(store.clone())));
-                (store, assets)
-            }),
-            ..Self::default()
-        }
-    }
-
     /// A click on the paper doll: the object and part the ray from the doll's camera hits.
     /// Coordinates are in the same absolute UI space as `view.rect`.
     pub fn pick<P: Presentation + ?Sized>(
@@ -227,17 +209,17 @@ impl Previews {
                 continue;
             };
             self.shown.push((id, view.rect));
-            // A creation preview is built from the classic data where the classic portal belongs
-            // to a dat set; the paper doll shows the player as the server describes them.
-            let (store, assets) = match (&view.appearance, &self.classic) {
-                (Some(_), Some((store, assets))) => (store.clone(), Arc::clone(assets)),
-                _ => ((*world_store).clone(), Arc::clone(&world_assets)),
-            };
+            let (store, assets) = ((*world_store).clone(), Arc::clone(&world_assets));
             let descriptor = if let Some(appearance) = &view.appearance {
                 Some((
-                    DataId(appearance.setup_id),
+                    appearance.state.get_setup_id(&appearance.tables.chargen),
                     self.appearance(&store, appearance)?,
-                    appearance.environment_setup_id,
+                    appearance
+                        .tables
+                        .chargen
+                        .heritage_groups
+                        .get(&appearance.state.heritage_group)
+                        .map_or(0, |h| h.environment_setup.0),
                 ))
             } else {
                 view.object
@@ -270,7 +252,13 @@ impl Previews {
                 }
                 let (animation, low, rate) = match view.kind {
                     PreviewKind::PaperDoll => (0x030003c0, 1, 0.),
-                    _ => (0x03000001, -1, 30.),
+                    _ => (
+                        view.appearance
+                            .as_ref()
+                            .map_or(0x03000001, |a| a.animation.0),
+                        -1,
+                        30.,
+                    ),
                 };
                 // The low bound compares unsigned: -1 chooses the final frame.
                 let low = if low < 0 {
@@ -329,10 +317,11 @@ impl Previews {
                         &dereth_animation::seq::Sequence::default(),
                     );
                     let face = appearance.is_none_or(|a| a.zoom_face);
+                    let heritage = appearance.map_or(0, |a| a.state.heritage_group);
                     let zoom = self
                         .chargen_zoom
-                        .get_or_insert_with(|| Zoom::new(face, now));
-                    let camera = zoom.update(face, now);
+                        .get_or_insert_with(|| Zoom::new(heritage, face, now));
+                    let camera = zoom.update(heritage, face, now);
                     present.preview_set_camera_position(id, camera);
                     present.preview_set_camera_direction_degrees(id, Vec3::new(-5., 0., 0.));
                     present.preview_set_heading(id, 0, *heading);
@@ -389,71 +378,15 @@ impl Previews {
         store: &RetailDatStore,
         appearance: &Appearance,
     ) -> Result<ObjDesc, String> {
-        let mut out = decode_descriptor(&appearance.base_objdesc_hex)?;
-        out.palette_id = DataId(appearance.base_palette_id);
-        if let Some(hair) = appearance.appearance_overlays_hex.first() {
-            merge(&mut out, decode_descriptor(hair)?);
-        }
-        if appearance.show_clothes {
-            // The model supplies the verified headgear, trousers, shirt, footwear order.
-            for garment in &appearance.clothing {
-                let id = DataId(garment.table_id);
-                if let std::collections::btree_map::Entry::Vacant(e) = self.clothing.entry(id) {
-                    let bytes = store.read(id).map_err(|e| e.to_string())?;
-                    e.insert(ClothingTable::decode_payload(id, &bytes).map_err(|e| e.to_string())?);
-                }
-                let table = &self.clothing[&id];
-                let palettes = &mut self.palettes;
-                if !preview::build_obj_desc(
-                    table,
-                    DataId(appearance.setup_id),
-                    garment.palette_template,
-                    garment.shade,
-                    &mut |id| palettes.palettes(store, id),
-                    &mut out,
-                ) {
-                    return Err(format!(
-                        "Preview clothing {id:?} has no matching body or palette"
-                    ));
-                }
-            }
-        }
-        for face in appearance.appearance_overlays_hex.iter().skip(1) {
-            merge(&mut out, decode_descriptor(face)?);
-        }
-        for (palette, offset, length) in [
-            (
-                preview::pal_set_palette_id(
-                    &self
-                        .palettes
-                        .palettes(store, DataId(appearance.skin_palette_set)),
-                    appearance.skin_shade,
-                ),
-                0,
-                24,
-            ),
-            (
-                preview::pal_set_palette_id(
-                    &self
-                        .palettes
-                        .palettes(store, DataId(appearance.hair_palette_set)),
-                    appearance.hair_shade,
-                ),
-                24,
-                8,
-            ),
-            (DataId(appearance.eye_palette_id), 32, 8),
-        ] {
-            preview::add_subpalette(
-                &mut out,
-                PaletteRange {
-                    palette_set: palette,
-                    offset,
-                    length,
-                },
-            );
-        }
-        Ok(out)
+        let setup = appearance.state.get_setup_id(&appearance.tables.chargen);
+        Ok(preview::chargen_objdesc(
+            &appearance.tables.chargen,
+            &appearance.state,
+            &appearance.tables.clothing,
+            setup,
+            &mut |id| self.palettes.palettes(store, id),
+        )
+        .0)
     }
 }
 
@@ -509,22 +442,25 @@ fn rotated_heading(
 /// The creation preview's camera moves between views over 0.6 seconds, eased by the interface's
 /// fixed-point easing table.
 struct Zoom {
+    heritage: u32,
     face: bool,
     start: [f64; 3],
     current: [f64; 3],
     began: f64,
 }
 impl Zoom {
-    fn target(face: bool) -> [f64; 3] {
-        if face {
-            [0., f64::from(-0.55f32), f64::from(1.65f32)]
-        } else {
-            [0., f64::from(-2.2f32), f64::from(1.1f32)]
-        }
+    fn target(heritage: u32, face: bool) -> [f64; 3] {
+        dereth_presentation::creation::camera(
+            heritage,
+            face,
+            dereth_presentation::DisplayVariant::Classic,
+        )
+        .map(f64::from)
     }
-    fn new(face: bool, now: f64) -> Self {
-        let p = Self::target(face);
+    fn new(heritage: u32, face: bool, now: f64) -> Self {
+        let p = Self::target(heritage, face);
         Self {
+            heritage,
             face,
             start: p,
             current: p,
@@ -533,13 +469,14 @@ impl Zoom {
     }
     // The zoom runs in `f64` and the camera takes `f32`; seconds and metres narrow by rounding.
     #[allow(clippy::cast_possible_truncation)]
-    fn update(&mut self, face: bool, now: f64) -> Vec3 {
-        if face != self.face {
+    fn update(&mut self, heritage: u32, face: bool, now: f64) -> Vec3 {
+        if face != self.face || heritage != self.heritage {
+            self.heritage = heritage;
             self.start = self.current;
             self.face = face;
             self.began = now;
         }
-        let target = Self::target(face);
+        let target = Self::target(heritage, face);
         let level = animation_level(((now - self.began) / 0.6) as f32);
         for ((current, target), start) in self.current.iter_mut().zip(target).zip(self.start) {
             let units = to_i32_f64((target - start) * f64::from(level) * 10000.);
@@ -609,37 +546,6 @@ fn fov_of_focal(focal: f32, height: i32) -> f32 {
     2. * math::atanf(1. / normalized_focal(focal, height))
 }
 
-fn decode_descriptor(hex: &str) -> Result<ObjDesc, String> {
-    if hex.is_empty() {
-        return Ok(ObjDesc::default());
-    }
-    if !hex.len().is_multiple_of(2) || !hex.is_ascii() {
-        return Err("Malformed appearance hex".into());
-    }
-    let bytes: Result<Vec<_>, _> = (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
-        .collect();
-    let bytes = bytes.map_err(|e| e.to_string())?;
-    let mut reader = dereth_protocol::archive::Reader::new(&bytes);
-    let desc = dereth_protocol::types::ObjDesc::read(&mut reader).map_err(|e| e.to_string())?;
-    if reader.remaining() != 0 {
-        return Err("Trailing appearance descriptor bytes".into());
-    }
-    Ok(to_anim_objdesc(&desc))
-}
-fn merge(out: &mut ObjDesc, src: ObjDesc) {
-    for c in src.subpalettes {
-        preview::add_subpalette(out, c);
-    }
-    for c in src.texture_changes {
-        preview::add_texture_map_change(out, c);
-    }
-    for c in src.part_changes {
-        preview::add_anim_part_change(out, c);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,15 +575,15 @@ mod tests {
         assert_eq!(animation_level(-1.), 0);
         assert_eq!(animation_level(1.), 1024);
         assert!((490..=520).contains(&animation_level(0.5)));
-        let mut zoom = Zoom::new(true, 0.);
-        assert_eq!(zoom.update(false, 0.), Vec3::new(0., -0.55, 1.65));
-        let middle = zoom.update(false, 0.3);
+        let mut zoom = Zoom::new(1, true, 0.);
+        assert_eq!(zoom.update(1, false, 0.), Vec3::new(0., -0.55, 1.65));
+        let middle = zoom.update(1, false, 0.3);
         assert!(middle.y < -1.2 && middle.y > -1.5);
-        assert_eq!(zoom.update(true, 0.3), middle);
-        let face = zoom.update(true, 0.9);
+        assert_eq!(zoom.update(1, true, 0.3), middle);
+        let face = zoom.update(1, true, 0.9);
         assert!((face.y + 0.55).abs() < 0.00011);
         assert!((face.z - 1.65).abs() < 0.00011);
-        assert_eq!(zoom.update(true, 2.), face);
+        assert_eq!(zoom.update(1, true, 2.), face);
     }
     #[test]
     #[allow(clippy::approx_constant)] // the interface's own two pi, as the creation screen turns
@@ -688,39 +594,19 @@ mod tests {
         assert!((moved - 114.).abs() < 0.01);
         assert!((rotated_heading(moved, -6.283_f32 / 2.5, 0.25, &seq) - 150.).abs() < 0.01);
     }
+    /// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
     #[test]
-    fn descriptor_rejects_partial_hex_and_unconsumed_records() {
-        assert!(decode_descriptor("0").is_err());
-        assert!(decode_descriptor("1100000000").is_err());
-        assert!(decode_descriptor("11000000").is_ok());
-    }
-    #[test]
-    fn later_overlay_replaces_matching_part_without_replacing_base_palette() {
-        use dereth_animation::parts::AnimPartChange;
-        let mut out = ObjDesc {
-            palette_id: DataId(0x04000001),
-            part_changes: vec![AnimPartChange {
-                part_index: 1,
-                part_id: DataId(0x01000001),
-            }],
-            ..Default::default()
-        };
-        merge(
-            &mut out,
-            ObjDesc {
-                palette_id: DataId(0x04000002),
-                part_changes: vec![AnimPartChange {
-                    part_index: 1,
-                    part_id: DataId(0x01000002),
-                }],
-                ..Default::default()
-            },
+    fn creation_camera_frames_later_bodies_without_changing_ordinary_classic_zoom() {
+        let mut zoom = Zoom::new(12, false, 0.);
+        assert_eq!(zoom.update(12, false, 0.), Vec3::new(0., -3.8, 1.15));
+        zoom.update(13, true, 1.);
+        let end = zoom.update(13, true, 2.);
+        assert!((end.y + 3.05).abs() < 0.001 && (end.z - 2.75).abs() < 0.001);
+        assert_eq!(
+            Zoom::target(1, false),
+            [0., f64::from(-2.2f32), f64::from(1.1f32)]
         );
-        assert_eq!(out.palette_id, DataId(0x04000001));
-        assert_eq!(out.part_changes.len(), 1);
-        assert_eq!(out.part_changes[0].part_id, DataId(0x01000002));
     }
-
     #[test]
     fn classic_focal_distance_includes_pixel_scale_and_viewport_height() {
         assert!((normalized_focal(0.1, 424) - 800. / 423.).abs() < 1e-6);

@@ -43,7 +43,7 @@ pub(super) struct SkillRow {
     pub skill: Option<usize>,
     pub caption: String,
 }
-pub(super) fn skill_rows(d: &CreationData, state: &Creation) -> Vec<SkillRow> {
+pub(super) fn skill_rows(d: &CreationData, state: &SelectionView<'_>) -> Vec<SkillRow> {
     let mut rows = vec![];
     for (level, label) in [
         (3, "Specialized Skills"),
@@ -129,9 +129,9 @@ impl Pregame {
     /// profession's portrait at half size and its name on a plate), and the chosen one's portrait.
     pub(super) fn profession_frame(&self, f: &mut PanelFrame, d: &CreationData) {
         const ROW: i32 = 60;
-        let state = &self.state;
+        let state = self.view(d);
         let templates = &state.sex(d).templates;
-        let chosen = |i: usize| state.template == i && i < templates.len();
+        let chosen = |i: usize| !self.custom_selected && state.template == i && i < templates.len();
         f.fill(rect(508, 288, 254, 214), 0xff00_0000);
         f.fill(rect(388, 283, 84, 124), 0xff00_0000);
         if let Some(t) = templates.get(state.template) {
@@ -151,7 +151,7 @@ impl Pregame {
             ControlKind::HitList {
                 row_count: usize::from(!templates.is_empty()),
                 row_height: ROW,
-                selected: chosen(0).then_some(0),
+                selected: (self.custom_selected).then_some(0),
                 offset: 0,
             },
             true,
@@ -163,13 +163,13 @@ impl Pregame {
                 custom.y,
                 "Custom Character",
                 t.icon,
-                chosen(0),
+                self.custom_selected,
                 true,
             );
         }
         text(f, rect(510, 270, 250, 18), "...or start with a profession:");
         let bounds = rect(510, 290, 250, 210);
-        let count = templates.len().saturating_sub(1);
+        let count = templates.len();
         let max = (i32_from(count) * ROW - bounds.h).max(0);
         let offset = self.profession_scroll.min(max);
         f.control(
@@ -178,13 +178,14 @@ impl Pregame {
             ControlKind::HitList {
                 row_count: count,
                 row_height: ROW,
-                selected: state.template.checked_sub(1).filter(|&i| chosen(i + 1)),
+                selected: (!self.custom_selected && self.state.template >= 0)
+                    .then_some(state.template),
                 offset,
             },
             true,
         );
-        for (i, t) in templates.iter().enumerate().skip(1) {
-            let y = bounds.y + i32_from(i - 1) * ROW - offset;
+        for (i, t) in templates.iter().enumerate() {
+            let y = bounds.y + i32_from(i) * ROW - offset;
             if y + ROW > bounds.y && y < bounds.y + bounds.h {
                 profession_row(f, bounds, y, &t.name, t.icon, chosen(i), false);
             }
@@ -207,7 +208,7 @@ impl Pregame {
     }
     pub(super) fn skills_frame(&self, f: &mut PanelFrame, d: &CreationData) {
         const ROW: i32 = 26;
-        let rows = skill_rows(d, &self.state);
+        let rows = skill_rows(d, &self.view(d));
         let bounds = rect(385, 195, 376, 260);
         let max = (i32_from(rows.len()) * ROW - bounds.h).max(0);
         let offset = self.skill_scroll.min(max);
@@ -215,7 +216,7 @@ impl Pregame {
         f.label(
             694,
             171,
-            self.state.skill_credits(d).to_string(),
+            self.state.remaining_skill_credits.to_string(),
             "16-7",
             COLOR,
             None,
@@ -228,7 +229,7 @@ impl Pregame {
                 row_height: ROW,
                 selected: rows
                     .iter()
-                    .position(|r| r.skill == self.state.selected_skill && r.skill.is_some()),
+                    .position(|r| r.skill == self.selected_skill && r.skill.is_some()),
                 offset,
             },
             true,
@@ -290,7 +291,7 @@ impl Pregame {
                 }
                 continue;
             };
-            let selected = item.skill == self.state.selected_skill;
+            let selected = item.skill == self.selected_skill;
             clipped_image(
                 f,
                 if selected { 0x0600_1246 } else { 0x0600_1248 },
@@ -298,7 +299,7 @@ impl Pregame {
                 clip,
             );
             let skill = &d.skills[i];
-            clipped_image(f, skill.icon, rect(bounds.x, y + 3, 20, 20), clip);
+            clipped(f, skill.icon, rect(bounds.x, y + 3, 20, 20), clip, false);
             line(
                 f,
                 at(29, 169),
@@ -311,15 +312,15 @@ impl Pregame {
             line(
                 f,
                 at(170, 44),
-                self.state.skill_value(skill).to_string(),
+                self.view(d).skill_value(d, skill).to_string(),
                 "16-7",
                 COLOR,
                 TextAlign::Right,
                 clip,
             );
-            let level = self.state.skills.get(&skill.id).copied().unwrap_or(1);
-            let trained = self.state.cost(d, skill.id, 2);
-            let spec = self.state.cost(d, skill.id, 3);
+            let level = self.view(d).skills.get(&skill.id).copied().unwrap_or(0);
+            let trained = self.view(d).cost(d, skill.id, 2);
+            let spec = self.view(d).cost(d, skill.id, 3);
             let up = if level == 1 { trained } else { spec - trained };
             let down = if level == 3 { spec - trained } else { trained };
             if y >= bounds.y && y + ROW <= bounds.y + bounds.h {
@@ -332,7 +333,7 @@ impl Pregame {
                         } else {
                             String::new()
                         },
-                        level > 1 && self.state.cost(d, skill.id, level) != 0,
+                        level > 1 && self.view(d).cost(d, skill.id, level) != 0,
                         ["0600123F", "06001240", "06001242"],
                     ),
                     (
@@ -343,7 +344,10 @@ impl Pregame {
                         } else {
                             String::new()
                         },
-                        level < 3 && self.state.skill_credits(d) >= up,
+                        level > 0
+                            && level < 3
+                            && up >= 0
+                            && self.state.remaining_skill_credits >= up,
                         ["06001243", "06001244", "06001241"],
                     ),
                 ] {
@@ -354,7 +358,7 @@ impl Pregame {
                 }
             }
         }
-        if let Some(s) = self.state.selected_skill.and_then(|i| d.skills.get(i)) {
+        if let Some(s) = self.selected_skill.and_then(|i| d.skills.get(i)) {
             let height =
                 crate::renderer::measure_text_height("15-6", &s.description, 380).unwrap_or(66);
             let box_ = rect(385, 462, 380, 66);

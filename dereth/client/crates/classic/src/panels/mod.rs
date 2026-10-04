@@ -120,13 +120,6 @@ pub struct KeyBinding {
     pub label: String,
     pub keys: Vec<String>,
 }
-#[derive(Clone, Debug, PartialEq)]
-pub struct LegacyCreation {
-    /// Heritage and gender are zero-based January 2005 table indices.
-    pub result: dereth_client_contract::pregame::CharGenResultData,
-    pub heraldry_symbol: i32,
-    pub heraldry_color: u32,
-}
 /// How a line of local feedback is shown: information, or a warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeedbackSeverity {
@@ -196,7 +189,6 @@ pub enum HostAction {
         lx: u32,
         ly: u32,
     },
-    LegacyCharGen(Box<LegacyCreation>),
     VendorSellAll,
     CloseVendorForced,
     CloseGroundForced,
@@ -579,37 +571,14 @@ pub struct Preview {
     pub object: Option<ObjectId>,
     pub appearance: Option<Appearance>,
 }
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Appearance {
+    pub animation: DataId,
+    pub state: dereth_chargen::CharGenState,
+    pub tables: std::rc::Rc<dereth_chargen::CreationTables>,
     pub rotation_velocity: f32,
     pub zoom_face: bool,
-    pub heraldry: Option<Heraldry>,
-    pub base_palette_id: u32,
-    pub setup_id: u32,
-    pub environment_setup_id: u32,
-    pub base_objdesc_hex: String,
-    pub appearance_overlays_hex: Vec<String>,
-    pub skin_palette_set: u32,
-    pub skin_shade: f64,
-    pub hair_palette_set: u32,
-    pub hair_shade: f64,
-    pub eye_palette_id: u32,
-    pub clothing: Vec<Clothing>,
     pub heading_degrees: f32,
-    pub show_clothes: bool,
-}
-#[derive(Clone, Debug)]
-pub struct Heraldry {
-    pub setup_id: u32,
-    pub old_texture: u32,
-    pub texture: u32,
-    pub holding_location: u32,
-}
-#[derive(Clone, Debug, Default)]
-pub struct Clothing {
-    pub table_id: u32,
-    pub palette_template: u32,
-    pub shade: f64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreviewKind {

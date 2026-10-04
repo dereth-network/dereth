@@ -1,16 +1,4 @@
-//! The classic interface's art and tables, read from the player's early-2005 portal at run time.
-//!
-//! Nothing of the game's is shipped. The interface images, the creation tables and the face strips
-//! and palettes of the creation screens all come out of the early-2005 `portal.dat` beside the
-//! game's files (the world's own on a world of that era, else the older portal attached beside a
-//! later world); the text is drawn with the host's fonts, in the sizes and weights the classic
-//! interface asks for.
-//!
-//! [`ClassicArt::new`] draws the fonts; images are decoded the first time they are drawn and kept.
-//! [`install`] makes one set of art the process's own, for the panels that read their tables
-//! without being handed them.
-
-use dereth_classic_dat::creation::{CreationData, IndexedAssets};
+//! The Classic interface's chrome and fonts, independent of the world's creation resources.
 use dereth_classic_dat::fonts::{FontAtlas, FontSource, FontSpec};
 use dereth_classic_dat::ClassicPortal;
 use std::collections::BTreeMap;
@@ -73,8 +61,6 @@ pub struct ClassicArt {
     character_art: Option<ClassicPortal>,
     images: Mutex<BTreeMap<u32, Option<Arc<Image>>>>,
     fonts: BTreeMap<String, Arc<FontAtlas>>,
-    creation: OnceLock<Result<Arc<CreationData>, String>>,
-    indexed: OnceLock<Result<Arc<IndexedAssets>, String>>,
 }
 
 impl std::fmt::Debug for ClassicArt {
@@ -108,8 +94,6 @@ impl ClassicArt {
             character_art: None,
             images: Mutex::default(),
             fonts,
-            creation: OnceLock::new(),
-            indexed: OnceLock::new(),
         })
     }
 
@@ -152,13 +136,6 @@ impl ClassicArt {
         &self,
         key: &str,
     ) -> Option<dereth_classic_dat::appearance::IndexedTexture> {
-        if let Some(t) = self
-            .indexed()
-            .ok()
-            .and_then(|a| a.textures.get(key).cloned())
-        {
-            return Some(t);
-        }
         let (id, mirror) = match key.strip_suffix("-mirror") {
             Some(id) => (id, true),
             None => (key, false),
@@ -217,38 +194,6 @@ impl ClassicArt {
     pub const fn fonts(&self) -> &BTreeMap<String, Arc<FontAtlas>> {
         &self.fonts
     }
-
-    /// The creation tables.
-    ///
-    /// # Errors
-    /// The portal's creation table does not decode.
-    pub fn creation(&self) -> Result<Arc<CreationData>, String> {
-        self.creation
-            .get_or_init(|| {
-                let data = dereth_classic_dat::creation::read(&self.portal)?;
-                if data.heritages.is_empty() || data.heritages.iter().any(|h| h.sexes.is_empty()) {
-                    return Err("the creation table holds no usable heritage and sex".into());
-                }
-                Ok(Arc::new(data))
-            })
-            .clone()
-    }
-
-    /// The creation screens' indexed face strips.
-    ///
-    /// # Errors
-    /// The creation table or a strip does not decode.
-    pub fn indexed(&self) -> Result<Arc<IndexedAssets>, String> {
-        self.indexed
-            .get_or_init(|| {
-                let data = self.creation()?;
-                Ok(Arc::new(dereth_classic_dat::creation::indexed_assets(
-                    &self.portal,
-                    &data,
-                )?))
-            })
-            .clone()
-    }
 }
 
 static INSTALLED: OnceLock<Arc<ClassicArt>> = OnceLock::new();
@@ -263,14 +208,4 @@ pub fn install(art: Arc<ClassicArt>) -> Arc<ClassicArt> {
 #[must_use]
 pub fn installed() -> Option<Arc<ClassicArt>> {
     INSTALLED.get().cloned()
-}
-
-/// The creation tables of the installed art.
-///
-/// # Errors
-/// No art is installed, or its creation table does not decode.
-pub fn creation() -> Result<Arc<CreationData>, String> {
-    installed()
-        .ok_or_else(|| "the classic portal has not been opened".to_owned())?
-        .creation()
 }

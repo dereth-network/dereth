@@ -199,6 +199,8 @@ mod tests {
 
     fn no_heritages() -> CharGen {
         CharGen {
+            help_strings: vec![],
+            heritage_order: vec![],
             id: DataId(0x0E00_0002),
             second_data_id: DataId(0),
             starter_areas: Vec::new(),

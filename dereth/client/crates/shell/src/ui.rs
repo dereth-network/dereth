@@ -2413,6 +2413,7 @@ fn load_chargen_tables(
     assets: &dyn dereth_primitives::AssetSource,
     store: &Arc<dereth_dat::RetailDatStore>,
 ) -> Option<Rc<CharGenTables>> {
+    dereth_classic_ui::panels::pregame::data::clear();
     use dereth_assets::Decode;
     use dereth_ui::framework::{DidMapperResolver, LayoutEnum, LayoutEnumResolver as _};
 
@@ -2458,8 +2459,11 @@ fn load_chargen_tables(
                     continue;
                 }
                 if let Ok(bytes) = assets.read(id) {
-                    if let Ok(t) = dereth_assets::motion::ClothingTable::decode_payload(id, &bytes)
-                    {
+                    if let Ok(t) = dereth_assets::motion::ClothingTable::decode_payload_in(
+                        assets.container_era_of(id),
+                        id,
+                        &bytes,
+                    ) {
                         clothing.insert(id, t);
                     }
                 }
@@ -2483,16 +2487,25 @@ fn load_chargen_tables(
         empty: did(0x1000_000F),
         plug: did(0x1000_0010),
     };
-    Some(Rc::new(CharGenTables {
-        chargen: cg,
-        skills,
-        clothing: Rc::new(clothing),
+    let tables = Rc::new(CharGenTables {
+        world: Rc::new(dereth_chargen::CreationTables {
+            chargen: cg,
+            skills,
+            clothing: Rc::new(clothing),
+        }),
         color_wheel_art,
         colors: Some(Rc::new(DatColorSource {
             store: Arc::clone(store),
             cache: std::cell::RefCell::new(std::collections::BTreeMap::new()),
         })),
-    }))
+    });
+    dereth_classic_ui::panels::pregame::data::install(Rc::new(
+        dereth_classic_ui::panels::pregame::data::CreationData::load(
+            Rc::clone(&tables.world),
+            store,
+        ),
+    ));
+    Some(tables)
 }
 
 /// Palette and palette-set lookup over the dat, with a cache — the host half of
