@@ -3,7 +3,8 @@
 use dereth_ui::{ElementId, ElementType};
 
 use crate::element_types::ty;
-use crate::view::{PlayerOption, UiRequest};
+use crate::view::PlayerOption;
+use dereth_client_contract::options::sheet::Act;
 
 // -------------------------------------------------------------------------------------------
 // The seven control types
@@ -173,40 +174,6 @@ pub mod template {
 // Chat Options — ChatOptionsPanel
 // -------------------------------------------------------------------------------------------
 
-/// One row of the chat options panel's option build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ChatOptionSection {
-    /// The window id whose 64-bit filter this section edits, or `None` for the general section.
-    pub window_id: Option<u32>,
-}
-
-/// The six sections of the Chat Options page, in order.
-///
-/// The general section holds two sliders on child `0x1000021C` bound to gameplay-option properties
-/// `0x10000080` (default/idle chat opacity) and `0x10000081` (active chat opacity); the other five
-/// each hold one `WideBitfieldCheckboxOption` on property `0x1000007F` with the chat-type
-/// enumeration.
-pub const CHAT_OPTIONS_PAGE: [ChatOptionSection; 6] = [
-    ChatOptionSection { window_id: None },
-    ChatOptionSection {
-        window_id: Some(crate::chat::interface::window::MAIN),
-    },
-    ChatOptionSection {
-        window_id: Some(crate::chat::interface::window::FLOATY_1),
-    },
-    ChatOptionSection {
-        window_id: Some(crate::chat::interface::window::FLOATY_2),
-    },
-    ChatOptionSection {
-        window_id: Some(crate::chat::interface::window::FLOATY_3),
-    },
-    ChatOptionSection {
-        window_id: Some(crate::chat::interface::window::FLOATY_4),
-    },
-];
-
-/// The two opacity sliders' gameplay-option property keys.
-pub const CHAT_OPACITY_PROPERTIES: [u32; 2] = [0x1000_0080, 0x1000_0081];
 /// The property the `WideBitfieldCheckboxOption` filter control edits, with the chat-type
 /// enumeration.
 pub const CHAT_FILTER_PROPERTY: u32 = 0x1000_007F;
@@ -220,37 +187,17 @@ pub const CHAT_OPTIONS_SLIDER_CHILD: ElementId = ElementId(0x1000_021C);
 /// The title of the `MessageBoxA` shown when `ShellExecute` fails (result ≤ 32).
 pub use dereth_client_contract::options::SHELL_EXECUTE_ERROR_TITLE;
 
-/// The gameplay options panel's element-message handler, element message 1.
-///
-/// "Not a preference page: a set of buttons." Two of the five actions are broadcasts rather than
-/// requests, so they are returned as the message the caller must broadcast.
-#[derive(Debug, Clone, PartialEq)]
-pub enum GameplayOptionAction {
-    Request(UiRequest),
-    /// Broadcast global message `id` with `param`.
-    BroadcastGlobal {
-        id: u32,
-        param: u32,
-    },
-}
-
-/// The buttons on the Game/Support page the page itself answers. The two support buttons are
-/// not among them: they open the in-game Urgent Assistance and Report Abuse forms through the
-/// input action each is given ([`super::gameplay::GameplayOptionsPage::arrange`]), where retail
-/// opened an external support website.
+/// The meaning of a Game / Support control. Keyboard and support actions are delivered by
+/// the button's input action; the page answers the remaining actions itself. Help stays hidden.
 #[must_use]
-pub fn gameplay_option_action(element: ElementId) -> Option<GameplayOptionAction> {
-    use GameplayOptionAction::{BroadcastGlobal, Request};
+pub fn gameplay_option_action(element: ElementId) -> Option<Act> {
     Some(match element.0 {
-        // "Log out to character select".
-        0x1000_0203 => Request(UiRequest::EndCharacterSession { ask: true }),
-        // *Use Mouse Turning Settings*: the mouse-turning preset.
-        0x1000_05CC => BroadcastGlobal { id: 0x0C, param: 0 },
-        // "synthesises the *quit* input action".
-        0x1000_0617 => BroadcastGlobal {
-            id: 1,
-            param: 0x1000_0027,
-        },
+        0x1000_0203 => Act::ExitToCharacterSelection,
+        0x1000_0617 => Act::ExitGame,
+        0x1000_0204 => Act::ConfigureKeyboard,
+        0x1000_05CC => Act::MouseTurningSettings,
+        0x1000_0206 => Act::UrgentAssistance,
+        0x1000_0207 => Act::ReportAbuse,
         _ => return None,
     })
 }
@@ -381,57 +328,64 @@ mod tests {
     /// Chat options have six sections with the expected window ids.
     #[test]
     fn the_chat_options_page_edits_the_five_windows_filters_in_order() {
-        assert_eq!(CHAT_OPTIONS_PAGE.len(), 6);
-        assert_eq!(
-            CHAT_OPTIONS_PAGE[0].window_id, None,
+        use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
+        let headings = sheet::headings_for(PageId::Chat, Face::Retail).collect::<Vec<_>>();
+        assert_eq!(headings.len(), 6);
+        assert!(
+            headings[0]
+                .1
+                .iter()
+                .all(|r| !matches!(r.value, Value::Filter { .. })),
             "the general section edits opacity"
         );
-        let ids: Vec<u32> = CHAT_OPTIONS_PAGE[1..]
+        let ids = headings[1..]
             .iter()
-            .map(|s| s.window_id.unwrap())
-            .collect();
+            .map(|(_, rows)| {
+                let Value::Filter { window, .. } = rows[0].value else {
+                    panic!("filter section")
+                };
+                assert!(rows
+                    .iter()
+                    .all(|r| matches!(r.value, Value::Filter { window: w, .. } if w == window)));
+                window
+            })
+            .collect::<Vec<_>>();
         assert_eq!(ids, vec![8, 2, 3, 4, 5], "main, then floaty 1..4");
-        // Each section's default mask is the one the layout description gives that window.
-        for (s, want) in CHAT_OPTIONS_PAGE[1..].iter().zip([
+        for (id, want) in ids.into_iter().zip([
             0xFBFF_FFFF_u64,
             0x0000_101C,
             0x0004_0C00,
             0x0008_0000,
             0x7800_0000,
         ]) {
-            assert_eq!(
-                crate::chat::interface::default_filter(s.window_id.unwrap()),
-                want,
-                "{}",
-                s.window_id.unwrap()
-            );
+            assert_eq!(crate::chat::interface::default_filter(id), want, "{id}");
         }
-        assert_eq!(CHAT_OPACITY_PROPERTIES, [0x1000_0080, 0x1000_0081]);
+        let opacity = headings[0]
+            .1
+            .iter()
+            .filter_map(|r| match r.value {
+                Value::Opacity(p) => Some(p),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(opacity, [0x1000_0080, 0x1000_0081]);
         assert_eq!(CHAT_FILTER_PROPERTY, 0x1000_007F);
     }
 
-    /// The page answers three of its buttons itself; the support buttons are its forms' actions.
+    /// Every visible control has its shared meaning; hidden Help has none.
     #[test]
-    fn the_game_support_page_maps_its_three_buttons_to_their_actions() {
-        use GameplayOptionAction::{BroadcastGlobal, Request};
-        assert_eq!(
-            gameplay_option_action(ElementId(0x1000_0203)),
-            Some(Request(UiRequest::EndCharacterSession { ask: true }))
-        );
-        assert_eq!(gameplay_option_action(ElementId(0x1000_0206)), None);
-        assert_eq!(gameplay_option_action(ElementId(0x1000_0207)), None);
-        assert_eq!(
-            gameplay_option_action(ElementId(0x1000_05CC)),
-            Some(BroadcastGlobal { id: 0x0C, param: 0 })
-        );
-        assert_eq!(
-            gameplay_option_action(ElementId(0x1000_0617)),
-            Some(BroadcastGlobal {
-                id: 1,
-                param: 0x1000_0027
-            }),
-            "the quit input action, synthesised as a global message 1"
-        );
+    fn the_game_support_page_maps_visible_buttons_to_their_shared_actions() {
+        for (id, action) in [
+            (0x1000_0203, Act::ExitToCharacterSelection),
+            (0x1000_0617, Act::ExitGame),
+            (0x1000_0204, Act::ConfigureKeyboard),
+            (0x1000_05CC, Act::MouseTurningSettings),
+            (0x1000_0206, Act::UrgentAssistance),
+            (0x1000_0207, Act::ReportAbuse),
+        ] {
+            assert_eq!(gameplay_option_action(ElementId(id)), Some(action));
+        }
+        assert_eq!(gameplay_option_action(ElementId(0x1000_0205)), None);
         assert_eq!(gameplay_option_action(ElementId(0xDEAD)), None);
     }
 

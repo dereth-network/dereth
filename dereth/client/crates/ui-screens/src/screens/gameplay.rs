@@ -4237,27 +4237,19 @@ impl GamePlayScreen {
     pub fn on_gameplay_options_action(
         &mut self,
         ui: &mut UiSystem,
-        a: &crate::options::pages::GameplayOptionAction,
+        a: &dereth_client_contract::options::sheet::Act,
     ) -> usize {
-        use crate::options::pages::GameplayOptionAction as A;
+        use dereth_client_contract::options::sheet::Act as A;
         match a {
-            A::Request(UiRequest::EndCharacterSession { ask }) => {
-                // The end-character-session notice, argument 1 — sender and receiver are both this
-                // screen's, so the notice is delivered rather than queued.
-                self.on_end_character_session(ui, i32::from(*ask));
+            A::ExitToCharacterSelection => {
+                self.on_end_character_session(ui, 1);
                 0
             }
-            A::Request(r) => {
-                ui.requests.emit(r.clone());
+            A::ExitGame => {
+                self.handle_key_press(ui, 0x1000_0027);
                 0
             }
-            A::BroadcastGlobal { id: 1, param } => {
-                self.handle_key_press(ui, *param);
-                0
-            }
-            A::BroadcastGlobal { id, .. }
-                if MessageId(*id) == dereth_ui::msg::global::MOUSE_TURNING_DEFAULTS =>
-            {
+            A::MouseTurningSettings => {
                 let lines = self.config_page.set_mouse_turning_defaults(ui);
                 let n = lines.len();
                 for text in lines {
@@ -4270,7 +4262,7 @@ impl GamePlayScreen {
                 self.mouse_turning_keys_pending = true;
                 n
             }
-            A::BroadcastGlobal { .. } => 0,
+            A::ConfigureKeyboard | A::UrgentAssistance | A::ReportAbuse => 0,
         }
     }
 
@@ -5838,12 +5830,8 @@ impl Screen for GamePlayScreen {
             if m.source_id == crate::hud::indicators::LOGOUT_BUTTON {
                 self.on_end_character_session(ui, 1);
             }
-            // The Options *Game / Support* page, all seven of its buttons rather than only the two
-            // ways out of the game: the two support-ticket buttons and *Restore Defaults* go
-            // through the transcription of the handler (`options::pages::gameplay_option_action`)
-            // as well. Both ends are joined here: the page module resolves the click, this screen
-            // performs it. See [`crate::options::gameplay`] for the handler and for the two buttons
-            // that are driven by the layout instead of by the class.
+            // The page resolves manually handled buttons to their shared meanings. Keyboard
+            // and support buttons use their input actions and are excluded from this route.
             if let Some(a) = self.gameplay_options.on_element_message(ui, m) {
                 self.on_gameplay_options_action(ui, &a);
             } else if self.logout_dialog.is_some() {

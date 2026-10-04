@@ -1,7 +1,7 @@
 //! `ChatOptionsPanel` (type `0x10000042`) — the Chat Options page's two sliders and five filter
 //! controls.
 //!
-//! The shared options sheet supplies section captions; `super::pages::CHAT_OPTIONS_PAGE` supplies window ids. The
+//! The shared options sheet supplies section captions, opacity properties and filter windows. The
 //! client's masks live in [`crate::chat::interface::FILTER_GROUPS`]; the opacity properties
 //! `0x10000080`/`0x10000081` are read by the chat window's fade. This module is what writes them:
 //! the retail chat-option initialization, plus the option-registration fan-out the options-page
@@ -500,41 +500,41 @@ impl ChatOptionsPage {
     /// The chat options panel's option build, in order. Returns how many controls were
     /// registered — **seven**.
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
-        use super::pages::{CHAT_OPACITY_PROPERTIES, CHAT_OPTIONS_PAGE};
-        let [idle_prop, active_prop] = CHAT_OPACITY_PROPERTIES;
-        let headings = dereth_client_contract::options::sheet::page(
-            dereth_client_contract::options::sheet::PageId::Chat,
-        )
-        .headings;
-
-        // The general section: two sliders, narrow then wide.
-        self.add_header(ui, headings[0].text);
-        let idle = self.add_slider_option(ui, idle_prop, false, view);
-        let active = self.add_slider_option(ui, active_prop, true, view);
-        if let Some(i) = active {
-            let (l, r) = OPACITY_SLIDER_ENDS;
-            self.set_slider_label(ui, i, l, r);
+        use crate::chat::interface::opacity_attr;
+        use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
+        let mut idle = None;
+        let mut active = None;
+        for (heading, rows) in sheet::headings_for(PageId::Chat, Face::Retail) {
+            self.add_header(ui, heading.text);
+            let mut windows = Vec::new();
+            for row in rows {
+                match row.value {
+                    Value::Opacity(property) => {
+                        let wide = property == opacity_attr::ACTIVE;
+                        let control = self.add_slider_option(ui, property, wide, view);
+                        if wide {
+                            active = control;
+                            if let Some(i) = control {
+                                let (left, right) = OPACITY_SLIDER_ENDS;
+                                self.set_slider_label(ui, i, left, right);
+                            }
+                        } else if property == opacity_attr::DEFAULT {
+                            idle = control;
+                        }
+                    }
+                    Value::Filter { window, .. } if !windows.contains(&window) => {
+                        // The sheet lists individual masks; this control edits the whole window.
+                        windows.push(window);
+                        self.add_checkbox_bitfield64_option(ui, window, CHAT_FILTER_PROPERTY, view);
+                    }
+                    _ => {}
+                }
+            }
+            self.add_separator(ui);
         }
-        // Link the idle and active opacity controls only when both exist; the client performs both
-        // existence checks before inserting the pair.
         if let (Some(a), Some(b)) = (idle, active) {
             self.slider_links.push((a, b));
         }
-        self.add_separator(ui);
-
-        // Then one `WideBitfieldCheckboxOption` per window, each preceded by its header and
-        // followed by a separator. The **trailing** separator after floaty 4 is present in the
-        // observed client sequence and is not a transcription slip.
-        for (k, section) in CHAT_OPTIONS_PAGE.iter().enumerate().skip(1) {
-            self.add_header(ui, headings[k].text);
-            if let Some(window_id) = section.window_id {
-                self.add_checkbox_bitfield64_option(ui, window_id, CHAT_FILTER_PROPERTY, view);
-            }
-            if k + 1 < CHAT_OPTIONS_PAGE.len() {
-                self.add_separator(ui);
-            }
-        }
-        self.add_separator(ui);
 
         if let Some(b) = self.option_box.as_mut() {
             b.update_layout(ui);
@@ -1245,7 +1245,15 @@ mod tests {
         );
         assert_eq!(super::super::pages::CHAT_FILTER_PROPERTY, 0x1000_007F);
         assert_eq!(
-            super::super::pages::CHAT_OPACITY_PROPERTIES,
+            dereth_client_contract::options::sheet::rows_for(
+                dereth_client_contract::options::sheet::PageId::Chat,
+                dereth_client_contract::options::sheet::Face::Retail,
+            )
+            .filter_map(|r| match r.value {
+                dereth_client_contract::options::sheet::Value::Opacity(p) => Some(p),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
             [0x1000_0080, 0x1000_0081]
         );
         assert_eq!(OPACITY_RANGE, (0.0, 1.0));

@@ -1339,6 +1339,14 @@ fn the_social_windows_later_pages_follow_the_classic_page_options_on_any_world()
         !has(&tradeless, &*q, "tab2"),
         "never on a world without trade"
     );
+    assert!(
+        options::shown(options::SHOW_TRADE_TAB),
+        "availability preserves the preference"
+    );
+    assert!(
+        has(&View::default(), &*q, "tab2"),
+        "an unknown world uses the existing feature fallback"
+    );
     store::set_value(options::SHOW_TRADE_TAB, PrefValue::Bool(false));
     // Friends turned off: its tab goes, and its buttons do nothing.
     store::set_value(options::SHOW_FRIENDS_TAB, PrefValue::Bool(false));

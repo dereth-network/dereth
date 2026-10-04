@@ -54,9 +54,11 @@ struct Social {
 /// Secure Trade on a world with trade when the player shows it (off at first); Friends and
 /// Squelch when the player shows them (on at first), on any world.
 fn pages(game: &dyn GameView) -> Vec<(usize, &'static str)> {
-    use dereth_client_contract::options::classic;
+    use dereth_client_contract::options::{classic, sheet};
     let mut pages = vec![(0, "Allegiance"), (1, "Fellowship")];
-    if game.era_features().trade && classic::shown(classic::SHOW_TRADE_TAB) {
+    let trade = sheet::row_of_preference(sheet::PageId::Client, classic::SHOW_TRADE_TAB)
+        .is_some_and(|row| row.needs.met(Some(&game.era_features())));
+    if trade && classic::shown(classic::SHOW_TRADE_TAB) {
         pages.push((2, "Trade"));
     }
     if classic::shown(classic::SHOW_FRIENDS_TAB) {

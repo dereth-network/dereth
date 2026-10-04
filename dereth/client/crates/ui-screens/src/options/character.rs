@@ -1,4 +1,4 @@
-//! The Character Options page's 62 rows.
+//! The Character Options page builds its headings and available rows from the shared sheet.
 //!
 //! # This page does not caption from the preference registry
 //!
@@ -23,9 +23,8 @@
 //! the tooltip; both come from string-table enum
 //! `0x10000003`.
 //!
-//! So **0 of 50 rows caption themselves from the preference registry, and 50 of 50 caption
-//! themselves from a token derived from the option's name** — the same string table, a different
-//! producer.
+//! Player-option rows caption themselves from tokens derived from the option's name,
+//! independently of the preference registry.
 //!
 //! # Where the value comes from, and why no option word is ever rebuilt here
 //!
@@ -54,7 +53,7 @@
 //! | write | the client's `UiRequest::SetPlayerOption` arm |
 //! | wire | `dereth_client_model::player`'s `CharacterCharacterOptionsEvent { module }` send |
 //!
-//! All 50 rows read, write and reach the server; the option-wire tests hold it.
+//! Player-option rows read and write through this seam; the option-wire tests hold it.
 
 use dereth_ui::{ElemHandle, UiSystem};
 
@@ -219,7 +218,7 @@ pub struct CharacterOptionRow {
     ///
     /// Still an `Option`, and still `None` when the host cannot answer: the function lives in
     /// `PlayerModule`, this crate has no edge to `dereth-client-model`, and *Restore Defaults* has to be
-    /// able to say "not available on this host" rather than write `false` into 50 check boxes.
+    /// able to say "not available on this host" rather than write `false` into every check box.
     /// Its producer is [`GameView::player_option_default`], implemented by
     /// `dereth_client::hud::HudView` over
     /// `dereth_client_model::player::options::default_option_value`, which *is* the client's.
@@ -268,7 +267,7 @@ pub struct CharacterSettingsPage {
     /// nothing.
     pub failures: usize,
     /// How many rows got a default out of [`GameView::player_option_default`].
-    /// The denominator for *Restore Defaults*. 50 with an implementor of
+    /// The denominator for *Restore Defaults*: the rows answered by
     /// [`GameView::player_option_default`], **0** without one, and
     /// [`Self::restore_default_values`] writes nothing in that case rather than unticking the
     /// page.
@@ -525,7 +524,7 @@ impl CharacterSettingsPage {
     /// Re-read every row from the module.
     ///
     /// Returns how many moved, which is the observable half of the read: a `save_current_values`
-    /// that silently did nothing and one that re-read 50 identical values are otherwise the same.
+    /// that silently did nothing and one that re-read identical values for every row are otherwise the same.
     pub fn save_current_values(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
         self.refresh_defaults(view);
         let mut moved = 0;
@@ -588,7 +587,7 @@ impl CharacterSettingsPage {
     }
 
     /// Cancel, and the hide path. Only the rows that
-    /// changed are written back, which is why cancelling does not re-send 50 options.
+    /// changed are written back, which is why cancelling does not re-send unchanged options.
     pub fn restore_saved_values(&mut self, ui: &mut UiSystem) -> usize {
         let mut n = 0;
         for i in 0..self.rows.len() {
@@ -610,8 +609,8 @@ impl CharacterSettingsPage {
     /// current = default, refresh, apply. Here a row whose default is `None`
     /// is **skipped**, which is the one divergence and it is the safe direction — see
     /// [`CharacterOptionRow::default`]. The return is how many rows were actually written, so a
-    /// host with no default-option-value producer reports **0** and a working one reports 50; a button
-    /// that silently unticked every box would report 50 as well and be wrong.
+    /// host with no default-option-value producer reports **0**. The values themselves must
+    /// also match the supplied defaults; writing every row alone does not establish that.
     pub fn restore_default_values(&mut self, ui: &mut UiSystem) -> usize {
         let mut n = 0;
         for i in 0..self.rows.len() {

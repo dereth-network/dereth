@@ -4254,6 +4254,26 @@ pub fn the_chat_options_tab_draws_its_controls() {
     let seen = c.outbound().len();
     open_the_chat_options_page(&mut c, &mut hands);
 
+    let ordered_and_linked = with_gameplay(&mut c, |_, s| {
+        let keys = s
+            .chat_options
+            .options
+            .iter()
+            .map(|option| match option {
+                ChatOption::Opacity(o) => (o.property, 0),
+                ChatOption::Filter(f) => (f.property, f.window_id),
+            })
+            .collect::<Vec<_>>();
+        keys == [
+            (0x1000_0080, 0),
+            (0x1000_0081, 0),
+            (0x1000_007F, 8),
+            (0x1000_007F, 2),
+            (0x1000_007F, 3),
+            (0x1000_007F, 4),
+            (0x1000_007F, 5),
+        ] && s.chat_options.slider_links == [(0, 1)]
+    });
     let (controls, boxes, headers, separators, rows, failures) = with_gameplay(&mut c, |_, s| {
         (
             s.chat_options.options.len(),
@@ -4315,6 +4335,7 @@ pub fn the_chat_options_tab_draws_its_controls() {
             // Seven controls, sixty-four boxes, six headings and six rules between them; every
             // caption resolved out of the shipped text, and nothing failed to build.
             controls == 7
+                && ordered_and_linked
                 && boxes == 64
                 && headers == 6
                 && separators == 6

@@ -1,5 +1,5 @@
 //! The Game/Support page carries seven buttons in layout order; two carry input actions; either
-//! support button raises the support-URL request; Use Mouse Turning Settings sets the mouse-turning
+//! support button opens its in-game form through an input action; Use Mouse Turning Settings sets the mouse-turning
 //! preset and nothing else;
 //! exit-to-character-select still asks; non-message-1 is not a press.
 //! Fixture: shipped layouts, strings and keymaps loaded from the retail DATs.
@@ -10,8 +10,8 @@ use dereth_ui::framework::Screen;
 use dereth_ui::msg::Delivery;
 use dereth_ui::{ElemHandle, ElementId, MessageId, UiSystem};
 
+use dereth_client_contract::options::sheet::Act;
 use dereth_ui_screens::options::gameplay::{button, GameplayOptionsPage, BUTTONS, LAYOUT_DRIVEN};
-use dereth_ui_screens::options::pages::GameplayOptionAction;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::UiRequest;
 
@@ -129,6 +129,8 @@ fn the_shipped_page_carries_the_seven_buttons_in_layout_order() {
 fn the_two_buttons_with_no_class_arm_carry_their_input_action_instead() {
     let (ui, _s) = screen();
     let p = page(&ui);
+    let bound = GameplayOptionsPage::bind(&ui, ui.element_list()[0]);
+    assert_eq!(bound.page, Some(p));
     for (id, action) in LAYOUT_DRIVEN {
         let h = ui
             .get_child_recursive(p, id)
@@ -142,10 +144,19 @@ fn the_two_buttons_with_no_class_arm_carry_their_input_action_instead() {
             "{:#010X} fires input action {action:#010X}",
             id.0
         );
+        let message = dereth_ui::msg::ElementMessage {
+            source_id: id,
+            source: h,
+            id: MessageId(1),
+            p1: 0,
+            p2: 0,
+            point: dereth_ui::msg::MessagePoint::default(),
+            serial: 0,
+        };
         assert_eq!(
-            dereth_ui_screens::options::pages::gameplay_option_action(id),
+            bound.on_element_message(&ui, &message),
             None,
-            "{:#010X} has no class arm",
+            "{:#010X} has no manual arm",
             id.0
         );
     }
@@ -187,6 +198,8 @@ fn each_support_button_opens_its_in_game_form_and_help_is_hidden() {
     use dereth_ui_screens::options::gameplay::{REPORT_ABUSE_ACTION, URGENT_ASSISTANCE_ACTION};
     let (mut ui, mut s) = screen();
     let p = page(&ui);
+    let bound = GameplayOptionsPage::bind(&ui, ui.element_list()[0]);
+    assert_eq!(bound.page, Some(p));
     for (id, action) in [
         (button::SUPPORT_TICKET_UPPER, URGENT_ASSISTANCE_ACTION),
         (button::SUPPORT_TICKET_LOWER, REPORT_ABUSE_ACTION),
@@ -200,6 +213,20 @@ fn each_support_button_opens_its_in_game_form_and_help_is_hidden() {
             Some(action),
             "{:#010X} fires its form's action",
             id.0
+        );
+        let message = dereth_ui::msg::ElementMessage {
+            source_id: id,
+            source: h,
+            id: MessageId(1),
+            p1: 0,
+            p2: 0,
+            point: dereth_ui::msg::MessagePoint::default(),
+            serial: 0,
+        };
+        assert_eq!(
+            bound.on_element_message(&ui, &message),
+            None,
+            "input owns this support action"
         );
         let rs = click(&mut ui, &mut s, id);
         assert!(
@@ -328,6 +355,7 @@ fn a_message_that_is_not_element_message_1_is_not_a_press() {
         .get_child_recursive(p, button::EXIT_TO_CHARACTER_SELECTION)
         .expect("the button");
     let bound = GameplayOptionsPage::bind(&ui, ui.element_list()[0]);
+    assert_eq!(bound.page, Some(p));
     let msg = |id: MessageId| dereth_ui::msg::ElementMessage {
         source_id: button::EXIT_TO_CHARACTER_SELECTION,
         source: h,
@@ -351,8 +379,6 @@ fn a_message_that_is_not_element_message_1_is_not_a_press() {
     // And the action the press resolves to is the one the bytes give.
     assert_eq!(
         bound.on_element_message(&ui, &msg(MessageId(1))),
-        Some(GameplayOptionAction::Request(
-            UiRequest::EndCharacterSession { ask: true }
-        ))
+        Some(Act::ExitToCharacterSelection)
     );
 }

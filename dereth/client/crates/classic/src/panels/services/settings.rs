@@ -8,7 +8,7 @@
 //! interface's page, and the sliders the retail page labels at their ends are labelled the same.
 use super::*;
 use dereth_client_contract::options::sheet::{self, Face, PageId, Row, Value};
-use dereth_client_contract::options::{classic, store};
+use dereth_client_contract::options::store;
 use dereth_client_contract::PrefValue;
 use dereth_primitives::num::to_i32;
 
@@ -83,9 +83,7 @@ fn lines(page: PageId, c: &Context<'_>) -> Vec<Line> {
         out.push(Line::Heading(h.title));
         out.extend(
             rows.into_iter()
-                .filter(|r| {
-                    r.needs.met(Some(&features)) && r.preference().is_none_or(|p| era_has(c, p))
-                })
+                .filter(|r| r.needs.met(Some(&features)))
                 .map(Line::Row),
         );
     }
@@ -124,12 +122,6 @@ fn hosted(preference: &str) -> bool {
 /// A preference's slider range, from its registration.
 fn range(preference: &str) -> (f32, f32) {
     sheet::preference_range(preference)
-}
-
-/// Whether the world's era has what a row sets: the social window's Secure Trade page needs
-/// trade, and its row is not shown without it.
-fn era_has(c: &Context<'_>, preference: &str) -> bool {
-    preference != classic::SHOW_TRADE_TAB || c.game.era_features().trade
 }
 
 /// The row of the classic Client Options page that edits `preference`.
@@ -520,7 +512,7 @@ impl Settings {
                 let Some(p) = id.strip_prefix("row:").and_then(client_row) else {
                     return vec![];
                 };
-                if p.preference().is_some_and(|n| !era_has(c, n)) {
+                if !p.needs.met(Some(&c.game.era_features())) {
                     return vec![];
                 }
                 let Some(name) = p.preference() else {

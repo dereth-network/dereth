@@ -109,6 +109,8 @@ pub enum Needs {
     Cloaks,
     /// Character titles.
     Titles,
+    /// Secure trade.
+    Trade,
 }
 
 impl Needs {
@@ -123,6 +125,7 @@ impl Needs {
             Self::Rares => f.pre_order_items_and_rares,
             Self::Cloaks => f.cloaks,
             Self::Titles => f.titles,
+            Self::Trade => f.trade,
         }
     }
 }
@@ -783,10 +786,13 @@ const CLIENT: [Heading; 5] = [
             ),
             only(
                 Shown::Classic,
-                pref(
-                    "Show Trade Tab",
-                    Value::Check(crate::options::classic::SHOW_TRADE_TAB),
-                    Bool(false),
+                needs(
+                    Needs::Trade,
+                    pref(
+                        "Show Trade Tab",
+                        Value::Check(crate::options::classic::SHOW_TRADE_TAB),
+                        Bool(false),
+                    ),
                 ),
             ),
             only(
@@ -1180,6 +1186,13 @@ mod tests {
             .needs
             .met(Some(&dereth_primitives::EraFeatures::END_OF_RETAIL)));
         assert!(cloak.needs.met(None));
+        let trade =
+            row_of_preference(PageId::Client, crate::options::classic::SHOW_TRADE_TAB).unwrap();
+        let mut features = dereth_primitives::EraFeatures::END_OF_RETAIL;
+        assert!(trade.needs.met(Some(&features)));
+        features.trade = false;
+        assert!(!trade.needs.met(Some(&features)));
+        assert!(trade.needs.met(None));
         assert!(row_of_option(P::DisableHouseRestrictionEffects)
             .unwrap()
             .needs
@@ -1193,9 +1206,7 @@ mod tests {
             for r in rows_for(PageId::Client, face) {
                 let p = r.preference().unwrap();
                 assert!(r.default.is_some(), "{p}");
-                if p != "Render.LandscapeDetailTextures" {
-                    assert!(crate::options::store::is_registered(p), "{p}");
-                }
+                assert!(crate::options::store::is_registered(p), "{p}");
             }
         }
     }

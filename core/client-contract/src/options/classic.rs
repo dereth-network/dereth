@@ -44,10 +44,10 @@ pub const NAMES: [&str; 6] = [
 /// Squelch pages on, the rest off.
 #[must_use]
 pub fn default_on(name: &str) -> bool {
-    matches!(
-        name,
-        RIGHT_CLICK_MOUSE_LOOK | SHOW_FRIENDS_TAB | SHOW_SQUELCH_TAB
-    )
+    NAMES.contains(&name)
+        && super::sheet::row_of_preference(super::sheet::PageId::Client, name)
+            .and_then(|row| row.default_for(name))
+            .is_some_and(|value| matches!(value, super::config::PrefValueConst::Bool(true)))
 }
 
 /// Register the block in the option value store, each option at its default.
@@ -67,16 +67,20 @@ pub fn register() -> usize {
 /// Whether the store holds `name` on.
 #[must_use]
 pub fn on(name: &str) -> bool {
-    matches!(super::store::inq_value(name), Some(PrefValue::Bool(true)))
+    stored(name).unwrap_or(false)
 }
 
 /// Whether `name` is on: as the store holds it, or at its default where the store has no
 /// value for it.
 #[must_use]
 pub fn shown(name: &str) -> bool {
+    stored(name).unwrap_or_else(|| default_on(name))
+}
+
+fn stored(name: &str) -> Option<bool> {
     match super::store::inq_value(name) {
-        Some(PrefValue::Bool(b)) => b,
-        _ => default_on(name),
+        Some(PrefValue::Bool(value)) => Some(value),
+        _ => None,
     }
 }
 
@@ -85,6 +89,25 @@ mod tests {
     //! Behaviour: none (an option block's own registration; the interface that reads it is tested
     //! where it does).
     use super::*;
+
+    #[test]
+    fn absent_and_non_boolean_values_keep_the_two_readers_distinct() {
+        use super::super::store;
+        store::clear();
+        assert!(!on(RIGHT_CLICK_MOUSE_LOOK));
+        assert!(shown(RIGHT_CLICK_MOUSE_LOOK));
+        assert!(!shown(SHOW_TRADE_TAB));
+        assert!(!default_on("Camera.AlignToSlope"));
+        assert!(!shown("unknown"));
+        assert!(store::register_preference(
+            RIGHT_CLICK_MOUSE_LOOK,
+            PrefValue::Int(1),
+            store::DataType::Int,
+        ));
+        assert!(!on(RIGHT_CLICK_MOUSE_LOOK));
+        assert!(shown(RIGHT_CLICK_MOUSE_LOOK));
+        store::clear();
+    }
 
     #[test]
     fn the_block_registers_at_its_defaults_and_holds_what_is_set() {
