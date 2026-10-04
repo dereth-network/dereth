@@ -56,15 +56,19 @@ const TREE_SETUP: u32 = 0x0200_03D1;
 
 /// The creature. Setup `0x02000001`, the Aluvian male body: what matters is that it is a
 /// person-sized opaque object rather than a landscape-sized one. Its furthest part stops drawing
-/// at 134 m; at the six metres this station uses, every part of it draws.
+/// at 134 m; at the five metres this station uses, every part of it draws.
 const CREATURE: u32 = 0x0200_0001;
 const TARGET: ObjectId = ObjectId(0x8300_0031);
 
 /// How far in front of the plant the camera stands, and how far behind it the creature does.
-const CAMERA_BACK: f32 = 1.5;
+const CAMERA_BACK: f32 = 0.8;
 const CREATURE_BEHIND: f32 = 4.5;
 /// Camera height above the terrain, chosen to look through the plant's leaf mass.
-const EYE: f32 = 1.0;
+const EYE: f32 = 0.75;
+/// How far east of the plant's origin the camera and the creature stand. The plant is a low
+/// fern under a metre tall, its fronds splayed east and west with a gap between them over its
+/// root, so the line of sight runs through the eastern frond rather than the gap.
+const ACROSS: f32 = 0.7;
 
 fn warp() -> Gpu {
     crate::common::software_gpu(W, H)
@@ -492,7 +496,7 @@ fn diff_box(a: &[u8], b: &[u8]) -> (u32, u32, u32, u32, usize) {
 /// The **clear** arm is the same camera position turned through 180 degrees with the creature the
 /// same distance in front of it. That keeps the creature's range — and therefore its apparent size
 /// — identical to the hidden arm's, while putting it over open ground instead of behind the
-/// plant. Swinging it sideways instead cannot do both: at six metres, far enough sideways to clear
+/// plant. Swinging it sideways instead cannot do both: at five metres, far enough sideways to clear
 /// a plant of this size is far enough to leave the frustum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Arm {
@@ -533,7 +537,7 @@ const PLACE_ON: usize = 8;
 fn shot(store: &Arc<RetailDatStore>, arm: Arm) -> (Vec<u8>, usize, f32) {
     let mut b = Bench::new(store, warp());
     let plant = PLANT_AT;
-    let eye = Vec3::new(plant.x, plant.y - CAMERA_BACK, plant.z + EYE);
+    let eye = Vec3::new(plant.x + ACROSS, plant.y - CAMERA_BACK, plant.z + EYE);
     let range = CAMERA_BACK + CREATURE_BEHIND;
     // Facing the plant is +y; facing away is -y. The creature is `range` metres along whichever it
     // is, on the ground.
@@ -604,11 +608,9 @@ fn the_plants_leaves_hide_a_creature_standing_behind_them() {
     // **The claim.** Standing behind the plant costs the creature a large part of its pixels,
     // because the leaves are drawn over it.
     //
-    // Measured, identically on both backends: **0.652 with the blended leaves drawn before the
-    // objects and 0.423 with them drawn at the alpha flush**, with the clear arm at 1,941 pixels
-    // both times. The threshold sits between them and is not a tolerance that could be widened to
-    // rescue a regression: the two numbers are reproducible to the pixel, and the control above is
-    // 0 of 307,200.
+    // Measured: **0.399 with the leaves drawn at the alpha flush**, with the clear arm at 2,512
+    // pixels, reproducible to the pixel, and the control above is 0 of 307,200. The threshold is
+    // not a tolerance that could be widened to rescue a regression.
     //
     // It is not lower because the plant's leaves **blend**: a texel whose alpha is neither 0 nor 1
     // leaves the creature showing through it, so it still differs from the backdrop and is still
@@ -632,7 +634,7 @@ fn the_clip_list_is_drawn_before_the_alpha_list() {
     let store = store();
     let mut b = Bench::new(&store, warp());
     let plant = PLANT_AT;
-    let eye = Vec3::new(plant.x, plant.y - CAMERA_BACK, plant.z + EYE);
+    let eye = Vec3::new(plant.x + ACROSS, plant.y - CAMERA_BACK, plant.z + EYE);
     b.look(eye, Vec3::new(eye.x, eye.y + 1.0, eye.z));
     for _ in 0..FRAMES {
         b.draw();
