@@ -153,6 +153,15 @@ impl Interaction {
     ) {
         self.screen = screen;
         self.note_player_physics(body);
+        self.bridge_combat_motion(body, game);
+    }
+
+    /// Copy changed authoritative motion facts without advancing motion.
+    pub(super) fn bridge_combat_motion(
+        &mut self,
+        body: Option<&crate::character::Character>,
+        game: &mut dereth_client_model::World,
+    ) {
         if let Some(body) = body {
             let driver = body.driver();
             let state = &driver.movement.interp.interpreted_state;

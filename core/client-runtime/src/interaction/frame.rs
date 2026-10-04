@@ -187,32 +187,10 @@ fn interaction_frame_tail(
     //     step 3
     //     for the same reason the client's is before `draw_no_blit`: the notice is what consumes it.
     inter.note_player_physics(world.and_then(crate::present::Scene::character));
-    if let Some(scene) = world {
-        if let Some(c) = scene.character() {
-            let style = c.driver().movement.interp.interpreted_state.current_style.0;
-            if inter.combat_style_bridged != Some(style) {
-                inter.combat_style_bridged = Some(style);
-                objects.world.combat.current_style = style;
-                inter.stats.combat_style_bridges += 1;
-            }
-            // The same struct's `forward_command`, which is the other half of
-            // the ready-position check's missile arm: movement interpretation supplies the command,
-            // and readiness compares it with `0x41000003`. Counted on the same counter because
-            // style and forward command cross the same seam.
-            let fwd = c
-                .driver()
-                .movement
-                .interp
-                .interpreted_state
-                .forward_command
-                .0;
-            if inter.combat_forward_command_bridged != Some(fwd) {
-                inter.combat_forward_command_bridged = Some(fwd);
-                objects.world.combat.forward_command = fwd;
-                inter.stats.combat_style_bridges += 1;
-            }
-        }
-    }
+    inter.bridge_combat_motion(
+        world.and_then(crate::present::Scene::character),
+        &mut objects.world,
+    );
     // 2. The screens' requests, and the keyboard actions the UI declined.
     let unowned = inter.run_ui_requests_with_chat_focus(
         &mut objects.world,

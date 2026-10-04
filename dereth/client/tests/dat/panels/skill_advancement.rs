@@ -511,9 +511,9 @@ fn round_trips(session: &str) -> (Vec<SessionEvent>, Vec<RoundTrip>) {
             // the player inside it (heartbeat ints, regeneration ticks, other objects moving) and
             // those are carried along because the client sees them, but they say nothing about
             // how promptly the server answered.
-            if let SessionEvent::UiEvent { opcode, blob } = &timed[cursor].1 {
-                if qupdate::is_update_opcode(*opcode) {
-                    if let Some(u) = qupdate::decode(*opcode, &blob[4..]) {
+            if let Some((opcode, body)) = timed[cursor].1.ui_body() {
+                if qupdate::is_update_opcode(opcode) {
+                    if let Some(u) = qupdate::decode(opcode, body) {
                         if u.subject.is_none() && qupdate::answers_a_raise_update(&u) {
                             latency = latency.max(timed[cursor].0 - t);
                         }
@@ -558,8 +558,8 @@ fn decoded_answers(
     answers
         .iter()
         .filter_map(|e| match e {
-            SessionEvent::UiEvent { opcode, blob } if qupdate::is_update_opcode(*opcode) => {
-                let u = qupdate::decode(*opcode, &blob[4..])
+            SessionEvent::UiEvent { opcode, .. } if qupdate::is_update_opcode(*opcode) => {
+                let u = qupdate::decode(*opcode, e.ui_body().expect("UI event").1)
                     .unwrap_or_else(|| panic!("the capture's own {opcode:?} decodes"));
                 (u.subject.is_none()).then_some((*opcode, u))
             }
@@ -599,8 +599,8 @@ fn apply_capture_events(
             SessionEvent::PlayerDescription(d) => {
                 q.apply_ac_qualities(&d.qualities, LocalTime(0.0));
             }
-            SessionEvent::UiEvent { opcode, blob } if qupdate::is_update_opcode(*opcode) => {
-                if let Some(u) = qupdate::decode(*opcode, &blob[4..]) {
+            SessionEvent::UiEvent { opcode, .. } if qupdate::is_update_opcode(*opcode) => {
+                if let Some(u) = qupdate::decode(*opcode, e.ui_body().expect("UI event").1) {
                     if u.subject.is_none() {
                         let _ = qupdate::apply(q, stamper, &u);
                     }
@@ -1360,8 +1360,8 @@ fn a_replayed_captured_answer_is_refused_as_stale() {
             .answers
             .iter()
             .filter(|e| match e {
-                SessionEvent::UiEvent { opcode, blob } if qupdate::is_update_opcode(*opcode) => {
-                    qupdate::decode(*opcode, &blob[4..]).is_some_and(|u| {
+                SessionEvent::UiEvent { opcode, .. } if qupdate::is_update_opcode(*opcode) => {
+                    qupdate::decode(*opcode, e.ui_body().expect("UI event").1).is_some_and(|u| {
                         u.key == first.key && matches!(u.value, StatValue::Skill(_))
                     })
                 }
@@ -1705,11 +1705,10 @@ fn the_captures_own_skill_updates_land_and_move_the_panel() {
     let mut want_int64: BTreeMap<u32, i64> = BTreeMap::new();
     let mut seen_0x02dd = 0u32;
     for e in in_world {
-        let SessionEvent::UiEvent { opcode, blob } = e else {
+        let Some((opcode, body)) = e.ui_body() else {
             continue;
         };
-        let body = &blob[4..];
-        match *opcode {
+        match opcode {
             dereth_protocol::Opcode::QUALITIES_PRIVATE_UPDATE_SKILL => {
                 let m = dereth_protocol::qualities::QualitiesPrivateUpdateSkill::read(
                     &mut dereth_protocol::archive::Reader::new(body),
@@ -2392,12 +2391,12 @@ fn a_captured_vital_raise_answer_on_its_own_clears_the_latch() {
                 .answers
                 .iter()
                 .filter(|e| match e {
-                    SessionEvent::UiEvent { opcode, blob }
-                        if qupdate::is_update_opcode(*opcode) =>
-                    {
-                        qupdate::decode(*opcode, &blob[4..]).is_some_and(|u| {
-                            u.subject.is_none() && matches!(u.value, StatValue::Attribute2nd(_))
-                        })
+                    SessionEvent::UiEvent { opcode, .. } if qupdate::is_update_opcode(*opcode) => {
+                        qupdate::decode(*opcode, e.ui_body().expect("UI event").1).is_some_and(
+                            |u| {
+                                u.subject.is_none() && matches!(u.value, StatValue::Attribute2nd(_))
+                            },
+                        )
                     }
                     _ => false,
                 })

@@ -1930,20 +1930,6 @@ impl GameView for HudView<'_> {
         id: dereth_primitives::ObjectId,
     ) -> Option<dereth_client_contract::AppraisalView> {
         let p = self.world.appraisal.get(id)?;
-        let s = |k: u32| -> Option<String> {
-            p.tables
-                .strings
-                .as_ref()
-                .and_then(|m| m.entries.iter().find(|(id, _)| *id == k))
-                .map(|(_, v)| v.clone())
-        };
-        let i = |k: u32| -> Option<i32> {
-            p.tables
-                .ints
-                .as_ref()
-                .and_then(|m| m.entries.iter().find(|(id, _)| *id == k))
-                .map(|(_, v)| *v)
-        };
         // The six questions below are what the frame and the value/burden
         // blocks need; everything after them is what the creature pane and the rest of
         // the examination panel's ordered blocks need. The profile is
@@ -2334,11 +2320,11 @@ impl GameView for HudView<'_> {
         Some(dereth_client_contract::AppraisalView {
             delivery: self.world.appraisal.delivery(id),
             creature: p.creature_profile.is_some(),
-            template: s(5).is_some(),
-            character_title: i(0x105).is_some(),
-            gear_plating_name: s(0x34),
-            value: i(0x13),
-            burden: i(5),
+            template: am::inq::string(p, 5).is_some(),
+            character_title: am::inq::int(p, 0x105).is_some(),
+            gear_plating_name: am::inq::string(p, 0x34),
+            value: am::inq::int(p, 0x13),
+            burden: am::inq::int(p, 5),
 
             success: p.success_flag != 0,
 
@@ -2365,9 +2351,9 @@ impl GameView for HudView<'_> {
                     max_velocity_estimated: w.max_velocity_estimated,
                 }),
             weapon_type: am::inq::int(p, am::property::WEAPON_TYPE),
-            attack_type: i(0x2f),
-            elemental_damage_bonus: i(0xcc),
-            activation_heritage: s(0x13),
+            attack_type: am::inq::int(p, 0x2f),
+            elemental_damage_bonus: am::inq::int(p, 0xcc),
+            activation_heritage: am::inq::string(p, 0x13),
             armor_level: am::inq::int(p, am::property::ARMOR_LEVEL),
             enchantment_mods,
             armor_mods: p.armor_profile.map(|a| {

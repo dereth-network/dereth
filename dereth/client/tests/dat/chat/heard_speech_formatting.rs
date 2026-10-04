@@ -129,10 +129,9 @@ fn corpus_speech() -> (
     let (mut says, mut ranged, mut tells) = (Vec::new(), Vec::new(), Vec::new());
     for name in SEVEN_SESSIONS {
         for e in replay(shared_session(name)) {
-            let SessionEvent::UiEvent { opcode, blob } = e else {
+            let Some((opcode, body)) = e.ui_body() else {
                 continue;
             };
-            let body = blob.get(4..).unwrap_or_default();
             let mut r = dereth_protocol::archive::Reader::new(body);
             match opcode {
                 Opcode::COMMUNICATION_HEAR_SPEECH => {

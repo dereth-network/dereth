@@ -104,19 +104,16 @@ pub fn apply_events_at_boundary(
         }
     }
     for e in events {
-        let dereth_client_net::client_session::SessionEvent::UiEvent { opcode, blob } = e else {
+        let Some((opcode, body)) = e.ui_body() else {
             continue;
         };
-        // The blob begins with its own type dword (`SessionEvent::UiEvent`'s contract), which is
-        // what `Message::read` expects to have been stripped.
-        let body = blob.get(4..).unwrap_or_default();
         let mut r = dereth_protocol::archive::Reader::new(body);
         // Server-directed item movement raises a notice that drives
         // the player's unblock retry. All three message arms below use the same apply
         // operation and therefore the same notice listener. Record it here and act
         // after the match, rather than attaching another consumer only to `0x019A`.
         let mut moved: Option<(ObjectId, ObjectId)> = None;
-        match *opcode {
+        match opcode {
             Opcode::ITEM_SERVER_SAYS_CONTAIN_ID => {
                 let Ok(m) = dereth_protocol::objects::ItemServerSaysContainId::read(&mut r) else {
                     continue;
@@ -978,7 +975,7 @@ pub fn apply_events_at_boundary(
             // dispel passes false. Expiry therefore prints a line such as
             // "Strength Self VI has expired." and dispel remains silent.
             Opcode::MAGIC_REMOVE_ENCHANTMENT | Opcode::MAGIC_DISPEL_ENCHANTMENT => {
-                let announce = *opcode == Opcode::MAGIC_REMOVE_ENCHANTMENT;
+                let announce = opcode == Opcode::MAGIC_REMOVE_ENCHANTMENT;
                 let id = if announce {
                     let Ok(m) = dereth_protocol::qualities::MagicRemoveEnchantment::read(&mut r)
                     else {
@@ -1053,7 +1050,7 @@ pub fn apply_events_at_boundary(
             // and folding the two opcodes into one arm would lose it.
             Opcode::MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS
             | Opcode::MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS => {
-                let announce = *opcode == Opcode::MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS;
+                let announce = opcode == Opcode::MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS;
                 let ids = if announce {
                     let Ok(m) =
                         dereth_protocol::qualities::MagicRemoveMultipleEnchantments::read(&mut r)
@@ -1204,7 +1201,7 @@ pub fn apply_events_at_boundary(
             // see every `SessionEvent::UiEvent`, so an opcode is only *dropped* when it falls
             // through **both**; the ledger records per site and a test takes the intersection.
             _ => {
-                crate::dropped::record(crate::dropped::Site::Interaction, *opcode);
+                crate::dropped::record(crate::dropped::Site::Interaction, opcode);
             }
         }
         // Once the blocking move completes, send the deferred wield owed by the paper

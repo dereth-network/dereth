@@ -296,7 +296,7 @@ fn census(session: &str) -> Vec<Case> {
         // Every server message whose first field is an object id counts as naming that object.
         for e in &events {
             let first = match e {
-                SessionEvent::UiEvent { blob, .. } => blob.get(4..8),
+                SessionEvent::UiEvent { .. } => e.ui_body().and_then(|(_, body)| body.get(..4)),
                 SessionEvent::WorldObject { body, .. } => body.get(0..4),
                 _ => None,
             };
@@ -321,10 +321,10 @@ fn census(session: &str) -> Vec<Case> {
         // datagram are three separate inserts into the same list.
         for e in &events {
             let reply = match e {
-                SessionEvent::UiEvent { opcode, blob }
+                SessionEvent::UiEvent { opcode, .. }
                     if *opcode == Opcode::ITEM_SERVER_SAYS_CONTAIN_ID =>
                 {
-                    blob.get(4..).and_then(|b| {
+                    e.ui_body().and_then(|(_, b)| {
                         let mut rd = dereth_protocol::archive::Reader::new(b);
                         dereth_protocol::objects::ItemServerSaysContainId::read(&mut rd).ok()
                     })

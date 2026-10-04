@@ -158,6 +158,18 @@ pub enum SessionEvent {
     },
 }
 
+impl SessionEvent {
+    /// Borrow a UI message's opcode and body, excluding its leading type dword.
+    /// A short UI message has an empty body; other event kinds have no UI body.
+    #[must_use]
+    pub fn ui_body(&self) -> Option<(Opcode, &[u8])> {
+        match self {
+            Self::UiEvent { opcode, blob } => Some((*opcode, blob.get(4..).unwrap_or_default())),
+            _ => None,
+        }
+    }
+}
+
 /// The client-side session.
 #[derive(Debug)]
 pub struct Session<T: Transport> {

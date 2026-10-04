@@ -13,16 +13,15 @@ impl<S: Shell> App<S> {
         shell: &S,
         event: &dereth_client_net::client_session::SessionEvent,
     ) -> bool {
-        let dereth_client_net::client_session::SessionEvent::UiEvent { opcode, blob } = event
-        else {
+        let Some((opcode, body)) = event.ui_body() else {
             return false;
         };
-        if *opcode != dereth_protocol::Opcode::ADMIN_ENVIRONS {
+        if opcode != dereth_protocol::Opcode::ADMIN_ENVIRONS {
             return false;
         }
-        let Ok(message) = dereth_protocol::read_body_padded::<dereth_protocol::admin::AdminEnvirons>(
-            blob.get(4..).unwrap_or_default(),
-        ) else {
+        let Ok(message) =
+            dereth_protocol::read_body_padded::<dereth_protocol::admin::AdminEnvirons>(body)
+        else {
             return false;
         };
         if let Some(blank) = self

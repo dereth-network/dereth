@@ -320,9 +320,10 @@ impl Hud {
                 }
                 // The player id arrives before the player object.
                 SessionEvent::PlayerCreated(id) => self.player = Some(*id),
-                SessionEvent::UiEvent { opcode, blob } => {
+                SessionEvent::UiEvent { .. } => {
+                    let (opcode, body) = e.ui_body().expect("UI event body");
                     let before = chat.len();
-                    self.ui_event(*opcode, blob, world, panels, &mut chat, on_combat_mode);
+                    self.ui_event(opcode, body, world, panels, &mut chat, on_combat_mode);
                     // These handlers compose the same complete body that
                     // retail hands to the censor filter. Filter only
                     // this direct slice before either registered receiver sees it. Lines from
@@ -467,7 +468,7 @@ impl Hud {
     fn ui_event(
         &mut self,
         opcode: dereth_protocol::Opcode,
-        blob: &[u8],
+        body: &[u8],
         world: &mut dereth_client_model::World,
         panels: &mut dyn HudPanels,
         chat: &mut Vec<ChatMessage>,
@@ -479,9 +480,6 @@ impl Hud {
         use dereth_protocol::comms;
         use dereth_protocol::Opcode;
 
-        // The blob begins with its own type dword (`SessionEvent::UiEvent`'s contract), which is
-        // what `Message::read` expects to have been stripped.
-        let body = blob.get(4..).unwrap_or_default();
         let mut r = dereth_protocol::archive::Reader::new(body);
         if crate::trace::notice()
             && matches!(

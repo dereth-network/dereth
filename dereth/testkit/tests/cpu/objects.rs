@@ -1630,7 +1630,7 @@ fn replay_one(session: &'static str) -> Replayed {
                 }
                 SessionEvent::UiEvent { opcode, blob } => {
                     out.bodies.entry(opcode.0).or_default().push(blob.clone());
-                    let body = blob.get(4..).unwrap_or_default();
+                    let (_, body) = e.ui_body().expect("UI event");
                     let mut rd = dereth_protocol::archive::Reader::new(body);
                     match *opcode {
                         Opcode::ITEM_ON_VIEW_CONTENTS => {

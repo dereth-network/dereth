@@ -135,11 +135,9 @@ fn the_enter_world_burst_dispatches_live_rather_than_waiting_for_the_player_desc
 
     let values: Vec<i32> = s
         .drain_events()
-        .filter_map(|e| match e {
-            SessionEvent::UiEvent { opcode, blob }
-                if opcode == QualitiesPrivateUpdateInt::OPCODE =>
-            {
-                dereth_protocol::read_body::<QualitiesPrivateUpdateInt>(&blob[4..])
+        .filter_map(|e| match e.ui_body() {
+            Some((opcode, body)) if opcode == QualitiesPrivateUpdateInt::OPCODE => {
+                dereth_protocol::read_body::<QualitiesPrivateUpdateInt>(body)
                     .ok()
                     .map(|m| m.0.value)
             }

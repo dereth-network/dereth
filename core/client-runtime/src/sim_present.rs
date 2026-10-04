@@ -629,6 +629,87 @@ mod tests {
     use crate::app::{App, NullShell, Platform};
     use crate::config::Config;
 
+    /// Behaviour: combat.power-bar.the-bodys-motion-style-sets-the-charge-rate
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads retail dats: --features retail-dats"
+    )]
+    fn input_and_frame_motion_bridges_count_only_changed_facts_and_leave_absent_bodies_alone() {
+        let store = Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let mut app = App::<NullShell>::bring_up_with_store(
+            Config {
+                headless: true,
+                connect: false,
+                sound: false,
+                ..Config::default()
+            },
+            Some(Arc::clone(&store)),
+            |_| Ok(Platform::headless(64, 64)),
+            |_, _, _, _| Ok(Box::new(SimPresentation::new(64, 64))),
+        )
+        .expect("bring-up");
+        app.load_static_scene(SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        })
+        .expect("world with body");
+        let set_motion = |app: &App<NullShell>, style, forward| {
+            let body = app.world.as_ref().unwrap().character.as_ref().unwrap();
+            let mut driver = body.driver_mut();
+            driver.movement.interp.interpreted_state.current_style =
+                dereth_animation::MotionCommand(style);
+            driver.movement.interp.interpreted_state.forward_command =
+                dereth_animation::MotionCommand(forward);
+        };
+        let input = |app: &mut App<NullShell>| {
+            app.interaction.prepare_ui_dispatch(
+                app.world.as_ref().unwrap().character.as_ref(),
+                &mut app.objects.world,
+                (64, 64),
+            );
+        };
+        let frame = |app: &mut App<NullShell>| {
+            let scene = app.present.scene(app.world.as_ref());
+            let _ = crate::interaction::draw_use_time_with_chat_focus(
+                &mut app.interaction,
+                &store,
+                scene.as_deref(),
+                &mut app.objects,
+                None,
+                Vec::new(),
+                false,
+                (64, 64),
+                dereth_primitives::LocalTime(1.0),
+                &mut |_| {},
+            );
+        };
+        set_motion(&app, 0x8000_0046, 0x4100_0003);
+        input(&mut app);
+        assert_eq!(app.interaction.stats.combat_style_bridges, 2);
+        frame(&mut app);
+        assert_eq!(app.interaction.stats.combat_style_bridges, 2);
+        assert_eq!(app.objects.world.combat.current_style, 0x8000_0046);
+        assert_eq!(app.objects.world.combat.forward_command, 0x4100_0003);
+        set_motion(&app, 0x8000_003d, 0x4100_0003);
+        frame(&mut app);
+        assert_eq!(app.interaction.stats.combat_style_bridges, 3);
+        assert_eq!(app.objects.world.combat.current_style, 0x8000_003d);
+        set_motion(&app, 0x8000_003d, 0x4500_0005);
+        input(&mut app);
+        assert_eq!(app.interaction.stats.combat_style_bridges, 4);
+        assert_eq!(app.objects.world.combat.forward_command, 0x4500_0005);
+        frame(&mut app);
+        assert_eq!(app.interaction.stats.combat_style_bridges, 4);
+        app.world.as_mut().unwrap().character = None;
+        input(&mut app);
+        frame(&mut app);
+        assert_eq!(app.interaction.stats.combat_style_bridges, 4);
+        assert_eq!(app.objects.world.combat.current_style, 0x8000_003d);
+        assert_eq!(app.objects.world.combat.forward_command, 0x4500_0005);
+    }
+
     /// The whole application with no device: a headless `App` over a `SimPresentation` loads a
     /// world with a body, and a `MovementForward` injected into its action queue (as a script or
     /// a key would) walks the body forward.

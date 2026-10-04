@@ -118,10 +118,10 @@ fn examine_recorded(app: &mut App, session: &str, want: ObjectId) -> AppraisalPr
                         entered = true;
                     }
                 }
-                SessionEvent::UiEvent { opcode, blob }
+                SessionEvent::UiEvent { opcode, .. }
                     if *opcode == Opcode::ITEM_SET_APPRAISE_INFO =>
                 {
-                    let body = blob.get(4..).unwrap_or_default();
+                    let (_, body) = e.ui_body().expect("UI event");
                     let mut rd = dereth_protocol::archive::Reader::new(body);
                     let m = dereth_protocol::objects::ItemSetAppraiseInfo::read(&mut rd)
                         .expect("a recorded 0x00C9 decodes");

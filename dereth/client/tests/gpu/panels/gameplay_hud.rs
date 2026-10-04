@@ -610,13 +610,13 @@ fn the_chat_window_shows_what_the_recorded_server_said() {
     // What the capture said, taken from the session's own decoded stream.
     let mut said: Vec<String> = Vec::new();
     for e in &events {
-        let SessionEvent::UiEvent { opcode, blob } = e else {
+        let Some((opcode, body)) = e.ui_body() else {
             continue;
         };
-        if *opcode != dereth_protocol::Opcode::COMMUNICATION_TEXTBOX_STRING {
+        if opcode != dereth_protocol::Opcode::COMMUNICATION_TEXTBOX_STRING {
             continue;
         }
-        let mut r = dereth_protocol::archive::Reader::new(blob.get(4..).unwrap_or_default());
+        let mut r = dereth_protocol::archive::Reader::new(body);
         if let Ok(m) =
             <dereth_protocol::comms::CommunicationTextboxString as dereth_protocol::Message>::read(
                 &mut r,

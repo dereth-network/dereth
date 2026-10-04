@@ -94,13 +94,13 @@ pub fn first_blob_where(session: &str, mut f: impl FnMut(&SessionEvent) -> bool)
 /// Whether `e` is the shard listing `container`'s contents.
 #[must_use]
 pub fn is_view_contents_for(e: &SessionEvent, container: ObjectId) -> bool {
-    let SessionEvent::UiEvent { opcode, blob } = e else {
+    let Some((opcode, body)) = e.ui_body() else {
         return false;
     };
-    if *opcode != dereth_protocol::Opcode::ITEM_ON_VIEW_CONTENTS {
+    if opcode != dereth_protocol::Opcode::ITEM_ON_VIEW_CONTENTS {
         return false;
     }
-    let mut r = dereth_protocol::archive::Reader::new(blob.get(4..).unwrap_or_default());
+    let mut r = dereth_protocol::archive::Reader::new(body);
     dereth_protocol::objects::ItemOnViewContents::read(&mut r)
         .is_ok_and(|m| m.container == container)
 }
@@ -112,13 +112,13 @@ pub fn is_view_contents_for(e: &SessionEvent, container: ObjectId) -> bool {
 /// first, which is what this predicate is for.
 #[must_use]
 pub fn is_locked_appraisal_of(e: &SessionEvent, object: ObjectId) -> bool {
-    let SessionEvent::UiEvent { opcode, blob } = e else {
+    let Some((opcode, body)) = e.ui_body() else {
         return false;
     };
-    if *opcode != dereth_protocol::Opcode::ITEM_SET_APPRAISE_INFO {
+    if opcode != dereth_protocol::Opcode::ITEM_SET_APPRAISE_INFO {
         return false;
     }
-    let mut r = dereth_protocol::archive::Reader::new(blob.get(4..).unwrap_or_default());
+    let mut r = dereth_protocol::archive::Reader::new(body);
     dereth_protocol::objects::ItemSetAppraiseInfo::read(&mut r).is_ok_and(|m| {
         m.object == object
             && m.profile

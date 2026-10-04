@@ -401,8 +401,8 @@ fn decoded_answers(
     answers
         .iter()
         .filter_map(|e| match e {
-            SessionEvent::UiEvent { opcode, blob } if qupdate::is_update_opcode(*opcode) => {
-                let u = qupdate::decode(*opcode, &blob[4..])
+            SessionEvent::UiEvent { opcode, .. } if qupdate::is_update_opcode(*opcode) => {
+                let u = qupdate::decode(*opcode, e.ui_body().expect("UI event").1)
                     .unwrap_or_else(|| panic!("the capture's own {opcode:?} decodes"));
                 (u.subject.is_none()).then_some((*opcode, u))
             }

@@ -501,10 +501,10 @@ fn replay_and_examine(app: &mut App, session: &str, out: &mut Vec<Outcome>, floo
                         entered = true;
                     }
                 }
-                SessionEvent::UiEvent { opcode, blob }
+                SessionEvent::UiEvent { opcode, .. }
                     if *opcode == Opcode::ITEM_SET_APPRAISE_INFO =>
                 {
-                    let body = blob.get(4..).unwrap_or_default();
+                    let (_, body) = e.ui_body().expect("UI event");
                     let mut rd = dereth_protocol::archive::Reader::new(body);
                     let m = dereth_protocol::objects::ItemSetAppraiseInfo::read(&mut rd)
                         .expect("a recorded 0x00C9 decodes");
@@ -663,10 +663,10 @@ fn a_second_reply_for_the_same_object_does_not_reopen_a_panel_the_player_closed(
                             entered = true;
                         }
                     }
-                    SessionEvent::UiEvent { opcode, blob }
+                    SessionEvent::UiEvent { opcode, .. }
                         if *opcode == Opcode::ITEM_SET_APPRAISE_INFO =>
                     {
-                        let body = blob.get(4..).unwrap_or_default();
+                        let (_, body) = e.ui_body().expect("UI event");
                         let mut rd = dereth_protocol::archive::Reader::new(body);
                         let m = dereth_protocol::objects::ItemSetAppraiseInfo::read(&mut rd)
                             .expect("decodes");

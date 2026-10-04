@@ -198,3 +198,43 @@ fn a_surviving_weenie_accepts_ui_without_publishing_or_releasing_physics() {
         "no physical callback was admitted"
     );
 }
+
+/// Behaviour: none (borrowed UI bodies distinguish event kinds without copying or validating payloads).
+#[test]
+fn ui_bodies_borrow_payloads_and_keep_short_messages_distinct_from_other_events() {
+    use dereth_protocol::Opcode;
+    assert_eq!(SessionEvent::WorldReset.ui_body(), None);
+    assert_eq!(
+        SessionEvent::WorldObject {
+            opcode: Opcode::ITEM_SET_STATE,
+            body: vec![1, 2, 3, 4, 5],
+        }
+        .ui_body(),
+        None
+    );
+    for length in 0..=4 {
+        let e = SessionEvent::UiEvent {
+            opcode: Opcode::ITEM_USE_DONE,
+            blob: vec![0xff; length],
+        };
+        assert_eq!(e.ui_body(), Some((Opcode::ITEM_USE_DONE, &[][..])));
+    }
+    let blob = vec![0xff, 0xff, 0xff, 0xff, 7, 8, 9];
+    let payload = blob[4..].as_ptr();
+    let e = SessionEvent::UiEvent {
+        opcode: Opcode::ITEM_USE_DONE,
+        blob,
+    };
+    let (opcode, body) = e.ui_body().expect("UI body");
+    assert_eq!(
+        opcode,
+        Opcode::ITEM_USE_DONE,
+        "the event opcode remains authoritative"
+    );
+    assert_eq!(body, [7, 8, 9]);
+    assert_eq!(
+        body.as_ptr(),
+        payload,
+        "the body borrows the original storage"
+    );
+}

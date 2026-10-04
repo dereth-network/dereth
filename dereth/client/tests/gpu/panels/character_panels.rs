@@ -757,13 +757,13 @@ fn every_recorded_allegiance_update_decodes_and_its_member_count_agrees_with_its
         let events = replay(&session);
         let entry = per.entry(session.clone()).or_default();
         for e in &events {
-            let SessionEvent::UiEvent { opcode, blob } = e else {
+            let Some((opcode, body)) = e.ui_body() else {
                 continue;
             };
-            if *opcode != Opcode::ALLEGIANCE_ALLEGIANCE_UPDATE {
+            if opcode != Opcode::ALLEGIANCE_ALLEGIANCE_UPDATE {
                 continue;
             }
-            let mut r = dereth_protocol::archive::Reader::new(blob.get(4..).unwrap_or_default());
+            let mut r = dereth_protocol::archive::Reader::new(body);
             let m = dereth_protocol::social::AllegianceUpdate::read(&mut r)
                 .expect("every `0x0020` in the corpus must decode");
             total += 1;

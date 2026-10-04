@@ -13,11 +13,11 @@ fn appraisal_display_facts_survive_the_live_projection_and_snapshot() {
     let mut profile = AppraisalProfile::default();
     profile.tables.ints = Some(PackedHash {
         table_size: 8,
-        entries: vec![(0x2f, 0x820), (0xcc, 17)],
+        entries: vec![(0x2f, 0x820), (0xcc, 17), (0x2f, 999), (0xcc, 999)],
     });
     profile.tables.strings = Some(PackedHash {
         table_size: 8,
-        entries: vec![(0x13, "Aluvian".into())],
+        entries: vec![(0x13, "Aluvian".into()), (0x13, "Later duplicate".into())],
     });
     profile.spell_book = Some(vec![5, 999999, 0x8000_0005]);
     world.appraisal.set(id, profile);
@@ -83,6 +83,17 @@ fn appraisal_display_facts_survive_the_live_projection_and_snapshot() {
         assert!(spells.iter().all(|spell| spell.name.is_empty()));
     }
     assert_eq!(live, captured);
+    // The projection owns its strings and survives replacement of the cached tables.
+    world.appraisal.set(id, AppraisalProfile::default());
+    assert_eq!(live.activation_heritage.as_deref(), Some("Aluvian"));
+    let empty = HudView {
+        hud: &hud,
+        world: &world,
+    }
+    .appraisal(id)
+    .unwrap();
+    assert_eq!(empty.attack_type, None);
+    assert_eq!(empty.activation_heritage, None);
 }
 
 /// Behaviour: allegiance.oath.shared-cost-facts-survive-snapshots
