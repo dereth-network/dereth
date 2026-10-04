@@ -22,7 +22,7 @@ retail-dats = []
 [dependencies]
 # `host-nls`: platform/text.rs -- the host's ANSI code page. See below.
 dereth-primitives = { workspace = true, features = ["host-nls"] }
-# chat.rs -- the six built-in speech templates are composed against `dereth_client_model::chat`'s text types.
+# chat.rs exposes the shared chat composition functions alongside the runtime receivers.
 dereth-client-model.workspace = true
 # net.rs -- the UDP transport and the session above it. `ClientNetwork` hands the client session
 # (`dereth_client_net::client_session`) a socket and reads nothing else.

@@ -3,6 +3,9 @@
 //! The model decides destinations and remembered speakers. Interface adapters own widgets
 //! and scrollback; the contract supplies routing and presentation policy data.
 
+/// Display-line composition for incoming speech, emotes, channels and fellowship messages.
+pub mod composition;
+
 use dereth_primitives::ObjectId;
 use std::collections::{BTreeMap, BTreeSet};
 
