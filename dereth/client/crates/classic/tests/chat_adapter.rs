@@ -823,6 +823,10 @@ fn classic_resolution_draft_survives_idle_frames_and_rejected_choice_reads_back_
 
 /// Behaviour: feedback.classic.explicit-emphasis-survives-identical-panel-text
 #[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
 fn actual_abuse_feedback_survives_an_identical_ordinary_line_and_controls_color_and_audio() {
     use dereth_client_contract::feedback::Feedback;
     let (mut app, mut shell) = fixture();

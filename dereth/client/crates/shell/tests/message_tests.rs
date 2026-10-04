@@ -257,6 +257,10 @@ fn movement_events(c: &Client) -> usize {
 
 /// Behaviour: feedback.delivery.active-face-switches-do-not-replay-pending-transients
 #[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
 fn active_face_switches_drop_old_pending_transients_without_replaying_chat_history() {
     use dereth_client_contract::feedback::Feedback;
     use dereth_client_contract::options::{
@@ -341,6 +345,10 @@ fn active_face_switches_drop_old_pending_transients_without_replaying_chat_histo
 
 /// Behaviour: feedback.modern.typed-lines-keep-yellow-replacement-and-expiry
 #[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
 fn typed_lines_reach_the_bound_modern_bubble_and_keep_replacement_and_expiry() {
     use dereth_client_contract::feedback::Feedback;
     let mut c = Client::new();
