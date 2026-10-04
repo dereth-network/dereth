@@ -436,6 +436,8 @@ fn trade_accept_uses_both_displayed_counts_and_offer_scroll_is_independent() {
 /// Behaviour: options.client-page.the-classic-defaults-reset-the-texture-sizes-as-the-retail-ones-do
 #[test]
 fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
+    use dereth_client_contract::options::store;
+    use dereth_client_contract::PrefValue;
     let v = View::default();
     let pregame = PregameView::default();
     let keyboard = KeyboardState::default();
@@ -444,8 +446,6 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
         detail_available: true,
         resolutions: vec![(1024, 768), (800, 600)],
         effects_volume: 0.9,
-        texture_levels: [3, 2, 3, 1],
-        environment_very_high: true,
         landscape_detail: true,
         ..Default::default()
     };
@@ -474,11 +474,7 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
     let PanelAction::Host(HostAction::DefaultClassicSettings(s)) = &out[0] else {
         panic!("missing default settings application")
     };
-    // Landscape at the second step and the environment at the first after Very High, the
-    // shared set's defaults, with the environment's detail textures on and the landscape's off;
-    // the two levels no row shows are left as they were.
-    assert_eq!(s.texture_levels, [1, 2, 0, 1]);
-    assert!(!s.environment_very_high);
+    // The environment's detail textures on and the landscape's off, the shared set's defaults.
     assert!(s.environment_detail && !s.landscape_detail);
     assert_eq!(s.resolution, 0, "the size the client starts at, 1024x768");
     assert_eq!(s.effects_volume, 1.0);
@@ -492,6 +488,150 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
             .kind,
         ControlKind::Choice { .. }
     ));
+    // The texture sizes at the shared set's defaults, Medium and High, written on Apply.
+    store::init();
+    let out = p.event(ControlEvent::Activate("apply".into()), &c);
+    for (name, want) in [
+        ("Render.LandscapeTextureDetail", 2),
+        ("Render.EnvironmentTextureDetail", 1),
+    ] {
+        assert!(
+            out.contains(&PanelAction::Game(UiRequest::SetPreference(
+                name,
+                PrefValue::Int(want)
+            ))),
+            "{name}"
+        );
+        assert_eq!(store::inq_value(name), Some(PrefValue::Int(want)), "{name}");
+    }
+}
+
+/// Every control and every piece of text the classic Client Options page draws over its whole
+/// scroll, from the top down.
+fn whole_client_page(p: &mut dyn Panel, c: &Context<'_>) -> (Vec<String>, Vec<Control>) {
+    let (mut words, mut controls) = (Vec::new(), Vec::<Control>::new());
+    for scroll in (0..2_000).step_by(24) {
+        p.event(
+            ControlEvent::Scroll {
+                id: "scroll".into(),
+                value: scroll,
+            },
+            c,
+        );
+        let f = p.frame(c);
+        words.extend(texts(&f));
+        for k in f.controls {
+            if !controls.iter().any(|o| o.id == k.id) {
+                controls.push(k);
+            }
+        }
+    }
+    (words, controls)
+}
+
+/// Behaviour: options.client-page.the-classic-graphics-rows-read-as-the-retail-ones
+#[test]
+fn the_classic_graphics_rows_carry_the_retail_captions_end_labels_and_texture_steps() {
+    use dereth_client_contract::options::store;
+    use dereth_client_contract::PrefValue;
+    store::init();
+    assert!(store::set_value(
+        "Render.LandscapeTextureDetail",
+        PrefValue::Int(0)
+    ));
+    assert!(store::set_value(
+        "Render.EnvironmentTextureDetail",
+        PrefValue::Int(3)
+    ));
+    let v = View::default();
+    let pregame = PregameView::default();
+    let keyboard = KeyboardState::default();
+    let settings = ClassicSettings {
+        detail_available: true,
+        resolutions: vec![(1024, 768)],
+        ..Default::default()
+    };
+    let c = Context {
+        game: &v,
+        pregame: &pregame,
+        keyboard: &keyboard,
+        settings: &settings,
+        map_teleport_allowed: false,
+        classic: &ClassicState::default(),
+    };
+    let mut p = make("sound-graphics").unwrap();
+    p.event(ControlEvent::Tick, &c);
+    let (words, controls) = whole_client_page(&mut *p, &c);
+    let has = |w: &str| words.iter().any(|t| t == w);
+    for caption in [
+        "Screen Brightness",
+        "Adaptive Degrade",
+        "Adaptive Degrade Bias",
+        "Degrade Distance",
+        "Landscape Texture Detail",
+        "Environment Texture Detail",
+        "Texture Filtering",
+        "Landscape Draw Distance",
+        "Environment Detail Textures",
+        "Multiple Pass Alpha",
+    ] {
+        assert!(has(caption), "{caption} is not on the page: {words:?}");
+    }
+    for gone in [
+        "Auto-Degrade",
+        "Graphics Performance",
+        "Manual Degrade Bias",
+    ] {
+        assert!(!has(gone), "{gone} is still on the page");
+    }
+    for end in ["Dark", "Bright", "Speed", "Detail", "Close", "Far"] {
+        assert!(has(end), "the end caption {end} is not drawn");
+    }
+    let menu = |name: &str| {
+        let id = format!("row:{name}");
+        match &controls.iter().find(|k| k.id == id).expect("the menu").kind {
+            ControlKind::Choice { options, selected } => (options.clone(), *selected),
+            other => panic!("{name} is {other:?}"),
+        }
+    };
+    let steps: Vec<String> = ["Very Low", "Low", "Medium", "High", "Very High"]
+        .map(String::from)
+        .to_vec();
+    // Every stored value shows as itself: Very High (0) and Low (3).
+    assert_eq!(menu("Render.LandscapeTextureDetail"), (steps.clone(), 4));
+    assert_eq!(menu("Render.EnvironmentTextureDetail"), (steps, 1));
+    // Both detail-texture boxes can be changed.
+    for name in [
+        "Render.BuildingDetailTextures",
+        "Render.LandscapeDetailTextures",
+    ] {
+        let id = format!("row:{name}");
+        assert!(
+            controls
+                .iter()
+                .find(|k| k.id == id)
+                .expect("the box")
+                .enabled,
+            "{name} is greyed"
+        );
+    }
+    // Choosing Very High for the environment writes 0, and nothing rewrites the landscape's 0.
+    p.event(
+        ControlEvent::Select {
+            id: "row:Render.EnvironmentTextureDetail".into(),
+            index: 4,
+        },
+        &c,
+    );
+    let out = p.event(ControlEvent::Activate("apply".into()), &c);
+    assert!(out.contains(&PanelAction::Game(UiRequest::SetPreference(
+        "Render.EnvironmentTextureDetail",
+        PrefValue::Int(0)
+    ))));
+    assert_eq!(
+        store::inq_value("Render.LandscapeTextureDetail"),
+        Some(PrefValue::Int(0))
+    );
 }
 
 #[test]

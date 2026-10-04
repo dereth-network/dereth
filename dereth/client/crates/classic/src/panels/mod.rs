@@ -105,10 +105,9 @@ pub struct ClassicSettings {
     pub auto_degrade: bool,
     pub landscape_detail: bool,
     pub environment_detail: bool,
+    /// The four texture sizes a settings file left by the classic interface kept, as its steps
+    /// (0 full size .. 3 the smallest); read only to carry such a file into the profile.
     pub texture_levels: [u8; 4],
-    /// Every image but the landscape's at the final client's Very High: full size, from its
-    /// high-resolution art. The environment's step in `texture_levels` then is Full.
-    pub environment_very_high: bool,
     /// Whether the game fills the monitor (a borderless window over it) rather than a window.
     pub full_screen: bool,
 }

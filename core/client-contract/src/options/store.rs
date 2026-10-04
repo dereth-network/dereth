@@ -936,6 +936,18 @@ pub fn display_choices(name: &str) -> Vec<Choice> {
     })
 }
 
+/// The words a page shows for a choice the registry spells as one: `VeryLow` and `VeryHigh` read
+/// "Very Low" and "Very High", as the retail page's string table words them; every other choice
+/// reads as it is spelled.
+#[must_use]
+pub fn choice_caption(label: &str) -> &str {
+    match label {
+        "VeryLow" => "Very Low",
+        "VeryHigh" => "Very High",
+        other => other,
+    }
+}
+
 /// The choice strings and values together, as the owned pair a run-time list needs.
 ///
 /// The `&'static` [`inq_choice_strings`] and [`inq_choice_values`] answer the eight compiled-in

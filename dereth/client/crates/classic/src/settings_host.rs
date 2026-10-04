@@ -93,8 +93,8 @@ impl Stored {
         s.performance = ((self.graphics >> 8) & 15) as f32 / 10.0;
         s.camera_stiffness = ((self.graphics >> 12) & 15) as f32 / 10.0;
         s.texture_levels = std::array::from_fn(|i| ((self.textures >> (4 * i)) & 15) as u8);
-        s.landscape_detail = self.detail[0] && s.detail_available;
-        s.environment_detail = self.detail[1] && s.detail_available;
+        s.landscape_detail = self.detail[0];
+        s.environment_detail = self.detail[1];
         if let Some(i) = s
             .resolutions
             .iter()
@@ -105,26 +105,17 @@ impl Stored {
         Ok(s)
     }
 }
-/// The classic Client page's settings, carried onto the shared scene's render preferences.
+/// The classic Client page's hosted settings, carried onto the shared scene's render preferences.
 ///
-/// The classic page has four texture sliders (landscape, clip-mapped, colour and indexed images),
-/// each with four steps from full size to a sixteenth. The shared scene has two: landscape, and one
-/// level for every other image. So the landscape slider sets the landscape level, the colour slider
-/// sets the other one, and the last step is an eighth (the smallest the shared scene makes). The
-/// detail-texture checkbox for buildings and environment sets the shared one; the shared scene draws
-/// no landscape detail texture, so that checkbox changes nothing. Brightness sets the screen's gamma
-/// (the classic page raised the ambient light and the viewer's own light instead) on the other
-/// interface's scale, [`brightness_of_slider`], so the slider's middle leaves the picture as it is;
-/// and the performance slider sets the degrade bias when automatic degrading is off, speed at its
-/// left and detail at its right, the way the other interface's slider runs.
+/// The Environment Detail Textures box sets the shared preference as it is. Brightness sets the
+/// screen's gamma (the classic page raised the ambient light and the viewer's own light instead)
+/// on the other interface's scale, [`brightness_of_slider`], so the slider's middle leaves the
+/// picture as it is; and the Adaptive Degrade Bias slider sets the degrade bias when automatic
+/// degrading is off, speed at its left and detail at its right, the way the other interface's
+/// slider runs. The texture sizes, the landscape detail textures and the degrade distance are not
+/// hosted: the page edits them as the preferences they are.
 pub fn render_preferences(s: &ClassicSettings, prefs: &mut RenderPreferences) {
-    prefs.landscape_texture_detail = u32::from(s.texture_levels[0].min(3)) + 1;
-    prefs.environment_texture_detail = if s.environment_very_high {
-        0
-    } else {
-        u32::from(s.texture_levels[2].min(3)) + 1
-    };
-    prefs.environment_detail_textures = s.detail_available && s.environment_detail;
+    prefs.environment_detail_textures = s.environment_detail;
     prefs.screen_brightness = brightness_of_slider(s.brightness);
     prefs.automatic_degrades = s.auto_degrade;
     prefs.graphics_performance = 2.0 * normalized(s.performance) - 1.0;
@@ -156,14 +147,6 @@ fn render_requests(s: &ClassicSettings, camera: Option<f32>) -> Vec<UiRequest> {
     let mut prefs = RenderPreferences::default();
     render_preferences(s, &mut prefs);
     let mut out = vec![
-        preference(
-            names::LANDSCAPE_TEXTURE_DETAIL,
-            PrefValue::Int(i32::try_from(prefs.landscape_texture_detail).unwrap_or(1)),
-        ),
-        preference(
-            names::ENVIRONMENT_TEXTURE_DETAIL,
-            PrefValue::Int(i32::try_from(prefs.environment_texture_detail).unwrap_or(1)),
-        ),
         preference(
             names::BUILDING_DETAIL_TEXTURES,
             PrefValue::Bool(prefs.environment_detail_textures),
@@ -269,15 +252,8 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
         s.ambient_volume = normalized(v);
     }
     use dereth_client_runtime::render_prefs as names;
-    if let Some(v) = int_of(names::LANDSCAPE_TEXTURE_DETAIL) {
-        s.texture_levels[0] = level_of(v);
-    }
-    if let Some(v) = int_of(names::ENVIRONMENT_TEXTURE_DETAIL) {
-        s.environment_very_high = v == 0;
-        s.texture_levels[2] = level_of(v);
-    }
     if let Some(v) = bool_of(names::BUILDING_DETAIL_TEXTURES) {
-        s.environment_detail = v && s.detail_available;
+        s.environment_detail = v;
     }
     if let Some(v) = float_of(names::SCREEN_BRIGHTNESS) {
         s.brightness = slider_of_brightness(v);
@@ -297,9 +273,19 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
     s
 }
 
-/// A texture-detail preference (1 full size .. 4 an eighth) as the page's step (0 .. 3).
-fn level_of(v: i32) -> u8 {
-    u8::try_from((v - 1).clamp(0, 3)).unwrap_or(0)
+/// The texture sizes a `settings.json` kept as the page's old steps (0 full size .. 3 the
+/// smallest), as the shared preferences they stand for: landscape and every other image, stored
+/// value step + 1 (High .. Very Low).
+fn texture_values(s: &ClassicSettings) -> Vec<(&'static str, PrefValue)> {
+    use dereth_client_runtime::render_prefs as names;
+    let value = |step: u8| PrefValue::Int(i32::from(step.min(3)) + 1);
+    vec![
+        (names::LANDSCAPE_TEXTURE_DETAIL, value(s.texture_levels[0])),
+        (
+            names::ENVIRONMENT_TEXTURE_DETAIL,
+            value(s.texture_levels[2]),
+        ),
+    ]
 }
 
 /// Carry a `settings.json` the classic interface kept in its own folder into the shared store,
@@ -321,8 +307,11 @@ pub fn migrate_settings_file(path: &Path, defaults: &ClassicSettings) -> Result<
     file.full_screen = defaults.full_screen;
     let mut carried = 0;
     // The page's first values as the file would have held them (tenths, hundredths).
-    let before = shared_values(&Stored::from_settings(defaults).decode(defaults)?);
+    let first = Stored::from_settings(defaults).decode(defaults)?;
+    let mut before = shared_values(&first);
+    before.extend(texture_values(&first));
     let mut after = shared_values(&file);
+    after.extend(texture_values(&file));
     if !defaults
         .resolutions
         .contains(&(stored.resolution[0], stored.resolution[1]))
@@ -424,9 +413,7 @@ impl SettingsHost {
         save: bool,
     ) -> Result<Vec<UiRequest>, String> {
         let packed = Stored::from_settings(&settings);
-        let mut effective = packed.decode(&self.current)?;
-        // Very High is not one of the packed steps.
-        effective.environment_very_high = settings.environment_very_high;
+        let effective = packed.decode(&self.current)?;
         // A rejected native resize can leave the requested configuration ahead of
         // the live surface; rollback and retry must start from what is displayed.
         let previous = cx.present().size();
@@ -748,23 +735,52 @@ mod tests {
     #[test]
     fn the_classic_graphics_settings_land_on_the_shared_render_preferences() {
         let mut s = settings();
-        s.texture_levels = [3, 2, 1, 0];
         s.brightness = 1.5;
         s.performance = 1.0;
         s.auto_degrade = false;
-        s.detail_available = true;
         s.environment_detail = true;
         let mut prefs = RenderPreferences::default();
+        let sizes = (
+            prefs.landscape_texture_detail,
+            prefs.environment_texture_detail,
+        );
         render_preferences(&s, &mut prefs);
-        assert_eq!(prefs.landscape_texture_detail, 4);
-        assert_eq!(prefs.environment_texture_detail, 2);
         assert!(prefs.environment_detail_textures);
         assert_eq!(prefs.screen_brightness, 1.0);
         assert!(!prefs.automatic_degrades);
         assert_eq!(prefs.graphics_performance, 1.0);
-        s.detail_available = false;
-        render_preferences(&s, &mut prefs);
-        assert!(!prefs.environment_detail_textures);
+        // The texture sizes are the page's own rows, not the host's: it leaves them alone.
+        assert_eq!(
+            (
+                prefs.landscape_texture_detail,
+                prefs.environment_texture_detail
+            ),
+            sizes
+        );
+    }
+    /// Behaviour: options.client-page.the-classic-page-sends-the-environment-detail-textures-as-set
+    #[test]
+    fn the_environment_detail_textures_box_reaches_the_scene_as_stored_and_the_sizes_are_not_sent()
+    {
+        store::init();
+        assert!(store::set_value(
+            "Render.BuildingDetailTextures",
+            PrefValue::Bool(true)
+        ));
+        let mut capabilities = settings();
+        capabilities.detail_available = false;
+        let s = from_shared(&capabilities);
+        assert!(s.environment_detail, "the page opens on the stored value");
+        let sent = render_requests(&s, None);
+        assert!(sent.contains(&UiRequest::SetPreference(
+            "Render.BuildingDetailTextures",
+            PrefValue::Bool(true)
+        )));
+        assert!(
+            !sent.iter().any(|r| matches!(r, UiRequest::SetPreference(n, _)
+                if *n == "Render.LandscapeTextureDetail" || *n == "Render.EnvironmentTextureDetail")),
+            "the host never sends the texture sizes: the page's own rows do"
+        );
     }
     #[test]
     fn a_ticked_sound_box_plays_that_sound() {
@@ -834,10 +850,6 @@ mod tests {
             "Render.ScreenBrightness",
             PrefValue::Float(0.0)
         ));
-        assert!(store::set_value(
-            "Render.LandscapeTextureDetail",
-            PrefValue::Int(3)
-        ));
         assert!(store::set_value("Camera.Stiffness", PrefValue::Float(0.45)));
         let mut capabilities = settings();
         capabilities.sound_available = false;
@@ -848,7 +860,6 @@ mod tests {
             s.brightness, 0.5,
             "the slider's middle: the world's brightness as the other page left it"
         );
-        assert_eq!(s.texture_levels[0], 2);
         assert!((s.camera_stiffness - 0.23).abs() < 0.001);
         assert!(
             !s.sound_available,

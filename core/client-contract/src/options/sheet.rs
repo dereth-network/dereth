@@ -670,28 +670,22 @@ const CLIENT: [Heading; 5] = [
     Heading {
         title: "Graphics Quality",
         rows: &[
-            Row {
-                classic: Some(("Auto-Degrade", false)),
-                ..noted(
-                    "Lowers the detail of distant objects to hold the frame rate.",
-                    pref(
-                        "Adaptive Degrade",
-                        Value::Check("Render.AutomaticDegrades"),
-                        Bool(false),
-                    ),
-                )
-            },
-            Row {
-                classic: Some(("Graphics Performance", false)),
-                ..noted(
-                    "Speed or detail chosen by hand, used while Adaptive Degrade is off.",
-                    pref(
-                        "Manual Degrade Bias",
-                        Value::Slider("Render.GraphicsPerformance"),
-                        Float(0.0),
-                    ),
-                )
-            },
+            noted(
+                "Lowers the detail of distant objects to hold the frame rate.",
+                pref(
+                    "Adaptive Degrade",
+                    Value::Check("Render.AutomaticDegrades"),
+                    Bool(false),
+                ),
+            ),
+            noted(
+                "Speed or detail chosen by hand, used while Adaptive Degrade is off.",
+                pref(
+                    "Adaptive Degrade Bias",
+                    Value::Slider("Render.GraphicsPerformance"),
+                    Float(0.0),
+                ),
+            ),
             pref(
                 "Degrade Distance",
                 Value::Slider("Render.DegradeDistance"),
@@ -892,10 +886,30 @@ pub fn row_of_option(option: PlayerOption) -> Option<&'static Row> {
         .find(|r| r.value == Value::Option(option))
 }
 
-/// The slider a check box greys out while the box is ticked: Degrade Bias is the speed or detail
-/// chosen by hand, and is used only while Adaptive Degrade is off.
+/// The slider a check box greys out while the box is ticked: Adaptive Degrade Bias is the speed or
+/// detail chosen by hand, and is used only while Adaptive Degrade is off.
 pub const GREYED_WHILE_ON: [(&str, &str); 1] =
     [("Render.AutomaticDegrades", "Render.GraphicsPerformance")];
+
+/// The captions under a slider's two ends, left then right, for the sliders the retail page
+/// labels; both interfaces draw the same words.
+pub const SLIDER_ENDS: [(&str, &str, &str); 6] = [
+    ("Camera.Stiffness", "Soft", "Hard"),
+    ("Camera.AdjustmentSpeed", "Slow", "Fast"),
+    ("Render.FieldOfView", "Narrow", "Wide"),
+    ("Render.ScreenBrightness", "Dark", "Bright"),
+    ("Render.GraphicsPerformance", "Speed", "Detail"),
+    ("Render.DegradeDistance", "Close", "Far"),
+];
+
+/// The two end captions of `preference`'s slider, if the retail page labels it.
+#[must_use]
+pub fn slider_ends(preference: &str) -> Option<(&'static str, &'static str)> {
+    SLIDER_ENDS
+        .iter()
+        .find(|(p, _, _)| *p == preference)
+        .map(|&(_, left, right)| (left, right))
+}
 
 #[cfg(test)]
 mod tests {

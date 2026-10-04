@@ -1521,6 +1521,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "options.client-page.the-classic-graphics-rows-read-as-the-retail-ones",
+        says: "The classic interface's Client page names every graphics row as the retail \
+               interface's page does, Adaptive Degrade and Adaptive Degrade Bias among them, \
+               labels the brightness, bias and degrade distance sliders Dark and Bright, Speed \
+               and Detail, Close and Far, lists both texture sizes from Very Low to Very High \
+               with the stored size chosen, and leaves both detail-texture boxes free to change.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-GRAPHICS-ROWS"),
+        station: "dereth-classic-ui::lib::panels::services::tests::the_classic_graphics_rows_carry_the_retail_captions_end_labels_and_texture_steps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "options.client-page.the-classic-page-sends-the-environment-detail-textures-as-set",
+        says: "With the classic interface up, the Environment Detail Textures setting reaches \
+               the world as it is stored, so building and interior detail textures stay drawn, \
+               and the classic page sends no texture size of its own over the stored ones.",
+        since: THIS_CLIENT,
+        divergence: "CD-021",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-DETAIL-TEXTURES"),
+        station: "dereth-classic-ui::lib::settings_host::tests::the_environment_detail_textures_box_reaches_the_scene_as_stored_and_the_sizes_are_not_sent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "options.client-page.the-drop-downs-list-their-registered-choices-and-open-on-the-stored-one",
         says: "Each drop-down on the client options page opens with the row for the stored setting \
                selected and that row's caption on the shut drop-down's face, so a landscape draw \

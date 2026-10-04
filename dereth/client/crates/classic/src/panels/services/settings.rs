@@ -2,9 +2,10 @@
 //! Options, Chat Options and Client Options), drawn the classic interface's way.
 //!
 //! The Client Options page scrolls, as the Character page does. Its rows that the classic
-//! interface always had (sound, the window size, brightness, camera stiffness, the graphics
-//! performance, the texture sizes) keep their own steps and go through the settings host as
-//! before; the rest are edited as the preferences they are, and Apply writes them.
+//! interface always had (sound, the window size, brightness, camera stiffness, the degrade bias)
+//! keep their own steps and go through the settings host as before; the rest are edited as the
+//! preferences they are, and Apply writes them. Every row carries the same caption as the other
+//! interface's page, and the sliders the retail page labels at their ends are labelled the same.
 use super::*;
 use dereth_client_contract::options::sheet::{self, Face, PageId, Row, Value};
 use dereth_client_contract::options::{classic, store};
@@ -117,14 +118,7 @@ fn hosted(preference: &str) -> bool {
             | "Render.GraphicsPerformance"
             | "Render.AutomaticDegrades"
             | "Render.BuildingDetailTextures"
-            | "Render.LandscapeTextureDetail"
-            | "Render.EnvironmentTextureDetail"
     )
-}
-
-/// The page's step of a texture-detail preference's value: 1 is the first, 4 the last.
-fn texture_level(value: i32) -> u8 {
-    u8::try_from((value - 1).clamp(0, 3)).unwrap_or(0)
 }
 
 /// A preference's slider range, from its registration.
@@ -135,11 +129,6 @@ fn range(preference: &str) -> (f32, f32) {
         .and_then(|p| p.range)
         .unwrap_or((0.0, 1.0))
 }
-
-/// The classic steps of the two texture sizes: the landscape's Full to an eighth (1 to 4), and
-/// every other image's with the final client's Very High (0) before them.
-const LANDSCAPE_STEPS: [&str; 4] = ["Full", "1/2", "1/4", "1/8"];
-const ENVIRONMENT_STEPS: [&str; 5] = ["Very High", "Full", "1/2", "1/4", "1/8"];
 
 /// Whether the world's era has what a row sets: the social window's Secure Trade page needs
 /// trade, and its row is not shown without it.
@@ -265,18 +254,6 @@ impl Settings {
                     .collect(),
                 s.resolution,
             ),
-            "Render.LandscapeTextureDetail" => (
-                LANDSCAPE_STEPS.map(String::from).to_vec(),
-                usize::from(s.texture_levels[0].min(3)),
-            ),
-            "Render.EnvironmentTextureDetail" => (
-                ENVIRONMENT_STEPS.map(String::from).to_vec(),
-                if s.environment_very_high {
-                    0
-                } else {
-                    usize::from(s.texture_levels[2].min(3)) + 1
-                },
-            ),
             _ => {
                 let choices = store::choice_rows(preference).unwrap_or_default();
                 let now = match self.own_value(preference) {
@@ -284,7 +261,13 @@ impl Settings {
                     _ => 0,
                 };
                 let chosen = choices.iter().position(|c| c.value == now).unwrap_or(0);
-                (choices.into_iter().map(|c| c.label).collect(), chosen)
+                (
+                    choices
+                        .iter()
+                        .map(|c| store::choice_caption(&c.label).to_owned())
+                        .collect(),
+                    chosen,
+                )
             }
         }
     }
@@ -372,6 +355,13 @@ impl Settings {
                     );
                     slider.enabled = enabled;
                     slider.images = Some(SLIDER_ART.map(String::from));
+                    // The two ends' captions under the bar, as the other interface draws them.
+                    if let Some((left, right)) = sheet::slider_ends(p) {
+                        let ink = if enabled { INK } else { GREY };
+                        let under = rect(160, y + 13, 115, 10);
+                        f.text_box(under, left, "10-4", ink, TextAlign::Left, false, clip);
+                        f.text_box(under, right, "10-4", ink, TextAlign::Right, false, clip);
+                    }
                 }
                 Value::Menu(p) => {
                     f.label(14, y + 2, caption, "15-6", INK, clip);
@@ -469,26 +459,19 @@ impl Settings {
         if let Some(i) = s.resolutions.iter().position(|r| *r == (1024, 768)) {
             s.resolution = i;
         }
-        // The texture sizes and the detail textures go back to the shared set's defaults, as the
-        // other interface's Defaults puts them.
+        // The detail textures go back to the shared set's defaults, as the other interface's
+        // Defaults puts them; the texture sizes are rows of their own and the loop below does.
         let default_of = |name: &str| {
             sheet::rows_for(PageId::Client, Face::Retail)
                 .find(|r| r.preference() == Some(name))
                 .and_then(|r| r.default)
                 .map(PrefValue::from)
         };
-        if let Some(PrefValue::Int(v)) = default_of("Render.LandscapeTextureDetail") {
-            s.texture_levels[0] = texture_level(v);
-        }
-        if let Some(PrefValue::Int(v)) = default_of("Render.EnvironmentTextureDetail") {
-            s.environment_very_high = v == 0;
-            s.texture_levels[2] = texture_level(v);
-        }
         if let Some(PrefValue::Bool(on)) = default_of("Render.BuildingDetailTextures") {
-            s.environment_detail = on && s.detail_available;
+            s.environment_detail = on;
         }
         if let Some(PrefValue::Bool(on)) = default_of("Render.LandscapeDetailTextures") {
-            s.landscape_detail = on && s.detail_available;
+            s.landscape_detail = on;
         }
         let s = s.clone();
         for r in sheet::rows_for(PageId::Client, Face::Classic) {
@@ -605,14 +588,6 @@ impl Settings {
                 match name {
                     "Sound.SoundFeatures" => s.stereo = index == 0,
                     "Display.Resolution" if index < s.resolutions.len() => s.resolution = index,
-                    "Render.LandscapeTextureDetail" => {
-                        s.texture_levels[0] = u8::try_from(index.min(3)).unwrap_or(3);
-                    }
-                    "Render.EnvironmentTextureDetail" => {
-                        s.environment_very_high = index == 0;
-                        s.texture_levels[2] =
-                            u8::try_from(index.saturating_sub(1).min(3)).unwrap_or(3);
-                    }
                     other => {
                         let choices = store::choice_rows(other).unwrap_or_default();
                         let Some(choice) = choices.get(index) else {

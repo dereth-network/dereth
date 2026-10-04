@@ -1769,19 +1769,12 @@ impl PlayerOptionPage {
                 }
             }
         }
-        // A slider another option decides is captioned for what it is, and greyed while it is
-        // not used.
+        // A slider another option decides is greyed while it is not used. It keeps the retail
+        // caption the string table gives it.
         for (check, slider) in sheet::GREYED_WHILE_ON {
             let find = |p: &str| self.options.iter().position(|o| o.preference == p);
             if let (Some(t), Some(s)) = (find(check), find(slider)) {
                 self.greyed_while_on.push((t, s));
-                if let Some(row) = sheet::row_of_preference(PageId::Client, slider) {
-                    let label = ui.get_child_recursive(self.options[s].row, child::SLIDER_LABEL);
-                    if let Some(h) = label {
-                        set_literal_text(ui, h, row.caption);
-                        self.options[s].label = Some(row.caption.to_owned());
-                    }
-                }
             }
         }
         self.sync_gates(ui);

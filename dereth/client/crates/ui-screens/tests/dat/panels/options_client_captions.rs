@@ -140,9 +140,7 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     assert_eq!(cap("Display.FullScreen"), "Full Screen");
     assert_eq!(cap("Render.ScreenBrightness"), "Screen Brightness");
     assert_eq!(cap("Render.AutomaticDegrades"), "Adaptive Degrade");
-    // The bias is captioned for what it is: the speed or detail chosen by hand, used while
-    // Adaptive Degrade is off (retail's string says "Adaptive Degrade Bias").
-    assert_eq!(cap("Render.GraphicsPerformance"), "Manual Degrade Bias");
+    assert_eq!(cap("Render.GraphicsPerformance"), "Adaptive Degrade Bias");
     assert_eq!(
         cap("Render.LandscapeDetailTextures"),
         "Landscape Detail Textures"
@@ -363,14 +361,7 @@ fn with_no_registry_no_row_is_labelled_and_every_slider_is_zero_to_one() {
         29,
         "the rows still build; only the captions are gone"
     );
-    // Only the bias, which this client captions itself.
-    assert_eq!(
-        p.retail_options()
-            .filter(|o| o.label.is_some())
-            .map(|o| o.preference)
-            .collect::<Vec<_>>(),
-        ["Render.GraphicsPerformance"]
-    );
+    assert_eq!(p.retail_options().filter(|o| o.label.is_some()).count(), 0);
     assert_eq!(p.options.iter().filter(|o| o.label_token != 0).count(), 0);
     // This client's own rows have no registry entry to lose: their captions are literal.
     assert_eq!(
@@ -398,12 +389,9 @@ fn with_no_string_table_the_page_records_which_string_it_asked_for() {
     let p = &s.config_page;
     assert_eq!(p.retail_options().count(), 29);
     assert_eq!(
-        p.retail_options()
-            .filter(|o| o.label.is_some())
-            .map(|o| o.preference)
-            .collect::<Vec<_>>(),
-        ["Render.GraphicsPerformance"],
-        "nothing resolved; the bias carries this client's own caption"
+        p.retail_options().filter(|o| o.label.is_some()).count(),
+        0,
+        "nothing resolved"
     );
     assert_eq!(
         p.options.iter().filter(|o| o.label_token != 0).count(),

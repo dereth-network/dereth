@@ -343,15 +343,12 @@ impl RenderPreferences {
     /// read out of this struct on the next frame and change the picture then, which is exactly
     /// what the render-preference poll does with them.
     ///
-    /// The two texture-detail levels are different, and the difference is stated rather than
-    /// hidden: retail's poll changes the landscape texture scale, then flushes graphics
-    /// resources, throwing away every cached
-    /// texture so the next build re-creates them at the new size. This build has no such flush —
-    /// `crate::world::WorldScene`'s `TerrainMergeCache` takes its shift once, at
-    /// `WorldScene::load`. So the **variable** moves here and the **textures** follow at the next
-    /// scene load, not at the next frame. A live flush would be new work.
-    /// `Render.SceneryDrawDistance` and `Render.AutomaticDegrades` record for the same reason and
-    /// with the same caveat; see the struct's field docs for what reads each in retail.
+    /// The rest change the world live too, through the scene's per-frame poll of this struct:
+    /// the two texture-detail levels flush the cached textures and rebuild the resident blocks at
+    /// the new size, as retail's poll flushes its graphics resources; the landscape draw distance
+    /// opens a new landblock window; the detail-texture switches re-apply the detail textures;
+    /// `Render.AutomaticDegrades` restarts the detail loop. `Render.SceneryDrawDistance` is
+    /// recorded and read by nothing; see the struct's field docs for what reads each in retail.
     pub fn set_named(&mut self, name: &str, value: &dereth_client_contract::PrefValue) -> bool {
         use dereth_client_contract::PrefValue;
         let int = |v: &PrefValue| match v {

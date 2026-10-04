@@ -1393,6 +1393,9 @@ impl ClassicUi {
         self.canvas =
             Some(Canvas::new(std::sync::Arc::clone(&self.art), size).map_err(|e| e.to_string())?);
         self.settings.hardware_acceleration = true;
+        // The detail-texture boxes are live wherever the page can be opened: the scene draws
+        // all three classes of detail texture.
+        self.settings.detail_available = true;
         self.settings.sound_available = cx.audio_mut().is_some();
         self.settings.resolutions = cx
             .display_modes()
