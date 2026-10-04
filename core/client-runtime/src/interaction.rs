@@ -1289,8 +1289,6 @@ pub struct Interaction {
     pending_tooltip: Option<WorldTooltip>,
     /// Current UI target mode.
     target_mode: TargetMode,
-    /// Current and maximum split sizes, which the stack slider writes.
-    split: SplitState,
     /// The command table used to process chat input.
     chat: dereth_client_model::cmd::CommandInterp,
     /// What the mouse and the screens asked for this frame, queued by [`Self::queue`].
@@ -1508,6 +1506,9 @@ pub struct Interaction {
     /// start whose only reader is `stats.panels_requested`. That counter is kept (it is the only
     /// evidence the minigame arm ran); this queue is what acts when a tinkering tool is used.
     pending_salvage: Vec<SalvageNotice>,
+    /// Host-loaded trade-note denominations used by shared payment gestures.
+    pub trade_note_values: Vec<(u32, u32)>,
+    pub journal_coords: Option<(f32, f32)>,
     /// One-frame queue for housing range exits at the nine-unit threshold.
     pending_slumlord_range_exits: Vec<ObjectId>,
     /// One-frame queue for book range exits at the book's use radius.
@@ -2140,7 +2141,7 @@ impl Interaction {
     ) {
         let mut out = Notices::default();
         let mut req = RecordingRequests::default();
-        game.confirm_targeted_usage(&mut req, &mut out, source, target, self.split, now);
+        game.confirm_targeted_usage(&mut req, &mut out, source, target, game.split, now);
         self.absorb(game, out, req);
     }
 
@@ -2154,7 +2155,7 @@ impl Interaction {
     ) {
         let mut out = Notices::default();
         let mut req = RecordingRequests::default();
-        game.confirm_usage(&mut req, &mut out, object, self.split, now);
+        game.confirm_usage(&mut req, &mut out, object, game.split, now);
         self.absorb(game, out, req);
     }
     /// Register local chat-system commands when the `0xF658` startup flag is true.
@@ -2717,12 +2718,6 @@ impl Interaction {
         self.reason
     }
 
-    /// Current and maximum stack-split sizes.
-    #[must_use]
-    pub fn split(&self) -> SplitState {
-        self.split
-    }
-
     /// Viewport mouse-down and mouse-up handling, plus
     /// the toolbar's four stance ids.
     ///
@@ -3189,7 +3184,7 @@ impl Interaction {
             out.usage_confirmations.len(),
         );
         let ground_before = game.ground_object;
-        let outcome = game.use_object(req, out, id, self.split, now);
+        let outcome = game.use_object(req, out, id, game.split, now);
         let opened_ground: usize = out.ground[n_ground..].iter().filter(|g| g.0 != 0).count();
         self.stats.contained_containers_opened += (out.contained.len() - n_contained) as u64;
         self.stats.panels_requested += out.panels - n_panels;
@@ -3366,7 +3361,7 @@ impl Interaction {
         }
         // If the item is not the player's and this call came from a drag, pick it up first.
         if !game.is_owned_by_player(item)
-            && !game.place_in_backpack(req, out, item, false, self.split, now)
+            && !game.place_in_backpack(req, out, item, false, game.split, now)
         {
             return false;
         }
@@ -3536,7 +3531,7 @@ impl Interaction {
             TargetMode::UseTarget => {
                 // target_acquired consumes the retained source before compatibility.
                 // It is not the mutable selection, and does not re-run object use's throttle.
-                let _ = game.target_acquired(req, out, target, self.split, now);
+                let _ = game.target_acquired(req, out, target, game.split, now);
             }
             TargetMode::None => {}
         }
@@ -3590,7 +3585,7 @@ impl Interaction {
             onto,
             true,
             player_on_ground,
-            self.split,
+            game.split,
             now,
         ) {
             self.stats.requests_refused += 1;
@@ -4108,7 +4103,77 @@ impl Interaction {
         // `use_time`'s own `ServerTime(now.0)` already assumes.
         let ready = self.ready_for_attack(game);
         let local_now = dereth_primitives::LocalTime(now.0);
-        for r in std::mem::take(&mut self.ui_requests) {
+        let mut pending = std::collections::VecDeque::from(std::mem::take(&mut self.ui_requests));
+        while let Some(r) = pending.pop_front() {
+            if let UiRequest::Journal(action) = r {
+                game.journal.apply(action, now.0, self.journal_coords);
+                self.stats.ui_requests_handled += 1;
+                continue;
+            }
+            if let UiRequest::Book(action) = r {
+                game.book_action(action);
+                for effect in game.take_book_requests().into_iter().rev() {
+                    pending.push_front(effect);
+                }
+                self.stats.ui_requests_handled += 1;
+                continue;
+            }
+            let effects = match &r {
+                UiRequest::PaymentList(action) => {
+                    let values = &self.trade_note_values;
+                    Some(
+                        game.payment_action(*action, |wcid| {
+                            values
+                                .iter()
+                                .find(|(_, mapped)| *mapped == wcid)
+                                .and_then(|(value, _)| i32::try_from(*value).ok())
+                        })
+                        .into_iter()
+                        .map(|effect| match effect {
+                            dereth_client_model::housing::PaymentEffect::Notice(text) => {
+                                UiRequest::DisplayChatText {
+                                    channel: 0x1A,
+                                    text,
+                                }
+                            }
+                            dereth_client_model::housing::PaymentEffect::Split {
+                                item,
+                                split,
+                                max,
+                            } => UiRequest::HouseSplitItem { item, split, max },
+                            dereth_client_model::housing::PaymentEffect::Submit {
+                                slumlord,
+                                rent,
+                                items,
+                            } => UiRequest::HousePayment {
+                                slumlord,
+                                rent,
+                                items,
+                            },
+                        })
+                        .collect::<Vec<_>>(),
+                    )
+                }
+                UiRequest::SalvageList(action) => {
+                    let multiple = crate::hud::character_option(
+                        game,
+                        dereth_client_contract::PlayerOption::SalvageMultiple,
+                    )
+                    .unwrap_or(false);
+                    Some(game.salvage_action(*action, multiple).into_iter().map(|effect| match effect {
+                        dereth_client_model::inventory::salvage::SalvageEffect::Notice(text) => UiRequest::DisplayChatText {channel: 0x1A, text},
+                        dereth_client_model::inventory::salvage::SalvageEffect::Submit {tool, items} => UiRequest::SalvageItems {tool, items},
+                    }).collect::<Vec<_>>())
+                }
+                _ => None,
+            };
+            if let Some(effects) = effects {
+                for effect in effects.into_iter().rev() {
+                    pending.push_front(effect);
+                }
+                self.stats.ui_requests_handled += 1;
+                continue;
+            }
             match r {
                 UiRequest::Select(id) => {
                     // Selection assignment with `(ulong id, int force)` takes
@@ -4236,8 +4301,11 @@ impl Interaction {
                 // The *whether* is the panel's (`ExaminationPanel::examine_spell`, guarding on its
                 // own two appraisal ids as retail does); this arm is the unconditional half.
                 UiRequest::CancelAppraisal => game.cancel_appraisal(&mut req),
+                UiRequest::VendorFilter(index) => {
+                    game.vendor_filter = index;
+                }
                 UiRequest::StackSliderChanged { split, max } => {
-                    self.split = SplitState {
+                    game.split = SplitState {
                         split_size: split,
                         max_split_size: max,
                     };
@@ -4688,7 +4756,7 @@ impl Interaction {
                     Ok(false) | Err(_) => self.stats.requests_refused += 1,
                 },
                 UiRequest::VendorSellSingle { item } => {
-                    match game.sell_single_item(item, self.split, &mut req, &mut out, now) {
+                    match game.sell_single_item(item, game.split, &mut req, &mut out, now) {
                         Ok(true) => self.stats.vendor_sells += 1,
                         Ok(false) | Err(_) => self.stats.requests_refused += 1,
                     }
@@ -4952,7 +5020,7 @@ impl Interaction {
                 }
                 UiRequest::AutoWear(item) => {
                     if game
-                        .auto_wear(&mut req, &mut out, item, self.split(), now, false)
+                        .auto_wear(&mut req, &mut out, item, game.split, now, false)
                         .is_err()
                     {
                         self.stats.requests_refused += 1;
@@ -4966,15 +5034,7 @@ impl Interaction {
                         _ => SlotSide::Null,
                     };
                     if !game.auto_wield(
-                        &mut req,
-                        &mut out,
-                        item,
-                        side,
-                        false,
-                        true,
-                        false,
-                        self.split(),
-                        now,
+                        &mut req, &mut out, item, side, false, true, false, game.split, now,
                     ) {
                         self.stats.requests_refused += 1;
                     }
@@ -5297,19 +5357,19 @@ impl Interaction {
                     self.stats.fellowship_requests += 1;
                 }
                 UiRequest::FellowshipQuit { disband } => {
-                    game.fellowship_quit(&mut req, disband);
+                    game.leave_fellowship(&mut req, &mut out, disband);
                     self.stats.fellowship_requests += 1;
                 }
                 UiRequest::FellowshipDismiss { target } => {
-                    game.fellowship_dismiss(&mut req, target);
+                    game.dismiss_fellow(&mut req, &mut out, target);
                     self.stats.fellowship_requests += 1;
                 }
                 UiRequest::FellowshipRecruit { target } => {
-                    game.fellowship_recruit(&mut req, target);
+                    game.recruit_fellow(&mut req, &mut out, target);
                     self.stats.fellowship_requests += 1;
                 }
                 UiRequest::FellowshipAssignNewLeader { target } => {
-                    game.fellowship_assign_new_leader(&mut req, target);
+                    game.assign_fellow_leader(&mut req, &mut out, target);
                     self.stats.fellowship_requests += 1;
                 }
                 // The one arm with local state behind it: `listen_to_element_message`
@@ -5479,8 +5539,8 @@ impl Interaction {
         out: &mut Notices,
         now: ServerTime,
     ) {
-        let whole = self.split.is_whole_stack();
-        let amount = self.split.split_size;
+        let whole = game.split.is_whole_stack();
+        let amount = game.split.split_size;
         let r = match target {
             // Toolbar backpack-button drop handling, exact catcher id `0x100001B1`.
             // The ownership fork and all five arguments are literal:
@@ -5492,7 +5552,7 @@ impl Interaction {
             // The screen cannot make this decision because it deliberately has no object table.
             DropTarget::BackpackButton => {
                 let accepted = if game.is_owned_by_player(item) {
-                    game.place_in_backpack(req, out, item, false, self.split, now)
+                    game.place_in_backpack(req, out, item, false, game.split, now)
                 } else if let Some(player) = game.player {
                     game.attempt_to_place_in_container(
                         req,
@@ -5502,7 +5562,7 @@ impl Interaction {
                         ObjectId(0),
                         true,
                         0,
-                        self.split,
+                        game.split,
                         now,
                     )
                 } else {
@@ -5570,9 +5630,9 @@ impl Interaction {
                 use dereth_client_model::inventory::equip::EquipmentDropOutcome;
                 let outcome = match target {
                     DropTarget::EquipLocation { mask, side } => {
-                        game.drop_equipment_at_location(req, out, item, mask, side, self.split, now)
+                        game.drop_equipment_at_location(req, out, item, mask, side, game.split, now)
                     }
-                    _ => game.drop_equipment_on_canvas(req, out, item, self.split, now),
+                    _ => game.drop_equipment_on_canvas(req, out, item, game.split, now),
                 };
                 match outcome {
                     EquipmentDropOutcome::Refused => {
@@ -5701,7 +5761,7 @@ impl Interaction {
                 // No `ui_requests_handled += 1` here: the `UiRequest::DragDrop` arm that called
                 // this function falls into the loop's own shared increment, and counting it twice
                 // would break `drag.rs`'s "interaction.rs consumed the drop" assertion.
-                if !game.item_list_accept_drag(req, out, item, drop, self.split, now) {
+                if !game.item_list_accept_drag(req, out, item, drop, game.split, now) {
                     self.stats.requests_refused += 1;
                     game.set_waiting_state(item, false);
                 }
@@ -5990,7 +6050,7 @@ impl Interaction {
                             // The selection-changed handler seeds this shared quantity before input.
                             // A fresh `SplitState::default()` is 0/0 and makes auto-merge encode
                             // amount 0, which ACE rejects as "Merge amount not valid!".
-                            self.split,
+                            game.split,
                             ServerTime(now.0),
                         ) {
                             self.stats.pick_ups += 1;
@@ -6033,7 +6093,7 @@ impl Interaction {
                                     &mut req,
                                     &mut out,
                                     player,
-                                    self.split,
+                                    game.split,
                                     ServerTime(now.0),
                                 );
                             }
@@ -6063,7 +6123,7 @@ impl Interaction {
                                 Some(to),
                                 false,
                                 player_on_ground,
-                                self.split,
+                                game.split,
                                 ServerTime(now.0),
                             );
                             game.set_selected_object(Some(to), false, &mut out);
@@ -6109,7 +6169,7 @@ impl Interaction {
                             &mut out,
                             sel,
                             true,
-                            self.split,
+                            game.split,
                             ServerTime(now.0),
                         ) {
                             self.stats.pick_ups += 1;
@@ -8634,6 +8694,9 @@ impl Interaction {
         {
             self.remove_shortcut(object, game, req);
         }
+        if !game.is_owned_by_player(object) {
+            game.payments.remove_unowned(object);
+        }
         if game.trade_item_moved_to_partner(object, container) {
             self.stats.trade_rows_changed += 1;
         }
@@ -8645,7 +8708,7 @@ impl Interaction {
             out,
             object,
             container,
-            self.split,
+            game.split,
             ServerTime(self.last_use_time.0),
         );
         if retried && game.unblock.unblock_attempt_num == 0 {
@@ -8667,9 +8730,44 @@ impl Interaction {
         self.pending_external_container
             .extend(out.external_container);
         self.stats.salvage_panel_notices += out.salvage.len() as u64;
+        let multiple = crate::hud::character_option(
+            game,
+            dereth_client_contract::PlayerOption::SalvageMultiple,
+        )
+        .unwrap_or(false);
+        for notice in &out.salvage {
+            for effect in game.salvage_notice(*notice, multiple) {
+                match effect {
+                    dereth_client_model::inventory::salvage::SalvageEffect::Notice(text) => {
+                        game.scroll.on_display_string_info(0x1A, &text)
+                    }
+                    dereth_client_model::inventory::salvage::SalvageEffect::Submit {
+                        tool,
+                        items,
+                    } => {
+                        game.create_tinkering_tool(&mut req, tool, &items);
+                    }
+                }
+            }
+        }
         self.pending_salvage.extend(out.salvage);
+        for id in &out.slumlord_range_exits {
+            if game
+                .slumlord
+                .as_ref()
+                .is_some_and(|(current, _)| current == id)
+            {
+                game.payment_action(
+                    dereth_client_contract::panels::slumlord::PaymentAction::Close,
+                    |_| None,
+                );
+            }
+        }
         self.pending_slumlord_range_exits
             .extend(out.slumlord_range_exits);
+        for book in &out.book_range_exits {
+            game.book_action(dereth_client_contract::book::BookAction::Close { book: *book });
+        }
         self.pending_book_range_exits.extend(out.book_range_exits);
         self.pending_usage_confirmations
             .extend(out.usage_confirmations);
@@ -8730,7 +8828,7 @@ impl Interaction {
         // split sizes stored on this interaction state. Its refusal message goes
         // straight to the scroll on channel `0x1A`, like the strings above.
         for item in out.trade_for_dummies {
-            match game.trade_an_item_for_dummies(item, self.split) {
+            match game.trade_an_item_for_dummies(item, game.split) {
                 dereth_client_model::trade::ForDummies::Offer => {
                     self.pending_trade_for_dummies.push(item);
                     self.stats.trade_for_dummies_offered += 1;
@@ -11075,7 +11173,7 @@ mod tests {
     fn the_default_split_state_is_a_whole_stack() {
         let i = Interaction::new();
         assert!(
-            i.split().is_whole_stack(),
+            dereth_client_model::World::new().split.is_whole_stack(),
             "0 >= 0, so an untouched slider moves the stack"
         );
         assert_eq!(i.search_reason(), SearchReason::None);
@@ -11444,5 +11542,129 @@ mod tests {
         );
         assert_eq!(inter.stats.pop_up_strings, 2);
         assert_eq!(inter.stats.pop_up_strings_undecodable, 0);
+    }
+}
+
+#[cfg(test)]
+mod shared_social_tests {
+    use super::*;
+    use dereth_client_model::{
+        fellowship::{Fellow, Fellowship},
+        weenie::{bitfield, Weenie},
+        World,
+    };
+
+    fn actors() -> (World, Interaction) {
+        let mut world = World::new();
+        world.player = Some(ObjectId(1));
+        for id in 1..=10 {
+            let mut row = Weenie::new(ObjectId(id));
+            row.pwd.bitfield = bitfield::PLAYER;
+            world.tables.weenies.insert(ObjectId(id), row);
+        }
+        world.fellowship = Some(Fellowship {
+            members: (1..=9)
+                .map(|id| (ObjectId(id), Fellow::default()))
+                .collect(),
+            leader: ObjectId(1),
+            locked: true,
+            ..Default::default()
+        });
+        (world, Interaction::new())
+    }
+
+    fn deliver(
+        world: &mut World,
+        interaction: &mut Interaction,
+        requests: Vec<UiRequest>,
+    ) -> Vec<Request> {
+        interaction.queue(vec![], requests);
+        assert!(interaction
+            .run_ui_requests(world, false, ServerTime(0.0))
+            .is_empty());
+        interaction.take_pending_requests()
+    }
+
+    /// Behaviour: fellowship.actions.shared-sender-guards-and-refusals
+    #[test]
+    fn direct_social_actions_keep_sender_guards_separate_from_button_availability() {
+        let (mut world, mut interaction) = actors();
+        let requests = deliver(
+            &mut world,
+            &mut interaction,
+            vec![UiRequest::FellowshipRecruit {
+                target: ObjectId(10),
+            }],
+        );
+        assert!(
+            matches!(requests.as_slice(), [Request::FellowshipRecruit(r)] if r.target == ObjectId(10)),
+            "full locked membership does not add a sender guard"
+        );
+        let requests = deliver(
+            &mut world,
+            &mut interaction,
+            vec![
+                UiRequest::FellowshipRecruit {
+                    target: ObjectId(1),
+                },
+                UiRequest::FellowshipRecruit {
+                    target: ObjectId(2),
+                },
+                UiRequest::FellowshipDismiss {
+                    target: ObjectId(10),
+                },
+                UiRequest::FellowshipDismiss {
+                    target: ObjectId(1),
+                },
+                UiRequest::FellowshipAssignNewLeader {
+                    target: ObjectId(1),
+                },
+            ],
+        );
+        assert!(requests.is_empty());
+        let lines: Vec<_> = world
+            .scroll
+            .pending()
+            .iter()
+            .map(|f| (f.chat_type, f.body.as_str()))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (0x1A, "You can't recruit yourself"),
+                (0x1A, "That person is already in your fellowship"),
+                (0x1A, "That person is not in your fellowship"),
+                (0x1A, "You can't dismiss yourself"),
+                (0x1A, "You are already the leader"),
+            ]
+        );
+        assert!(deliver(
+            &mut world,
+            &mut interaction,
+            vec![UiRequest::FellowshipRecruit {
+                target: ObjectId(50)
+            }]
+        )
+        .is_empty());
+    }
+
+    /// Behaviour: fellowship.buttons.a-leader-who-leaves-hands-the-lead-on-first
+    #[test]
+    fn one_quit_intent_sends_the_leadership_transfer_before_the_quit() {
+        let (mut world, mut interaction) = actors();
+        let sent = deliver(
+            &mut world,
+            &mut interaction,
+            vec![UiRequest::FellowshipQuit { disband: false }],
+        );
+        assert!(
+            matches!(sent.as_slice(), [Request::FellowshipAssignNewLeader(leader), Request::FellowshipQuit(quit)] if leader.target == ObjectId(2) && quit.disband == 0)
+        );
+        let sent = deliver(
+            &mut world,
+            &mut interaction,
+            vec![UiRequest::FellowshipQuit { disband: true }],
+        );
+        assert!(matches!(sent.as_slice(), [Request::FellowshipQuit(quit)] if quit.disband == 1));
     }
 }

@@ -228,6 +228,7 @@ pub struct GameSnapshot {
     /// [`GameView::character_name`].
     pub character_name: Option<String>,
     /// [`GameView::journal_identity`].
+    pub journal: crate::journal::JournalView,
     pub journal_identity: Option<JournalIdentity>,
     /// [`GameView::experience_header`].
     pub experience_header: Option<XpHeader>,
@@ -251,9 +252,11 @@ pub struct GameSnapshot {
     pub examine_request: Option<(ObjectId, u64)>,
     /// [`GameView::open_book`].
     pub open_book: Option<BookView>,
+    pub book_session: crate::book::BookSessionView,
     /// [`GameView::barber`].
     pub barber: Option<BarberView>,
     /// [`GameView::allegiance_roster`].
+    pub oath_xp_cost: Option<u32>,
     pub allegiance_roster: AllegianceRoster,
     /// [`GameView::allegiance_update_aborts`].
     pub allegiance_update_aborts: u64,
@@ -280,6 +283,8 @@ pub struct GameSnapshot {
     /// [`GameView::trade`].
     pub trade: TradeView,
     /// [`GameView::slumlord`].
+    pub payment_lists: crate::panels::slumlord::PaymentListsView,
+    pub salvage_list: crate::panels::salvage::SalvageListView,
     pub slumlord: Option<SlumlordView>,
     /// [`GameView::slumlord_notices`].
     pub slumlord_notices: u64,
@@ -544,6 +549,7 @@ impl GameSnapshot {
             spell_components,
             component_serial: view.component_serial(),
             character_name: view.character_name().map(str::to_owned),
+            journal: view.journal(),
             journal_identity: view.journal_identity(),
             experience_header: view.experience_header(),
             gender_heritage_display: view.gender_heritage_display(),
@@ -556,7 +562,9 @@ impl GameSnapshot {
             endowment: view.endowment(),
             examine_request: view.examine_request(),
             open_book: view.open_book(),
+            book_session: view.book_session(),
             barber: view.barber(),
+            oath_xp_cost: view.oath_xp_cost(),
             allegiance_roster: view.allegiance_roster(),
             allegiance_update_aborts: view.allegiance_update_aborts(),
             allegiance_monarch_quality: view.allegiance_monarch_quality(),
@@ -570,6 +578,8 @@ impl GameSnapshot {
             house_purchase: view.house_purchase(),
             shop,
             trade,
+            payment_lists: view.payment_lists(),
+            salvage_list: view.salvage_list(),
             slumlord: view.slumlord(),
             slumlord_notices: view.slumlord_notices(),
             minigame: view.minigame(),
@@ -782,6 +792,9 @@ impl GameView for GameSnapshot {
     fn character_name(&self) -> Option<&str> {
         self.character_name.as_deref()
     }
+    fn journal(&self) -> crate::journal::JournalView {
+        self.journal.clone()
+    }
     fn journal_identity(&self) -> Option<JournalIdentity> {
         self.journal_identity.clone()
     }
@@ -833,11 +846,17 @@ impl GameView for GameSnapshot {
     fn examine_request(&self) -> Option<(ObjectId, u64)> {
         self.examine_request
     }
+    fn book_session(&self) -> crate::book::BookSessionView {
+        self.book_session.clone()
+    }
     fn open_book(&self) -> Option<BookView> {
         self.open_book.clone()
     }
     fn barber(&self) -> Option<BarberView> {
         self.barber
+    }
+    fn oath_xp_cost(&self) -> Option<u32> {
+        self.oath_xp_cost
     }
     fn allegiance_roster(&self) -> AllegianceRoster {
         self.allegiance_roster.clone()
@@ -880,6 +899,12 @@ impl GameView for GameSnapshot {
     }
     fn item_owned_by_player(&self, item: ObjectId) -> bool {
         self.object(item).is_some_and(|o| o.item_owned_by_player)
+    }
+    fn payment_lists(&self) -> crate::panels::slumlord::PaymentListsView {
+        self.payment_lists.clone()
+    }
+    fn salvage_list(&self) -> crate::panels::salvage::SalvageListView {
+        self.salvage_list.clone()
     }
     fn slumlord(&self) -> Option<SlumlordView> {
         self.slumlord.clone()

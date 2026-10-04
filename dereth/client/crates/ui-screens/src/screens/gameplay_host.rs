@@ -113,6 +113,7 @@ pub enum GameCall {
     },
     /// A book went out of range.
     BookRangeExit(ObjectId),
+    CaptureBookDraft,
     /// An item offered to the trade window from outside it.
     OfferTradeItem(ObjectId),
     /// The split-stack notice for the selected object; reads `cx.view`.
@@ -422,6 +423,10 @@ pub(crate) fn on_game(s: &mut GamePlayScreen, cx: &mut ScreenCx<'_>, g: &mut Gam
         }
         GameCall::FramerateUseTime { framerate, degrade } => {
             s.framerate_use_time(cx.ui, *framerate, *degrade);
+            true
+        }
+        GameCall::CaptureBookDraft => {
+            s.book.capture_draft(cx.ui);
             true
         }
         GameCall::BookRangeExit(book) => {

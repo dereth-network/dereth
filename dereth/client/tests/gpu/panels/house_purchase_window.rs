@@ -533,7 +533,7 @@ fn select_split_quantity(app: &mut App, item: ObjectId, amount: u32) {
         .requests
         .emit(request);
     settle(app);
-    assert_eq!(app.interaction().split().split_size, amount);
+    assert_eq!(app.objects().world.split.split_size, amount);
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
@@ -565,36 +565,9 @@ fn panel(app: &App) -> &slumlord::SlumlordPanel {
     &app.hud().panels.slumlord
 }
 
-/// Select the handler-level mode by directly delivering one page's visibility-change message.
-/// This helper does not change the page's visible flag. That arm is the only writer of the current
-/// house operation; [`choose_physical_tab`] instead presses the authored tab through the live tree.
+/// Select the shared operation through the actual authored tab.
 fn choose_tab(app: &mut App, rent: bool) {
-    let page = if rent {
-        slumlord::RENT_PAGE
-    } else {
-        slumlord::BUY_PAGE
-    };
-    app.with_panels(|ui, panels, view| {
-        let root = ui.root();
-        let Some(h) = ui.get_child_recursive(root, page) else {
-            panic!("{page:?} is in the shipped tree");
-        };
-        let m = dereth_ui::ElementMessage {
-            id: dereth_ui::msg::element::id::VISIBILITY_CHANGED,
-            source: h,
-            source_id: page,
-            p1: 1,
-            p2: 0,
-            point: dereth_ui::msg::element::MessagePoint::default(),
-            serial: 0,
-        };
-        assert!(
-            panels.slumlord.on_element_message(ui, &m, view),
-            "the tab arm took the message"
-        );
-    })
-    .expect("a ui shell");
-    settle(app);
+    choose_physical_tab(app, rent);
 }
 
 /// Press the shipped tab which owns one of the two pages. The tab id comes from the live panel

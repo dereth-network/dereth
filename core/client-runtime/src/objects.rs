@@ -2778,6 +2778,8 @@ impl ObjectStream {
         // longer exists.
         self.player_motion_dispatches.clear();
         let mut fresh = new_world();
+        self.world.journal.set_identity(None);
+        fresh.journal = std::mem::take(&mut self.world.journal);
         // The local chat DLL and communication-system rooms/spam bucket are process-owned,
         // not character-owned. Character-session end only unregisters its quality watch.
         fresh

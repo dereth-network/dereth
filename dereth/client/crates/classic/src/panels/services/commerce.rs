@@ -264,50 +264,9 @@ impl Panel for Trade {
 }
 #[derive(Debug, Default)]
 struct Salvage {
-    tool: Option<ObjectId>,
-    offered: Vec<ObjectId>,
     selected: Option<ObjectId>,
     width: u32,
     offset: i32,
-}
-impl Salvage {
-    fn add_tree(
-        &mut self,
-        item: ObjectId,
-        c: &Context<'_>,
-        seen: &mut Vec<ObjectId>,
-        out: &mut Vec<PanelAction>,
-    ) {
-        if seen.contains(&item) {
-            return;
-        }
-        seen.push(item);
-        let children = c.game.container_contents(item);
-        if children.is_empty() {
-            self.add(item, c);
-        } else {
-            out.push(PanelAction::Host(HostAction::LocalFeedback {
-                severity: crate::panels::FeedbackSeverity::Information,
-                text: format!("Adding contents of {}", c.game.name(item).unwrap_or("")),
-            }));
-            for &child in children {
-                self.add_tree(child, c, seen, out);
-            }
-        }
-    }
-    fn add(&mut self, item: ObjectId, c: &Context<'_>) {
-        let material = self
-            .offered
-            .first()
-            .map(|i| c.game.item_material_type(*i))
-            .unwrap_or(0);
-        if !self.offered.contains(&item)
-            && c.game.item_owned_by_player(item)
-            && c.game.salvage_item_suitable(item, material)
-        {
-            self.offered.push(item);
-        }
-    }
 }
 impl Panel for Salvage {
     fn resize(&mut self, width: u32, _: u32) {
@@ -316,11 +275,8 @@ impl Panel for Salvage {
     fn id(&self) -> &'static str {
         "salvage"
     }
-    fn set_object(&mut self, o: ObjectId) {
-        self.tool = Some(o);
-        self.offered.clear();
-    }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
+        let state = c.game.salvage_list();
         let width = self.width.max(325);
         let w = width as i32;
         let mut f = tiled(width, 100, "06001CBA");
@@ -334,22 +290,19 @@ impl Panel for Salvage {
             &mut f,
             "items",
             rect(10, 40, w - 124, 32),
-            self.offered.iter().map(|i| entry(c, *i)).collect(),
+            state.items.iter().map(|i| entry(c, *i)).collect(),
             self.selected,
             self.offset,
             true,
             Some(crate::panels::DropFilter::Salvage {
-                material: self
-                    .offered
-                    .first()
-                    .map_or(0, |i| c.game.item_material_type(*i)),
+                material: state.material,
             }),
         );
         let b = f.button(
             "salvage",
             rect(w - 104, 45, 94, 22),
             "Salvage",
-            self.tool.is_some() && !self.offered.is_empty(),
+            state.tool.is_some() && !state.items.is_empty(),
         );
         b.images = Some(["06002344", "06002345", "06002346"].map(String::from));
         image_button(
@@ -362,26 +315,16 @@ impl Panel for Salvage {
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        use dereth_client_contract::panels::salvage::SalvageAction;
+        let state = c.game.salvage_list();
         match e {
-            ControlEvent::Salvage(notice) => {
-                use dereth_client_contract::panels::salvage::SalvageNotice;
-                match notice {
-                    SalvageNotice::Open(tool) => self.set_object(tool),
-                    SalvageNotice::Add(item) => {
-                        let mut out = vec![];
-                        self.add_tree(item, c, &mut vec![], &mut out);
-                        return out;
-                    }
-                    SalvageNotice::Remove(item) => {
-                        self.offered.retain(|id| *id != item);
-                        if self.selected == Some(item) {
-                            self.selected = None;
-                        }
-                    }
+            ControlEvent::Tick | ControlEvent::Salvage(_) => {
+                if self.selected.is_some_and(|id| !state.items.contains(&id)) {
+                    self.selected = None;
                 }
                 vec![]
             }
-            ControlEvent::Scroll { id, value } if (id == "items" || id == "items-scroll") => {
+            ControlEvent::Scroll { id, value } if id == "items" || id == "items-scroll" => {
                 self.offset = value.max(0);
                 vec![]
             }
@@ -389,50 +332,25 @@ impl Panel for Salvage {
                 id,
                 payload: DragPayload::Object(item),
                 ..
-            } if id == "items" => {
-                if !c.game.item_owned_by_player(item) {
-                    return vec![PanelAction::Host(HostAction::LocalFeedback {
-                        severity: crate::panels::FeedbackSeverity::Warning,
-                        text: "You can only salvage items that you own!".into(),
-                    })];
-                }
-                let mut out = vec![];
-                self.add_tree(item, c, &mut vec![], &mut out);
-                out
-            }
+            } if id == "items" => request(UiRequest::SalvageList(SalvageAction::Add(item))),
             ControlEvent::Select { id, index } if id == "items" => {
-                self.selected = self.offered.get(index).copied();
+                self.selected = state.items.get(index).copied();
                 self.selected
                     .map(|i| request(UiRequest::Select(i)))
                     .unwrap_or_default()
             }
-            ControlEvent::DoubleClick { id, index } if id == "items" => {
-                if index < self.offered.len() {
-                    let item = self.offered.remove(index);
-                    return vec![PanelAction::Host(HostAction::LocalFeedback {
-                        severity: crate::panels::FeedbackSeverity::Information,
-                        text: format!(
-                            "Removing {} from salvage list",
-                            c.game.name(item).unwrap_or("")
-                        ),
-                    })];
-                }
-                vec![]
-            }
+            ControlEvent::DoubleClick { id, index } if id == "items" => state
+                .items
+                .get(index)
+                .map(|i| request(UiRequest::SalvageList(SalvageAction::Remove(*i))))
+                .unwrap_or_default(),
             ControlEvent::Activate(id) if id == "salvage" => {
-                if let Some(tool) = self.tool {
-                    if !self.offered.is_empty() {
-                        let mut items = std::mem::take(&mut self.offered);
-                        items.reverse();
-                        return request(UiRequest::SalvageItems { tool, items });
-                    }
-                }
-                vec![]
+                request(UiRequest::SalvageList(SalvageAction::Submit))
             }
-            ControlEvent::Activate(id) if id == "close" => {
-                self.offered.clear();
-                vec![PanelAction::Close]
-            }
+            ControlEvent::Activate(id) if id == "close" => vec![
+                PanelAction::Game(UiRequest::SalvageList(SalvageAction::Close)),
+                PanelAction::Close,
+            ],
             _ => vec![],
         }
     }
@@ -576,5 +494,69 @@ mod trade_tests {
                 vec![PanelAction::Game(UiRequest::TradeDecline)]
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod salvage_tests {
+    use super::*;
+    use dereth_client_contract::panels::salvage::{SalvageAction, SalvageListView};
+
+    #[derive(Debug)]
+    struct Game(SalvageListView);
+    impl GameView for Game {
+        fn salvage_list(&self) -> SalvageListView {
+            self.0.clone()
+        }
+    }
+
+    /// Behaviour: salvage.row.a-double-click-takes-a-row-out-and-a-single-click-does-not
+    #[test]
+    fn shared_rows_are_removed_only_by_double_click_and_submit_is_semantic() {
+        let game = Game(SalvageListView {
+            tool: Some(ObjectId(9)),
+            items: vec![ObjectId(7), ObjectId(2)],
+            material: 16,
+            visible: true,
+        });
+        let (state, pregame, keyboard, settings) = Default::default();
+        let c = Context {
+            game: &game,
+            pregame: &pregame,
+            keyboard: &keyboard,
+            settings: &settings,
+            map_teleport_allowed: false,
+            classic: &state,
+        };
+        let mut panel = Salvage::default();
+        assert_eq!(
+            panel.event(
+                ControlEvent::Select {
+                    id: "items".into(),
+                    index: 0
+                },
+                &c
+            ),
+            vec![PanelAction::Game(UiRequest::Select(ObjectId(7)))]
+        );
+        assert_eq!(
+            panel.event(
+                ControlEvent::DoubleClick {
+                    id: "items".into(),
+                    index: 0
+                },
+                &c
+            ),
+            vec![PanelAction::Game(UiRequest::SalvageList(
+                SalvageAction::Remove(ObjectId(7))
+            ))]
+        );
+        assert_eq!(
+            panel.event(ControlEvent::Activate("salvage".into()), &c),
+            vec![PanelAction::Game(UiRequest::SalvageList(
+                SalvageAction::Submit
+            ))]
+        );
+        assert_eq!(game.0.items, vec![ObjectId(7), ObjectId(2)]);
     }
 }

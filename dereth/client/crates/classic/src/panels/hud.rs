@@ -65,8 +65,7 @@ impl SelectionQueries {
     }
 }
 
-/// The classic host supplies live split state because HudView's trait defaults
-/// do not expose it. Model-only callers retain their GameView implementation.
+/// The host projects the shared quantity for the current desktop input batch.
 pub(crate) fn stack_split(c: &Context<'_>) -> (i32, i32) {
     let (split, max) = c
         .classic

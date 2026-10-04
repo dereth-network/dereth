@@ -262,36 +262,7 @@ pub fn page_number_text(current_page: u32) -> String {
     format!("~ {n} ~")
 }
 
-/// One journal page.
-///
-/// The two coordinates are named for what they hold rather than for retail's x/y; see
-/// [`location_text`].
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct JournalPage {
-    /// The label.
-    pub label: String,
-    /// The title.
-    pub title: String,
-    /// The notes.
-    pub notes: String,
-    /// The page number — **1-based**, and rewritten over the whole vector when a page is deleted
-    /// ([`renumber`]).
-    pub page_number: u32,
-    /// The timer stamp — an absolute clock time, not a duration.
-    pub timer_stamp: f64,
-    /// Days / hours / minutes, as `wcstoul` read them out of the three edit boxes.
-    pub days: u32,
-    pub hours: u32,
-    pub minutes: u32,
-    /// The stored y — the **north/south** value.
-    pub ns: f64,
-    /// The stored x — the **east/west** value.
-    pub ew: f64,
-    /// Whether the timer is running.
-    pub timer_running: bool,
-    /// Whether a location is set.
-    pub location_set: bool,
-}
+pub use dereth_client_contract::journal::JournalPage;
 
 /// A timer box's text as a count, the way C's `wcstoul(text, NULL, 0)` reads it: a leading `0x`
 /// is hexadecimal, the digits stop at the first that is not one, anything unparseable is zero and

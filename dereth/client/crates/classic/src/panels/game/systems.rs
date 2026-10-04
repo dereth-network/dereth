@@ -348,8 +348,8 @@ pub struct Journal {
     pages: Vec<JournalPage>,
     /// The page shown, from 1.
     current: u32,
-    /// The file, once the world and the character are known.
-    file: Option<std::path::PathBuf>,
+    /// The last shared notebook projection.
+    shared: dereth_client_contract::journal::JournalView,
     /// The three timer boxes as typed.
     boxes: [String; 3],
     /// On a world with contracts as well, the window's Contracts tab.
@@ -365,7 +365,7 @@ impl Default for Journal {
         Self {
             pages: Vec::new(),
             current: 0,
-            file: None,
+            shared: Default::default(),
             boxes: Default::default(),
             contracts: Contracts::default(),
             tab: Some(QuestTab::Contracts),
@@ -561,141 +561,84 @@ impl Journal {
 
     /// The Page List tab's events.
     fn list_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
-        let out = self.load(c.game);
-        match e {
+        self.load(c.game);
+        let action = match e {
             ControlEvent::Activate(id) => match id.as_str() {
-                "sort-number" | "sort-title" | "sort-timer" | "sort-label" => {
-                    let by = match id.as_str() {
-                        "sort-number" => rules::JournalSortCriteria::PageNumber,
-                        "sort-title" => rules::JournalSortCriteria::Title,
-                        "sort-timer" => rules::JournalSortCriteria::Timer,
-                        _ => rules::JournalSortCriteria::Label,
-                    };
-                    if self.list.sort == by {
-                        self.list.reverse = !self.list.reverse;
-                    } else {
-                        self.list.sort = by;
-                        self.list.reverse = false;
-                    }
-                    let filter = !self.list.search.is_empty();
-                    self.list.rebuild(&self.pages, filter);
-                }
-                "search" => self.list.rebuild(&self.pages, true),
-                "reset-search" => {
-                    self.list.search.clear();
-                    self.list.rebuild(&self.pages, false);
-                }
+                "sort-number" => JournalAction::Sort(0),
+                "sort-title" => JournalAction::Sort(1),
+                "sort-timer" => JournalAction::Sort(3),
+                "sort-label" => JournalAction::Sort(2),
+                "search" => JournalAction::Search(self.list.search.clone()),
+                "reset-search" => JournalAction::ResetSearch,
                 "delete-page" => {
-                    let number = self
-                        .list
-                        .selected
-                        .and_then(|i| self.list.pages.get(i))
-                        .map(|p| p.page_number);
-                    if let Some(i) =
-                        number.and_then(|n| self.pages.iter().position(|p| p.page_number == n))
-                    {
-                        if self.pages.len() < 2 {
-                            self.pages[i] = JournalPage {
-                                page_number: self.pages[i].page_number,
-                                ..JournalPage::default()
-                            };
-                        } else {
-                            self.pages.remove(i);
-                            rules::renumber(&mut self.pages);
-                        }
-                        self.show(1);
-                        self.save();
-                    }
-                    self.list.rebuild(&self.pages, false);
+                    let Some(p) = self.list.selected.and_then(|i| self.list.pages.get(i)) else {
+                        return vec![];
+                    };
+                    JournalAction::Delete(p.page_number)
                 }
-                _ => {}
+                _ => return vec![],
             },
-            ControlEvent::Edit { id, text } if id == "search-text" => self.list.search = text,
-            ControlEvent::Submit { id } if id == "search-text" => {
-                self.list.rebuild(&self.pages, true);
+            ControlEvent::Edit { id, text } if id == "search-text" => {
+                self.list.search = text;
+                return vec![];
             }
             ControlEvent::Scroll { id, value } if id == "page-rows" || id == "page-scroll" => {
                 self.list.scroll = value.max(0);
+                return vec![];
             }
             ControlEvent::Select { id, index } if id == "page-rows" => {
-                let now = c.game.now();
-                let again = self.list.selected == Some(index) && now - self.list.pressed <= 1.0;
+                let again =
+                    self.list.selected == Some(index) && c.game.now() - self.list.pressed <= 1.0;
                 self.list.selected = (index < self.list.pages.len()).then_some(index);
-                self.list.pressed = now;
-                if again {
-                    if let Some(n) = self.list.pages.get(index).map(|p| p.page_number) {
-                        self.show(n);
-                        self.tab = Some(QuestTab::Journal);
-                        self.list.pressed = 0.0;
-                    }
+                self.list.pressed = c.game.now();
+                if !again {
+                    return vec![];
                 }
+                let Some(p) = self.list.pages.get(index) else {
+                    return vec![];
+                };
+                self.tab = Some(QuestTab::Journal);
+                self.list.pressed = 0.0;
+                return vec![
+                    PanelAction::Game(UiRequest::Journal(JournalAction::Goto(p.page_number))),
+                    PanelAction::Game(UiRequest::Journal(JournalAction::Visibility(true))),
+                ];
             }
-            _ => {}
-        }
-        out
+            _ => return vec![],
+        };
+        vec![PanelAction::Game(UiRequest::Journal(action))]
     }
 }
 
 use dereth_presentation::journal::{self as rules, JournalPage};
 
-impl Journal {
-    /// Read the journal the first time the world and the character are known. A file that does
-    /// not open with a page is the client's one complaint, and leaves a single blank page.
-    fn load(&mut self, game: &dyn GameView) -> Vec<PanelAction> {
-        let Some(path) = game.journal_identity().map(|id| id.client_path()) else {
-            return vec![];
-        };
-        if self.file.as_ref() == Some(&path) {
-            return vec![];
-        }
-        let mut out = vec![];
-        self.pages = match std::fs::read_to_string(&path).map(|t| rules::parse_pages(&t)) {
-            Ok(Ok(pages)) => pages,
-            Ok(Err(())) => {
-                out.push(PanelAction::Host(HostAction::LocalFeedback {
-                    text: rules::LOAD_COMPLAINT.into(),
-                    severity: crate::panels::FeedbackSeverity::Warning,
-                }));
-                vec![]
-            }
-            Err(_) => vec![],
-        };
-        self.file = Some(path);
-        if self.pages.is_empty() {
-            self.pages.push(JournalPage {
-                page_number: 1,
-                ..JournalPage::default()
-            });
-        }
-        self.show(1);
-        out
-    }
+use dereth_client_contract::journal::{JournalAction, JournalField};
 
-    fn save(&self) {
-        if let Some(path) = &self.file {
-            let _ = std::fs::write(path, rules::save_pages_text(&self.pages));
+impl Journal {
+    fn load(&mut self, game: &dyn GameView) -> Vec<PanelAction> {
+        let state = game.journal();
+        if state != self.shared {
+            self.pages = state.pages.clone();
+            self.current = state.current_page;
+            self.boxes =
+                [state.draft.days, state.draft.hours, state.draft.minutes].map(|v| v.to_string());
+            self.list.sort = match state.sort {
+                1 => rules::JournalSortCriteria::Title,
+                2 => rules::JournalSortCriteria::Label,
+                3 => rules::JournalSortCriteria::Timer,
+                _ => rules::JournalSortCriteria::PageNumber,
+            };
+            self.list.reverse = state.reverse;
+            self.list.search = state.search.clone();
+            self.list.rebuild(&self.pages, state.filtered);
+            self.shared = state;
         }
+        vec![]
     }
 
     fn page(&self) -> Option<&JournalPage> {
-        self.pages.get(self.current.checked_sub(1)? as usize)
+        self.shared.loaded.then_some(&self.shared.draft)
     }
-
-    fn page_mut(&mut self) -> Option<&mut JournalPage> {
-        let i = self.current.checked_sub(1)? as usize;
-        self.pages.get_mut(i)
-    }
-
-    /// Show page `n` (from 1), its timer boxes filled from it.
-    fn show(&mut self, n: u32) {
-        if n == 0 || n as usize > self.pages.len() {
-            return;
-        }
-        self.current = n;
-        let p = &self.pages[n as usize - 1];
-        self.boxes = [p.days, p.hours, p.minutes].map(|v| v.to_string());
-    }
-
     fn last(&self) -> u32 {
         u32::try_from(self.pages.len()).unwrap_or(u32::MAX)
     }
@@ -747,14 +690,24 @@ impl Panel for Journal {
                 ControlEvent::Activate(id) if tabs.iter().any(|t| t.0 == id) => {
                     self.tab = tabs.iter().find(|t| t.0 == id).map(|t| t.2);
                     if self.tab == Some(QuestTab::Pages) {
-                        let out = self.load(c.game);
-                        let filter = !self.list.search.is_empty();
-                        self.list.rebuild(&self.pages, filter);
-                        return out;
+                        self.load(c.game);
+                        return vec![
+                            PanelAction::Game(UiRequest::Journal(JournalAction::Visibility(false))),
+                            PanelAction::Game(UiRequest::Journal(JournalAction::Search(
+                                self.list.search.clone(),
+                            ))),
+                        ];
                     }
-                    return vec![];
+                    return vec![PanelAction::Game(UiRequest::Journal(
+                        JournalAction::Visibility(self.tab == Some(QuestTab::Journal)),
+                    ))];
                 }
-                ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
+                ControlEvent::Activate(id) if id == "close" => {
+                    return vec![
+                        PanelAction::Game(UiRequest::Journal(JournalAction::Visibility(false))),
+                        PanelAction::Close,
+                    ]
+                }
                 _ => {}
             }
             match self.shown_tab(c.game) {
@@ -925,104 +878,50 @@ impl Journal {
         f.button("delete", rect(200, h - 142, 90, 28), "Delete", true);
     }
     fn body_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
-        if matches!(&e, ControlEvent::Activate(id) if id == "close") {
-            return vec![PanelAction::Close];
-        }
+        self.load(c.game);
         if !era_has(c.game, |e| e.journal) {
             return vec![];
         }
-        let out = self.load(c.game);
-        if self.page().is_none() {
-            return out;
-        }
-        let mut changed = true;
-        match e {
-            ControlEvent::Edit { id, text } => match id.as_str() {
-                "label" | "title" | "notes" => {
-                    if let Some(p) = self.page_mut() {
-                        match id.as_str() {
-                            "label" => p.label = text,
-                            "title" => p.title = text,
-                            _ => p.notes = text,
-                        }
-                    }
+        let action = match e {
+            ControlEvent::Edit { id, text } => {
+                let field = match id.as_str() {
+                    "label" => JournalField::Label(text),
+                    "title" => JournalField::Title(text),
+                    "notes" => JournalField::Notes(text),
+                    "days" => JournalField::Days(rules::parse_count(&text)),
+                    "hours" => JournalField::Hours(rules::parse_count(&text)),
+                    "minutes" => JournalField::Minutes(rules::parse_count(&text)),
+                    _ => return vec![],
+                };
+                JournalAction::SetField {
+                    generation: self.shared.generation,
+                    page: self.current,
+                    field,
                 }
-                "days" | "hours" | "minutes" => {
-                    let i = ["days", "hours", "minutes"]
-                        .iter()
-                        .position(|b| *b == id)
-                        .unwrap_or(0);
-                    self.boxes[i] = text;
-                    changed = false;
-                }
-                _ => changed = false,
-            },
+            }
             ControlEvent::Select { id, index } if id == "pages" => {
-                self.show(u32::try_from(index + 1).unwrap_or(1));
-                changed = false;
+                JournalAction::Goto(u32::try_from(index).unwrap_or(u32::MAX).saturating_add(1))
             }
             ControlEvent::Activate(id) => match id.as_str() {
-                "first" => self.show(1),
-                "prev" if self.current > 1 => self.show(self.current - 1),
-                "next" if self.current < self.last() => self.show(self.current + 1),
-                "last" => self.show(self.last()),
-                "new" => {
-                    self.pages.push(JournalPage {
-                        page_number: self.last() + 1,
-                        ..JournalPage::default()
-                    });
-                    self.show(self.last());
+                "first" => JournalAction::Goto(1),
+                "prev" => JournalAction::Turn(-1),
+                "next" => JournalAction::Turn(1),
+                "last" => JournalAction::Goto(self.last()),
+                "new" => JournalAction::NewPage,
+                "delete" => JournalAction::Delete(self.current),
+                "stamp" => JournalAction::StampLocation,
+                "timer" => JournalAction::ToggleTimer,
+                "close" => {
+                    return vec![
+                        PanelAction::Game(UiRequest::Journal(JournalAction::Visibility(false))),
+                        PanelAction::Close,
+                    ]
                 }
-                "delete" => {
-                    if self.pages.len() < 2 {
-                        if let Some(p) = self.page_mut() {
-                            *p = JournalPage {
-                                page_number: p.page_number,
-                                ..JournalPage::default()
-                            };
-                        }
-                    } else {
-                        self.pages.remove(self.current as usize - 1);
-                        rules::renumber(&mut self.pages);
-                    }
-                    self.show(1);
-                }
-                // The coordinates are cleared before they are read, so a failed read leaves the
-                // page at no location rather than the last one.
-                "stamp" => {
-                    let at = c.game.player_coords();
-                    if let Some(p) = self.page_mut() {
-                        p.ns = 0.0;
-                        p.ew = 0.0;
-                        p.location_set = at.is_some();
-                        if let Some((ns, ew)) = at {
-                            p.ns = f64::from(ns);
-                            p.ew = f64::from(ew);
-                        }
-                    }
-                }
-                "timer" => {
-                    let now = c.game.now();
-                    let counts = self.boxes.clone().map(|b| rules::parse_count(&b));
-                    if let Some(p) = self.page_mut() {
-                        if p.timer_running {
-                            p.timer_stamp = 0.0;
-                            p.timer_running = false;
-                        } else {
-                            [p.days, p.hours, p.minutes] = counts;
-                            p.timer_stamp = rules::timer_stamp(now, p.days, p.hours, p.minutes);
-                            p.timer_running = true;
-                        }
-                    }
-                }
-                _ => changed = false,
+                _ => return vec![],
             },
-            _ => changed = false,
-        }
-        if changed {
-            self.save();
-        }
-        out
+            _ => return vec![],
+        };
+        vec![PanelAction::Game(UiRequest::Journal(action))]
     }
 }
 
@@ -1038,8 +937,12 @@ mod tests {
         journal_dir: Option<std::path::PathBuf>,
         coords: Option<(f32, f32)>,
         now: f64,
+        journal: std::cell::RefCell<dereth_client_model::journal::JournalStore>,
     }
     impl GameView for Game {
+        fn journal(&self) -> dereth_client_contract::journal::JournalView {
+            self.journal.borrow().view()
+        }
         fn era(&self) -> Option<&dereth_client_contract::EraView> {
             self.era.as_ref()
         }
@@ -1076,15 +979,70 @@ mod tests {
             }]
         }
     }
-    fn with(game: &Game, run: impl FnOnce(&Context<'_>)) {
+    struct TestContext<'a> {
+        game: &'a Game,
+        context: Context<'a>,
+    }
+    impl<'a> std::ops::Deref for TestContext<'a> {
+        type Target = Context<'a>;
+        fn deref(&self) -> &Self::Target {
+            &self.context
+        }
+    }
+    fn service(game: &Game) {
+        use dereth_client_contract::journal::JournalIo;
+        let effects = game.journal.borrow_mut().take_io();
+        for effect in effects {
+            match effect {
+                JournalIo::Load {
+                    identity,
+                    generation,
+                    revision,
+                } => {
+                    let pages = std::fs::read_to_string(identity.client_path())
+                        .map_or(Ok(vec![]), |s| rules::parse_pages(&s));
+                    game.journal
+                        .borrow_mut()
+                        .complete_load(identity, generation, revision, pages);
+                }
+                JournalIo::Save {
+                    identity, pages, ..
+                } => {
+                    std::fs::write(identity.client_path(), rules::save_pages_text(&pages)).unwrap();
+                }
+            }
+        }
+    }
+    fn drive(j: &mut Journal, event: ControlEvent, c: &TestContext<'_>) -> Vec<PanelAction> {
+        let out = j.event(event, c);
+        for action in &out {
+            if let PanelAction::Game(UiRequest::Journal(action)) = action {
+                c.game
+                    .journal
+                    .borrow_mut()
+                    .apply(action.clone(), c.game.now, c.game.coords);
+            }
+        }
+        service(c.game);
+        j.load(c.game);
+        out
+    }
+    fn with(game: &Game, run: impl FnOnce(&TestContext<'_>)) {
+        game.journal
+            .borrow_mut()
+            .set_identity(game.journal_identity());
+        service(game);
         let (state, pregame, keyboard, settings) = Default::default();
-        run(&Context {
+        run(&TestContext {
             game,
-            pregame: &pregame,
-            keyboard: &keyboard,
-            settings: &settings,
-            map_teleport_allowed: false,
-            classic: &state,
+            context: Context {
+                game,
+                pregame: &pregame,
+                keyboard: &keyboard,
+                settings: &settings,
+                map_teleport_allowed: false,
+                classic: &state,
+            },
         });
     }
 
@@ -1122,12 +1080,13 @@ mod tests {
         dir
     }
 
-    fn act(j: &mut Journal, id: &str, c: &Context<'_>) {
-        j.event(ControlEvent::Activate(id.into()), c);
+    fn act(j: &mut Journal, id: &str, c: &TestContext<'_>) {
+        drive(j, ControlEvent::Activate(id.into()), c);
     }
 
-    fn type_in(j: &mut Journal, id: &str, text: &str, c: &Context<'_>) {
-        j.event(
+    fn type_in(j: &mut Journal, id: &str, text: &str, c: &TestContext<'_>) {
+        drive(
+            j,
             ControlEvent::Edit {
                 id: id.into(),
                 text: text.into(),
@@ -1147,8 +1106,9 @@ mod tests {
         };
         let mut j = Journal::default();
         with(&game, |c| {
-            j.event(ControlEvent::Tick, c);
+            drive(&mut j, ControlEvent::Tick, c);
             act(&mut j, "tab-journal", c);
+            let before = std::fs::read(dir.join("Journal-Dereth-Scribe.txt")).unwrap();
             type_in(&mut j, "label", "Quest", c);
             type_in(&mut j, "title", "Rats in the cellar", c);
             type_in(&mut j, "notes", "Five rats.\nSee the innkeeper.", c);
@@ -1156,9 +1116,15 @@ mod tests {
             type_in(&mut j, "days", "1", c);
             type_in(&mut j, "minutes", "0x1e", c);
             act(&mut j, "timer", c);
+            assert_eq!(
+                std::fs::read(dir.join("Journal-Dereth-Scribe.txt")).unwrap(),
+                before,
+                "typing and timer changes do not write files"
+            );
+            act(&mut j, "close", c);
         });
         let file = dir.join("Journal-Dereth-Scribe.txt");
-        let text = std::fs::read_to_string(&file).expect("the page was written at once");
+        let text = std::fs::read_to_string(&file).expect("closing saved the page");
         let pages = rules::parse_pages(&text).expect("in the retail format");
         let p = &pages[0];
         assert_eq!(
@@ -1204,7 +1170,7 @@ mod tests {
         };
         let mut j = Journal::default();
         with(&game, |c| {
-            j.event(ControlEvent::Tick, c);
+            drive(&mut j, ControlEvent::Tick, c);
             act(&mut j, "tab-journal", c);
             type_in(&mut j, "title", "one", c);
             act(&mut j, "new", c);
@@ -1215,6 +1181,7 @@ mod tests {
             act(&mut j, "prev", c);
             act(&mut j, "delete", c);
             assert_eq!(j.current, 1, "a deletion goes back to the first page");
+            act(&mut j, "close", c);
         });
         let pages = rules::parse_pages(
             &std::fs::read_to_string(dir.join("Journal-Dereth-Scribe.txt")).unwrap(),
@@ -1242,7 +1209,7 @@ mod tests {
         };
         let mut j = Journal::default();
         with(&game, |c| {
-            j.event(ControlEvent::Tick, c);
+            drive(&mut j, ControlEvent::Tick, c);
             let f = j.frame(c);
             assert!(!f.controls.iter().any(|k| k.id == "label"));
             assert!(format!("{f:?}").contains("This world has no journal."));
@@ -1290,7 +1257,7 @@ mod tests {
         let mut j = Journal::default();
         let has = |f: &PanelFrame, id: &str| f.controls.iter().any(|k| k.id == id);
         with(&game, |c| {
-            j.event(ControlEvent::Tick, c);
+            drive(&mut j, ControlEvent::Tick, c);
             // The initialized Contracts selection remains valid.
             let f = j.frame(c);
             assert!(has(&f, "tab-contracts") && has(&f, "tab-journal") && has(&f, "tab-pages"));
@@ -1301,7 +1268,8 @@ mod tests {
             let f = j.frame(c);
             assert!(has(&f, "abandon") && !has(&f, "stamp"));
             // The contracts tab works the contracts.
-            j.event(
+            drive(
+                &mut j,
                 ControlEvent::Select {
                     id: "rows".into(),
                     index: 0,
@@ -1309,7 +1277,7 @@ mod tests {
                 c,
             );
             assert_eq!(
-                j.event(ControlEvent::Activate("abandon".into()), c),
+                drive(&mut j, ControlEvent::Activate("abandon".into()), c),
                 [PanelAction::Game(UiRequest::AbandonContract {
                     contract_id: 9
                 })]
@@ -1350,7 +1318,7 @@ mod tests {
                 .expect("the page list")
         };
         with(&game, |c| {
-            j.event(ControlEvent::Tick, c);
+            drive(&mut j, ControlEvent::Tick, c);
             act(&mut j, "tab-journal", c);
             type_in(&mut j, "label", "Rats", c);
             act(&mut j, "new", c);
@@ -1359,7 +1327,8 @@ mod tests {
                 list(&j, c),
                 (vec!["1: Rats".into(), "~ 2 ~".into(), "~ 3 ~".into()], 2)
             );
-            j.event(
+            drive(
+                &mut j,
                 ControlEvent::Select {
                     id: "pages".into(),
                     index: 0,
@@ -1389,7 +1358,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         with(&game, |c| {
-            j.event(ControlEvent::Tick, c);
+            drive(&mut j, ControlEvent::Tick, c);
             act(&mut j, "tab-journal", c);
             type_in(&mut j, "title", "Bravo", c);
             act(&mut j, "new", c);
@@ -1433,8 +1402,9 @@ mod tests {
             assert!(j.list.search.is_empty());
         });
         // Bravo is the middle row; pressed once it is chosen, pressed again it is opened.
-        let select = |j: &mut Journal, c: &Context<'_>| {
-            j.event(
+        let select = |j: &mut Journal, c: &TestContext<'_>| {
+            drive(
+                j,
                 ControlEvent::Select {
                     id: "page-rows".into(),
                     index: 1,
@@ -1459,6 +1429,7 @@ mod tests {
             act(&mut j, "tab-pages", c);
             select(&mut j, c);
             act(&mut j, "delete-page", c);
+            act(&mut j, "close", c);
         });
         let pages = rules::parse_pages(
             &std::fs::read_to_string(dir.join("Journal-Dereth-Scribe.txt")).unwrap(),
@@ -1489,7 +1460,7 @@ mod tests {
             era.announced_features.set("contracts", contracts);
             g.era = Some(era.clone());
             with(&g, |c| {
-                j.event(ControlEvent::Tick, c);
+                drive(&mut j, ControlEvent::Tick, c);
                 let f = j.frame(c);
                 let has = |id| f.controls.iter().any(|k| k.id == id);
                 assert_eq!(has("tab-journal"), journal);
@@ -1499,7 +1470,7 @@ mod tests {
                 for id in ["tab-journal", "tab-pages", "tab-contracts"] {
                     if !has(id) {
                         let old = j.tab;
-                        j.event(ControlEvent::Activate(id.into()), c);
+                        drive(&mut j, ControlEvent::Activate(id.into()), c);
                         assert_eq!(j.tab, old);
                     }
                 }

@@ -151,6 +151,8 @@ pub struct World {
     /// How many `0x021D House_HouseProfile` have arrived — the edge that **raises** the window,
     /// because receiving a profile makes that window visible.
     pub house_profile_notices: u64,
+    pub salvage: crate::inventory::salvage::SalvageList,
+    pub payments: crate::housing::PaymentLists,
     /// The chess window's complete state.
     ///
     /// It lives on `World` because the six
@@ -170,13 +172,18 @@ pub struct World {
     pub trade: crate::trade::TradeSystem,
     /// The open vendor and both purchase baskets.
     ///
-    /// `toolbar::splitter::for_selection`'s vendor arm and `use_object`'s two vendor guards read
-    /// it. See [`crate::vendor::Shop`].
+    /// Stack quantity selection and the two vendor-use guards read it. See [`crate::vendor::Shop`].
     pub shop: crate::vendor::Shop,
+    /// Shared stack quantity used by inventory actions and both toolbars.
+    pub split: crate::inventory::SplitState,
+    pub(crate) split_selection: Option<ObjectId>,
+    /// Category position retained between shops in this character session.
+    pub vendor_filter: usize,
     /// The live contract trackers — see [`crate::quests`].
     pub contracts: crate::quests::ContractTrackerTable,
     /// The current book id, pages, and inscription — see [`crate::book`].
     pub book: crate::book::BookState,
+    pub journal: crate::journal::JournalStore,
     /// Object-range checks that close a panel when the player walks away from what opened it. See
     /// [`crate::range`].
     pub object_range_checks: crate::range::ObjectRangeCheckList,
@@ -280,13 +287,19 @@ impl World {
             house_data_notices: 0,
             slumlord: None,
             house_profile_notices: 0,
+            salvage: crate::inventory::salvage::SalvageList::default(),
+            payments: crate::housing::PaymentLists::default(),
             minigame: crate::minigame::MiniGame::new(),
             player_initialized: false,
             fellowship: None,
             trade: crate::trade::TradeSystem::default(),
             shop: crate::vendor::Shop::default(),
+            split: crate::inventory::SplitState::default(),
+            split_selection: None,
+            vendor_filter: 0,
             contracts: crate::quests::ContractTrackerTable::default(),
             book: crate::book::BookState::default(),
+            journal: crate::journal::JournalStore::default(),
             object_range_checks: crate::range::ObjectRangeCheckList::default(),
             selected_object_in_view: false,
             viewcone_check_object_id: None,
@@ -1523,6 +1536,7 @@ impl World {
             }
         }
         self.selected = id;
+        self.refresh_stack_split();
         if let Some(n) = id {
             if let Some(w) = self.tables.weenies.get_mut(n) {
                 w.selected = true;

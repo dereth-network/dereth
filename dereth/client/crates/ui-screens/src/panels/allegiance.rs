@@ -197,28 +197,8 @@ pub fn accept_swear_prompt(ui: &UiSystem, name: &str) -> String {
 /// world without the charge.
 #[must_use]
 pub fn oath_xp_cost(view: &dyn GameView) -> Option<u32> {
-    if !view.era_features().swear_xp_cost {
-        return None;
-    }
-    let xp = view.experience_header()?;
-    let breaks = view
-        .player()
-        .and_then(|p| view.int_stat(p, NUM_ALLEGIANCE_BREAKS))
-        .and_then(|b| u32::try_from(b).ok())
-        .unwrap_or(0);
-    // Past the curve's end the next level counts as the most a count can hold.
-    let span = if xp.level_span == 0 {
-        u64::from(u32::MAX)
-    } else {
-        xp.level_span
-    };
-    Some(dereth_rules::allegiance::swear_xp_cost_after_breaks(
-        span, breaks,
-    ))
+    view.oath_xp_cost()
 }
-
-/// The player's count of breaks from a patron (an int property).
-const NUM_ALLEGIANCE_BREAKS: u32 = 0x84;
 
 /// One row as this panel wrote it, so a test can read back what a player would see without
 /// re-walking the element tree.
@@ -650,17 +630,10 @@ impl AllegiancePanel {
         // `RemainingPanels::update`, so the snapshot is this frame's; before the first `update`
         // there is none, and "no snapshot" is the same answer as "no patron" — both leave Swear
         // and Break in the state the child set-up's hide loop left them.
-        let has_patron = self.last.as_ref().is_some_and(|r| r.patron.is_some());
-        let me = view.player();
-        let swear = !has_patron
-            && match view.selected_object() {
-                None => false,
-                Some(sel) => {
-                    sel != me.unwrap_or(ObjectId(0))
-                        && view.selection_query_facts(sel).is_some_and(|f| f.is_player)
-                        && !view.allegiance_has_member(sel)
-                }
-            };
+        let empty = AllegianceRoster::default();
+        let roster = self.last.as_ref().unwrap_or(&empty);
+        let has_patron = roster.patron.is_some();
+        let swear = dereth_client_contract::social::swear_target(view, roster).is_some();
         let want = [swear, has_patron, self.selected_vassal.is_some()];
         if self.button_states == Some(want) {
             return false;
@@ -1045,10 +1018,7 @@ fn find_panel(ui: &UiSystem, h: ElemHandle) -> Option<ElemHandle> {
 /// `dereth-client-model`'s; this recovers the half `ID_Allegiance_Rank`'s [`var::TITLE`] variable
 /// wants.
 fn title_of(full_name: &str) -> &str {
-    match full_name.split_once(' ') {
-        Some((title, _)) => title,
-        None => "",
-    }
+    dereth_presentation::social::title_and_name(full_name).0
 }
 
 /// Resolve a `StringInfo` token in [`STRING_TABLE`] and put `values` between its literal pieces.
@@ -1269,24 +1239,14 @@ mod tests {
     fn the_swear_confirmation_names_the_oaths_cost_where_the_world_charges_one() {
         #[derive(Debug)]
         struct V {
-            era: Option<dereth_client_contract::EraView>,
-            breaks: Option<i32>,
+            cost: Option<u32>,
         }
         impl GameView for V {
-            fn era(&self) -> Option<&dereth_client_contract::EraView> {
-                self.era.as_ref()
-            }
-            fn experience_header(&self) -> Option<dereth_client_contract::statmgmt::XpHeader> {
-                Some(dereth_client_contract::statmgmt::XpHeader {
-                    level_span: 20_000,
-                    ..Default::default()
-                })
+            fn oath_xp_cost(&self) -> Option<u32> {
+                self.cost
             }
             fn player(&self) -> Option<ObjectId> {
                 Some(ObjectId(1))
-            }
-            fn int_stat(&self, _: ObjectId, prop: u32) -> Option<i32> {
-                (prop == 0x84).then_some(self.breaks).flatten()
             }
             fn selected_object(&self) -> Option<ObjectId> {
                 Some(ObjectId(9))
@@ -1304,28 +1264,14 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         };
-        let infiltration = dereth_client_contract::EraView {
-            era: dereth_primitives::EraId::Infiltration,
-            era_announced: true,
-            ..Default::default()
-        };
-        let plain = prompt(&V {
-            era: None,
-            breaks: Some(1),
-        });
+        let plain = prompt(&V { cost: None });
         assert!(!plain.contains("experience"), "{plain}");
-        let charged = prompt(&V {
-            era: Some(infiltration.clone()),
-            breaks: Some(1),
-        });
+        let charged = prompt(&V { cost: Some(1250) });
         assert_eq!(
             charged,
             format!("{plain}\n\nThis oath costs 1,250 unassigned experience.")
         );
-        let first = prompt(&V {
-            era: Some(infiltration),
-            breaks: None,
-        });
+        let first = prompt(&V { cost: Some(0) });
         assert_eq!(first, plain, "a first oath is free");
     }
 }

@@ -10,7 +10,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -2330,6 +2330,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "inventory.split.shared-selection-projects-before-ui",
+        says: "A changed selected stack refreshes the shared quantity before the toolbar is drawn. Typed quantities reach item actions through live and frozen views.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-DEDUP-SPLIT-PROJECTION"),
+        station: "dereth-client::dat::inventory::vendor_split::changed_stack_receipts_reseed_before_the_app_projects_the_toolbar",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "inventory.split.starting-to-drag-the-stack-takes-the-quantity-in-the-box",
         says: "Lifting the stack off its tile takes the quantity showing in the box there and then, with \
                no return pressed and nothing else clicked, and lets the typing go; the drop \
@@ -4316,6 +4325,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-ASTRA-ITEMLIST-SCROLL-STOCK"),
         station: "dereth-ui-screens::dat::inventory::item_list_scroll::vendor_repaint_preserves_scroll_and_open_restores_x_after_its_real_menu_callback",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "vendor.stock.shared-projection-keeps-availability-and-order",
+        says: "Stock rows subtract finite basket quantities, exclude filled containers, and retain category selection. Quantity writes and the first matching identity retain their original ordering.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DEDUP-VENDOR-STOCK"),
+        station: "dereth-classic-ui::lib::panels::services::commerce::vendor::shared_stock_tests::classic_stock_uses_shared_remaining_quantities_and_retains_the_filter",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "vendor.stock.the-filter-strip-is-built-from-the-stock-that-is-actually-there",

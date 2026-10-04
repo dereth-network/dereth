@@ -1173,6 +1173,8 @@ pub enum UiRequest {
         book: ObjectId,
     },
     /// `0x00AB`, book, page, text.
+    Book(crate::book::BookAction),
+    Journal(crate::journal::JournalAction),
     BookModifyPage {
         book: ObjectId,
         page: u32,
@@ -1592,6 +1594,7 @@ pub enum UiRequest {
         split: i32,
     },
     /// case `0x100000C3` ("Add to List"). Local only.
+    VendorFilter(usize),
     VendorAddToBuyList {
         item: ObjectId,
         split: i32,
@@ -1791,6 +1794,8 @@ pub enum UiRequest {
     /// inventory holder to split this many beside the source; the resulting object is selected by
     /// the ordinary authoritative create path and is not inserted into the payment list until the
     /// player drops it a second time.
+    PaymentList(crate::panels::slumlord::PaymentAction),
+    SalvageList(crate::panels::salvage::SalvageAction),
     HouseSplitItem {
         item: ObjectId,
         split: u32,
@@ -2845,6 +2850,9 @@ pub trait GameView: std::fmt::Debug {
     /// `None` means "no journal file", and the panel then keeps its pages in memory only: a build
     /// with no preferences file, no world name or no character yet has nowhere to write and must
     /// not guess. See [`crate::journal::JournalIdentity`].
+    fn journal(&self) -> crate::journal::JournalView {
+        crate::journal::JournalView::default()
+    }
     fn journal_identity(&self) -> Option<crate::journal::JournalIdentity> {
         None
     }
@@ -2999,6 +3007,9 @@ pub trait GameView: std::fmt::Debug {
     /// `None` is `bookID == 0`: no `0x00B4 Writing_BookOpen` has arrived, or the last one was
     /// closed. The panel opens on a change of [`BookView::opening`] and on nothing else, which is
     /// the same pull-instead-of-push seam [`Self::appraisal`] carries.
+    fn book_session(&self) -> crate::book::BookSessionView {
+        crate::book::BookSessionView::default()
+    }
     fn open_book(&self) -> Option<BookView> {
         None
     }
@@ -3017,6 +3028,9 @@ pub trait GameView: std::fmt::Debug {
     /// The default is an empty roster, which is what a character in no allegiance has — and what
     /// all twelve `0x0020 Allegiance_AllegianceUpdate` in the capture corpus produce, since every
     /// one of them carries `total_members = 0` and no member records.
+    fn oath_xp_cost(&self) -> Option<u32> {
+        None
+    }
     fn allegiance_roster(&self) -> AllegianceRoster {
         AllegianceRoster::default()
     }
@@ -3193,6 +3207,12 @@ pub trait GameView: std::fmt::Debug {
     ///
     /// The default is **false**, which is the client's own answer when the weenie lookup misses:
     /// a host with no world refuses every drop rather than accepting every one.
+    fn payment_lists(&self) -> crate::panels::slumlord::PaymentListsView {
+        crate::panels::slumlord::PaymentListsView::default()
+    }
+    fn salvage_list(&self) -> crate::panels::salvage::SalvageListView {
+        crate::panels::salvage::SalvageListView::default()
+    }
     fn salvage_item_suitable(&self, _item: ObjectId, _panel_material: u32) -> bool {
         false
     }
@@ -4495,6 +4515,8 @@ pub struct MagicInfoView {
 /// build implements the pyreal arm only.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ShopView {
+    /// Selected category position, retained between shops by the client.
+    pub filter: usize,
     /// Whether the client has a nonzero vendor id.
     pub open: bool,
     pub vendor: Option<ObjectId>,

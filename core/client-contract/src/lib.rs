@@ -26,6 +26,7 @@
 /// The action vocabulary: the retail action ids, their phase and their names. The runtime takes
 /// actions; a front end's device pipeline makes them.
 pub mod actions;
+pub mod book;
 /// The projection parameters `ViewParams` carries. `dereth_render_cpu::camera` re-exports them.
 pub mod camera;
 /// The chat seam shared with `dereth_ui_screens::chat`: the failure table,
@@ -89,6 +90,7 @@ pub mod research;
 /// `STARTUP_FILTERING`, which `dereth_render_cpu::sampler` re-exports.
 pub mod sampler;
 pub mod snapshot;
+pub mod social;
 pub mod spellbook;
 pub mod statmgmt;
 /// Where the selected object stands on screen.
@@ -96,6 +98,7 @@ pub mod target;
 /// The world-view teleport / portal animation model, which
 /// `dereth_ui_screens::screens::teleport` re-exports.
 pub mod teleport;
+pub mod vendor;
 pub mod view;
 /// `WindowHandles`, `Rect` and `ScreenMetrics`: the plain data a host window contributes.
 /// `dereth_render::{device, window_proc}` re-export each.

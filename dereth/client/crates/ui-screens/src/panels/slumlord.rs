@@ -95,30 +95,12 @@
 //! | narrow | 7 | the house refresh — `"Owner: "` |
 //! | narrow | 4 | the same — `"None"` |
 //!
-//! # What this module does **not** do, named rather than left to be discovered
+//! # Shared payment session
 //!
-//! * **The two confirmation dialogs.** The house-purchase prompt (*"When you buy
-//!   a landscape house like this one…"*, 138 chars) and the proxy-payment prompt
-//!   (*"You are paying maintenance on someone else's house…"*, 86 chars) both go through
-//!   current-UI dialog creation, and their answers come back through
-//!   the close-dialog notice → the buy-house confirmation close /
-//!   the rent-payment-by-proxy confirmation close. **This build routes the confirmation
-//!   arms straight to [`SlumlordPanel::make_payment`]** — i.e. the Yes arm — and says so in
-//!   [`SlumlordPanel::on_element_message`]. The dialog itself is not implemented.
-//! * **The stack split.** Drop acceptance forks on whether the split size equals the maximum
-//!   split size; the *unequal* arm attempts to place the item in a container.
-//!   The panel emits [`UiRequest::HouseSplitItem`] for
-//!   that inventory operation. Its authoritative result is selected by the generic object-create
-//!   path; retail does not automatically insert it here, so the player drops that whole result a
-//!   second time.
-//! * **Trade notes** are normalized through the retail `TradeNotes` two-way enum map by the host,
-//!   and their face value is kept with the row so replay reaches the trade-note payment rather than
-//!   mistaking a note for a separate payment class.
-//! * **The nine-unit auto-close.** The house-profile notice handler ends by registering an
-//!   object-range handler on the slumlord at 9.0 units, and the range-exit callback closes the
-//!   window when the player walks away.
-//!   `dereth_client_model::range` carries that row (`range.rs`'s table, entry 3); the profile
-//!   receiver registers it and delivers its one-shot exit back to this panel.
+//! Both confirmations use the runtime dialog service. Answers return to this presentation;
+//! the shared model validates and submits the current ordered basket. Partial stack drops
+//! request a split without inserting its result. The host resolves trade-note denominations.
+//! The slumlord's nine-unit range watch ends the session when the player walks away.
 //!
 //! # Shard safety
 //!
@@ -216,22 +198,14 @@ pub enum ButtonState {
     Enabled = 1,
 }
 
+use dereth_client_contract::panels::slumlord::PaymentAction;
 /// One row the window holds, with the two numbers the payment replay needs.
 ///
 /// Retail keeps only the object id in the list and re-reads the weenie for the rest; this keeps
 /// the pair it read **at drop time**, because the client pays into its house profile
 /// there and then, and a stack whose size changed afterwards must not silently re-price the
 /// window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DroppedItem {
-    pub id: ObjectId,
-    /// The item's WCID.
-    pub wcid: u32,
-    /// The item's house-payment amount — its stack size, or 1 when it has none.
-    pub amount: i32,
-    /// The client's mapped face value, or `None` for an ordinary item.
-    pub trade_note_value: Option<i32>,
-}
+pub use dereth_client_contract::panels::slumlord::PaymentItem as DroppedItem;
 
 /// The snapshot [`SlumlordPanel::update`] guards on, so an unchanged frame redraws nothing.
 #[derive(Debug, Clone, PartialEq)]
@@ -272,9 +246,9 @@ pub struct SlumlordPanel {
     pub profile: Option<SlumlordView>,
     /// The current house operation.
     pub op: HouseOp,
-    /// The buy item list's contents.
+    /// The last shared buy-list projection.
     pub buy_items: Vec<DroppedItem>,
-    /// The rent item list's contents.
+    /// The last shared rent-list projection.
     pub rent_items: Vec<DroppedItem>,
     /// The two buttons as this panel last wrote them.
     pub buy_button_state: ButtonState,
@@ -385,20 +359,9 @@ impl SlumlordPanel {
         }
     }
 
-    /// The house update **plus** the update-house-profile notice's show: store the slumlord id,
-    /// copy the profile in, back up a pristine copy, refresh the house, and show the window.
-    ///
-    /// **The backup is why this build keeps the *pristine* profile and replays the drops.**
-    /// Retail mutates its working profile as items go in and holds a backup as the
-    /// untouched original; here the view hands over the untouched original every frame and the
-    /// panel's own row lists are the mutation, which cannot drift apart the way two copies can.
-    ///
-    /// A **new** profile flushes both lists inside the house refresh, so every item the player had
-    /// dropped is taken back out and both payment lists are cleared. Using a second slumlord therefore empties the window rather than
-    /// carrying a half-paid basket across.
+    /// Project the receipt that the model has already applied and raise the window.
     pub fn recv_house_profile(&mut self, ui: &mut UiSystem, view: &dyn GameView) {
         self.profile = view.slumlord();
-        self.clean_item_lists(ui);
         self.opens += 1;
         self.set_visible(ui, true);
     }
@@ -412,24 +375,10 @@ impl SlumlordPanel {
         true
     }
 
-    /// Both lists flushed, both buttons disabled, and both of the profile's payment lists
-    /// cleared.
-    ///
-    /// The payment-clearing half is implicit here: the paid counts are derived from the row lists by
-    /// [`GameView::slumlord_payment`], so emptying the rows *is* clearing the payments.
+    /// Request that the shared session clear both offered lists.
     pub fn clean_item_lists(&mut self, ui: &mut UiSystem) {
-        self.buy_items.clear();
-        self.rent_items.clear();
-        self.last = None;
-        if let Some(w) = self.buy_list.as_mut() {
-            w.flush(ui);
-        }
-        if let Some(w) = self.rent_list.as_mut() {
-            w.flush(ui);
-        }
-        self.buy_button_state = ButtonState::Disabled;
-        self.rent_button_state = ButtonState::Disabled;
-        self.write_button_states(ui);
+        ui.requests
+            .emit(UiRequest::PaymentList(PaymentAction::Clear));
     }
 
     /// The slumlord panel's failed house transaction notice — the `0x0258` retry: when a
@@ -545,9 +494,7 @@ impl SlumlordPanel {
         )
     }
 
-    /// The same entry with the toolbar's split-size pair captured by the pointer gesture.
-    /// `HudView` deliberately does not own the toolbar splitter, so the gameplay screen carries
-    /// these values across the one-frame panel-ownership seam.
+    /// Carry the gesture's split quantity to the shared payment action.
     pub fn accept_drag_object_with_split(
         &mut self,
         ui: &mut UiSystem,
@@ -560,98 +507,10 @@ impl SlumlordPanel {
             self.drops_refused += 1;
             return false;
         }
-        if split != max {
-            ui.requests.emit(UiRequest::HouseSplitItem {
-                item: id,
-                split,
-                max,
-            });
-            return true;
-        }
-        self.add_object(ui, id, view, 0);
-        self.update_buttons(ui, view);
-        true
-    }
-
-    /// The slumlord panel's object insert — the container fork: an object with no contents goes
-    /// to the item insert, anything else to the container insert.
-    fn add_object(&mut self, ui: &mut UiSystem, id: ObjectId, view: &dyn GameView, depth: u32) {
-        if view
-            .slot_decoration(id)
-            .is_some_and(|d| d.contained_items > 0)
-        {
-            self.add_container(ui, id, view, depth);
-        } else {
-            self.add_item(ui, id, view);
-        }
-    }
-
-    /// Walk the contents and take every one the test
-    /// admits, **quietly** (the acceptability test with `quiet` set).
-    ///
-    /// Note what is *not* here and is in `SalvagePanel`'s equivalent: no heading line. Dropping a
-    /// pack onto the slumlord says nothing at all and simply takes the coins out of it.
-    ///
-    /// `depth` is this build's own guard; the client has none, because its containment graph is a
-    /// tree by construction.
-    fn add_container(&mut self, ui: &mut UiSystem, id: ObjectId, view: &dyn GameView, depth: u32) {
-        if depth > 8 {
-            return;
-        }
-        for child in view.container_contents(id).to_vec() {
-            if self.drag_item_acceptable(&mut ui.requests, child, view, true) {
-                self.add_object(ui, child, view, depth + 1);
-            }
-        }
-    }
-
-    /// The slumlord panel's item insert. Refuse a container, a missing current list or an item
-    /// already listed. Build a payment of the item's WCID and house-payment amount (stack size, or
-    /// 1); refuse if the payment insert does; otherwise set the item's trade state to 1, add its
-    /// row and register the being-deleted notice on it.
-    ///
-    /// **The payment insert is a gate, not a side effect.** It is the profile's attempt to pay,
-    /// which answers 0 for a row that is already paid in full — so an item the list no longer
-    /// wants is refused *here*, after the drag-acceptable test let it through, and the row is
-    /// never added.
-    fn add_item(&mut self, ui: &mut UiSystem, id: ObjectId, view: &dyn GameView) -> bool {
-        let rent = self.op.is_rent();
-        let list = match self.op {
-            HouseOp::Undef => return false,
-            HouseOp::Buy => &self.buy_items,
-            HouseOp::Rent => &self.rent_items,
-        };
-        if list.iter().any(|d| d.id == id) {
-            return false;
-        }
-        let wcid = view.item_wcid(id);
-        let amount = view.item_house_payment(id);
-        let trade_note_value = view.item_trade_note_value(id);
-        // The payment insert -> the house profile's attempt to pay, and the **gate** is that
-        // boolean: an item the list no longer wants is refused here, after the drag-acceptable
-        // test let it through, and the row is never added.
-        if !view.slumlord_pay(rent, &Self::drops(list), wcid, amount, trade_note_value) {
-            self.drops_refused += 1;
-            return false;
-        }
-        match self.op {
-            HouseOp::Undef => return false,
-            HouseOp::Buy => self.buy_items.push(DroppedItem {
-                id,
-                wcid,
-                amount,
-                trade_note_value,
-            }),
-            HouseOp::Rent => self.rent_items.push(DroppedItem {
-                id,
-                wcid,
-                amount,
-                trade_note_value,
-            }),
-        }
-        self.items_added += 1;
-        self.last = None;
-        let _ = ui;
+        ui.requests
+            .emit(UiRequest::StackSliderChanged { split, max });
+        ui.requests
+            .emit(UiRequest::PaymentList(PaymentAction::Add(id)));
         true
     }
 
@@ -661,16 +520,11 @@ impl SlumlordPanel {
     /// trade state, deletes the row and removes the payment. Here the payment is derived from the
     /// row list, so removing the row *is* the payment removal.
     pub fn remove_item(&mut self, _ui: &mut UiSystem, id: ObjectId) -> bool {
-        let list = match self.op {
-            HouseOp::Undef => return false,
-            HouseOp::Buy => &mut self.buy_items,
-            HouseOp::Rent => &mut self.rent_items,
-        };
-        let Some(i) = list.iter().position(|d| d.id == id) else {
+        if !self.current_items().iter().any(|i| i.id == id) {
             return false;
-        };
-        list.remove(i);
-        self.last = None;
+        }
+        _ui.requests
+            .emit(UiRequest::PaymentList(PaymentAction::Remove(id)));
         true
     }
 
@@ -711,28 +565,15 @@ impl SlumlordPanel {
         true
     }
 
-    /// An authoritative move only
-    /// removes an item already shown in the current payment list, and only after it is no longer
-    /// owned by the player. A newly created split result is therefore not auto-inserted here.
+    /// Inventory departure is applied once by the shared runtime before projection.
     pub fn recv_server_says_move_item(
         &mut self,
         ui: &mut UiSystem,
         id: ObjectId,
         view: &dyn GameView,
     ) -> bool {
-        let in_current_list = match self.op {
-            HouseOp::Undef => false,
-            HouseOp::Buy => self.buy_items.iter().any(|d| d.id == id),
-            HouseOp::Rent => self.rent_items.iter().any(|d| d.id == id),
-        };
-        if !in_current_list || view.item_owned_by_player(id) {
-            return false;
-        }
-        let removed = self.remove_item(ui, id);
-        if removed {
-            self.update_buttons(ui, view);
-        }
-        removed
+        let _ = (ui, id, view);
+        false
     }
 
     /// The slumlord panel's buttons update, whole. With no tab up both buttons are disabled
@@ -759,10 +600,7 @@ impl SlumlordPanel {
             return;
         }
         let unowned = self.profile.as_ref().is_some_and(|p| p.owner.0 == 0);
-        let paid = unowned
-            && view
-                .slumlord_payment(false, &Self::drops(&self.buy_items))
-                .paid_in_full;
+        let paid = unowned && view.payment_lists().buy_payment.paid_in_full;
         self.buy_button_state = if paid {
             ButtonState::Enabled
         } else {
@@ -776,41 +614,19 @@ impl SlumlordPanel {
         self.write_button_states(ui);
     }
 
-    /// The one thing this window sends. With no tab up, no current list or no slumlord id it
-    /// refuses. It collects every row's item id in list order; if there is at least one, it
-    /// cleans both item lists, updates the buttons, sends the buy-house (`0x021C`) or rent-house
-    /// (`0x0221`) request with the slumlord and the ids, and answers true.
-    ///
-    /// **The walk is forwards** — first row to last — where the salvage window walks backwards. The
-    /// order is on the wire and a recorded session shows it preserved: `c2150080 c1150080 92150080` at `t = 144.458` is the drop order.
-    ///
-    /// **The window is emptied *before* the request goes out**,
-    /// so a refusal leaves an empty basket and the items back in the pack — which is what makes
-    /// the `0x0258` retry in [`Self::recv_failed_house_transaction`] the right repair.
+    /// Ask the shared session to validate and submit its current ordered basket.
     pub fn make_payment(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        if self.op == HouseOp::Undef {
-            return false;
-        }
-        let Some(slumlord) = self
-            .profile
-            .as_ref()
-            .map(|p| p.slumlord)
-            .filter(|s| s.0 != 0)
-        else {
-            return false;
+        let state = view.payment_lists();
+        let rows = match state.op {
+            HouseOp::Buy => &state.buy,
+            HouseOp::Rent => &state.rent,
+            HouseOp::Undef => return false,
         };
-        let items: Vec<ObjectId> = self.current_items().iter().map(|d| d.id).collect();
-        if items.is_empty() {
+        if rows.is_empty() {
             return false;
         }
-        let rent = self.op.is_rent();
-        self.clean_item_lists(ui);
-        self.update_buttons(ui, view);
-        ui.requests.emit(UiRequest::HousePayment {
-            slumlord,
-            rent,
-            items,
-        });
+        ui.requests
+            .emit(UiRequest::PaymentList(PaymentAction::Submit));
         self.payments += 1;
         true
     }
@@ -836,6 +652,8 @@ impl SlumlordPanel {
         };
         if !confirmed {
             // A No answer hides the window, in both close handlers.
+            ui.requests
+                .emit(UiRequest::PaymentList(PaymentAction::Close));
             self.set_visible(ui, false);
             return;
         }
@@ -843,42 +661,18 @@ impl SlumlordPanel {
         // Both Yes arms re-check their guard at close time. Buy asks whether the Buy profile is
         // paid in full; proxy rent asks whether the rent item list still has a row. The payment
         // then reads the current operation/list, exactly as retail's shared tail does.
+        let state = view.payment_lists();
         let allowed = if rent {
-            !self.rent_items.is_empty()
+            !state.rent.is_empty()
         } else {
-            self.profile.is_some()
-                && view
-                    .slumlord_payment(false, &Self::drops(&self.buy_items))
-                    .paid_in_full
+            self.profile.is_some() && state.buy_payment.paid_in_full
         };
         if allowed {
             self.make_payment(ui, view);
         }
     }
 
-    /// All three message arms.
-    ///
-    /// * **Message `1`.** `0x1000009E` hides the window. `0x10000094` (Buy) raises the house-purchase
-    ///   confirmation — and stops — unless a profile is held and the house type is 4 (apartment),
-    ///   which pays straight through. `0x1000009B` (Rent) raises the by-proxy confirmation — and
-    ///   stops — unless the player owns the house, which pays straight through.
-    /// * **Message `0x15`.** A drop inside the current item list is handled as a drop release.
-    /// * **Message `0x18`** (visibility changed). The window itself cleans both lists and updates
-    ///   the buttons. The Buy page `0x10000090` becoming visible makes Buy the current operation
-    ///   and list; becoming hidden while Buy is current resets to Undef with no list. The Rent page
-    ///   `0x10000097` does the same for Rent.
-    ///
-    /// **Two branches are inverted from what the names suggest and both were read twice.**
-    /// The Buy button raises the thirty-day confirmation for *every* dwelling **except** an
-    /// apartment, and the Rent button raises the by-proxy confirmation when the player is **not**
-    /// the owner. In both cases the confirmation is the *only* thing that happens on that click;
-    /// the payment runs on the fall-through.
-    ///
-    /// **This module routes both confirmations straight to [`Self::make_payment`]** — the Yes arm of
-    /// the buy-house confirmation close and the rent-payment-by-proxy confirmation close, each of
-    /// which pays when the player agreed and the same guard the button had still holds. The
-    /// dialog is named in the module header as not implemented; what is *not* skipped is either
-    /// guard.
+    /// Translate page selection, item gestures and payment buttons into shared actions.
     pub fn on_element_message(
         &mut self,
         ui: &mut UiSystem,
@@ -889,11 +683,7 @@ impl SlumlordPanel {
         if m.id == msg::VISIBILITY_CHANGED {
             let visible = m.p1 != 0;
             if Some(m.source) == self.root {
-                self.clean_item_lists(ui);
                 self.update_buttons(ui, view);
-                if !visible {
-                    ui.requests.emit(UiRequest::UnregisterSlumlordRange);
-                }
                 return true;
             }
             let page = match m.source_id {
@@ -901,10 +691,20 @@ impl SlumlordPanel {
                 RENT_PAGE => HouseOp::Rent,
                 _ => return false,
             };
-            if visible {
-                self.op = page;
-            } else if self.op == page {
-                self.op = HouseOp::Undef;
+            let active_page = self
+                .root
+                .and_then(|root| ui.node(root))
+                .and_then(|n| n.behaviour.as_ref())
+                .and_then(|b| b.as_any())
+                .and_then(|b| b.downcast_ref::<dereth_ui::widgets::panel::Panel>())
+                .and_then(|p| p.open_page);
+            if visible
+                && self.visible
+                && active_page == Some(m.source_id)
+                && page != view.payment_lists().op
+            {
+                ui.requests
+                    .emit(UiRequest::PaymentList(PaymentAction::Select(page)));
             }
             self.last = None;
             self.update_buttons(ui, view);
@@ -919,6 +719,9 @@ impl SlumlordPanel {
         }
         match m.source_id {
             CLOSE_BUTTON => {
+                ui.requests
+                    .emit(UiRequest::PaymentList(PaymentAction::Close));
+                ui.requests.emit(UiRequest::UnregisterSlumlordRange);
                 self.set_visible(ui, false);
                 true
             }
@@ -1033,39 +836,56 @@ impl SlumlordPanel {
         }
     }
 
-    /// One frame's drive: the raise edge, the hidden edge, then the house refresh.
-    ///
-    /// The house refresh is four writes and two calls: the buy requirements text, the rent
-    /// requirements text (from the second composer), the owner line `"Owner: "` + the name (or
-    /// `"None"`) written to **both** owner texts, then cleaning the item lists and updating the
-    /// buttons. It answers false when no profile is held.
-    ///
-    /// The list clean at the end is why a fresh profile empties the window, and it is
-    /// [`Self::recv_house_profile`]'s, not this function's: calling it every frame would throw the
-    /// player's basket away on every tick. This is the *redraw* half.
-    ///
-    /// Returns whether the tree was rewritten.
+    /// Project the shared operation, rows and totals without resetting the session.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        // The raise edge — a count, so a second use of the same slumlord re-raises a window the
-        // player closed. See `GameView::slumlord_notices`.
+        let state = view.payment_lists();
+        self.profile = view.slumlord();
+        self.op = state.op;
+        self.items_added += u32::try_from(
+            state
+                .buy
+                .iter()
+                .filter(|i| !self.buy_items.iter().any(|old| old.id == i.id))
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        self.items_added += u32::try_from(
+            state
+                .rent
+                .iter()
+                .filter(|i| !self.rent_items.iter().any(|old| old.id == i.id))
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        self.buy_items = state.buy;
+        self.rent_items = state.rent;
         let notices = view.slumlord_notices();
         if notices != self.profile_notices_seen {
             self.profile_notices_seen = notices;
-            self.recv_house_profile(ui, view);
+            self.opens += 1;
         }
-        let live = self
-            .root
-            .and_then(|h| ui.node(h))
-            .map(|n| n.region.flags.visible);
-        if live == Some(false) && self.visible {
-            self.closes += 1;
+        let desired_page = match state.op {
+            HouseOp::Buy => Some(BUY_PAGE),
+            HouseOp::Rent => Some(RENT_PAGE),
+            HouseOp::Undef => None,
+        };
+        if let (Some(root), Some(page)) = (self.root, desired_page) {
+            let target = ui
+                .node(root)
+                .and_then(|n| n.behaviour.as_ref())
+                .and_then(|b| b.as_any())
+                .and_then(|b| b.downcast_ref::<dereth_ui::widgets::panel::Panel>())
+                .filter(|p| p.open_page != Some(page))
+                .and_then(|p| p.page_to_tab.get(&page).copied());
+            if let Some(tab) = target.and_then(|id| ui.get_child_recursive(root, id)) {
+                ui.broadcast_element_message(tab, dereth_ui::msg::element::id::MOUSE_CLICK, 0, 0);
+            }
         }
-        self.visible = live.unwrap_or(false);
-
-        let buy_drops = Self::drops(&self.buy_items);
-        let rent_drops = Self::drops(&self.rent_items);
-        let buy_payment = view.slumlord_payment(false, &buy_drops);
-        let rent_payment = view.slumlord_payment(true, &rent_drops);
+        if self.visible != state.visible {
+            self.set_visible(ui, state.visible);
+        }
+        let buy_payment = state.buy_payment;
+        let rent_payment = state.rent_payment;
         let tiles = |items: &[DroppedItem]| -> Vec<(
             ObjectId,
             Option<dereth_primitives::DataId>,
@@ -1168,6 +988,54 @@ impl SlumlordPanel {
 mod tests {
     use super::*;
 
+    /// Behaviour: panels.house-purchase.each-profile-opens-the-payment-window-once
+    #[test]
+    fn only_the_active_tab_visibility_changes_the_shared_operation() {
+        #[derive(Debug)]
+        struct Buying;
+        impl GameView for Buying {
+            fn payment_lists(&self) -> dereth_client_contract::panels::slumlord::PaymentListsView {
+                dereth_client_contract::panels::slumlord::PaymentListsView {
+                    op: HouseOp::Buy,
+                    visible: true,
+                    ..Default::default()
+                }
+            }
+        }
+        let mut ui = UiSystem::new((800, 600));
+        let root = ui.root();
+        ui.node_mut(root).unwrap().behaviour = Some(Box::new(dereth_ui::widgets::panel::Panel {
+            open_page: Some(RENT_PAGE),
+            ..Default::default()
+        }));
+        let mut panel = SlumlordPanel {
+            root: Some(root),
+            visible: true,
+            ..Default::default()
+        };
+        let mut message = ElementMessage {
+            id: dereth_ui::msg::element::id::VISIBILITY_CHANGED,
+            source: ElemHandle::for_test(999),
+            source_id: BUY_PAGE,
+            p1: 1,
+            p2: 0,
+            point: Default::default(),
+            serial: 0,
+        };
+        panel.on_element_message(&mut ui, &message, &Buying);
+        assert!(ui.requests.take().is_empty());
+        message.source_id = RENT_PAGE;
+        message.p1 = 0;
+        panel.on_element_message(&mut ui, &message, &Buying);
+        assert!(ui.requests.take().is_empty());
+        message.p1 = 1;
+        panel.on_element_message(&mut ui, &message, &Buying);
+        assert_eq!(
+            ui.requests.take(),
+            vec![UiRequest::PaymentList(PaymentAction::Select(HouseOp::Rent))]
+        );
+    }
+
     /// A view with a slumlord profile and a stack slider **below** the whole stack.
     #[derive(Debug)]
     struct Splitting;
@@ -1242,11 +1110,10 @@ mod tests {
         assert_eq!(p.refusals_spoken, 0);
         assert_eq!(
             ui.requests.take(),
-            vec![UiRequest::HouseSplitItem {
-                item: ObjectId(0x8000_0001),
-                split: 1,
-                max: 10
-            }]
+            vec![
+                UiRequest::StackSliderChanged { split: 1, max: 10 },
+                UiRequest::PaymentList(PaymentAction::Add(ObjectId(0x8000_0001)))
+            ]
         );
     }
 
@@ -1308,10 +1175,16 @@ mod tests {
         assert!(p.accept_drag_object(&mut ui, ObjectId(0x8000_0001), &Whole));
         assert_eq!(
             p.buy_items.len(),
-            1,
-            "the accepted item enters the buy list and refreshes the buttons"
+            0,
+            "the panel waits for the shared model projection"
         );
         assert_eq!(p.refusals_spoken, 0, "and it says nothing");
-        assert!(ui.requests.take().is_empty());
+        assert_eq!(
+            ui.requests.take(),
+            vec![
+                UiRequest::StackSliderChanged { split: 10, max: 10 },
+                UiRequest::PaymentList(PaymentAction::Add(ObjectId(0x8000_0001)))
+            ]
+        );
     }
 }

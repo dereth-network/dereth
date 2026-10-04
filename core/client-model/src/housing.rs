@@ -6,6 +6,9 @@
 use dereth_primitives::ObjectId;
 use std::collections::BTreeMap;
 
+mod payments;
+pub use payments::{PaymentEffect, PaymentLists};
+
 /// `HouseType`. `[external — ACE names]`; the client only ever tests `type == 4`.
 pub mod house_type {
     pub const UNDEF: u32 = 0;
@@ -665,9 +668,11 @@ impl crate::world::World {
     /// Receiving a profile means *keep a copy, back it up, refresh*:
     /// store the statue id and profile, preserve a backup, then refresh the display. A
     /// dropped item can be "paid" into the live copy and the untouched original is still there;
-    /// it is the panel's, not the world's, and lives on `SlumlordPanel`.
+    /// both copies live in the shared payment session.
     pub fn recv_house_profile(&mut self, m: &dereth_protocol::trade::HouseProfileMessage) {
         self.slumlord = Some((m.covenant_crystal, HouseProfile::from_wire(&m.profile)));
+        self.payments
+            .receive(m.covenant_crystal, HouseProfile::from_wire(&m.profile));
         self.house_profile_notices = self.house_profile_notices.wrapping_add(1);
     }
 

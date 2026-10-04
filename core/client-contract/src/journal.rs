@@ -1,11 +1,8 @@
-//! The journal panel's identity and the path it builds.
+//! Shared journal pages, editing actions, identity and host file requests.
 //!
-//! `GameView::journal_identity` returns [`JournalIdentity`], so the type is contract: it is the
-//! three process globals the host hands the panel, not anything the panel draws. Its two inherent
-//! methods build paths, so [`create_journal_path`] and the two stems come with it (an inherent
-//! `impl` has to live with its type). The rest of `panels::journal` — the page model, the timers,
-//! the captions, page saving — stays in `dereth-ui-screens`, which `pub use`s these four names so
-//! `dereth_ui_screens::panels::journal::JournalIdentity` still resolves.
+//! The model owns pages, drafts, timer stamps and save boundaries. Both interfaces project
+//! [`JournalView`] and forward [`JournalAction`]; the host supplies [`JournalIdentity`] and
+//! services tagged [`JournalIo`] requests. Pure captions and file parsing remain in presentation.
 
 /// The stem of the journal file name, at both of the path builder's call sites. Retail's, and
 /// also this client's.
@@ -95,4 +92,102 @@ pub fn delta_time_to_string(seconds: i64) -> String {
     // `while (*p) p++; p[-1] = 0;` — the trailing space of whichever run was written last.
     s.pop();
     s
+}
+
+/// One journal page.
+///
+/// The two coordinates are named for what they hold rather than for retail's x/y; see
+/// the location formatter.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JournalPage {
+    /// The label.
+    pub label: String,
+    /// The title.
+    pub title: String,
+    /// The notes.
+    pub notes: String,
+    /// The page number — **1-based**, and rewritten over the whole vector when a page is deleted
+    /// after deletion.
+    pub page_number: u32,
+    /// The timer stamp — an absolute clock time, not a duration.
+    pub timer_stamp: f64,
+    /// Days / hours / minutes, as `wcstoul` read them out of the three edit boxes.
+    pub days: u32,
+    pub hours: u32,
+    pub minutes: u32,
+    /// The stored y — the **north/south** value.
+    pub ns: f64,
+    /// The stored x — the **east/west** value.
+    pub ew: f64,
+    /// Whether the timer is running.
+    pub timer_running: bool,
+    /// Whether a location is set.
+    pub location_set: bool,
+}
+
+/// Shared notebook gestures. Drafts carry their identity generation and page.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JournalAction {
+    Edit {
+        generation: u64,
+        page: u32,
+        draft: JournalPage,
+    },
+    SetField {
+        generation: u64,
+        page: u32,
+        field: JournalField,
+    },
+    Goto(u32),
+    Turn(i32),
+    NewPage,
+    Delete(u32),
+    StampLocation,
+    ToggleTimer,
+    Visibility(bool),
+    Sort(u8),
+    Search(String),
+    ResetSearch,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JournalView {
+    pub pages: Vec<JournalPage>,
+    pub draft: JournalPage,
+    pub current_page: u32,
+    pub loaded: bool,
+    pub revision: u64,
+    pub generation: u64,
+    pub sort: u8,
+    pub reverse: bool,
+    pub search: String,
+    pub filtered: bool,
+    pub page_loads: u32,
+    pub page_saves: u32,
+}
+
+/// File work is performed by the host, outside the shared notebook.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JournalIo {
+    Load {
+        identity: JournalIdentity,
+        generation: u64,
+        revision: u64,
+    },
+    Save {
+        identity: JournalIdentity,
+        generation: u64,
+        pages: Vec<JournalPage>,
+    },
+}
+
+/// One edited control; unrelated draft fields are left intact.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JournalField {
+    Label(String),
+    Title(String),
+    Notes(String),
+    Days(u32),
+    Hours(u32),
+    Minutes(u32),
 }

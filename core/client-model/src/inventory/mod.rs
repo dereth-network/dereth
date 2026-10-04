@@ -48,6 +48,29 @@ impl SplitState {
 }
 
 impl World {
+    /// Selection and live stack-size changes seed the shared quantity once. Selecting nothing or
+    /// an unknown object leaves the previous pair alone; a vendor's stack begins at one item.
+    pub fn refresh_stack_split(&mut self) {
+        let edge = self.split_selection != self.selected;
+        self.split_selection = self.selected;
+        let Some(item) = self.selected.and_then(|id| self.weenie(id)) else {
+            return;
+        };
+        let count = u32::from(item.pwd.stack_size.unwrap_or(1)).max(1);
+        if !edge && count == self.split.max_split_size {
+            return;
+        }
+        let vendor_stock = self
+            .vendor_id()
+            .filter(|id| id.0 != 0)
+            .is_some_and(|id| item.pwd.container_id == Some(id))
+            && item.pwd.obj_type & 0x0dc4_1cb0 != 0;
+        self.split = SplitState {
+            split_size: if vendor_stock { 1 } else { count },
+            max_split_size: count,
+        };
+    }
+
     /// Check whether the player is ready to make an inventory request.
     ///
     /// # Errors

@@ -6,7 +6,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -120,6 +120,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-G42"),
         station: "dereth-testkit::cpu::social::scenario_allegiance_login_becomes_a_chat_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "allegiance.oath.shared-cost-facts-survive-snapshots",
+        says: "The oath cost uses the world rules and normalized break count, including the final level, and frozen views preserve that same cost.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-DEDUP-OATH-FACTS"),
+        station: "dereth-client-runtime::lib::hud::tests::oath_cost_reads_live_breaks_and_survives_the_snapshot",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -320,6 +329,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "fellowship.actions.shared-sender-guards-and-refusals",
+        says: "Direct fellowship actions validate membership and the selected player independently of button eligibility. Refused actions print their exact local message and send nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DEDUP-FELLOW-ACTIONS"),
+        station: "dereth-client-runtime::lib::interaction::shared_social_tests::direct_social_actions_keep_sender_guards_separate_from_button_availability",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "fellowship.buttons.a-leader-who-leaves-hands-the-lead-on-first",
         says: "A leader who leaves his fellowship hands the lead to somebody else before he goes, in \
                that order and in the same breath, so the fellowship is never left without one. A \
@@ -362,12 +379,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "fellowship.buttons.recruit-follows-the-world-selection-and-not-the-list",
-        says: "The person the player would recruit is whoever he has selected in the world, not \
-               whoever is highlighted in the list. The button is offered only while that selection \
-               is somebody who is not already in the fellowship, and it names that person by who he \
-               is rather than by his name.",
+        says: "The recruit target is the selected player in the world, not the highlighted roster row. \
+               A full fellowship disables recruitment; its leader or an open fellowship can offer it, \
+               without a separate locked veto. An open nonleader retains the previous button state \
+               for an unknown or nonplayer selection, while the sender still refuses that target.",
         since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-G16-RECRUIT"),
+        evidence: Evidence::Private("AC-EVID-DEDUP-FELLOW-CONTROLS"),
         station: "dereth-testkit::dat::social::scenario_recruit_follows_the_world_selection",
         tier: Tier::Dat,
     },
@@ -611,6 +628,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P24-ALLEGIANCE-INFO"),
         station: "dereth-client::gpu::panels::allegiance_info_replies::an_allegiance_info_response_prints_the_report_and_leaves_the_panel_alone",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "social.names.shared-narrow-filter",
+        says: "Names are converted to the narrow client encoding before filtering at thirty-two bytes. Punctuation tests neighboring input bytes and uppercase Roman-numeral runs retain their case.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DEDUP-SOCIAL-NAMES"),
+        station: "dereth-presentation::lib::social::tests::both_name_consumers_use_narrow_neighbors_and_the_byte_limit",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "social.recordings.fellowship-and-allegiance-rosters-reach-the-session",

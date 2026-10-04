@@ -67,6 +67,110 @@ impl FellowUpdate {
 /// and adding one would give the colour two owners. The *state* the notice announces is written
 /// here; only the push is absent.
 impl crate::World {
+    /// The panel's guarded recruit action. Availability (fullness and who may invite) belongs
+    /// to its controls; this sender independently validates the selected player and membership.
+    pub fn recruit_fellow(
+        &mut self,
+        req: &mut dyn crate::RequestSink,
+        out: &mut dyn crate::NoticeSink,
+        target: ObjectId,
+    ) -> bool {
+        let Some(fellowship) = &self.fellowship else {
+            return false;
+        };
+        if !self.weenie(target).is_some_and(|w| w.is_player()) {
+            return false;
+        }
+        if fellowship.members.contains_key(&target) {
+            let text = if self.player == Some(target) {
+                "You can't recruit yourself"
+            } else {
+                "That person is already in your fellowship"
+            };
+            out.emit(crate::Notice::DisplayString {
+                channel: 0x1a,
+                text: text.into(),
+            });
+            return false;
+        }
+        self.fellowship_recruit(req, target);
+        true
+    }
+
+    pub fn dismiss_fellow(
+        &mut self,
+        req: &mut dyn crate::RequestSink,
+        out: &mut dyn crate::NoticeSink,
+        target: ObjectId,
+    ) -> bool {
+        let Some(fellowship) = &self.fellowship else {
+            return false;
+        };
+        let refusal = if !fellowship.members.contains_key(&target) {
+            Some("That person is not in your fellowship")
+        } else if self.player == Some(target) {
+            Some("You can't dismiss yourself")
+        } else {
+            None
+        };
+        if let Some(text) = refusal {
+            out.emit(crate::Notice::DisplayString {
+                channel: 0x1a,
+                text: text.into(),
+            });
+            return false;
+        }
+        self.fellowship_dismiss(req, target);
+        true
+    }
+
+    pub fn assign_fellow_leader(
+        &mut self,
+        req: &mut dyn crate::RequestSink,
+        out: &mut dyn crate::NoticeSink,
+        target: ObjectId,
+    ) -> bool {
+        let Some(fellowship) = &self.fellowship else {
+            return false;
+        };
+        let refusal = if !fellowship.members.contains_key(&target) {
+            Some("That person is not in the fellowship.")
+        } else if self.player == Some(target) {
+            Some("You are already the leader")
+        } else {
+            None
+        };
+        if let Some(text) = refusal {
+            out.emit(crate::Notice::DisplayString {
+                channel: 0x1a,
+                text: text.into(),
+            });
+            return false;
+        }
+        self.fellowship_assign_new_leader(req, target);
+        true
+    }
+
+    /// Transfer to the first nonleader before leaving; do not wait for acknowledgement.
+    pub fn leave_fellowship(
+        &mut self,
+        req: &mut dyn crate::RequestSink,
+        out: &mut dyn crate::NoticeSink,
+        disband: bool,
+    ) {
+        if !disband {
+            let next = self
+                .fellowship
+                .as_ref()
+                .filter(|f| self.player == Some(f.leader))
+                .and_then(|f| f.members.keys().copied().find(|id| *id != f.leader));
+            if let Some(next) = next {
+                self.assign_fellow_leader(req, out, next);
+            }
+        }
+        self.fellowship_quit(req, disband);
+    }
+
     /// The fellowship full-update handler — `0x02BE`.
     ///
     /// A **replace**, not a merge: the client overwrites the whole fellowship object,

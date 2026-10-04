@@ -528,6 +528,7 @@ impl RemainingPanels {
         // Journal loading takes the `view` because it needs the journal path's three
         // globals, which reach this crate through `GameView::journal_identity`.
         self.journal.load(ui, view);
+        self.page_list.sync(ui, &self.journal);
         let journal = u32::from(self.journal.tick(ui)) + u32::from(self.page_list.tick(ui));
         // The two contract notices, the visibility-changed handler's shown edge
         // and the global-message handler's half-second redraw, folded into one call. It

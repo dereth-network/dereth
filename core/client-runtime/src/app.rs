@@ -2374,7 +2374,11 @@ impl<S: Shell> App<S> {
         if std::mem::take(&mut self.duties.quit_owed) {
             self.pump.done();
         }
+        self.objects.world.refresh_stack_split();
         shell.service_dialogs(&mut UiContext::new(self), now);
+        for request in self.objects.world.take_book_requests() {
+            let _ = self.run_request(request, now, &mut |_| {});
+        }
         for request in self.hud.unknown_spell_favorites(&self.objects.world) {
             let _ = self.run_request(request, now, &mut |_| {});
         }
@@ -2534,6 +2538,12 @@ impl<S: Shell> App<S> {
                     .as_ref()
                     .and_then(|w| w.character.as_ref())
                     .map(crate::character::Character::position);
+                if self.interaction.trade_note_values != self.hud.trade_note_values {
+                    self.interaction
+                        .trade_note_values
+                        .clone_from(&self.hud.trade_note_values);
+                }
+                self.interaction.journal_coords = self.hud.coords;
                 self.interaction.queue(Vec::new(), request);
                 let remaining = self.interaction.run_ui_requests_with_chat_focus(
                     &mut self.objects.world,

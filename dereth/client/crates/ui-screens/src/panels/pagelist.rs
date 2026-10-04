@@ -118,6 +118,8 @@
 //! listbox::set_selected_item` reads the attribute through `UiSystem::get_attribute_enum`, which
 //! carries the default, rather than skipping `set_state` when the list box names no state.
 
+use crate::view::UiRequest;
+use dereth_client_contract::journal::JournalAction;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
 use super::journal::{timer_text, JournalPage, JournalPanel};
@@ -197,6 +199,7 @@ pub struct PageListPanel {
     pub sort: JournalSortCriteria,
     /// Whether the sort is reversed.
     pub reverse: bool,
+    shared_revision: Option<(u64, u64)>,
     /// The last click's row index and time, for the double-click check.
     last_click_index: i32,
     last_click_time: f64,
@@ -209,6 +212,28 @@ pub struct PageListPanel {
 }
 
 impl PageListPanel {
+    /// Rebuild only from the shared notebook's current content and list criteria.
+    pub fn sync(&mut self, ui: &mut UiSystem, journal: &JournalPanel) {
+        let state = &journal.shared;
+        let edge = (state.generation, state.revision);
+        if self.shared_revision == Some(edge) {
+            return;
+        }
+        self.shared_revision = Some(edge);
+        self.sort = match state.sort {
+            1 => JournalSortCriteria::Title,
+            2 => JournalSortCriteria::Label,
+            3 => JournalSortCriteria::Timer,
+            _ => JournalSortCriteria::PageNumber,
+        };
+        self.reverse = state.reverse;
+        if let Some(t) = self.search.and_then(|h| ui.text_element_mut(h)) {
+            t.set_text(&state.search);
+        }
+        self.rebuild_page_list(ui, journal, state.filtered);
+        self.sort_page_list(ui);
+    }
+
     /// Binds two children and registers for global message 3.
     pub fn post_init(&mut self, ui: &mut UiSystem, root: ElemHandle) {
         self.panel = ui.get_child_recursive(root, PANEL);
@@ -401,8 +426,10 @@ impl PageListPanel {
         if !visible {
             return;
         }
-        let filter = !self.search_text(ui).is_empty();
-        self.rebuild_page_list(ui, journal, filter);
+        let search = self.search_text(ui);
+        ui.requests
+            .emit(UiRequest::Journal(JournalAction::Search(search.clone())));
+        self.rebuild_page_list(ui, journal, !search.is_empty());
         self.sort_page_list(ui);
     }
 
@@ -447,35 +474,30 @@ impl PageListPanel {
             _ => None,
         };
         if let Some(c) = criterion {
-            if self.sort == c {
-                self.reverse = !self.reverse;
-            } else {
-                self.sort = c;
-                self.reverse = false;
-            }
-            self.sort_page_list(ui);
+            let by = match c {
+                JournalSortCriteria::PageNumber => 0,
+                JournalSortCriteria::Title => 1,
+                JournalSortCriteria::Label => 2,
+                JournalSortCriteria::Timer => 3,
+            };
+            ui.requests
+                .emit(UiRequest::Journal(JournalAction::Sort(by)));
             return true;
         }
         match m.source_id {
             SEARCH_BUTTON => {
-                self.rebuild_page_list(ui, journal, true);
-                self.sort_page_list(ui);
+                let search = self.search_text(ui);
+                ui.requests
+                    .emit(UiRequest::Journal(JournalAction::Search(search)));
             }
             CLEAR_SEARCH_BUTTON => {
                 if let Some(t) = self.search.and_then(|h| ui.text_element_mut(h)) {
                     t.set_text("");
                 }
-                self.rebuild_page_list(ui, journal, false);
-                self.sort_page_list(ui);
-                // The fall-through into the delete arm. It cannot fire: `sort_page_list` ended in
-                // `rebuild_page_listbox`, whose flush cleared the selection. See the module header.
-                self.delete_selected_page(ui, journal);
+                ui.requests
+                    .emit(UiRequest::Journal(JournalAction::ResetSearch));
             }
-            DELETE_BUTTON => {
-                self.delete_selected_page(ui, journal);
-                self.rebuild_page_list(ui, journal, false);
-                self.sort_page_list(ui);
-            }
+            DELETE_BUTTON => self.delete_selected_page(ui, journal),
             _ => return false,
         }
         true

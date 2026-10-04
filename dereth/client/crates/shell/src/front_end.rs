@@ -278,6 +278,8 @@ fn dispatch_ui_owner_requests<H: Host>(
     if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
         let (hud, objects) = cx.hud_and_objects();
         hud.dispatch_panel_input(&mut shell.ui, screen, serial, objects, active);
+        crate::hud_drive::game_call(&mut shell.ui, screen, GameCall::CaptureBookDraft);
+        hud.panels.journal.save_this_page(&mut shell.ui);
     }
     let mut unowned = Vec::new();
     loop {
@@ -563,25 +565,9 @@ impl<H: Host> Ui<'_, '_, H> {
         // Count actual reconstructions, not UiShell's mode-id changes: the old HUD handles
         // and notice subscribers die on either transition.
         let switches_before = shell.flow.switches;
-        // **Hide the UI on the way out of the gameplay mode.**
-        //
-        // The journal visibility handler saves the current page and then all pages; this is the
-        // **only** path that writes the
-        // journal file; journal-panel teardown does not save, and there is no timer. On a log
-        // off retail reaches it from the teardown, which shows the old
-        // framework false before it destroys it, and that hide propagates to every
-        // child exactly as closing the tab by hand does.
-        //
-        // In this build `JournalPanel` lives on `Hud` and **outlives the screen**, so by the time
-        // `JournalPanel::load` notices the next character's journal path, the edit boxes it
-        // would have saved are gone. Without this the page the player was on when they logged off
-        // is lost, and a relog into the same character shows the last *closed* page instead.
-        //
-        // `queued_mode()` is consumed by the flow update inside `frame_with_dispatch` below, so
-        // this runs at most once per switch, and a mode transition replaces the framework even for the
-        // same mode id — which is why the queued mode is not compared against the current one.
-        // `on_visibility_changed` is a no-op while the screen is not loaded, so a queue before the
-        // player is in the world writes nothing.
+        // Capture the outgoing notebook before its widgets are destroyed. Ordinary edits
+        // already reach the shared store at the input-listener boundary; this visibility edge
+        // requests its final tagged save, which the host services outside the model.
         if shell.flow.queued_mode().is_some()
             && shell.flow.current_mode() == Some(dereth_ui::framework::mode::GAME_PLAY)
         {
@@ -781,15 +767,7 @@ impl<H: Host> Ui<'_, '_, H> {
         if screen_changed || !has_external_subscriber {
             self.cx.end_external_container_watches();
         }
-        let journal_identity = journal_identity(self.cx);
-        self.cx.hud_mut().journal_identity = journal_identity;
-        // Retail adds `(msg, 0x1A, TRUE, 0)` to the text scroll, the
-        // one complaint the journal's page load makes. The panel cannot reach the scroll from
-        // `dereth-ui-screens`, so it records the line and this drains it.
-        if let Some(text) = self.cx.hud_mut().panels.journal.take_load_complaint() {
-            self.cx
-                .add_scroll_line(text, dereth_client_model::scroll::LOCAL_ERROR_TYPE);
-        }
+        service_journal(self.cx);
         // **The load end of the screen-layout file, and the only automatic one the client has.**
         // Player-description delivery loads the `"#auto"` screen layout and records whether the
         // layout came from a file; this is the caller of `dereth_ui_screens`' `load_screen_layout`
@@ -2659,6 +2637,66 @@ fn journal_identity<H: Host>(
     })
 }
 
+fn flush_panel_sessions<H: Host>(cx: &mut Cx<'_, H>) {
+    use dereth_client_contract::{book::BookAction, journal::JournalAction, UiRequest};
+    let now = dereth_primitives::LocalTime(cx.now());
+    if let Some(book) = cx.model().book.open.as_ref().map(|b| b.book_id) {
+        let _ = cx.run_request(
+            UiRequest::Book(BookAction::Flush { book }),
+            now,
+            &mut |_, _| false,
+        );
+    }
+    let _ = cx.run_request(
+        UiRequest::Journal(JournalAction::Visibility(false)),
+        now,
+        &mut |_, _| false,
+    );
+}
+
+fn service_journal<H: Host>(cx: &mut Cx<'_, H>) {
+    use dereth_client_contract::journal::JournalIo;
+    use dereth_client_runtime::platform::files;
+    use dereth_ui_screens::panels::journal::{
+        parse_pages, save_pages_text, LOAD_COMPLAINT, LOAD_COMPLAINT_CHANNEL,
+    };
+    let identity = journal_identity(cx);
+    cx.hud_mut().journal_identity = identity.clone();
+    cx.prepare_journal(identity);
+    for io in cx.take_journal_io() {
+        match io {
+            JournalIo::Load {
+                identity,
+                generation,
+                revision,
+            } => {
+                let read = files::read_to_string(&identity.client_path());
+                cx.record_journal_io(&identity, generation, true, read.is_ok());
+                let pages = match read {
+                    Ok(text) => parse_pages(&text),
+                    Err(_) => Ok(Vec::new()),
+                };
+                if cx.complete_journal_load(identity, generation, revision, pages) {
+                    cx.add_scroll_line(LOAD_COMPLAINT, LOAD_COMPLAINT_CHANNEL);
+                }
+            }
+            JournalIo::Save {
+                identity,
+                generation,
+                pages,
+            } => {
+                let path = identity.client_path();
+                let saved = files::make_dirs(&identity.directory)
+                    .and_then(|()| files::write(&path, save_pages_text(&pages)));
+                cx.record_journal_io(&identity, generation, false, saved.is_ok());
+                if let Err(error) = saved {
+                    tracing::warn!(%error, "the journal could not be saved");
+                }
+            }
+        }
+    }
+}
+
 /// The classic key map as the classic interface reads it.
 fn classic_keys(
     input: Option<&mut crate::input::InputShell>,
@@ -2742,11 +2780,31 @@ impl<H: Host> ClientShell<H> {
                         }
                     }
                 }
-                // The journal is one file both interfaces keep: the retail one writes its pages
-                // before the classic one reads them.
+                // Capture widget drafts before the incoming interface projects the shared sessions.
                 if let Some(shell) = self.ui.as_mut() {
-                    cx.hud_mut().panels.journal.hand_over(&mut shell.ui);
+                    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                        crate::hud_drive::game_call(
+                            &mut shell.ui,
+                            screen,
+                            dereth_ui_screens::screens::gameplay_host::GameCall::CaptureBookDraft,
+                        );
+                    }
+                    cx.hud_mut().panels.journal.save_this_page(&mut shell.ui);
+                    let now = dereth_primitives::LocalTime(cx.now());
+                    for request in shell.ui.requests.take() {
+                        if matches!(
+                            &request,
+                            dereth_client_contract::UiRequest::Book(_)
+                                | dereth_client_contract::UiRequest::Journal(_)
+                        ) {
+                            let _ = cx.run_request(request, now, &mut |_, _| false);
+                        } else {
+                            shell.ui.requests.emit(request);
+                        }
+                    }
                 }
+                flush_panel_sessions(cx);
+                service_journal(cx);
                 self.classic.active = true;
                 cx.hud_mut().classic_active = true;
                 let size = cx.present().size();
@@ -2788,8 +2846,9 @@ impl<H: Host> ClientShell<H> {
                 // this one builds its own again.
                 self.paper_doll_built = None;
                 self.preview_chargen = None;
-                // The classic interface wrote the journal as it went; the retail one reads it
-                // again rather than keep its older pages.
+                flush_panel_sessions(cx);
+                service_journal(cx);
+                // Discard widget caches; the shared notebook remains loaded.
                 cx.hud_mut().panels.journal.forget();
                 // The classic interface set two shared preferences live for itself alone (its own
                 // field of view, and the camera's inversion off while it inverts the vertical
@@ -3233,6 +3292,7 @@ impl<H: Host> Shell for ClientShell<H> {
         now: dereth_primitives::LocalTime,
         notices: UiNotices,
     ) {
+        service_journal(cx);
         self.follow_interface(cx);
         cx.set_chat_interface(if self.classic.active {
             dereth_client_contract::options::interface::Interface::Classic
@@ -3240,9 +3300,6 @@ impl<H: Host> Shell for ClientShell<H> {
             dereth_client_contract::options::interface::Interface::Retail
         });
         if let Some(ui) = self.classic.active_mut() {
-            // The journal's file follows the character in this interface too.
-            let journal_identity = journal_identity(cx);
-            cx.hud_mut().journal_identity = journal_identity;
             ui.ui_frame(cx, now, notices);
             // What the classic key page asked of its key map, carried out, and the map handed back
             // as it then is.
@@ -3258,9 +3315,11 @@ impl<H: Host> Shell for ClientShell<H> {
                     ui.set_classic_keys(keys);
                 }
             }
+            service_journal(cx);
             return;
         }
         Ui { cx, shell: self }.ui_frame(now, notices);
+        service_journal(cx);
     }
 
     fn talk_focus_notice(

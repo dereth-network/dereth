@@ -15753,7 +15753,7 @@ pub fn the_shipped_key_carries_the_picked_stacks_own_count_into_the_merge() {
         &mut dereth_client_model::RecordingSink::default(),
     );
     c.tick(1);
-    let the_count_was_seeded_by_the_picking = c.view().interaction().split()
+    let the_count_was_seeded_by_the_picking = c.view().world().split
         == dereth_client_model::inventory::SplitState::whole_stack(u32::from(CORPSE_STACK_SIZE));
 
     let mark = c.outbound().len();
@@ -16514,8 +16514,8 @@ mod shop {
             .any(|(id, _)| *id == item);
 
         dial_down_to_one(&mut c);
-        let the_dial_is_at_one = splitter(&mut c).split_size == 1
-            && c.view().expect_app().interaction().split().split_size == 1;
+        let the_dial_is_at_one =
+            splitter(&mut c).split_size == 1 && c.view().world().split.split_size == 1;
 
         let row = counter_row(&c, item);
         drag_off(&mut c, row, 11.0);
@@ -16531,8 +16531,8 @@ mod shop {
             .iter()
             .all(|(id, _)| *id != item);
         let the_mark_came_off = c.view().world().weenie(item).expect("the thing").sell_state == 0;
-        let the_amount_was_put_back = splitter(&mut c).split_size == whole
-            && c.view().expect_app().interaction().split().split_size == whole;
+        let the_amount_was_put_back =
+            splitter(&mut c).split_size == whole && c.view().world().split.split_size == whole;
         let the_player_was_told = feedback(&c).iter().any(|l| l == CANNOT_SPLIT);
         let nothing_was_sold = !c
             .view()
@@ -18663,7 +18663,7 @@ mod trade_window {
         c.when(Player::Click(tile_of_the_stack)).tick(4);
         let picked = c.view().world().selected == Some(COIN);
         ask_for(&mut c, 3);
-        let three_in_hand = c.view().interaction().split().split_size == 3;
+        let three_in_hand = c.view().world().split.split_size == 3;
 
         let sent = offer(&mut c, COIN);
         let asked_to_split = matches!(
@@ -19164,7 +19164,7 @@ mod trade_window {
             dereth_client_contract::UiRequest::StackSliderChanged { split: 1, max: 5 },
         ))
         .tick(1);
-        let part_of_a_stack_in_hand = !c.view().interaction().split().is_whole_stack();
+        let part_of_a_stack_in_hand = !c.view().world().split.is_whole_stack();
         park_for_trade(&mut c, GEM);
 
         let mark = c.outbound().len();
@@ -23280,7 +23280,7 @@ mod equip {
         let mut c = a_player_at_the_figure();
         carrying(&mut c, ammo.item, ammo.places, 10);
         assert!(
-            c.interaction_mut().split().is_whole_stack(),
+            c.world_mut().split.is_whole_stack(),
             "the premise: an untouched box is the whole stack"
         );
         let sent = let_go_on(&mut c, ammo.item, ammo_place);
@@ -23294,7 +23294,7 @@ mod equip {
             max: 10,
         }]));
         assert_eq!(
-            c.interaction_mut().split(),
+            c.world_mut().split,
             SplitState {
                 split_size: 3,
                 max_split_size: 10
@@ -25648,7 +25648,7 @@ mod equip {
 
         let mut c = a_client_in_the_game();
         let entry = shipped(&mut c, ENTRY_BOX);
-        let untouched_is_the_whole_stack = c.app_mut().interaction().split().is_whole_stack();
+        let untouched_is_the_whole_stack = c.app_mut().objects().world.split.is_whole_stack();
 
         {
             let (_ui, screen) = gameplay_screen(c.app_mut());
@@ -25673,7 +25673,7 @@ mod equip {
             let (_ui, screen) = gameplay_screen(c.app_mut());
             screen.splitter.split_size == 7
         };
-        let split = c.app_mut().interaction().split();
+        let split = c.app_mut().objects().world.split;
         let and_the_drop_will_read_it =
             (split.split_size, split.max_split_size) == (7, 20) && !split.is_whole_stack();
 
@@ -25686,10 +25686,10 @@ mod equip {
                 )
             });
             screen.splitter.split_size == 20 && text == "20"
-        } && c.app_mut().interaction().split().split_size == 20;
+        } && c.app_mut().objects().world.split.split_size == 20;
 
         type_and_leave(&mut c, "0");
-        let lifted_up = c.app_mut().interaction().split().split_size == 1;
+        let lifted_up = c.app_mut().objects().world.split.split_size == 1;
 
         c.assert_behaviour(
             "inventory.split.typing-a-number-into-the-box-and-leaving-it-sets-how-many-a-drag-moves",
@@ -27316,7 +27316,7 @@ mod split {
     /// one pair of numbers; here they are two, and the only thing that carries a value between
     /// them is the notice the controls raise -- so both are read, every time.
     fn both_copies(c: &mut HeadlessClient) -> (u32, (u32, u32)) {
-        let far = c.view().interaction().split();
+        let far = c.view().world().split;
         let (_ui, screen) = gameplay_screen(c.app_mut());
         (
             screen.splitter.split_size,
@@ -28052,7 +28052,7 @@ mod split {
 
         select(&mut c, SPLIT_STACK);
         let seeded = both_copies(&mut c) == (WHOLE, (WHOLE, WHOLE))
-            && c.view().interaction().split().is_whole_stack();
+            && c.view().world().split.is_whole_stack();
 
         // Take five of the twenty, so the far end holds a part of a stack rather than all of one.
         type_a_quantity(&mut c, "5");
@@ -28062,18 +28062,17 @@ mod split {
         // Now pick the other stack and leave it alone: it is all of the new stack, not five.
         select(&mut c, OTHER_STACK);
         let re_seeded = both_copies(&mut c) == (OTHER_WHOLE, (OTHER_WHOLE, OTHER_WHOLE))
-            && c.view().interaction().split().is_whole_stack();
+            && c.view().world().split.is_whole_stack();
 
         // The not-a-stack case needs its own part, because a far end left at the last whole stack
         // would answer "all of it" too. So put a part of a stack there first.
         type_a_quantity(&mut c, "5");
         commit_by_leaving_the_box(&mut c);
         let a_part_again = both_copies(&mut c) == (5, (5, OTHER_WHOLE))
-            && !c.view().interaction().split().is_whole_stack();
+            && !c.view().world().split.is_whole_stack();
 
         select(&mut c, SPLIT_PLAYER);
-        let reset =
-            both_copies(&mut c) == (1, (1, 1)) && c.view().interaction().split().is_whole_stack();
+        let reset = both_copies(&mut c) == (1, (1, 1)) && c.view().world().split.is_whole_stack();
 
         c.assert_behaviour(
             "inventory.split.picking-a-different-thing-sets-the-quantity-back-to-all-of-it",
@@ -28281,16 +28280,16 @@ mod split {
 
         click_the_tile_of(&mut c, source);
         let picked = c.view().world().selected == Some(source)
-            && c.view().interaction().split().max_split_size == how_many;
+            && c.view().world().split.max_split_size == how_many;
 
         // Typed, and handed over by pressing return.
         type_a_quantity(&mut c, &first_amount.to_string());
-        let typing_alone = c.view().interaction().split().split_size == how_many;
+        let typing_alone = c.view().world().split.split_size == how_many;
         dereth_testkit::input_steps::press_return(&mut c);
         c.tick(2);
         let entry = element(&mut c, ENTRY_BOX);
         let return_committed = {
-            let taken = c.view().interaction().split().split_size == first_amount;
+            let taken = c.view().world().split.split_size == first_amount;
             let (ui, _screen) = gameplay_screen(c.app_mut());
             taken && ui.focus_element() != Some(entry)
         };
@@ -28345,7 +28344,7 @@ mod split {
 
         // And the second split, with the quantity handed over by putting the caret elsewhere.
         let (_, second_place, second_amount) = asked_for(&splits[1]);
-        let reseeded = c.view().interaction().split().split_size == first_amount;
+        let reseeded = c.view().world().split.split_size == first_amount;
         type_a_quantity(&mut c, &second_amount.to_string());
         commit_by_leaving_the_box(&mut c);
         let before = asked_so_far(&c);
@@ -28400,14 +28399,14 @@ mod split {
         type_a_quantity(&mut c, "0010");
         commit_by_leaving_the_box(&mut c);
         // A leading zero makes it an eight, not a ten.
-        let octal = c.view().interaction().split().split_size == 8;
+        let octal = c.view().world().split.split_size == 8;
         let spelling_kept = box_text(&mut c) == "0010";
 
         type_a_quantity(&mut c, "4294967296");
         commit_by_leaving_the_box(&mut c);
         // One more than the biggest number the client can hold saturates and is then corrected to
         // the stack, rather than wrapping round to nought and coming back as one.
-        let saturated = c.view().interaction().split().split_size == how_many
+        let saturated = c.view().world().split.split_size == how_many
             && box_text(&mut c) == how_many.to_string();
 
         c.assert_behaviour(
@@ -28454,7 +28453,7 @@ mod split {
         c.tick(3);
         let put_back = {
             let back = box_text(&mut c) == amount.to_string()
-                && c.view().interaction().split().split_size == amount;
+                && c.view().world().split.split_size == amount;
             let (ui, _screen) = gameplay_screen(c.app_mut());
             back && ui.focus_element() != Some(entry)
         };
@@ -28553,7 +28552,7 @@ mod split {
                     .stack_size
                     .unwrap_or(0),
             ) == how_many
-            && c.view().interaction().split().split_size == amount;
+            && c.view().world().split.split_size == amount;
 
         let before = asked_so_far(&c);
         let to = grid_tile_at(&mut c, place as usize);
@@ -28604,7 +28603,7 @@ mod split {
             to: Target::Point(ScreenPoint::new(x0, thumb_y)),
             hold_frames: 1,
         });
-        let just_one = c.view().interaction().split().split_size == 1 && box_text(&mut c) == "1";
+        let just_one = c.view().world().split.split_size == 1 && box_text(&mut c) == "1";
 
         let before = asked_so_far(&c);
         let to = grid_tile_at(&mut c, place as usize);
@@ -28624,7 +28623,7 @@ mod split {
             to: Target::Point(ScreenPoint::new(x1, thumb_y)),
             hold_frames: 1,
         });
-        let all_of_them = c.view().interaction().split().split_size == how_many
+        let all_of_them = c.view().world().split.split_size == how_many
             && box_text(&mut c) == how_many.to_string();
 
         let before = asked_so_far(&c);
@@ -28670,7 +28669,7 @@ mod split {
         let from = exposed_point(&mut c, from);
         c.when(Player::Grab(from));
         let taken_on_the_lift = {
-            let taken = c.view().interaction().split().split_size == amount;
+            let taken = c.view().world().split.split_size == amount;
             let (ui, _screen) = gameplay_screen(c.app_mut());
             taken && ui.drag_state().element.is_some() && ui.focus_element() != Some(entry)
         };

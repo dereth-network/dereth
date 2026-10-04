@@ -92,36 +92,10 @@ fn oath_costs_xp(game: &dyn GameView) -> bool {
 }
 /// What the world charges for an oath: nothing without the charge or before a first break.
 fn cost(c: &Context<'_>) -> u32 {
-    if !oath_costs_xp(c.game) {
-        return 0;
-    }
-    c.game.experience_header().map_or(0, |xp| {
-        let breaks = c
-            .game
-            .player()
-            .and_then(|p| c.game.int_stat(p, 0x84))
-            .unwrap_or(0) as u32;
-        // Past the curve's end the next level counts as the most a count can hold.
-        let span = if xp.level_span == 0 {
-            u64::from(u32::MAX)
-        } else {
-            xp.level_span
-        };
-        dereth_rules::allegiance::swear_xp_cost_after_breaks(span, breaks)
-    })
+    c.game.oath_xp_cost().unwrap_or(0)
 }
 fn swear_target(c: &Context<'_>) -> Option<ObjectId> {
-    let roster = c.game.allegiance_roster();
-    if roster.patron.is_some() || c.game.available_experience().max(0) < i64::from(cost(c)) {
-        return None;
-    }
-    c.game.selected_object().filter(|id| {
-        Some(*id) != c.game.player()
-            && !roster.vassals.iter().any(|v| v.id == *id)
-            && c.game
-                .selection_query_facts(*id)
-                .is_some_and(|f| f.is_player)
-    })
+    dereth_client_contract::social::swear_target(c.game, &c.game.allegiance_roster())
 }
 fn comma(n: u64) -> String {
     let digits = n.to_string();
@@ -137,13 +111,10 @@ fn comma(n: u64) -> String {
 /// The rank on the header line: the allegiance's own, or, while a spell raises it, the raised
 /// rank and the difference ("5 (+1)").
 fn rank_text(a: &AllegianceRoster) -> String {
-    let tree = a.subject.as_ref().map_or(0, |s| i32::from(s.rank));
-    let quality = a.player_rank_quality;
-    if quality <= 0 || quality == tree {
-        tree.to_string()
-    } else {
-        format!("{quality} (+{})", quality - tree)
-    }
+    dereth_presentation::social::classic_rank(
+        a.player_rank_quality,
+        a.subject.as_ref().map_or(0, |s| s.rank),
+    )
 }
 /// A member's name colour: the panel's ink while logged in, grey while not.
 fn member_color(m: &AllegianceEntry) -> u32 {
@@ -156,9 +127,7 @@ fn member_color(m: &AllegianceEntry) -> u32 {
 const OFFLINE: u32 = 0xff96_9696;
 /// The name without its rank title (the full name is the title, a space, then the name).
 fn bare_name(full_name: &str) -> &str {
-    full_name
-        .split_once(' ')
-        .map_or(full_name, |(_, name)| name)
+    dereth_presentation::social::title_and_name(full_name).1
 }
 fn right_label(f: &mut PanelFrame, r: Rect, text: impl Into<String>) {
     f.text_box(
@@ -197,56 +166,9 @@ impl Social {
                     })
                     .unwrap_or_default()
             }
-            Mode::Recruit => {
-                if Some(target) == c.game.player() {
-                    return vec![PanelAction::Host(HostAction::LocalFeedback {
-                        severity: crate::panels::FeedbackSeverity::Warning,
-                        text: "You can't recruit yourself.".into(),
-                    })];
-                }
-                if c.game
-                    .fellowship()
-                    .is_some_and(|p| p.members.iter().any(|m| m.id == target))
-                {
-                    return vec![PanelAction::Host(HostAction::LocalFeedback {
-                        severity: crate::panels::FeedbackSeverity::Warning,
-                        text: format!(
-                            "{} is already in your Fellowship",
-                            c.game.name(target).unwrap_or("")
-                        ),
-                    })];
-                }
-                if c.game
-                    .selection_query_facts(target)
-                    .is_some_and(|f| f.is_player)
-                {
-                    request(UiRequest::FellowshipRecruit { target })
-                } else {
-                    vec![]
-                }
-            }
-            Mode::Dismiss | Mode::Leader => {
-                if let Some(index) = c
-                    .game
-                    .fellowship()
-                    .and_then(|p| p.members.iter().position(|m| m.id == target))
-                {
-                    self.mode = mode;
-                    self.choose_member(index, c)
-                } else {
-                    vec![PanelAction::Host(HostAction::LocalFeedback {
-                        severity: crate::panels::FeedbackSeverity::Warning,
-                        text: if mode == Mode::Leader {
-                            "That person is not in the fellowship.".into()
-                        } else {
-                            format!(
-                                "{} isn't in your Fellowship",
-                                c.game.name(target).unwrap_or("")
-                            )
-                        },
-                    })]
-                }
-            }
+            Mode::Recruit => request(UiRequest::FellowshipRecruit { target }),
+            Mode::Dismiss => request(UiRequest::FellowshipDismiss { target }),
+            Mode::Leader => request(UiRequest::FellowshipAssignNewLeader { target }),
             Mode::None => vec![],
         }
     }
@@ -639,18 +561,13 @@ impl Social {
                     );
                 }
             }
-            let leader = Some(p.leader) == c.game.player();
+            let controls = dereth_client_contract::social::fellowship_controls(c.game, &p, None);
+            let leader = controls.leads;
             for (id, text, x, y, enabled) in [
-                (
-                    "recruit",
-                    "Recruit",
-                    15,
-                    h - 29,
-                    !p.locked && (leader || p.open_fellow),
-                ),
-                ("dismiss", "Dismiss", 105, h - 29, p.members.len() > 1),
+                ("recruit", "Recruit", 15, h - 29, controls.choose_recruit),
+                ("dismiss", "Dismiss", 105, h - 29, controls.choose_member),
                 ("disband", "Disband", 195, h - 29, true),
-                ("leader", "Leader", 15, h - 61, p.members.len() > 1),
+                ("leader", "Leader", 15, h - 61, controls.choose_member),
                 ("quit", "Quit", 105, h - 61, true),
                 (
                     "open",
@@ -675,12 +592,22 @@ impl Social {
             }
         } else {
             f.image("06001420", rect(0, h - 138, 300, 9), false, false);
-            label(&mut f,rect(14,17,290,100),"You do not belong to a Fellowship.\nTo create a fellowship, enter a name in the box below, then click Create Fellowship.\nOnce you've created a Fellowship, you can start recruiting members.","15-6");
+            label(
+                &mut f,
+                rect(14, 17, 290, 100),
+                "You do not belong to a Fellowship.\nTo create a fellowship, enter a name in the box below, then click Create Fellowship.\nOnce you've created a Fellowship, you can start recruiting members.",
+                "15-6",
+            );
             if let Some(text) = &self.error {
                 centered(&mut f, rect(4, 144, 292, 48), text, "15-6");
             }
             if c.game.player_option(PlayerOption::IgnoreFellowshipRequests) {
-                label(&mut f,rect(14,97,290,80),"You are currently ignoring Fellowship requests. To let yourself be recruited, check Accept Fellowship Requests.","15-6");
+                label(
+                    &mut f,
+                    rect(14, 97, 290, 80),
+                    "You are currently ignoring Fellowship requests. To let yourself be recruited, check Accept Fellowship Requests.",
+                    "15-6",
+                );
             }
             label(
                 &mut f,
@@ -783,7 +710,12 @@ impl Social {
                 "16-7",
             );
         }
-        centered(&mut f,rect(10,90,272,100),"Both of you must be in peace mode to start trade. Drag items into the Trade Panel to offer them. To remove an offered item, you must clear the Secure Trade Panel.","16-7");
+        centered(
+            &mut f,
+            rect(10, 90, 272, 100),
+            "Both of you must be in peace mode to start trade. Drag items into the Trade Panel to offer them. To remove an offered item, you must clear the Secure Trade Panel.",
+            "16-7",
+        );
         f.check(
             "ignore-trade",
             rect(50, 220, 240, 13),
@@ -792,7 +724,12 @@ impl Social {
             true,
         )
         .font = "16-7".into();
-        centered(&mut f,rect(10,240,272,60),"Note: Use Squelch to automatically stop a specific person from starting trade with you.","16-7");
+        centered(
+            &mut f,
+            rect(10, 240, 272, 60),
+            "Note: Use Squelch to automatically stop a specific person from starting trade with you.",
+            "16-7",
+        );
         f
     }
     /// A list of names on the row art, as the vassals are drawn: `(text, colour)` each.
@@ -1001,17 +938,6 @@ impl Social {
             return vec![];
         };
         let mode = std::mem::replace(&mut self.mode, Mode::None);
-        if Some(m.id) == c.game.player() && matches!(mode, Mode::Dismiss | Mode::Leader) {
-            return vec![PanelAction::Host(HostAction::LocalFeedback {
-                severity: crate::panels::FeedbackSeverity::Warning,
-                text: if mode == Mode::Dismiss {
-                    "You can't dismiss yourself."
-                } else {
-                    "You are already the leader."
-                }
-                .into(),
-            })];
-        }
         match mode {
             Mode::Dismiss => request(UiRequest::FellowshipDismiss { target: m.id }),
             Mode::Leader => request(UiRequest::FellowshipAssignNewLeader { target: m.id }),
@@ -1277,43 +1203,20 @@ impl Panel for Social {
                     if let Some(target) = c.game.selected_object().filter(|id| {
                         c.game
                             .selection_query_facts(*id)
-                            .is_some_and(|f| f.is_player)
+                            .is_some_and(|facts| facts.is_player)
                     }) {
                         self.mode = Mode::None;
-                        if Some(target) == c.game.player() {
-                            return vec![PanelAction::Host(HostAction::LocalFeedback {
-                                severity: crate::panels::FeedbackSeverity::Warning,
-                                text: "You can't recruit yourself.".into(),
-                            })];
-                        }
-                        if c.game
-                            .fellowship()
-                            .is_some_and(|f| f.members.iter().any(|m| m.id == target))
-                        {
-                            return vec![PanelAction::Host(HostAction::LocalFeedback {
-                                severity: crate::panels::FeedbackSeverity::Warning,
-                                text: format!(
-                                    "{} is already in your Fellowship",
-                                    c.game.name(target).unwrap_or("")
-                                ),
-                            })];
-                        }
-                        return vec![
-                            PanelAction::Game(UiRequest::DisplayChatText {
-                                channel: 0,
-                                text: "Waiting for response ...\n".into(),
+                        request(UiRequest::FellowshipRecruit { target })
+                    } else {
+                        self.mode = Mode::Recruit;
+                        vec![
+                            PanelAction::Host(HostAction::SocialTarget(7)),
+                            PanelAction::Host(HostAction::LocalFeedback {
+                                severity: crate::panels::FeedbackSeverity::Information,
+                                text: "Click a character to recruit.".into(),
                             }),
-                            PanelAction::Game(UiRequest::FellowshipRecruit { target }),
-                        ];
+                        ]
                     }
-                    self.mode = Mode::Recruit;
-                    vec![
-                        PanelAction::Host(HostAction::SocialTarget(7)),
-                        PanelAction::Host(HostAction::LocalFeedback {
-                            severity: crate::panels::FeedbackSeverity::Information,
-                            text: "Click a character to recruit.".into(),
-                        }),
-                    ]
                 }
                 "dismiss" => {
                     self.mode = Mode::Dismiss;
@@ -1336,24 +1239,7 @@ impl Panel for Social {
                     ]
                 }
                 "disband" => request(UiRequest::FellowshipQuit { disband: true }),
-                "quit" => {
-                    let mut out = vec![];
-                    if let Some(p) = c
-                        .game
-                        .fellowship()
-                        .filter(|p| Some(p.leader) == c.game.player())
-                    {
-                        if let Some(m) = p.members.iter().find(|m| m.id != p.leader) {
-                            out.push(PanelAction::Game(UiRequest::FellowshipAssignNewLeader {
-                                target: m.id,
-                            }));
-                        }
-                    }
-                    out.push(PanelAction::Game(UiRequest::FellowshipQuit {
-                        disband: false,
-                    }));
-                    out
-                }
+                "quit" => request(UiRequest::FellowshipQuit { disband: false }),
                 "open" => request(UiRequest::FellowshipToggleOpenness),
                 _ => vec![],
             },
@@ -1372,5 +1258,85 @@ mod tests {
     #[test]
     fn counts_are_drawn_with_thousands_separators() {
         assert_eq!(comma(1234567), "1,234,567");
+    }
+
+    #[derive(Debug)]
+    struct Party(dereth_client_contract::FellowshipView);
+    impl GameView for Party {
+        fn player(&self) -> Option<ObjectId> {
+            Some(ObjectId(1))
+        }
+        fn fellowship(&self) -> Option<dereth_client_contract::FellowshipView> {
+            Some(self.0.clone())
+        }
+    }
+    fn with_party(count: u32, run: impl FnOnce(&Context<'_>)) {
+        let game = Party(dereth_client_contract::FellowshipView {
+            leader: ObjectId(1),
+            locked: true,
+            members: (1..=count)
+                .map(|id| dereth_client_contract::FellowEntry {
+                    id: ObjectId(id),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        });
+        run(&Context {
+            game: &game,
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            map_teleport_allowed: false,
+            classic: &Default::default(),
+        });
+    }
+
+    #[test]
+    fn recruit_can_pick_a_target_in_a_locked_party_but_not_a_full_one() {
+        for (count, enabled) in [(8, true), (9, false)] {
+            with_party(count, |context| {
+                let panel = make("fellowship").unwrap();
+                let frame = panel.frame(context);
+                let button = frame
+                    .controls
+                    .iter()
+                    .find(|control| control.id == "recruit")
+                    .unwrap();
+                assert_eq!(button.enabled, enabled);
+            });
+        }
+        with_party(8, |context| {
+            let mut panel = make("fellowship").unwrap();
+            let actions = panel.event(ControlEvent::Activate("recruit".into()), context);
+            assert!(matches!(
+                actions.first(),
+                Some(PanelAction::Host(HostAction::SocialTarget(7)))
+            ));
+            let actions = panel.event(ControlEvent::WorldTarget(Some(ObjectId(20))), context);
+            assert!(matches!(
+                actions.as_slice(),
+                [
+                    PanelAction::Host(HostAction::SocialTarget(0)),
+                    PanelAction::Game(UiRequest::FellowshipRecruit {
+                        target: ObjectId(20)
+                    })
+                ]
+            ));
+        });
+    }
+
+    #[test]
+    fn quitting_emits_one_semantic_action_for_the_runtime_to_order() {
+        with_party(2, |context| {
+            let mut panel = make("fellowship").unwrap();
+            let actions = panel.event(ControlEvent::Activate("quit".into()), context);
+            assert!(matches!(
+                actions.as_slice(),
+                [PanelAction::Game(UiRequest::FellowshipQuit {
+                    disband: false
+                })]
+            ));
+        });
     }
 }

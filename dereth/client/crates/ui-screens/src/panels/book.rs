@@ -1,54 +1,9 @@
-//! `BookPanel` — the window a scroll, a letter or a sign is read in.
-//!
-//! The recovered toolbar and panel behavior gives element type `0x10000019`, page
-//! `0x10000182` of `<PANS>` (`0x100005FF`), under the `0x10000180` group.
-//!
-//! # The chain
-//!
-//! Using a scroll, letter or sign opens this window through four links:
-//!
-//! | link | where |
-//! |---|---|
-//! | the request — `0x0036 Inventory_UseEvent` | sent by the use gesture |
-//! | the reply — `0x00B4 Writing_BookOpen` | decoded by `dereth_protocol::trade::WritingBookOpen`, ordered onto the UI queue by `dereth_client_net::client_session`, and dispatched to this panel |
-//! | the model — the panel's page list | this file |
-//! | the layout | **shipped and complete.** `0x10000182` is in `catalogue::PANEL_PAGES` and every one of the six children this file binds is in the tree — asserted, not assumed, by `post_init`'s `bound()` |
-//!
-//! A missing dispatch arm for the reply looks like "the reader window is missing", though the
-//! cause is an inbound message with no receiver.
-//!
-//! # The client's own body, and the three things a plainer reading gets wrong
-//!
-//! The book panel's open book → the menu update → the cur page write →
-//! The display page data, and:
-//!
-//! 1. **The page limit is the message's second dword, not the page list's.** The list carries its
-//!    own max-pages / max-characters-per-page pair, which the original panel never reads. The value
-//!    read from the message header before unpacking is the one that clamps the current page and
-//!    pads the page strip.
-//! 2. **The prev/next controls are not enabled and disabled — they change state.** Prev is
-//!    in the normal state when the current page is `> 0`, next when it is `< last`, and the states are the
-//!    authored `0x0D` (unavailable) and `0x01` (normal), so the buttons are grey rather than
-//!    gone.
-//! 3. **The title is the *inscription* when the book has a scribe, and the object's name when it
-//!    does not** — the open-book tail uses the appropriate object name (`NAME_APPROPRIATE`) when
-//!    the scribe id is 0, and the inscription otherwise. A signed letter therefore shows its inscription and an unsigned sign shows
-//!    the sign's name; the scribe name is *not* the title.
-//!
-//! # Authoring
-//!
-//! The close-current-page and set-current-page paths produce the five typed writing
-//! requests. The page-data display applies the native author rule (the author is the player, or the
-//! page ignores its author),
-//! and the panel still waits for `0x00B6`/`0x00B8` before showing an added or withheld page.
-//!
-//! The page-menu update's PSR branch decorates each author's name with the account in angle brackets. The
-//! authoritative is-the-player-a-PSR projection reaches that branch; ordinary viewers
-//! retain the name-only form.
+//! Readable-book widgets project the shared session and forward editing actions.
 
+use dereth_client_contract::book::{BookAction, BookSessionView};
 use dereth_ui::{ElemHandle, ElementId, StateId, UiSystem};
 
-use crate::view::{BookPageView, BookView, GameView, UiRequest};
+use crate::view::{BookPageView, GameView, UiRequest};
 
 /// `<BOOK>` — the `BookPanel` page of the panel stack, `0x10000182`.
 pub const WINDOW: ElementId = ElementId(0x1000_0182);
@@ -73,24 +28,125 @@ pub const STATE_NORMAL: StateId = StateId(1);
 /// The state given to one that cannot: `0x0D`.
 pub const STATE_UNAVAILABLE: StateId = StateId(0x0D);
 
-/// The label puts on one page's row of the strip.
-///
-/// Three branches, in the client's order:
-///
-/// * a page that ignores its author — the **null string**, so an anonymous page's row is blank;
-/// * a PSR looking at a page with a real author — `"- author <account>"`;
-/// * everyone else — `"- author"`.
-///
-/// Retail does not test whether the author's account is empty: an empty account therefore produces
-/// the literal `<>` decoration for a PSR.
 #[must_use]
 pub fn page_menu_label(page: &BookPageView, is_psr: bool) -> String {
-    if page.ignore_author == 1 {
-        String::new()
-    } else if is_psr {
-        format!("- {} <{}>", page.author_name, page.author_account)
-    } else {
-        format!("- {}", page.author_name)
+    dereth_client_contract::book::author_label(&page.author_name, &page.author_account, is_psr)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (book widget projection and action forwarding; session rules are tested in the model).
+    use super::*;
+    use dereth_primitives::ObjectId;
+
+    #[derive(Debug)]
+    struct View;
+    impl GameView for View {
+        fn open_book(&self) -> Option<crate::view::BookView> {
+            Some(crate::view::BookView {
+                book_id: ObjectId(5),
+                max_num_pages: 3,
+                opening: 1,
+                viewer_is_psr: true,
+                pages: vec![
+                    BookPageView {
+                        author_name: "Writer".into(),
+                        ignore_author: 1,
+                        text: Some("Cached page".into()),
+                        ..Default::default()
+                    },
+                    BookPageView {
+                        author_account: "Hidden".into(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            })
+        }
+        fn book_session(&self) -> BookSessionView {
+            BookSessionView {
+                current_page: 1,
+                draft: "Shared draft".into(),
+                revision: 9,
+                ..Default::default()
+            }
+        }
+    }
+
+    /// Behaviour: reader.book.author-labels-follow-the-name
+    #[test]
+    fn author_labels_ignore_editability_flags_and_hide_empty_names() {
+        #[derive(Debug)]
+        struct Authors(bool);
+        impl GameView for Authors {
+            fn open_book(&self) -> Option<crate::view::BookView> {
+                Some(crate::view::BookView {
+                    book_id: ObjectId(5),
+                    max_num_pages: 2,
+                    opening: 1,
+                    viewer_is_psr: self.0,
+                    pages: vec![
+                        BookPageView {
+                            author_name: "Writer".into(),
+                            author_account: "Account".into(),
+                            ignore_author: 1,
+                            ..Default::default()
+                        },
+                        BookPageView {
+                            author_account: "Hidden".into(),
+                            ignore_author: 0,
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                })
+            }
+        }
+        for support in [false, true] {
+            let mut ui = UiSystem::new((800, 600));
+            let mut panel = BookPanel::default();
+            panel.update(&mut ui, &Authors(support));
+            assert_eq!(
+                panel.menu_labels,
+                [
+                    if support {
+                        "- Writer <Account>"
+                    } else {
+                        "- Writer"
+                    },
+                    ""
+                ]
+            );
+            assert!(ui.requests.take().is_empty());
+        }
+    }
+
+    #[test]
+    fn reader_projects_shared_cursor_draft_and_labels_without_replaying_receipts() {
+        let mut ui = UiSystem::new((800, 600));
+        let mut panel = BookPanel::default();
+        assert!(panel.update(&mut ui, &View));
+        assert_eq!(
+            (panel.cur_page, panel.page_body.as_str()),
+            (1, "Shared draft")
+        );
+        assert!(!panel.editable);
+        assert_eq!(panel.menu_labels, ["- Writer <>", "", "(blank)"]);
+        assert!(
+            ui.requests.take().is_empty(),
+            "projecting an opened book must not send another add or page request"
+        );
+        panel.set_cur_page(&mut ui, 0);
+        assert_eq!(
+            ui.requests.take(),
+            [UiRequest::Book(BookAction::Turn {
+                book: ObjectId(5),
+                page: 0
+            })]
+        );
+        assert_eq!(panel.cur_page, 1, "the renderer waits for shared state");
+        assert!(!panel.update(&mut ui, &View));
+        assert!(ui.requests.take().is_empty());
     }
 }
 
@@ -146,13 +202,10 @@ pub struct BookPanel {
     /// How many books this panel has opened — the denominator that separates "the panel never
     /// opened" from "it opened and drew nothing".
     pub opens: u32,
-    /// [`BookView::opening`] as of the last open, so the pull can tell a new book from the same
+    /// [`crate::view::BookView::opening`] as of the last open, so the pull can tell a new book from the same
     /// one being offered again.
     last_opening: u64,
-    /// [`BookView::page_data_applied`] likewise, for the `0x00B8` redraw.
-    last_page_data: u64,
-    /// [`BookView::add_page_responses`] likewise, for the `0x00B6` insert.
-    last_add_page: u64,
+    session: BookSessionView,
     /// How many pages have been inserted into [`Self::pages`].
     pub pages_added: u32,
     /// `0x00B6`s that ended in a whole-book request ([`UiRequest::BookData`]) instead of an insert: the
@@ -215,139 +268,81 @@ impl BookPanel {
     /// Returns `true` when anything was written, which is the frame's own denominator.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
         let Some(b) = view.open_book() else {
+            self.book_id = None;
             return false;
         };
-        // Native asks PlayerDesc at each page-menu update. Keep the projected answer current for
-        // both the open edge and an authoritative AddPage response that rebuilds the strip.
-        self.viewer_is_psr = b.viewer_is_psr;
-        if b.opening != self.last_opening {
-            self.last_opening = b.opening;
-            self.last_page_data = b.page_data_applied;
-            self.open_book(ui, &b);
-            return true;
-        }
-        if b.page_data_applied != self.last_page_data {
-            self.last_page_data = b.page_data_applied;
-            // The page-data response event: the reply clears the pending request and, when
-            // it is the page on screen, draws it.
-            self.request_pending = false;
-            self.pages = b.pages.clone();
-            let page = self.cur_page;
-            self.display_page(ui, page);
-            return true;
-        }
-        if b.add_page_responses != self.last_add_page {
-            self.last_add_page = b.add_page_responses;
-            if let Some(a) = b.add_page.clone() {
-                self.add_page_response(ui, &a);
-                return true;
-            }
-        }
-        false
-    }
-
-    /// The book's add-page response event, from `success` down.
-    ///
-    /// The two tests above it (the object is this book, and the book id is non-zero) are
-    /// `book_add_page_response`'s, because they are the only two the model can
-    /// take; everything here reads the current page or writes the page list, both of which are this
-    /// panel's members in the client too.
-    ///
-    /// In order: on failure, ask for the whole book again ([`UiRequest::BookData`]) and stop. If
-    /// `page` is not the current page, make it the current page, ask for the whole book again and
-    /// stop. Otherwise build an empty page authored by the player (name from string property 1),
-    /// insert it into the page list at `page`, add its menu label (`"- "` then the author's name),
-    /// display it (it is the current page, so always the display arm), and clear the pending
-    /// request.
-    ///
-    /// Note the shape of the third test: retail **moves** the current page on a mismatch and then asks
-    /// for the whole book back rather than inserting at the page it was told about. That is the
-    /// one branch a plainer "insert the page" reading loses.
-    pub fn add_page_response(&mut self, ui: &mut UiSystem, a: &crate::view::AddedPageView) {
-        if !a.success {
-            self.book_data_refetches += 1;
-            if let Some(book) = self.book_id {
-                ui.requests.emit(UiRequest::BookData { book });
-            }
-            return;
-        }
-        let page = i32::try_from(a.page).unwrap_or(i32::MAX);
-        if page != self.cur_page {
-            self.cur_page = page;
-            self.book_data_refetches += 1;
-            if let Some(book) = self.book_id {
-                ui.requests.emit(UiRequest::BookData { book });
-            }
-            return;
-        }
-        // An **empty** page authored by the player, whose text is present here (the client's
-        // text-included flag is 0, so `set_cur_page` would ask for it; the page-data display is
-        // called directly here instead).
-        let new = BookPageView {
-            author_id: a.author_id,
-            author_name: a.author_name.clone(),
-            author_account: String::new(),
-            text: Some(String::new()),
-            ignore_author: 0,
-        };
-        let at = usize::try_from(a.page)
-            .unwrap_or(usize::MAX)
-            .min(self.pages.len());
-        self.pages.insert(at, new);
-        self.pages_added += 1;
-        self.update_menu(ui);
-        self.display_page(ui, page);
-        self.select_current_menu_page(ui);
-        self.request_pending = false;
-    }
-
-    /// The book panel's open book.
-    pub fn open_book(&mut self, ui: &mut UiSystem, b: &BookView) {
-        // unconditional, before a single page has been looked at.
-        if let Some(w) = self.window {
-            ui.set_visible(w, true);
-        }
-        // The page to come back to, and only for the *same* book.
-        let same_book = self.book_id == Some(b.book_id);
-        let remembered = if same_book { self.cur_page } else { 0 };
-        if self.book_id.is_some() {
-            self.close_book(ui);
+        self.capture_draft(ui);
+        let state = view.book_session();
+        let opened = self.book_id != Some(b.book_id) || self.last_opening != b.opening;
+        if !opened && self.session == state {
+            return false;
         }
         self.book_id = Some(b.book_id);
         self.player_id = b.player_id;
         self.viewer_is_psr = b.viewer_is_psr;
-        self.object_name.clone_from(&b.object_name);
+        self.object_name = b.object_name.clone();
         self.max_num_pages = i32::try_from(b.max_num_pages).unwrap_or(i32::MAX);
         self.pages = b.pages.clone();
-        self.update_menu(ui);
-        // Start with the page count minus one. If that is nonnegative, use the remembered page
-        // instead; finally replace any remaining negative value with zero.
-        let last = self.num_pages() - 1;
-        let want = if last < 0 { last } else { remembered };
-        self.set_cur_page(ui, want.max(0));
-        // The tail, in the client's order: inscription, scribe id, scribe name, then the title.
+        self.cur_page = state.current_page;
+        self.request_pending = state.pending;
+        self.page_turns = state.page_turns;
+        self.pages_added = state.pages_added;
+        self.book_data_refetches = state.book_data_refetches;
         self.title_text = b.title.clone();
+        self.last_opening = b.opening;
+        if opened {
+            self.opens += 1;
+            if let Some(w) = self.window {
+                ui.set_visible(w, true);
+            }
+        }
         if let Some(t) = self.title.and_then(|h| ui.text_element_mut(h)) {
             t.set_text(&self.title_text);
         }
-        self.opens += 1;
+        self.set_page_text(ui, &state.draft, state.editable && !state.pending);
+        self.session = state;
+        self.update_menu(ui);
+        self.menu_selection_text = format!("{}", self.cur_page + 1);
+        if let Some(t) = self
+            .menu_selection_page_num
+            .and_then(|h| ui.text_element_mut(h))
+        {
+            t.set_text(&self.menu_selection_text);
+        }
+        self.select_current_menu_page(ui);
+        self.update_paging_buttons(ui);
+        true
     }
 
-    /// The book panel's close book, including `close_cur_page`'s commit.
-    pub fn close_book(&mut self, ui: &mut UiSystem) {
-        self.close_cur_page(ui);
-        self.book_id = None;
-        self.player_id = dereth_primitives::ObjectId(0);
-        self.viewer_is_psr = false;
-        self.object_name.clear();
-        self.max_num_pages = 0;
-        self.pages.clear();
-        self.cur_page = -1;
-        self.request_pending = false;
+    /// Capture edits before another action or interface consumes the shared draft.
+    pub fn capture_draft(&mut self, ui: &mut UiSystem) {
+        let Some(book) = self.book_id else {
+            return;
+        };
+        if !self.editable || self.request_pending {
+            return;
+        }
+        let text = self.page_text_value(ui);
+        if text != self.page_body {
+            self.page_body = text.clone();
+            ui.requests.emit(UiRequest::Book(BookAction::Edit {
+                book,
+                page: self.cur_page,
+                text,
+            }));
+        }
     }
 
     /// Hide only when the handler names the book this
     /// window currently owns. A stale watch from a previously opened book is harmless.
+    pub fn close_book(&mut self, ui: &mut UiSystem) {
+        self.capture_draft(ui);
+        if let Some(book) = self.book_id.take() {
+            ui.requests
+                .emit(UiRequest::Book(BookAction::Close { book }));
+        }
+    }
+
     pub fn recv_object_range_exit(
         &mut self,
         ui: &mut UiSystem,
@@ -426,109 +421,17 @@ impl BookPanel {
 
     /// The book panel's set-current-page, including its request-producing authoring half.
     pub fn set_cur_page(&mut self, ui: &mut UiSystem, page: i32) {
-        if self.book_id.is_none()
-            || self.request_pending
-            || page < 0
-            || page >= self.max_num_pages
-            || page == self.cur_page
-        {
-            return;
+        self.capture_draft(ui);
+        if let Some(book) = self.book_id {
+            ui.requests
+                .emit(UiRequest::Book(BookAction::Turn { book, page }));
         }
-        let mut page = page;
-        let old_page = self.cur_page;
-        let num_pages = self.num_pages();
-        let past_last_page = num_pages < page;
-        let advancing_past_owned_blank = !past_last_page
-            && old_page == num_pages - 1
-            && old_page >= 0
-            && old_page < page
-            && self.page_text_blank(ui)
-            && self
-                .pages
-                .get(old_page as usize)
-                .is_some_and(|p| p.author_id == self.player_id);
-        if refuses_page_change(page, num_pages, old_page, advancing_past_owned_blank) {
-            ui.requests.emit(UiRequest::DisplayChatText {
-                channel: 0x1A,
-                text: ALREADY_OPEN_TO_BLANK_PAGE.replace("%s", &self.object_name),
-            });
-            self.select_current_menu_page(ui);
-            return;
-        }
-        if self.close_cur_page(ui) && page > old_page {
-            page -= 1;
-        }
-        self.cur_page = page;
-        self.page_turns += 1;
-        match usize::try_from(page).ok().and_then(|n| self.pages.get(n)) {
-            Some(p) if p.text.is_some() => self.display_page(ui, page),
-            Some(_) => {
-                self.set_page_text(ui, "", false);
-                if let Some(book) = self.book_id {
-                    ui.requests.emit(UiRequest::BookPageData {
-                        book,
-                        page: u32::try_from(page).unwrap_or(0),
-                    });
-                    self.request_pending = true;
-                }
-            }
-            None if page == self.num_pages() => {
-                self.set_page_text(ui, "", false);
-                if let Some(book) = self.book_id {
-                    ui.requests.emit(UiRequest::BookAddPage { book });
-                    self.request_pending = true;
-                }
-            }
-            None => return,
-        }
-        self.select_current_menu_page(ui);
-        self.update_paging_buttons(ui);
-    }
-
-    /// Close the current page. True means the player's blank page was deleted; `set_cur_page`
-    /// uses that return to adjust a forward destination after the local removal.
-    fn close_cur_page(&mut self, ui: &mut UiSystem) -> bool {
-        let (Some(book), Ok(page), Ok(index)) = (
-            self.book_id,
-            u32::try_from(self.cur_page),
-            usize::try_from(self.cur_page),
-        ) else {
-            return false;
-        };
-        if self.request_pending {
-            return false;
-        }
-        let Some(data) = self.pages.get(index) else {
-            return false;
-        };
-        let author_id = data.author_id;
-        let ignore_author = data.ignore_author;
-        if author_id != self.player_id && ignore_author == 0 {
-            return false;
-        }
-        let text = self.page_text_value(ui);
-        if page_text_blank(&text) && author_id == self.player_id {
-            ui.requests.emit(UiRequest::BookDeletePage { book, page });
-            self.pages.remove(index);
-            self.update_menu(ui);
-            return true;
-        }
-        if let Some(data) = self.pages.get_mut(index) {
-            data.text = Some(text.clone());
-        }
-        ui.requests
-            .emit(UiRequest::BookModifyPage { book, page, text });
-        false
     }
 
     fn page_text_value(&mut self, ui: &mut UiSystem) -> String {
         self.page_text
             .and_then(|h| ui.text_element_mut(h))
             .map_or_else(|| self.page_body.clone(), |t| t.glyphs.inq_text(false))
-    }
-
-    fn page_text_blank(&mut self, ui: &mut UiSystem) -> bool {
-        page_text_blank(&self.page_text_value(ui))
     }
 
     fn set_page_text(&mut self, ui: &mut UiSystem, text: &str, editable: bool) {
@@ -539,33 +442,6 @@ impl BookPanel {
                 t.set_text(text);
             }
             ui.set_attribute_bool(h, dereth_ui::props::attr::TEXT_EDITABLE, editable);
-        }
-    }
-
-    /// The page-data display, and the two lines `set_cur_page` runs instead when the page has
-    /// no text: clear the text, deselect, make it non-editable, and then ask for the page
-    /// ([`UiRequest::BookPageData`]).
-    ///
-    /// A page with no text is shown blank and non-editable while the page request (`0x00AE`)
-    /// is pending; `0x00B8` replaces it and clears [`BookPanel::request_pending`].
-    fn display_page(&mut self, ui: &mut UiSystem, page: i32) {
-        let text = usize::try_from(page)
-            .ok()
-            .and_then(|n| self.pages.get(n))
-            .and_then(|p| p.text.clone());
-        let editable = usize::try_from(page)
-            .ok()
-            .and_then(|n| self.pages.get(n))
-            .is_some_and(|p| p.author_id == self.player_id || p.ignore_author != 0);
-        self.set_page_text(ui, &text.unwrap_or_default(), editable);
-        // The client writes the 1-based page number into the strip's
-        // own label.
-        self.menu_selection_text = format!("{}", page + 1);
-        if let Some(t) = self
-            .menu_selection_page_num
-            .and_then(|h| ui.text_element_mut(h))
-        {
-            t.set_text(&self.menu_selection_text);
         }
     }
 
@@ -617,7 +493,6 @@ impl BookPanel {
         // `book_id` is this panel's initialized/live-book gate; `close_book` supplies the existing
         // `close_cur_page` commit before clearing it.
         if m.id == id::VISIBILITY_CHANGED && m.source_id == WINDOW && m.p1 == 0 {
-            ui.requests.emit(UiRequest::UnregisterBookRange);
             self.close_book(ui);
         } else if m.id == id::BUTTON_CLICKED {
             if m.source_id == PREV_BUTTON {
@@ -630,46 +505,5 @@ impl BookPanel {
                 self.set_cur_page(ui, dereth_ui::widgets::menu::selected_index(ui, menu));
             }
         }
-    }
-}
-
-/// The "is the page text blank" test: only space, line-feed and NUL count as blank.
-fn page_text_blank(text: &str) -> bool {
-    text.bytes().all(|b| matches!(b, b' ' | b'\n' | 0))
-}
-
-/// The client's pre-close OR, isolated so the strict `page count < requested page`
-/// boundary stays pinned even while this build's book menu has no constructed runtime rows.
-fn refuses_page_change(
-    requested_page: i32,
-    num_pages: i32,
-    current_page: i32,
-    advancing_past_owned_blank: bool,
-) -> bool {
-    num_pages < requested_page || (current_page < requested_page && advancing_past_owned_blank)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::refuses_page_change;
-
-    #[test]
-    fn skip_guard_is_strictly_past_the_first_addable_page() {
-        assert!(
-            !refuses_page_change(2, 2, 1, false),
-            "page == numPages is AddPage"
-        );
-        assert!(
-            refuses_page_change(3, 2, 1, false),
-            "page > numPages is refused"
-        );
-        assert!(
-            refuses_page_change(2, 2, 1, true),
-            "owned blank refuses the forward AddPage"
-        );
-        assert!(
-            !refuses_page_change(0, 2, 1, true),
-            "the owned-blank rule is forward-only"
-        );
     }
 }

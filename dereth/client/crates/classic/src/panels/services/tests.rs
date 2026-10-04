@@ -1,18 +1,19 @@
 //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
 use super::*;
-use dereth_client_contract::view::{
-    AddedPageView, AllegianceAction, BookPageView, TradeRow, TradeView,
-};
+use dereth_client_contract::view::{AllegianceAction, BookPageView, BookView, TradeRow, TradeView};
 #[derive(Debug, Default)]
 struct View {
     no_selection: bool,
     now: f64,
     pings: u64,
     book: Option<BookView>,
+    book_session: dereth_client_contract::book::BookSessionView,
     trade: TradeView,
     fellow: Option<dereth_client_contract::view::FellowshipView>,
     slumlord: Option<dereth_client_contract::view::SlumlordView>,
     paid: bool,
+    payments: dereth_client_contract::panels::slumlord::PaymentListsView,
+    salvage: dereth_client_contract::panels::salvage::SalvageListView,
     xp: Option<dereth_client_contract::statmgmt::XpHeader>,
     available: i64,
     mini: Option<dereth_client_contract::view::MiniGameView>,
@@ -21,8 +22,12 @@ struct View {
     friends: Vec<dereth_client_contract::view::FriendEntry>,
     squelches: Vec<dereth_client_contract::view::SquelchEntry>,
     allegiance_breaks: Option<i32>,
+    oath_cost: Option<u32>,
 }
 impl GameView for View {
+    fn oath_xp_cost(&self) -> Option<u32> {
+        self.oath_cost
+    }
     fn int_stat(&self, _: ObjectId, prop: u32) -> Option<i32> {
         (prop == 0x84).then_some(self.allegiance_breaks).flatten()
     }
@@ -40,6 +45,12 @@ impl GameView for View {
     }
     fn minigame(&self) -> Option<dereth_client_contract::view::MiniGameView> {
         self.mini
+    }
+    fn payment_lists(&self) -> dereth_client_contract::panels::slumlord::PaymentListsView {
+        self.payments.clone()
+    }
+    fn salvage_list(&self) -> dereth_client_contract::panels::salvage::SalvageListView {
+        self.salvage.clone()
     }
     fn salvage_item_suitable(&self, _: ObjectId, _: u32) -> bool {
         true
@@ -114,6 +125,9 @@ impl GameView for View {
     }
     fn open_book(&self) -> Option<BookView> {
         self.book.clone()
+    }
+    fn book_session(&self) -> dereth_client_contract::book::BookSessionView {
+        self.book_session.clone()
     }
     fn trade(&self) -> TradeView {
         self.trade.clone()
@@ -301,44 +315,95 @@ fn ping_waits_ten_seconds_and_expires_only_after_two_minutes() {
         request(UiRequest::RequestPing)
     );
 }
-fn page(author: u32, text: &str) -> BookPageView {
-    BookPageView {
-        author_id: ObjectId(author),
-        text: Some(text.into()),
-        ..Default::default()
-    }
+fn open_test_book(world: &mut dereth_client_model::World, id: u32, text: &[&str]) {
+    world.player = Some(ObjectId(7));
+    world.open_book(
+        ObjectId(id),
+        8,
+        dereth_protocol::trade::PageDataList {
+            pages: text
+                .iter()
+                .map(|text| dereth_protocol::trade::PageData {
+                    author_id: ObjectId(7),
+                    page_text: Some((*text).into()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+        String::new(),
+        ObjectId(0),
+        String::new(),
+        &mut dereth_client_model::NullSink,
+        dereth_primitives::ServerTime(0.0),
+    );
 }
-#[test]
-fn deleting_blank_book_page_keeps_shifted_local_page_on_later_events() {
+fn book_event(
+    panel: &mut dyn Panel,
+    e: ControlEvent,
+    world: &mut dereth_client_model::World,
+) -> Vec<PanelAction> {
     let v = View {
-        book: Some(BookView {
-            book_id: ObjectId(50),
+        book_session: world.book_session_view(),
+        book: world.book.open.as_ref().map(|b| BookView {
+            book_id: b.book_id,
             player_id: ObjectId(7),
-            max_num_pages: 8,
-            pages: vec![page(7, " "), page(7, "second")],
+            max_num_pages: b.max_num_pages,
+            pages: b
+                .pages
+                .pages
+                .iter()
+                .map(|p| BookPageView {
+                    author_id: p.author_id,
+                    author_name: p.author_name.clone(),
+                    author_account: p.author_account.clone(),
+                    ignore_author: p.ignore_author,
+                    text: p.page_text.clone(),
+                })
+                .collect(),
             ..Default::default()
         }),
         ..Default::default()
     };
+    let mut out = vec![];
+    for action in event(panel, e, &v) {
+        if let PanelAction::Game(UiRequest::Book(action)) = action {
+            world.book_action(action);
+            out.extend(
+                world
+                    .take_book_requests()
+                    .into_iter()
+                    .map(PanelAction::Game),
+            );
+        } else {
+            out.push(action);
+        }
+    }
+    out
+}
+#[test]
+fn deleting_blank_book_page_keeps_shifted_shared_page_on_later_events() {
+    let mut world = dereth_client_model::World::new();
+    open_test_book(&mut world, 50, &[" ", "second"]);
     let mut p = make("book").unwrap();
-    event(&mut *p, ControlEvent::Tick, &v);
     assert_eq!(
-        activate(&mut *p, "next", &v),
+        book_event(&mut *p, ControlEvent::Activate("next".into()), &mut world),
         request(UiRequest::BookDeletePage {
             book: ObjectId(50),
             page: 0
         })
     );
-    event(
+    book_event(
         &mut *p,
         ControlEvent::Edit {
             id: "text".into(),
             text: "revised second".into(),
         },
-        &v,
+        &mut world,
     );
+    assert_eq!(world.book_session_view().draft, "revised second");
     assert_eq!(
-        activate(&mut *p, "close", &v),
+        book_event(&mut *p, ControlEvent::Activate("close".into()), &mut world),
         vec![
             PanelAction::Game(UiRequest::BookModifyPage {
                 book: ObjectId(50),
@@ -351,49 +416,33 @@ fn deleting_blank_book_page_keeps_shifted_local_page_on_later_events() {
     );
 }
 #[test]
-fn successful_add_page_is_locally_editable_while_failed_add_refetches() {
-    let mut v = View {
-        book: Some(BookView {
-            book_id: ObjectId(50),
-            player_id: ObjectId(7),
-            max_num_pages: 8,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+fn add_page_receipts_update_the_shared_session_without_panel_replay() {
+    let mut world = dereth_client_model::World::new();
+    open_test_book(&mut world, 50, &[]);
+    assert_eq!(
+        world.take_book_requests(),
+        [UiRequest::BookAddPage { book: ObjectId(50) }]
+    );
     let mut p = make("book").unwrap();
+    assert!(book_event(&mut *p, ControlEvent::Tick, &mut world).is_empty());
+    world.book_add_page_response(ObjectId(50), 0, false);
     assert_eq!(
-        event(&mut *p, ControlEvent::Tick, &v),
-        request(UiRequest::BookAddPage { book: ObjectId(50) })
+        world.take_book_requests(),
+        [UiRequest::BookData { book: ObjectId(50) }]
     );
-    let b = v.book.as_mut().unwrap();
-    b.add_page_responses = 1;
-    b.add_page = Some(AddedPageView {
-        success: false,
-        ..Default::default()
-    });
-    assert_eq!(
-        event(&mut *p, ControlEvent::Tick, &v),
-        request(UiRequest::BookData { book: ObjectId(50) })
-    );
-    let b = v.book.as_mut().unwrap();
-    b.add_page_responses = 2;
-    b.add_page = Some(AddedPageView {
-        success: true,
-        author_id: ObjectId(7),
-        ..Default::default()
-    });
-    event(&mut *p, ControlEvent::Tick, &v);
-    event(
+    assert!(book_event(&mut *p, ControlEvent::Tick, &mut world).is_empty());
+    world.book_add_page_response(ObjectId(50), 0, true);
+    assert!(book_event(&mut *p, ControlEvent::Tick, &mut world).is_empty());
+    book_event(
         &mut *p,
         ControlEvent::Edit {
             id: "text".into(),
             text: "new page".into(),
         },
-        &v,
+        &mut world,
     );
     assert!(
-        matches!(activate(&mut *p,"close",&v).first(),Some(PanelAction::Game(UiRequest::BookModifyPage{text,..}))if text=="new page")
+        matches!(book_event(&mut *p, ControlEvent::Activate("close".into()), &mut world).first(), Some(PanelAction::Game(UiRequest::BookModifyPage { text, .. })) if text == "new page")
     );
 }
 
@@ -671,10 +720,10 @@ fn fellowship_member_layout_hides_creation_options_and_uses_live_vital_rows() {
     ));
 }
 #[test]
-fn partial_own_maintenance_can_pay_and_clears_only_when_sent() {
-    use dereth_client_contract::view::SlumlordView;
-    let v = View {
-        slumlord: Some(SlumlordView {
+fn partial_own_maintenance_submits_shared_rows_and_refuses_after_model_clear() {
+    use dereth_client_contract::panels::slumlord::{HouseOp, PaymentAction, PaymentItem};
+    let mut v = View {
+        slumlord: Some(dereth_client_contract::view::SlumlordView {
             slumlord: ObjectId(10),
             owner: ObjectId(7),
             am_i_the_owner: true,
@@ -682,25 +731,19 @@ fn partial_own_maintenance_can_pay_and_clears_only_when_sent() {
         }),
         ..Default::default()
     };
+    v.payments.op = HouseOp::Rent;
+    v.payments.rent.push(PaymentItem {
+        id: ObjectId(20),
+        wcid: 273,
+        amount: 1,
+        trade_note_value: None,
+    });
     let mut p = make("maintenance").unwrap();
-    activate(&mut *p, "rent", &v);
-    event(
-        &mut *p,
-        ControlEvent::Drop {
-            id: "items".into(),
-            payload: DragPayload::Object(ObjectId(20)),
-            slot: 0,
-        },
-        &v,
-    );
     assert_eq!(
         activate(&mut *p, "pay", &v),
-        request(UiRequest::HousePayment {
-            slumlord: ObjectId(10),
-            rent: true,
-            items: vec![ObjectId(20)]
-        })
+        request(UiRequest::PaymentList(PaymentAction::Submit))
     );
+    v.payments.rent.clear();
     assert!(activate(&mut *p, "pay", &v).is_empty());
 }
 
@@ -715,6 +758,7 @@ fn allegiance_insufficient_xp_blocks_even_direct_activation() {
             ..Default::default()
         }),
         available: 1249,
+        oath_cost: Some(1250),
         allegiance_breaks: Some(1),
         era: Some(dereth_client_contract::EraView {
             era: dereth_primitives::era::EraId::Infiltration,
@@ -790,118 +834,76 @@ fn switching_tabs_cancels_the_global_social_target_mode() {
 
 #[test]
 fn replacing_a_dirty_book_saves_the_original_object() {
-    let mut v = View::default();
-    let mut b = BookView {
-        book_id: ObjectId(100),
-        opening: 1,
-        player_id: ObjectId(7),
-        max_num_pages: 4,
-        ..Default::default()
-    };
-    b.pages.push(BookPageView {
-        author_id: ObjectId(7),
-        text: Some("old".into()),
-        ..Default::default()
-    });
-    v.book = Some(b);
+    let mut world = dereth_client_model::World::new();
+    open_test_book(&mut world, 100, &["old"]);
     let mut p = make("book").unwrap();
-    event(&mut *p, ControlEvent::Tick, &v);
-    event(
+    book_event(
         &mut *p,
         ControlEvent::Edit {
             id: "text".into(),
             text: "saved text".into(),
         },
-        &v,
+        &mut world,
     );
-    let mut other = v.book.clone().unwrap();
-    other.book_id = ObjectId(200);
-    other.opening = 2;
-    v.book = Some(other);
-    let actions = event(&mut *p, ControlEvent::Tick, &v);
-    assert!(
-        actions.contains(&PanelAction::Game(UiRequest::BookModifyPage {
+    open_test_book(&mut world, 200, &["other"]);
+    assert_eq!(
+        world.take_book_requests(),
+        [UiRequest::BookModifyPage {
             book: ObjectId(100),
             page: 0,
             text: "saved text".into()
-        }))
+        }]
     );
-    assert!(!actions.iter().any(|a| matches!(
-        a,
-        PanelAction::Game(UiRequest::BookModifyPage {
-            book: ObjectId(200),
-            ..
-        })
-    )));
+    assert!(book_event(&mut *p, ControlEvent::Tick, &mut world).is_empty());
+    assert_eq!(world.book_session_view().draft, "other");
 }
 
 #[test]
-fn partial_housing_drop_waits_for_created_stack_and_remembers_original_tab() {
-    let v = View {
-        slumlord: Some(dereth_client_contract::view::SlumlordView {
-            slumlord: ObjectId(10),
-            owner: ObjectId(7),
-            am_i_the_owner: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let mut p = make("maintenance").unwrap();
-    activate(&mut *p, "rent", &v);
-    let out = event(
-        &mut *p,
-        ControlEvent::DropStack {
-            id: "items".into(),
-            object: ObjectId(20),
-            amount: 4,
-            max_amount: 10,
-            slot: 0,
-        },
-        &v,
-    );
-    assert!(out.contains(&PanelAction::Host(HostAction::SplitForPanel {
-        object: ObjectId(20),
-        amount: 4
-    })));
-    assert!(activate(&mut *p, "pay", &v).is_empty());
-    activate(&mut *p, "buy", &v);
-    event(&mut *p, ControlEvent::SplitReady(ObjectId(21)), &v);
-    assert!(activate(&mut *p, "pay", &v).is_empty());
-    activate(&mut *p, "rent", &v);
-    assert_eq!(
-        activate(&mut *p, "pay", &v),
-        request(UiRequest::HousePayment {
-            slumlord: ObjectId(10),
-            rent: true,
-            items: vec![ObjectId(21)]
-        })
-    );
-    assert!(event(&mut *p, ControlEvent::SplitReady(ObjectId(22)), &v).is_empty());
-    assert!(activate(&mut *p, "pay", &v).is_empty());
-}
-
-#[test]
-fn salvage_notices_remove_without_double_click_or_duplicate_rows() {
-    use dereth_client_contract::panels::salvage::SalvageNotice::*;
+fn partial_housing_drop_routes_quantity_and_does_not_insert_created_stack() {
+    use dereth_client_contract::panels::slumlord::PaymentAction;
     let v = View::default();
+    let mut p = make("maintenance").unwrap();
+    assert_eq!(
+        event(
+            &mut *p,
+            ControlEvent::DropStack {
+                id: "items".into(),
+                object: ObjectId(20),
+                amount: 4,
+                max_amount: 10,
+                slot: 0,
+            },
+            &v
+        ),
+        vec![
+            PanelAction::Game(UiRequest::StackSliderChanged { split: 4, max: 10 }),
+            PanelAction::Game(UiRequest::PaymentList(PaymentAction::Add(ObjectId(20)))),
+        ]
+    );
+    assert!(event(&mut *p, ControlEvent::SplitReady(ObjectId(21)), &v).is_empty());
+    assert!(activate(&mut *p, "pay", &v).is_empty());
+}
+
+#[test]
+fn salvage_notices_do_not_replay_shared_mutations() {
+    use dereth_client_contract::panels::salvage::{SalvageAction, SalvageNotice::*};
+    let mut v = View::default();
+    v.salvage.tool = Some(ObjectId(20));
+    v.salvage.items = vec![ObjectId(2)];
     let mut p = make("salvage").unwrap();
     for notice in [
         Open(ObjectId(20)),
         Add(ObjectId(1)),
         Add(ObjectId(1)),
-        Add(ObjectId(2)),
-        Remove(ObjectId(1)),
         Remove(ObjectId(1)),
     ] {
         assert!(event(&mut *p, ControlEvent::Salvage(notice), &v).is_empty());
     }
     assert_eq!(
         activate(&mut *p, "salvage", &v),
-        request(UiRequest::SalvageItems {
-            tool: ObjectId(20),
-            items: vec![ObjectId(2)]
-        })
+        request(UiRequest::SalvageList(SalvageAction::Submit))
     );
+    assert_eq!(v.salvage.items, vec![ObjectId(2)]);
 }
 #[test]
 fn game_center_fits_sidebar_height_and_hides_status_below_413() {
@@ -1026,44 +1028,30 @@ fn game_center_live_board_changes_preserve_cell_mapping_and_stalemate_latch() {
 }
 
 #[test]
-fn failed_housing_split_ignores_late_response_and_allows_retry() {
-    let v = View {
-        slumlord: Some(dereth_client_contract::view::SlumlordView {
-            slumlord: ObjectId(10),
-            owner: ObjectId(7),
-            am_i_the_owner: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+fn failed_housing_split_and_late_result_do_not_change_shared_rows() {
+    use dereth_client_contract::panels::slumlord::PaymentAction;
+    let v = View::default();
     let mut p = make("maintenance").unwrap();
-    activate(&mut *p, "rent", &v);
-    let drop = ControlEvent::DropStack {
-        id: "items".into(),
-        object: ObjectId(20),
-        amount: 4,
-        max_amount: 10,
-        slot: 0,
-    };
-    assert!(event(&mut *p, drop.clone(), &v)
-        .iter()
-        .any(|a| matches!(a, PanelAction::Host(HostAction::SplitForPanel { .. }))));
-    assert!(event(&mut *p, drop.clone(), &v).is_empty());
-    event(&mut *p, ControlEvent::SplitFailed, &v);
-    event(&mut *p, ControlEvent::SplitReady(ObjectId(21)), &v);
-    assert!(activate(&mut *p, "pay", &v).is_empty());
-    assert!(event(&mut *p, drop, &v)
-        .iter()
-        .any(|a| matches!(a, PanelAction::Host(HostAction::SplitForPanel { .. }))));
-    event(&mut *p, ControlEvent::SplitReady(ObjectId(22)), &v);
+    assert!(event(&mut *p, ControlEvent::SplitFailed, &v).is_empty());
+    assert!(event(&mut *p, ControlEvent::SplitReady(ObjectId(21)), &v).is_empty());
     assert_eq!(
-        activate(&mut *p, "pay", &v),
-        request(UiRequest::HousePayment {
-            slumlord: ObjectId(10),
-            rent: true,
-            items: vec![ObjectId(22)],
-        })
+        event(
+            &mut *p,
+            ControlEvent::DropStack {
+                id: "items".into(),
+                object: ObjectId(20),
+                amount: 4,
+                max_amount: 10,
+                slot: 0,
+            },
+            &v
+        ),
+        vec![
+            PanelAction::Game(UiRequest::StackSliderChanged { split: 4, max: 10 }),
+            PanelAction::Game(UiRequest::PaymentList(PaymentAction::Add(ObjectId(20)))),
+        ]
     );
+    assert!(v.payments.buy.is_empty() && v.payments.rent.is_empty());
 }
 
 #[test]
@@ -1099,8 +1087,8 @@ fn abuse_empty_name_and_invalid_name_share_text_but_not_emphasis() {
 }
 
 #[test]
-fn fellowship_pick_prompt_and_self_refusal_use_the_viewport_route() {
-    use crate::panels::FeedbackSeverity::{Information, Warning};
+fn fellowship_pick_prompt_returns_the_chosen_target_to_the_runtime() {
+    use crate::panels::FeedbackSeverity::Information;
     let v = View {
         no_selection: true,
         ..Default::default()
@@ -1117,9 +1105,8 @@ fn fellowship_pick_prompt_and_self_refusal_use_the_viewport_route() {
         event(&mut *p, ControlEvent::WorldTarget(Some(ObjectId(7))), &v),
         vec![
             PanelAction::Host(HostAction::SocialTarget(0)),
-            PanelAction::Host(HostAction::LocalFeedback {
-                text: "You can't recruit yourself.".into(),
-                severity: Warning,
+            PanelAction::Game(UiRequest::FellowshipRecruit {
+                target: ObjectId(7)
             })
         ]
     );

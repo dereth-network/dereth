@@ -2,7 +2,7 @@
 //! settings.
 use super::*;
 use crate::int::i32_from;
-use dereth_client_contract::view::{BookView, PlayerOption};
+use dereth_client_contract::view::PlayerOption;
 
 mod assistance;
 mod book;

@@ -46,9 +46,8 @@
 //! 4. **The button has two states, `1` and `0x0D`.** Opening, closing, or removing the last row
 //!    sets `0x0D` (disabled); adding the *first* row sets
 //!    **state `1`**. No other button state is used here.
-//! 5. **Closing does not hide the window.** It clears the rows and tool id but, unlike opening,
-//!    does not touch the window's visibility. The visibility handler calls that close behavior on the hidden edge,
-//!    so hiding drives closing, never the other way around. The close button only hides the panel.
+//! 5. **Closing clears the rows and tool id.** A user close ends the shared session;
+//!    rebuilding an interface only replaces its presentation.
 //! 6. **The material is latched on the first row only.** The write occurs when the list holds
 //!    exactly one item, so with *SalvageMultiple* off the window locks to
 //!    whatever went in first and refuses every other material until it empties.
@@ -70,7 +69,7 @@
 //!
 //! # Shard safety
 //!
-//! **No datagram leaves this process.** The Salvage button appends a [`UiRequest::SalvageItems`]
+//! **No datagram leaves this process.** The Salvage button appends a [`UiRequest::SalvageList`]
 //! to the thread-local outbox and the host is what puts `0x027D` on the wire — and
 //! `create_tinkering_tool` repeats both of the client's guards.
 
@@ -121,6 +120,7 @@ pub enum ButtonState {
     Enabled = 1,
 }
 
+use dereth_client_contract::panels::salvage::SalvageAction;
 /// The three notices the panel registers that carry an object, in registration order.
 ///
 /// Defined in [`dereth_client_contract::panels::salvage`], because it is the value
@@ -154,16 +154,13 @@ pub struct SalvagePanel {
     pub salvage_button: Option<ElemHandle>,
     /// The close X — bound because the element-message handler switches on it; never written.
     pub close_button: Option<ElemHandle>,
-    /// The tool id. `None` is the client's `0`, i.e. no tool: [`Self::salvage`] refuses.
+    /// The tool id in the last shared projection.
     pub tool: Option<ObjectId>,
-    /// The material, latched on the first row. See reading 6.
+    /// The shared material latch in the last projection.
     pub material: u32,
     /// The Salvage button's state as this panel last wrote it.
     pub button: ButtonState,
-    /// What the window holds — the salvage list's items.
-    ///
-    /// The window's own list, not a projection of the view: the client inserts on the
-    /// drop and nothing on the wire confirms it. Salvaging is the only thing that empties it.
+    /// The last displayed projection; gestures never mutate these rows.
     pub displayed: Vec<ObjectId>,
     /// Whether the last [`Self::update`] left the window visible.
     pub visible: bool,
@@ -266,133 +263,35 @@ impl SalvagePanel {
 
     /// The three notices, delivered synchronously as retail's are.
     pub fn recv_notice(&mut self, ui: &mut UiSystem, notice: SalvageNotice, view: &dyn GameView) {
-        match notice {
-            SalvageNotice::Open(tool) => self.open_salvage_panel(ui, tool),
-            SalvageNotice::Add(id) => {
-                self.add_new_item(ui, id, view);
-            }
-            SalvageNotice::Remove(id) => self.remove_item(ui, id),
+        if matches!(notice, SalvageNotice::Open(_)) {
+            self.opens += 1;
         }
-        // Retail fills synchronously; a following notice in the same batch must see the list this
-        // one left, not the snapshot the previous frame drew. Same reasoning as
-        // `ExternalContainerPanel::recv_notice`.
         self.update(ui, view);
     }
 
-    /// The open-salvage-panel notice, in retail's order: store the tool id, clear every row's
-    /// trade state, flush the list, zero the material, set the Salvage button to `0x0D`, and show
-    /// the window.
-    ///
-    /// **Re-opening with a different tool throws the window's contents away**, which is what the
-    /// flush is for: the ids were a previous tool's and the tool id has already moved.
+    /// Raise the presentation after the shared model consumes the open notice.
     pub fn open_salvage_panel(&mut self, ui: &mut UiSystem, tool: ObjectId) {
-        self.tool = (tool.0 != 0).then_some(tool);
-        self.clear(ui);
+        let _ = tool;
         self.opens += 1;
         self.set_visible(ui, true);
     }
 
-    /// The open path minus the show, with the tool id zeroed. See reading 5: the hide drives this, never the reverse.
+    /// End the shared salvage session after an explicit close.
     pub fn close_salvage_panel(&mut self, ui: &mut UiSystem) {
-        self.tool = None;
-        self.clear(ui);
+        ui.requests
+            .emit(UiRequest::SalvageList(SalvageAction::Close));
         self.closes += 1;
-    }
-
-    /// The body both of the two above share: clear all trade states, flush the item list, zero
-    /// the material, set the button to `0x0D`.
-    ///
-    /// Clearing the trade states sets trade state 0 on every row's object. Its effect is invisible in
-    /// this build for the reason `crate::view::SlotDecoration::trade_state` documents. The
-    /// original client has three writer families: secure trade, salvage, and housing. Secure
-    /// trade is wired to shared trade state; salvage and housing still lack equivalent writes
-    /// into the shared qualities model, so those two markers remain declared seams.
-    fn clear(&mut self, ui: &mut UiSystem) {
-        self.displayed.clear();
-        self.material = 0;
-        self.last = None;
-        if let Some(w) = self.list.as_mut() {
-            w.flush(ui);
-        }
-        self.button = ButtonState::Disabled;
-        self.write_button_state(ui);
     }
 
     /// The new-item add — the container fork. See reading 7. An unknown object is refused; an
     /// object that contains items goes to `Self::add_contained_items`, anything else to the
     /// single-item add.
     pub fn add_new_item(&mut self, ui: &mut UiSystem, id: ObjectId, view: &dyn GameView) -> bool {
-        let Some(d) = view.slot_decoration(id) else {
-            return false;
-        };
-        if d.contained_items > 0 {
-            return self.add_contained_items(ui, id, view, 0);
-        }
-        self.add_item(ui, id, view)
-    }
-
-    /// The salvage panel's add contained items: print the container's name (name type 2) on
-    /// channel `0x1A`, fetch its contained-items list (refusing if there is none), and for each
-    /// known object in it recurse if it is itself a container and add it otherwise.
-    ///
-    /// **The heading line comes out before the walk and regardless of whether anything is
-    /// suitable** — the notice precedes the list fetch — so dropping a pack of
-    /// fully-repaired armour prints the pack's name and adds nothing. That is retail's.
-    ///
-    /// `depth` is this build's own guard and the client has none: the client's containment graph is
-    /// a tree by construction, and a view that answered a cycle would recurse for ever here. Eight
-    /// is past anything the game can build (pack → side pack → item).
-    fn add_contained_items(
-        &mut self,
-        ui: &mut UiSystem,
-        id: ObjectId,
-        view: &dyn GameView,
-        depth: u32,
-    ) -> bool {
-        if depth > 8 {
+        if view.slot_decoration(id).is_none() {
             return false;
         }
-        if let Some(name) = view.name(id) {
-            ui.requests.emit(UiRequest::DisplayChatText {
-                channel: NOTICE_CHANNEL,
-                text: name.to_owned(),
-            });
-        }
-        let contents = view.container_contents(id).to_vec();
-        for child in contents {
-            let nested = view
-                .slot_decoration(child)
-                .is_some_and(|d| d.contained_items > 0);
-            if nested {
-                self.add_contained_items(ui, child, view, depth + 1);
-            } else {
-                self.add_item(ui, child, view);
-            }
-        }
-        true
-    }
-
-    /// The salvage panel's add item: refuse with no list, refuse an item already listed, refuse
-    /// an unsuitable item; otherwise set its trade state to 1 and add it, and when it is the
-    /// first row latch its material type and set the Salvage button to state 1.
-    fn add_item(&mut self, ui: &mut UiSystem, id: ObjectId, view: &dyn GameView) -> bool {
-        if self.list.is_none() {
-            return false;
-        }
-        if self.displayed.contains(&id) {
-            return false;
-        }
-        if !view.salvage_item_suitable(id, self.material) {
-            return false;
-        }
-        self.displayed.push(id);
-        self.items_added += 1;
-        self.last = None;
-        if self.displayed.len() == 1 {
-            self.material = view.item_material_type(id);
-            self.button = ButtonState::Enabled;
-            self.write_button_state(ui);
-        }
+        ui.requests
+            .emit(UiRequest::SalvageList(SalvageAction::Add(id)));
         true
     }
 
@@ -402,21 +301,8 @@ impl SalvagePanel {
     /// **The material is cleared only when the list empties**, not on every removal — so taking
     /// one of two iron rings out leaves the window locked to iron, which is right.
     pub fn remove_item(&mut self, ui: &mut UiSystem, id: ObjectId) {
-        if self.list.is_none() {
-            return;
-        }
-        let before = self.displayed.len();
-        self.displayed.retain(|i| *i != id);
-        if self.displayed.len() == before {
-            return;
-        }
-        self.items_removed += 1;
-        self.last = None;
-        if self.displayed.is_empty() {
-            self.material = 0;
-            self.button = ButtonState::Disabled;
-            self.write_button_state(ui);
-        }
+        ui.requests
+            .emit(UiRequest::SalvageList(SalvageAction::Remove(id)));
     }
 
     /// The drag-acceptability test, in retail's order: refuse an unknown object; refuse an object
@@ -596,36 +482,14 @@ impl SalvagePanel {
         true
     }
 
-    /// The Salvage button, and the one thing this panel sends. With no list it refuses. It
-    /// collects every row's item id; if there is at least one and a tool, it clears the trade
-    /// states, sends the create-tinkering-tool request (`0x027D`) with the tool and the ids,
-    /// flushes the list, zeroes the material, sets the button to `0x0D` and answers true.
-    ///
-    /// **The walk is backwards** (last row down to the first) and each id is appended, so the list
-    /// that goes on the wire is the window's order **reversed**. That is not a tidy-up candidate:
-    /// it is what the shard receives.
-    ///
-    /// **The tool id is not cleared** — the window stays open and usable for a second batch with
-    /// the same tool, which is why closing is a separate function.
+    /// Submit the shared rows. The model reverses their order and retains the tool.
     pub fn salvage(&mut self, ui: &mut UiSystem) -> bool {
-        if self.list.is_none() {
+        if self.list.is_none() || self.tool.is_none() || self.displayed.is_empty() {
             return false;
         }
-        let items: Vec<ObjectId> = self.displayed.iter().rev().copied().collect();
-        let Some(tool) = self.tool.filter(|_| !items.is_empty()) else {
-            return false;
-        };
-        ui.requests.emit(UiRequest::SalvageItems { tool, items });
+        ui.requests
+            .emit(UiRequest::SalvageList(SalvageAction::Submit));
         self.salvages += 1;
-        // Everything `clear` does except the tool id, which this arm deliberately leaves alone.
-        self.displayed.clear();
-        self.material = 0;
-        self.last = None;
-        if let Some(w) = self.list.as_mut() {
-            w.flush(ui);
-        }
-        self.button = ButtonState::Disabled;
-        self.write_button_state(ui);
         true
     }
 
@@ -663,8 +527,7 @@ impl SalvagePanel {
         }
         match m.source_id {
             CLOSE_BUTTON => {
-                // A bare hide. The close itself is the visibility-changed
-                // handler answering the hide, which `update` below is.
+                self.close_salvage_panel(ui);
                 self.set_visible(ui, false);
                 true
             }
@@ -698,29 +561,36 @@ impl SalvagePanel {
         None
     }
 
-    /// One frame's drive: the client's hidden edge, then the fill.
-    ///
-    /// Retail's visibility handler closes the panel when it is hidden, guarded on the element's
-    /// initialised flag (bit `0x11`).
-    ///
-    /// The initialised-bit guard is "`post_init` bound something", which [`Self::bound`] is. The
-    /// edge is taken off the live element rather than from a callback because this build has no
-    /// visibility callback at that seam — the same treatment
-    /// [`crate::panels::external_container::ExternalContainerPanel::update`] gives its close.
-    ///
-    /// Returns whether the tree was rewritten.
+    /// Project the shared session and refresh changed item tiles.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        let live = self
-            .root
-            .and_then(|h| ui.node(h))
-            .map(|n| n.region.flags.visible);
-        // The hidden edge, and only once: closing an already-closed window is a
-        // no-op here (`displayed` is empty, `tool` is already `None`) but it would keep bumping
-        // `closes`, which is an instrument and must mean something.
-        if live == Some(false) && (self.tool.is_some() || !self.displayed.is_empty()) {
-            self.close_salvage_panel(ui);
+        let state = view.salvage_list();
+        self.tool = state.tool;
+        self.material = state.material;
+        self.items_added += u32::try_from(
+            state
+                .items
+                .iter()
+                .filter(|id| !self.displayed.contains(id))
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        self.items_removed += u32::try_from(
+            self.displayed
+                .iter()
+                .filter(|id| !state.items.contains(id))
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        self.displayed = state.items;
+        self.button = if self.tool.is_some() && !self.displayed.is_empty() {
+            ButtonState::Enabled
+        } else {
+            ButtonState::Disabled
+        };
+        self.write_button_state(ui);
+        if self.visible != state.visible {
+            self.set_visible(ui, state.visible);
         }
-        self.visible = live.unwrap_or(false);
         let ids = self.displayed.clone();
         let same = self.last.as_ref().is_some_and(|s| {
             s.tiles.len() == ids.len()

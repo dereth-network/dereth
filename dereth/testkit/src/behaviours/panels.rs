@@ -11,7 +11,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -1399,6 +1399,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-G9"),
         station: "dereth-testkit::dat::panels::scenario_the_journal_opens_on_page_one_with_the_timer_editable",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "journal.shared-session-identity-and-save-boundaries",
+        says: "Both interfaces read one notebook. Character identity changes isolate pages and reject stale loads; explicit save boundaries retain the outgoing draft without rereading on interface changes.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-DEDUP-JOURNAL-SESSION"),
+        station: "dereth-client-model::lib::journal::tests::identity_reads_and_edits_keep_their_pages_and_save_boundaries",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "journal.timer.it-counts-down-on-its-own-and-the-button-puts-it-back",

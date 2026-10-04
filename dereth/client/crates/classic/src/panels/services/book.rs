@@ -1,121 +1,8 @@
 use super::*;
-use crate::int::u32_from;
+use dereth_client_contract::book::{author_label, BookAction};
 
 #[derive(Debug, Default)]
-pub struct Book {
-    opening: Option<(ObjectId, u64)>,
-    last: Option<BookView>,
-    pages: Option<Vec<dereth_client_contract::view::BookPageView>>,
-    page: usize,
-    text: String,
-    dirty: bool,
-    pending: bool,
-    data_edge: u64,
-    add_edge: u64,
-}
-fn blank(s: &str) -> bool {
-    s.bytes().all(|c| matches!(c, b' ' | b'\n' | 0))
-}
-fn editable(b: &BookView, p: usize, privileged: bool) -> bool {
-    b.pages
-        .get(p)
-        .is_some_and(|p| p.author_id == b.player_id || privileged || p.ignore_author != 0)
-}
-impl Book {
-    fn effective(&self, mut b: BookView) -> BookView {
-        if self.opening == Some((b.book_id, b.opening)) {
-            if let Some(p) = &self.pages {
-                b.pages = p.clone();
-            }
-        }
-        b
-    }
-
-    fn load(&mut self, b: &BookView, out: &mut Vec<PanelAction>) {
-        self.dirty = false;
-        if let Some(p) = b.pages.get(self.page) {
-            if let Some(t) = &p.text {
-                self.text = t.clone();
-                self.pending = false;
-            } else {
-                self.text.clear();
-                self.pending = true;
-                out.push(PanelAction::Game(UiRequest::BookPageData {
-                    book: b.book_id,
-                    page: u32_from(self.page),
-                }));
-            }
-        } else {
-            self.text.clear();
-            self.pending = true;
-            out.push(PanelAction::Game(UiRequest::BookAddPage {
-                book: b.book_id,
-            }));
-        }
-    }
-    fn save(&mut self, b: &BookView, privileged: bool, out: &mut Vec<PanelAction>) -> bool {
-        if self.pending || !editable(b, self.page, privileged) {
-            return false;
-        }
-        if blank(&self.text) && b.pages[self.page].author_id == b.player_id {
-            out.push(PanelAction::Game(UiRequest::BookDeletePage {
-                book: b.book_id,
-                page: u32_from(self.page),
-            }));
-            self.dirty = false;
-            return true;
-        }
-        if self.dirty {
-            out.push(PanelAction::Game(UiRequest::BookModifyPage {
-                book: b.book_id,
-                page: u32_from(self.page),
-                text: self.text.clone(),
-            }));
-            if let Some(p) = self.pages.as_mut().and_then(|p| p.get_mut(self.page)) {
-                p.text = Some(self.text.clone());
-            }
-            self.dirty = false;
-        }
-        false
-    }
-    fn turn(&mut self, b: &BookView, mut next: usize, privileged: bool) -> Vec<PanelAction> {
-        if self.pending || next == self.page || next >= b.max_num_pages as usize {
-            return vec![];
-        }
-        if next > b.pages.len()
-            || (next > self.page
-                && self.page + 1 == b.pages.len()
-                && blank(&self.text)
-                && b.pages
-                    .get(self.page)
-                    .is_some_and(|p| p.author_id == b.player_id))
-        {
-            return vec![PanelAction::Host(HostAction::LocalFeedback {
-                severity: crate::panels::FeedbackSeverity::Warning,
-                text: format!("{} is already open to a blank page", b.object_name),
-            })];
-        }
-        let mut out = vec![];
-        let mut working = b.clone();
-        if self.save(b, privileged, &mut out) {
-            working.pages.remove(self.page);
-            if self.page < next {
-                next -= 1;
-            }
-        }
-        if working.pages.len() == b.pages.len() {
-            if let Some(p) = working.pages.get_mut(self.page) {
-                if editable(b, self.page, privileged) {
-                    p.text = Some(self.text.clone());
-                }
-            }
-        }
-        self.page = next;
-        self.pages = Some(working.pages.clone());
-        self.load(&working, &mut out);
-        out
-    }
-}
+pub struct Book {}
 /// The page text's font.
 const PAGE_FONT: &str = "15-6";
 
@@ -152,7 +39,8 @@ impl Panel for Book {
             [0x0600126C, 0x0600126D, 0x0600126C],
             true,
         );
-        if let Some(b) = c.game.open_book().map(|b| self.effective(b)) {
+        if let Some(b) = c.game.open_book() {
+            let state = c.game.book_session();
             // The title is shown, never edited.
             label_color(&mut f, rect(22, 6, 234, 19), &b.title, "15-6", 0xff080808);
             image_button(
@@ -160,21 +48,21 @@ impl Panel for Book {
                 "previous",
                 rect(0, 30, 54, 33),
                 [0x06001269, 0x0600126A, 0x0600126B],
-                self.page > 0 && !self.pending,
+                state.current_page > 0 && !state.pending,
             );
             image_button(
                 &mut f,
                 "next",
                 rect(235, 306, 65, 32),
                 [0x06001266, 0x06001267, 0x06001268],
-                self.page + 1 < (b.max_num_pages as usize) && !self.pending,
+                state.current_page + 1 < b.max_num_pages as i32 && !state.pending,
             );
-            if !self.pending && editable(&b, self.page, c.classic.book_edit_privileged) {
+            if !state.pending && state.editable {
                 // Written on the page's paper, not on a black field.
                 let page = f.edit(
                     "text",
                     rect(22, 63, 257, 243),
-                    &self.text,
+                    &state.draft,
                     usize::MAX,
                     true,
                     true,
@@ -186,7 +74,7 @@ impl Panel for Book {
                 label_color(
                     &mut f,
                     rect(22, 63, 257, 243),
-                    &self.text,
+                    &state.draft,
                     "15-6",
                     0xff080808,
                 );
@@ -202,19 +90,13 @@ impl Panel for Book {
                                 .pages
                                 .get(i)
                                 .map(|p| {
-                                    if b.viewer_is_psr {
-                                        format!("- {} <{}>", p.author_name, p.author_account)
-                                    } else if p.author_name.is_empty() {
-                                        String::new()
-                                    } else {
-                                        format!("- {}", p.author_name)
-                                    }
+                                    author_label(&p.author_name, &p.author_account, b.viewer_is_psr)
                                 })
                                 .unwrap_or("(blank)".into());
                             format!("Page {}\t{author}", i + 1)
                         })
                         .collect(),
-                    selected: self.page,
+                    selected: usize::try_from(state.current_page).unwrap_or(0),
                 },
                 true,
             )
@@ -223,123 +105,50 @@ impl Panel for Book {
         f
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
-        let Some(server) = c.game.open_book() else {
-            return if matches!(e,ControlEvent::Activate(ref id) if id=="close") {
-                let mut out = vec![];
-                if let Some(old) = self.last.clone() {
-                    let old = self.effective(old);
-                    self.save(&old, c.classic.book_edit_privileged, &mut out);
-                }
-                out.push(PanelAction::Game(UiRequest::UnregisterBookRange));
-                out.push(PanelAction::Close);
-                out
+        let Some(b) = c.game.open_book() else {
+            return if matches!(e, ControlEvent::Activate(ref id) if id == "close") {
+                vec![PanelAction::Close]
             } else {
                 vec![]
             };
         };
-        let b = self.effective(server.clone());
-        match e {
-            ControlEvent::Tick => {
-                let mut out = vec![];
-                if self.opening != Some((b.book_id, b.opening)) {
-                    let same = self.opening.is_some_and(|(id, _)| id == b.book_id);
-                    if let Some(old) = self.last.clone() {
-                        let old = self.effective(old);
-                        self.save(&old, c.classic.book_edit_privileged, &mut out);
-                    }
-                    self.last = Some(server.clone());
-                    self.opening = Some((b.book_id, b.opening));
-                    self.page = if same {
-                        self.page.min(b.pages.len().saturating_sub(1))
-                    } else {
-                        0
-                    };
-                    self.pages = Some(b.pages.clone());
-                    self.data_edge = b.page_data_applied;
-                    self.add_edge = b.add_page_responses;
-                    self.load(&b, &mut out);
-                } else {
-                    if self.data_edge != server.page_data_applied {
-                        self.data_edge = server.page_data_applied;
-                        if self.pending {
-                            if let Some(p) =
-                                server.pages.get(self.page).filter(|p| p.text.is_some())
-                            {
-                                if let Some(slot) =
-                                    self.pages.as_mut().and_then(|p| p.get_mut(self.page))
-                                {
-                                    *slot = p.clone();
-                                }
-                                self.text = p.text.clone().unwrap();
-                                self.pending = false;
-                                self.dirty = false;
-                            }
-                        }
-                    }
-                    if self.add_edge != server.add_page_responses {
-                        self.add_edge = server.add_page_responses;
-                        if let Some(a) = &server.add_page {
-                            if !a.success || a.page as usize != self.page {
-                                if a.success {
-                                    self.page = a.page as usize;
-                                }
-                                out.push(PanelAction::Game(UiRequest::BookData {
-                                    book: b.book_id,
-                                }));
-                            } else {
-                                let p = dereth_client_contract::view::BookPageView {
-                                    author_id: a.author_id,
-                                    author_name: a.author_name.clone(),
-                                    text: Some(String::new()),
-                                    ..Default::default()
-                                };
-                                let pages = self.pages.get_or_insert_with(|| b.pages.clone());
-                                pages.insert(self.page.min(pages.len()), p);
-                                self.text.clear();
-                                self.pending = false;
-                                self.dirty = false;
-                            }
-                        }
-                    }
-                }
-                out
-            }
-            ControlEvent::Edit { id, text }
-                if id == "text"
-                    && !self.pending
-                    && editable(&b, self.page, c.classic.book_edit_privileged) =>
-            {
-                // A page holds what fits on it: typing that would run past its foot is refused.
+        let state = c.game.book_session();
+        let book = b.book_id;
+        let action = match e {
+            ControlEvent::Edit { id, text } if id == "text" && state.editable && !state.pending => {
                 if !fits_on_page(&text) {
                     return vec![];
                 }
-                self.text = text;
-                self.dirty = true;
-                vec![]
+                BookAction::Edit {
+                    book,
+                    page: state.current_page,
+                    text,
+                }
             }
-            ControlEvent::Select { id, index } if id == "page" => {
-                self.turn(&b, index.min(b.pages.len()), c.classic.book_edit_privileged)
-            }
+            ControlEvent::Select { id, index } if id == "page" => BookAction::Turn {
+                book,
+                page: i32::try_from(index).unwrap_or(i32::MAX),
+            },
             ControlEvent::Value { id, value } if id == "page" => {
-                self.turn(&b, value.max(0) as usize, c.classic.book_edit_privileged)
+                BookAction::Turn { book, page: value }
             }
-            ControlEvent::Activate(id) if id == "previous" => self.turn(
-                &b,
-                self.page.saturating_sub(1),
-                c.classic.book_edit_privileged,
-            ),
-            ControlEvent::Activate(id) if id == "next" => {
-                self.turn(&b, self.page + 1, c.classic.book_edit_privileged)
-            }
+            ControlEvent::Activate(id) if id == "previous" => BookAction::Turn {
+                book,
+                page: state.current_page - 1,
+            },
+            ControlEvent::Activate(id) if id == "next" => BookAction::Turn {
+                book,
+                page: state.current_page + 1,
+            },
             ControlEvent::Activate(id) if id == "close" => {
-                let mut out = vec![];
-                self.save(&b, c.classic.book_edit_privileged, &mut out);
-                out.push(PanelAction::Game(UiRequest::UnregisterBookRange));
-                out.push(PanelAction::Close);
-                out
+                return vec![
+                    PanelAction::Game(UiRequest::Book(BookAction::Close { book })),
+                    PanelAction::Close,
+                ]
             }
-            _ => vec![],
-        }
+            _ => return vec![],
+        };
+        vec![PanelAction::Game(UiRequest::Book(action))]
     }
 }
 
@@ -347,12 +156,7 @@ impl Panel for Book {
 mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
-    #[test]
-    fn blank_page_deletion_does_not_treat_tab_or_carriage_return_as_blank() {
-        assert!(blank(" \n\0"));
-        assert!(!blank("\t"));
-        assert!(!blank("\r"));
-    }
+    use dereth_client_contract::view::BookView;
     #[test]
     fn the_title_is_shown_but_never_edited() {
         #[derive(Debug)]
@@ -397,21 +201,52 @@ mod tests {
             .is_empty());
     }
     #[test]
-    fn other_authors_editability_uses_nonzero_ignore_author() {
-        let mut b = BookView {
-            player_id: ObjectId(7),
-            ..Default::default()
-        };
-        b.pages.push(dereth_client_contract::view::BookPageView {
-            author_id: ObjectId(9),
-            ignore_author: -1,
-            ..Default::default()
-        });
-        assert!(editable(&b, 0, false));
-        b.pages[0].ignore_author = 0;
-        assert!(!editable(&b, 0, false));
-        b.viewer_is_psr = true; // Includes advocate status at the public seam.
-        assert!(!editable(&b, 0, false));
-        assert!(editable(&b, 0, true));
+    fn page_editability_comes_from_the_shared_session_without_a_privileged_bypass() {
+        #[derive(Debug)]
+        struct View(bool);
+        impl GameView for View {
+            fn open_book(&self) -> Option<BookView> {
+                Some(BookView {
+                    book_id: ObjectId(5),
+                    max_num_pages: 1,
+                    ..Default::default()
+                })
+            }
+            fn book_session(&self) -> dereth_client_contract::book::BookSessionView {
+                dereth_client_contract::book::BookSessionView {
+                    current_page: 0,
+                    draft: "Read me".into(),
+                    editable: self.0,
+                    ..Default::default()
+                }
+            }
+        }
+        for editable in [false, true] {
+            let game = View(editable);
+            let mut state = crate::panels::ClassicState::default();
+            let (pregame, keyboard, settings) = Default::default();
+            state.book_edit_privileged = true;
+            let c = Context {
+                game: &game,
+                pregame: &pregame,
+                keyboard: &keyboard,
+                settings: &settings,
+                map_teleport_allowed: false,
+                classic: &state,
+            };
+            let mut panel = Book {};
+            let out = panel.event(
+                ControlEvent::Edit {
+                    id: "text".into(),
+                    text: "Changed".into(),
+                },
+                &c,
+            );
+            assert_eq!(!out.is_empty(), editable);
+            assert_eq!(
+                panel.frame(&c).controls.iter().any(|v| v.id == "text"),
+                editable
+            );
+        }
     }
 }

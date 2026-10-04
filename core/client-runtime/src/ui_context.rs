@@ -94,6 +94,46 @@ impl<'a, S: Shell> UiContext<'a, S> {
         &self.app.objects.world
     }
 
+    /// Set the notebook identity before either interface reads its shared pages.
+    pub fn prepare_journal(
+        &mut self,
+        identity: Option<dereth_client_contract::journal::JournalIdentity>,
+    ) {
+        self.app.objects.world.journal.set_identity(identity);
+    }
+
+    pub fn take_journal_io(&mut self) -> Vec<dereth_client_contract::journal::JournalIo> {
+        self.app.objects.world.journal.take_io()
+    }
+
+    pub fn record_journal_io(
+        &mut self,
+        identity: &dereth_client_contract::journal::JournalIdentity,
+        generation: u64,
+        read: bool,
+        success: bool,
+    ) {
+        self.app
+            .objects
+            .world
+            .journal
+            .record_io(identity, generation, read, success);
+    }
+
+    pub fn complete_journal_load(
+        &mut self,
+        identity: dereth_client_contract::journal::JournalIdentity,
+        generation: u64,
+        revision: u64,
+        pages: Result<Vec<dereth_client_contract::journal::JournalPage>, ()>,
+    ) -> bool {
+        self.app
+            .objects
+            .world
+            .journal
+            .complete_load(identity, generation, revision, pages)
+    }
+
     /// The object tables, read-only.
     #[must_use]
     pub fn objects(&self) -> &ObjectStream {

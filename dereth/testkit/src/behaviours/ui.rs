@@ -666,12 +666,19 @@ pub static ROWS: &[Behaviour] = &[
         id: "reader.book.a-recorded-book-opens-the-reader-and-shows-its-first-page",
         says: "A scroll, a letter or a sign the shard opens for the player really opens the \
                reader: the window comes up, the list of pages is as long as the book is, and the \
-               first page's own words are on the screen. An unsigned book shows no author, which \
-               is the client's own answer rather than a page it forgot to write.",
+               first page's own words are on the screen.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-AF25"),
         station: "dereth-testkit::dat::ui::scenario_a_recorded_book_opens_the_reader_and_shows_its_first_page",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "reader.book.author-labels-follow-the-name",
+        says: "A named page keeps its author label even when its editability ignores ownership. An empty author name produces no label or account suffix; support viewers append an account only to a named author.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DEDUP-BOOK-AUTHOR"),
+        station: "dereth-ui-screens::lib::panels::book::tests::author_labels_ignore_editability_flags_and_hide_empty_names",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "reader.book.paging-moves-the-page-and-greys-the-control-that-cannot-be-pressed",
@@ -683,6 +690,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-AF25-PAGING"),
         station: "dereth-testkit::dat::ui::scenario_paging_a_book_moves_the_page_and_greys_what_cannot_be_pressed",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "reader.book.shared-session-receipts-and-drafts",
+        says: "Both interfaces read one book cursor and draft. Tagged receipts cannot replace another book, and flush or close saves a draft only once until it changes again.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-DEDUP-BOOK-SESSION"),
+        station: "dereth-client-model::lib::book::tests::session_guards_receipts_and_saves_in_order",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "strings.a-row-places-the-values-by-name-so-the-order-they-are-given-in-is-invisible",

@@ -94,6 +94,7 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
         .collect();
     ShopView {
         open: true,
+        filter: w.vendor_filter,
         vendor: s.vendor_id,
         sell_mode: s.mode == dereth_client_model::vendor::ShopMode::Sell,
         stock,

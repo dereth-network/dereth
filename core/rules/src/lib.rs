@@ -34,6 +34,7 @@ pub mod fellowship;
 pub mod magic;
 /// The movement system's run rate, jump height and jump stamina cost (one implementation).
 pub mod movement;
+pub mod names;
 /// The property → `PublicWeenieDesc` mirror table.
 pub mod pwd_mirror;
 #[cfg(feature = "proto")]

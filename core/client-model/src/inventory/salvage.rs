@@ -30,6 +30,9 @@ use crate::{Request, RequestSink, World};
 use dereth_primitives::ObjectId;
 use dereth_protocol::items::SalvageResultMessage;
 
+mod list;
+pub use list::{SalvageEffect, SalvageList};
+
 /// The tinkering system's material-type validity test.
 ///
 /// Accepts 1, 2, 4–8, 10–0x37, 0x39–0x40, 0x42–0x47, 0x49–0x4D — i.e. everything in ACE's

@@ -25,3 +25,35 @@ impl HouseOp {
         self == Self::Rent
     }
 }
+
+/// One offered object, retaining its payment facts until removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaymentItem {
+    pub id: dereth_primitives::ObjectId,
+    pub wcid: u32,
+    pub amount: i32,
+    pub trade_note_value: Option<i32>,
+}
+
+/// Read-only state shared by the two housing windows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PaymentListsView {
+    pub op: HouseOp,
+    pub buy: Vec<PaymentItem>,
+    pub rent: Vec<PaymentItem>,
+    pub buy_payment: crate::view::SlumlordPayment,
+    pub rent_payment: crate::view::SlumlordPayment,
+    pub visible: bool,
+}
+
+/// Gestures on the shared offered payment lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentAction {
+    Select(HouseOp),
+    Add(dereth_primitives::ObjectId),
+    Remove(dereth_primitives::ObjectId),
+    Clear,
+    Close,
+    /// The caller has completed the shared confirmation, if one was required.
+    Submit,
+}

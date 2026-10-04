@@ -38,6 +38,7 @@ pub mod chat_entry;
 /// The chat command interpreter: a line beginning `/` or `@` is normalised, tokenised and looked
 /// up in the table of client-side handlers, and anything unrecognised is forwarded verbatim.
 pub mod cmd;
+pub mod journal;
 pub mod turbine;
 /// A container's slot counts: the capacity byte read signed. Lives in [`dereth_rules::capacity`].
 pub use dereth_rules::capacity;

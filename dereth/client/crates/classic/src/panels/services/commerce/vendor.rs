@@ -1,10 +1,6 @@
 use super::*;
 use dereth_client_contract::view::ShopRow;
 
-/// The category list's choice, kept from one shop to the next (the list itself is rebuilt from
-/// each shop's stock, so the same position may name another category).
-static LAST_FILTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
 /// A strip's entries padded with empty slots to fill its visible width; the selling list keeps
 /// one more empty slot after its items once they fill it, for the next item dropped on it.
 fn padded(mut entries: Vec<ItemEntry>, strip_width: i32, selling: bool) -> Vec<ItemEntry> {
@@ -22,23 +18,17 @@ fn padded(mut entries: Vec<ItemEntry>, strip_width: i32, selling: bool) -> Vec<I
 pub struct Vendor {
     tab: usize,
     selected: Option<ObjectId>,
-    filter: Option<u32>,
+    last_shop: Option<dereth_client_contract::view::ShopView>,
     opened: Option<ObjectId>,
     offset: i32,
     width: u32,
 }
 impl Vendor {
     fn stock(&self, c: &Context<'_>) -> Vec<ShopRow> {
-        c.game
-            .shop()
-            .stock
-            .into_iter()
-            .filter(|r| {
-                self.filter
-                    .is_none_or(|mask| mask == 0 || r.obj_type & mask != 0)
-            })
-            .collect()
+        let shop = c.game.shop();
+        dereth_client_contract::vendor::stock(&shop, shop.filter_mask()).rows
     }
+
     fn rows(&self, c: &Context<'_>) -> Vec<ShopRow> {
         let s = c.game.shop();
         match self.tab {
@@ -122,21 +112,27 @@ impl Panel for Vendor {
                         .iter()
                         .map(|(name, _)| (*name).into())
                         .collect(),
-                    selected: s
-                        .type_filters
-                        .iter()
-                        .position(|(_, m)| Some(*m) == self.filter)
-                        .unwrap_or(0),
+                    selected: s.filter_index(),
                 },
                 true,
             )
             .list_skin = Some(crate::panels::ListSkin::VENDOR);
             if let Some(r) = rows.iter().find(|r| Some(r.item) == self.selected) {
-                centered(&mut f, rect(125, 20, width - 183, 16), &r.name, "14-6");
+                let split = u32::try_from(c.game.split_size()).unwrap_or(1).max(1);
+                centered(
+                    &mut f,
+                    rect(125, 20, width - 183, 16),
+                    dereth_presentation::vendor::item_name_line(
+                        &r.name,
+                        c.game.plural_name(r.item),
+                        split,
+                    ),
+                    "14-6",
+                );
                 centered(
                     &mut f,
                     rect(125, 36, width - 183, 16),
-                    format!("{}p", r.price),
+                    dereth_presentation::vendor::item_cost_line(r.price, s.total_value, split),
                     "14-6",
                 );
             }
@@ -153,7 +149,7 @@ impl Panel for Vendor {
                     id,
                     rect(width - 58, y, 54, if id == "add" { 32 } else { 22 }),
                     txt,
-                    s.open && self.selected.is_some(),
+                    s.open && rows.iter().any(|r| Some(r.item) == self.selected),
                 );
                 b.images = Some(art.map(|n| format!("{n:08X}")));
                 b.font = if id == "add" { "14-5" } else { "15-5" }.into();
@@ -168,19 +164,17 @@ impl Panel for Vendor {
             label(
                 &mut f,
                 rect(75, 20, width - 155, 16),
-                format!(
-                    "{} {} {} worth {}p",
+                dereth_presentation::vendor::transaction_line(
                     if sell { "Selling" } else { "Buying" },
                     count,
-                    if count == 1 { "item" } else { "items" },
-                    total
+                    total,
                 ),
                 "14-6",
             );
             label(
                 &mut f,
                 rect(75, 36, width - 155, 16),
-                format!("You have {}p", s.total_value),
+                dereth_presentation::vendor::purse_line(s.total_value),
                 "14-6",
             );
             for (id, txt, y, art) in [
@@ -237,22 +231,37 @@ impl Panel for Vendor {
                     self.opened = s.vendor;
                     self.tab = if s.sell_mode { 2 } else { 0 };
                     self.selected = None;
-                    // The category list opens on the choice made last time (the first one at
-                    // first), and the stock is shown filtered by it from the start.
-                    let last = LAST_FILTER.load(std::sync::atomic::Ordering::Relaxed);
-                    let index = last.min(s.type_filters.len().saturating_sub(1));
-                    self.filter = s.type_filters.get(index).map(|(_, mask)| *mask);
                 }
-                vec![]
+                if self
+                    .selected
+                    .is_some_and(|id| !self.rows(c).iter().any(|r| r.item == id))
+                {
+                    self.selected = None;
+                }
+                if self.last_shop.as_ref() == Some(&s) {
+                    return vec![];
+                }
+                let projection = dereth_client_contract::vendor::stock(&s, s.filter_mask());
+                self.last_shop = Some(s);
+                projection
+                    .sizes
+                    .into_iter()
+                    .map(|(item, size)| {
+                        PanelAction::Game(UiRequest::VendorSetObjectStackSize { item, size })
+                    })
+                    .collect()
             }
             ControlEvent::Select { id, index } if id == "filter" => {
-                LAST_FILTER.store(index, std::sync::atomic::Ordering::Relaxed);
-                self.filter = s.type_filters.get(index).map(|(_, mask)| *mask);
+                let mut changed = s;
+                changed.filter = index;
                 self.offset = 0;
-                self.selected = self.stock(c).first().map(|r| r.item);
-                self.selected
-                    .map(|i| request(UiRequest::Select(i)))
-                    .unwrap_or_default()
+                let first =
+                    dereth_client_contract::vendor::stock(&changed, changed.filter_mask()).first;
+                self.selected = (first.0 != 0).then_some(first);
+                vec![
+                    PanelAction::Game(UiRequest::VendorFilter(index)),
+                    PanelAction::Game(UiRequest::Select(first)),
+                ]
             }
             ControlEvent::Select { id, index } if id == "items" => {
                 self.selected = self.rows(c).get(index).map(|r| r.item);
@@ -306,6 +315,7 @@ impl Panel for Vendor {
                 ],
                 "buy" | "one" => self
                     .selected
+                    .filter(|id| self.rows(c).iter().any(|r| r.item == *id))
                     .map(|item| {
                         request(if self.tab == 2 {
                             UiRequest::VendorSellSingle { item }
@@ -319,6 +329,7 @@ impl Panel for Vendor {
                     .unwrap_or_default(),
                 "add" => self
                     .selected
+                    .filter(|id| self.rows(c).iter().any(|r| r.item == *id))
                     .map(|item| {
                         request(UiRequest::VendorAddToBuyList {
                             item,
@@ -373,5 +384,108 @@ mod padding_tests {
         let selling = padded(full, 9 * 32, true);
         assert_eq!(selling.len(), 10);
         assert_eq!(selling[9].id.0, 0);
+    }
+}
+
+#[cfg(test)]
+mod shared_stock_tests {
+    use super::*;
+    use dereth_client_contract::view::ShopView;
+
+    #[derive(Debug)]
+    struct Shop(ShopView);
+    impl GameView for Shop {
+        fn shop(&self) -> ShopView {
+            self.0.clone()
+        }
+    }
+    fn with<T>(game: &Shop, f: impl FnOnce(&Context<'_>) -> T) -> T {
+        f(&Context {
+            game,
+            pregame: &PregameView::default(),
+            keyboard: &KeyboardState::default(),
+            settings: &ClassicSettings::default(),
+            classic: &ClassicState::default(),
+            map_teleport_allowed: false,
+        })
+    }
+
+    /// Behaviour: vendor.stock.shared-projection-keeps-availability-and-order
+    #[test]
+    fn classic_stock_uses_shared_remaining_quantities_and_retains_the_filter() {
+        let row = |id, kind, amount, contained| ShopRow {
+            item: ObjectId(id),
+            obj_type: kind,
+            amount,
+            max_stack_size: 100,
+            contained_items: contained,
+            ..Default::default()
+        };
+        let mut game = Shop(ShopView {
+            open: true,
+            vendor: Some(ObjectId(99)),
+            type_filters: vec![("Food", 0x20), ("Tools", 0x4000)],
+            stock: vec![
+                row(1, 0x20, 5, 0),
+                row(2, 0x20, 10, 0),
+                row(3, 0x20, -1, 1),
+                row(4, 0x4000, -1, 0),
+            ],
+            buy_list: vec![row(1, 0x20, 5, 0), row(2, 0x20, 3, 0)],
+            ..Default::default()
+        });
+        let mut panel = Vendor::default();
+        with(&game, |c| {
+            assert_eq!(
+                panel.rows(c).iter().map(|r| r.item).collect::<Vec<_>>(),
+                [ObjectId(2)]
+            );
+            let actions = panel.event(ControlEvent::Tick, c);
+            let requests: Vec<_> = actions
+                .into_iter()
+                .filter_map(|a| {
+                    if let PanelAction::Game(r) = a {
+                        Some(r)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(
+                requests,
+                [
+                    UiRequest::VendorSetObjectStackSize {
+                        item: ObjectId(2),
+                        size: 7
+                    },
+                    UiRequest::VendorSetObjectStackSize {
+                        item: ObjectId(3),
+                        size: 100
+                    }
+                ]
+            );
+            assert!(panel.event(ControlEvent::Tick, c).is_empty());
+        });
+        game.0.filter = 1;
+        with(&game, |c| {
+            assert_eq!(
+                panel.rows(c).iter().map(|r| r.item).collect::<Vec<_>>(),
+                [ObjectId(4)]
+            );
+            let rebuilt = Vendor::default();
+            assert_eq!(rebuilt.rows(c), panel.rows(c));
+        });
+        game.0.filter = 0;
+        with(&game, |c| {
+            let projection = dereth_client_contract::vendor::stock(&game.0, 0x20);
+            assert_eq!(projection.first, ObjectId(1));
+            panel.selected = Some(ObjectId(1));
+            assert!(
+                panel
+                    .event(ControlEvent::Activate("add".into()), c)
+                    .is_empty(),
+                "an exhausted row cannot be added from stale selection"
+            );
+        });
     }
 }

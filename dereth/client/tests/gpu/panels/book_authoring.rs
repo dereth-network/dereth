@@ -750,6 +750,7 @@ fn book_open_builds_real_page_menu_rows_and_physical_choices_turn_or_refuse() {
     place_book_at_player(&mut app, &mut peer, true);
     let mut anonymous = page(ObjectId(0x5000_0002), Some("anonymous second page"));
     anonymous.ignore_author = 1;
+    anonymous.author_name.clear();
     open_with_max(
         &mut app,
         &mut peer,
@@ -829,18 +830,15 @@ fn book_open_builds_real_page_menu_rows_and_physical_choices_turn_or_refuse() {
     );
 }
 
-/// `ignore_author` is a raw signed dword with deliberately different consumers. Menu construction
-/// makes the row anonymous only when it is exactly `1`; page display makes a non-owner page
-/// editable for any nonzero value. Preserve both decisions across the `PageData -> HudView ->
-/// BookPanel` projection rather than collapsing the dword to a Boolean.
+/// Author labels depend on names while nonzero editing flags allow a non-owner to write.
 #[test]
-fn raw_ignore_author_two_keeps_the_author_label_but_still_allows_editing() {
+fn raw_ignore_author_flags_keep_the_author_label_and_allow_nonzero_editing() {
     let _gpu = gpu_lock();
     let (mut app, mut peer) = setup();
 
     for (raw, expected_label, expected_editable) in [
         (0, "- Raw Author", false),
-        (1, "", true),
+        (1, "- Raw Author", true),
         (2, "- Raw Author", true),
     ] {
         let mut p = page(ObjectId(0x5000_0002), Some("raw flag page"));
@@ -859,7 +857,7 @@ fn raw_ignore_author_two_keeps_the_author_label_but_still_allows_editing() {
                 .glyphs
                 .inq_text(false),
             expected_label,
-            "raw ignore_author {raw} follows the menu's exact-one rule"
+            "raw ignore_author {raw} does not hide a named author"
         );
         let page_text = ui
             .get_element(dereth_ui_screens::panels::book::PAGE_TEXT)
@@ -888,7 +886,7 @@ fn book_menu_decorates_authors_with_accounts_for_an_authoritative_psr_viewer() {
     let mut empty_account = page(ObjectId(0x5000_0003), Some("empty account page"));
     empty_account.author_name = "No Account".into();
     let mut anonymous = page(ObjectId(0x5000_0004), Some("anonymous page"));
-    anonymous.author_name = "Hidden Character".into();
+    anonymous.author_name.clear();
     anonymous.author_account = "Hidden Account".into();
     anonymous.ignore_author = 1;
     let pages = vec![credited, empty_account, anonymous];
@@ -914,7 +912,7 @@ fn book_menu_decorates_authors_with_accounts_for_an_authoritative_psr_viewer() {
     assert_eq!(
         read_labels(&mut app),
         ["- Visible Character", "- No Account", "", "(blank)"],
-        "an ordinary viewer sees plain author labels, anonymous precedence, and blank padding"
+        "an ordinary viewer sees plain author labels, empty-name precedence, and blank padding"
     );
 
     // Establish the player-description lifetime through the production 0x0013 consumer before its

@@ -98,7 +98,6 @@ pub struct ClassicUi {
     /// The pointer the window system shows this frame; `None` hides it (the mouse is looking
     /// around, or a dragged icon is drawn in its place).
     system_pointer: Option<crate::cursor::SystemPointer>,
-    stack_object: Option<(ObjectId, u32)>,
     selection_queries: hud::SelectionQueries,
     options_seen: Option<u32>,
     dialogs: ClassicDialogs,
@@ -200,7 +199,6 @@ impl ClassicUi {
             resolution_timed_out: false,
             cursor_commands: vec![],
             system_pointer: None,
-            stack_object: None,
             selection_queries: Default::default(),
             options_seen: None,
             dialogs: Default::default(),
@@ -1805,29 +1803,8 @@ impl ClassicUi {
             .selection_queries
             .update(selected, selection_facts, meters);
         cx.queue(Vec::new(), requests);
-        let stack = selected.and_then(|id| {
-            cx.model()
-                .weenie(id)
-                .map(|w| (id, u32::from(w.pwd.stack_size.unwrap_or(1)).max(1)))
-        });
-        if stack != self.stack_object {
-            self.stack_object = stack;
-            let (split, max) = stack.map_or((0, 0), |(id, count)| {
-                let world = cx.model();
-                let vendor_item = world.weenie(id).is_some_and(|w| {
-                    world.vendor_id().filter(|v| v.0 != 0)
-                        == w.pwd.container_id.filter(|v| v.0 != 0)
-                        && w.pwd.container_id.is_some_and(|v| v.0 != 0)
-                        && w.pwd.obj_type & 0x0dc4_1cb0 != 0
-                });
-                (if vendor_item { 1 } else { count }, count)
-            });
-            self.classic.stack_split = Some((split, max));
-            cx.queue(
-                Vec::new(),
-                vec![UiRequest::StackSliderChanged { split, max }],
-            );
-        }
+        let split = cx.model().split;
+        self.classic.stack_split = Some((split.split_size, split.max_split_size));
         self.refresh_classic(cx);
         let target = cx.model().chat.last_speakable_target;
         self.classic.chat_target = target.and_then(|id| {
@@ -1950,12 +1927,26 @@ impl ClassicUi {
             // the game holds an open shop or trade.
             if self.last_in_world {
                 if let Some(book) = context.game.open_book() {
-                    if self.book_opening != Some(book.opening) {
+                    if self.book_opening != Some(book.opening) || !self.desktop.is_open("book") {
                         self.book_opening = Some(book.opening);
                         self.desktop.open_object("book", book.book_id, &context);
                     }
+                } else if self.desktop.is_open("book") {
+                    self.desktop.remove_visual("book", &context);
                 }
                 open_house_profile(&mut self.desktop, &mut self.house_profile_seen, &context);
+                let salvage = context.game.salvage_list();
+                match (
+                    salvage.visible,
+                    salvage.tool,
+                    self.desktop.is_open("salvage"),
+                ) {
+                    (true, Some(tool), false) => {
+                        self.desktop.open_object("salvage", tool, &context)
+                    }
+                    (false, _, true) => self.desktop.remove_visual("salvage", &context),
+                    _ => {}
+                }
                 let shop = context.game.shop();
                 match (shop.open, shop.vendor, self.desktop.is_open("vendor")) {
                     (true, Some(vendor), false) => {
@@ -2854,12 +2845,13 @@ mod click_and_chat_tests {
 
 fn open_house_profile(desktop: &mut Desktop, seen: &mut u64, context: &Context<'_>) {
     let notices = context.game.slumlord_notices();
-    if notices != *seen {
-        *seen = notices;
-        if context.game.slumlord().is_some() {
-            desktop.open("maintenance", context);
-        }
+    let visible = context.game.payment_lists().visible && context.game.slumlord().is_some();
+    if visible && (notices != *seen || !desktop.is_open("maintenance")) {
+        desktop.open("maintenance", context);
+    } else if !visible && desktop.is_open("maintenance") {
+        desktop.remove_visual("maintenance", context);
     }
+    *seen = notices;
 }
 
 #[cfg(test)]
@@ -2891,7 +2883,6 @@ mod house_profile_tests {
             open_house_profile(&mut desktop, &mut seen, context);
             assert!(!desktop.is_open("maintenance"));
         });
-
         let message = HouseProfileMessage {
             covenant_crystal: ObjectId(9),
             profile: dereth_protocol::trade::HouseProfile {
@@ -2899,16 +2890,6 @@ mod house_profile_tests {
                 ..Default::default()
             },
         };
-        objects.world.recv_house_profile(&message);
-        with_context(&hud, &objects, |context| {
-            assert!(context.game.slumlord().is_some());
-            assert_eq!(context.game.slumlord_notices(), 0);
-            open_house_profile(&mut desktop, &mut seen, context);
-            assert!(
-                !desktop.is_open("maintenance"),
-                "a cached profile is not a receipt"
-            );
-        });
         let mut blob = HouseProfileMessage::OPCODE.0.to_le_bytes().to_vec();
         blob.extend(dereth_protocol::write_body(&message).unwrap());
         let event = SessionEvent::UiEvent {
@@ -2916,43 +2897,52 @@ mod house_profile_tests {
             blob,
         };
         for receipt in 1..=2 {
+            objects.world.recv_house_profile(&message);
             hud.apply_events(std::slice::from_ref(&event), &mut objects.world);
             with_context(&hud, &objects, |context| {
                 assert_eq!(context.game.slumlord_notices(), receipt);
                 open_house_profile(&mut desktop, &mut seen, context);
+                assert!(desktop.is_open("maintenance"));
+                let mut rebuilt = Desktop::new(crate::panels::services::make, (800, 600));
+                open_house_profile(&mut rebuilt, &mut seen, context);
                 assert!(
-                    desktop.is_open("maintenance"),
-                    "profile {receipt} opens the window"
+                    rebuilt.is_open("maintenance"),
+                    "a rebuilt interface projects the already open session"
                 );
                 desktop.close("maintenance", context);
-                assert!(!desktop.is_open("maintenance"));
+            });
+            let requests = std::mem::take(&mut desktop.requests);
+            assert_eq!(
+                requests,
+                vec![
+                    UiRequest::PaymentList(
+                        dereth_client_contract::panels::slumlord::PaymentAction::Close,
+                    ),
+                    UiRequest::UnregisterSlumlordRange,
+                ],
+            );
+            for request in requests {
+                match request {
+                    UiRequest::PaymentList(action) => {
+                        assert!(objects.world.payment_action(action, |_| None).is_empty());
+                    }
+                    UiRequest::UnregisterSlumlordRange => {
+                        objects.world.unregister_slumlord_range_checks();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            assert!(!objects.world.payment_lists_view().visible);
+            with_context(&hud, &objects, |context| {
                 for _ in 0..3 {
                     open_house_profile(&mut desktop, &mut seen, context);
                     assert!(
                         !desktop.is_open("maintenance"),
-                        "closing lasts until another profile"
+                        "an explicit close survives idle projection"
                     );
                 }
             });
         }
-        hud.apply_events(&[event], &mut objects.world);
-        let cached = objects.world.slumlord.take();
-        with_context(&hud, &objects, |context| {
-            open_house_profile(&mut desktop, &mut seen, context);
-            assert_eq!(seen, 3);
-            assert!(
-                !desktop.is_open("maintenance"),
-                "a cleared profile cannot open"
-            );
-        });
-        objects.world.slumlord = cached;
-        with_context(&hud, &objects, |context| {
-            open_house_profile(&mut desktop, &mut seen, context);
-            assert!(
-                !desktop.is_open("maintenance"),
-                "the cleared receipt was consumed"
-            );
-        });
     }
 }
 

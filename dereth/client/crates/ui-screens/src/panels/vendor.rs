@@ -123,73 +123,9 @@ fn set_text(ui: &mut UiSystem, h: Option<ElemHandle>, text: &str) -> bool {
     true
 }
 
-/// `L"Buying %d %s worth %hsp"` and `L"Selling %d %s worth %hsp"`, whose only difference is the
-/// verb — so they are one function here and two literals there.
-///
-/// `%d` is the **count of things** and `%s` is `L"item"` when that count is exactly 1, `L"items"`
-/// otherwise — an equality test against 1 at both sites, so **0 items is "items"**, not "item".
-/// `%hs` is the int32 append followed by the comma insertion, and the trailing `p` is a literal `p`
-/// inside the format, for pyreals.
-#[must_use]
-pub fn transaction_line(verb: &str, items: i32, value: i32) -> String {
-    let noun = if items == 1 { "item" } else { "items" };
-    format!(
-        "{verb} {items} {noun} worth {}p",
-        super::examination::insert_commas(value)
-    )
-}
-
-/// `L"You have %hsp"` — the string **both** total-value updates write, into two different elements,
-/// from the one purse total.
-#[must_use]
-pub fn purse_line(total_value: i32) -> String {
-    format!(
-        "You have {}p",
-        super::examination::insert_commas(total_value)
-    )
-}
-
-/// The stored format `L"%d %hs"` and its singular arm, the name line of the **selected** stock
-/// row, written by the vendor items panel's update.
-///
-/// A split size greater than 1 selects the plural name and formats `L"%d %hs"`; sizes 0 and 1
-/// select the singular name directly. The resulting string is written to the selected-item label.
-///
-/// The plural-name read falls back to the name when the plural name holds only its terminator,
-/// which is `crate::items::widget::plural_name_of`'s convention and why `plural` is an `Option`.
-#[must_use]
-pub fn item_name_line(name: &str, plural: Option<&str>, split_size: u32) -> String {
-    if split_size > 1 {
-        format!("{split_size} {}", plural.unwrap_or(name))
-    } else {
-        name.to_string()
-    }
-}
-
-/// The stored format `L"%s %hsp (you have %hsp)"` — the cost line of the same row, and the
-/// **third** place the purse total is rendered.
-///
-/// The vendor profile first calculates the sell price. The price and purse are then rendered as
-/// grouped integers in this stored format, choosing `cost` for a plural subject and `costs` for a
-/// singular one.
-///
-/// The plural **subject** takes `L"cost"` and the singular takes `L"costs"`, which is why the two
-/// literals read backwards at the branch. The trailing `p` of each `%hsp` is a literal inside the
-/// format, for pyreals, exactly as in [`purse_line`].
-///
-/// **The alternate-currency arm is not reproduced**, the same declared gap as in
-/// [`purse_line`]: a vendor with a trade currency takes a narrow `"This item costs %d %s.
-/// You have %d %s."` built from the profile's `trade_name` and `trade_num`, and [`ShopView`]
-/// carries neither. No vendor in the corpus trades in anything but pyreals.
-#[must_use]
-pub fn item_cost_line(price: i32, total_value: i32, split_size: u32) -> String {
-    let verb = if split_size > 1 { "cost" } else { "costs" };
-    format!(
-        "{verb} {}p (you have {}p)",
-        super::examination::insert_commas(price),
-        super::examination::insert_commas(total_value)
-    )
-}
+pub use dereth_presentation::vendor::{
+    item_cost_line, item_name_line, purse_line, transaction_line,
+};
 
 /// `VendorPanel`'s root in `classic_vendor` — declared, and **not instantiated** in the live
 /// gameplay tree. Kept because it is the id the layout and the class table agree on and because a
@@ -713,6 +649,17 @@ impl VendorPanel {
         // purchase — is a real vendor open in the client and is invisible here, because nothing in
         // `ShopView` distinguishes it from any other change to the stock. Retail would move the
         // selection to the first row again; this build will not.
+        if !opening
+            && self
+                .last
+                .as_ref()
+                .is_some_and(|last| last.filter != s.filter)
+        {
+            if let Some(menu) = self.type_menu {
+                let row = dereth_ui::widgets::menu::get_item(ui, menu, s.filter_index());
+                dereth_ui::widgets::menu::set_selected_item(ui, menu, row, false);
+            }
+        }
         self.update_items_list(ui, &s, 0, opening);
         if let Some(w) = self.stock.as_ref() {
             if let Some((x, _)) = self.pending_open_scroll_x.filter(|_| opening) {
@@ -1000,88 +947,12 @@ impl VendorPanel {
             self.selected_type_filter(ui).unwrap_or(0)
         };
         self.last_mask = Some(mask);
-        // No vendor open skips straight to the tail — the flush already happened, so a closed shop
-        // is an empty list and still runs the two tail statements.
-        //
-        // **This is a loop and not a `filter` because three of the client's statements sit
-        // between the mask test and the insert**, and two of them decide membership. The order
-        // below is the client's own order.
-        let mut kept: Vec<ShopRow> = Vec::new();
-        let mut sizes: Vec<(dereth_primitives::ObjectId, i32)> = Vec::new();
-        // Seeded to 0, tested against 0. A literal 0 rather than an `Option` because that is the
-        // client's own sentinel and the tail passes it to the selection write whether or not
-        // anything was found.
-        let mut first = dereth_primitives::ObjectId(0);
-        if s.open {
-            for r in &s.stock {
-                if r.obj_type & mask == 0 {
-                    continue;
-                }
-                // **Its position is the point.** `first` is claimed by the first row that passes
-                // the **mask**, before either of the two drops below — so select-first can leave
-                // the selection naming a row that is not in the list. That is not reproducible by
-                // taking `kept.first()`.
-                if first.0 == 0 {
-                    first = r.item;
-                }
-                // Unlimited stock (-1): when the max stack size is above 1 (an unsigned test), the
-                // size is the max stack size, unclamped; otherwise there is no write at all.
-                let size = if r.amount == -1 {
-                    (r.max_stack_size > 1)
-                        .then(|| i32::try_from(r.max_stack_size).unwrap_or(i32::MAX))
-                } else {
-                    // Finite stock: find the basket node for this object and subtract its amount; a
-                    // result `<= 0` means THE ROW IS NOT LISTED; otherwise clamp (signed) to the
-                    // max stack size.
-                    //
-                    // **A sum here is retail's single node there.** The "add to buy list" path
-                    // walks the buy basket for the same object and *accumulates* into the node it
-                    // finds, appending only when nothing matched — so retail's basket holds **at
-                    // most one node per object** and stopping at that node therefore reads the
-                    // whole amount. `dereth_client_model::vendor::Shop` defers that merge to the
-                    // wire-contents step (`wire_items`) and keeps one entry per press, so the
-                    // faithful reading of *the node's amount* is the sum of this build's entries
-                    // for that id. The merge itself is a known gap in the model.
-                    //
-                    // **Subtraction and the nonpositive check apply only to a found basket node.**
-                    // An empty basket or a walk that finds no matching node skips both and goes
-                    // directly to the clamp, retaining `profile.amount`. That matters at `amount <= 0`: retail
-                    // **lists** an `amount == 0` row with an empty basket and drops the same row
-                    // the moment anything is basketed against it. Testing `remaining <= 0`
-                    // unconditionally would drop that row with an empty basket.
-                    let mut basket = s.buy_list.iter().filter(|b| b.item == r.item).peekable();
-                    let remaining = if basket.peek().is_some() {
-                        let n = r.amount - basket.map(|b| b.amount).sum::<i32>();
-                        if n <= 0 {
-                            self.basket_drops += 1;
-                            continue;
-                        }
-                        n
-                    } else {
-                        r.amount
-                    };
-                    (r.max_stack_size > 1)
-                        .then(|| remaining.min(i32::try_from(r.max_stack_size).unwrap_or(i32::MAX)))
-                };
-                // The stack-size write is **before** the container gate, so a row that is
-                // about to be dropped for containment still has its stack size written — the
-                // client's order, and it is observable only because the write outlives the list.
-                if let Some(size) = size {
-                    sizes.push((r.item, size));
-                }
-                // The client's attributes-changed notice for the selected object is **not**
-                // reproduced: it re-renders the examination panel for the selected object, which is
-                // the item holder's business and not this list's. A known gap.
-                //
-                // A non-zero contained-item count or contained-container count means the row is not
-                // inserted; both, like the mask test, simply move on to the next profile.
-                if r.contained_items != 0 || r.contained_containers != 0 {
-                    self.container_drops += 1;
-                    continue;
-                }
-                kept.push(r.clone());
-            }
-        }
+        let projection = dereth_client_contract::vendor::stock(s, mask);
+        self.basket_drops += projection.basket_drops;
+        self.container_drops += projection.container_drops;
+        let kept = projection.rows;
+        let sizes = projection.sizes;
+        let first = projection.first;
         // A flush then one insert per survivor, which on this host is one `set_contents` of exactly
         // the survivors.
         self.fill(ui, Tab::Items, &kept);
@@ -1275,7 +1146,7 @@ impl VendorPanel {
             }
             dereth_ui::widgets::menu::initialize_popup(ui, menu);
         }
-        let prev = dereth_ui::widgets::menu::selected_index(ui, menu);
+        let prev = i32::try_from(s.filter_index()).unwrap_or(i32::MAX);
         dereth_ui::widgets::menu::flush(ui, menu);
         // The masks come back beside the names so each row can carry its own `0x10000039`, which
         // is what makes a row a *filter* rather than a label.
@@ -1509,6 +1380,11 @@ impl VendorPanel {
         }
         // Message 7 from `0x100000BF`: the items-list update with mask 0 and select-first on.
         if m.id == id::MENU_CHOSEN && m.source_id == TYPE_FILTER_MENU {
+            if let Some(menu) = self.type_menu {
+                let index = dereth_ui::widgets::menu::selected_index(ui, menu).max(0) as usize;
+                ui.requests.emit(UiRequest::VendorFilter(index));
+            }
+
             let Some(s) = self.last.clone() else {
                 return false;
             };

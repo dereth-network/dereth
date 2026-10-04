@@ -841,13 +841,8 @@ pub struct GamePlayScreen {
     pub shortcuts: crate::toolbar::shortcuts::ShortcutBar,
 
     // ---- the stack splitter -----------------------------------------------------------------
-    /// The split size and the maximum split size — the pair the entry box and the slider are two
-    /// views of. Both globals in the client; one field here, because `Toolbar` is the only
-    /// writer and this screen is `Toolbar`.
-    ///
-    /// The selection-changed handler seeds it from the stack size in the selection's public
-    /// description and resets it to `1 / 1` for anything that is not a stack, which is what
-    /// [`Self::update_toolbar_selection`] does.
+    /// A presentation cache of the shared stack quantity. Entry and slider gestures emit
+    /// changes through the request seam; selection and item receipts reseed the model.
     pub splitter: crate::toolbar::splitter::Splitter,
 
     // ---- the stat-management panels' input --------------------------------------------------
@@ -3465,6 +3460,22 @@ impl GamePlayScreen {
         view: &dyn GameView,
     ) -> ToolbarSelection {
         let sel = view.selection();
+        let previous_max = self.splitter.max_split_size;
+        let projected = crate::toolbar::splitter::Splitter {
+            split_size: u32::try_from(view.split_size()).unwrap_or(1),
+            max_split_size: u32::try_from(view.max_split_size()).unwrap_or(1),
+        };
+        if projected.max_split_size > 0 && self.splitter != projected {
+            self.splitter = projected;
+            if let Some(h) = self.toolbar_children.get("stack_size_entry_box") {
+                if let Some(text) = ui.text_element_mut(h) {
+                    text.set_text(&projected.split_size.to_string());
+                }
+            }
+            if let Some(h) = self.toolbar_children.get("stack_size_slider") {
+                set_attr_float(ui, h, attr::SLIDER_POSITION, projected.slider_position());
+            }
+        }
 
         // Look up the selected object's weenie and return if there is none —
         // `None` is *either* early return (nothing selected, or no weenie row) and `Some(n)` is a
@@ -3482,9 +3493,7 @@ impl GamePlayScreen {
 
         // Stored id differs from the current selection — the client's edge, on the one copy.
         let edge = self.last_selection.flatten() != sel;
-        let reseed = stack.is_some_and(|n| {
-            crate::toolbar::splitter::wants_reseed(n, self.splitter.max_split_size)
-        });
+        let reseed = stack.is_some_and(|n| crate::toolbar::splitter::wants_reseed(n, previous_max));
         // This screen's own "has never been asked" state, which the client does not have because
         // its member starts at 0 rather than at "unset".
         let readout = self.last_selection != Some(sel);
@@ -3630,45 +3639,9 @@ impl GamePlayScreen {
         wrote
     }
 
-    /// The client's splitter block.
-    ///
-    /// # The gate is the stack size, read and not inferred
-    ///
-    /// The client hides the stack-size box and the slider, resets the split size and the maximum
-    /// split size to `1 / 1`, and then shows the pair again **only** on a stack size of 2 or more —
-    /// see [`crate::toolbar::splitter::shows_split_widget`] for the transcription and for why the
-    /// weenie type, the maximum stack size and the bit field are all not it. A creature carries no
-    /// stack size at all, so the value is 0 and a creature and a stack of one take the same arm.
-    ///
-    /// # The handler's shape, which is not one reset but two
-    ///
-    /// 1. **The edge** (the stored id differs from the current selection): store the new id, clear
-    ///    the name, hide both meters, and hide the entry box and the slider — hidden, but the split
-    ///    size is **not** reset here.
-    /// 2. Nothing selected: stop. No weenie row for the selection: stop.
-    /// 3. The name; then **the second reset**, split size = maximum split size = 1, and the entry
-    ///    box and slider hidden again.
-    /// 4. Stack size below 2: the not-a-stack arm. Otherwise seed the pair, write the box and the
-    ///    slider, and show both.
-    ///
-    /// **The two early returns are load-bearing.** With nothing selected the client leaves the
-    /// split size and the maximum split size exactly as they were; only the visibility comes down.
-    /// Resetting the pair on every idle frame would destroy splitter state the player set up.
-    ///
-    /// `edge` is the caller's "stored id differs from the current selection"; `stack` carries the
-    /// two early returns as `None` and a live weenie's stack size as `Some(n)`.
-    ///
-    /// # Why this is a poll and why the poll settles
-    ///
-    /// The selection-changed handler has two callers: the selection-changed notice and the
-    /// item-attributes-changed notice, which re-runs it when and only when the changed object
-    /// **is** the selection, has a weenie, and `max(1, stack size)` differs from the maximum split
-    /// size. Both are reproduced by the caller: the selection edge is [`Self::last_selection`] and
-    /// the second is [`crate::toolbar::splitter::wants_reseed`], applied only when there is a
-    /// weenie to read — with a current selection of 0 no incoming object id can equal it, so that
-    /// caller cannot fire at all. Together they make a per-frame call idempotent, **the important
-    /// half being that a slider drag moves the split size and not the maximum split size**, so a
-    /// player mid-drag is never re-seeded.
+    /// Project the selected stack quantity and visibility. Missing selection or object rows
+    /// leave the shared pair alone. The model owns reseeding; this gate only draws its answer
+    /// and retains the selected-object meter queries.
     fn apply_stack_split_gate(
         &mut self,
         ui: &mut UiSystem,
@@ -3694,33 +3667,13 @@ impl GamePlayScreen {
         // The two early returns: nothing selected, and no weenie row.
         let stack_size = stack?;
 
-        // The second reset, which the client reaches unconditionally once it has a weenie.
-        //
-        // **It is carried across the seam.** In the client there is **one** split-size /
-        // maximum-split-size pair: this handler writes it and the drop handling reads *the same
-        // words* (a whole stack is put in the container, anything less is split into it with the
-        // split size). In this rebuild the pair
-        // is two copies either side of a seam — this field, and `dereth_client::Interaction::split`,
-        // which is what the drop path reads — and the stack-slider-changed notice is the only
-        // carrier between them. The client does not raise a notice here **because it does not need
-        // one**; omitting it here would leave the far end holding the *previous* selection's
-        // quantity, so selecting a second stack and dragging it untouched would send
-        // `StackableSplitToContainer(5)` where retail sends `PutItemInContainer`.
-        //
-        // A declared deviation in mechanism and an identity in observable: both of the client's
-        // writes to the pair are mirrored, in the order it makes them (`1 / 1` here, the seed
-        // below), so the far end ends the frame holding exactly what the globals hold. Selecting a
-        // second stack is the case that separates it: a `SplitState::default()` of `{0, 0}` already
-        // answers `is_whole_stack()`, so the **first** selection of a session looks right either
-        // way.
-        self.splitter = splitter::Splitter::default();
-        ui.requests.emit(UiRequest::StackSliderChanged {
-            split: self.splitter.split_size,
-            max: self.splitter.max_split_size,
-        });
+        self.splitter = splitter::Splitter {
+            split_size: u32::try_from(view.split_size()).unwrap_or(1),
+            max_split_size: u32::try_from(view.max_split_size()).unwrap_or(1),
+        };
         hide_or_show(ui, false);
 
-        let Some(s) = splitter::Splitter::for_selection(stack_size) else {
+        if !splitter::shows_split_widget(stack_size) {
             if let Some(h) = self.toolbar_children.get("sel_object_field") {
                 // Both non-stack branches: state `0x1000000B`.
                 ui.set_state(h, dereth_ui::StateId(0x1000_000B));
@@ -3755,13 +3708,7 @@ impl GamePlayScreen {
             // Stack arm: state `0x1000000C`.
             ui.set_state(h, dereth_ui::StateId(0x1000_000C));
         }
-        self.splitter = s;
-        // The seed's half of the mirror above — split size = maximum split size = stack size,
-        // carried across the seam so the drop path reads the same pair.
-        ui.requests.emit(UiRequest::StackSliderChanged {
-            split: s.split_size,
-            max: s.max_split_size,
-        });
+        let s = self.splitter;
         // Write the split size into the stack-size entry box.
         if let Some(h) = entry {
             if let Some(t) = ui.text_element_mut(h) {
@@ -4076,11 +4023,23 @@ impl GamePlayScreen {
         if show && self.era_refuses(panel) {
             return;
         }
+        let previous_environment = self.env_panel.current;
         let out = [
             self.panels.recv_set_panel_visibility(ui, panel, show),
             self.env_panel.recv_env_panel_visibility(ui, panel, show),
             self.combat_panel.recv_set_panel_visibility(ui, panel, show),
         ];
+        if previous_environment != self.env_panel.current {
+            match previous_environment {
+                Some(crate::panels::salvage::PANEL) => ui.requests.emit(UiRequest::SalvageList(
+                    dereth_client_contract::panels::salvage::SalvageAction::Close,
+                )),
+                Some(crate::panels::slumlord::PANEL) => ui.requests.emit(UiRequest::PaymentList(
+                    dereth_client_contract::panels::slumlord::PaymentAction::Close,
+                )),
+                _ => {}
+            }
+        }
         self.toolbar.on_set_panel_visibility(ui, panel, show);
         for group in out {
             for r in group {

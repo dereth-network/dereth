@@ -10,7 +10,7 @@
 //! The five **receivers** — `0x02BE`, `0x02C0`, `0x02BF`, `0x00A3`, `0x00A4` — write the
 //! fellowship state; this module draws it. It is also the client-to-server half: the seven
 //! fellowship client events that create, join, leave, promote, dismiss or open a fellowship.
-//! `FellowshipPanel` is their only caller in the client.
+//! The panel emits semantic requests; the runtime validates and orders their wire actions.
 //!
 //! # The corpus is the oracle, and it is not empty
 //!
@@ -486,33 +486,15 @@ impl FellowshipPanel {
         f: Option<&FellowshipView>,
     ) {
         let Some(v) = f else { return };
-        let player = view.player();
         set_enabled(ui, self.quit_button, true);
-        let leads = player.is_some() && Some(v.leader) == player;
-        // The selection must be an object this client knows and a player. A
-        // selection this client cannot see, or one that is not a player, disables Recruit.
-        let sel = view.selected_object();
-        let sel_is_player = sel.is_some_and(|id| is_player(view, id));
-        let sel_is_fellow = sel.is_some_and(|id| v.members.iter().any(|m| m.id == id));
-        // The fellowship's is-full test is `member count > 8`.
-        let full = v.members.len() > 8;
-        let can_recruit = sel_is_player && !sel_is_fellow && !full;
-        if leads {
-            set_enabled(ui, self.disband_button, true);
-            set_enabled(ui, self.open_button, true);
-            set_enabled(ui, self.recruit_button, can_recruit);
-            let pick = self
-                .selected_fellow
-                .filter(|id| Some(*id) != player)
-                .is_some();
-            set_enabled(ui, self.dismiss_button, pick);
-            set_enabled(ui, self.leader_button, pick);
-        } else {
-            set_enabled(ui, self.leader_button, false);
-            set_enabled(ui, self.disband_button, false);
-            set_enabled(ui, self.dismiss_button, false);
-            set_enabled(ui, self.open_button, false);
-            set_enabled(ui, self.recruit_button, v.open_fellow && can_recruit);
+        let controls =
+            dereth_client_contract::social::fellowship_controls(view, v, self.selected_fellow);
+        set_enabled(ui, self.disband_button, controls.leads);
+        set_enabled(ui, self.open_button, controls.leads);
+        set_enabled(ui, self.dismiss_button, controls.selected_member);
+        set_enabled(ui, self.leader_button, controls.selected_member);
+        if let Some(enabled) = controls.recruit {
+            set_enabled(ui, self.recruit_button, enabled);
         }
         let token = if v.open_fellow {
             ID_CLOSE_BUTTON_TEXT
@@ -741,97 +723,43 @@ fn update_fellow_vitals(
     (health, stamina, mana, [h, s, n])
 }
 
-/// The Quit button's whole arm, `case 0x1000027C`.
-///
-/// A leader hands leadership to the first non-leader fellow **first** and then
-/// quits, which is the `0x0290` + `0x00A3` pair at t=366.009 in `fellowship-two-monarch.jsonl`. A
-/// non-leader, or a leader alone in the fellowship, sends the quit only.
 fn quit(
-    requests_out: &mut crate::requests::Outbox,
-    f: Option<&FellowshipView>,
-    view: &dyn GameView,
+    requests: &mut crate::requests::Outbox,
+    _: Option<&FellowshipView>,
+    _: &dyn GameView,
 ) -> bool {
-    if let Some(v) = f {
-        if view.player().is_some() && Some(v.leader) == view.player() {
-            if let Some(next) = v.members.iter().map(|m| m.id).find(|id| *id != v.leader) {
-                assign_leadership(requests_out, f, Some(next), view);
-            }
-        }
-    }
-    requests_out.emit(UiRequest::FellowshipQuit { disband: false });
+    requests.emit(UiRequest::FellowshipQuit { disband: false });
     true
 }
-
-/// The fellowship panel's recruit step.
-///
-/// No fellowship, or a target that is unknown or not a player, returns. A target who is not
-/// already a fellow is recruited; otherwise the error is *can't recruit self* for the player and
-/// *player already in fellowship* for anyone else.
-///
-/// The two error arms are string notices on channel `0x1A` — the over-head spew channel — and
-/// nothing goes on the wire, so a refusal is silent as far as the shard is concerned. The notices
-/// are not raised in this build; the **refusal** is, which is the half a test can see.
 fn recruit(
-    requests_out: &mut crate::requests::Outbox,
-    f: Option<&FellowshipView>,
+    requests: &mut crate::requests::Outbox,
+    _: Option<&FellowshipView>,
     target: Option<ObjectId>,
-    view: &dyn GameView,
+    _: &dyn GameView,
 ) -> bool {
-    let (Some(v), Some(id)) = (f, target) else {
-        return false;
-    };
-    if !is_player(view, id) || v.members.iter().any(|m| m.id == id) {
-        return false;
-    }
-    requests_out.emit(UiRequest::FellowshipRecruit { target: id });
+    let Some(target) = target else { return false };
+    requests.emit(UiRequest::FellowshipRecruit { target });
     true
 }
-
-/// The fellowship panel's dismiss fellow — refuses a non-member
-/// (`ID_Fellowship_Error_DismisseeNotInFellowship`) and refuses the player themselves
-/// (`ID_Fellowship_Error_CantDismissSelf`) before it sends.
 fn dismiss(
-    requests_out: &mut crate::requests::Outbox,
-    f: Option<&FellowshipView>,
+    requests: &mut crate::requests::Outbox,
+    _: Option<&FellowshipView>,
     target: Option<ObjectId>,
-    view: &dyn GameView,
+    _: &dyn GameView,
 ) -> bool {
-    let (Some(v), Some(id)) = (f, target) else {
-        return false;
-    };
-    if !v.members.iter().any(|m| m.id == id) || Some(id) == view.player() {
-        return false;
-    }
-    requests_out.emit(UiRequest::FellowshipDismiss { target: id });
+    let Some(target) = target else { return false };
+    requests.emit(UiRequest::FellowshipDismiss { target });
     true
 }
-
-/// The fellowship panel's assign leadership to fellow — refuses a non-member (with a
-/// **literal** string, `L"That person is not in the fellowship."`, not a table token) and refuses
-/// the player themselves (`ID_Fellowship_Error_SelfAlreadyLeader`).
 fn assign_leadership(
-    requests_out: &mut crate::requests::Outbox,
-    f: Option<&FellowshipView>,
+    requests: &mut crate::requests::Outbox,
+    _: Option<&FellowshipView>,
     target: Option<ObjectId>,
-    view: &dyn GameView,
+    _: &dyn GameView,
 ) -> bool {
-    let (Some(v), Some(id)) = (f, target) else {
-        return false;
-    };
-    if !v.members.iter().any(|m| m.id == id) || Some(id) == view.player() {
-        return false;
-    }
-    requests_out.emit(UiRequest::FellowshipAssignNewLeader { target: id });
+    let Some(target) = target else { return false };
+    requests.emit(UiRequest::FellowshipAssignNewLeader { target });
     true
-}
-
-/// Whether the object is known to this client and is a player — the two checks the button update
-/// and the recruit step make before they will offer or send a recruit.
-///
-/// `None` from [`GameView::selection_query_facts`] is an object this client does not have, which
-/// is the client's own refusal: an object this client cannot see cannot be recruited.
-fn is_player(view: &dyn GameView, id: ObjectId) -> bool {
-    view.selection_query_facts(id).is_some_and(|f| f.is_player)
 }
 
 /// Depth-first search for the one element of [`PANEL_TYPE`], the same shape
@@ -859,123 +787,7 @@ pub fn meter_fill(cur: u32, max: u32) -> f32 {
     v
 }
 
-/// The filter and the case mask.
-///
-/// **It does not title-case.** That guess is what the corpus falsifies:
-/// `fellowship-two-monarch.jsonl` t=338.829 puts `"Of The ring"` on the wire, lower-case `r` and
-/// all, and a
-/// title-caser would have sent `"Of The Ring"`. The function is three passes:
-///
-/// 1. **Filter.** Keep letters, `'`, `-` and ` `. A space is dropped when the previous input
-///    character was a space or there was none, and when it is the last character. An apostrophe
-///    is dropped after another apostrophe or at the start, and is kept only when a letter is on
-///    one side of it. A hyphen is likewise dropped after another hyphen and needs a letter either
-///    side. Everything else is dropped outright. (Trailing spaces are cut before this, by the
-///    client's own trailing-space loop.)
-/// 2. **Case mask**, one entry per surviving character: `0` = force upper, `1` = force lower,
-///    `2` = **leave exactly as typed**. Index 0 starts at `0` and every other index at `1`; the
-///    character *after* a `-`, `'` or space becomes `2`, and so does the character after one of
-///    the nobiliary prefixes `De`, `Di`, `Du`, `Le`, `La`, `Mc`, `Mac`, `Von`, `Van`, `Fitz` when
-///    that prefix starts a word. A run of letters drawn only from `I`, `V` and `X` — a Roman
-///    numeral — has its whole mask zeroed, so `iii` becomes `III`.
-/// 3. **Apply**: `1` lower-cases, `0` upper-cases, `2` is untouched.
-///
-/// So "the first letter of each word is left alone and the rest is lower-cased", which is exactly
-/// `"of The ring"` → `"Of The ring"`.
-#[must_use]
-pub fn format_name(raw: &str) -> String {
-    // Pass 1 -- the filter. `prev` is the previous *input* byte, not the previous kept one, which
-    // is what the client tracks.
-    let src: Vec<char> = raw.trim_end_matches(' ').chars().collect();
-    let mut kept: Vec<char> = Vec::with_capacity(src.len());
-    let alpha = |c: char| c.is_ascii_alphabetic() || !c.is_ascii();
-    for (i, &c) in src.iter().enumerate() {
-        let prev = if i == 0 { None } else { Some(src[i - 1]) };
-        let next = src.get(i + 1).copied();
-        match c {
-            ' ' => {
-                if prev.is_none() || prev == Some(' ') || next.is_none() {
-                    continue;
-                }
-                kept.push(' ');
-            }
-            '\'' => {
-                if prev.is_none() || prev == Some('\'') {
-                    continue;
-                }
-                if !prev.is_some_and(alpha) && !next.is_some_and(alpha) {
-                    continue;
-                }
-                kept.push('\'');
-            }
-            '-' => {
-                if prev.is_none() || prev == Some('-') || !prev.is_some_and(alpha) {
-                    continue;
-                }
-                if !next.is_some_and(|n| alpha(n) || n == '-') {
-                    continue;
-                }
-                kept.push('-');
-            }
-            c if c.is_ascii_alphabetic() => kept.push(c),
-            _ => {}
-        }
-    }
-    // Pass 2 -- the case mask.
-    const UPPER: u8 = 0;
-    const LOWER: u8 = 1;
-    const ASIS: u8 = 2;
-    let n = kept.len();
-    let mut mask = vec![LOWER; n];
-    if n > 0 {
-        mask[0] = UPPER;
-    }
-    const PREFIXES: [&str; 10] = [
-        "de", "di", "du", "fitz", "le", "la", "mac", "mc", "von", "van",
-    ];
-    let word_start = |i: usize| i == 0 || matches!(kept[i - 1], '-' | '\'' | ' ');
-    for i in 0..n {
-        if i > 0 && word_start(i) {
-            mask[i] = ASIS;
-        }
-        if !word_start(i) {
-            continue;
-        }
-        let rest: String = kept[i..].iter().collect::<String>().to_ascii_lowercase();
-        for p in PREFIXES {
-            if rest.starts_with(p) && i + p.len() < n {
-                mask[i + p.len()] = ASIS;
-            }
-        }
-    }
-    // The Roman-numeral run: the client's scan keeps its flag true only while every letter of the
-    // run is `I`, `V` or `X`, and zeroes the run's whole mask when it is.
-    let mut start: Option<usize> = None;
-    for i in 0..=n {
-        let is_letter = i < n && kept[i].is_ascii_alphabetic();
-        match (is_letter, start) {
-            (true, None) => start = Some(i),
-            (false, Some(s)) => {
-                if kept[s..i].iter().all(|c| matches!(c, 'I' | 'V' | 'X')) {
-                    for m in &mut mask[s..i] {
-                        *m = UPPER;
-                    }
-                }
-                start = None;
-            }
-            _ => {}
-        }
-    }
-    // Pass 3 -- apply.
-    kept.iter()
-        .zip(&mask)
-        .map(|(c, m)| match *m {
-            UPPER => c.to_ascii_uppercase(),
-            LOWER => c.to_ascii_lowercase(),
-            _ => *c,
-        })
-        .collect()
-}
+pub use dereth_presentation::social::format_name;
 
 /// Resolve a `StringInfo` token in [`STRING_TABLE`] and put `values` between its literal pieces.
 ///

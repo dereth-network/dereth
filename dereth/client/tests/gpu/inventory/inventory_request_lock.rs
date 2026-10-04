@@ -83,5 +83,5 @@ fn an_inventory_move_ghosts_the_icon_and_moves_nothing() {
 #[test]
 fn the_split_state_defaults_to_the_whole_stack() {
     assert!(SplitState::default().is_whole_stack());
-    assert!(Interaction::new().split().is_whole_stack());
+    assert!(World::new().split.is_whole_stack());
 }

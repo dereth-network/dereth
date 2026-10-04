@@ -21,3 +21,22 @@ pub enum SalvageNotice {
     /// An item is removed from the open salvage panel.
     Remove(ObjectId),
 }
+
+/// Read-only contents of the active salvage session.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SalvageListView {
+    pub tool: Option<ObjectId>,
+    pub items: Vec<ObjectId>,
+    pub material: u32,
+    pub visible: bool,
+}
+
+/// Gestures on the shared salvage session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SalvageAction {
+    Add(ObjectId),
+    Remove(ObjectId),
+    Clear,
+    Close,
+    Submit,
+}

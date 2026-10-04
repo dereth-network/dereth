@@ -5,6 +5,8 @@
 //! the per-node patron ids exist so the *server* can send a partial tree, but the client applies
 //! whatever it gets as the complete picture. Anything not in the message disappears from the panel.
 
+pub use dereth_rules::allegiance::swear_xp_cost_after_breaks;
+
 use dereth_primitives::ObjectId;
 use std::collections::BTreeMap;
 

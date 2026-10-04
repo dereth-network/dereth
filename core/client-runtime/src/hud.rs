@@ -5539,6 +5539,12 @@ impl HudView<'_> {
 }
 
 impl GameView for HudView<'_> {
+    fn split_size(&self) -> i32 {
+        i32::try_from(self.world.split.split_size).unwrap_or(i32::MAX)
+    }
+    fn max_split_size(&self) -> i32 {
+        i32::try_from(self.world.split.max_split_size).unwrap_or(i32::MAX)
+    }
     fn era(&self) -> Option<&dereth_client_contract::EraView> {
         Some(&self.hud.era)
     }
@@ -5575,6 +5581,9 @@ impl GameView for HudView<'_> {
     /// shows the object's own name and a **signed** one shows its
     /// inscription. The scribe's name is not the title in either case; it is the strip's label.
     /// The object-name query is `dereth_client_model`'s and this crate is where the two meet.
+    fn book_session(&self) -> dereth_client_contract::book::BookSessionView {
+        self.world.book_session_view()
+    }
     fn open_book(&self) -> Option<dereth_client_contract::BookView> {
         let b = self.world.book.open.as_ref()?;
         let object_name = self.world.weenie(b.book_id).map_or_else(String::new, |w| {
@@ -6187,6 +6196,9 @@ impl GameView for HudView<'_> {
 
     /// The identity the journal's page save needs. Composed in `App::frame`; see
     /// [`Hud::journal_identity`].
+    fn journal(&self) -> dereth_client_contract::journal::JournalView {
+        self.world.journal.view()
+    }
     fn journal_identity(&self) -> Option<dereth_client_contract::journal::JournalIdentity> {
         self.hud.journal_identity.clone()
     }
@@ -6802,6 +6814,12 @@ impl GameView for HudView<'_> {
     ///
     /// The option is read here rather than in the panel because `SalvageMultiple` is a
     /// `PlayerModule` bit. It is the third of the four tests and belongs to the player, not the item.
+    fn payment_lists(&self) -> dereth_client_contract::panels::slumlord::PaymentListsView {
+        self.world.payment_lists_view()
+    }
+    fn salvage_list(&self) -> dereth_client_contract::panels::salvage::SalvageListView {
+        self.world.salvage_list_view()
+    }
     fn salvage_item_suitable(&self, item: ObjectId, panel_material: u32) -> bool {
         let Some(w) = self.world.weenie(item) else {
             return false;
@@ -7058,6 +7076,25 @@ impl GameView for HudView<'_> {
 
     /// The allegiance hierarchy, walked. The whole of the conversion, including
     /// the four hierarchy walks, is [`crate::allegiance_view::roster`].
+    fn oath_xp_cost(&self) -> Option<u32> {
+        if !self.era_features().swear_xp_cost {
+            return None;
+        }
+        let xp = self.experience_header()?;
+        let breaks = self
+            .player()
+            .and_then(|p| self.int_stat(p, 0x84))
+            .and_then(|b| u32::try_from(b).ok())
+            .unwrap_or(0);
+        let span = if xp.level_span == 0 {
+            u64::from(u32::MAX)
+        } else {
+            xp.level_span
+        };
+        Some(dereth_client_model::allegiance::swear_xp_cost_after_breaks(
+            span, breaks,
+        ))
+    }
     fn allegiance_roster(&self) -> dereth_client_contract::AllegianceRoster {
         crate::allegiance_view::roster(
             self.world,
@@ -8214,6 +8251,71 @@ fn int_opt(q: &dereth_client_model::qualities::Qualities, property: u32) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: allegiance.oath.shared-cost-facts-survive-snapshots
+    #[test]
+    fn oath_cost_reads_live_breaks_and_survives_the_snapshot() {
+        use dereth_client_contract::snapshot::GameSnapshot;
+        use dereth_client_model::{StatKey, StatType, StatValue, Weenie, World};
+        let player = ObjectId(1);
+        let mut world = World::new();
+        world.player = Some(player);
+        let mut row = Weenie::new(player);
+        row.qualities = Some(dereth_client_model::Qualities::new());
+        row.qualities
+            .as_mut()
+            .unwrap()
+            .set(StatKey::new(StatType::Int, 0x19), StatValue::Int(1));
+        world.tables.weenies.insert(player, row);
+        let mut hud = Hud::new();
+        hud.player_desc_received = true;
+        hud.xp_table = Some(dereth_assets::tables::XpTable {
+            id: dereth_primitives::DataId(0x0e000018),
+            attribute_xp: vec![],
+            vital_xp: vec![],
+            trained_xp: vec![],
+            specialized_xp: vec![],
+            level_xp: vec![0, 1000, 21000],
+            level_credits: vec![0; 3],
+        });
+        for era in [
+            dereth_primitives::EraId::Infiltration,
+            dereth_primitives::EraId::Eor,
+        ] {
+            hud.era.era = era;
+            for (breaks, expected) in [(-1, 0), (0, 0), (1, 1250)] {
+                world
+                    .weenie_mut(player)
+                    .unwrap()
+                    .qualities
+                    .as_mut()
+                    .unwrap()
+                    .set(StatKey::new(StatType::Int, 0x84), StatValue::Int(breaks));
+                let view = HudView {
+                    hud: &hud,
+                    world: &world,
+                };
+                let expected = (era == dereth_primitives::EraId::Infiltration).then_some(expected);
+                assert_eq!(view.oath_xp_cost(), expected);
+                assert_eq!(GameSnapshot::from_view(&view).oath_xp_cost(), expected);
+            }
+        }
+        hud.era.era = dereth_primitives::EraId::Infiltration;
+        world
+            .weenie_mut(player)
+            .unwrap()
+            .qualities
+            .as_mut()
+            .unwrap()
+            .set(StatKey::new(StatType::Int, 0x19), StatValue::Int(2));
+        let view = HudView {
+            hud: &hud,
+            world: &world,
+        };
+        assert_eq!(view.experience_header().unwrap().level_span, 0);
+        assert_eq!(view.oath_xp_cost(), Some(6250));
+        assert_eq!(GameSnapshot::from_view(&view).oath_xp_cost(), Some(6250));
+    }
 
     /// The era every front end reads comes from the world's own tables: February 2005's 126
     /// levels and 36 skills (the old weapon skills), the end of retail's 275 levels and its
