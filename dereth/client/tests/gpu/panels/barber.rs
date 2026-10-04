@@ -2076,9 +2076,7 @@ fn physical_palette_controls_send_the_selected_native_palettes_and_preserve_othe
 #[test]
 fn opened_barber_draws_native_colour_spots_empty_slots_and_gradient_modes() {
     use dereth_ui::region::SurfaceOp;
-    use dereth_ui_screens::screens::chargen::{
-        PALETTE_INDEX_EYES, PALETTE_OFFSET_HAIR, PALETTE_OFFSET_SKIN,
-    };
+    use dereth_ui_screens::screens::chargen::PaletteSample;
 
     let _gpu = gpu_lock();
     let (mut app, mut peer) = setup();
@@ -2097,7 +2095,7 @@ fn opened_barber_draws_native_colour_spots_empty_slots_and_gradient_modes() {
         .expect("ordinary Aluvian sex row");
     let hair_color = usize::try_from(state.hair_color).expect("hair colour");
     let hair_rgb = colors
-        .pal_set_color(DataId(sx.hair_colors[hair_color]), PALETTE_OFFSET_HAIR)
+        .pal_set_color(DataId(sx.hair_colors[hair_color]), PaletteSample::Hair)
         .expect("Hair palette set channel mean");
     let spot0 = child(&app, BARBER, COLOR_SPOTS[0]);
     let grad = child(
@@ -2150,7 +2148,7 @@ fn opened_barber_draws_native_colour_spots_empty_slots_and_gradient_modes() {
     click_handle(&mut app, eyes_row);
     settle(&mut app);
     let eye_rgb = colors
-        .palette_color(DataId(sx.eye_colors[0]), PALETTE_INDEX_EYES)
+        .palette_color(DataId(sx.eye_colors[0]), PaletteSample::Eyes)
         .expect("Eye colour spot zero's Palette entry 0x103");
     {
         let ui = &app.ui().expect("shell").ui;
@@ -2192,7 +2190,7 @@ fn opened_barber_draws_native_colour_spots_empty_slots_and_gradient_modes() {
     click_handle(&mut app, skin_row);
     settle(&mut app);
     let skin_rgb = colors
-        .pal_set_color(sx.skin_palset, PALETTE_OFFSET_SKIN)
+        .pal_set_color(sx.skin_palset, PaletteSample::Skin)
         .expect("skin palette set channel mean");
     let unused = child(&app, BARBER, COLOR_SPOTS[1]);
     let unused_box = {

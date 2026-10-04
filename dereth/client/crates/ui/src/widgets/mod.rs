@@ -3985,6 +3985,15 @@ pub mod scrollbar {
     /// The scale `p1` of message `0x0A` carries; see the module documentation.
     pub const POSITION_SCALE: f32 = 1000.0;
 
+    /// How a screen routes wheel input directly over a scrollbar.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DirectWheel {
+        /// Step the linked scrolling content or the bar's authored stops.
+        Content,
+        /// Adjust a continuous value by one percentage point.
+        Percentage,
+    }
+
     #[derive(Debug, Default)]
     pub struct Scrollbar {
         /// **A scrollbar is a button, which is a text element.** No shipped scrollbar
@@ -4001,6 +4010,8 @@ pub mod scrollbar {
         pub scrolling_area: Box2D,
         /// A thumb drag is active.
         pub widget_drag_active: bool,
+        /// Optional screen policy for wheel input over the track, thumb, or arrows.
+        pub direct_wheel: Option<DirectWheel>,
         /// The drag start point, in the bar's own coordinates.
         pub drag_start: (i32, i32),
         /// The reset position — where the thumb was when the drag started.
@@ -4938,6 +4949,39 @@ pub mod scrollbar {
         /// means.
         fn listen_to_element_message(&mut self, ctx: &mut ElemCtx<'_>, m: &ElementMessage) -> R {
             let me = ctx.me;
+            if self.direct_wheel.is_some()
+                && m.id == msgid::MOUSE_PRESS
+                && matches!(
+                    m.p1,
+                    crate::focus::action::WHEEL_UP | crate::focus::action::WHEEL_DOWN
+                )
+            {
+                if self.bits & bits::DISABLED == 0 {
+                    let up = m.p1 == crate::focus::action::WHEEL_UP;
+                    if self.direct_wheel == Some(DirectWheel::Percentage) {
+                        let delta = if up == self.horizontal() { -1 } else { 1 };
+                        let percent = (dereth_primitives::num::to_i32(
+                            (Self::position(ctx.ui, me) * 100.0).round(),
+                        ) + delta)
+                            .clamp(0, 100);
+                        #[allow(clippy::cast_precision_loss)]
+                        ctx.ui
+                            .set_attribute_float(me, attr::POSITION, percent as f32 / 100.0);
+                        self.update_layout(ctx.ui, me);
+                        // Carry the exact percentage through the thousandths notification;
+                        // re-truncating its float could lose a second attribute point.
+                        ctx.ui.broadcast_element_message(
+                            me,
+                            msgid::SCROLL_POSITION,
+                            u32::try_from(percent * 10).unwrap_or(0),
+                            u32::MAX,
+                        );
+                    } else {
+                        self.handle_mouse_wheel(ctx.ui, me, up);
+                    }
+                }
+                return R::StopProcessing;
+            }
             let mine = self.widget == Some(m.source) || (m.source == me && self.move_to_touched());
             let held = ctx
                 .ui

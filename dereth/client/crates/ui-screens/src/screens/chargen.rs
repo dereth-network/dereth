@@ -30,6 +30,8 @@
 
 use std::rc::Rc;
 
+pub use dereth_chargen::palette::PaletteSample;
+
 #[cfg(test)]
 use dereth_assets::tables::{CharGen, SkillTable};
 use dereth_primitives::num::to_i32;
@@ -353,79 +355,79 @@ pub const HERITAGE_PAGE: [(u32, dereth_ui::StateId, &str, &str); 13] = [
         1,
         dereth_ui::StateId(0x1000_0021),
         "ID_CharGen_AluvianText_BonusSkills_Trained",
-        "ID_CharGen_AluvianText",
+        dereth_presentation::creation::heritage_description_token(1).unwrap(),
     ),
     (
         2,
         dereth_ui::StateId(0x1000_0022),
         "ID_CharGen_GaruText_BonusSkills_Trained",
-        "ID_CharGen_GaruText",
+        dereth_presentation::creation::heritage_description_token(2).unwrap(),
     ),
     (
         3,
         dereth_ui::StateId(0x1000_0023),
         "ID_CharGen_ShoText_BonusSkills_Trained",
-        "ID_CharGen_ShoText",
+        dereth_presentation::creation::heritage_description_token(3).unwrap(),
     ),
     (
         4,
         dereth_ui::StateId(0x1000_0024),
         "ID_CharGen_ViaText_BonusSkills_Trained",
-        "ID_CharGen_ViaText",
+        dereth_presentation::creation::heritage_description_token(4).unwrap(),
     ),
     (
         5,
         dereth_ui::StateId(0x1000_0058),
         "ID_CharGen_ShadText_BonusSkills_Trained",
-        "ID_CharGen_ShadText",
+        dereth_presentation::creation::heritage_description_token(5).unwrap(),
     ),
     (
         6,
         dereth_ui::StateId(0x1000_005A),
         "ID_CharGen_GearText_BonusSkills_Trained",
-        "ID_CharGen_GearText",
+        dereth_presentation::creation::heritage_description_token(6).unwrap(),
     ),
     (
         7,
         dereth_ui::StateId(0x1000_005F),
         "ID_CharGen_AunTText_BonusSkills_Trained",
-        "ID_CharGen_AunTText",
+        dereth_presentation::creation::heritage_description_token(7).unwrap(),
     ),
     (
         8,
         dereth_ui::StateId(0x1000_0060),
         "ID_CharGen_LugText_BonusSkills_Trained",
-        "ID_CharGen_LugText",
+        dereth_presentation::creation::heritage_description_token(8).unwrap(),
     ),
     (
         9,
         dereth_ui::StateId(0x1000_005C),
         "ID_CharGen_EmpText_BonusSkills_Trained",
-        "ID_CharGen_EmpText",
+        dereth_presentation::creation::heritage_description_token(9).unwrap(),
     ),
     (
         10,
         dereth_ui::StateId(0x1000_0059),
         "ID_CharGen_ShadText_BonusSkills_Trained",
-        "ID_CharGen_ShadText",
+        dereth_presentation::creation::heritage_description_token(10).unwrap(),
     ),
     (
         11,
         dereth_ui::StateId(0x1000_005B),
         "ID_CharGen_UndText_BonusSkills_Trained",
-        "ID_CharGen_UndText",
+        dereth_presentation::creation::heritage_description_token(11).unwrap(),
     ),
     (
         HERITAGE_OLTHOI,
         dereth_ui::StateId(0x1000_005D),
         "ID_CharGen_OlthoiText_BonusSkills_Trained",
-        "ID_CharGen_OlthoiText",
+        dereth_presentation::creation::heritage_description_token(HERITAGE_OLTHOI).unwrap(),
     ),
     (
         HERITAGE_OLTHOI_ACID,
         dereth_ui::StateId(0x1000_005E),
         "ID_CharGen_OlthoiAcidText_BonusSkills_Trained",
-        "ID_CharGen_OlthoiAcidText",
+        dereth_presentation::creation::heritage_description_token(HERITAGE_OLTHOI_ACID).unwrap(),
     ),
 ];
 
@@ -457,6 +459,8 @@ pub const TOWN_BUTTONS: [(ElementId, u32); 4] = [
 
 /// The start area the town page gates on the expansion entitlement.
 pub const TOD_START_AREA: u32 = 3;
+
+const WORLD_TOWN_BUTTON_BASE: u32 = 0x7F01_0000;
 
 /// The town page's page initialisation and the town write.
 pub mod town_page {
@@ -666,13 +670,41 @@ const ATTR_FLOOR: i32 = 10;
 /// id space while sitting seventh down the page. The `(template, token)` half is the profession
 /// update's own switch, case by case.
 pub const PROFESSION_BUTTONS: [(ElementId, i32, &str); 7] = [
-    (ElementId(0x1000_03D9), 0, "ID_CharGen_CustomText"),
-    (ElementId(0x1000_03DA), 1, "ID_CharGen_BowText"),
-    (ElementId(0x1000_03DB), 3, "ID_CharGen_LifeText"),
-    (ElementId(0x1000_03DC), 4, "ID_CharGen_WarText"),
-    (ElementId(0x1000_03DD), 5, "ID_CharGen_WayText"),
-    (ElementId(0x1000_03DE), 6, "ID_CharGen_SoldierText"),
-    (ElementId(0x1000_03DF), 2, "ID_CharGen_SwashText"),
+    (
+        ElementId(0x1000_03D9),
+        0,
+        dereth_presentation::creation::profession_description_token(0).unwrap(),
+    ),
+    (
+        ElementId(0x1000_03DA),
+        1,
+        dereth_presentation::creation::profession_description_token(1).unwrap(),
+    ),
+    (
+        ElementId(0x1000_03DB),
+        3,
+        dereth_presentation::creation::profession_description_token(3).unwrap(),
+    ),
+    (
+        ElementId(0x1000_03DC),
+        4,
+        dereth_presentation::creation::profession_description_token(4).unwrap(),
+    ),
+    (
+        ElementId(0x1000_03DD),
+        5,
+        dereth_presentation::creation::profession_description_token(5).unwrap(),
+    ),
+    (
+        ElementId(0x1000_03DE),
+        6,
+        dereth_presentation::creation::profession_description_token(6).unwrap(),
+    ),
+    (
+        ElementId(0x1000_03DF),
+        2,
+        dereth_presentation::creation::profession_description_token(2).unwrap(),
+    ),
 ];
 
 /// The profession page's slider-index switch, and the page initialisation's six child lookups,
@@ -1732,14 +1764,18 @@ impl CharGenScreen {
     /// The heritage page's element-message handler's tail: the heritage write, then the page
     /// update.
     ///
-    /// The Viamontian case is guarded: with no Throne of Destiny the click puts up
-    /// the Throne-of-Destiny warning dialog and the heritage is **not** changed.
+    /// A heritage absent from the world, or Viamontian without expansion access,
+    /// raises the expansion warning and leaves the current character unchanged.
     pub fn choose_heritage(&mut self, heritage: u32) {
         if heritage == TOD_HERITAGE && !self.account_has_tod {
             self.open_dialog = Some(CharGenDialog::ToDRequired);
             return;
         }
         let Some(t) = self.tables.clone() else { return };
+        if !t.chargen.heritage_groups.contains_key(&heritage) {
+            self.open_dialog = Some(CharGenDialog::ToDRequired);
+            return;
+        }
         self.state.clothing = t.clothing.clone();
         self.state
             .set_heritage_group(&t.chargen, &t.skills, heritage);
@@ -1896,11 +1932,48 @@ impl CharGenScreen {
     /// repaints too: the client's Sanamar branch re-writes the town from the *existing* area, so a
     /// refused click leaves the map consistent rather than untouched.
     pub fn choose_town(&mut self, start_area: u32) {
-        if start_area == TOD_START_AREA && !self.account_has_tod {
+        let Some(tables) = &self.tables else { return };
+        let Some(town) = usize::try_from(start_area)
+            .ok()
+            .and_then(|i| tables.chargen.starter_areas.get(i))
+        else {
+            return;
+        };
+        if town.name.eq_ignore_ascii_case("Sanamar") && !self.account_has_tod {
             self.open_dialog = Some(CharGenDialog::ToDRequired);
             return;
         }
         self.state.set_start_area(start_area);
+    }
+
+    fn town_map_index(name: &str) -> Option<usize> {
+        let name = name.split_whitespace().next()?;
+        TOWN_NAMES
+            .iter()
+            .position(|town| town.eq_ignore_ascii_case(name))
+    }
+
+    fn uses_world_town_list(&self) -> bool {
+        self.tables.as_ref().is_some_and(|tables| {
+            tables.chargen.starter_areas.len() < TOWN_NAMES.len()
+                || tables
+                    .chargen
+                    .starter_areas
+                    .iter()
+                    .zip(TOWN_NAMES)
+                    .any(|(area, name)| !area.name.eq_ignore_ascii_case(name))
+        })
+    }
+
+    fn choose_map_town(&mut self, map_index: u32) {
+        let area = self.tables.as_ref().and_then(|tables| {
+            tables.chargen.starter_areas.iter().position(|area| {
+                Self::town_map_index(&area.name) == usize::try_from(map_index).ok()
+            })
+        });
+        if let Some(area) = area.and_then(|i| u32::try_from(i).ok()) {
+            self.choose_town(area);
+        }
     }
 
     /// Apply the selected starting town to the view and its text label.
@@ -1916,6 +1989,10 @@ impl CharGenScreen {
         let Some(root) = self.roots.first().copied() else {
             return;
         };
+        if self.uses_world_town_list() {
+            self.update_world_towns(ui, root);
+            return;
+        }
         for (id, _) in TOWN_BUTTONS {
             if let Some(h) = ui.get_child_recursive(root, id) {
                 ui.set_state(h, town_page::PIN_OFF);
@@ -1958,6 +2035,103 @@ impl CharGenScreen {
         let s = format!("{body}\n\n{frame}\n");
         if let Some(t) = ui.text_element_mut(text) {
             t.set_text(&s);
+        }
+    }
+
+    fn update_world_towns(&self, ui: &mut UiSystem, root: ElemHandle) {
+        let Some(tables) = &self.tables else { return };
+        let areas = &tables.chargen.starter_areas;
+        let selected = usize::try_from(self.state.start_area)
+            .ok()
+            .and_then(|i| areas.get(i));
+        let selected_map = selected.and_then(|area| Self::town_map_index(&area.name));
+        for (id, index) in TOWN_BUTTONS {
+            if let Some(pin) = ui.get_child_recursive(root, id) {
+                let index = usize::try_from(index).ok();
+                ui.set_visible(
+                    pin,
+                    areas
+                        .iter()
+                        .any(|area| Self::town_map_index(&area.name) == index),
+                );
+                ui.set_state(
+                    pin,
+                    if selected_map == index {
+                        town_page::PIN_ON
+                    } else {
+                        town_page::PIN_OFF
+                    },
+                );
+            }
+        }
+        if let Some(title) = ui.get_child_recursive(root, town_page::TITLE) {
+            if let Some(index) = selected_map {
+                ui.set_state(title, town_page::TITLE_STATES[index]);
+            }
+            crate::options::keybinding::set_literal(
+                ui,
+                title,
+                selected.map_or("Choose a starting town", |area| area.name.as_str()),
+            );
+        }
+        let Some((page_id, _)) = EcgProgress::Town.page() else {
+            return;
+        };
+        let (Some(page), Some(text), Some(button)) = (
+            ui.get_child_recursive(root, page_id),
+            ui.get_child_recursive(root, town_page::TEXT),
+            ui.get_child_recursive(root, EXIT_BUTTON),
+        ) else {
+            return;
+        };
+        let Some(template) = ui.node(button).map(|node| node.desc.clone()) else {
+            return;
+        };
+        let Some(layout_id) = ui.node(page).map(|node| node.layout_did) else {
+            return;
+        };
+        let Ok(env) = ui.require_env() else { return };
+        let layout = dereth_ui::LayoutDesc {
+            did: layout_id,
+            display_width: 800,
+            display_height: 600,
+            ..dereth_ui::LayoutDesc::default()
+        };
+        let region = ui.screen_box(text);
+        let parent = ui.screen_box(page);
+        if let Some(text) = ui.text_element_mut(text) {
+            text.set_text("");
+        }
+        for (index, area) in areas.iter().enumerate() {
+            let Ok(index) = u32::try_from(index) else {
+                continue;
+            };
+            let id = ElementId(WORLD_TOWN_BUTTON_BASE + index);
+            let handle = ui.get_child_recursive(page, id).or_else(|| {
+                let mut desc = template.clone();
+                desc.element_id = id;
+                desc.base.incorporation |= dereth_ui::desc::incorporation::LEGACY_ALL_GEOMETRY;
+                desc.base.x = region.x0 - parent.x0;
+                desc.base.y = region.y0 - parent.y0 + i32::try_from(index).ok()? * 30;
+                desc.base.width = region.width();
+                desc.base.height = 26;
+                ui.register_for_element_message(
+                    id,
+                    dereth_ui::msg::element::id::BUTTON_CLICKED,
+                    ME,
+                );
+                let handle = ui.create_element(env.assets(), &layout, &desc).ok()??;
+                ui.set_parent(handle, Some(page));
+                ui.initialize_tree(handle);
+                Some(handle)
+            });
+            if let Some(handle) = handle {
+                for label in std::iter::once(handle).chain(ui.children(handle)) {
+                    if ui.text_element_mut(label).is_some() {
+                        crate::options::keybinding::set_literal(ui, label, &area.name);
+                    }
+                }
+            }
         }
     }
 
@@ -3390,7 +3564,10 @@ impl CharGenScreen {
             ),
             format!(
                 "Starting Town: {}",
-                name(&TOWN_NAMES, i64::from(self.state.start_area))
+                usize::try_from(self.state.start_area)
+                    .ok()
+                    .and_then(|i| tables.chargen.starter_areas.get(i))
+                    .map_or("?", |area| area.name.as_str())
             ),
         ];
         for l in lines {
@@ -4049,28 +4226,14 @@ pub trait CgColorSource: std::fmt::Debug {
     /// The colour of one palette entry — the palette's 32-bit colour read of one entry, ARGB.
     /// `None` when the palette is not in the dat, which the client answers with an error log line
     /// and a colour of **0**.
-    fn palette_color(&self, palette: DataId, index: u32) -> Option<u32>;
+    fn palette_color(&self, palette: DataId, sample: PaletteSample) -> Option<u32>;
 
     /// The selection path's loop over a `PalSet`: for each palette in the set it reads the colour
-    /// at `index` and sums the red, green and blue bytes, then divides each sum by the palette
+    /// for `sample` and sums the red, green and blue bytes, then divides each sum by the palette
     /// count. So a spot is the **mean** of the whole set at one palette offset, per channel, with
     /// integer division. Alpha is not accumulated; the spot is opaque.
-    fn pal_set_color(&self, pal_set: DataId, index: u32) -> Option<u32>;
+    fn pal_set_color(&self, pal_set: DataId, sample: PaletteSample) -> Option<u32>;
 }
-
-/// The palette entry each part's spots are read at.
-///
-/// Three distinct offsets, one per family of parts, and they are literals in the function: hair is
-/// `0xD0`, the three face parts that share the skin palette are `0xB0`, and all four gear parts are
-/// `0x520`. Eyes take neither: they are a `Palette` read directly at **`0x103`**, not a `PalSet`
-/// average.
-pub const PALETTE_OFFSET_HAIR: u32 = 0xD0;
-/// See [`PALETTE_OFFSET_HAIR`].
-pub const PALETTE_OFFSET_SKIN: u32 = 0xB0;
-/// See [`PALETTE_OFFSET_HAIR`].
-pub const PALETTE_OFFSET_GEAR: u32 = 0x520;
-/// See [`PALETTE_OFFSET_HAIR`] — the eye colour's entry in its own `Palette`.
-pub const PALETTE_INDEX_EYES: u32 = 0x103;
 
 /// The four `UIASSET` images the colour wheel is drawn from, in enum order.
 ///
@@ -4116,22 +4279,36 @@ impl CharGenScreen {
             EParts::Hair => sx
                 .hair_colors
                 .iter()
-                .map(|p| src.pal_set_color(DataId(*p), PALETTE_OFFSET_HAIR))
+                .map(|p| src.pal_set_color(DataId(*p), PaletteSample::Hair))
                 .collect(),
-            // The one part that is a `Palette` and not a `PalSet`, and the one read at 0x103.
+            // Eyes read each palette directly, without averaging over a shade set.
             EParts::Eyes => sx
                 .eye_colors
                 .iter()
-                .map(|p| src.palette_color(DataId(*p), PALETTE_INDEX_EYES))
+                .map(|p| src.palette_color(DataId(*p), PaletteSample::Eyes))
                 .collect(),
             // All three arms set the count to 1: one spot, the heritage's own skin `PalSet`.
             EParts::Nose | EParts::Mouth | EParts::Skin => {
-                vec![src.pal_set_color(sx.skin_palset, PALETTE_OFFSET_SKIN)]
+                vec![src.pal_set_color(sx.skin_palset, PaletteSample::Skin)]
             }
-            EParts::Headgear => Self::gear_wheel(&*src, &self.state.headgear_pal_set_ids),
-            EParts::Shirt => Self::gear_wheel(&*src, &self.state.shirt_pal_set_ids),
-            EParts::Trousers => Self::gear_wheel(&*src, &self.state.trousers_pal_set_ids),
-            EParts::Footwear => Self::gear_wheel(&*src, &self.state.footwear_pal_set_ids),
+            EParts::Headgear => Self::gear_wheel(
+                &*src,
+                &self.state.headgear_pal_set_ids,
+                PaletteSample::Headgear,
+            ),
+            EParts::Shirt => {
+                Self::gear_wheel(&*src, &self.state.shirt_pal_set_ids, PaletteSample::Shirt)
+            }
+            EParts::Trousers => Self::gear_wheel(
+                &*src,
+                &self.state.trousers_pal_set_ids,
+                PaletteSample::Trousers,
+            ),
+            EParts::Footwear => Self::gear_wheel(
+                &*src,
+                &self.state.footwear_pal_set_ids,
+                PaletteSample::Footwear,
+            ),
             EParts::Invalid => Vec::new(),
         };
         // The part's colour count is the list's length, and only the first nine can be shown.
@@ -4141,10 +4318,12 @@ impl CharGenScreen {
         }
     }
 
-    fn gear_wheel(src: &dyn CgColorSource, ids: &[DataId]) -> Vec<Option<u32>> {
-        ids.iter()
-            .map(|p| src.pal_set_color(*p, PALETTE_OFFSET_GEAR))
-            .collect()
+    fn gear_wheel(
+        src: &dyn CgColorSource,
+        ids: &[DataId],
+        sample: PaletteSample,
+    ) -> Vec<Option<u32>> {
+        ids.iter().map(|p| src.pal_set_color(*p, sample)).collect()
     }
 
     /// The appearance page's color-spot step — **nine runtime-generated surfaces**.
@@ -4262,6 +4441,28 @@ impl Screen for CharGenScreen {
             .and_then(|e| e.create_and_add_root_element(ui, LAYOUT, ROOT))?;
         self.roots.push(root);
         self.bound = bind_children(ui, root, CHROME);
+        let mut pending = vec![root];
+        while let Some(handle) = pending.pop() {
+            pending.extend(ui.children(handle));
+            let percentage = ui.node(handle).is_some_and(|node| {
+                matches!(node.element_id(), slider::SCROLL | appearance::SHADE_SCROLL)
+            });
+            if let Some(bar) = ui
+                .node_mut(handle)
+                .and_then(|node| node.behaviour.as_mut())
+                .and_then(|element| element.as_any_mut())
+                .and_then(|element| {
+                    element.downcast_mut::<dereth_ui::widgets::scrollbar::Scrollbar>()
+                })
+            {
+                use dereth_ui::widgets::scrollbar::DirectWheel;
+                bar.direct_wheel = Some(if percentage {
+                    DirectWheel::Percentage
+                } else {
+                    DirectWheel::Content
+                });
+            }
+        }
         // The client registers the framework on
         // the root, which is the only reason any of the wizard's buttons reach the switch below.
         ui.register_for_element_messages(root, ME);
@@ -4413,9 +4614,20 @@ impl Screen for CharGenScreen {
             _ => {}
         }
         if let Some((_, a)) = TOWN_BUTTONS.iter().find(|(id, _)| *id == m.source_id) {
-            self.choose_town(*a);
+            self.choose_map_town(*a);
             self.town_page_update(ui);
             return;
+        }
+        if let Some(area) = m.source_id.0.checked_sub(WORLD_TOWN_BUTTON_BASE) {
+            if self.uses_world_town_list()
+                && self.tables.as_ref().is_some_and(|tables| {
+                    usize::try_from(area).is_ok_and(|i| i < tables.chargen.starter_areas.len())
+                })
+            {
+                self.choose_town(area);
+                self.town_page_update(ui);
+                return;
+            }
         }
         match m.source_id {
             // `0x100003C6` — **and the left arrow on page 1 is Exit**, not "back": past page 1 it
@@ -4758,7 +4970,13 @@ mod tests {
                     help_strings: vec![],
                     id: dereth_primitives::DataId(0x0E00_0002),
                     second_data_id: dereth_primitives::DataId(0),
-                    starter_areas: Vec::new(),
+                    starter_areas: TOWN_NAMES
+                        .iter()
+                        .map(|name| dereth_assets::tables::StarterArea {
+                            name: (*name).to_string(),
+                            locations: Vec::new(),
+                        })
+                        .collect(),
                     hg_table_marker: 0,
                     heritage_order: heritage_groups.keys().copied().collect(),
                     heritage_groups,
@@ -4861,6 +5079,84 @@ mod tests {
         s.account_has_tod = true;
         s.choose_heritage(TOD_HERITAGE);
         assert_eq!(s.state.heritage_group, TOD_HERITAGE);
+    }
+
+    /// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+    #[test]
+    fn heritage_buttons_refuse_every_key_missing_from_the_world() {
+        let mut t = tables();
+        let world = Rc::get_mut(&mut Rc::get_mut(&mut t).unwrap().world).unwrap();
+        let human = world.chargen.heritage_groups[&1].clone();
+        world.chargen.heritage_groups.clear();
+        for key in 1..=3 {
+            world.chargen.heritage_groups.insert(key, human.clone());
+        }
+        world.chargen.heritage_order = vec![1, 2, 3];
+        let mut s = CharGenScreen {
+            tables: Some(t),
+            account_has_tod: true,
+            ..CharGenScreen::default()
+        };
+        for available in 1..=3 {
+            s.open_dialog = None;
+            s.choose_heritage(available);
+            assert_eq!(s.state.heritage_group, available);
+            assert_eq!(s.open_dialog, None);
+            for unavailable in 4..=13 {
+                s.choose_heritage(unavailable);
+                assert_eq!(s.state.heritage_group, available);
+                assert_eq!(s.state.gender, 1);
+                assert_eq!(s.open_dialog, Some(CharGenDialog::ToDRequired));
+                s.open_dialog = None;
+            }
+        }
+    }
+
+    /// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+    #[test]
+    fn town_buttons_map_geographic_names_to_the_world_area_indices() {
+        let mut t = tables();
+        let world = Rc::get_mut(&mut Rc::get_mut(&mut t).unwrap().world).unwrap();
+        let names = [
+            "Holtburg South",
+            "Holtburg West",
+            "Shoushi Southeast",
+            "Shoushi West",
+            "Yaraq North",
+            "Yaraq East",
+        ];
+        world.chargen.starter_areas = names
+            .iter()
+            .map(|name| dereth_assets::tables::StarterArea {
+                name: (*name).to_string(),
+                locations: Vec::new(),
+            })
+            .collect();
+        let mut s = CharGenScreen {
+            tables: Some(t),
+            ..CharGenScreen::default()
+        };
+        assert!(s.uses_world_town_list());
+        for (map, area) in [(0, 0), (1, 2), (2, 4)] {
+            s.choose_map_town(map);
+            assert_eq!(s.state.start_area, area);
+            assert_eq!(s.open_dialog, None);
+        }
+        for area in 0..6 {
+            s.choose_town(area);
+            assert_eq!(s.state.start_area, area);
+            assert_eq!(
+                s.open_dialog, None,
+                "Shoushi West does not require expansion access"
+            );
+        }
+        s.choose_map_town(3);
+        s.choose_town(6);
+        assert_eq!(
+            s.state.start_area, 5,
+            "absent towns never replace a valid selection"
+        );
+        assert!(!wizard().uses_world_town_list());
     }
 
     /// Oracle: the finish step, line for line — the no-name refusal, the credit warning and the

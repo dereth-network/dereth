@@ -336,6 +336,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "chargen.controls.wheel-over-scrollbars",
+        says: "Creation scrollbars accept wheel detents over their tracks, thumbs and arrows, with one step per detent and without moving keyboard focus.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CREATION-DIRECT-WHEEL"),
+        station: "dereth-client-shell::lib::ui::creation_tests::creation_attribute_and_shade_bars_take_one_step_per_wheel_detent",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.dialogs.a-people-the-account-cannot-play-is-refused-in-a-message-box",
         says: "Choosing a people the account has not bought the right to play raises a box saying \
                so -- one with a single button and nothing to answer -- and the people is refused \

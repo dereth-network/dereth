@@ -13,8 +13,7 @@ use dereth_ui::{ElemHandle, ElementId, ElementMessage, UiSystem};
 
 use crate::screens::chargen::{
     appearance, set_derived_image, Cg3dView, CharGenTables, EParts, ERotateDirection,
-    HUMAN_SETUP_ID, PALETTE_INDEX_EYES, PALETTE_OFFSET_HAIR, PALETTE_OFFSET_SKIN,
-    STATE_ROW_SELECTED, STATE_ROW_UNSELECTED,
+    PaletteSample, HUMAN_SETUP_ID, STATE_ROW_SELECTED, STATE_ROW_UNSELECTED,
 };
 use crate::view::{BarberAppearance, BarberView, GameView, UiRequest};
 use dereth_chargen::CharGenState;
@@ -537,7 +536,7 @@ impl BarberPanel {
     }
 
     /// The selection's palette reads. Hair and skin average every Palette
-    /// in a PalSet channel-by-channel; Eyes reads entry `0x103` from each Palette directly.
+    /// in a PalSet channel-by-channel; Eyes samples each Palette directly.
     fn fill_color_wheel(&mut self, part: EParts) {
         self.color_wheel = [None; 9];
         self.color_count = 0;
@@ -554,15 +553,15 @@ impl BarberPanel {
             EParts::Hair => sx
                 .hair_colors
                 .iter()
-                .map(|id| colors.pal_set_color(DataId(*id), PALETTE_OFFSET_HAIR))
+                .map(|id| colors.pal_set_color(DataId(*id), PaletteSample::Hair))
                 .collect(),
             EParts::Eyes => sx
                 .eye_colors
                 .iter()
-                .map(|id| colors.palette_color(DataId(*id), PALETTE_INDEX_EYES))
+                .map(|id| colors.palette_color(DataId(*id), PaletteSample::Eyes))
                 .collect(),
             EParts::Nose | EParts::Mouth | EParts::Skin => {
-                vec![colors.pal_set_color(sx.skin_palset, PALETTE_OFFSET_SKIN)]
+                vec![colors.pal_set_color(sx.skin_palset, PaletteSample::Skin)]
             }
             EParts::Invalid
             | EParts::Headgear

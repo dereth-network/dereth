@@ -2570,12 +2570,18 @@ fn load_chargen_tables(
 /// [`dereth_ui_screens::screens::chargen::CgColorSource`].
 ///
 /// The client asks for a palette every time it repaints the wheel and lets the object
-/// cache absorb it; this memoises the *answer* instead, which is one `u32` per `(id, index)` pair
+/// cache absorb it; this memoises the *answer* instead, which is one `u32` per `(id, sample)` pair
 /// and keeps the dat read off the repaint path entirely.
 struct DatColorSource {
     store: Arc<dereth_dat::RetailDatStore>,
     cache: std::cell::RefCell<
-        std::collections::BTreeMap<(dereth_primitives::DataId, u32), Option<u32>>,
+        std::collections::BTreeMap<
+            (
+                dereth_primitives::DataId,
+                dereth_chargen::palette::PaletteSample,
+            ),
+            Option<u32>,
+        >,
     >,
 }
 
@@ -2588,14 +2594,16 @@ impl std::fmt::Debug for DatColorSource {
 }
 
 impl DatColorSource {
-    fn read_palette_color(&self, palette: dereth_primitives::DataId, index: u32) -> Option<u32> {
+    fn read_palette_color(
+        &self,
+        palette: dereth_primitives::DataId,
+        sample: dereth_chargen::palette::PaletteSample,
+    ) -> Option<u32> {
         use dereth_assets::Decode;
         let bytes = dereth_primitives::AssetSource::read(&*self.store, palette).ok()?;
         let p = dereth_assets::material::Palette::decode_payload(palette, &bytes).ok()?;
-        // a straight index into the ARGB table. The retail
-        // palette is 2,048 entries and every offset the wheel uses (0xB0, 0xD0, 0x103, 0x520) is
-        // inside it.
-        p.colors_argb.get(usize::try_from(index).ok()?).copied()
+        let layout = dereth_chargen::palette::PaletteLayout::from_entry_count(p.colors_argb.len())?;
+        p.colors_argb.get(sample.index(layout)).copied()
     }
 }
 
@@ -2610,19 +2618,27 @@ impl dereth_ui_screens::screens::chargen::CgColorSource for DatColorSource {
         Some(set.palette_ids)
     }
 
-    fn palette_color(&self, palette: dereth_primitives::DataId, index: u32) -> Option<u32> {
-        if let Some(hit) = self.cache.borrow().get(&(palette, index)) {
+    fn palette_color(
+        &self,
+        palette: dereth_primitives::DataId,
+        sample: dereth_chargen::palette::PaletteSample,
+    ) -> Option<u32> {
+        if let Some(hit) = self.cache.borrow().get(&(palette, sample)) {
             return *hit;
         }
-        let v = self.read_palette_color(palette, index);
-        self.cache.borrow_mut().insert((palette, index), v);
+        let v = self.read_palette_color(palette, sample);
+        self.cache.borrow_mut().insert((palette, sample), v);
         v
     }
 
-    fn pal_set_color(&self, pal_set: dereth_primitives::DataId, index: u32) -> Option<u32> {
+    fn pal_set_color(
+        &self,
+        pal_set: dereth_primitives::DataId,
+        sample: dereth_chargen::palette::PaletteSample,
+    ) -> Option<u32> {
         // The key space is shared with `palette_color`'s; a `PalSet` id (0x0F......) and a
         // `Palette` id (0x04......) can never collide.
-        if let Some(hit) = self.cache.borrow().get(&(pal_set, index)) {
+        if let Some(hit) = self.cache.borrow().get(&(pal_set, sample)) {
             return *hit;
         }
         let v = (|| {
@@ -2637,14 +2653,14 @@ impl dereth_ui_screens::screens::chargen::CgColorSource for DatColorSource {
             // divide by `num_pals`. Integer division, per channel, alpha not accumulated.
             let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
             for p in &s.palette_ids {
-                let c = self.palette_color(*p, index).unwrap_or(0);
+                let c = self.palette_color(*p, sample).unwrap_or(0);
                 r += (c >> 16) & 0xFF;
                 g += (c >> 8) & 0xFF;
                 b += c & 0xFF;
             }
             Some(0xFF00_0000 | ((r / n) << 16) | ((g / n) << 8) | (b / n))
         })();
-        self.cache.borrow_mut().insert((pal_set, index), v);
+        self.cache.borrow_mut().insert((pal_set, sample), v);
         v
     }
 }
@@ -2742,3 +2758,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/creation_controls.rs"]
+mod creation_tests;
