@@ -202,9 +202,11 @@ pub enum PendingTransaction {
     Buy {
         rows: Vec<ItemProfile>,
         owned: std::collections::BTreeMap<u32, i64>,
+        refreshed: bool,
     },
     Sell {
         owned: Vec<ObjectId>,
+        refreshed: bool,
     },
 }
 
@@ -635,7 +637,11 @@ impl crate::world::World {
             total_value: self.shop.total_value,
             last_sale: 0,
             pending_sell_split,
-            pending_transaction: None,
+            pending_transaction: if same_vendor {
+                self.shop.pending_transaction.take()
+            } else {
+                None
+            },
         };
         // **The client's purse refresh.**
         // The purse has to be filled *before* the panel is told the window opened, because the
@@ -1674,6 +1680,7 @@ impl crate::world::World {
         self.shop.pending_transaction = Some(PendingTransaction::Buy {
             rows,
             owned: self.owned_vendor_quantities(),
+            refreshed: false,
         });
     }
 
@@ -1684,6 +1691,7 @@ impl crate::world::World {
                 .copied()
                 .filter(|id| self.is_owned_by_player(*id))
                 .collect(),
+            refreshed: false,
         });
     }
 
@@ -1692,66 +1700,107 @@ impl crate::world::World {
         self.shop.pending_transaction = None;
     }
 
-    // Inventory receipts precede the matching stock refresh. Only submitted rows with an
-    // observed transfer are removed; an unrelated refresh has no pending transaction.
+    /// End an unsuccessful request without treating a generic acknowledgement as delivery.
+    pub fn vendor_use_done(&mut self, error: u32) {
+        let refreshed = match &self.shop.pending_transaction {
+            Some(
+                PendingTransaction::Buy { refreshed, .. }
+                | PendingTransaction::Sell { refreshed, .. },
+            ) => *refreshed,
+            None => false,
+        };
+        if error != 0 || !refreshed {
+            self.refuse_vendor_transaction();
+        }
+    }
+
+    // UI receipts and object descriptions have independent ordering. Save the matching
+    // stock change before replacing it, then reconcile whenever inventory delivery arrives.
     fn complete_vendor_transaction(&mut self, stock: &[ItemProfile]) {
-        let Some(transaction) = self.shop.pending_transaction.take() else {
+        match &mut self.shop.pending_transaction {
+            Some(PendingTransaction::Buy {
+                rows, refreshed, ..
+            }) if !*refreshed => {
+                for row in rows {
+                    if let Some(offered) = self.shop.stock.iter().find(|offered| {
+                        offered.iid == row.iid
+                            && offered.amount != -1
+                            && offered.pwd.obj_type & dereth_rules::weenie::item_type::SERVICE == 0
+                    }) {
+                        let remaining = stock
+                            .iter()
+                            .find(|next| next.iid == row.iid)
+                            .map_or(0, |next| next.amount.max(0));
+                        row.amount = offered
+                            .amount
+                            .saturating_sub(remaining)
+                            .max(0)
+                            .min(row.amount);
+                    }
+                }
+                *refreshed = true;
+            }
+            Some(PendingTransaction::Sell { refreshed, .. }) => *refreshed = true,
+            _ => {}
+        }
+        self.reconcile_vendor_transaction();
+    }
+
+    /// Consume admitted inventory delivery against the matching merchant receipt once.
+    pub fn reconcile_vendor_transaction(&mut self) {
+        let Some(mut transaction) = self.shop.pending_transaction.take() else {
             return;
         };
-        match transaction {
-            PendingTransaction::Sell { owned } => {
+        let done = match &mut transaction {
+            PendingTransaction::Sell {
+                owned,
+                refreshed: true,
+            } => {
                 let sold: Vec<_> = owned
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .filter(|id| !self.is_owned_by_player(*id))
                     .collect();
                 self.shop.sell_list.retain(|(id, _)| !sold.contains(id));
+                owned.retain(|id| !sold.contains(id));
+                owned.is_empty()
             }
-            PendingTransaction::Buy { rows, owned } => {
-                let mut received = self.owned_vendor_quantities();
-                for (class, count) in &mut received {
-                    *count = (*count - owned.get(class).copied().unwrap_or(0)).max(0);
-                }
-                for row in rows {
-                    let available = received.entry(row.pwd.wcid).or_default();
-                    // Services do not create carried objects. Their successful merchant refresh
-                    // is their receipt; a failure discards the pending transaction first.
-                    let mut completed =
+            PendingTransaction::Buy {
+                rows,
+                owned,
+                refreshed: true,
+            } => {
+                let received = self.owned_vendor_quantities();
+                for row in rows.iter_mut() {
+                    let consumed = owned.entry(row.pwd.wcid).or_default();
+                    let available =
+                        (received.get(&row.pwd.wcid).copied().unwrap_or(0) - *consumed).max(0);
+                    // Services have no carried object; their matching refresh is their receipt.
+                    let completed =
                         if row.pwd.obj_type & dereth_rules::weenie::item_type::SERVICE != 0 {
                             row.amount
                         } else {
-                            // A finite row's stock decrease identifies which offered instance
-                            // completed when several rows share a class. Inventory corroborates
-                            // delivery even when the server splits or merges the received stack.
-                            let fulfilled = self
-                                .shop
-                                .stock
-                                .iter()
-                                .find(|offered| offered.iid == row.iid && offered.amount != -1)
-                                .map_or(row.amount, |offered| {
-                                    let remaining = stock
-                                        .iter()
-                                        .find(|next| next.iid == row.iid)
-                                        .map_or(0, |next| next.amount.max(0));
-                                    offered
-                                        .amount
-                                        .saturating_sub(remaining)
-                                        .max(0)
-                                        .min(row.amount)
-                                });
-                            let amount = i64::from(fulfilled).min(*available);
-                            *available -= amount;
+                            let amount = i64::from(row.amount).min(available);
+                            *consumed += amount;
                             i32::try_from(amount).unwrap_or(i32::MAX)
                         };
+                    row.amount -= completed;
+                    let mut remaining = completed;
                     for (id, amount) in &mut self.shop.buy_list {
                         if *id == row.iid {
-                            let removed = (*amount).min(completed);
+                            let removed = (*amount).min(remaining);
                             *amount -= removed;
-                            completed -= removed;
+                            remaining -= removed;
                         }
                     }
                 }
                 self.shop.buy_list.retain(|(_, amount)| *amount > 0);
+                rows.iter().all(|row| row.amount <= 0)
             }
+            _ => false,
+        };
+        if !done {
+            self.shop.pending_transaction = Some(transaction);
         }
         self.prune_vendor_basket_descriptions();
     }

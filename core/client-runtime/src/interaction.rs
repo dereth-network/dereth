@@ -9378,6 +9378,7 @@ pub fn apply_events_at_boundary(
             panels(inter, game, &notice);
         }
     }
+    game.reconcile_vendor_transaction();
     inter.absorb(game, out, req);
 }
 

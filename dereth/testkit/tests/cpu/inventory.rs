@@ -4561,7 +4561,9 @@ fn vendor_receipts_remove_only_fulfilled_quantities_and_survive_refusal() {
 #[test]
 fn partial_finite_receipts_identify_the_changed_row_even_when_classes_match() {
     const RECEIVED: ObjectId = ObjectId(0x9000_0081);
-    for existing_stack in [false, true] {
+    for (existing_stack, refresh_first) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
         let mut c = at_a_shop(&[]);
         let mut stock = a_shop(
             MERCHANT,
@@ -4611,6 +4613,14 @@ fn partial_finite_receipts_identify_the_changed_row_even_when_classes_match() {
         assert!(matches!(c.outbound().last(), Some(Request::VendorBuy(m))
             if m.items.iter().map(|r| (r.iid, r.amount)).collect::<Vec<_>>()
                 == [(OIL, 3), (TAPER, 3)]));
+        stock.items[1].amount = 3;
+        if refresh_first {
+            c.when(Inbound::message(&stock));
+            c.when(Inbound::message(&dereth_protocol::objects::ItemUseDone {
+                failure_type: 0,
+            }));
+            assert_eq!(c.view().world().shop.buy_list, [(OIL, 3), (TAPER, 3)]);
+        }
         if existing_stack {
             c.when(Inbound::message(&new_count(1, RECEIVED, 6, 6)));
         } else {
@@ -4635,6 +4645,97 @@ fn partial_finite_receipts_identify_the_changed_row_even_when_classes_match() {
         assert!(!c.view().world().is_owned_by_player(TAPER));
         c.when(Inbound::message(&stock));
         assert_eq!(c.view().world().shop.buy_list, [(OIL, 3), (TAPER, 1)]);
+    }
+}
+
+/// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain
+#[test]
+fn vendor_refresh_and_use_done_wait_for_late_inventory_delivery_once() {
+    use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
+    const RECEIVED: ObjectId = ObjectId(0x9000_0082);
+    for existing_stack in [false, true] {
+        let mut c = at_a_shop(&[]);
+        let mut stock = a_shop(MERCHANT, &[(OIL, "Oil", 1), (TAPER, "Taper", 1)]);
+        for (index, row) in stock.items.iter_mut().enumerate() {
+            let pwd = row.pwd.as_mut().unwrap();
+            pwd.wcid = 100 + u32::try_from(index).unwrap();
+            pwd.max_stack_size = Some(100);
+            pwd.stack_size = Some(100);
+        }
+        c.when(Inbound::message(&stock));
+        add_carried(c.world_mut(), PLAYER, MY_KEY, item_type::MISC, 10);
+        if existing_stack {
+            add_carried(c.world_mut(), PLAYER, RECEIVED, item_type::MISC, 2);
+            let item = c.world_mut().weenie_mut(RECEIVED).unwrap();
+            item.pwd.wcid = 100;
+            item.pwd.stack_size = Some(2);
+            item.pwd.max_stack_size = Some(100);
+        }
+        c.when(Player::Ui(vec![
+            UiRequest::VendorAddToBuyList {
+                item: OIL,
+                split: 40,
+            },
+            UiRequest::VendorAddToBuyList {
+                item: TAPER,
+                split: 3,
+            },
+            UiRequest::VendorAddToSell { item: MY_KEY },
+            UiRequest::VendorBuyAll,
+        ]));
+        assert!(matches!(c.outbound().last(), Some(Request::VendorBuy(m))
+            if m.items.iter().map(|r| (r.iid, r.amount)).collect::<Vec<_>>() == [(OIL, 40), (TAPER, 3)]));
+        c.when(Inbound::message(&stock));
+        c.when(Inbound::message(&dereth_protocol::objects::ItemUseDone {
+            failure_type: 0,
+        }));
+        assert_eq!(c.view().world().shop.buy_list, [(OIL, 40), (TAPER, 3)]);
+        if existing_stack {
+            c.when(Inbound::message(&new_count(1, RECEIVED, 42, 42)));
+            c.when(Inbound::message(&new_count(1, RECEIVED, 42, 42)));
+        } else {
+            let created = ItemCreateObject(ObjectCreatePayload {
+                id: RECEIVED,
+                wdesc: PublicWeenieDesc {
+                    header: dereth_protocol::types::weeniedesc::header::STACK_SIZE
+                        | dereth_protocol::types::weeniedesc::header::MAX_STACK_SIZE,
+                    name: "Delivered oil".into(),
+                    wcid: 100,
+                    obj_type: item_type::MISC,
+                    stack_size: Some(40),
+                    max_stack_size: Some(100),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            c.when(Inbound::world_view(&created));
+            assert_eq!(
+                c.view()
+                    .world()
+                    .weenie(RECEIVED)
+                    .map(|w| (w.pwd.wcid, w.pwd.stack_size)),
+                Some((100, Some(40)))
+            );
+            assert_eq!(c.view().world().shop.buy_list, [(OIL, 40), (TAPER, 3)]);
+            let contained = dereth_protocol::objects::ItemServerSaysContainId {
+                item: RECEIVED,
+                container: PLAYER,
+                slot: 3,
+                container_properties: 0,
+            };
+            c.when(Inbound::message(&contained));
+            assert!(
+                c.view().world().is_owned_by_player(RECEIVED),
+                "{:?}",
+                c.view().world().weenie(RECEIVED)
+            );
+            assert_eq!(c.view().world().shop.buy_list, [(TAPER, 3)]);
+            c.when(Inbound::message(&contained));
+        }
+        assert_eq!(c.view().world().shop.buy_list, [(TAPER, 3)]);
+        assert_eq!(c.view().world().shop.sell_list, [(MY_KEY, 1)]);
+        c.when(Inbound::message(&stock));
+        assert_eq!(c.view().world().shop.buy_list, [(TAPER, 3)]);
     }
 }
 
