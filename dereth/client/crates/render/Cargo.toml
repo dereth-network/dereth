@@ -80,14 +80,11 @@ raw-window-handle = "0.6"
 gpu-allocator = { version = "0.28", optional = true, default-features = false, features = ["vulkan", "std"] }
 naga = { version = "30", optional = true, features = ["wgsl-in", "spv-out"] }
 
-# Native backend support and the top-level exception filter are Windows-only.
+# Native backend support is Windows-only.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
-    "Win32_System_Diagnostics_Debug",
-    "Win32_System_Kernel",
-    "Win32_System_LibraryLoader",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

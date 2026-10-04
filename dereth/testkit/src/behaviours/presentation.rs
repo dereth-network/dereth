@@ -32,16 +32,6 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
-        id: "presentation.crash.a-fault-is-named-and-still-kills-the-process",
-        says: "When the client crashes on a bad memory access it writes a report naming the fault \
-               to its error output before it dies, and it still dies with the same error code \
-               rather than carrying on.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC-EVID-EXCEPTION-FILTER-CRASH"),
-        station: "dereth-render::gpu::presentation::exception_filter::a_fault_is_reported_and_still_kills_the_process",
-        tier: Tier::Gpu,
-    },
-    behaviour! {
         id: "presentation.crash.every-run-keeps-a-log-that-records-a-panic",
         says: "Every run of the client opens a log of its own in the crash-logs folder of the \
                client's settings folder with a record of its start, and a run that panics adds the \

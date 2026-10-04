@@ -14,12 +14,12 @@
 //!
 //! This crate is the device: [`device`], one enum over the three backends (`vulkan`, the default,
 //! `d3d12`, Windows only, and `wgpu`), the shader sources, the Win32 window surface
-//! ([`window_proc`], [`debug`]) and the dat cursor's image ([`cursor`]). The codecs, pipeline
+//! ([`window_proc`]) and the dat cursor's image ([`cursor`]). The codecs, pipeline
 //! descriptions, font atlas, UI quad path and camera are [`dereth_render_cpu`], re-exported here so
 //! callers need not know about the split.
 //!
 //! It is one of the crates permitted `unsafe`, because Vulkan and Win32 are C ABIs: it lives in
-//! [`vulkan`], in [`debug`]'s top-level exception filter and the native backend modules, each block with a `SAFETY:` comment.
+//! [`vulkan`] and the native backend modules, each block with a `SAFETY:` comment.
 
 #![doc(html_no_source)]
 
@@ -43,10 +43,6 @@ mod wgsl;
 /// `d3d12` feature; [`device::Gpu`] is how anything outside this crate reaches it.
 #[cfg(all(windows, feature = "d3d12"))]
 pub mod d3d12;
-
-/// The top-level exception filter, so that a fault is
-/// reported rather than read as silence. Win32 only; a no-op elsewhere.
-pub mod debug;
 
 pub mod window_proc;
 
