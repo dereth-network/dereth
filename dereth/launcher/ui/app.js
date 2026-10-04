@@ -67,7 +67,10 @@ function installName(i) {
 }
 function setName(s) {
   if (!s) return "No data files";
-  if (s.kind === "classic") return `Classic  portal.dat + cell.dat`;
+  if (s.kind === "classic") {
+    const it = setIterations(s);
+    return `Classic  ${it.portal ?? "-"}/${it.cell ?? "-"}`;
+  }
   const it = setIterations(s);
   const o = s.origin;
   const what =
@@ -83,7 +86,7 @@ function eraLabel(name) {
 }
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
-  const name = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE", other: "Other", unknown: "Unknown" }[w.emulator] ?? w.emulator;
+  const name = { empyrean: "Empyrean", ace: "ACE", classic_ace: "ClassicACE", gdle: "GDLE", unknown: "Unknown" }[w.emulator] ?? w.emulator;
   const v = (w.emulator_version ?? "").replace(/^v/i, "");
   return v ? `${name} | v${v}` : name;
 }
@@ -286,7 +289,9 @@ function homeEntries() {
   const s = ui.snap.state;
   const favs = s.favourites.map((f) => ({ ...f, fav: f }));
   const recents = s.recent.filter((r) => !s.favourites.some((f) => sameCombo(f, r))).map((r) => ({ ...r, fav: null }));
-  return [...favs, ...recents];
+  // A world the list no longer names is not offered; the backend forgets it once the list is read.
+  const listed = (e) => ui.snap.worlds.length === 0 || !!worldBy(e.world_slug);
+  return [...favs, ...recents].filter(listed);
 }
 
 function home() {
@@ -334,8 +339,9 @@ const FILTERS = [
   ["pvp", "PvP"],
 ];
 
-// The emulators a player can name for a server they add, by the backend's names.
-const EMULATORS = [["unknown", "Unknown"], ["ace", "ACE"], ["classic_ace", "ClassicACE"], ["gdle", "GDLE"], ["empyrean", "Empyrean"], ["other", "Other"]];
+// The emulators a player can name for a server they add, by the backend's names: Unknown, the
+// default, then Empyrean first.
+const EMULATORS = [["unknown", "Unknown"], ["empyrean", "Empyrean"], ["ace", "ACE"], ["classic_ace", "ClassicACE"], ["gdle", "GDLE"]];
 
 const isCustom = (w) => ui.snap.state.custom_worlds.some((c) => c.slug === w.slug);
 
@@ -750,10 +756,11 @@ function findSummary(f, purpose) {
   }
   if (f.dats) {
     const it = setIterations(f.dats);
-    lines.push(`<p><span class="${isEndOfRetail(it) ? "good" : "warn"}">${isEndOfRetail(it) ? "MODERN" : "MODERN, OLDER"}</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}, local ${it.local ?? "-"}, highres ${it.highres ?? "-"}${isEndOfRetail(it) ? " = end of retail" : " (from before the final patch)"}</p>`);
+    lines.push(`<p><span class="${isEndOfRetail(it) ? "good" : "warn"}">${isEndOfRetail(it) ? "MODERN" : "MODERN, OLDER"}</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}, local ${it.local ?? "-"}, highres ${it.highres ?? "-"}${isEndOfRetail(it) ? "" : " (from before the final patch)"}</p>`);
   }
   if (f.classic) {
-    lines.push(`<p><span class="good">CLASSIC</span> — portal.dat and cell.dat, from before Throne of Destiny</p>`);
+    const it = setIterations(f.classic);
+    lines.push(`<p><span class="good">CLASSIC</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}</p>`);
   }
   if (!f.dats && !f.classic && !f.error) {
     lines.push(`<p class="warn">No data files in this folder.</p>`);

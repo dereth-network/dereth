@@ -14,7 +14,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dat::{read_dat, DatKind};
+use crate::dat::{read_dat, ContainerEra, DatKind};
 
 /// One count per file. Any of them may be unknown: a world that has not said, or a file that is
 /// not there.
@@ -293,16 +293,28 @@ pub fn scan_dir(path: &Path) -> Vec<DatFileState> {
     scan_files(path, &[])
 }
 
-/// Read a folder's Classic pair, `portal.dat` and `cell.dat`: each file that is there, by its size
-/// and time. Their iterations are not read; a Classic set is known by being the pair. Empty when
-/// neither is there.
+/// Read a folder's Classic pair, `portal.dat` and `cell.dat`: each file that is there, by its size,
+/// time and the iteration its header keeps; a file that is not the one its name says is listed with
+/// why. Empty when neither is there.
 pub fn scan_classic_dir(dir: &Path) -> Vec<DatFileState> {
     CLASSIC_FILES
         .iter()
         .filter_map(|&(role, name)| {
-            let meta = std::fs::metadata(dir.join(name))
-                .ok()
-                .filter(|m| m.is_file())?;
+            let path = dir.join(name);
+            let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file())?;
+            let (iterations, error) = match read_dat(&path) {
+                Ok(info) if info.era == ContainerEra::PreTod && kind_matches(role, info.kind) => {
+                    (Some(info.iterations.count), None)
+                }
+                Ok(_) => (
+                    None,
+                    Some(format!(
+                        "this is not the {} file from before Throne of Destiny",
+                        role.label()
+                    )),
+                ),
+                Err(e) => (None, Some(e.to_string())),
+            };
             Some(DatFileState {
                 role,
                 file_name: name.to_owned(),
@@ -313,8 +325,8 @@ pub fn scan_classic_dir(dir: &Path) -> Vec<DatFileState> {
                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map_or(0, |d| d.as_secs()),
                 read_only: meta.permissions().readonly(),
-                iterations: None,
-                error: None,
+                iterations,
+                error,
             })
         })
         .collect()
@@ -377,7 +389,9 @@ fn scan_files(dir: &Path, previous: &[DatFileState]) -> Vec<DatFileState> {
             }
         }
         let (iterations, error) = match read_dat(&path) {
-            Ok(info) if kind_matches(role, info.kind) => (Some(info.iterations.count), None),
+            Ok(info) if info.era == ContainerEra::Tod && kind_matches(role, info.kind) => {
+                (Some(info.iterations.count), None)
+            }
             Ok(info) => (
                 None,
                 Some(format!(
@@ -542,11 +556,15 @@ pub(crate) mod tests {
     fn a_classic_pair_is_read_beside_a_modern_set_and_one_file_alone_is_not_a_pair() {
         let d = tmp("classic");
         fake_set(&d, Iterations::END_OF_RETAIL);
-        std::fs::write(d.join("portal.dat"), b"portal").unwrap();
+        std::fs::write(
+            d.join("portal.dat"),
+            crate::dat::testdat::pre_tod(false, 2112),
+        )
+        .unwrap();
         let one = scan_classic_dir(&d);
         assert_eq!(one.len(), 1);
         assert!(!is_classic_pair(&one));
-        std::fs::write(d.join("cell.dat"), b"cell!").unwrap();
+        std::fs::write(d.join("cell.dat"), crate::dat::testdat::pre_tod(true, 1593)).unwrap();
         let mut set = DatSet {
             id: "c".into(),
             path: d.clone(),
@@ -557,7 +575,38 @@ pub(crate) mod tests {
             created_by_launcher: false,
         };
         assert!(is_classic_pair(&set.files));
-        assert_eq!(set.total_size(), 11);
+        assert_eq!(set.total_size(), 0x800 + 0x500);
+        let it = set.iterations();
+        assert_eq!(
+            (it.portal, it.cell),
+            (Some(2112), Some(1593)),
+            "each file's header iteration"
+        );
+        assert!(set.files.iter().all(|f| f.error.is_none()));
+        // A later file under an older one's name is named as wrong.
+        std::fs::write(d.join("cell.dat"), eor(2, 1, 982)).unwrap();
+        let wrong = scan_classic_dir(&d);
+        let cell = wrong.iter().find(|f| f.role == DatRole::Cell).unwrap();
+        assert_eq!(cell.iterations, None);
+        assert!(cell
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("before Throne of Destiny"));
+        // And an older file under a later one's name.
+        std::fs::write(
+            d.join(DatRole::Portal.file_name()),
+            crate::dat::testdat::pre_tod(false, 2112),
+        )
+        .unwrap();
+        let later = scan_dir(&d);
+        assert!(later
+            .iter()
+            .find(|f| f.role == DatRole::Portal)
+            .unwrap()
+            .error
+            .is_some());
+        fake_set(&d, Iterations::END_OF_RETAIL);
         assert_eq!(
             scan_dir(&d).len(),
             4,

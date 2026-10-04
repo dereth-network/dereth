@@ -25,8 +25,10 @@ pub enum Emulator {
     /// ClassicACE, a fork of ACE.
     ClassicAce,
     Gdle,
-    Other,
+    /// Not said, or software the launcher does not know by name, which it treats alike. A record
+    /// saved as `other` reads as this.
     #[default]
+    #[serde(alias = "other")]
     Unknown,
 }
 
@@ -35,11 +37,10 @@ impl Emulator {
         match s.to_ascii_lowercase().as_str() {
             "empyrean" => Emulator::Empyrean,
             "ace" => Emulator::Ace,
-            "classicace" | "classic ace" | "classic-ace" => Emulator::ClassicAce,
+            "classicace" | "classic ace" | "classic-ace" | "classic_ace" => Emulator::ClassicAce,
             // The community list spells it `GDL`.
             "gdle" | "gdl" => Emulator::Gdle,
-            "" => Emulator::Unknown,
-            _ => Emulator::Other,
+            _ => Emulator::Unknown,
         }
     }
 
@@ -49,7 +50,6 @@ impl Emulator {
             Emulator::Ace => "ACE",
             Emulator::ClassicAce => "ClassicACE",
             Emulator::Gdle => "GDLE",
-            Emulator::Other => "Other",
             Emulator::Unknown => "Unknown",
         }
     }
@@ -63,15 +63,6 @@ impl Emulator {
             Emulator::Empyrean | Emulator::Ace | Emulator::ClassicAce | Emulator::Gdle
         )
     }
-
-    /// The emulators a player can name for a server they add, in the order offered.
-    pub const CHOOSABLE: [Emulator; 5] = [
-        Emulator::Ace,
-        Emulator::ClassicAce,
-        Emulator::Gdle,
-        Emulator::Empyrean,
-        Emulator::Other,
-    ];
 }
 
 /// Whether a world is up, as last reported.
@@ -643,6 +634,17 @@ mod tests {
         assert_eq!(w.era_source, None);
         assert_eq!(Emulator::parse("ClassicACE"), Emulator::ClassicAce);
         assert_eq!(Emulator::ClassicAce.label(), "ClassicACE");
+        assert_eq!(
+            Emulator::parse("Thwarg"),
+            Emulator::Unknown,
+            "a name not known is unknown"
+        );
+        let saved: Emulator = serde_json::from_str("\"other\"").unwrap();
+        assert_eq!(
+            saved,
+            Emulator::Unknown,
+            "a record saved as other reads as unknown"
+        );
         assert_eq!(
             world(r#"{"slug":"a","era":"eor"}"#).era_source,
             Some(Told::World)

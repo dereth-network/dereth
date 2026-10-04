@@ -477,6 +477,19 @@ impl LauncherState {
         self.world_eras.remove(slug);
     }
 
+    /// Forget the recent and favourite combinations whose world is no longer listed: not among
+    /// `listed` and not a server the player added. Answers whether anything was forgotten. The
+    /// caller passes a list it has just read whole, never an empty one from a failed fetch.
+    pub fn forget_unlisted(&mut self, listed: &std::collections::HashSet<&str>) -> bool {
+        let custom: std::collections::HashSet<String> =
+            self.custom_worlds.iter().map(|w| w.slug.clone()).collect();
+        let keep = |slug: &str| listed.contains(slug) || custom.contains(slug);
+        let before = self.recent.len() + self.favourites.len();
+        self.recent.retain(|r| keep(&r.world_slug));
+        self.favourites.retain(|f| keep(&f.world_slug));
+        before != self.recent.len() + self.favourites.len()
+    }
+
     /// Record a combination as the most recent, keeping each combination once and the last
     /// [`RECENT_LIMIT`].
     pub fn record_recent(&mut self, recent: Recent) {
@@ -757,6 +770,44 @@ mod tests {
         assert!(s.set_default_set("m2"));
         assert_eq!(id(s.shared_set()), Some("m2".into()));
         assert_eq!(id(s.default_set(SetKind::Classic)), Some("c2".into()));
+    }
+
+    #[test]
+    fn play_again_forgets_worlds_no_longer_listed_and_keeps_the_players_own_servers() {
+        let mut s = LauncherState::default();
+        let slug = s
+            .add_custom_world("", "127.0.0.1", "9000", None, Emulator::Unknown)
+            .unwrap();
+        for world in ["leafcull", "gone", slug.as_str()] {
+            s.record_recent(Recent {
+                world_slug: world.into(),
+                account: "player".into(),
+                client: ClientKind::Dereth,
+                dat_set_id: None,
+                classic_set_id: None,
+                last_played: 1,
+            });
+            s.favourites.push(Favourite {
+                id: format!("f-{world}"),
+                name: None,
+                world_slug: world.into(),
+                account: "player".into(),
+                client: ClientKind::Dereth,
+                dat_set_id: None,
+                classic_set_id: None,
+            });
+        }
+        let listed: std::collections::HashSet<&str> = ["leafcull"].into_iter().collect();
+        assert!(s.forget_unlisted(&listed));
+        let mut recent: Vec<&str> = s.recent.iter().map(|r| r.world_slug.as_str()).collect();
+        let mut favs: Vec<&str> = s.favourites.iter().map(|f| f.world_slug.as_str()).collect();
+        let mut want = vec!["leafcull", slug.as_str()];
+        recent.sort_unstable();
+        favs.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(recent, want);
+        assert_eq!(favs, want);
+        assert!(!s.forget_unlisted(&listed), "nothing more to forget");
     }
 
     #[test]

@@ -25,6 +25,9 @@ sha2.workspace = true
 # The registry snapshot is signed. Verification only: the launcher never holds a signing key, so
 # the crate's key-generation half (and its random-number dependency) is left out.
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# A dat's identity and iteration count, read through the data-file crate's own container reader,
+# which knows both layouts: the files from before Throne of Destiny and the later ones.
+dereth-dat.workspace = true
 # The server-tracker login that asks a server whether it is up is an ordinary first packet; the
 # transport crate builds and parses it.
 dereth-transport.workspace = true

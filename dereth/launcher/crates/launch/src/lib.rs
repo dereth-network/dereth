@@ -1,9 +1,9 @@
 //! What the Dereth launcher knows, with no window, no renderer and no operating system in it.
 //!
 //! **Depends on** the transport crate (`dereth-transport`), for the server-tracker login that asks
-//! a server whether it is up, and the primitives crate (`dereth-primitives`), for the client's era
-//! table; its tests read the retail dats through `dereth-dat` when a run has
-//! them. **Used by** the launcher's window, the Tauri app in `dereth/launcher`, which is a
+//! a server whether it is up, the primitives crate (`dereth-primitives`), for the client's era
+//! table, and the data-file crate (`dereth-dat`), for a dat's identity and iterations in either
+//! layout. **Used by** the launcher's window, the Tauri app in `dereth/launcher`, which is a
 //! workspace of its own.
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:

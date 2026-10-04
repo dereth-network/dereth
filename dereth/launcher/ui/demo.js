@@ -15,8 +15,8 @@
   const files = (it, ro, size = 360 * 1048576) =>
     ["portal", "cell", "local", "highres"].map((role) => ({ role, file_name: `client_${role}.dat`, size, modified: 0, read_only: ro, iterations: it[role] }));
   const classicFiles = (ro) => [
-    { role: "portal", file_name: "portal.dat", size: 420 * 1048576, modified: 0, read_only: ro, iterations: null },
-    { role: "cell", file_name: "cell.dat", size: 480 * 1048576, modified: 0, read_only: ro, iterations: null },
+    { role: "portal", file_name: "portal.dat", size: 420 * 1048576, modified: 0, read_only: ro, iterations: 2112 },
+    { role: "cell", file_name: "cell.dat", size: 480 * 1048576, modified: 0, read_only: ro, iterations: 1593 },
   ];
 
   // The client's era table, as the backend sends it.

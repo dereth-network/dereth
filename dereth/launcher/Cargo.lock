@@ -828,9 +828,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-dat"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+ "sha2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
+ "dereth-dat",
  "dereth-primitives",
  "dereth-transport",
  "ed25519-dalek",

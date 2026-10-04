@@ -449,6 +449,18 @@ impl Backend {
         w
     }
 
+    /// Forget Play Again's entries for worlds the list read last no longer names. Only after a list
+    /// was read whole: a failed fetch, or one that came back empty, forgets nothing.
+    fn forget_unlisted(&mut self) {
+        if self.worlds.is_empty() {
+            return;
+        }
+        let listed: HashSet<&str> = self.worlds.iter().map(|w| w.slug.as_str()).collect();
+        if self.state.forget_unlisted(&listed) {
+            self.save();
+        }
+    }
+
     /// Every world: the list's, then the servers the player added.
     fn all_worlds(&self) -> impl Iterator<Item = World> + '_ {
         self.worlds
@@ -507,6 +519,7 @@ impl Backend {
             fresh
         };
         if fresh {
+            lock(shared).forget_unlisted();
             Self::probe_all(shared);
         } else {
             Self::refresh(shared);
@@ -534,6 +547,7 @@ impl Backend {
                     b.list_cache = Some(cache);
                     b.list_state = ListState::Loaded;
                     b.list_error = None;
+                    b.forget_unlisted();
                 }
                 Err(e) => {
                     b.list_state = ListState::Unavailable;
@@ -1556,6 +1570,38 @@ mod tests {
             "fresh: no fetch at start"
         );
         assert_eq!(s.eras.len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn play_again_forgets_a_world_the_list_no_longer_names_but_not_on_an_empty_list() {
+        let (mut b, dir) = backend("unlisted");
+        for world in ["eulmore", "gone"] {
+            b.state.record_recent(Recent {
+                world_slug: world.into(),
+                account: "player".into(),
+                client: ClientKind::Dereth,
+                dat_set_id: None,
+                classic_set_id: None,
+                last_played: 1,
+            });
+        }
+        let all = b.worlds.clone();
+        b.worlds.clear();
+        b.forget_unlisted();
+        assert_eq!(b.state.recent.len(), 2, "an empty list forgets nothing");
+        b.worlds = all;
+        b.forget_unlisted();
+        assert_eq!(
+            b.state
+                .recent
+                .iter()
+                .map(|r| r.world_slug.as_str())
+                .collect::<Vec<_>>(),
+            ["eulmore"]
+        );
+        let (saved, _) = LauncherState::load(&dir.join("state"));
+        assert_eq!(saved.recent.len(), 1, "and the history on disk with it");
         let _ = std::fs::remove_dir_all(dir);
     }
 
