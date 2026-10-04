@@ -245,7 +245,7 @@ impl Panel for Inventory {
         }
         // Stretched, the page's art keeps its top 360 rows with a dark tile below, and the
         // contents grid grows downwards.
-        let height = self.height.unwrap_or_else(crate::panels::side_height) as i32;
+        let height = self.height.unwrap_or_else(|| ctx.layout.side_height()) as i32;
         let grid_height = (height - 266) / 32 * 32;
         let container_extent = g.player().map_or(0, |player| {
             i32_from(slots(g, player, true, 1, 7).len()) * 36
@@ -991,6 +991,8 @@ mod slot_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &Corpse,
             pregame: &pregame,
@@ -1081,6 +1083,8 @@ mod fitting_scroll_tests {
         let mut panel = Inventory::default();
         let frame = |game: &Contents, panel: &Inventory| {
             panel.frame(&Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 game,
                 pregame: &Default::default(),

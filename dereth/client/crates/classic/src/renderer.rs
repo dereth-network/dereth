@@ -198,7 +198,7 @@ impl Font {
 struct Manifest {
     art: Arc<ClassicArt>,
     assets: BTreeMap<String, Image>,
-    fonts: BTreeMap<String, Arc<Font>>,
+    fonts: Arc<BTreeMap<String, Arc<Font>>>,
 }
 impl Manifest {
     fn new(art: Arc<ClassicArt>) -> Self {
@@ -210,7 +210,7 @@ impl Manifest {
         Self {
             art,
             assets: BTreeMap::new(),
-            fonts,
+            fonts: Arc::new(fonts),
         }
     }
     fn image(&self, did: &str) -> Option<Image> {
@@ -251,39 +251,33 @@ fn recolour_white(base: &mut [u8], colour: &[u8]) {
         }
     }
 }
-static FONT_METRICS: std::sync::RwLock<Option<BTreeMap<String, Arc<Font>>>> =
-    std::sync::RwLock::new(None);
-pub fn font_line_height(font: &str) -> Option<i32> {
-    FONT_METRICS
-        .read()
-        .ok()?
-        .as_ref()?
-        .get(font)
-        .map(|f| f.line_height)
+/// Measurements shared with the canvas that owns these decoded fonts.
+#[derive(Clone, Default)]
+pub struct FontMetrics(Arc<BTreeMap<String, Arc<Font>>>);
+impl std::fmt::Debug for FontMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("FontMetrics")
+            .field(&self.0.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
-pub fn measure_text_width(font: &str, text: &str) -> Option<i32> {
-    FONT_METRICS
-        .read()
-        .ok()?
-        .as_ref()?
-        .get(font)
-        .map(|f| measure(f, text))
-}
-pub fn measure_text_height(font: &str, text: &str, width: i32) -> Option<i32> {
-    FONT_METRICS
-        .read()
-        .ok()?
-        .as_ref()?
-        .get(font)
-        .map(|f| i32_from(text_lines(f, text, width, true).len()) * f.line_height)
-}
-pub fn measure_rich_text_height(font: &str, runs: &[crate::TextRun], width: i32) -> Option<i32> {
-    FONT_METRICS
-        .read()
-        .ok()?
-        .as_ref()?
-        .get(font)
-        .map(|f| i32_from(rich_lines(f, runs, width, true).len()) * f.line_height)
+impl FontMetrics {
+    pub fn line_height(&self, font: &str) -> Option<i32> {
+        self.0.get(font).map(|f| f.line_height)
+    }
+    pub fn text_width(&self, font: &str, text: &str) -> Option<i32> {
+        self.0.get(font).map(|f| measure(f, text))
+    }
+    pub fn text_height(&self, font: &str, text: &str, width: i32) -> Option<i32> {
+        self.0
+            .get(font)
+            .map(|f| i32_from(text_lines(f, text, width, true).len()) * f.line_height)
+    }
+    pub fn rich_text_height(&self, font: &str, runs: &[crate::TextRun], width: i32) -> Option<i32> {
+        self.0
+            .get(font)
+            .map(|f| i32_from(rich_lines(f, runs, width, true).len()) * f.line_height)
+    }
 }
 
 pub struct Canvas {
@@ -691,9 +685,6 @@ impl Canvas {
             return Err("invalid screen dimensions".into());
         }
         let manifest = Manifest::new(art);
-        *FONT_METRICS
-            .write()
-            .map_err(|_| "font metrics lock poisoned")? = Some(manifest.fonts.clone());
         Ok(Self {
             runtime_pixels: BTreeMap::new(),
             world_indexed: BTreeMap::new(),
@@ -707,6 +698,9 @@ impl Canvas {
             next_key: 1,
             items: Vec::new(),
         })
+    }
+    pub fn font_metrics(&self) -> FontMetrics {
+        FontMetrics(Arc::clone(&self.manifest.fonts))
     }
     pub fn resize(&mut self, size: (u32, u32)) {
         self.size = size;
@@ -1433,6 +1427,146 @@ mod layout_tests {
             low,
             high: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn control_edits_and_stack_labels_keep_their_own_font_metrics() {
+        use crate::{
+            control_host::ControlHost,
+            panels::{rect, ItemEntry, PanelFrame},
+            Command,
+        };
+        let metrics = |advance, height| {
+            let mut f = font(advance, advance);
+            f.line_height = height;
+            FontMetrics(Arc::new(BTreeMap::from([("14-5".into(), Arc::new(f))])))
+        };
+        let a = metrics(4, 11);
+        let b = metrics(9, 19);
+        let mut frame = PanelFrame::new(120, 60);
+        frame
+            .edit("entry", rect(0, 0, 120, 40), "abcd", 20, false, true)
+            .font = "14-5".into();
+        let mut ah = ControlHost::new(a.clone());
+        let mut bh = ControlHost::new(b.clone());
+        let caret = |host: &mut ControlHost| {
+            host.sync(&frame);
+            host.focus_control("entry");
+            host.place_caret("entry", 2);
+            host.draw(&frame)
+                .commands
+                .into_iter()
+                .find_map(|c| match c {
+                    Command::Fill {
+                        width: 1,
+                        x,
+                        height,
+                        ..
+                    } => Some((x, height)),
+                    _ => None,
+                })
+                .expect("edit caret")
+        };
+        let ac = caret(&mut ah);
+        let bc = caret(&mut bh);
+        assert_eq!(bc.0 - ac.0, 10);
+        assert_eq!((ac.1, bc.1), (11, 19));
+        bh.set_fonts(metrics(12, 23));
+        assert_ne!(caret(&mut bh), bc);
+        assert_eq!(caret(&mut ah), ac);
+        let stack = |fonts: &FontMetrics| {
+            let mut frame = PanelFrame::new(36, 36);
+            let mut entry = ItemEntry::empty();
+            entry.id = dereth_primitives::ObjectId(1);
+            entry.amount = Some(12);
+            crate::item_art::paint(fonts, &mut frame, &entry, rect(0, 0, 36, 36), true, None);
+            frame
+                .screen
+                .commands
+                .into_iter()
+                .find_map(|c| match c {
+                    Command::Text {
+                        text,
+                        x,
+                        color: 0xffd2d2c8,
+                        ..
+                    } if text == "12" => Some(x),
+                    _ => None,
+                })
+                .expect("stack label")
+        };
+        assert_eq!((stack(&a), stack(&b)), (25, 15));
+        drop(bh);
+        assert_eq!(caret(&mut ah), ac);
+        assert_eq!(stack(&a), 25);
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads installed interface art")]
+    fn canvases_and_resource_metrics_keep_each_supplied_art_font_source() {
+        use dereth_classic_dat::fonts::{FontAtlas, FontSource, FontSpec, Glyph};
+        struct Source(i32);
+        impl FontSource for Source {
+            fn rasterize(&self, _: &FontSpec) -> std::result::Result<FontAtlas, String> {
+                Ok(FontAtlas {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![255; 4],
+                    line_height: self.0 + 8,
+                    glyphs: (32..127)
+                        .map(|c| {
+                            (
+                                c,
+                                Glyph {
+                                    advance: self.0,
+                                    width: 1,
+                                    height: 1,
+                                    ..Default::default()
+                                },
+                            )
+                        })
+                        .collect(),
+                    ..Default::default()
+                })
+            }
+        }
+        let portal = std::path::PathBuf::from(
+            std::env::var_os("DERETH_CLASSIC_PORTAL").expect("interface portal"),
+        );
+        let create = |advance| {
+            let art = Arc::new(
+                ClassicArt::new(
+                    dereth_classic_dat::ClassicPortal::open(&portal).unwrap(),
+                    &Source(advance),
+                )
+                .unwrap(),
+            );
+            let canvas = Canvas::new(Arc::clone(&art), (800, 600)).unwrap();
+            let mut resources = crate::resources::Resources::new(
+                art,
+                Err("World creation tables unavailable".into()),
+                None,
+            );
+            resources.fonts = canvas.font_metrics();
+            assert!(Arc::ptr_eq(&resources.fonts.0, &canvas.manifest.fonts));
+            (canvas, resources)
+        };
+        let (a, ar) = create(4);
+        let (b, br) = create(9);
+        assert!(!Arc::ptr_eq(
+            ar.art.as_ref().unwrap(),
+            br.art.as_ref().unwrap()
+        ));
+        assert_eq!(ar.fonts.text_width("16-7", "abc"), Some(12));
+        assert_eq!(br.fonts.text_width("16-7", "abc"), Some(27));
+        assert_eq!(a.text_width("16-7", "abc"), 12);
+        assert_eq!(b.text_width("16-7", "abc"), 27);
+        let rebuilt = Canvas::new(Arc::clone(br.art.as_ref().unwrap()), (1024, 768)).unwrap();
+        assert_eq!(rebuilt.font_metrics().line_height("16-7"), Some(17));
+        assert_eq!(ar.fonts.line_height("16-7"), Some(12));
+        drop((b, rebuilt, br));
+        assert_eq!(a.text_width("16-7", "abc"), 12);
+        assert_eq!(ar.fonts.text_width("16-7", "abc"), Some(12));
     }
 
     #[test]

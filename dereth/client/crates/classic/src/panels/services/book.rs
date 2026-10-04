@@ -8,8 +8,10 @@ const PAGE_FONT: &str = "15-6";
 
 /// Whether page text fits on the page: wrapped to the page's width inside its edges, no taller
 /// than the page.
-fn fits_on_page(text: &str) -> bool {
-    crate::renderer::measure_text_height(PAGE_FONT, text, 253).is_none_or(|h| h <= 243)
+fn fits_on_page(fonts: &crate::renderer::FontMetrics, text: &str) -> bool {
+    fonts
+        .text_height(PAGE_FONT, text, 253)
+        .is_none_or(|h| h <= 243)
 }
 
 impl Panel for Book {
@@ -17,7 +19,7 @@ impl Panel for Book {
         "book"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let height = crate::panels::side_height();
+        let height = c.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         f.image("06001398", rect(0, 0, 300, height as i32), true, false);
         for (did, r) in [
@@ -116,7 +118,7 @@ impl Panel for Book {
         let book = b.book_id;
         let action = match e {
             ControlEvent::Edit { id, text } if id == "text" && state.editable && !state.pending => {
-                if !fits_on_page(&text) {
+                if !fits_on_page(&c.resources.fonts, &text) {
                     return vec![];
                 }
                 BookAction::Edit {
@@ -175,6 +177,8 @@ mod tests {
         });
         let (state, pregame, keyboard, settings) = Default::default();
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &pregame,
@@ -228,6 +232,8 @@ mod tests {
             let (pregame, keyboard, settings) = Default::default();
             state.book_edit_privileged = true;
             let c = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &game,
                 pregame: &pregame,

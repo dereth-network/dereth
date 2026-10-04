@@ -221,6 +221,8 @@ mod tests {
     fn held_attack_emits_one_request_per_edge_and_never_on_plain_activation() {
         let mut p = Combat::default();
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &World,
             pregame: &PregameView::default(),
@@ -269,6 +271,8 @@ mod tests {
     fn keep_in_view_sets_the_combat_target_tracking_option() {
         let mut p = Combat::default();
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &World,
             pregame: &PregameView::default(),

@@ -567,6 +567,8 @@ pub struct UiShell {
     chargen_actions: Vec<CharGenAction>,
     /// Character-generation data and the `SkillTable`, loaded once. `None` when either would not decode.
     chargen_tables: Option<Rc<CharGenTables>>,
+    /// The Classic presentation of the same world rules, retained across interface rebuilds.
+    classic_creation: Result<Rc<dereth_classic_ui::panels::pregame::data::CreationData>, String>,
     /// The last character set pushed into a screen, so a rebuild happens on the edge.
     last_char_set: Option<dereth_ui::persist::CharacterSet>,
     /// Where the movie media step's no-database-file paths resolve from — the client's working
@@ -756,6 +758,17 @@ impl UiShell {
         // would work against this dat build and break on any other.
         let mut stats = UiStats::default();
         let chargen_tables = load_chargen_tables(&SharedStore(Arc::clone(world)), world);
+        let classic_creation = chargen_tables
+            .as_ref()
+            .map(|tables| {
+                Rc::new(
+                    dereth_classic_ui::panels::pregame::data::CreationData::load(
+                        Rc::clone(&tables.world),
+                        world,
+                    ),
+                )
+            })
+            .ok_or_else(|| "World creation tables unavailable".to_owned());
         if chargen_tables.is_none() {
             stats.chargen_table_failures += 1;
             tracing::warn!("the char-gen tables did not load; creation is unavailable");
@@ -772,6 +785,7 @@ impl UiShell {
             character_actions: Vec::new(),
             chargen_actions: Vec::new(),
             chargen_tables,
+            classic_creation,
             last_char_set: None,
             client_dir: std::path::PathBuf::from("."),
             movie_bytes: |_| None,
@@ -792,6 +806,16 @@ impl UiShell {
             session_maps: None,
             key_down_dispatch: false,
         })
+    }
+
+    /// The Classic presentation of this shell's already loaded creation rules.
+    ///
+    /// # Errors
+    /// The world creation tables could not be loaded when this shell was constructed.
+    pub fn classic_creation_data(
+        &self,
+    ) -> Result<Rc<dereth_classic_ui::panels::pregame::data::CreationData>, String> {
+        self.classic_creation.clone()
     }
 
     /// Main-loop step 7: advance the UI element manager.
@@ -2454,7 +2478,6 @@ fn load_chargen_tables(
     assets: &dyn dereth_primitives::AssetSource,
     store: &Arc<dereth_dat::RetailDatStore>,
 ) -> Option<Rc<CharGenTables>> {
-    dereth_classic_ui::panels::pregame::data::clear();
     use dereth_assets::Decode;
     use dereth_ui::framework::{DidMapperResolver, LayoutEnum, LayoutEnumResolver as _};
 
@@ -2540,12 +2563,6 @@ fn load_chargen_tables(
             cache: std::cell::RefCell::new(std::collections::BTreeMap::new()),
         })),
     });
-    dereth_classic_ui::panels::pregame::data::install(Rc::new(
-        dereth_classic_ui::panels::pregame::data::CreationData::load(
-            Rc::clone(&tables.world),
-            store,
-        ),
-    ));
     Some(tables)
 }
 
@@ -2716,5 +2733,41 @@ mod tests {
             ..msg
         };
         assert_eq!(character_set_from_login(&neg).num_allowed_characters, 0);
+    }
+
+    /// Behaviour: none (both interface projections share their shell's loaded world rules).
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn classic_creation_reuses_its_shell_rules_without_borrowing_another_shells_projection() {
+        let store = Arc::new(dereth_dat::testing::open_store_or_fail());
+        let first = UiShell::new(&store, (800, 600)).expect("first shell");
+        let projection = first.classic_creation_data().expect("creation projection");
+        assert!(Rc::ptr_eq(
+            &projection.tables,
+            &first.chargen_tables.as_ref().expect("world rules").world,
+        ));
+        let second = UiShell::new(&store, (1024, 768)).expect("second shell");
+        let second_projection = second.classic_creation_data().expect("second projection");
+        assert!(!Rc::ptr_eq(&projection, &second_projection));
+        assert!(Rc::ptr_eq(
+            &second_projection.tables,
+            &second
+                .chargen_tables
+                .as_ref()
+                .expect("second world rules")
+                .world,
+        ));
+        assert!(Rc::ptr_eq(
+            &projection,
+            &first.classic_creation_data().unwrap()
+        ));
+        drop(second);
+        assert!(Rc::ptr_eq(
+            &projection,
+            &first.classic_creation_data().unwrap()
+        ));
     }
 }

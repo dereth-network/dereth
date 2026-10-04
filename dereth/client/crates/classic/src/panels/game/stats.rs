@@ -215,7 +215,7 @@ impl Panel for Stats {
     fn frame(&self, context: &Context<'_>) -> PanelFrame {
         let game = context.game;
         // With the stretched interface the rows list grows and the footer keeps to the bottom.
-        let height = crate::panels::side_height() as i32;
+        let height = context.layout.side_height() as i32;
         let dy = height - 362;
         let luminance = shared::HeaderInputs::gather(game).luminance_line();
         let extra = if luminance.0.is_empty() { 0 } else { 16 };
@@ -766,6 +766,8 @@ mod tests {
     }
     fn context<T>(view: &dyn GameView, f: impl FnOnce(&Context<'_>) -> T) -> T {
         f(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: view,
             pregame: &Default::default(),

@@ -22,6 +22,8 @@ impl GameView for Shop {
 #[test]
 fn dragging_over_the_vendor_opens_selling_before_the_item_is_dropped() {
     let c = Context {
+        resources: &crate::resources::Resources::default(),
+        layout: crate::panels::Layout::default(),
         now: dereth_primitives::LocalTime(0.0),
         game: &Shop,
         pregame: &PregameView::default(),
@@ -38,7 +40,8 @@ fn dragging_over_the_vendor_opens_selling_before_the_item_is_dropped() {
     let overlay = Window {
         token: 999,
         key: "overlay".into(),
-        panel: crate::panels::factory("vendor", dereth_primitives::LocalTime(0.0)).unwrap(),
+        panel: crate::panels::factory("vendor", dereth_primitives::LocalTime(0.0), c.resources)
+            .unwrap(),
         controls: ControlHost::default(),
         frame: PanelFrame::new(100, 100),
         x: x - 10,

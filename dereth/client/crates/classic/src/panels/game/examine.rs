@@ -76,7 +76,7 @@ impl Panel for Examine {
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
         let g = ctx.game;
-        let height = crate::panels::side_height();
+        let height = ctx.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         panel_backdrop(&mut f, height as i32);
         image(&mut f, 0x06001291, rect(0, 0, 276, 25), None, true, false);
@@ -157,6 +157,7 @@ impl Panel for Examine {
                     );
                 }
                 rich_scroll(
+                    &ctx.resources.fonts,
                     &mut f,
                     rect(9, 121, 266, 170),
                     vec![crate::TextRun {
@@ -246,7 +247,7 @@ impl Panel for Examine {
             let face = ctx.classic.portraits.get(&object);
             if pane == AppraisalPane::Creature {
                 if let Some(portrait) = face {
-                    draw_portrait(&mut f, portrait);
+                    draw_portrait(&mut f, portrait, ctx.resources.art.as_deref());
                     image(&mut f, 0x060012c6, rect(172, 25, 7, 60), None, true, false);
                 } else {
                     tile_icon(&mut f, g, object, 190, 40);
@@ -287,13 +288,14 @@ impl Panel for Examine {
             );
             if pane == AppraisalPane::Character {
                 if let Some(portrait) = ctx.classic.portraits.get(&object) {
-                    draw_portrait(&mut f, portrait);
+                    draw_portrait(&mut f, portrait, ctx.resources.art.as_deref());
                 }
                 image(&mut f, 0x060012c6, rect(172, 25, 7, 60), None, true, false);
                 // The character's lines sit two pixels inside their box.
                 rich_scroll_inset(
+                    &ctx.resources.fonts,
                     &mut f,
-                    rect(0, 299, 281, crate::panels::side_height() as i32 - 303),
+                    rect(0, 299, 281, ctx.layout.side_height() as i32 - 303),
                     2,
                     super::appraisal::character(&a, g.name(object).unwrap_or("")),
                     "15-6",
@@ -381,7 +383,7 @@ impl Panel for Examine {
         } else {
             tile_icon(&mut f, g, object, 245, 35);
             // Stretched, the description grows and the inscription keeps to the bottom.
-            let dy = crate::panels::side_height() as i32 - 362;
+            let dy = ctx.layout.side_height() as i32 - 362;
             separator(&mut f, 77);
             separator(&mut f, 277 + dy);
             text(
@@ -410,6 +412,7 @@ impl Panel for Examine {
                 None,
             );
             rich_scroll(
+                &ctx.resources.fonts,
                 &mut f,
                 rect(9, 85, 266, 192 + dy),
                 super::appraisal::rich(&a),
@@ -491,7 +494,7 @@ impl Panel for Examine {
                 y,
                 pressed: true,
             } => {
-                let dy = crate::panels::side_height() as i32 - 362;
+                let dy = ctx.layout.side_height() as i32 - 362;
                 self.inscription_focus = rect(4, 285 + dy, 292, 55).contains(x, y);
             }
             ControlEvent::Activate(id) if id == "close" => {
@@ -535,10 +538,14 @@ fn can_inscribe(object: ObjectId, a: &AppraisalView, g: &dyn GameView) -> bool {
 }
 
 // A character's portrait: three palette ranges over the face, with the eyes mirrored.
-fn draw_portrait(f: &mut PanelFrame, portrait: &ClassicPortrait) {
+fn draw_portrait(
+    f: &mut PanelFrame,
+    portrait: &ClassicPortrait,
+    art: Option<&crate::art::ClassicArt>,
+) {
     // The face's textures and palettes come from the classic portal. A palette it does not have
     // (a colour later than its era) leaves that range to the eye texture's own palette.
-    let Some(art) = crate::art::installed() else {
+    let Some(art) = art else {
         return;
     };
     let textures: Vec<_> = portrait
@@ -654,6 +661,8 @@ mod spell_tests {
         ] {
             let game = Spell(description);
             let ctx = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &game,
                 pregame: &Default::default(),
@@ -722,6 +731,8 @@ mod appraisal_tests {
     }
     fn with_context(view: &dyn GameView, run: impl FnOnce(&Context<'_>)) {
         run(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: view,
             pregame: &Default::default(),

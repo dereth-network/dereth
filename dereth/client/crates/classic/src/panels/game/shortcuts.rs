@@ -647,6 +647,8 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &TargetedSpell,
             pregame: &pregame,
@@ -674,6 +676,8 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
@@ -717,6 +721,8 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
@@ -775,6 +781,8 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
@@ -808,6 +816,8 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
@@ -832,6 +842,8 @@ mod magic_tests {
     }
     fn with_game(run: impl FnOnce(&Context<'_>), game: &dyn GameView) {
         run(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game,
             pregame: &Default::default(),

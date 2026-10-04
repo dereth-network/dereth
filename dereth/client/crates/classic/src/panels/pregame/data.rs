@@ -94,19 +94,6 @@ pub struct CreationData {
     pub help_text: BTreeMap<String, String>,
     pub text_heights: BTreeMap<String, i32>,
 }
-thread_local! { static INSTALLED: std::cell::RefCell<Option<Rc<CreationData>>> = const { std::cell::RefCell::new(None) }; }
-/// Install a world's presentation beside its shared rules on the interface thread.
-pub fn install(data: Rc<CreationData>) {
-    INSTALLED.with(|v| *v.borrow_mut() = Some(data));
-}
-pub fn clear() {
-    INSTALLED.with(|v| *v.borrow_mut() = None);
-}
-pub fn current() -> Result<Rc<CreationData>, String> {
-    INSTALLED
-        .with(|v| v.borrow().clone())
-        .ok_or_else(|| "World creation tables unavailable".into())
-}
 fn texture(desc: &ObjDesc, mirror: bool) -> String {
     desc.texture_changes
         .first()
@@ -307,11 +294,15 @@ impl CreationData {
         out
     }
     /// Credits are interface text, independent of the active world tables.
-    pub fn read_chrome(&mut self, art: &crate::art::ClassicArt) {
+    pub fn read_chrome(
+        &mut self,
+        art: &crate::art::ClassicArt,
+        fonts: &crate::renderer::FontMetrics,
+    ) {
         for id in [0x3100_0020, 0x3100_0022] {
             if let Some(bytes) = art.portal().get(id) {
                 if let Ok(text) = dereth_classic_dat::creation::decode_string(id, &bytes) {
-                    if let Some(height) = crate::renderer::measure_text_height("16-7", &text, 400) {
+                    if let Some(height) = fonts.text_height("16-7", &text, 400) {
                         self.text_heights.insert(id.to_string(), height);
                     }
                     self.help_text.insert(id.to_string(), text);

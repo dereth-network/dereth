@@ -11,8 +11,8 @@ const ROW: i32 = 32;
 const TOP: i32 = 25;
 
 /// A side page's frame: background, title bar, title and close button.
-fn page(title: &str) -> (PanelFrame, i32) {
-    let (mut f, h) = bare_page();
+fn page(c: &Context<'_>, title: &str) -> (PanelFrame, i32) {
+    let (mut f, h) = bare_page(c);
     image(&mut f, 0x0600127b, rect(0, 0, 276, 25), None, true, false);
     text(
         &mut f,
@@ -28,8 +28,8 @@ fn page(title: &str) -> (PanelFrame, i32) {
 }
 
 /// A side page's background and close button, for a page whose top row is its tabs.
-pub(super) fn bare_page() -> (PanelFrame, i32) {
-    let height = crate::panels::side_height();
+pub(super) fn bare_page(c: &Context<'_>) -> (PanelFrame, i32) {
+    let height = c.layout.side_height();
     let mut f = PanelFrame::new(300, height);
     let h = height as i32;
     image(&mut f, 0x06001398, rect(0, 0, 300, h), None, true, false);
@@ -107,7 +107,7 @@ impl Panel for Titles {
         "titles"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let (mut f, h) = page("Titles");
+        let (mut f, h) = page(c, "Titles");
         self.body(&mut f, h, c);
         f
     }
@@ -212,7 +212,7 @@ impl Panel for Contracts {
         "contracts"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let (mut f, h) = page("Contracts");
+        let (mut f, h) = page(c, "Contracts");
         self.body(&mut f, h, c);
         f
     }
@@ -658,11 +658,11 @@ impl Panel for Journal {
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
         if dereth_client_contract::era::quest_page(c.game.era_features(), None).is_none() {
-            let (mut f, h) = page("Journal");
+            let (mut f, h) = page(c, "Journal");
             self.body(&mut f, h, c);
             return f;
         }
-        let (mut f, h) = bare_page();
+        let (mut f, h) = bare_page(c);
         let tabs = quest_tabs(c.game);
         let shown = self.shown_tab(c.game);
         let captions: Vec<_> = tabs.iter().map(|t| (t.0, t.1)).collect();
@@ -1034,6 +1034,8 @@ mod tests {
         run(&TestContext {
             game,
             context: Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 game,
                 pregame: &pregame,

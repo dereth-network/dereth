@@ -1283,6 +1283,8 @@ mod tests {
             ..Default::default()
         });
         run(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &Default::default(),

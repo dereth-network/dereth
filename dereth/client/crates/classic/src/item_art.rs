@@ -253,16 +253,18 @@ pub fn drop_feedback(
 }
 
 pub fn paint(
+    fonts: &crate::renderer::FontMetrics,
     frame: &mut crate::panels::PanelFrame,
     entry: &crate::panels::ItemEntry,
     rect: crate::widgets::Rect,
     selected: bool,
     clip: Option<[i32; 4]>,
 ) {
-    paint_with_feedback(frame, entry, rect, selected, clip, None);
+    paint_with_feedback(fonts, frame, entry, rect, selected, clip, None);
 }
 
 pub fn paint_with_feedback(
+    fonts: &crate::renderer::FontMetrics,
     frame: &mut crate::panels::PanelFrame,
     entry: &crate::panels::ItemEntry,
     rect: crate::widgets::Rect,
@@ -329,7 +331,8 @@ pub fn paint_with_feedback(
     if selected {
         if let Some(amount) = entry.amount {
             let text = amount.to_string();
-            let width = crate::renderer::measure_text_width("14-5", &text)
+            let width = fonts
+                .text_width("14-5", &text)
                 .unwrap_or(i32_from(text.len()) * 5);
             let x = rect.x + rect.w - width - 3;
             frame.label(x - 1, rect.y + 19, &text, "14-5", 0xff080808, clip);
@@ -475,7 +478,14 @@ mod tests {
         };
         let mut entry = ItemEntry::empty();
         let mut frame = PanelFrame::new(40, 40);
-        paint(&mut frame, &entry, rect(0, 0, 36, 36), true, None);
+        paint(
+            &crate::renderer::FontMetrics::default(),
+            &mut frame,
+            &entry,
+            rect(0, 0, 36, 36),
+            true,
+            None,
+        );
         assert!(frame.screen.commands.iter().any(
             |c| matches!(c,Command::Image{did,x:2,y:2,width:32,height:32,..} if did=="06000F6E")
         ));
@@ -487,7 +497,14 @@ mod tests {
         entry.id = dereth_primitives::ObjectId(1);
         entry.active_container = true;
         frame.screen.commands.clear();
-        paint(&mut frame, &entry, rect(0, 0, 36, 36), false, None);
+        paint(
+            &crate::renderer::FontMetrics::default(),
+            &mut frame,
+            &entry,
+            rect(0, 0, 36, 36),
+            false,
+            None,
+        );
         assert!(frame.screen.commands.iter().any(
             |c| matches!(c,Command::Image{did,x:0,y:0,width:36,height:36,..} if did=="060011B4")
         ));
@@ -549,7 +566,14 @@ mod tests {
             disabled: false,
         };
         let mut frame = PanelFrame::new(40, 40);
-        paint(&mut frame, &entry, rect(0, 0, 32, 32), true, None);
+        paint(
+            &crate::renderer::FontMetrics::default(),
+            &mut frame,
+            &entry,
+            rect(0, 0, 32, 32),
+            true,
+            None,
+        );
         assert!(!frame
             .screen
             .commands
@@ -557,14 +581,28 @@ mod tests {
             .any(|c| matches!(c, Command::Text { .. })));
         entry.amount = Some(0);
         frame.screen.commands.clear();
-        paint(&mut frame, &entry, rect(0, 0, 32, 32), false, None);
+        paint(
+            &crate::renderer::FontMetrics::default(),
+            &mut frame,
+            &entry,
+            rect(0, 0, 32, 32),
+            false,
+            None,
+        );
         assert!(!frame
             .screen
             .commands
             .iter()
             .any(|c| matches!(c, Command::Text { .. })));
         frame.screen.commands.clear();
-        paint(&mut frame, &entry, rect(0, 0, 32, 32), true, None);
+        paint(
+            &crate::renderer::FontMetrics::default(),
+            &mut frame,
+            &entry,
+            rect(0, 0, 32, 32),
+            true,
+            None,
+        );
         let labels: Vec<_> = frame
             .screen
             .commands

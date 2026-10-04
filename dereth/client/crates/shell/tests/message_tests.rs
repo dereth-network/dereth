@@ -118,7 +118,11 @@ impl Client {
             .unwrap(),
         );
         self.shell.classic.ui = Some(dereth_classic_ui::runtime::ClassicUi::new(
-            art,
+            dereth_classic_ui::resources::Resources::new(
+                art,
+                Err("World creation tables unavailable".into()),
+                None,
+            ),
             dereth_classic_ui::art::ClassicPaths {
                 portal_dir: portal.parent().map(ToOwned::to_owned),
                 state: std::env::temp_dir().join("dereth-feedback-no-writes"),

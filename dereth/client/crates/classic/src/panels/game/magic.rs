@@ -158,7 +158,7 @@ impl Panel for Spellbook {
         }
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
-        let height = self.height.unwrap_or_else(crate::panels::side_height);
+        let height = self.height.unwrap_or_else(|| ctx.layout.side_height());
         let mut f = PanelFrame::new(300, height);
         // Stretched, the lists grow and the spellbook's filters keep to the bottom.
         let dy = height as i32 - 362;
@@ -475,7 +475,7 @@ impl Panel for Effects {
         }
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
-        let height = crate::panels::side_height();
+        let height = ctx.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         // Stretched, the list grows and the description keeps to the bottom.
         let dy = height as i32 - 362;
@@ -582,6 +582,7 @@ impl Panel for Effects {
         );
         if let Some(e) = rows.iter().find(|e| Some(e.spell) == self.selected) {
             rich_scroll(
+                &ctx.resources.fonts,
                 &mut f,
                 rect(5, 291 + dy, 275, 71),
                 vec![crate::TextRun {
@@ -626,7 +627,7 @@ impl Panel for Vitae {
         "vitae"
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
-        let height = crate::panels::side_height();
+        let height = ctx.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         image(
             &mut f,
@@ -724,6 +725,8 @@ mod filter_layout_tests {
             era.era_announced = true;
             let game = World(era);
             let ctx = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &game,
                 pregame: &Default::default(),

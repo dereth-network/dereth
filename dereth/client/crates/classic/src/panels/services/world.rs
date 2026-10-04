@@ -32,8 +32,8 @@ impl Panel for Link {
     fn id(&self) -> &'static str {
         "link-status"
     }
-    fn frame(&self, _: &Context<'_>) -> PanelFrame {
-        let mut f = tiled(300, crate::panels::side_height(), "06001398");
+    fn frame(&self, c: &Context<'_>) -> PanelFrame {
+        let mut f = tiled(300, c.layout.side_height(), "06001398");
         header(&mut f, "Link Status");
         label(&mut f,rect(5,40,290,240),"The Link Indicator shows the current status of your connection to the game servers.\n\nGREEN = your link is good.\n\nYELLOW = no packets for at least 5 sec.\n\nRED = no packets for at least 20 sec.\n\nIf approximately forty seconds pass without receiving a packet, you will be disconnected from the server.","16-7");
         label(
@@ -110,7 +110,7 @@ impl Panel for MapHouse {
         let mut f = if self.house {
             housing::house(c)
         } else {
-            let mut f = tiled(300, crate::panels::side_height() - 25, "06001398");
+            let mut f = tiled(300, c.layout.side_height() - 25, "06001398");
             for (did, r) in [
                 ("06001273", rect(0, 0, 300, 33)),
                 ("06001270", rect(0, 300, 300, 32)),
@@ -168,7 +168,7 @@ impl Panel for MapHouse {
             }
             f
         };
-        f = translated(f, 25, crate::panels::side_height());
+        f = translated(f, 25, c.layout.side_height());
         for (id, text, x) in [("map", "Map", 0), ("house", "House", 138)] {
             let active = self.house == (id == "house");
             let c = f.button(id, rect(x, 0, 138, 25), text, true);

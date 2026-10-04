@@ -210,6 +210,8 @@ impl Shell for TestShell {
         if !self.ui.desktop.is_open("hud") {
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                resources: &self.ui.resources,
+                layout: self.ui.desktop.layout(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &view,
                 pregame: cx.pregame(),
@@ -224,6 +226,8 @@ impl Shell for TestShell {
             self.open_edit = false;
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                resources: &self.ui.resources,
+                layout: self.ui.desktop.layout(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &view,
                 pregame: cx.pregame(),
@@ -304,16 +308,20 @@ pub(super) fn fixture() -> (App<TestShell>, TestShell) {
         .unwrap(),
     );
     let ui = ClassicUi::new(
-        art,
+        crate::resources::Resources::new(
+            art,
+            Err("World creation tables unavailable".into()),
+            None,
+        ),
         crate::art::ClassicPaths {
             portal_dir: path.parent().map(ToOwned::to_owned),
             state: std::env::temp_dir().join("dereth-chat-keyboard-no-writes"),
         },
-        |id, now| {
+        |id, now, resources| {
             if id == "test-edit" {
                 Some(Box::new(TestEdit))
             } else {
-                crate::panels::factory(id, now)
+                crate::panels::factory(id, now, resources)
             }
         },
         (800, 600),
@@ -717,6 +725,8 @@ fn classic_resolution_label_tracks_the_world_resize_after_pregame() {
     assert_eq!(app.present.size(), (1024, 768));
     let view = app.hud.view(&app.objects);
     let c = Context {
+        resources: &shell.ui.resources,
+        layout: shell.ui.desktop.layout(),
         now: dereth_primitives::LocalTime(0.0),
         game: &view,
         pregame: &app.host_state,
@@ -725,8 +735,12 @@ fn classic_resolution_label_tracks_the_world_resize_after_pregame() {
         map_teleport_allowed: false,
         classic: &shell.ui.classic,
     };
-    let mut panel =
-        crate::panels::factory("sound-graphics", dereth_primitives::LocalTime(0.0)).unwrap();
+    let mut panel = crate::panels::factory(
+        "sound-graphics",
+        dereth_primitives::LocalTime(0.0),
+        &shell.ui.resources,
+    )
+    .unwrap();
     panel.event(ControlEvent::Tick, &c);
     let frame = panel.frame(&c);
     let row = frame
@@ -771,12 +785,18 @@ fn classic_resolution_draft_survives_idle_frames_and_rejected_choice_reads_back_
     assert!(shell.ui.settings.resolutions.contains(&(800, 600)));
     assert!(shell.ui.settings.resolutions.contains(&(1024, 768)));
     assert_eq!(shell.ui.settings.resolution, 0);
-    let mut panel =
-        crate::panels::factory("sound-graphics", dereth_primitives::LocalTime(0.0)).unwrap();
+    let mut panel = crate::panels::factory(
+        "sound-graphics",
+        dereth_primitives::LocalTime(0.0),
+        &shell.ui.resources,
+    )
+    .unwrap();
     let event =
         |shell: &TestShell, app: &App<TestShell>, panel: &mut dyn crate::panels::Panel, e| {
             let view = app.hud.view(&app.objects);
             let c = Context {
+                resources: &shell.ui.resources,
+                layout: shell.ui.desktop.layout(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &view,
                 pregame: &app.host_state,
@@ -898,6 +918,8 @@ fn actual_abuse_feedback_survives_an_identical_ordinary_line_and_controls_color_
             let cx = app.ui_context();
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                resources: &shell.ui.resources,
+                layout: shell.ui.desktop.layout(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: &view,
                 pregame: cx.pregame(),
@@ -906,8 +928,12 @@ fn actual_abuse_feedback_survives_an_identical_ordinary_line_and_controls_color_
                 map_teleport_allowed: false,
                 classic: &shell.ui.classic,
             };
-            let mut panel =
-                crate::panels::factory("abuse", dereth_primitives::LocalTime(0.0)).unwrap();
+            let mut panel = crate::panels::factory(
+                "abuse",
+                dereth_primitives::LocalTime(0.0),
+                &shell.ui.resources,
+            )
+            .unwrap();
             panel.event(ControlEvent::Activate("begin".into()), &context);
             panel.event(
                 ControlEvent::Edit {

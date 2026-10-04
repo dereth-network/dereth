@@ -58,7 +58,7 @@ impl Panel for SpellResearch {
         "spell-research"
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let height = crate::panels::side_height();
+        let height = c.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         // The magic window's third tab. The page under the tabs has its 300x51 art tiled over it.
         image(
@@ -255,6 +255,8 @@ mod tests {
     fn with(game: &Game, run: impl FnOnce(&Context<'_>)) {
         let (state, pregame, keyboard, settings) = Default::default();
         run(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game,
             pregame: &pregame,

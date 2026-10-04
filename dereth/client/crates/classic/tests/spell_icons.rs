@@ -25,7 +25,13 @@ fn runtime_spell_power_reaches_classic_rows_and_supported_background_pixels() {
         )
         .unwrap(),
     );
+    let mut resources = crate::resources::Resources::new(
+        Arc::clone(&art),
+        Err("World creation tables unavailable".into()),
+        None,
+    );
     let mut canvas = Canvas::new(art, (300, 362)).unwrap();
+    resources.fonts = canvas.font_metrics();
     let mut hud = dereth_client_runtime::hud::Hud::new();
     let objects = dereth_client_runtime::objects::ObjectStream::new();
     hud.load_tables(&store, &objects.world);
@@ -49,6 +55,8 @@ fn runtime_spell_power_reaches_classic_rows_and_supported_background_pixels() {
     hud.spells = ids.iter().map(|id| hud.spell_entry(*id).unwrap()).collect();
     let view = hud.view(&objects);
     let ctx = Context {
+        resources: &resources,
+        layout: Default::default(),
         now: dereth_primitives::LocalTime(0.0),
         game: &view,
         pregame: &Default::default(),
@@ -57,7 +65,8 @@ fn runtime_spell_power_reaches_classic_rows_and_supported_background_pixels() {
         map_teleport_allowed: false,
         classic: &Default::default(),
     };
-    let panel = crate::panels::factory("spellbook", dereth_primitives::LocalTime(0.0)).unwrap();
+    let panel =
+        crate::panels::factory("spellbook", dereth_primitives::LocalTime(0.0), &resources).unwrap();
     let frame = panel.frame(&ctx);
     canvas.load_runtime_images(&frame.screen, &store).unwrap();
     let commands: Vec<_> = frame

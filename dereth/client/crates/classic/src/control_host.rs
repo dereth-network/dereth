@@ -76,6 +76,7 @@ fn art_choice_text(out: &mut PanelFrame, row: Rect, text: &str, font: &str, colo
 const SLOT_HINT: &str = "060011F9";
 #[derive(Debug, Default)]
 pub struct ControlHost {
+    fonts: crate::renderer::FontMetrics,
     tree: UiTree,
     ids: BTreeMap<String, NodeId>,
     controls: Vec<Control>,
@@ -96,6 +97,15 @@ pub struct ControlHost {
 }
 
 impl ControlHost {
+    pub fn new(fonts: crate::renderer::FontMetrics) -> Self {
+        Self {
+            fonts,
+            ..Self::default()
+        }
+    }
+    pub fn set_fonts(&mut self, fonts: crate::renderer::FontMetrics) {
+        self.fonts = fonts;
+    }
     /// Sound types from the classic interface's sound table (0x2000004B). The host applies the
     /// UI sound preference and plays these against its local audio assets.
     pub fn take_sounds(&mut self) -> Vec<u32> {
@@ -365,14 +375,12 @@ impl ControlHost {
             {
                 let advances: Vec<_> = text
                     .chars()
-                    .map(|ch| {
-                        crate::renderer::measure_text_width(&c.font, &ch.to_string()).unwrap_or(6)
-                    })
+                    .map(|ch| self.fonts.text_width(&c.font, &ch.to_string()).unwrap_or(6))
                     .collect();
                 let layout = crate::text_edit::Layout::new(
                     text,
                     &advances,
-                    crate::renderer::font_line_height(&c.font).unwrap_or(15),
+                    self.fonts.line_height(&c.font).unwrap_or(15),
                     (c.rect.w - 4).max(1),
                     *multiline,
                 );
@@ -1274,6 +1282,7 @@ impl ControlHost {
                             continue;
                         }
                         crate::item_art::paint_with_feedback(
+                            &self.fonts,
                             &mut out,
                             item,
                             rect(x, r.y, *slot_size, *slot_size),
@@ -1489,6 +1498,7 @@ impl ControlHost {
                             }
                         } else {
                             crate::item_art::paint_with_feedback(
+                                &self.fonts,
                                 &mut out,
                                 item,
                                 cell,

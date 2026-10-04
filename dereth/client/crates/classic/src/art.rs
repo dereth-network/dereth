@@ -3,7 +3,7 @@ use dereth_classic_dat::fonts::{FontAtlas, FontSource, FontSpec};
 use dereth_classic_dat::ClassicPortal;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 /// One decoded interface image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,18 +194,4 @@ impl ClassicArt {
     pub const fn fonts(&self) -> &BTreeMap<String, Arc<FontAtlas>> {
         &self.fonts
     }
-}
-
-static INSTALLED: OnceLock<Arc<ClassicArt>> = OnceLock::new();
-
-/// Make `art` the process's classic art. The first call wins; later calls return the art already
-/// installed.
-pub fn install(art: Arc<ClassicArt>) -> Arc<ClassicArt> {
-    Arc::clone(INSTALLED.get_or_init(|| art))
-}
-
-/// The process's classic art, once [`install`] has run.
-#[must_use]
-pub fn installed() -> Option<Arc<ClassicArt>> {
-    INSTALLED.get().cloned()
 }

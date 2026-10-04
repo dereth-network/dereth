@@ -373,6 +373,8 @@ mod trade_tests {
     fn with(game: &Game, run: impl FnOnce(&Context<'_>)) {
         let (state, pregame, keyboard, settings) = Default::default();
         run(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game,
             pregame: &pregame,
@@ -522,6 +524,8 @@ mod salvage_tests {
         });
         let (state, pregame, keyboard, settings) = Default::default();
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &pregame,

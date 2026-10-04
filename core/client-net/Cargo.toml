@@ -50,7 +50,7 @@ replay = ["dep:serde_json"]
 
 [dev-dependencies]
 # Integration tests use the fixture helpers without enabling them for ordinary clients.
-dereth-client-net = { path = ".", features = ["test-support"] }
+dereth-client-net = { path = ".", default-features = false, features = ["test-support"] }
 serde_json = "1"
 
 # This crate is one of the two allowed unsafe (socket interop). It does NOT inherit the workspace

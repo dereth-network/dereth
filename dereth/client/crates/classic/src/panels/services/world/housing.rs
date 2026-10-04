@@ -9,7 +9,7 @@ fn date(t: i64, offset: i32) -> String {
     crate::panels::hud::classic_date(t, offset)
 }
 pub(super) fn house(c: &Context<'_>) -> PanelFrame {
-    let mut f = tiled(300, crate::panels::side_height() - 25, "060022BA");
+    let mut f = tiled(300, c.layout.side_height() - 25, "060022BA");
     if let Some(h) = c.game.house_data() {
         label(
             &mut f,
@@ -402,6 +402,8 @@ mod tests {
             }),
         };
         let context = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &Default::default(),

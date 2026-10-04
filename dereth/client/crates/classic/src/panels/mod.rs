@@ -9,7 +9,10 @@ pub use dereth_client_contract::{
 };
 pub use dereth_primitives::{DataId, ObjectId};
 
+#[derive(Clone, Copy)]
 pub struct Context<'a> {
+    pub resources: &'a crate::resources::Resources,
+    pub layout: Layout,
     pub now: dereth_primitives::LocalTime,
     pub game: &'a dyn GameView,
     pub pregame: &'a PregameView,
@@ -221,6 +224,7 @@ pub enum HostAction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PanelAction {
+    SetChatExpanded(bool),
     Toggle(String),
     BeginDrag(DragPayload),
     Control(ControlEvent),
@@ -840,6 +844,7 @@ pub trait Panel: std::fmt::Debug {
     ) -> Option<Vec<PanelAction>> {
         None
     }
+    fn set_layout(&mut self, _layout: Layout) {}
     fn resize(&mut self, _width: u32, _height: u32) {}
     /// Whether a point of a window that lets the pointer through where it has no control (the
     /// full-screen interface) is still the panel's: text it draws that the pointer can select.
@@ -868,18 +873,29 @@ pub mod hud;
 
 pub mod services;
 
-static SIDE_HEIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(362);
-
-/// The side panel's page height: 362, or the window's height less 118 with the stretched
-/// interface. Pages lay themselves out to it.
-#[must_use]
-pub fn side_height() -> u32 {
-    SIDE_HEIGHT.load(std::sync::atomic::Ordering::Relaxed)
+/// The geometry owned by one desktop, projected into its panels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Layout {
+    pub size: (u32, u32),
+    pub stretched: bool,
+    pub chat_expanded: bool,
 }
-
-/// Set the side panel's page height (see [`side_height`]).
-pub fn set_side_height(height: u32) {
-    SIDE_HEIGHT.store(height.max(362), std::sync::atomic::Ordering::Relaxed);
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            size: (800, 600),
+            stretched: false,
+            chat_expanded: false,
+        }
+    }
+}
+impl Layout {
+    pub fn regions(self) -> hud::HudRegions {
+        hud::regions_stretched(self.size.0, self.size.1, self.stretched, self.chat_expanded)
+    }
+    pub fn side_height(self) -> u32 {
+        self.regions().right.h as u32
+    }
 }
 
 /// The background of an options-style sub-page `height` tall: the parchment tiled inside a
@@ -917,8 +933,8 @@ impl OptionsPage {
     }
     /// The page as the side panel is now.
     #[must_use]
-    pub fn current() -> Self {
-        Self::new(i32::try_from(side_height()).unwrap_or(362) - 25)
+    pub fn current(layout: Layout) -> Self {
+        Self::new(i32::try_from(layout.side_height()).unwrap_or(362) - 25)
     }
     /// The view as a clip rectangle.
     #[must_use]
@@ -991,13 +1007,17 @@ pub fn configure_keyboard() -> PanelAction {
 
 /// Every classic panel, by id.
 #[must_use]
-pub fn factory(id: &str, now: dereth_primitives::LocalTime) -> Option<Box<dyn Panel>> {
+pub fn factory(
+    id: &str,
+    now: dereth_primitives::LocalTime,
+    resources: &crate::resources::Resources,
+) -> Option<Box<dyn Panel>> {
     if id == "character-options" {
         return Some(Box::new(character_options::CharacterOptions::new()));
     }
-    pregame::make(id, now)
+    pregame::make(id, now, resources)
         .or_else(|| hud::make(id))
         .or_else(|| game::make(id))
         .or_else(|| services::make(id))
-        .or_else(|| crate::help::make(id))
+        .or_else(|| crate::help::make(id, resources.help.as_ref()))
 }

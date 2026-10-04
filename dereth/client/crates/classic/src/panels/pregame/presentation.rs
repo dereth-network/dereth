@@ -89,7 +89,9 @@ fn clipped_image(f: &mut PanelFrame, did: u32, r: crate::widgets::Rect, clip: [i
 /// One 250x60 profession row at `y` in `bounds`: the portrait at half size, a plate beside it (lit
 /// when chosen) and the name centred on the plate in white; the custom row's name is smaller and
 /// lower.
+#[allow(clippy::too_many_arguments)]
 fn profession_row(
+    fonts: &crate::renderer::FontMetrics,
     f: &mut PanelFrame,
     bounds: crate::widgets::Rect,
     y: i32,
@@ -114,6 +116,7 @@ fn profession_row(
         (10, "times-35-13-bold")
     };
     line(
+        fonts,
         f,
         rect(plate.x, y + top, plate.w, 40),
         name,
@@ -158,6 +161,7 @@ impl Pregame {
         );
         if let Some(t) = templates.first() {
             profession_row(
+                &self.resources.fonts,
                 f,
                 custom,
                 custom.y,
@@ -187,7 +191,16 @@ impl Pregame {
         for (i, t) in templates.iter().enumerate() {
             let y = bounds.y + i32_from(i) * ROW - offset;
             if y + ROW > bounds.y && y < bounds.y + bounds.h {
-                profession_row(f, bounds, y, &t.name, t.icon, chosen(i), false);
+                profession_row(
+                    &self.resources.fonts,
+                    f,
+                    bounds,
+                    y,
+                    &t.name,
+                    t.icon,
+                    chosen(i),
+                    false,
+                );
             }
         }
         f.control(
@@ -260,6 +273,7 @@ impl Pregame {
                 // A group's header, or the note that the group is empty.
                 if item.caption.starts_with('(') {
                     line(
+                        &self.resources.fonts,
                         f,
                         at(2, 374),
                         &item.caption,
@@ -271,6 +285,7 @@ impl Pregame {
                 } else {
                     clipped_image(f, 0x0600_02EA, at(0, bounds.w), clip);
                     line(
+                        &self.resources.fonts,
                         f,
                         at(2, 161),
                         &item.caption,
@@ -280,6 +295,7 @@ impl Pregame {
                         clip,
                     );
                     line(
+                        &self.resources.fonts,
                         f,
                         at(163, 211),
                         "Skill Level",
@@ -301,6 +317,7 @@ impl Pregame {
             let skill = &d.skills[i];
             clipped(f, skill.icon, rect(bounds.x, y + 3, 20, 20), clip, false);
             line(
+                &self.resources.fonts,
                 f,
                 at(29, 169),
                 &skill.name,
@@ -310,6 +327,7 @@ impl Pregame {
                 clip,
             );
             line(
+                &self.resources.fonts,
                 f,
                 at(170, 44),
                 self.view(d).skill_value(d, skill).to_string(),
@@ -359,8 +377,11 @@ impl Pregame {
             }
         }
         if let Some(s) = self.selected_skill.and_then(|i| d.skills.get(i)) {
-            let height =
-                crate::renderer::measure_text_height("15-6", &s.description, 380).unwrap_or(66);
+            let height = self
+                .resources
+                .fonts
+                .text_height("15-6", &s.description, 380)
+                .unwrap_or(66);
             let box_ = rect(385, 462, 380, 66);
             let max = (height - box_.h).max(0);
             let offset = self.skill_help_scroll.min(max);

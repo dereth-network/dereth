@@ -41,6 +41,7 @@ pub mod keystore;
 pub mod panels;
 pub mod previews;
 pub mod renderer;
+pub mod resources;
 pub mod runtime;
 pub mod screens;
 pub mod settings_host;

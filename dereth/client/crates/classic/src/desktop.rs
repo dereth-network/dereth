@@ -1,7 +1,8 @@
 //! Classic window lifetimes, modal callbacks and composition over the game viewport.
 use crate::{control_host::ControlHost, panels::*, widgets::Input, Command, Screen};
 
-type Factory = fn(&str, dereth_primitives::LocalTime) -> Option<Box<dyn Panel>>;
+type Factory =
+    fn(&str, dereth_primitives::LocalTime, &crate::resources::Resources) -> Option<Box<dyn Panel>>;
 #[derive(Debug)]
 struct Window {
     token: u64,
@@ -57,6 +58,8 @@ pub struct Desktop {
     focus: Option<u64>,
     size: (u32, u32),
     stretched: bool,
+    chat_expanded: bool,
+    fonts: crate::renderer::FontMetrics,
     pub requests: Vec<UiRequest>,
     pub host_actions: Vec<HostAction>,
     pub host_origins: Vec<u64>,
@@ -65,6 +68,29 @@ pub struct Desktop {
     pub errors: Vec<String>,
 }
 impl Desktop {
+    pub fn layout(&self) -> Layout {
+        Layout {
+            size: self.size,
+            stretched: self.stretched,
+            chat_expanded: self.chat_expanded,
+        }
+    }
+    fn panel_context<'a>(&self, context: &Context<'a>) -> Context<'a> {
+        Context {
+            layout: self.layout(),
+            ..*context
+        }
+    }
+    pub fn set_fonts(&mut self, fonts: crate::renderer::FontMetrics) {
+        self.fonts = fonts.clone();
+        for window in &mut self.windows {
+            window.controls.set_fonts(fonts.clone());
+        }
+        for modal in self.modal.iter_mut().chain(self.dialog_queue.iter_mut()) {
+            modal.controls.set_fonts(fonts.clone());
+        }
+    }
+
     pub fn update_drag_preview(
         &mut self,
         game: &dyn GameView,
@@ -137,7 +163,7 @@ impl Desktop {
             .map(|c| c.rect)
     }
     pub fn game_rect(&self) -> crate::widgets::Rect {
-        let mut r = panels_world(self.size);
+        let mut r = self.layout().regions().world;
         // With no side panel open the world runs to the window's right edge.
         if !self.windows.iter().any(|w| right_pane(&w.key)) {
             r.w = i32::try_from(self.size.0).unwrap_or(r.w).max(r.w);
@@ -208,7 +234,7 @@ impl Desktop {
             text,
             accept,
             reject,
-            controls: ControlHost::default(),
+            controls: ControlHost::new(self.fonts.clone()),
         };
         if self.modal.is_none() {
             self.modal = Some(modal);
@@ -266,6 +292,8 @@ impl Desktop {
         }
     }
     fn answer_modal(&mut self, accepted: bool, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         if let Some(modal) = self.modal.take() {
             self.apply(
                 modal.origin,
@@ -298,12 +326,16 @@ impl Desktop {
         false
     }
     pub fn dispatch_panel(&mut self, id: &str, event: ControlEvent, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         if let Some(token) = self.windows.iter().find(|w| w.key == id).map(|w| w.token) {
             self.dispatch(token, event, context);
         }
     }
     /// Complete only the HUD entry's focus changes between keyboard events.
     pub fn finish_chat_focus(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let hud = self
             .windows
             .iter()
@@ -336,6 +368,8 @@ impl Desktop {
         update: dereth_client_contract::chat::entry::EntryUpdate,
         context: &Context<'_>,
     ) {
+        let current = self.panel_context(context);
+        let context = &current;
         let cursor = update.cursor;
         let focus = update.focus;
         self.dispatch_panel("hud", ControlEvent::ChatEntry(update), context);
@@ -399,6 +433,8 @@ impl Desktop {
             focus: None,
             size,
             stretched: false,
+            chat_expanded: false,
+            fonts: Default::default(),
             requests: vec![],
             host_actions: vec![],
             host_origins: vec![],
@@ -409,6 +445,8 @@ impl Desktop {
     }
     /// Open panel `id` on `object` (or bring it forward and point it at `object`).
     pub fn open_object(&mut self, id: &str, object: ObjectId, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         if let Some(token) = self.open(id, context) {
             if let Some(w) = self.windows.iter_mut().find(|w| w.token == token) {
                 w.panel.set_object(object);
@@ -450,6 +488,8 @@ impl Desktop {
             .any(|w| (w.key == id || w.panel.id() == id) && visible.contains(&w.token))
     }
     fn deactivate_token(&mut self, token: u64, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let events = self
             .windows
             .iter_mut()
@@ -464,6 +504,8 @@ impl Desktop {
         }
     }
     fn release_inactive(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let visible = self.visible_tokens();
         let inactive: Vec<_> = self
             .windows
@@ -479,6 +521,8 @@ impl Desktop {
     }
     /// State-driven teardown must not invoke the user's close-button request.
     pub fn remove_visual(&mut self, id: &str, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let tokens: Vec<_> = self
             .windows
             .iter()
@@ -495,6 +539,8 @@ impl Desktop {
         self.fit_bottom_windows(context);
     }
     pub fn close(&mut self, id: &str, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         if let Some((token, key)) = self
             .windows
             .iter()
@@ -537,6 +583,8 @@ impl Desktop {
     /// panel: the pages it replaced earlier (kept so a page returns as it was left) close too,
     /// rather than coming back into view.
     fn close_retained_panes(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let keys: Vec<String> = self
             .windows
             .iter()
@@ -553,6 +601,8 @@ impl Desktop {
         self.focus = self.windows.last().map(|w| w.token);
     }
     pub fn close_all(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let tokens: Vec<_> = self.windows.iter().map(|w| w.token).collect();
         for token in tokens {
             self.deactivate_token(token, context);
@@ -566,6 +616,8 @@ impl Desktop {
     }
     pub fn open(&mut self, id: &str, context: &Context<'_>) -> Option<u64> {
         self.stretched = context.classic.option_words[0] & 0x20_0000 != 0;
+        let current = self.panel_context(context);
+        let context = &current;
         let service = matches!(id, "trade" | "maintenance" | "salvage");
         if service
             || matches!(
@@ -605,7 +657,7 @@ impl Desktop {
             self.release_inactive(context);
             return Some(token);
         }
-        let Some(mut panel) = (self.factory)(id, context.now) else {
+        let Some(mut panel) = (self.factory)(id, context.now, context.resources) else {
             self.errors.push(format!("Unknown classic panel: {id}"));
             return None;
         };
@@ -624,8 +676,9 @@ impl Desktop {
             self.size.0,
             self.size.1,
             context.classic.option_words[0] & 0x20_0000 != 0,
+            self.chat_expanded,
         );
-        crate::panels::set_side_height(regions.right.h as u32);
+        panel.set_layout(context.layout);
         panel.resize(
             if full {
                 self.size.0
@@ -657,7 +710,7 @@ impl Desktop {
         };
         let token = self.next;
         self.next += 1;
-        let mut controls = ControlHost::default();
+        let mut controls = ControlHost::new(context.resources.fonts.clone());
         controls.sync(&frame);
         self.windows.push(Window {
             token,
@@ -685,15 +738,17 @@ impl Desktop {
     }
     /// Re-lay out the windows docked under the 3D view when the side panel opens or closes.
     fn fit_bottom_windows(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let width = self.bottom_width();
-        let regions =
-            crate::panels::hud::regions_stretched(self.size.0, self.size.1, self.stretched);
+        let regions = self.layout().regions();
         for w in &mut self.windows {
             if !bottom_window(&w.key) {
                 continue;
             }
             if w.frame.screen.width != width {
                 w.panel.resize(width, regions.right.h as u32);
+                w.panel.set_layout(context.layout);
                 w.frame = w.panel.frame(context);
                 w.controls.sync(&w.frame);
             }
@@ -711,19 +766,18 @@ impl Desktop {
         self.stretched = context.classic.option_words[0] & 0x20_0000 != 0;
         self.size = size;
         let bottom_width = self.bottom_width();
-        crate::panels::set_side_height(
-            crate::panels::hud::regions_stretched(size.0, size.1, self.stretched)
-                .right
-                .h as u32,
-        );
+        let current = self.panel_context(context);
+        let context = &current;
         for w in &mut self.windows {
             let r = crate::panels::hud::regions_stretched(
                 size.0,
                 size.1,
                 context.classic.option_words[0] & 0x20_0000 != 0,
+                self.chat_expanded,
             );
             let full = w.key == "hud" || crate::panels::pregame::IDS.contains(&w.key.as_str());
             let bottom = bottom_window(&w.key);
+            w.panel.set_layout(context.layout);
             w.panel.resize(
                 if full {
                     size.0
@@ -734,6 +788,7 @@ impl Desktop {
                 },
                 if full { size.1 } else { r.right.h as u32 },
             );
+            w.panel.set_layout(context.layout);
             w.frame = w.panel.frame(context);
             (w.x, w.y) = if w.key == "help-chargen" {
                 (2, 26)
@@ -752,6 +807,8 @@ impl Desktop {
     /// The pointer's button came up outside every window: a window that was holding the press
     /// lets it go.
     pub fn release_pointer(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         if let Some(token) = self.capture.take() {
             if let Some(w) = self.windows.iter_mut().find(|w| w.token == token) {
                 w.controls.handle(Input::Cancel, context.now);
@@ -820,6 +877,8 @@ impl Desktop {
         })
     }
     pub fn tick(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let tokens: Vec<_> = self.windows.iter().map(|w| w.token).collect();
         for token in tokens {
             self.dispatch(token, ControlEvent::Tick, context);
@@ -827,6 +886,8 @@ impl Desktop {
         self.refresh(context);
     }
     pub fn tick_controls(&mut self, now: f64, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         let visible = self.visible_tokens();
         let mut events = vec![];
         for window in &mut self.windows {
@@ -848,14 +909,22 @@ impl Desktop {
         }
     }
     pub fn dispatch(&mut self, token: u64, event: ControlEvent, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         if let Some(w) = self.windows.iter_mut().find(|w| w.token == token) {
             let actions = w.panel.event(event, context);
             self.apply(token, actions, context);
         }
     }
     pub fn apply(&mut self, origin: u64, actions: Vec<PanelAction>, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         for action in actions {
             match action {
+                PanelAction::SetChatExpanded(expanded) => {
+                    self.chat_expanded = expanded;
+                    self.resize(self.size, context);
+                }
                 PanelAction::Toggle(id) => {
                     if self.is_visible(&id) {
                         self.close(&id, context);
@@ -965,9 +1034,12 @@ impl Desktop {
         }
     }
     fn refresh(&mut self, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         self.release_inactive(context);
         self.fit_bottom_windows(context);
         for w in &mut self.windows {
+            w.panel.set_layout(context.layout);
             w.frame = w.panel.frame(context);
             w.controls.sync(&w.frame);
         }
@@ -1031,6 +1103,8 @@ impl Desktop {
         f
     }
     pub fn input(&mut self, input: Input, context: &Context<'_>) {
+        let current = self.panel_context(context);
+        let context = &current;
         self.release_inactive(context);
         if self.modal.is_none()
             && self.focused_control() == Some("chat:input")
@@ -1451,10 +1525,6 @@ pub fn translate_command(mut c: Command, dx: i32, dy: i32) -> Command {
     c
 }
 
-fn panels_world(size: (u32, u32)) -> crate::widgets::Rect {
-    crate::panels::hud::regions(size.0, size.1).world
-}
-
 /// The windows docked under the 3D view, the width of the view.
 fn bottom_window(key: &str) -> bool {
     matches!(
@@ -1495,7 +1565,6 @@ mod tests {
     #[test]
     fn dragging_the_chat_divider_moves_attached_windows_without_reopening_them() {
         context_test(|c| {
-            crate::panels::hud::set_chat_expanded(false);
             for name in [
                 "vendor",
                 "trade",
@@ -1514,7 +1583,7 @@ mod tests {
                     before.frame.screen.height,
                     before.y,
                 );
-                let chat = crate::panels::hud::regions(800, 600).bottom;
+                let chat = desktop.layout().regions().bottom;
                 desktop.input(
                     Input::PointerDown {
                         x: 50,
@@ -1536,18 +1605,15 @@ mod tests {
                     },
                     c,
                 );
-                assert!(crate::panels::hud::chat_expanded(), "{name}");
+                assert!(desktop.layout().chat_expanded, "{name}");
                 let after = desktop.windows.iter().find(|w| w.token == token).unwrap();
                 assert_eq!(
                     (after.frame.screen.width, after.frame.screen.height),
                     (width, height)
                 );
                 assert!(after.y < y, "{name}");
-                assert_eq!(
-                    after.y + height as i32,
-                    crate::panels::hud::regions(800, 600).bottom.y
-                );
-                let chat = crate::panels::hud::regions(800, 600).bottom;
+                assert_eq!(after.y + height as i32, desktop.layout().regions().bottom.y);
+                let chat = desktop.layout().regions().bottom;
                 desktop.input(
                     Input::PointerDown {
                         x: 50,
@@ -1569,7 +1635,7 @@ mod tests {
                     },
                     c,
                 );
-                assert!(!crate::panels::hud::chat_expanded());
+                assert!(!desktop.layout().chat_expanded);
                 assert_eq!(
                     desktop.windows.iter().find(|w| w.token == token).unwrap().y,
                     y
@@ -1578,14 +1644,98 @@ mod tests {
         });
     }
     #[test]
+    fn desktops_keep_geometry_and_chat_height_across_interleaved_rebuilds() {
+        context_test(|c| {
+            let mut a = Desktop::new(crate::panels::factory, (800, 600));
+            let mut b = Desktop::new(crate::panels::factory, (1024, 768));
+            let mut wide = c.classic.clone();
+            wide.option_words[0] |= 0x20_0000;
+            let bc = Context {
+                classic: &wide,
+                ..*c
+            };
+            for (desktop, context) in [(&mut a, c), (&mut b, &bc)] {
+                desktop.open("hud", context);
+                desktop.open("options", context);
+                desktop.open("trade", context);
+            }
+            let height = |desktop: &Desktop| {
+                desktop
+                    .windows
+                    .iter()
+                    .find(|w| w.key == "options")
+                    .unwrap()
+                    .frame
+                    .screen
+                    .height
+            };
+            assert_eq!((height(&a), height(&b)), (362, 650));
+            let original_b = b.layout().regions();
+            let chat = a.layout().regions().chat;
+            a.input(
+                Input::PointerDown {
+                    x: 50,
+                    y: chat.y + 3,
+                },
+                c,
+            );
+            a.input(
+                Input::PointerMove {
+                    x: 50,
+                    y: chat.y - 25,
+                },
+                c,
+            );
+            // The next action uses the new geometry even though its incoming snapshot is old.
+            a.apply(0, vec![PanelAction::Open("book".into())], c);
+            assert!(a.layout().chat_expanded);
+            assert_eq!(b.layout().regions(), original_b);
+            assert_eq!((height(&a), height(&b)), (362, 650));
+            let a_chat = a.layout().regions().chat;
+            assert!(a
+                .windows
+                .iter()
+                .find(|w| w.key == "hud")
+                .unwrap()
+                .panel
+                .claims(30, a_chat.y + 12));
+            assert!(!b
+                .windows
+                .iter()
+                .find(|w| w.key == "hud")
+                .unwrap()
+                .panel
+                .claims(30, a_chat.y + 12));
+            let trade = a.windows.iter().find(|w| w.key == "trade").unwrap();
+            assert_eq!(trade.y + trade.frame.screen.height as i32, a_chat.y);
+            b.resize((1280, 900), &bc);
+            a.close("hud", c);
+            a.open("hud", c);
+            a.dispatch_panel("book", ControlEvent::Tick, c);
+            assert_eq!(a.layout().regions().chat, a_chat);
+            assert_eq!(height(&a), 362);
+            assert_eq!(height(&b), 782);
+            assert!(!b.layout().chat_expanded);
+            assert!(a
+                .windows
+                .iter()
+                .find(|w| w.key == "hud")
+                .unwrap()
+                .panel
+                .claims(30, a_chat.y + 12));
+        });
+    }
+    #[test]
     fn opening_a_panel_passes_the_supplied_clock_to_its_constructor() {
         context_test(|context| {
             let context = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(42.0),
                 ..*context
             };
             let mut desktop = Desktop::new(
-                |_, now| {
+                |_, now, _| {
                     assert_eq!(now, dereth_primitives::LocalTime(42.0));
                     Some(Box::new(StatefulPane(0)))
                 },
@@ -1597,7 +1747,7 @@ mod tests {
     #[test]
     fn switching_side_panels_retains_state_and_restores_the_existing_instance() {
         context_test(|c| {
-            let mut desktop = Desktop::new(|_, _| Some(Box::new(StatefulPane(0))), (800, 600));
+            let mut desktop = Desktop::new(|_, _, _| Some(Box::new(StatefulPane(0))), (800, 600));
             let first = desktop.open("first", c).unwrap();
             desktop.dispatch(first, ControlEvent::Activate("increment".into()), c);
             desktop.open("second", c);
@@ -1616,7 +1766,7 @@ mod tests {
     #[test]
     fn closing_the_shown_page_closes_the_side_panel_instead_of_uncovering_an_older_page() {
         context_test(|c| {
-            let mut desktop = Desktop::new(|_, _| Some(Box::new(StatefulPane(0))), (800, 600));
+            let mut desktop = Desktop::new(|_, _, _| Some(Box::new(StatefulPane(0))), (800, 600));
             desktop.open("first", c);
             desktop.open("second", c);
             desktop.close("second", c);
@@ -1738,7 +1888,7 @@ mod tests {
     }
     #[test]
     fn a_side_column_notice_leaves_the_world_clickable() {
-        let mut d = Desktop::new(|_, _| None, (800, 600));
+        let mut d = Desktop::new(|_, _, _| None, (800, 600));
         d.show_dialog("notice".into(), "Notice".into(), vec![], vec![]);
         assert!(
             d.pointer_over_panel(100, 100),
@@ -1774,7 +1924,7 @@ mod tests {
     #[test]
     fn hiding_retained_pane_commits_once_and_restoring_does_not_restore_edit_focus() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| Some(Box::new(EditingPane)), (800, 600));
+            let mut d = Desktop::new(|_, _, _| Some(Box::new(EditingPane)), (800, 600));
             let first = d.open("first", c).unwrap();
             assert!(d
                 .windows
@@ -1796,7 +1946,7 @@ mod tests {
     #[test]
     fn visual_teardown_commits_before_removal_without_user_close_action() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| Some(Box::new(EditingPane)), (800, 600));
+            let mut d = Desktop::new(|_, _, _| Some(Box::new(EditingPane)), (800, 600));
             let token = d.open("first", c).unwrap();
             assert!(d
                 .windows
@@ -1814,7 +1964,7 @@ mod tests {
     #[test]
     fn service_ground_teardown_precedes_peace_without_external_use() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| Some(Box::new(StatefulPane(0))), (800, 600));
+            let mut d = Desktop::new(|_, _, _| Some(Box::new(StatefulPane(0))), (800, 600));
             d.open("external-container", c);
             d.open("salvage", c);
             assert_eq!(
@@ -1829,14 +1979,14 @@ mod tests {
     struct World;
     impl GameView for World {}
     fn context_test(f: impl FnOnce(&Context<'_>)) {
-        static CHAT_GEOMETRY: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _geometry = CHAT_GEOMETRY.lock().unwrap_or_else(|e| e.into_inner());
         let game = World;
         let pregame = PregameView::default();
         let keyboard = KeyboardState::default();
         let settings = ClassicSettings::default();
         let classic = ClassicState::default();
         f(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &pregame,
@@ -1849,7 +1999,7 @@ mod tests {
     #[test]
     fn replacing_a_visible_dialog_answers_only_the_latest_context_and_keeps_queue() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| None, (800, 600));
+            let mut d = Desktop::new(|_, _, _| None, (800, 600));
             let answer = |n| vec![PanelAction::Host(HostAction::CombatMode(n))];
             d.show_dialog("server".into(), "First".into(), answer(1), answer(2));
             d.show_dialog("next".into(), "Next".into(), answer(4), vec![]);
@@ -1866,7 +2016,7 @@ mod tests {
     #[test]
     fn enter_uses_dialog_default_and_single_button_popup_acknowledges() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| None, (800, 600));
+            let mut d = Desktop::new(|_, _, _| None, (800, 600));
             let answer = |yes| vec![PanelAction::Host(HostAction::ConfirmBinding(yes))];
             d.show_dialog(
                 "confirm".into(),
@@ -1900,7 +2050,7 @@ mod tests {
     #[test]
     fn window_teardown_cancels_unanswered_dialogs_without_sending_refusals() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| None, (800, 600));
+            let mut d = Desktop::new(|_, _, _| None, (800, 600));
             d.show_dialog(
                 "pending".into(),
                 "Question".into(),
@@ -1914,7 +2064,7 @@ mod tests {
     }
     #[test]
     fn fixed_pregame_modal_placement_survives_window_resize_and_queueing() {
-        let mut d = Desktop::new(|_, _| None, (1024, 768));
+        let mut d = Desktop::new(|_, _, _| None, (1024, 768));
         d.show_dialog("login".into(), "Login".into(), vec![], vec![]);
         d.show_dialog("create".into(), "Create".into(), vec![], vec![]);
         d.set_dialog_placement("login", ModalPlacement::for_panel("login").unwrap());
@@ -1940,7 +2090,7 @@ mod tests {
     #[test]
     fn modal_hotkeys_use_button_presence_and_explicit_default_independent_of_focus() {
         context_test(|c| {
-            let mut d = Desktop::new(|_, _| None, (800, 600));
+            let mut d = Desktop::new(|_, _, _| None, (800, 600));
             let choice = |yes| vec![PanelAction::Host(HostAction::ConfirmBinding(yes))];
             for (key, expected) in [("y", true), ("O", true), ("c", false), ("N", false)] {
                 d.show_dialog(

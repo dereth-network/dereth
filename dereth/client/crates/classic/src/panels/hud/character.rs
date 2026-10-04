@@ -186,7 +186,10 @@ impl Panel for Character {
             .map(|i| body(i, &c.classic.augmentations))
             .unwrap_or_default();
         let text_w = (w - 34).max(1);
-        let content = crate::renderer::measure_text_height("16-7", &text, text_w)
+        let content = c
+            .resources
+            .fonts
+            .text_height("16-7", &text, text_w)
             .unwrap_or(i32_from(text.lines().count()) * 16);
         let max = (content - (h - 25)).max(0);
         let offset = self.offset.clamp(0, max);

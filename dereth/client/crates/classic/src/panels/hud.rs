@@ -98,29 +98,13 @@ pub struct HudRegions {
     pub radar: Rect,
 }
 
-/// Whether the chat is at its taller height. The chat has two heights: dragging the bar along
-/// its top edge up by 20 pixels or more makes it taller, and dragging it down again makes it
-/// shorter; the 3D view gives up (or takes back) a quarter of its height.
-static CHAT_EXPANDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Whether the chat is at its taller height.
-#[must_use]
-pub fn chat_expanded() -> bool {
-    CHAT_EXPANDED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Set the chat's height.
-pub fn set_chat_expanded(on: bool) {
-    CHAT_EXPANDED.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
 /// Normal docked layout. Bottom service height is supplied by its own panel.
 pub fn regions(width: u32, height: u32) -> HudRegions {
-    regions_stretched(width, height, false)
+    regions_stretched(width, height, false, false)
 }
 /// The docked layout, optionally stretched to the window's height.
-pub fn regions_stretched(width: u32, height: u32, stretch: bool) -> HudRegions {
-    layout(width, height, stretch, chat_expanded())
+pub fn regions_stretched(width: u32, height: u32, stretch: bool, expanded: bool) -> HudRegions {
+    layout(width, height, stretch, expanded)
 }
 /// The layout for a window size, the stretched interface and the chat's height.
 fn layout(width: u32, height: u32, stretch: bool, chat_tall: bool) -> HudRegions {
@@ -396,6 +380,7 @@ fn unprefix(e: ControlEvent, prefix: &str) -> Option<ControlEvent> {
 
 #[derive(Debug)]
 struct Hud {
+    layout: Layout,
     width: u32,
     height: u32,
     vitals: Vitals,
@@ -409,6 +394,7 @@ struct Hud {
 impl Default for Hud {
     fn default() -> Self {
         Self {
+            layout: Layout::default(),
             width: 800,
             height: 600,
             vitals: Vitals {
@@ -425,6 +411,9 @@ impl Default for Hud {
     }
 }
 impl Panel for Hud {
+    fn set_layout(&mut self, layout: Layout) {
+        self.layout = layout;
+    }
     fn id(&self) -> &'static str {
         "hud"
     }
@@ -434,7 +423,7 @@ impl Panel for Hud {
     /// The chat log is selectable text, so a press on it is the interface's even where no
     /// control lies under it.
     fn claims(&self, x: i32, y: i32) -> bool {
-        let chat = regions(self.width, self.height).chat;
+        let chat = self.layout.regions().chat;
         x >= chat.x && x < chat.x + chat.w - 16 && y >= chat.y + 10 && y < chat.y + chat.h
     }
     fn input(
@@ -443,7 +432,7 @@ impl Panel for Hud {
         context: &Context<'_>,
     ) -> Option<Vec<PanelAction>> {
         use crate::widgets::Input;
-        let chat = regions(self.width, self.height).chat;
+        let chat = self.layout.regions().chat;
         // The chat log selects text.
         if let Input::PointerDown { x, y }
         | Input::PointerMove { x, y }
@@ -475,12 +464,10 @@ impl Panel for Hud {
             }
             Input::PointerMove { y, .. } => {
                 if let Some(start) = self.divider_drag {
-                    let expanded = chat_expanded();
+                    let expanded = self.layout.chat_expanded;
                     if (!expanded && start - y >= 20) || (expanded && y - start >= 20) {
-                        set_chat_expanded(!expanded);
                         self.divider_drag = None;
-                        let (w, h) = (self.width, self.height);
-                        self.resize(w, h);
+                        return Some(vec![PanelAction::SetChatExpanded(!expanded)]);
                     }
                 }
             }
@@ -492,8 +479,9 @@ impl Panel for Hud {
     fn resize(&mut self, width: u32, height: u32) {
         self.width = width.max(640);
         self.height = height.max(480);
+        self.layout.size = (self.width, self.height);
         self.vitals.width = self.width;
-        let r = regions(self.width, self.height);
+        let r = self.layout.regions();
         self.chat.resize(r.chat.w as u32, r.chat.h as u32);
         self.radar.size = r.radar.w;
     }
@@ -502,6 +490,7 @@ impl Panel for Hud {
             self.width,
             self.height,
             c.classic.option_words[0] & 0x200000 != 0,
+            c.layout.chat_expanded,
         );
         let mut f = PanelFrame::new(self.width, self.height);
         let stretch = c.classic.option_words[0] & 0x200000 != 0;
@@ -1436,8 +1425,8 @@ impl Default for Chat {
 }
 /// The chat log's font.
 const CHAT_FONT: &str = "15-6";
-fn chat_measure(text: &str) -> i32 {
-    crate::renderer::measure_text_width(CHAT_FONT, text).unwrap_or(0)
+fn chat_measure(c: &Context<'_>, text: &str) -> i32 {
+    c.resources.fonts.text_width(CHAT_FONT, text).unwrap_or(0)
 }
 fn chat_lines<'a>(c: &'a Context<'_>) -> Vec<&'a str> {
     c.classic.chat.iter().map(|(_, s)| s.as_str()).collect()
@@ -1457,13 +1446,13 @@ impl Chat {
     /// The log's rows, the row height, its full height, the visible height and how far it is
     /// scrolled.
     fn log(&self, c: &Context<'_>) -> (Vec<chat_log::Row>, i32, i32, i32, i32) {
-        let row_height = crate::renderer::font_line_height(CHAT_FONT).unwrap_or(15);
+        let row_height = c.resources.fonts.line_height(CHAT_FONT).unwrap_or(15);
         let (rows, total) = chat_log::rows(
             &chat_lines(c),
             self.width as i32 - 20,
             row_height,
             15,
-            &chat_measure,
+            &|text| chat_measure(c, text),
         );
         let body = self.height as i32 - 27;
         let max_scroll = (total - body).max(0);
@@ -1478,7 +1467,9 @@ impl Chat {
             return None;
         }
         let y = (y - 10).clamp(0, body - 1) + scroll;
-        chat_log::place_at(&chat_lines(c), &rows, row_height, x - 2, y, &chat_measure)
+        chat_log::place_at(&chat_lines(c), &rows, row_height, x - 2, y, &|text| {
+            chat_measure(c, text)
+        })
     }
     fn select(&mut self, c: &Context<'_>, selection: Option<(chat_log::Place, chat_log::Place)>) {
         self.selection = selection.filter(|(a, b)| a != b);
@@ -1595,7 +1586,9 @@ impl Panel for Chat {
         let clip = Some([0, 10, w - 16, body + 10]);
         // The selection is marked behind its text.
         if let Some(selection) = self.selection.filter(|_| !lines.is_empty()) {
-            for (row, x0, x1) in chat_log::highlights(&lines, &rows, selection, &chat_measure) {
+            for (row, x0, x1) in
+                chat_log::highlights(&lines, &rows, selection, &|text| chat_measure(c, text))
+            {
                 let area = rect(2 + x0, row.y - scroll + 10, x1 - x0, row_height);
                 if let Some(area) = area.intersect(rect(0, 10, w - 16, body)) {
                     f.fill(area, 0xff27_4657);
@@ -1901,6 +1894,7 @@ mod tests {
         }
     }
     fn context<'a>(
+        resources: &'a crate::resources::Resources,
         g: &'a dyn GameView,
         state: &'a ClassicState,
         p: &'a PregameView,
@@ -1908,6 +1902,8 @@ mod tests {
         s: &'a ClassicSettings,
     ) -> Context<'a> {
         Context {
+            resources,
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: g,
             pregame: p,
@@ -1957,6 +1953,7 @@ mod tests {
     }
     #[test]
     fn the_journal_button_opens_the_journal_and_closes_the_page_it_shows() {
+        let resources = crate::resources::Resources::default();
         let g = World::default();
         let mut state = ClassicState::default();
         let (p, k, s) = Default::default();
@@ -1964,7 +1961,7 @@ mod tests {
         assert_eq!(
             hud.event(
                 ControlEvent::Activate("journal".into()),
-                &context(&g, &state, &p, &k, &s)
+                &context(&resources, &g, &state, &p, &k, &s)
             ),
             vec![PanelAction::Open("journal".into())]
         );
@@ -1972,13 +1969,15 @@ mod tests {
         assert_eq!(
             hud.event(
                 ControlEvent::Activate("journal".into()),
-                &context(&g, &state, &p, &k, &s)
+                &context(&resources, &g, &state, &p, &k, &s)
             ),
             vec![PanelAction::Toggle("contracts".into())]
         );
     }
     fn with_context(g: &World, f: impl FnOnce(&Context<'_>)) {
+        let resources = crate::resources::Resources::default();
         f(&context(
+            &resources,
             g,
             &ClassicState::default(),
             &PregameView::default(),
@@ -2025,6 +2024,7 @@ mod tests {
     }
     #[test]
     fn connected_chat_uses_talk_target_and_rejects_disabled_destination() {
+        let resources = crate::resources::Resources::default();
         let g = World::default();
         let mut state = ClassicState {
             chat_focus: Some((
@@ -2040,7 +2040,7 @@ mod tests {
         let pregame = PregameView::default();
         let keyboard = KeyboardState::default();
         let settings = ClassicSettings::default();
-        let c = context(&g, &state, &pregame, &keyboard, &settings);
+        let c = context(&resources, &g, &state, &pregame, &keyboard, &settings);
         let mut chat = Chat::default();
         assert_eq!(chat.destination(&c), 5);
         assert_eq!(Chat::target(&c), Some((ObjectId(9), "Patron Name".into())));
@@ -2079,6 +2079,7 @@ mod tests {
     /// Behaviour: chat.talk-to-menu.the-squelch-row-is-a-toggle-and-its-message-names-the-speaker
     #[test]
     fn the_squelch_menu_sends_the_talk_targets_identity_to_the_runtime() {
+        let resources = crate::resources::Resources::default();
         let game = World {
             selected: Some(ObjectId(88)),
             ..Default::default()
@@ -2094,7 +2095,7 @@ mod tests {
             id: "destination".into(),
             index: 0,
         };
-        let c = context(&game, &state, &pregame, &keyboard, &settings);
+        let c = context(&resources, &game, &state, &pregame, &keyboard, &settings);
         assert_eq!(
             chat.event(click(), &c),
             vec![PanelAction::Game(UiRequest::ToggleCharacterSquelch(
@@ -2102,7 +2103,7 @@ mod tests {
             ))]
         );
         state.chat_target = None;
-        let c = context(&game, &state, &pregame, &keyboard, &settings);
+        let c = context(&resources, &game, &state, &pregame, &keyboard, &settings);
         assert!(chat.event(click(), &c).is_empty());
     }
 
@@ -2648,6 +2649,7 @@ mod tests {
     }
     #[test]
     fn host_split_state_overrides_trait_defaults_and_preserves_clear() {
+        let resources = crate::resources::Resources::default();
         let w = World::default();
         let p = PregameView::default();
         let k = KeyboardState::default();
@@ -2657,14 +2659,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            stack_split(&context(&w, &state, &p, &k, &settings)),
+            stack_split(&context(&resources, &w, &state, &p, &k, &settings)),
             (3, 12)
         );
         state.stack_split = Some((0, 0));
-        assert_eq!(stack_split(&context(&w, &state, &p, &k, &settings)), (0, 0));
+        assert_eq!(
+            stack_split(&context(&resources, &w, &state, &p, &k, &settings)),
+            (0, 0)
+        );
         state.stack_split = None;
         assert_eq!(
-            stack_split(&context(&w, &state, &p, &k, &settings)),
+            stack_split(&context(&resources, &w, &state, &p, &k, &settings)),
             (w.split_size(), w.max_split_size())
         );
     }

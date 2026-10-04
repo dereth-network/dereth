@@ -45,7 +45,7 @@ impl Panel for Assistance {
         }
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let mut f = tiled(300, crate::panels::side_height() - 25, "0600128A");
+        let mut f = tiled(300, c.layout.side_height() - 25, "0600128A");
         match self.stage {
             0 => {
                 let intro = if self.urgent {
@@ -139,7 +139,7 @@ impl Panel for Assistance {
                 f.button("done", rect(25, 290, 240, 36), "Done", true);
             }
         }
-        f = translated(f, 25, crate::panels::side_height());
+        f = translated(f, 25, c.layout.side_height());
         f.image("06001477", rect(0, 0, 276, 30), false, false);
         centered(
             &mut f,

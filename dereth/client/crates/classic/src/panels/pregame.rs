@@ -50,12 +50,21 @@ const WHITE: u32 = 0xffff_ffff;
 /// A character slot's height on the character screen.
 const SLOT: i32 = 16;
 
-pub fn make(id: &str, now: dereth_primitives::LocalTime) -> Option<Box<dyn Panel>> {
+pub fn make(
+    id: &str,
+    now: dereth_primitives::LocalTime,
+    resources: &crate::resources::Resources,
+) -> Option<Box<dyn Panel>> {
     let &external = IDS
         .iter()
         .find(|&&v| v == id.strip_prefix("pregame/").unwrap_or(id))?;
     let page = external.strip_prefix("create-").unwrap_or(external);
-    Some(Box::new(Pregame::new(page, data::current(), now)))
+    Some(Box::new(Pregame::with_resources(
+        page,
+        resources.creation.clone(),
+        now,
+        resources,
+    )))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -66,6 +75,7 @@ enum KeyTransition {
 #[derive(Debug)]
 struct Pregame {
     page: &'static str,
+    resources: crate::resources::Resources,
     startup: startup::Startup,
     startup_error: Option<String>,
     data: Result<std::rc::Rc<CreationData>, String>,
@@ -158,6 +168,7 @@ fn art_choice(
 /// it is, a plate beside it (lit when chosen) with the name on it in large white type, and a white
 /// rectangle round the chosen row.
 fn plate_list<'a>(
+    fonts: &crate::renderer::FontMetrics,
     f: &mut PanelFrame,
     id: &str,
     bounds: crate::widgets::Rect,
@@ -197,6 +208,7 @@ fn plate_list<'a>(
             false,
         );
         line(
+            fonts,
             f,
             rect(plate.x, y + 12, 185, 30),
             name,
@@ -218,7 +230,9 @@ fn clipped(f: &mut PanelFrame, did: u32, r: crate::widgets::Rect, clip: [i32; 4]
     }
 }
 /// One line of `text` centred from top to bottom in `r`, cut to `clip`.
+#[allow(clippy::too_many_arguments)]
 fn line(
+    fonts: &crate::renderer::FontMetrics,
     f: &mut PanelFrame,
     r: crate::widgets::Rect,
     text: impl Into<String>,
@@ -227,7 +241,7 @@ fn line(
     align: TextAlign,
     clip: [i32; 4],
 ) {
-    let height = crate::renderer::font_line_height(font).unwrap_or(r.h);
+    let height = fonts.line_height(font).unwrap_or(r.h);
     f.text_box(
         rect(r.x, r.y + (r.h - height) / 2, r.w, height),
         text,
@@ -274,14 +288,20 @@ fn text(f: &mut PanelFrame, r: crate::widgets::Rect, value: impl Into<String>) {
 }
 
 impl Pregame {
+    #[cfg(test)]
     fn new(
         page: &'static str,
-        mut data: Result<std::rc::Rc<CreationData>, String>,
+        data: Result<std::rc::Rc<CreationData>, String>,
         now: dereth_primitives::LocalTime,
     ) -> Self {
-        if let (Ok(data), Some(art)) = (&mut data, crate::art::installed()) {
-            std::rc::Rc::make_mut(data).read_chrome(&art);
-        }
+        Self::with_resources(page, data, now, &crate::resources::Resources::default())
+    }
+    fn with_resources(
+        page: &'static str,
+        data: Result<std::rc::Rc<CreationData>, String>,
+        now: dereth_primitives::LocalTime,
+        resources: &crate::resources::Resources,
+    ) -> Self {
         let mut state = CharGenState::with_policy(CreationPolicy::Classic);
         if let Ok(d) = &data {
             state.begin_creation(&d.tables, CreationEntry::Normal, true);
@@ -293,6 +313,7 @@ impl Pregame {
             );
         Self {
             page,
+            resources: resources.clone(),
             startup: startup::Startup::new(now),
             startup_error: None,
             data,
@@ -688,7 +709,9 @@ impl Pregame {
         f.fill(rect(0, 0, 800, 600), 0xff000000);
         for (did, r) in [
             (
-                crate::art::installed()
+                self.resources
+                    .art
+                    .as_ref()
                     .map_or(crate::art::CHARACTER_PANEL, |a| a.character_panel()),
                 rect(0, 0, 282, 600),
             ),
@@ -876,7 +899,11 @@ impl Pregame {
         }
         // Light type, as the era's, scrolled by the bar beside the box.
         let height = 278 - 4;
-        let full = crate::renderer::measure_text_height("16-7", &status, 446).unwrap_or(0);
+        let full = self
+            .resources
+            .fonts
+            .text_height("16-7", &status, 446)
+            .unwrap_or(0);
         let offset = self.message_scroll.min((full - height).max(0));
         f.text_box(
             rect(295, 287 - offset, 446, full.max(height)),
@@ -947,6 +974,7 @@ impl Pregame {
                 self.help(&mut f, d, heritage.description);
                 text(&mut f, rect(451, 256, 300, 20), "Available Heritage Groups");
                 plate_list(
+                    &self.resources.fonts,
                     &mut f,
                     "heritage",
                     rect(451, 276, 300, 192),
@@ -960,6 +988,7 @@ impl Pregame {
 
                 text(&mut f, rect(444, 266, 300, 20), "Available Sexes");
                 plate_list(
+                    &self.resources.fonts,
                     &mut f,
                     "sex",
                     rect(444, 286, 300, 192),

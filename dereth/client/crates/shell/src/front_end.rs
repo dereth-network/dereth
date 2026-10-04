@@ -3207,12 +3207,19 @@ pub const KEYMAP_DEFAULT: &str = "Default";
 fn build_classic<H: Host>(
     cx: &mut Cx<'_, H>,
     keys: dereth_classic_ui::keystore::ClassicKeys,
+    creation: Result<std::rc::Rc<dereth_classic_ui::panels::pregame::data::CreationData>, String>,
 ) -> Result<dereth_classic_ui::runtime::ClassicUi, crate::classic_face::Refusal> {
     use crate::classic_face::Refusal;
     let portal = dereth_classic_dat::ClassicPortal::of_store(cx.store()).ok_or(Refusal::Files)?;
     let fonts = H::classic_fonts().ok_or(Refusal::Fonts)?;
     let art = dereth_classic_ui::art::ClassicArt::new(portal, &*fonts).map_err(Refusal::Failed)?;
-    let art = dereth_classic_ui::art::install(std::sync::Arc::new(art));
+    let art = std::sync::Arc::new(art);
+    let help = H::classic_help_book()
+        .map_err(Refusal::Failed)?
+        .map(|bytes| dereth_classic_ui::help::decode(&bytes).map(std::sync::Arc::new))
+        .transpose()
+        .map_err(Refusal::Failed)?;
+    let resources = dereth_classic_ui::resources::Resources::new(art, creation, help);
     let cfg = cx.config();
     let state = cfg
         .preferences_file
@@ -3228,17 +3235,12 @@ fn build_classic<H: Host>(
         .or_else(|| cfg.world_dat_dir.clone());
     let size = cx.present().size();
     let mut ui = dereth_classic_ui::runtime::ClassicUi::new(
-        art,
+        resources,
         dereth_classic_ui::art::ClassicPaths { portal_dir, state },
         dereth_classic_ui::panels::factory,
         size,
     );
     ui.set_classic_keys(keys);
-    if dereth_classic_ui::help::make("help-game").is_none() {
-        if let Some(bytes) = H::classic_help_book().map_err(Refusal::Failed)? {
-            dereth_classic_ui::help::install(&bytes).map_err(Refusal::Failed)?;
-        }
-    }
     ui.classic.welcome = H::classic_welcome();
     ui.start(cx).map_err(Refusal::Failed)?;
     Ok(ui)
@@ -3354,7 +3356,11 @@ impl<H: Host> ClientShell<H> {
                     ui.set_classic_keys(classic_keys(self.shared.input.as_mut()));
                 }
                 if self.classic.ui.is_none() {
-                    match build_classic(cx, classic_keys(self.shared.input.as_mut())) {
+                    let creation = self.modern.ui.as_ref().map_or_else(
+                        || Err("World creation tables unavailable".to_owned()),
+                        crate::ui::UiShell::classic_creation_data,
+                    );
+                    match build_classic(cx, classic_keys(self.shared.input.as_mut()), creation) {
                         Ok(ui) => {
                             self.classic.ui = Some(ui);
                         }

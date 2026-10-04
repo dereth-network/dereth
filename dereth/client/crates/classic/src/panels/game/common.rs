@@ -193,16 +193,18 @@ pub fn spell_icon(
 }
 /// Measure with the same installed atlas used to draw. Empty/headless frames have no scroll.
 pub fn rich_scroll(
+    fonts: &crate::renderer::FontMetrics,
     f: &mut PanelFrame,
     r: Rect,
     runs: Vec<crate::TextRun>,
     font: &str,
     scroll: i32,
 ) {
-    rich_scroll_inset(f, r, 0, runs, font, scroll);
+    rich_scroll_inset(fonts, f, r, 0, runs, font, scroll);
 }
 /// [`rich_scroll`] with the text kept `inset` pixels inside the box's edges.
 pub fn rich_scroll_inset(
+    fonts: &crate::renderer::FontMetrics,
     f: &mut PanelFrame,
     r: Rect,
     inset: i32,
@@ -210,7 +212,8 @@ pub fn rich_scroll_inset(
     font: &str,
     scroll: i32,
 ) {
-    let height = crate::renderer::measure_rich_text_height(font, &runs, r.w - 2 * inset)
+    let height = fonts
+        .rich_text_height(font, &runs, r.w - 2 * inset)
         .unwrap_or(r.h)
         .max(r.h);
     let offset = scroll.clamp(0, (height - r.h).max(0));

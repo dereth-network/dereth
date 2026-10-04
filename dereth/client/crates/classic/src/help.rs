@@ -8,10 +8,7 @@ use crate::{
     Command, Screen,
 };
 use serde::Deserialize;
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Link {
@@ -35,14 +32,6 @@ pub struct Book {
     pub schema: u32,
     pub contexts: BTreeMap<u32, BTreeMap<u32, Page>>,
 }
-static BOOK: OnceLock<Arc<Book>> = OnceLock::new();
-
-pub fn install(data: &[u8]) -> Result<(), String> {
-    let book = decode(data)?;
-    BOOK.set(Arc::new(book))
-        .map_err(|_| "help book is already installed".into())
-}
-
 /// Decode and validate the supplied help pages without opening any host resource.
 pub fn decode(data: &[u8]) -> Result<Book, String> {
     let book: Book = serde_json::from_slice(data).map_err(|e| e.to_string())?;
@@ -77,23 +66,16 @@ fn validate(book: &Book) -> Result<(), String> {
     }
     Ok(())
 }
-pub fn print_screen(context: u32, topic: u32) -> Option<Screen> {
-    Some(
-        BOOK.get()?
-            .contexts
-            .get(&context)?
-            .get(&topic)?
-            .screen
-            .clone(),
-    )
+pub fn print_screen(book: &Book, context: u32, topic: u32) -> Option<Screen> {
+    Some(book.contexts.get(&context)?.get(&topic)?.screen.clone())
 }
-pub fn make(id: &str) -> Option<Box<dyn Panel>> {
+pub fn make(id: &str, book: Option<&Arc<Book>>) -> Option<Box<dyn Panel>> {
     let context = match id {
         "help-chargen" => 50,
         "help-game" => 51,
         _ => return None,
     };
-    Some(Box::new(Help::new(BOOK.get()?.clone(), context)))
+    Some(Box::new(Help::new(book?.clone(), context)))
 }
 #[derive(Debug)]
 struct Help {

@@ -42,8 +42,8 @@ struct Settings {
 }
 
 /// The page's background, the side panel's height less the tabs.
-fn background() -> PanelFrame {
-    let height = crate::panels::side_height() - 25;
+fn background(c: &Context<'_>) -> PanelFrame {
+    let height = c.layout.side_height() - 25;
     let mut f = PanelFrame::new(300, height);
     crate::panels::sub_page_background(&mut f, height as i32);
     f
@@ -98,7 +98,7 @@ fn content(page: PageId, c: &Context<'_>) -> i32 {
 }
 
 fn max_scroll(page: PageId, c: &Context<'_>) -> i32 {
-    crate::panels::OptionsPage::current().max_scroll(content(page, c))
+    crate::panels::OptionsPage::current(c.layout).max_scroll(content(page, c))
 }
 
 /// The rows the classic interface keeps its own steps for, through the settings host.
@@ -141,9 +141,9 @@ fn client_row(preference: &str) -> Option<&'static Row> {
 }
 
 impl Settings {
-    fn general(&self, _c: &Context<'_>) -> PanelFrame {
-        let mut f = background();
-        let height = i32::try_from(crate::panels::side_height()).unwrap_or(362) - 25;
+    fn general(&self, c: &Context<'_>) -> PanelFrame {
+        let mut f = background(c);
+        let height = i32::try_from(c.layout.side_height()).unwrap_or(362) - 25;
         separator(&mut f, height - 34);
         let actions = sheet::rows_for(PageId::GameSupport, Face::Classic)
             .filter(|r| !matches!(r.value, Value::Action(sheet::Act::MouseTurningSettings)));
@@ -277,8 +277,8 @@ impl Settings {
             .as_ref()
             .filter(|_| self.dirty)
             .unwrap_or(c.settings);
-        let mut f = background();
-        let page = crate::panels::OptionsPage::current();
+        let mut f = background(c);
+        let page = crate::panels::OptionsPage::current(c.layout);
         page.background(&mut f);
         let clip = Some(page.clip());
         let row = row_height(PageId::Client);
@@ -403,8 +403,8 @@ impl Settings {
 
     /// The Chat Options page: which messages the chat window shows, by group.
     fn chat(&self, c: &Context<'_>) -> PanelFrame {
-        let mut f = background();
-        let page = crate::panels::OptionsPage::current();
+        let mut f = background(c);
+        let page = crate::panels::OptionsPage::current(c.layout);
         page.background(&mut f);
         let clip = Some(page.clip());
         let filter = Self::chat_filter(c);
@@ -660,7 +660,7 @@ impl Panel for Settings {
                 _ => self.general(c),
             },
             25,
-            crate::panels::side_height(),
+            c.layout.side_height(),
         );
         // The four pages' tabs, as the classic window draws its tabs.
         for (k, (id, title, x, w)) in [

@@ -36,10 +36,10 @@ impl Panel for CharacterOptions {
         "character-options"
     }
     fn frame(&self, context: &Context<'_>) -> PanelFrame {
-        let height = crate::panels::side_height() - 25;
+        let height = context.layout.side_height() - 25;
         let mut f = PanelFrame::new(300, height);
         crate::panels::sub_page_background(&mut f, height as i32);
-        let page = crate::panels::OptionsPage::current();
+        let page = crate::panels::OptionsPage::current(context.layout);
         page.background(&mut f);
         let features = Some(context.game.era_features());
         let shown = shown(features.as_ref());
@@ -102,7 +102,7 @@ impl Panel for CharacterOptions {
             }
             ControlEvent::Scroll { id, value } if id == "scroll" => {
                 let features = Some(c.game.era_features());
-                let page = crate::panels::OptionsPage::current();
+                let page = crate::panels::OptionsPage::current(c.layout);
                 self.scroll =
                     value.clamp(0, page.max_scroll(content(shown(features.as_ref()).len())));
             }

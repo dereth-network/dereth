@@ -10,6 +10,8 @@ pub(super) fn context(f: impl FnOnce(&Context<'_>)) {
     let settings = ClassicSettings::default();
     let classic = ClassicState::default();
     f(&Context {
+        resources: &crate::resources::Resources::default(),
+        layout: crate::panels::Layout::default(),
         now: dereth_primitives::LocalTime(0.0),
         game: &game,
         pregame: &pregame,
@@ -201,6 +203,8 @@ fn credits_use_constructor_and_reentry_times_for_scroll_and_completion() {
         let mut panel = Pregame::new("credits", Ok(std::rc::Rc::new(data)), LocalTime(100.0));
         for (time, photo_y, text_y) in [(100.0, 100, 10), (101.0, 68, -15), (99.0, 100, 10)] {
             let context = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: LocalTime(time),
                 ..*base
             };
@@ -215,6 +219,8 @@ fn credits_use_constructor_and_reentry_times_for_scroll_and_completion() {
         panel.event(
             ControlEvent::Tick,
             &Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: LocalTime(101.99),
                 ..*base
             },
@@ -223,6 +229,8 @@ fn credits_use_constructor_and_reentry_times_for_scroll_and_completion() {
         panel.event(
             ControlEvent::Tick,
             &Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: LocalTime(102.0),
                 ..*base
             },
@@ -231,6 +239,8 @@ fn credits_use_constructor_and_reentry_times_for_scroll_and_completion() {
         panel.event(
             ControlEvent::Activate("credits".into()),
             &Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: LocalTime(200.0),
                 ..*base
             },
@@ -239,6 +249,8 @@ fn credits_use_constructor_and_reentry_times_for_scroll_and_completion() {
         assert_eq!(panel.credits_started, LocalTime(200.0));
         assert!(panel
             .frame(&Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: LocalTime(201.0),
                 ..*base
             })
@@ -422,6 +434,8 @@ fn deletion_waits_only_after_confirmation_and_releases_on_character_set_notice()
             ..Default::default()
         });
         let mut c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -485,6 +499,8 @@ fn more_characters_than_the_six_slots_scroll_in_the_six() {
             ..Default::default()
         });
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -555,6 +571,8 @@ fn character_list_refresh_keeps_wire_slot_when_display_sort_order_changes() {
             ..Default::default()
         });
         let mut c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -615,6 +633,8 @@ fn successful_creation_enters_from_verification_identity_without_new_list_notice
                     .push(identity.clone());
             }
             let mut c = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 game: base.game,
                 pregame: &view,
@@ -668,6 +688,8 @@ fn successful_creation_enters_when_the_server_prefixes_a_privileged_name() {
         view.chargen_response = Some(1);
         view.chargen_response_notices = 1;
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -699,6 +721,8 @@ fn successful_restore_clears_waiting_without_creation_status_or_logon() {
         view.chargen_response = Some(1);
         view.chargen_response_notices = 1;
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -764,6 +788,8 @@ fn enter_confirmation_initializes_the_current_character_selection() {
             ..Default::default()
         });
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -793,6 +819,8 @@ fn startup_error_blocks_advance_and_acknowledgement_exits_once() {
         let mut view = base.pregame.clone();
         view.error = Some("Connection failed".into());
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
@@ -822,6 +850,8 @@ fn save_as_existing_name_only_emits_overwrite_after_confirmation() {
         let mut keyboard = base.keyboard.clone();
         keyboard.schemes = vec!["Default".into(), "Existing".into()];
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: base.pregame,
@@ -852,6 +882,8 @@ fn dirty_keyboard_exit_and_switch_offer_save_and_preserve_pending_transition_unt
         keyboard.schemes = vec!["Default".into(), "Named".into()];
         keyboard.scheme = 1;
         let mut c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: base.pregame,
@@ -922,6 +954,8 @@ fn same_key_or_cancel_completion_closes_capture_without_requiring_changed_labels
         keyboard.schemes = vec!["Default".into(), "Named".into()];
         keyboard.scheme = 1;
         let mut c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: base.pregame,
@@ -1098,6 +1132,8 @@ fn allocated_credits_and_raw_name_edits_reach_the_real_finish_action() {
         view.connected = true;
         view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             pregame: &view,
             ..*base
@@ -1316,7 +1352,8 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
             clothing: Rc::new(clothing),
         });
         let mut data = CreationData::load(Rc::clone(&t), &store);
-        data.read_chrome(&art);
+        let mut canvas = crate::renderer::Canvas::new(Arc::clone(&art), (800, 600)).unwrap();
+        data.read_chrome(&art, &canvas.font_metrics());
         for id in [0x31000020u32, 0x31000022] {
             assert!(!data.help_text[&id.to_string()].is_empty());
         }
@@ -1324,7 +1361,6 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
             data.heritages.iter().map(|h| h.key).collect::<Vec<_>>(),
             t.heritage_keys()
         );
-        let mut canvas = crate::renderer::Canvas::new(Arc::clone(&art), (800, 600)).unwrap();
         let mut screen = crate::Screen {
             width: 800,
             height: 600,
@@ -1381,6 +1417,8 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
             view.connected = true;
             view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
             let c = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
                 now: dereth_primitives::LocalTime(0.0),
                 pregame: &view,
                 ..*base
@@ -1534,6 +1572,8 @@ fn the_real_keyboard_list_scrolls_over_names_and_each_binding_column() {
             })
             .collect();
         let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             keyboard: &keyboard,
             ..*base
@@ -1569,5 +1609,82 @@ fn the_real_keyboard_list_scrolls_over_names_and_each_binding_column() {
                 "scrolling did not disable slot capture"
             );
         }
+    });
+}
+
+#[test]
+fn factories_keep_creation_and_help_content_with_their_resource_bundle() {
+    use std::{rc::Rc, sync::Arc};
+    let make_resources = |name: &str| {
+        let mut tables = tables();
+        tables
+            .chargen
+            .heritage_groups
+            .values_mut()
+            .next()
+            .unwrap()
+            .name = name.into();
+        let data = CreationData::from_tables(Rc::new(tables));
+        let page = |width| crate::help::Page {
+            title: name.into(),
+            screen: crate::Screen {
+                width,
+                height: 120,
+                commands: vec![crate::Command::Text {
+                    text: name.into(),
+                    x: 1,
+                    y: 1,
+                    font: "16-7".into(),
+                    color: 0xffffffff,
+                    clip: None,
+                }],
+            },
+            fixed_height: 0,
+            links: vec![],
+        };
+        crate::resources::Resources {
+            creation: Ok(Rc::new(data)),
+            help: Some(Arc::new(crate::help::Book {
+                schema: 1,
+                contexts: std::collections::BTreeMap::from([
+                    (
+                        50,
+                        std::collections::BTreeMap::from([(0xCCCB685E, page(273))]),
+                    ),
+                    (
+                        51,
+                        std::collections::BTreeMap::from([(0xA5D680F2, page(290))]),
+                    ),
+                ]),
+            })),
+            ..Default::default()
+        }
+    };
+    let a = make_resources("Amber");
+    let b = make_resources("Birch");
+    context(|base| {
+        for (resources, name, other) in [
+            (&a, "Amber", "Birch"),
+            (&b, "Birch", "Amber"),
+            (&a, "Amber", "Birch"),
+        ] {
+            let c = Context { resources, ..*base };
+            for id in ["create-heritage", "help-game"] {
+                let mut panel = crate::panels::factory(id, c.now, resources).unwrap();
+                panel.event(ControlEvent::Tick, &c);
+                let commands = format!("{:?}", panel.frame(&c).screen.commands);
+                assert!(commands.contains(name), "{id}: {commands}");
+                assert!(!commands.contains(other));
+            }
+        }
+        let missing = crate::resources::Resources::default();
+        assert!(crate::panels::factory("help-game", base.now, &missing).is_none());
+        let panel = crate::panels::factory("create-heritage", base.now, &missing).unwrap();
+        let c = Context {
+            resources: &missing,
+            ..*base
+        };
+        assert!(format!("{:?}", panel.frame(&c)).contains("World creation tables unavailable"));
+        assert_eq!(a.creation.as_ref().unwrap().heritages[0].name, "Amber");
     });
 }

@@ -32,6 +32,8 @@ fn choosing_a_pack_updates_the_shared_pickup_destination() {
         };
         let ctx = Context {
             now: dereth_primitives::LocalTime(0.0),
+            resources: &dereth_classic_ui::resources::Resources::default(),
+            layout: Default::default(),
             game: &view,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -180,6 +182,8 @@ fn a_recreated_classic_inventory_reads_the_shared_pack_selection() {
         let panel = dereth_classic_ui::panels::game::make("inventory").unwrap();
         let context = Context {
             now: dereth_primitives::LocalTime(0.0),
+            resources: &dereth_classic_ui::resources::Resources::default(),
+            layout: Default::default(),
             game: &snapshot,
             pregame: &Default::default(),
             keyboard: &Default::default(),
@@ -242,6 +246,8 @@ fn character_squelch_from_panel(name: &str, add: bool) {
     let view = View(name.to_owned());
     let context = Context {
         now: dereth_primitives::LocalTime(0.0),
+        resources: &dereth_classic_ui::resources::Resources::default(),
+        layout: Default::default(),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -352,6 +358,8 @@ fn equipment_drop(
     let view = dereth_client_runtime::hud::HudView { hud: &hud, world };
     let context = Context {
         now: dereth_primitives::LocalTime(0.0),
+        resources: &dereth_classic_ui::resources::Resources::default(),
+        layout: Default::default(),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -581,6 +589,8 @@ fn classic_ready_slot_displays_a_confirmed_two_handed_weapon() {
     let view = hud.view(&objects);
     let context = Context {
         now: dereth_primitives::LocalTime(0.0),
+        resources: &dereth_classic_ui::resources::Resources::default(),
+        layout: Default::default(),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -606,6 +616,8 @@ fn era_context<T>(
 ) -> T {
     f(&Context {
         now: dereth_primitives::LocalTime(0.0),
+        resources: &dereth_classic_ui::resources::Resources::default(),
+        layout: Default::default(),
         game: view,
         pregame: &Default::default(),
         keyboard: &Default::default(),

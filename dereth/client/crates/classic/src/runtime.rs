@@ -147,7 +147,7 @@ pub struct ClassicUi {
     pub settings: ClassicSettings,
     pub classic: ClassicState,
     pub inputs: Vec<Input>,
-    pub art: std::sync::Arc<crate::art::ClassicArt>,
+    pub resources: crate::resources::Resources,
     pub paths: crate::art::ClassicPaths,
     canvas: Option<Canvas>,
     screen: Screen,
@@ -173,9 +173,13 @@ impl std::fmt::Debug for ClassicUi {
 }
 impl ClassicUi {
     pub fn new(
-        art: std::sync::Arc<crate::art::ClassicArt>,
+        resources: crate::resources::Resources,
         paths: crate::art::ClassicPaths,
-        factory: fn(&str, dereth_primitives::LocalTime) -> Option<Box<dyn Panel>>,
+        factory: fn(
+            &str,
+            dereth_primitives::LocalTime,
+            &crate::resources::Resources,
+        ) -> Option<Box<dyn Panel>>,
         size: (u32, u32),
     ) -> Self {
         let previews = crate::previews::Previews::default();
@@ -241,7 +245,7 @@ impl ClassicUi {
             settings: ClassicSettings::default(),
             classic: ClassicState::default(),
             inputs: vec![],
-            art,
+            resources,
             paths,
             canvas: None,
             screen: Screen {
@@ -531,6 +535,8 @@ impl ClassicUi {
             ) {
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
+                    resources: &self.resources,
+                    layout: self.desktop.layout(),
                     now,
                     game: &view,
                     pregame: cx.pregame(),
@@ -555,6 +561,8 @@ impl ClassicUi {
             {
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
+                    resources: &self.resources,
+                    layout: self.desktop.layout(),
                     now,
                     game: &view,
                     pregame: cx.pregame(),
@@ -1063,7 +1071,7 @@ impl ClassicUi {
                     } else {
                         "help-game"
                     };
-                    if crate::help::make(id).is_some() {
+                    if crate::help::make(id, self.resources.help.as_ref()).is_some() {
                         self.keyboard_focus_lost(cx);
                         self.panel_actions.push(PanelAction::Open(id.into()));
                     } else {
@@ -1441,8 +1449,23 @@ impl ClassicUi {
         self.keyboard = bindings.snapshot();
         self.bindings = Some(bindings);
         let size = cx.present().size();
-        self.canvas =
-            Some(Canvas::new(std::sync::Arc::clone(&self.art), size).map_err(|e| e.to_string())?);
+        self.canvas = Some(
+            Canvas::new(
+                std::sync::Arc::clone(
+                    self.resources
+                        .art
+                        .as_ref()
+                        .ok_or("Classic art unavailable")?,
+                ),
+                size,
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        self.resources.fonts = self.canvas.as_ref().expect("canvas created").font_metrics();
+        self.desktop.set_fonts(self.resources.fonts.clone());
+        if let (Ok(data), Some(art)) = (&mut self.resources.creation, &self.resources.art) {
+            std::rc::Rc::make_mut(data).read_chrome(art, &self.resources.fonts);
+        }
         self.settings.hardware_acceleration = true;
         // The detail-texture boxes are live wherever the page can be opened: the scene draws
         // all three classes of detail texture.
@@ -1497,6 +1520,8 @@ impl ClassicUi {
         {
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                resources: &self.resources,
+                layout: self.desktop.layout(),
                 now: dereth_primitives::LocalTime(cx.now()),
                 game: &view,
                 pregame: cx.pregame(),
@@ -1897,6 +1922,8 @@ impl ClassicUi {
         {
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                resources: &self.resources,
+                layout: self.desktop.layout(),
                 now,
                 game: &view,
                 pregame: cx.pregame(),
@@ -2103,6 +2130,8 @@ impl ClassicUi {
                 };
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
+                    resources: &self.resources,
+                    layout: self.desktop.layout(),
                     now,
                     game: &view,
                     pregame: cx.pregame(),
@@ -2317,6 +2346,8 @@ impl ClassicUi {
         }
         let view = cx.hud().view(cx.objects());
         let context = Context {
+            resources: &self.resources,
+            layout: self.desktop.layout(),
             now: dereth_primitives::LocalTime(cx.now()),
             game: &view,
             pregame: cx.pregame(),
@@ -2609,7 +2640,7 @@ impl ClassicUi {
         &self,
         pointer: crate::cursor::SystemPointer,
     ) -> Option<(u32, u32, Vec<[u8; 4]>)> {
-        let image = self.art.image(pointer.did)?;
+        let image = self.resources.art.as_ref()?.image(pointer.did)?;
         Some((
             image.width,
             image.height,
@@ -2644,7 +2675,9 @@ impl ClassicUi {
                 !self.desktop.active_regions().0.is_empty(),
                 crate::keyboard_runtime::stretch_ui(),
                 |text| {
-                    crate::renderer::measure_text_width(crate::world_overlay::FONT, text)
+                    self.resources
+                        .fonts
+                        .text_width(crate::world_overlay::FONT, text)
                         .unwrap_or(0)
                 },
             ));
@@ -2921,6 +2954,8 @@ mod house_profile_tests {
 
     fn with_context(hud: &Hud, objects: &ObjectStream, run: impl FnOnce(&Context<'_>)) {
         run(&Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
             now: dereth_primitives::LocalTime(0.0),
             game: &hud.view(objects),
             pregame: &Default::default(),
@@ -2936,7 +2971,7 @@ mod house_profile_tests {
     fn a_house_profile_opens_once_and_a_repeated_use_reopens_after_close() {
         let mut hud = Hud::new();
         let mut objects = ObjectStream::new();
-        let mut desktop = Desktop::new(|id, _| crate::panels::services::make(id), (800, 600));
+        let mut desktop = Desktop::new(|id, _, _| crate::panels::services::make(id), (800, 600));
         let mut seen = 0;
         with_context(&hud, &objects, |context| {
             open_house_profile(&mut desktop, &mut seen, context);
@@ -2963,7 +2998,7 @@ mod house_profile_tests {
                 open_house_profile(&mut desktop, &mut seen, context);
                 assert!(desktop.is_open("maintenance"));
                 let mut rebuilt =
-                    Desktop::new(|id, _| crate::panels::services::make(id), (800, 600));
+                    Desktop::new(|id, _, _| crate::panels::services::make(id), (800, 600));
                 open_house_profile(&mut rebuilt, &mut seen, context);
                 assert!(
                     rebuilt.is_open("maintenance"),
