@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use dereth_transport::conn::ConnectRequest;
-use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader, WireError};
+use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, WireError};
 
 /// Which way a captured datagram went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,17 +395,6 @@ pub fn interval_offset(first_captured: u16, first_ours: u16) -> u16 {
     first_captured.wrapping_sub(first_ours)
 }
 
-/// A `ProtoHeader` with everything a replay controls, for building an expected packet.
-#[must_use]
-pub fn header_from_meta(meta: &CaptureMeta, seq_id: u32) -> ProtoHeader {
-    ProtoHeader {
-        seq_id,
-        rec_id: meta.net_id,
-        iteration: meta.iteration,
-        ..Default::default()
-    }
-}
-
 /// The masks a captured packet carries, in wire order. Diagnostics.
 #[must_use]
 pub fn masks_of(packet: &ParsedPacket) -> Vec<u32> {
@@ -428,7 +417,7 @@ pub fn coverage(capture: &Capture) -> BTreeMap<u32, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dereth_transport::wire::{Fragment, FragmentHeader};
+    use dereth_transport::wire::{Fragment, FragmentHeader, ProtoHeader};
 
     /// The comparison is exact once the ignored fields are normalised away.
     ///
