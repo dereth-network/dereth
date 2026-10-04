@@ -1,15 +1,8 @@
+.claude/
+
 /target*/
 
 world.pack*
 shard.db*
 auth.db*
 empyrean.toml
-
-# A recording's raw captures and its real-name map, before pseudonymisation.
-fixtures/packet-captures/raw/
-fixtures/packet-captures/scrub-map/
-
-# Run output.
-UserPreferences.ini
-/runtime/
-__pycache__/
