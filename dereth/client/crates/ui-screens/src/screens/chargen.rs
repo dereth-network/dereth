@@ -2071,7 +2071,9 @@ impl CharGenScreen {
             crate::options::keybinding::set_literal(
                 ui,
                 title,
-                selected.map_or("Choose a starting town", |area| area.name.as_str()),
+                selected
+                    .and_then(|area| area.name.split_whitespace().next())
+                    .unwrap_or("Starting town"),
             );
         }
         let Some((page_id, _)) = EcgProgress::Town.page() else {
@@ -2127,6 +2129,7 @@ impl CharGenScreen {
             });
             if let Some(handle) = handle {
                 for label in std::iter::once(handle).chain(ui.children(handle)) {
+                    ui.set_tooltip(label, Some(format!("Start in {}.", area.name)));
                     if ui.text_element_mut(label).is_some() {
                         crate::options::keybinding::set_literal(ui, label, &area.name);
                     }

@@ -185,6 +185,10 @@ fn earlier_world_town_buttons_show_and_select_all_six_actual_start_areas() {
             .glyphs
             .inq_text(false);
         assert_eq!(&label, name);
+        assert_eq!(
+            shell.ui.node(button).unwrap().tooltip_text.as_deref(),
+            Some(format!("Start in {name}.").as_str())
+        );
         let rect = shell.ui.screen_box(button);
         assert!(
             rect.x0 >= 0 && rect.x1 < 800 && rect.y0 >= 0 && rect.y1 < 600,
@@ -197,6 +201,19 @@ fn earlier_world_town_buttons_show_and_select_all_six_actual_start_areas() {
             "{name}"
         );
         assert!(screen.open_dialog.is_none());
+        let title = shell
+            .ui
+            .get_child_recursive(root, chargen::town_page::TITLE)
+            .unwrap();
+        assert_eq!(
+            shell
+                .ui
+                .text_element_mut(title)
+                .unwrap()
+                .glyphs
+                .inq_text(false),
+            name.split_whitespace().next().unwrap()
+        );
     }
     let sanamar = shell
         .ui
