@@ -563,7 +563,17 @@ impl AttributesPanel {
         let adv = view
             .attribute_advancement(row.wire_stat(), row.secondary)
             .unwrap_or_default();
-        self.write_selection_footer(ui, view, &adv, format!("{}: {}", row.name, adv.effective))
+        self.write_selection_footer(
+            ui,
+            view,
+            &adv,
+            dereth_presentation::stats::stat_title(
+                &row.name,
+                adv.effective,
+                false,
+                dereth_presentation::DisplayVariant::Modern,
+            ),
+        )
     }
 
     /// The same footer with a
@@ -620,13 +630,7 @@ impl AttributesPanel {
         };
         let delta = adv.title_delta();
         let font = adv.title_font();
-        let suffix = if delta == 0 {
-            String::new()
-        } else if delta > 0 {
-            format!(" (+{delta})")
-        } else {
-            format!(" ({delta})")
-        };
+        let suffix = dereth_presentation::stats::signed_suffix(delta);
         let c = FooterContent {
             title: format!("{base_title}{suffix}"),
             title_font: font,

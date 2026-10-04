@@ -1298,7 +1298,6 @@ impl ClassicUi {
                     .any(|k| b.get(k).copied().unwrap_or(false))
             });
         self.classic.portraits.clear();
-        self.classic.appraisal_extra.clear();
         for (id, object) in world.tables.weenies.iter() {
             // A face comes from the object's own qualities (the player's) or, for anyone else,
             // from their appraisal, which carries the face textures and palettes.
@@ -1311,36 +1310,6 @@ impl ClassicUi {
             };
             if let Some(portrait) = portrait_from(did) {
                 self.classic.portraits.insert(id, portrait);
-            }
-            if let Some(profile) = world.appraisal.get(id) {
-                let int = |k| {
-                    profile
-                        .tables
-                        .ints
-                        .as_ref()?
-                        .entries
-                        .iter()
-                        .find(|(id, _)| *id == k)
-                        .map(|(_, v)| *v)
-                };
-                let string = |k| {
-                    profile
-                        .tables
-                        .strings
-                        .as_ref()?
-                        .entries
-                        .iter()
-                        .find(|(id, _)| *id == k)
-                        .map(|(_, v)| v.clone())
-                };
-                self.classic.appraisal_extra.insert(
-                    id,
-                    ClassicAppraisalExtra {
-                        attack_type: int(0x2f),
-                        elemental_damage_bonus: int(0xcc),
-                        activation_heritage: string(0x13),
-                    },
-                );
             }
         }
         // The Character page shows this interface's own settings as their classic checkboxes.

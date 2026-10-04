@@ -229,22 +229,10 @@ impl TitlesPanel {
             return;
         };
         list.flush(ui);
-        for (id, name) in &t.titles {
-            // The title insert's two refusals, in its own order: id `0`, then the title-name
-            // lookup failing. Neither creates a row.
-            if *id == 0 || name.is_empty() {
-                self.unresolved += 1;
-                continue;
-            }
-            // The first existing row whose text sorts
-            // *after* this one, or the tail. The client compares with `wcscmp`, i.e. by UTF-16
-            // code unit; for the ASCII the shipped `ID_CharacterTitle_*` strings are made of,
-            // Rust's `str` ordering is the same comparison.
-            let at = self
-                .rows
-                .iter()
-                .position(|r| name.as_str() < r.name.as_str());
-            let Some(h) = list.add_from_template(ui, ROW_TEMPLATE, at) else {
+        let rows = dereth_presentation::stats::title_rows(&t.titles);
+        self.unresolved = u32::try_from(t.titles.len() - rows.len()).unwrap_or(u32::MAX);
+        for (id, name) in &rows {
+            let Some(h) = list.add_from_template(ui, ROW_TEMPLATE, None) else {
                 continue;
             };
             let Some(text) = ui.get_child_recursive(h, ElementId(ROW_TEXT)) else {
@@ -258,7 +246,7 @@ impl TitlesPanel {
                 e.set_text(name);
             }
             ui.set_attribute_enum(h, ATTR_TITLE_ID, *id);
-            let at = at.unwrap_or(self.rows.len());
+            let at = self.rows.len();
             self.rows.insert(
                 at,
                 TitleRow {
@@ -280,10 +268,8 @@ impl TitlesPanel {
     /// the display title; no selection, or the worn title re-selected, both fall to `0x0D`.
     fn update_buttons(&mut self, ui: &mut UiSystem, t: &CharacterTitles) {
         let Some(b) = self.button else { return };
-        let enabled = self
-            .selected
-            .and_then(|i| self.rows.get(i))
-            .is_some_and(|r| r.id != t.display);
+        let selected = self.selected.and_then(|i| self.rows.get(i)).map(|r| r.id);
+        let enabled = dereth_presentation::stats::can_set_title(selected, t.display, &t.titles);
         ui.set_state(
             b,
             if enabled {

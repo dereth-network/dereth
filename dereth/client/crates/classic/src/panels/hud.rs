@@ -1032,9 +1032,9 @@ impl Panel for Vitals {
             ),
         ] {
             let value = c.game.player().and_then(|p| c.game.vital(p, vital));
-            let ratio = value
-                .filter(|v| v.1 != 0)
-                .map_or(0.0, |(cur, max)| (cur as f64 / max as f64).clamp(0.0, 1.0));
+            let ratio = value.map_or(0.0, |(cur, max)| {
+                dereth_presentation::stats::classic_meter_ratio(cur, max)
+            });
             for (pieces, clip, (icon, icon_width)) in [
                 (bg, None, icons[0]),
                 (

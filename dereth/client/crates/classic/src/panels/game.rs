@@ -55,6 +55,7 @@ mod tests {
         adv: SkillAdvancement,
         attr: AttributeAdvancement,
         appraisal: Option<dereth_client_contract::view::AppraisalView>,
+        inscription_live: Option<(bool, u32)>,
         shortcuts: Vec<ObjectId>,
         contents: Vec<ObjectId>,
         equipment: Vec<(ObjectId, u32)>,
@@ -78,6 +79,9 @@ mod tests {
         }
         fn appraisal(&self, _: ObjectId) -> Option<dereth_client_contract::view::AppraisalView> {
             self.appraisal.clone()
+        }
+        fn inscription_mouse_facts(&self, _: ObjectId) -> Option<(bool, u32)> {
+            self.inscription_live
         }
         fn character_name(&self) -> Option<&str> {
             Some("Aerin")
@@ -566,6 +570,7 @@ mod tests {
     fn inscription_commit_normalizes_only_single_space_or_newline_and_sends_once() {
         use dereth_client_contract::view::AppraisalView;
         let w = World {
+            inscription_live: Some((true, 0)),
             appraisal: Some(AppraisalView {
                 inscribable: true,
                 owned_by_player: true,
@@ -636,6 +641,7 @@ mod tests {
             (false, "Someone", true, true),
         ] {
             let w = World {
+                inscription_live: Some((true, 0)),
                 appraisal: Some(AppraisalView {
                     inscribable: true,
                     owned_by_player: owned,

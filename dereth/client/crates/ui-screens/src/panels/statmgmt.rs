@@ -146,8 +146,7 @@ pub fn label(ui: &UiSystem, token: &str) -> String {
 /// choice made here.
 #[must_use]
 pub fn num(v: impl Into<i128>) -> String {
-    let v: i128 = v.into();
-    super::numfmt::number(i64::try_from(v).unwrap_or(if v < 0 { i64::MIN } else { i64::MAX }))
+    dereth_client_contract::panels::numfmt::language_number(v)
 }
 
 /// What one footer render put on screen. The panel keeps the last one so a test can read the
@@ -340,7 +339,7 @@ impl Footer {
     /// `cost == 0 || available < cost`, else state `1`.
     #[must_use]
     pub const fn enable_for(cost: u64, available: u64) -> u32 {
-        if cost == 0 || available < cost {
+        if !dereth_presentation::stats::can_raise(cost, available) {
             button_state::DISABLED
         } else {
             button_state::ENABLED
@@ -620,92 +619,10 @@ pub const LUMINANCE_MIN_LEVEL: i32 = 200;
 /// number", which is what a leading `-` gives. \[verified\]
 #[must_use]
 pub fn xp_to_string(v: i64) -> String {
-    let neg = v < 0;
-    let digits = v.unsigned_abs().to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
-    if neg {
-        out.push('-');
-    }
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    dereth_client_contract::panels::numfmt::exact_number(v)
 }
 
-/// Everything one stat-management header render reads, joined by the caller.
-///
-/// A struct rather than six arguments because both subclasses draw the **same** eight fields off
-/// their own copies of the elements, so the gather happens once.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct HeaderInputs {
-    /// The player's full object name.
-    pub name: String,
-    /// [`XpHeader`]; `None` is the level property (`0x19`) being absent, which is the `"???"`
-    /// level.
-    pub xp: Option<XpHeader>,
-    /// The gender/heritage display string.
-    pub heritage: Option<String>,
-    /// The display title for the character's title id.
-    pub title: Option<String>,
-    /// The pk status update's answer.
-    pub pk: crate::view::PkStatus,
-    /// 64-bit properties 6 and 7 -- available and maximum luminance.
-    pub luminance: (i64, i64),
-}
-
-impl HeaderInputs {
-    /// Gather one header's inputs off the seam. Both `SkillsPanel` and `AttributesPanel` call this.
-    #[must_use]
-    pub fn gather(view: &dyn crate::view::GameView) -> Self {
-        Self {
-            name: view
-                .character_name()
-                .or_else(|| view.player().and_then(|p| view.name(p)))
-                .unwrap_or_default()
-                .to_owned(),
-            xp: view.experience_header(),
-            heritage: view.gender_heritage_display(),
-            title: view.display_title(),
-            pk: view.pk_status(),
-            luminance: view.luminance(),
-        }
-    }
-
-    /// The character info update's heritage text: the gender/heritage display string, then —
-    /// if the title lookup succeeds — a space and the title.
-    ///
-    /// The space is a separate append of the literal `L" "` and only happens when the title
-    /// lookup succeeded, so a character with no display title gets no trailing space.
-    #[must_use]
-    pub fn heritage_line(&self) -> String {
-        let mut s = self.heritage.clone().unwrap_or_default();
-        if let Some(t) = self.title.as_ref().filter(|t| !t.is_empty()) {
-            s.push(' ');
-            s.push_str(t);
-        }
-        s
-    }
-
-    /// The experience update's luminance arm, gate and all.
-    ///
-    /// `(label, value)`, both empty when the arm cleared them. The gate is **two** tests
-    /// and the second one is easy to miss: `level < 200` *or* `MaximumLuminance == 0`.
-    #[must_use]
-    pub fn luminance_line(&self) -> (String, String) {
-        let level = self.xp.map_or(0, |x| x.level);
-        let (available, maximum) = self.luminance;
-        if level < LUMINANCE_MIN_LEVEL || maximum == 0 {
-            return (String::new(), String::new());
-        }
-        (
-            LUMINANCE_LABEL.to_owned(),
-            format!("{} / {}", xp_to_string(available), xp_to_string(maximum)),
-        )
-    }
-}
+pub use dereth_presentation::stats::HeaderInputs;
 
 impl Footer {
     /// The stat management panel's character info update and the experience update,
@@ -787,5 +704,21 @@ impl Footer {
             }
             None => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod number_tests {
+    /// Behaviour: skills.numbers.the-experience-numbers-are-grouped-with-the-shipped-separator
+    #[test]
+    fn exact_experience_preserves_signed_limits_while_language_values_stay_distinct() {
+        assert_eq!(super::xp_to_string(i64::MIN), "-9,223,372,036,854,775,808");
+        assert_eq!(super::xp_to_string(i64::MAX), "9,223,372,036,854,775,807");
+        assert_ne!(
+            super::num(9_007_199_254_740_993i64),
+            super::xp_to_string(9_007_199_254_740_993)
+        );
+        assert_eq!(super::num(i128::MAX), super::num(i64::MAX));
+        assert_eq!(super::num(i128::MIN), super::num(i64::MIN));
     }
 }

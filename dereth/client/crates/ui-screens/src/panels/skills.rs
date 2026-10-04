@@ -94,52 +94,8 @@ pub mod sac {
     pub const SPECIALIZED: u32 = Sac::Specialized as u32;
 }
 
-/// Which of the four groups a skill lands in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SkillGroup {
-    /// Header template 1.
-    Specialized,
-    /// Header template 2.
-    Trained,
-    /// Header template 3 — untrained **and** min level `<= 1`.
-    Untrained,
-    /// Header template 4 — everything else: `UNDEF`, and untrained with min level `> 1`.
-    Unusable,
-}
-
-impl SkillGroup {
-    /// The four, in the rebuild's header order.
-    pub const ALL: [Self; 4] = [
-        Self::Specialized,
-        Self::Trained,
-        Self::Untrained,
-        Self::Unusable,
-    ];
-
-    /// The rebuild's switch on the advancement class, including the min-level split: an
-    /// untrained skill goes between headers 3 and 4 unless its min level is above 1, in which
-    /// case it goes after header 4 with the undefined ones.
-    #[must_use]
-    pub const fn of(sac: u32, min_level: u32) -> Self {
-        match sac {
-            sac::SPECIALIZED => Self::Specialized,
-            sac::TRAINED => Self::Trained,
-            sac::UNTRAINED if min_level <= 1 => Self::Untrained,
-            _ => Self::Unusable,
-        }
-    }
-
-    /// The header's template-list index.
-    #[must_use]
-    pub const fn header_template(self) -> usize {
-        match self {
-            Self::Specialized => 1,
-            Self::Trained => 2,
-            Self::Untrained => 3,
-            Self::Unusable => 4,
-        }
-    }
-}
+pub use dereth_presentation::stats::{value_font, SkillGroup};
+use dereth_presentation::{stats, DisplayVariant};
 
 /// One built row, kept so a later update can rewrite the value without rebuilding the list.
 #[derive(Debug, Clone)]
@@ -320,18 +276,7 @@ impl SkillsPanel {
             }
         }
 
-        // The sorted insert's per-group alphabetical order, done as one sort per group.
-        let mut grouped: Vec<(SkillGroup, Vec<&SkillEntry>)> =
-            SkillGroup::ALL.iter().map(|g| (*g, Vec::new())).collect();
-        for s in skills {
-            let g = SkillGroup::of(s.sac, s.min_level);
-            if let Some(slot) = grouped.iter_mut().find(|(k, _)| *k == g) {
-                slot.1.push(s);
-            }
-        }
-        for (_, v) in &mut grouped {
-            v.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
-        }
+        let grouped = stats::skill_groups(skills, DisplayVariant::Modern);
 
         // Insert each group's rows immediately after its header, in order. Walking the groups
         // back to front keeps the earlier headers' indices valid without recomputing them, which
@@ -631,7 +576,12 @@ impl SkillsPanel {
         let entry = view.skills().iter().find(|s| s.id == self.selected_skill);
         let (level, effective, vitae) =
             entry.map_or((0, 0, 0), |s| (s.level, s.effective, s.vitae));
-        let base = format!("{}: {effective}", self.selected_name());
+        let base = stats::stat_title(
+            &self.selected_name(),
+            effective,
+            false,
+            DisplayVariant::Modern,
+        );
         // `" (%d)"` in colour 3, only under a vitae penalty.
         let vitae_segment = if vitae < 0 {
             format!(" ({vitae})")
@@ -642,13 +592,7 @@ impl SkillsPanel {
         let font = value_font(effective, level, vitae);
         // `" (%s%d)"`: the `+` is a separate prefix on the buff arm; the debuff arm
         // has no prefix because `%d` prints the sign.
-        let suffix = if delta == 0 {
-            String::new()
-        } else if delta > 0 {
-            format!(" (+{delta})")
-        } else {
-            format!(" ({delta})")
-        };
+        let suffix = stats::signed_suffix(delta);
         let c = FooterContent {
             title: format!("{base}{vitae_segment}{suffix}"),
             title_font: font,
@@ -843,172 +787,9 @@ pub fn set_row_icon(
     }
 }
 
-/// The skill info region's update's 0/1/2 — the **colour** index the value cell is written
-/// with.
-///
-/// Retail reads the skill's base level (and never uses it), its raw level, its enchanted value
-/// and the vitae modifier (`<= 0`). The colour is 1 (buffed) when `raw < eff - v`, 2 (debuffed)
-/// when `eff - v < raw`, and 0 otherwise; the text is `"%d"` of the enchanted value.
-///
-/// The comparison is the enchanted value minus the vitae modifier against the raw value — so
-/// **the base level is never read**, and raw-against-enchanted alone would drop the **vitae
-/// term**. \[verified\]
-///
-/// # Why the vitae term is not cosmetic
-///
-/// The vitae modifier is `enchant(raw) - raw` with **only** the vitae enchantment applied, so it
-/// is `0` with no vitae and **negative** with one; `eff - v` therefore *adds the penalty back*.
-/// It has to, because vitae is itself an enchantment and the enchanted value already carries it
-/// (the enchantment pass applies vitae before it culls either spell list). Without the term, a character with 5 % vitae and no spells at all
-/// has `eff < raw` on every skill and **the whole list draws red**. With it, `eff - v == raw`
-/// and every row draws plain — which is what a player sees in retail.
-///
-/// The three arms, with `m` the vitae multiplier and no spells:
-///
-/// | state | `raw` | `eff` | `v` | `eff - v` | colour |
-/// |---|---:|---:|---:|---:|---|
-/// | plain | 100 | 100 | 0 | 100 | 0 white |
-/// | vitae 0.95 | 100 | 95 | −5 | 100 | **0 white** |
-/// | vitae 0.95 + a `+3` spell | 100 | 98 | −5 | 103 | **1 green** |
-/// | vitae 0.95 + a `−20` spell | 100 | 75 | −5 | 80 | 2 red |
-///
-/// The third row is the discriminating one: without the term it reads `98 < 100` and draws
-/// **red** for a skill the player has just buffed.
-///
-/// The index itself is an index into attribute **`0x1B`**, the font-**colour** array — see
-/// [`super::statmgmt::set_text_with_font`]. The shipped row template's value element
-/// `0x1000012B` declares exactly three of them, white / green / red, and exactly one font.
-#[must_use]
-pub const fn value_font(effective: i32, raw: i32, vitae: i32) -> u32 {
-    // `eff - v`, saturating rather than wrapping: the two skill values are 32-bit in the
-    // client and the subtraction wraps there, so this is only reachable with a corrupt
-    // modifier and there is no retail behaviour to be faithful to at the boundary.
-    let adjusted = effective.saturating_sub(vitae);
-    if raw < adjusted {
-        1
-    } else if adjusted < raw {
-        2
-    } else {
-        0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn e(id: u32, name: &str, sac: u32, min_level: u32, level: i32) -> SkillEntry {
-        SkillEntry {
-            id,
-            name: name.to_owned(),
-            icon: None,
-            min_level,
-            sac,
-            level,
-            effective: level,
-            vitae: 0,
-        }
-    }
-
-    /// Oracle: the client's switch on the advancement class, including the min-level > 1 arm.
-    #[test]
-    fn an_untrained_skill_above_min_level_one_falls_into_the_fourth_group() {
-        assert_eq!(SkillGroup::of(sac::SPECIALIZED, 0), SkillGroup::Specialized);
-        assert_eq!(SkillGroup::of(sac::TRAINED, 0), SkillGroup::Trained);
-        assert_eq!(SkillGroup::of(sac::UNTRAINED, 0), SkillGroup::Untrained);
-        assert_eq!(SkillGroup::of(sac::UNTRAINED, 1), SkillGroup::Untrained);
-        // The split: min_level 2 puts an untrained skill with the undefined ones.
-        assert_eq!(SkillGroup::of(sac::UNTRAINED, 2), SkillGroup::Unusable);
-        assert_eq!(SkillGroup::of(sac::UNDEF, 0), SkillGroup::Unusable);
-        // A specialised or trained skill is never split, whatever its min_level.
-        assert_eq!(SkillGroup::of(sac::SPECIALIZED, 5), SkillGroup::Specialized);
-        assert_eq!(SkillGroup::of(sac::TRAINED, 5), SkillGroup::Trained);
-        // And the header order is the order the four header appends run in.
-        assert_eq!(
-            SkillGroup::ALL.map(SkillGroup::header_template),
-            [1, 2, 3, 4],
-        );
-        assert_eq!(HEADER_TEMPLATES, [1, 2, 3, 4]);
-        assert_ne!(
-            ROW_TEMPLATE, HEADER_TEMPLATES[0],
-            "the row template is 0, not a header"
-        );
-    }
-
-    /// Oracle: the client's two comparisons. **Four stations, not
-    /// one** — plain, buffed, debuffed and vitae-carrying — because the vitae term is invisible
-    /// in the first three.
-    #[test]
-    fn the_value_font_compares_the_raw_level_against_the_enchanted_total_less_vitae() {
-        // `value_font(effective, raw, vitae)`.
-        assert_eq!(
-            value_font(100, 100, 0),
-            0,
-            "plain: no enchantment, no vitae"
-        );
-        assert_eq!(
-            value_font(120, 100, 0),
-            1,
-            "buffed — the enchanted value is the larger"
-        );
-        assert_eq!(value_font(80, 100, 0), 2, "debuffed");
-
-        // **The vitae station.** The enchanted value already carries the penalty, so without the
-        // term this reads `95 < 100` and draws every row red.
-        assert_eq!(value_font(95, 100, -5), 0, "vitae alone is not a debuff");
-        // And the case that separates the two readings in the *other* direction: a small buff
-        // under vitae is still a buff, though the enchanted total is below the raw level.
-        assert_eq!(
-            value_font(98, 100, -5),
-            1,
-            "vitae 0.95 plus a +3 spell is green, not red"
-        );
-        // A real debuff under vitae stays red.
-        assert_eq!(value_font(75, 100, -5), 2, "vitae 0.95 plus a -20 spell");
-
-        // The term is signed, and a *positive* modifier (which vitae never produces, because
-        // the vitae modifier is 0 unless the multiplier is below 1.0) would push the
-        // comparison the other way. Pinned so the sign convention cannot silently flip.
-        assert_eq!(value_font(105, 100, 5), 0, "eff - v = 100");
-    }
-
-    /// Oracle: retail's sorted insert — it scans from the group's header
-    /// to the next header and stops at the first `wcscmp(existing, new) < 0`, i.e. the group is
-    /// kept in ascending name order and a skill never crosses a header.
-    ///
-    /// This exercises the grouping and ordering without a layout: `rebuild` needs a live list box
-    /// and there is none here, so the same two steps are applied directly.
-    #[test]
-    fn each_group_is_sorted_by_name_and_no_skill_crosses_a_header() {
-        let skills = [
-            e(1, "War Magic", sac::TRAINED, 0, 5),
-            e(2, "Alchemy", sac::TRAINED, 0, 5),
-            e(3, "Melee Defense", sac::SPECIALIZED, 0, 10),
-            e(4, "Void Magic", sac::UNTRAINED, 2, 0),
-            e(5, "Arcane Lore", sac::UNTRAINED, 0, 0),
-            e(6, "Salvaging", sac::UNDEF, 0, 0),
-        ];
-        let mut out: Vec<(SkillGroup, Vec<&str>)> = Vec::new();
-        for g in SkillGroup::ALL {
-            let mut v: Vec<&str> = skills
-                .iter()
-                .filter(|s| SkillGroup::of(s.sac, s.min_level) == g)
-                .map(|s| s.name.as_str())
-                .collect();
-            v.sort_unstable();
-            out.push((g, v));
-        }
-        assert_eq!(
-            out,
-            vec![
-                (SkillGroup::Specialized, vec!["Melee Defense"]),
-                (SkillGroup::Trained, vec!["Alchemy", "War Magic"]),
-                (SkillGroup::Untrained, vec!["Arcane Lore"]),
-                // Void Magic is untrained but min level 2, so it joins the undefined one.
-                (SkillGroup::Unusable, vec!["Salvaging", "Void Magic"]),
-            ]
-        );
-    }
 
     /// Oracle: the live `classic_gameplay` tree — `0x1000023D` is a child of **both**
     /// `AttributesPanel` (`0x1000022B`) and `SkillsPanel` (`0x1000022C`), so the panel id this module

@@ -27,13 +27,7 @@ pub const fn fields(v: Vital) -> (&'static str, &'static str) {
 /// value a meter with no data shows.
 #[must_use]
 pub fn meter_level(cur: u32, max: u32) -> f32 {
-    if max == 0 {
-        return 0.0;
-    }
-    #[allow(clippy::cast_precision_loss)]
-    {
-        cur as f32 / max as f32
-    }
+    dereth_presentation::stats::meter_level(cur, max)
 }
 
 /// Read the three vitals and drive the three meters.

@@ -23,5 +23,13 @@ pub mod coordinates;
 pub mod journal;
 pub mod social;
 pub mod spell;
+pub mod stats;
 pub mod target;
 pub mod vendor;
+
+/// Wording and ordering conventions, independent of the connected world's capabilities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplayVariant {
+    Classic,
+    Modern,
+}

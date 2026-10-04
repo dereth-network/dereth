@@ -108,6 +108,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "appraisal.presentation.variants-preserve-order-and-world-facts",
+        says: "Appraisal preserves each interface's supported wording, property order and armor \
+               headings while displaying the connected world's later properties and requirements \
+               through shared facts.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-APPRAISAL-PRESENTATION"),
+        station: "dereth-presentation::lib::appraisal::variant_tests::variants_keep_ordered_runs_and_later_world_facts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "attributes.enlightenment.each-level-adds-two-to-maximum-health-and-nothing-else",
         says: "A character who carries an enlightenment count has twice that count added to \
                maximum health, and nothing added to maximum stamina or mana. It counts before an \
@@ -779,6 +789,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "examine.inscription.live-object-gates-editing",
+        says: "An inscription can be edited only while the actual examined object is present and \
+               allows inscriptions, followed by the author or privilege checks. A displayed hook \
+               target cannot grant permission to edit the live object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-APPRAISAL-INSCRIPTION"),
+        station: "dereth-classic-ui::lib::panels::game::examine::appraisal_tests::a_displayed_inscription_requires_the_live_object_before_ownership_or_privilege",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "examine.inscription.looking-at-another-you-may-write-on-keeps-the-caret-where-it-was",
         says: "Looking at another thing the player may also write on leaves the caret exactly \
                where it was and sends nothing -- and after the caret has been taken away by \
@@ -892,6 +912,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P1-78B"),
         station: "dereth-testkit::dat::panels::scenario_an_item_that_expires_says_when_and_needs_all_three_numbers",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "examine.pane.template-selects-character",
+        says: "A character template selects character information even when the identified player \
+               has no title, in either interface and after a view snapshot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-APPRAISAL-PANE"),
+        station: "dereth-classic-ui::lib::panels::game::examine::appraisal_tests::a_titleless_template_uses_character_content_in_direct_and_frozen_views",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "examine.portal.a-portal-with-no-restriction-still-gains-the-blocks-two-separators",
@@ -1978,6 +2007,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O65-FILTER"),
         station: "dereth-testkit::dat::panels::scenario_turning_a_school_off_hides_its_spells_and_sends_the_whole_list",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "stats.presentation.preserves-display-variants-and-fractional-vitae",
+        says: "The character panels share stat and title facts while preserving their skill \
+               grouping and text conventions. Fractional loss of strength is rounded before \
+               display; Classic retains at least one percent for a positive loss, while Modern can \
+               show full strength.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CHARACTER-PRESENTATION"),
+        station: "dereth-presentation::lib::stats::tests::fractional_vitae_uses_variant_rounding_without_narrowing",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "titles.tab.picking-a-row-arms-the-button-only-for-a-title-not-already-worn",

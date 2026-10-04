@@ -7574,6 +7574,7 @@ impl GameView for HudView<'_> {
                             .as_ref()
                             .and_then(|t| t.spells.get(&(raw & 0x7FFF_FFFF)));
                         dereth_client_contract::AppraisalSpellView {
+                            resolved: base.is_some(),
                             raw_id: *raw,
                             enchantment: raw & 0x8000_0000 != 0,
                             name: base.map(|b| b.name.clone()).unwrap_or_default(),
@@ -7848,6 +7849,9 @@ impl GameView for HudView<'_> {
                     max_velocity_estimated: w.max_velocity_estimated,
                 }),
             weapon_type: am::inq::int(p, am::property::WEAPON_TYPE),
+            attack_type: i(0x2f),
+            elemental_damage_bonus: i(0xcc),
+            activation_heritage: s(0x13),
             armor_level: am::inq::int(p, am::property::ARMOR_LEVEL),
             enchantment_mods,
             armor_mods: p.armor_profile.map(|a| {
@@ -8251,6 +8255,91 @@ fn int_opt(q: &dereth_client_model::qualities::Qualities, property: u32) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: appraisal.presentation.variants-preserve-order-and-world-facts
+    #[test]
+    fn appraisal_display_facts_survive_the_live_projection_and_snapshot() {
+        use dereth_client_contract::snapshot::GameSnapshot;
+        use dereth_client_model::{Weenie, World};
+        use dereth_protocol::{archive::PackedHash, types::appraisal::AppraisalProfile};
+        let id = ObjectId(7);
+        let mut world = World::new();
+        world.tables.weenies.insert(id, Weenie::new(id));
+        world.selected = Some(id);
+        let mut profile = AppraisalProfile::default();
+        profile.tables.ints = Some(PackedHash {
+            table_size: 8,
+            entries: vec![(0x2f, 0x820), (0xcc, 17)],
+        });
+        profile.tables.strings = Some(PackedHash {
+            table_size: 8,
+            entries: vec![(0x13, "Aluvian".into())],
+        });
+        profile.spell_book = Some(vec![5, 999999, 0x8000_0005]);
+        world.appraisal.set(id, profile);
+        let mut hud = Hud::new();
+        hud.spell_table = Some(dereth_assets::tables::SpellTable {
+            id: dereth_primitives::DataId(0x0e00_000e),
+            spell_buckets: 1,
+            spells: [(
+                5,
+                dereth_assets::tables::SpellBase {
+                    name: String::new(),
+                    description: String::new(),
+                    school: 0,
+                    icon: 0,
+                    category: 0,
+                    bitfield: 0,
+                    base_mana: 0,
+                    base_range_constant: 0.0,
+                    base_range_mod: 0.0,
+                    power: 0,
+                    spell_economy_mod: 0.0,
+                    formula_version: 0,
+                    component_loss: 0.0,
+                    meta_spell_type: 0,
+                    meta_spell_id: 0,
+                    duration: None,
+                    portal_lifetime: None,
+                    raw_comps: [0; 8],
+                    comp_key: 0,
+                    comps: vec![],
+                    caster_effect: 0,
+                    target_effect: 0,
+                    fizzle_effect: 0,
+                    recovery_interval: 0.0,
+                    recovery_amount: 0.0,
+                    display_order: 0,
+                    non_component_target_type: 0,
+                    mana_mod: 0,
+                },
+            )]
+            .into(),
+            spellset_bucket_index: 0,
+            spellsets: Default::default(),
+        });
+        let view = HudView {
+            hud: &hud,
+            world: &world,
+        };
+        let live = view.appraisal(id).unwrap();
+        let captured = GameSnapshot::from_view(&view).appraisal(id).unwrap();
+        for facts in [&live, &captured] {
+            assert_eq!(facts.attack_type, Some(0x820));
+            assert_eq!(facts.elemental_damage_bonus, Some(17));
+            assert_eq!(facts.activation_heritage.as_deref(), Some("Aluvian"));
+            let spells = facts.magic.spells.as_ref().unwrap();
+            assert_eq!(
+                spells
+                    .iter()
+                    .map(|spell| spell.resolved)
+                    .collect::<Vec<_>>(),
+                [true, false, true]
+            );
+            assert!(spells.iter().all(|spell| spell.name.is_empty()));
+        }
+        assert_eq!(live, captured);
+    }
 
     /// Behaviour: allegiance.oath.shared-cost-facts-survive-snapshots
     #[test]

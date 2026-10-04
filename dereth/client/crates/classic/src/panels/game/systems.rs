@@ -92,12 +92,7 @@ pub struct Titles {
 
 fn sorted_titles(game: &dyn GameView) -> (u32, Vec<(u32, String)>) {
     let t = game.character_titles();
-    let mut titles = t.titles;
-    // A title the world's title table has no name for is not listed, as in the retail
-    // interface's list; nor is title 0.
-    titles.retain(|(id, name)| *id != 0 && !name.is_empty());
-    titles.sort_by_key(|t| t.1.to_lowercase());
-    (t.display, titles)
+    (t.display, dereth_presentation::stats::title_rows(&t.titles))
 }
 
 pub(super) fn era_has(
@@ -175,7 +170,7 @@ impl Titles {
             },
             true,
         );
-        let can_set = self.selected.is_some_and(|s| s != display);
+        let can_set = dereth_presentation::stats::can_set_title(self.selected, display, &titles);
         f.button("set", rect(80, h - 40, 140, 36), "Set as Title", can_set);
     }
     pub(super) fn body_event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
@@ -189,7 +184,10 @@ impl Titles {
             }
             ControlEvent::Scroll { id, value } if id == "scroll" => self.scroll = value.max(0),
             ControlEvent::Activate(id) if id == "set" => {
-                if let Some(title_id) = self.selected {
+                let (display, rows) = sorted_titles(c.game);
+                if let Some(title_id) = self.selected.filter(|_| {
+                    dereth_presentation::stats::can_set_title(self.selected, display, &rows)
+                }) {
                     return vec![PanelAction::Game(UiRequest::SetDisplayCharacterTitle {
                         title_id,
                     })];

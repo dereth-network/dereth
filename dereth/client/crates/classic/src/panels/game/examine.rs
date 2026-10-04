@@ -3,6 +3,7 @@
 use super::super::*;
 use super::common::*;
 use crate::int::i32_from;
+use dereth_client_contract::examination::{appraisal_pane, inscription_editable, AppraisalPane};
 use dereth_client_contract::view::AppraisalView;
 use dereth_presentation::spell;
 #[derive(Debug, Default)]
@@ -32,7 +33,7 @@ impl Examine {
         let Some(a) = ctx
             .game
             .appraisal(object)
-            .filter(|a| inscription_editable(a, ctx.game))
+            .filter(|a| can_inscribe(object, a, ctx.game))
         else {
             return vec![];
         };
@@ -238,11 +239,12 @@ impl Panel for Examine {
             );
             return f;
         };
-        if a.creature || a.character_title {
+        let pane = appraisal_pane(a.creature, a.template, a.character_title);
+        if pane != AppraisalPane::Item {
             // A creature with a face (a character, or a person of the world such as a shopkeeper)
             // shows the face; any other creature its type's icon.
             let face = ctx.classic.portraits.get(&object);
-            if !a.character_title {
+            if pane == AppraisalPane::Creature {
                 if let Some(portrait) = face {
                     draw_portrait(&mut f, portrait);
                     image(&mut f, 0x060012c6, rect(172, 25, 7, 60), None, true, false);
@@ -283,7 +285,7 @@ impl Panel for Examine {
                 false,
                 None,
             );
-            if a.character_title {
+            if pane == AppraisalPane::Character {
                 if let Some(portrait) = ctx.classic.portraits.get(&object) {
                     draw_portrait(&mut f, portrait);
                 }
@@ -410,13 +412,7 @@ impl Panel for Examine {
             rich_scroll(
                 &mut f,
                 rect(9, 85, 266, 192 + dy),
-                super::appraisal::rich(
-                    &a,
-                    ctx.classic
-                        .appraisal_extra
-                        .get(&object)
-                        .unwrap_or(&Default::default()),
-                ),
+                super::appraisal::rich(&a),
                 "15-6",
                 self.scroll,
             );
@@ -429,7 +425,7 @@ impl Panel for Examine {
                 false,
             );
             if a.inscribable {
-                let editable = inscription_editable(&a, g);
+                let editable = can_inscribe(object, &a, g);
                 let contents = self
                     .inscription
                     .clone()
@@ -528,15 +524,14 @@ impl Panel for Examine {
     }
 }
 
-fn inscription_editable(a: &AppraisalView, g: &dyn GameView) -> bool {
-    a.inscribable
-        && (a.viewer_is_psr
-            || (a.owned_by_player
-                && a.scribe_name.as_deref().is_none_or(|s| {
-                    s.is_empty()
-                        || g.character_name()
-                            .is_some_and(|name| name.eq_ignore_ascii_case(s))
-                })))
+fn can_inscribe(object: ObjectId, a: &AppraisalView, g: &dyn GameView) -> bool {
+    inscription_editable(
+        g.inscription_mouse_facts(object),
+        a.owned_by_player,
+        a.viewer_is_psr,
+        a.scribe_name.as_deref().unwrap_or(""),
+        g.character_name().unwrap_or(""),
+    )
 }
 
 // A character's portrait: three palette ranges over the face, with the eyes mirrored.
@@ -696,6 +691,163 @@ mod spell_tests {
                 })
                 .unwrap();
             assert_eq!(description, expected);
+        }
+    }
+}
+
+#[cfg(test)]
+mod appraisal_tests {
+    use super::*;
+    use dereth_client_contract::snapshot::GameSnapshot;
+
+    #[derive(Debug)]
+    struct View {
+        profile: AppraisalView,
+        live: Option<(bool, u32)>,
+    }
+    impl GameView for View {
+        fn selected_object(&self) -> Option<ObjectId> {
+            Some(ObjectId(8))
+        }
+        fn appraisal(&self, _: ObjectId) -> Option<AppraisalView> {
+            Some(self.profile.clone())
+        }
+        fn inscription_mouse_facts(&self, _: ObjectId) -> Option<(bool, u32)> {
+            self.live
+        }
+        fn character_name(&self) -> Option<&str> {
+            Some("Aerin")
+        }
+    }
+    fn with_context(view: &dyn GameView, run: impl FnOnce(&Context<'_>)) {
+        run(&Context {
+            game: view,
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            map_teleport_allowed: false,
+            classic: &Default::default(),
+        });
+    }
+
+    /// Behaviour: examine.inscription.live-object-gates-editing
+    #[test]
+    fn a_displayed_inscription_requires_the_live_object_before_ownership_or_privilege() {
+        for (live, owned, privileged, scribe, allowed) in [
+            (None, true, true, "Aerin", false),
+            (Some((false, 0)), true, true, "Aerin", false),
+            (Some((true, 0)), false, false, "", false),
+            (Some((true, 0)), true, false, "Someone", false),
+            (Some((true, 0)), true, false, "aErIn", true),
+            (Some((true, 0)), true, false, "", true),
+            (Some((true, 0)), false, true, "Someone", true),
+        ] {
+            let view = View {
+                profile: AppraisalView {
+                    inscribable: true,
+                    owned_by_player: owned,
+                    viewer_is_psr: privileged,
+                    scribe_name: Some(scribe.into()),
+                    inscription: Some("Original".into()),
+                    ..Default::default()
+                },
+                live,
+            };
+            let frozen = GameSnapshot::from_view(&view);
+            for game in [&view as &dyn GameView, &frozen] {
+                with_context(game, |ctx| {
+                    let mut panel = Examine::default();
+                    panel.set_object(ObjectId(8));
+                    let frame = panel.frame(ctx);
+                    let editor = frame
+                        .controls
+                        .iter()
+                        .find(|c| c.id == "inscription")
+                        .unwrap();
+                    assert_eq!(
+                        editor.enabled, allowed,
+                        "live={live:?}, owned={owned}, privileged={privileged}"
+                    );
+                    assert!(
+                        matches!(&editor.kind, ControlKind::Edit { text, .. } if text == "Original")
+                    );
+                    panel.event(
+                        ControlEvent::Edit {
+                            id: "inscription".into(),
+                            text: "New".into(),
+                        },
+                        ctx,
+                    );
+                    let sent = panel.event(
+                        ControlEvent::Commit {
+                            id: "inscription".into(),
+                        },
+                        ctx,
+                    );
+                    assert_eq!(
+                        sent,
+                        if allowed {
+                            vec![PanelAction::Game(UiRequest::SetInscription {
+                                object: ObjectId(8),
+                                text: "New".into(),
+                            })]
+                        } else {
+                            vec![]
+                        }
+                    );
+                    assert!(panel
+                        .event(
+                            ControlEvent::Commit {
+                                id: "inscription".into()
+                            },
+                            ctx
+                        )
+                        .is_empty());
+                });
+            }
+        }
+    }
+
+    /// Behaviour: examine.pane.template-selects-character
+    #[test]
+    fn a_titleless_template_uses_character_content_in_direct_and_frozen_views() {
+        for (creature, template, title, character) in [
+            (true, true, false, true),
+            (true, false, true, true),
+            (true, false, false, false),
+            (false, true, true, false),
+        ] {
+            let view = View {
+                profile: AppraisalView {
+                    creature,
+                    template,
+                    character_title: title,
+                    profession: Some("Apprentice Explorer".into()),
+                    creature_display_name: Some("Creature kind".into()),
+                    ..Default::default()
+                },
+                live: None,
+            };
+            let frozen = GameSnapshot::from_view(&view);
+            for game in [&view as &dyn GameView, &frozen] {
+                with_context(game, |ctx| {
+                    let panel = Examine::default();
+                    let frame = panel.frame(ctx);
+                    let texts: Vec<&str> = frame
+                        .screen
+                        .commands
+                        .iter()
+                        .filter_map(|command| match command {
+                            crate::Command::Text { text, .. }
+                            | crate::Command::TextBox { text, .. } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    assert_eq!(texts.contains(&"Apprentice Explorer"), character);
+                    assert_eq!(texts.contains(&"Non-Player Killer"), character);
+                    assert_eq!(texts.contains(&"Creature kind"), creature && !character);
+                });
+            }
         }
     }
 }

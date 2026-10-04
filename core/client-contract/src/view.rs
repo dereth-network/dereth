@@ -3672,6 +3672,12 @@ pub struct AppraisalView {
     pub weapon: Option<WeaponView>,
     /// `InqInt(0x161)` `WeaponType`, the parenthesised family after the skill name.
     pub weapon_type: Option<i32>,
+    /// Attack-form bits used by the special-properties display.
+    pub attack_type: Option<i32>,
+    /// Additional elemental damage reported separately from the weapon's base damage.
+    pub elemental_damage_bonus: Option<i32>,
+    /// The literal heritage restriction attached to item activation.
+    pub activation_heritage: Option<String>,
     /// `InqInt(0x1C)` `ArmorLevel`.
     pub armor_level: Option<i32>,
     /// The armor query — the `0x0080` block's eight floats, in **wire** order
@@ -4429,6 +4435,8 @@ pub struct SpecialPropertiesView {
 /// separator and nothing else.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AppraisalSpellView {
+    /// Whether the spell table contains this ID, independent of empty authored strings.
+    pub resolved: bool,
     /// The id **as it arrived**, high bit and all — kept because it is the only thing that
     /// distinguishes two entries with the same resolved name.
     pub raw_id: u32,

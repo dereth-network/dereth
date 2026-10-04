@@ -9,6 +9,10 @@ use dereth_client_contract::view::AppraisalView;
 use dereth_primitives::num::math;
 use dereth_rules::advancement;
 
+#[cfg(test)]
+#[path = "appraisal_variants.rs"]
+mod variant_tests;
+
 /// Thousands separators, right to left.
 ///
 /// The client calls it on a string it has just built from the integer, and falls back to
@@ -16,20 +20,7 @@ use dereth_rules::advancement;
 /// failure branch is unreachable and is expressed by the caller taking the `Option` route instead.
 #[must_use]
 pub fn insert_commas(v: i32) -> String {
-    let neg = v < 0;
-    let digits = v.unsigned_abs().to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    if neg {
-        format!("-{out}")
-    } else {
-        out
-    }
+    dereth_client_contract::panels::numfmt::exact_number(v)
 }
 
 /// The examination panel's title text write.
@@ -713,8 +704,33 @@ pub fn inscription_signature(
 // The one cast is the `Bonus to Attack Skill` truncation; see [`modifier_to_string`].
 #[allow(clippy::cast_possible_truncation)]
 pub fn weapon_and_armor_lines(p: &AppraisalView) -> Vec<(String, u8)> {
+    weapon_and_armor_lines_for(p, crate::DisplayVariant::Modern)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn weapon_and_armor_lines_for(
+    p: &AppraisalView,
+    variant: crate::DisplayVariant,
+) -> Vec<(String, u8)> {
     let mut out = Vec::new();
     let loc = p.valid_locations;
+    if variant == crate::DisplayVariant::Classic {
+        if loc & equip::SHIELD != 0 {
+            out.push((
+                p.armor_level.map_or_else(
+                    || "Shield Level: Unknown".into(),
+                    |n| format!("Shield Level: {n}"),
+                ),
+                mod_color(p, &[0x1c]),
+            ));
+        } else if loc & 0x1f00000 == 0 && loc & 0x7fff != 0 {
+            match p.armor_level {
+                None => out.push(("Armor Level:  Unknown".into(), 0)),
+                Some(n) if n > 0 => out.push((format!("Armor Level:  {n}"), mod_color(p, &[0x1c]))),
+                _ => {}
+            }
+        }
+    }
     if loc & equip::ANY_WEAPON == 0 {
         // Arm 1: the clothing-priority name — see `ITEM_BLOCKS_NOT_IMPLEMENTED`'s note.
         return out;
@@ -728,7 +744,9 @@ pub fn weapon_and_armor_lines(p: &AppraisalView) -> Vec<(String, u8)> {
 
     // 3. The skill line. An unknown skill name skips the whole line.
     // Colour 0, same line: plain, whatever the weapon skill is enchanted by.
-    if let Some(skill) = skill_to_string(w.weapon_skill) {
+    if let Some(skill) =
+        skill_to_string(w.weapon_skill).filter(|_| variant == crate::DisplayVariant::Modern)
+    {
         let suffix = p.weapon_type.and_then(weapon_type_suffix).unwrap_or("");
         out.push((format!("Skill: {skill}{suffix}"), 0));
     }
@@ -765,6 +783,18 @@ pub fn weapon_and_armor_lines(p: &AppraisalView) -> Vec<(String, u8)> {
             ));
         } else {
             out.push((format!("{label}{}{suffix}", w.weapon_damage), color));
+        }
+    }
+
+    if variant == crate::DisplayVariant::Classic {
+        if let Some(n) = p.elemental_damage_bonus.filter(|n| *n > 0) {
+            out.push((
+                format!(
+                    "Elemental Damage Bonus: {n}, {}.",
+                    damage_type_to_string(w.damage_type)
+                ),
+                0,
+            ));
         }
     }
 
@@ -810,6 +840,12 @@ pub fn weapon_and_armor_lines(p: &AppraisalView) -> Vec<(String, u8)> {
                     0,
                 ));
             }
+        }
+    }
+
+    if variant == crate::DisplayVariant::Classic {
+        if let Some(skill) = skill_to_string(w.weapon_skill) {
+            out.push((format!("Uses {skill} Skill"), 0));
         }
     }
 
@@ -1051,8 +1087,19 @@ fn append_helper(list: &mut String, text: &str) {
 /// paragraph.
 #[must_use]
 pub fn special_properties_lines(p: &AppraisalView) -> Vec<(String, bool)> {
+    special_properties_lines_for(p, crate::DisplayVariant::Modern)
+}
+
+fn special_properties_lines_for(
+    p: &AppraisalView,
+    variant: crate::DisplayVariant,
+) -> Vec<(String, bool)> {
     let s = &p.special;
-    let mut out: Vec<(String, bool)> = vec![(String::new(), true)];
+    let mut out: Vec<(String, bool)> = if variant == crate::DisplayVariant::Modern {
+        vec![(String::new(), true)]
+    } else {
+        vec![]
+    };
 
     // The comma insertion cannot fail on a string this function itself built out of an
     // `int32`, so the `"???"` is unreachable for any profile and is not drawn here.
@@ -1090,25 +1137,42 @@ pub fn special_properties_lines(p: &AppraisalView) -> Vec<(String, bool)> {
     // Append the slayer name and the client's `" slayer"` suffix. `0x1F` is the one creature
     // type with a name of its own.
     if let Some((id, name)) = s.slayer.as_ref() {
-        if *id == 0x1F {
+        if *id == 0x1F && variant == crate::DisplayVariant::Modern {
             append_helper(&mut list, "Bael'Zharon's Hate");
         } else {
             append_helper(&mut list, &format!("{name} slayer"));
         }
     }
     // Draw the weapon-skill property only when int `0x2F` is present with `v & 0x79E0` set.
-    if s.weapon_skill.is_some_and(|v| v as u32 & 0x79E0 != 0) {
+    if p.attack_type.or(s.weapon_skill).is_some_and(|v| {
+        v as u32
+            & if variant == crate::DisplayVariant::Classic {
+                0x1e0
+            } else {
+                0x79e0
+            }
+            != 0
+    }) {
         append_helper(&mut list, "Multi-Strike");
     }
     // OR the five integers, then perform fifteen bit tests.
     if let Some(mask) = s.imbued {
         for (bit, name) in IMBUE_NAMES {
+            if *bit == 0x8000_0000
+                && variant == crate::DisplayVariant::Classic
+                && (mask & 0x2000_0000 != 0 || s.absorb_magic_damage)
+            {
+                append_helper(&mut list, "Magic Absorbing");
+            }
             if mask & bit != 0 {
                 append_helper(&mut list, name);
             }
         }
     }
-    if s.absorb_magic_damage {
+    if s.absorb_magic_damage && variant == crate::DisplayVariant::Modern {
+        append_helper(&mut list, "Magic Absorbing");
+    }
+    if variant == crate::DisplayVariant::Classic && s.imbued.is_none() && s.absorb_magic_damage {
         append_helper(&mut list, "Magic Absorbing");
     }
     // The guard is `> 0x270E`: **above** 9998, not at or above.
@@ -1151,7 +1215,12 @@ pub fn special_properties_lines(p: &AppraisalView) -> Vec<(String, bool)> {
 
     let mut drew = false;
     if !list.is_empty() {
-        out.push((format!("Properties: {list}"), true));
+        let label = if variant == crate::DisplayVariant::Classic {
+            "Special Properties"
+        } else {
+            "Properties"
+        };
+        out.push((format!("{label}: {list}"), true));
         drew = true;
     }
     if s.imbued.is_some_and(|m| m != 0) {
@@ -1207,6 +1276,13 @@ pub fn appraisal_cooldown_text(seconds: f64) -> String {
 ///   every line of the block before it.
 #[must_use]
 pub fn short_magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
+    short_magic_info_lines_for(p, crate::DisplayVariant::Modern)
+}
+
+fn short_magic_info_lines_for(
+    p: &AppraisalView,
+    variant: crate::DisplayVariant,
+) -> Vec<(String, bool)> {
     // A profile with no `0x0010` block has no short magic information.
     let Some(spells) = p.magic.spells.as_ref() else {
         return Vec::new();
@@ -1218,7 +1294,10 @@ pub fn short_magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
     }
     let mut list = String::new();
     let mut any = false;
-    for s in spells.iter().filter(|s| !s.enchantment) {
+    for s in spells
+        .iter()
+        .filter(|s| !s.enchantment && (variant == crate::DisplayVariant::Modern || s.resolved))
+    {
         if any {
             list.push_str(", ");
         }
@@ -1228,7 +1307,12 @@ pub fn short_magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
     if !any {
         return Vec::new();
     }
-    vec![(format!("Spells: {list}"), false)]
+    let prefix = if variant == crate::DisplayVariant::Classic {
+        "Casts the following spells"
+    } else {
+        "Spells"
+    };
+    vec![(format!("{prefix}: {list}"), false)]
 }
 
 /// The **`Spell Descriptions:`** and
@@ -1275,6 +1359,10 @@ pub fn short_magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
 ///   in the pane and "tidying" it would be an approximation.
 #[must_use]
 pub fn magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
+    magic_info_lines_for(p, crate::DisplayVariant::Modern)
+}
+
+fn magic_info_lines_for(p: &AppraisalView, variant: crate::DisplayVariant) -> Vec<(String, bool)> {
     let m = &p.magic;
     // Use the same no-spell-book gate as the short block.
     let Some(spells) = m.spells.as_ref() else {
@@ -1285,12 +1373,23 @@ pub fn magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
         return vec![("Spells: unknown.".to_string(), false)];
     }
 
-    let mut descriptions = "Spell Descriptions:".to_string();
+    let mut descriptions = if variant == crate::DisplayVariant::Classic {
+        "Spell Descriptions:\n"
+    } else {
+        "Spell Descriptions:"
+    }
+    .to_string();
     let mut enchantments = "Enchantments:\n".to_string();
     let (mut any_description, mut any_enchantment) = (false, false);
-    for s in spells {
+    for s in spells
+        .iter()
+        .filter(|s| variant == crate::DisplayVariant::Modern || s.resolved)
+    {
         // Emit one string per spell, whichever bucket it lands in.
-        let entry = format!("\n~ {}: {}", s.name, s.description);
+        let entry = match variant {
+            crate::DisplayVariant::Classic => format!("\n     {} ({})", s.name, s.description),
+            crate::DisplayVariant::Modern => format!("\n~ {}: {}", s.name, s.description),
+        };
         if s.enchantment {
             enchantments.push_str(&entry);
             any_enchantment = true;
@@ -1302,12 +1401,25 @@ pub fn magic_info_lines(p: &AppraisalView) -> Vec<(String, bool)> {
 
     let mut out: Vec<(String, bool)> = Vec::new();
     if any_description {
+        if variant == crate::DisplayVariant::Classic {
+            out.extend(
+                activation_requirement_lines_for(p, variant)
+                    .into_iter()
+                    .map(|r| (r.text, r.same_line)),
+            );
+        }
         if let Some(n) = m.spellcraft {
-            out.push((format!("Spellcraft: {n}."), true));
+            out.push((
+                format!("Spellcraft: {n}."),
+                variant == crate::DisplayVariant::Modern,
+            ));
         }
         // One `&&` requires both keys, or no line is emitted.
         if let (Some(cur), Some(max)) = (m.cur_mana, m.max_mana) {
-            out.push((format!("Mana: {cur} / {max}."), true));
+            out.push((
+                format!("Mana: {cur} / {max}."),
+                variant == crate::DisplayVariant::Modern,
+            ));
         }
         if let Some(rate) = m.mana_rate {
             // The client: `|1.0 / rate| + 0.5`, truncated.
@@ -1675,6 +1787,10 @@ pub use dereth_rules::combat::elemental_mod_pk_modifier;
 #[must_use]
 #[allow(clippy::cast_sign_loss)]
 pub fn caster_data_lines(p: &AppraisalView) -> Vec<ItemInfo> {
+    caster_data_lines_for(p, crate::DisplayVariant::Modern)
+}
+
+fn caster_data_lines_for(p: &AppraisalView, variant: crate::DisplayVariant) -> Vec<ItemInfo> {
     let mut out = Vec::new();
     if let Some(m) = p.mana_conversion_mod {
         push_item_info(
@@ -1689,7 +1805,14 @@ pub fn caster_data_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         let damage = damage_type_to_string(dt as u32);
         push_item_info(
             &mut out,
-            format!("Damage bonus for {damage} spells:"),
+            format!(
+                "Damage bonus for {damage} {}spells:",
+                if variant == crate::DisplayVariant::Classic {
+                    "war "
+                } else {
+                    ""
+                }
+            ),
             false,
             color,
         );
@@ -1868,15 +1991,7 @@ pub fn usage_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 /// can be.
 #[must_use]
 pub fn xp_to_string(v: u64) -> String {
-    let digits = v.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    dereth_client_contract::panels::numfmt::exact_number(v)
 }
 
 /// The item-level block -- the aetheria/cloak level pair and the cloak
@@ -1960,6 +2075,13 @@ pub fn item_level_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 /// *"the original owner"* + *"."*, behind bool `0x5E` being 1.
 #[must_use]
 pub fn activation_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
+    activation_requirement_lines_for(p, crate::DisplayVariant::Modern)
+}
+
+fn activation_requirement_lines_for(
+    p: &AppraisalView,
+    variant: crate::DisplayVariant,
+) -> Vec<ItemInfo> {
     let mut out = Vec::new();
     if !p.success {
         return out;
@@ -1975,7 +2097,13 @@ pub fn activation_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
             terms.push(format!("Allegiance Rank: {v}"));
         }
     }
-    if let Some(h) = p.heritage_group.as_deref() {
+    if let Some(h) = if variant == crate::DisplayVariant::Classic {
+        p.activation_heritage
+            .as_deref()
+            .or(p.heritage_group.as_deref())
+    } else {
+        p.heritage_group.as_deref()
+    } {
         terms.push(h.to_string());
     }
     for (name, level) in [
@@ -1988,11 +2116,19 @@ pub fn activation_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     {
         terms.push(format!("{name}: {level}"));
     }
-    if !terms.is_empty() {
+    if !terms.is_empty() || variant == crate::DisplayVariant::Classic {
         push_item_info(
             &mut out,
-            format!("Activation requires {}", terms.join(", ")),
-            true,
+            format!(
+                "{}{}",
+                if variant == crate::DisplayVariant::Classic {
+                    "Activation Requirements: "
+                } else {
+                    "Activation requires "
+                },
+                terms.join(", ")
+            ),
+            variant == crate::DisplayVariant::Modern,
             0,
         );
     }
@@ -2001,7 +2137,7 @@ pub fn activation_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         push_item_info(
             &mut out,
             format!("This item can only be activated by {who}."),
-            true,
+            variant == crate::DisplayVariant::Modern,
             0,
         );
     }
@@ -2436,6 +2572,10 @@ pub use dereth_client_contract::panels::examination::pluralized_gem_name;
 /// GearPlatingName is an override in this arm, not a replacement for an absent LongDesc.
 #[must_use]
 pub fn decorated_description(p: &AppraisalView) -> Option<String> {
+    decorated_description_for(p, crate::DisplayVariant::Modern)
+}
+
+fn decorated_description_for(p: &AppraisalView, variant: crate::DisplayVariant) -> Option<String> {
     let Some(long) = p.long_desc.as_ref() else {
         return p.short_desc.clone();
     };
@@ -2451,10 +2591,17 @@ pub fn decorated_description(p: &AppraisalView) -> Option<String> {
         }
     }
     // There is no bit-2 test: int `0x83` present and positive are the only material gates.
-    if let Some(material) = &p.description_material {
+    if let Some(material) = p
+        .description_material
+        .as_ref()
+        .filter(|_| variant == crate::DisplayVariant::Modern || flags & 2 != 0)
+    {
         prefix.push_str(material);
         prefix.push(' ');
-        if !material.is_empty() && text.contains(material) {
+        if variant == crate::DisplayVariant::Modern
+            && !material.is_empty()
+            && text.contains(material)
+        {
             text = text.replace(material, "").trim().to_owned();
         }
     }
@@ -2489,90 +2636,191 @@ pub fn item_description(p: &AppraisalView) -> String {
 /// literal `0`.
 #[must_use]
 pub fn item_description_runs(p: &AppraisalView) -> Vec<ItemInfo> {
+    item_description_runs_for(p, crate::DisplayVariant::Modern)
+}
+
+#[derive(Clone, Copy)]
+enum ItemBlock {
+    Value,
+    Burden,
+    Description,
+    Portal,
+    Tinkering,
+    SetRatings,
+    Weapon,
+    Defense,
+    Armor,
+    ShortMagic,
+    Special,
+    Use,
+    LevelLimit,
+    Wield,
+    UsageLimit,
+    ItemLevel,
+    Activation,
+    Caster,
+    Boost,
+    HealKit,
+    Capacity,
+    Lock,
+    ManaStone,
+    RemainingUses,
+    Craftsman,
+    CannotSell,
+    Rare,
+    Magic,
+    Lifespan,
+}
+
+/// Build the same appraisal facts in the selected interface's block order.
+#[must_use]
+pub fn item_description_runs_for(
+    p: &AppraisalView,
+    variant: crate::DisplayVariant,
+) -> Vec<ItemInfo> {
+    use ItemBlock::*;
+    const MODERN: &[ItemBlock] = &[
+        Value,
+        Burden,
+        Tinkering,
+        SetRatings,
+        Weapon,
+        Defense,
+        Armor,
+        ShortMagic,
+        Special,
+        Use,
+        LevelLimit,
+        Wield,
+        UsageLimit,
+        ItemLevel,
+        Activation,
+        Caster,
+        Boost,
+        HealKit,
+        Capacity,
+        Lock,
+        ManaStone,
+        RemainingUses,
+        Craftsman,
+        CannotSell,
+        Rare,
+        Magic,
+        Lifespan,
+        Description,
+        Portal,
+    ];
+    const CLASSIC: &[ItemBlock] = &[
+        Lifespan,
+        Description,
+        Portal,
+        Tinkering,
+        SetRatings,
+        Special,
+        Use,
+        Weapon,
+        Defense,
+        Caster,
+        LevelLimit,
+        Wield,
+        UsageLimit,
+        ItemLevel,
+        ShortMagic,
+        Craftsman,
+        Armor,
+        Boost,
+        HealKit,
+        Capacity,
+        Lock,
+        Magic,
+        ManaStone,
+        RemainingUses,
+        CannotSell,
+        Rare,
+    ];
     let mut out = Vec::new();
-    push_item_info(&mut out, value_line(p.value), true, 0);
-    push_item_info(&mut out, burden_line(p.burden), true, 0);
-    // The tinkering block is the first block
-    // after burden; its own unconditional blank is inside [`tinkering_lines`].
-    out.extend(tinkering_lines(p));
-    // The set block then the ratings block, and the appraise-info write adds a blank
-    // of its own when **either** returned non-zero. The set block answers "I drew" and the
-    // ratings block answers "I drew a term or a Vitality line", which is exactly "the vector is
-    // non-empty".
-    let set = set_lines(p);
-    let ratings = ratings_lines(p);
-    let shared_blank = !set.is_empty() || !ratings.is_empty();
-    out.extend(set);
-    out.extend(ratings);
-    if shared_blank {
-        push_item_info(&mut out, String::new(), true, 0);
+    let order = match variant {
+        crate::DisplayVariant::Classic => CLASSIC,
+        crate::DisplayVariant::Modern => MODERN,
+    };
+    for block in order {
+        match block {
+            Value => push_item_info(&mut out, value_line(p.value), true, 0),
+            Burden => push_item_info(&mut out, burden_line(p.burden), true, 0),
+            Description => {
+                if let Some(text) = decorated_description_for(p, variant) {
+                    push_item_info(&mut out, text, false, 0);
+                }
+            }
+            Portal => out.extend(portal_restriction_lines(p)),
+            Tinkering => {
+                if variant == crate::DisplayVariant::Modern
+                    || p.num_times_tinkered.is_some()
+                    || p.tinker_name.is_some()
+                    || p.imbuer_name.is_some()
+                    || p.workmanship.is_some()
+                {
+                    out.extend(tinkering_lines(p));
+                }
+            }
+            SetRatings => {
+                let set = set_lines(p);
+                let ratings = ratings_lines(p);
+                let blank = !set.is_empty() || !ratings.is_empty();
+                out.extend(set);
+                out.extend(ratings);
+                if blank {
+                    push_item_info(&mut out, String::new(), true, 0);
+                }
+            }
+            Weapon | Armor => {
+                let rows = if matches!(block, Weapon) {
+                    weapon_and_armor_lines_for(p, variant)
+                } else {
+                    armor_mod_lines(p)
+                };
+                for (text, color) in rows {
+                    push_item_info(&mut out, text, true, color);
+                }
+            }
+            Defense => out.extend(defense_mod_lines(p)),
+            ShortMagic | Special | Magic => {
+                let rows = match block {
+                    ShortMagic => short_magic_info_lines_for(p, variant),
+                    Special => special_properties_lines_for(p, variant),
+                    _ => magic_info_lines_for(p, variant),
+                };
+                for (text, same) in rows {
+                    push_item_info(&mut out, text, same, 0);
+                }
+            }
+            Use => {
+                if let Some(text) = &p.use_text {
+                    push_item_info(&mut out, text.clone(), false, 0);
+                }
+            }
+            LevelLimit => out.extend(level_limit_lines(p)),
+            Wield => out.extend(wield_requirement_lines(p)),
+            UsageLimit => out.extend(usage_limit_lines(p)),
+            ItemLevel => out.extend(item_level_lines(p)),
+            Activation => out.extend(activation_requirement_lines_for(p, variant)),
+            Caster => out.extend(caster_data_lines_for(p, variant)),
+            Boost => out.extend(boost_value_lines(p)),
+            HealKit => out.extend(heal_kit_lines(p)),
+            Capacity => out.extend(capacity_lines(p)),
+            Lock => {
+                for text in lock_appraise_lines(p) {
+                    push_item_info(&mut out, text, false, 0);
+                }
+            }
+            ManaStone => out.extend(mana_stone_lines(p)),
+            RemainingUses => out.extend(remaining_uses_lines(p)),
+            Craftsman => out.extend(craftsman_lines(p)),
+            CannotSell => out.extend(cannot_be_sold_lines(p)),
+            Rare => out.extend(rare_info_lines(p)),
+            Lifespan => out.extend(lifespan_lines(p)),
+        }
     }
-    for (line, color) in weapon_and_armor_lines(p) {
-        push_item_info(&mut out, line, true, color);
-    }
-    // The defense-mod block sits between the weapon-and-armour block and the
-    // armour-mods block.
-    out.extend(defense_mod_lines(p));
-    for (line, color) in armor_mod_lines(p) {
-        push_item_info(&mut out, line, true, color);
-    }
-    // The short magic info block comes after the armour mods and **before** the
-    // special properties.
-    for (line, same) in short_magic_info_lines(p) {
-        push_item_info(&mut out, line, same, 0);
-    }
-    // The special properties come after the short magic info and **before** the
-    // usage block. Every one of its own lines passes `same_line = 1`.
-    for (line, same) in special_properties_lines(p) {
-        push_item_info(&mut out, line, same, 0);
-    }
-    if let Some(u) = p.use_text.as_deref() {
-        push_item_info(&mut out, u.to_string(), false, 0);
-    }
-    // The nine blocks the appraise-info write calls between the usage block
-    // and the lock block, in its own order:
-    // The order is level limit, wield, usage limit, item level, activation, caster, boost, heal
-    // kit, and capacity.
-    out.extend(level_limit_lines(p));
-    out.extend(wield_requirement_lines(p));
-    out.extend(usage_limit_lines(p));
-    out.extend(item_level_lines(p));
-    out.extend(activation_requirement_lines(p));
-    out.extend(caster_data_lines(p));
-    out.extend(boost_value_lines(p));
-    out.extend(heal_kit_lines(p));
-    out.extend(capacity_lines(p));
-    // The lock block runs after the usage and capacity blocks, before the
-    // description. Its own lines pass `same_line = 0`, so each line is a paragraph.
-    for line in lock_appraise_lines(p) {
-        push_item_info(&mut out, line, false, 0);
-    }
-    // Mana stone, remaining uses, craftsman, then the appraise-info write's own
-    // bool `0x45` line and the rare info -- everything between the lock block and the magic info.
-    out.extend(mana_stone_lines(p));
-    out.extend(remaining_uses_lines(p));
-    out.extend(craftsman_lines(p));
-    out.extend(cannot_be_sold_lines(p));
-    out.extend(rare_info_lines(p));
-    // The magic info is the **last** block before the flavour text, after the rare
-    // info and before the description. Its own lines carry their separators.
-    for (line, same) in magic_info_lines(p) {
-        push_item_info(&mut out, line, same, 0);
-    }
-    // The description block's first part, before either description arm
-    // and the later portal block.
-    out.extend(lifespan_lines(p));
-    // The client tests whether the string read succeeded, not the string's length. The decoration
-    // helper preserves that distinction: `Some("")` suppresses the ShortDesc fallback.
-    if let Some(d) = decorated_description(p) {
-        push_item_info(&mut out, d, false, 0);
-    }
-    // The portal restrictions are inside the *same* description block
-    // the flavour text comes from, and they come **after** it: the description arm
-    // falls through to the int `0x6F` the block is guarded on. Nothing
-    // in the appraise-info write's own block order separates them, so this is one more `extend` and
-    // not a twenty-sixth block.
-    out.extend(portal_restriction_lines(p));
     out
 }
 
@@ -2763,6 +3011,10 @@ pub fn society_row(p: &AppraisalView) -> Option<MiscRow> {
 /// "you are looking at a monarch" and "you are looking at a vassal".
 #[must_use]
 pub fn allegiance_rows(p: &AppraisalView) -> Vec<MiscRow> {
+    allegiance_rows_for(p, crate::DisplayVariant::Modern)
+}
+
+fn allegiance_rows_for(p: &AppraisalView, variant: crate::DisplayVariant) -> Vec<MiscRow> {
     let mut out = Vec::new();
     if p.allegiance_rank.unwrap_or(0) < 1 {
         return out;
@@ -2779,7 +3031,15 @@ pub fn allegiance_rows(p: &AppraisalView) -> Vec<MiscRow> {
             let n = p.allegiance_followers.filter(|v| *v >= 0).unwrap_or(0);
             // Exactly 1 takes the singular literal; anything else the plural.
             let word = if n == 1 { "Follower" } else { "Followers" };
-            out.push(misc("Alleg. Monarch:", format!("{n} {word}"), 0));
+            out.push(misc(
+                if variant == crate::DisplayVariant::Classic {
+                    "Allegiance Monarch:"
+                } else {
+                    "Alleg. Monarch:"
+                },
+                format!("{n} {word}"),
+                0,
+            ));
         }
     }
     out
@@ -2961,13 +3221,31 @@ pub const UNENCHANTABLE_FOOTNOTE: &str = "* = Unenchantable";
 /// | 14 | the unenchantable footnote | none — always |
 #[must_use]
 pub fn char_misc_rows(p: &AppraisalView) -> Vec<MiscRow> {
+    char_misc_rows_for(p, "", crate::DisplayVariant::Modern)
+}
+
+/// Character facts with the selected wording and colors; later fields remain available.
+#[must_use]
+pub fn char_misc_rows_for(
+    p: &AppraisalView,
+    name: &str,
+    variant: crate::DisplayVariant,
+) -> Vec<MiscRow> {
     let mut out = Vec::new();
     out.extend(society_row(p));
-    out.extend(allegiance_rows(p));
+    out.extend(allegiance_rows_for(p, variant));
     out.extend(armor_rows(p));
     out.extend(rating_rows(p, &CHARACTER_RATING_ROWS));
     if let Some(f) = p.fellowship.as_deref() {
-        out.push(misc("Fellowship:", f, 0));
+        out.push(misc(
+            "Fellowship:",
+            f,
+            if variant == crate::DisplayVariant::Classic {
+                1
+            } else {
+                0
+            },
+        ));
     }
     if let Some(d) = p.date_of_birth.as_deref() {
         out.push(misc("Arrived in Dereth:", d, 0));
@@ -2975,7 +3253,11 @@ pub fn char_misc_rows(p: &AppraisalView) -> Vec<MiscRow> {
     if let Some(age) = p.age {
         // The delta-time formatter `panels::journal` already carries, whose only other caller is
         // the journal's timer.
-        let text = dereth_client_contract::journal::delta_time_to_string(i64::from(age));
+        let text = if variant == crate::DisplayVariant::Classic {
+            classic_elapsed(age.cast_unsigned())
+        } else {
+            dereth_client_contract::journal::delta_time_to_string(i64::from(age))
+        };
         out.push(misc("Time in Dereth:", text, 0));
     }
     if let Some(v) = p.chess_rank {
@@ -2986,12 +3268,19 @@ pub fn char_misc_rows(p: &AppraisalView) -> Vec<MiscRow> {
     }
     if let Some(v) = p.num_deaths {
         // The test is `< 1`, so zero deaths is the sentence and not the number.
-        let text = if v < 1 {
-            "Has never died".to_string()
+        if v < 1 && variant == crate::DisplayVariant::Classic {
+            out.push(misc(&format!("{name} has never died."), "", 0));
         } else {
-            v.to_string()
-        };
-        out.push(misc("Deaths:", text, 0));
+            out.push(misc(
+                "Deaths:",
+                if v < 1 {
+                    "Has never died".into()
+                } else {
+                    v.to_string()
+                },
+                0,
+            ));
+        }
     }
     if let Some(v) = p.num_character_titles {
         out.push(misc("Titles Earned:", v.to_string(), 0));
@@ -3001,8 +3290,23 @@ pub fn char_misc_rows(p: &AppraisalView) -> Vec<MiscRow> {
     if let Some(v) = p.enlightenment {
         out.push(misc("Enlightenment:", v.to_string(), 0));
     }
-    out.push(misc(UNENCHANTABLE_FOOTNOTE, "", 0));
+    if variant == crate::DisplayVariant::Modern || p.base_armor.is_some() {
+        out.push(misc(UNENCHANTABLE_FOOTNOTE, "", 0));
+    }
     out
+}
+
+fn classic_elapsed(mut seconds: u32) -> String {
+    let mut parts = Vec::new();
+    for (unit, suffix) in [(2_592_000, "mo"), (86_400, "d"), (3600, "h"), (60, "m")] {
+        let n = seconds / unit;
+        seconds %= unit;
+        if n > 0 {
+            parts.push(format!("{n}{suffix}"));
+        }
+    }
+    parts.push(format!("{seconds}s"));
+    parts.join(" ")
 }
 
 /// The creature pane's share of the same list — [`rating_rows`] over [`CREATURE_RATING_ROWS`] and
@@ -3929,6 +4233,7 @@ mod tests {
     fn the_two_spell_blocks_sort_on_the_top_bit_and_nothing_else() {
         use dereth_client_contract::view::{AppraisalSpellView, MagicInfoView};
         let spell = |id: u32, name: &str| AppraisalSpellView {
+            resolved: true,
             raw_id: id,
             enchantment: id & 0x8000_0000 != 0,
             name: name.to_string(),
@@ -4049,12 +4354,14 @@ mod tests {
     fn the_magic_blocks_mana_lines_hang_off_the_description_bucket() {
         use dereth_client_contract::view::{AppraisalSpellView, MagicInfoView};
         let own = AppraisalSpellView {
+            resolved: true,
             raw_id: 1183,
             enchantment: false,
             name: "S".to_string(),
             description: "D".to_string(),
         };
         let ench = AppraisalSpellView {
+            resolved: true,
             raw_id: 0x8000_0001,
             enchantment: true,
             ..own.clone()

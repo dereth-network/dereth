@@ -38,7 +38,6 @@ pub struct ClassicState {
     pub welcome: String,
     pub active_bottom: String,
     pub book_edit_privileged: bool,
-    pub appraisal_extra: std::collections::BTreeMap<ObjectId, ClassicAppraisalExtra>,
     pub portraits: std::collections::BTreeMap<ObjectId, ClassicPortrait>,
     pub option_words: [u32; 2],
     pub timestamp_format: String,
@@ -48,12 +47,6 @@ pub struct ClassicState {
     /// The character sheet's augmentation and luminance section, composed from the world's string
     /// tables; empty when the world's era has neither.
     pub augmentations: String,
-}
-#[derive(Clone, Debug, Default)]
-pub struct ClassicAppraisalExtra {
-    pub attack_type: Option<i32>,
-    pub elemental_damage_bonus: Option<i32>,
-    pub activation_heritage: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct ClassicPortrait {
@@ -74,7 +67,6 @@ impl Default for ClassicState {
             welcome: String::new(),
             active_bottom: String::new(),
             book_edit_privileged: false,
-            appraisal_extra: std::collections::BTreeMap::new(),
             portraits: std::collections::BTreeMap::new(),
             option_words: crate::screens::DEFAULT_WORDS,
             timestamp_format: String::new(),

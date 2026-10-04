@@ -3,6 +3,7 @@ use super::super::*;
 use super::common::*;
 use crate::int::i32_from;
 use dereth_client_contract::{PkStatus, SkillEntry};
+use dereth_presentation::{stats as shared, DisplayVariant};
 use dereth_primitives::num::to_i32;
 
 const ATTRIBUTES: [(u32, bool, &str, u32); 9] = [
@@ -51,45 +52,34 @@ enum Row<'a> {
 }
 fn skill_rows(game: &dyn GameView) -> Vec<Row<'_>> {
     let mut rows = vec![];
-    for (sac, title, art) in [
-        (3, "Specialized Skills", 0x06000f90),
-        (2, "Trained Skills", 0x06000f86),
-        (1, "Untrained Skills", 0x06000f98),
-        (0, "Unusable Skills", 0x06000f89),
-    ] {
-        rows.push(Row::Heading(title, art));
-        let mut group: Vec<_> = game
-            .skills()
-            .iter()
-            .filter(|s| match sac {
-                3 | 2 => s.sac == sac,
-                1 => s.sac == 1 && s.effective > 0,
-                _ => s.sac == 1 && s.effective == 0,
-            })
-            .collect();
-        group.sort_by(|a, b| a.name.cmp(&b.name));
-        rows.extend(group.into_iter().map(Row::Skill));
+    for (group, entries) in shared::skill_groups(game.skills(), DisplayVariant::Classic) {
+        let art = match group {
+            shared::SkillGroup::Specialized => 0x06000f90,
+            shared::SkillGroup::Trained => 0x06000f86,
+            shared::SkillGroup::Untrained => 0x06000f98,
+            shared::SkillGroup::Unusable => 0x06000f89,
+        };
+        rows.push(Row::Heading(group.label(), art));
+        rows.extend(entries.into_iter().map(Row::Skill));
     }
     rows
 }
 fn selected_cost(model: &Stats, game: &dyn GameView) -> Option<(u32, u32, bool, i32, String)> {
     let (id, secondary) = model.selected?;
-    if model.skills {
-        let s = game.skills().iter().find(|s| s.id == id)?;
-        let adv = game.skill_advancement(id)?;
-        Some((
-            id,
-            adv.cost_to_raise,
-            adv.sac < 2,
-            s.effective,
-            s.name.clone(),
-        ))
-    } else {
-        let a = game.attribute_advancement(id, secondary)?;
-        let name = ATTRIBUTES.iter().find(|r| r.0 == id && r.1 == secondary)?.2;
-        Some((id, a.cost_to_raise, false, a.effective, name.into()))
-    }
+    let name = ATTRIBUTES
+        .iter()
+        .find(|r| r.0 == id && r.1 == secondary)
+        .map_or("", |r| r.2);
+    let selected = shared::selected_stat(game, id, secondary, model.skills, name)?;
+    Some((
+        selected.id,
+        selected.cost,
+        selected.credits,
+        selected.value,
+        selected.name,
+    ))
 }
+
 fn profile(frame: &mut PanelFrame, game: &dyn GameView) {
     image(frame, 0x060011a4, rect(0, 25, 300, 79), None, false, false);
     text(
@@ -102,13 +92,8 @@ fn profile(frame: &mut PanelFrame, game: &dyn GameView) {
         false,
         None,
     );
-    let mut heritage = game.gender_heritage_display().unwrap_or_default();
-    if let Some(title) = game.display_title() {
-        if !heritage.is_empty() {
-            heritage.push(' ');
-        }
-        heritage.push_str(&title);
-    }
+    let header = shared::HeaderInputs::gather(game);
+    let heritage = header.heritage_line_for(DisplayVariant::Classic);
     text(
         frame,
         rect(2, 42, 228, 15),
@@ -232,7 +217,10 @@ impl Panel for Stats {
         // With the stretched interface the rows list grows and the footer keeps to the bottom.
         let height = crate::panels::side_height() as i32;
         let dy = height - 362;
-        let list_h = 198 + dy;
+        let luminance = shared::HeaderInputs::gather(game).luminance_line();
+        let extra = if luminance.0.is_empty() { 0 } else { 16 };
+        let list_top = 104 + extra;
+        let list_h = 198 + dy - extra;
         let mut f = PanelFrame::new(300, height as u32);
         // Two 138-pixel tabs, or three of 92 with the Titles tab.
         let titles = titles_tab(game);
@@ -270,7 +258,25 @@ impl Panel for Stats {
             return f;
         }
         profile(&mut f, game);
-        let clip = [0, 104, if self.skills { 279 } else { 300 }, 302 + dy];
+        if extra != 0 {
+            image(&mut f, 0x06001398, rect(0, 104, 300, 16), None, true, false);
+            text(
+                &mut f,
+                rect(4, 104, 292, 16),
+                format!("{} {}", luminance.0, luminance.1),
+                "14-6",
+                CREAM,
+                0,
+                false,
+                None,
+            );
+        }
+        let clip = [
+            0,
+            list_top,
+            if self.skills || extra != 0 { 279 } else { 300 },
+            302 + dy,
+        ];
         if self.skills {
             let rows = skill_rows(game);
             let selected = rows
@@ -279,8 +285,8 @@ impl Panel for Stats {
             let max = (i32_from(rows.len()) * 22 - list_h).max(0);
             let offset = self.scroll.clamp(0, max);
             for (index, row) in rows.iter().enumerate() {
-                let y = 104 + i32_from(index) * 22 - offset;
-                if y + 20 <= 104 || y >= 302 + dy {
+                let y = list_top + i32_from(index) * 22 - offset;
+                if y + 20 <= list_top || y >= 302 + dy {
                     continue;
                 }
                 match row {
@@ -328,7 +334,7 @@ impl Panel for Stats {
                             rect(242, y + 2, 34, 16),
                             s.effective.to_string(),
                             "16-7",
-                            CREAM,
+                            stat_color(shared::value_font(s.effective, s.level, s.vitae)),
                             2,
                             false,
                             Some(clip),
@@ -339,7 +345,7 @@ impl Panel for Stats {
             scrollbar(
                 &mut f,
                 "rows-scroll",
-                rect(279, 104, 21, list_h),
+                rect(279, list_top, 21, list_h),
                 i32_from(rows.len()) * 22,
                 list_h,
                 offset,
@@ -349,15 +355,16 @@ impl Panel for Stats {
             list_hits(
                 &mut f,
                 "rows",
-                rect(0, 104, 279, list_h),
+                rect(0, list_top, 279, list_h),
                 rows.len(),
                 22,
                 selected,
                 offset,
             );
         } else {
+            let offset = self.scroll.clamp(0, (198 - list_h).max(0));
             for (i, (id, secondary, name, icon)) in ATTRIBUTES.iter().enumerate() {
-                let y = 104 + i32_from(i) * 22;
+                let y = list_top + i32_from(i) * 22 - offset;
                 image(
                     &mut f,
                     if self.selected == Some((*id, *secondary)) {
@@ -373,7 +380,7 @@ impl Panel for Stats {
                 image(&mut f, *icon, rect(0, y, 20, 20), Some(clip), false, true);
                 text(
                     &mut f,
-                    rect(27, y + 2, 198, 16),
+                    rect(27, y + 2, if extra == 0 { 198 } else { 181 }, 16),
                     *name,
                     "16-7",
                     DARK,
@@ -381,31 +388,46 @@ impl Panel for Stats {
                     false,
                     Some(clip),
                 );
-                let value = game
-                    .attribute_advancement(*id, *secondary)
+                let advancement = game.attribute_advancement(*id, *secondary);
+                let value = advancement
                     .map(|a| a.effective.to_string())
                     .unwrap_or_else(|| "???".into());
+                let color = advancement.map_or(CREAM, |a| {
+                    stat_color(shared::value_font(a.effective, a.value, a.vitae))
+                });
                 text(
                     &mut f,
-                    rect(229, y + 2, 66, 16),
+                    rect(if extra == 0 { 229 } else { 212 }, y + 2, 66, 16),
                     value,
                     "16-7",
-                    CREAM,
+                    color,
                     2,
                     false,
                     Some(clip),
                 );
             }
+            if extra != 0 {
+                scrollbar(
+                    &mut f,
+                    "rows-scroll",
+                    rect(279, list_top, 21, list_h),
+                    198,
+                    list_h,
+                    offset,
+                    22,
+                    true,
+                );
+            }
             list_hits(
                 &mut f,
                 "rows",
-                rect(0, 104, 300, list_h),
+                rect(0, list_top, if extra == 0 { 300 } else { 279 }, list_h),
                 9,
                 22,
                 ATTRIBUTES
                     .iter()
                     .position(|r| self.selected == Some((r.0, r.1))),
-                0,
+                offset,
             );
         }
         // The footer's backdrop is taller than the footer: it is drawn at its own size and cut to
@@ -425,11 +447,7 @@ impl Panel for Stats {
             text(
                 &mut f,
                 rect(7, 304 + dy, 291, 16),
-                if credits {
-                    format!("{name} (Must be trained)")
-                } else {
-                    format!("{name} {value}")
-                },
+                shared::stat_title(&name, value, credits, DisplayVariant::Classic),
                 "16-7",
                 CREAM,
                 0,
@@ -536,8 +554,7 @@ impl Panel for Stats {
                 }
             }
             let secondary = self.selected.is_some_and(|s| s.1);
-            can_raise = cost > 0
-                && available >= cost as i64
+            can_raise = shared::can_raise(u64::from(cost), u64::try_from(available).unwrap_or(0))
                 && self.pending != Some((id, secondary, cost, value));
         } else {
             text(
@@ -646,7 +663,9 @@ impl Panel for Stats {
                     } else {
                         context.game.available_experience()
                     };
-                    if available < cost as i64 || cost == 0 || self.pending == Some(key) {
+                    if !shared::can_raise(u64::from(cost), u64::try_from(available).unwrap_or(0))
+                        || self.pending == Some(key)
+                    {
                         return vec![];
                     }
                     if !credits {
@@ -692,5 +711,148 @@ impl Panel for Stats {
             _ => {}
         }
         vec![]
+    }
+}
+
+fn stat_color(index: u32) -> u32 {
+    match index {
+        1 => 0xff00ff00,
+        2 => 0xffff0000,
+        _ => CREAM,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dereth_client_contract::statmgmt::XpHeader;
+    use dereth_client_contract::{AttributeAdvancement, SkillAdvancement, VitaeDisplay};
+    #[derive(Debug)]
+    struct View {
+        skills: Vec<SkillEntry>,
+        vitae: Option<VitaeDisplay>,
+    }
+    impl GameView for View {
+        fn skills(&self) -> &[SkillEntry] {
+            &self.skills
+        }
+        fn skill_advancement(&self, _: u32) -> Option<SkillAdvancement> {
+            Some(SkillAdvancement {
+                sac: 2,
+                cost_to_raise: 10,
+                ..Default::default()
+            })
+        }
+        fn attribute_advancement(&self, _: u32, _: bool) -> Option<AttributeAdvancement> {
+            Some(AttributeAdvancement {
+                effective: 98,
+                value: 100,
+                vitae: -5,
+                ..Default::default()
+            })
+        }
+        fn vitae_display(&self) -> Option<VitaeDisplay> {
+            self.vitae
+        }
+        fn experience_header(&self) -> Option<XpHeader> {
+            Some(XpHeader {
+                level: 200,
+                ..Default::default()
+            })
+        }
+        fn luminance(&self) -> (i64, i64) {
+            (1234, 9000)
+        }
+    }
+    fn context<T>(view: &dyn GameView, f: impl FnOnce(&Context<'_>) -> T) -> T {
+        f(&Context {
+            game: view,
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            map_teleport_allowed: false,
+            classic: &Default::default(),
+        })
+    }
+    /// Behaviour: stats.presentation.preserves-display-variants-and-fractional-vitae
+    #[test]
+    fn actual_classic_rows_color_effective_values_and_project_later_luminance() {
+        let view = View {
+            skills: vec![SkillEntry {
+                id: 1,
+                name: "Buff".into(),
+                icon: None,
+                min_level: 0,
+                sac: 2,
+                level: 100,
+                effective: 98,
+                vitae: -5,
+            }],
+            vitae: None,
+        };
+        let frame = context(&view, |c| Stats::new(true).frame(c));
+        assert!(frame.screen.commands.iter().any(
+            |c| matches!(c,crate::Command::TextBox{text,color,..} if text=="98" && *color==0xff00ff00)
+        ));
+        assert!(frame.screen.commands.iter().any(
+            |c| matches!(c,crate::Command::TextBox{text,..} if text=="Luminance: 1,234 / 9,000")
+        ));
+        let snapshot = dereth_client_contract::snapshot::GameSnapshot::from_view(&view);
+        let copied = context(&snapshot, |c| Stats::new(true).frame(c));
+        let values = |f: PanelFrame| {
+            f.screen
+                .commands
+                .into_iter()
+                .filter_map(|c| match c {
+                    crate::Command::TextBox { text, color, .. } => Some((text, color)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(values(frame), values(copied));
+    }
+    /// Behaviour: stats.presentation.preserves-display-variants-and-fractional-vitae
+    #[test]
+    fn actual_classic_vitae_frame_and_tick_keep_small_positive_losses_open() {
+        for (multiplier, penalty, close) in [
+            (0.999, 1, false),
+            (0.986, 1, false),
+            (0.984, 2, false),
+            (1.0, 0, true),
+        ] {
+            let view = View {
+                skills: vec![],
+                vitae: Some(VitaeDisplay {
+                    multiplier,
+                    threshold: 10,
+                    cp_pool: 9,
+                }),
+            };
+            let mut panel = super::super::magic::Vitae;
+            context(&view, |c| {
+                let frame = panel.frame(c);
+                assert_eq!(frame.screen.commands.iter().any(|cmd|matches!(cmd,crate::Command::TextBox{text,..} if text.contains(&format!("lost {penalty}%")))),!close);
+                assert_eq!(
+                    matches!(
+                        panel.event(ControlEvent::Tick, c).as_slice(),
+                        [PanelAction::Close]
+                    ),
+                    close
+                );
+            });
+        }
+        let mut panel = super::super::magic::Vitae;
+        context(
+            &View {
+                skills: vec![],
+                vitae: None,
+            },
+            |c| {
+                assert!(matches!(
+                    panel.event(ControlEvent::Tick, c).as_slice(),
+                    [PanelAction::Close]
+                ))
+            },
+        );
     }
 }

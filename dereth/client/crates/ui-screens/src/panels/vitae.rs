@@ -8,8 +8,7 @@
 //!
 //! # What the vitae panel's update does
 //!
-//! Nothing while the panel is hidden. Otherwise the penalty percentage is `100 - trunc(vitae *
-//! 100)`. Below 1 the text is `ID_Vitae_Text_Full` ("…is at full strength."). Otherwise it reads
+//! Nothing while the panel is hidden. Otherwise the penalty percentage is `100 minus the rounded strength percentage`. Below 1 the text is `ID_Vitae_Text_Full` ("…is at full strength."). Otherwise it reads
 //! int qualities `VitaeCpPool` (129) and `DeathLevel` (139), falling back to `Level` (25) when the
 //! death level is 0, computes `need = threshold(vitae, level) - pool`, and writes
 //! `ID_Vitae_Text_Vitae` and `ID_Vitae_Text_Skills` (each with `%Percentage` = the percentage)
@@ -78,7 +77,7 @@ pub struct VitaePanel {
     pub current_vitae: f32,
     /// What the main text last read — the pane read back without walking glyphs.
     pub text: String,
-    /// `100 - trunc(vitae * 100)` as of the last write.
+    /// The rounded loss percentage as of the last write.
     pub penalty_percent: i32,
     /// How many times the update has written.
     pub updates: u32,
@@ -166,16 +165,18 @@ impl VitaePanel {
     pub fn write(&mut self, ui: &mut UiSystem, d: Option<crate::view::VitaeDisplay>) {
         let Some(d) = d else { return };
         self.current_vitae = d.multiplier;
-        // Truncate `vitae * 100`, then `100 - that`. The multiply is done in `f32` and truncated,
-        // exactly as retail does.
-        let pct = 100 - dereth_primitives::num::to_i32(d.multiplier * 100.0);
+        let content = dereth_presentation::stats::vitae_content(
+            d,
+            dereth_presentation::DisplayVariant::Modern,
+        );
+        let pct = content.penalty;
         self.penalty_percent = pct;
         let text = if pct < 1 {
             label(ui, string::FULL)
         } else {
             // `threshold(vitae, level) - pool`, with the level fall-back already applied on the
             // host side (see `VitaeDisplay::threshold`).
-            let need = i64::from(d.threshold) - i64::from(d.cp_pool);
+            let need = content.experience;
             let mut s = compose_int(ui, string::VITAE, i64::from(pct));
             s.push_str(&compose_int(ui, string::SKILLS, i64::from(pct)));
             s.push_str(&compose_int(ui, string::EXPERIENCE, need));
@@ -218,28 +219,26 @@ pub fn compose_int(ui: &UiSystem, token: &str, value: i64) -> String {
 mod tests {
     use super::*;
 
-    /// Oracle: the update's `pct = 100 - trunc(vitae * 100)` and its `pct < 1` branch, at the
-    /// boundary.
-    ///
-    /// A multiplier of exactly `1.0` gives `0`, which is `< 1` — the "full strength" arm. `0.95`
-    /// is the one 5% death and gives `5`. The truncation matters: `0.999` gives `100 - 99 = 1`,
-    /// which is **not** `< 1`, so a sliver of vitae still draws the three-part text.
+    /// Behaviour: stats.presentation.preserves-display-variants-and-fractional-vitae
     #[test]
-    fn the_penalty_percentage_is_a_truncating_subtraction_from_a_hundred() {
-        let pct = |m: f32| {
-            #[allow(clippy::cast_possible_truncation)]
-            let v = 100 - (m * 100.0) as i32;
-            v
-        };
-        assert_eq!(pct(1.0), 0, "no vitae at all: the vitae value is 1.0");
-        assert!(pct(1.0) < 1, "and 0 takes the full-strength arm");
-        assert_eq!(pct(0.95), 5, "one death");
-        // `0.9f32` is `0.89999997615…`, but the single-precision **product** rounds back to
-        // exactly `90.0`, so this one is 10 and not 9. The truncation still bites elsewhere --
-        // see the 0.999 row -- which is why every boundary is written out rather than reasoned
-        // about.
-        assert_eq!(pct(0.90), 10);
-        assert_eq!(pct(0.999), 1, "still a penalty, and not < 1");
+    fn the_actual_panel_write_rounds_fractional_vitae() {
+        let mut panel = VitaePanel::default();
+        let mut ui = UiSystem::new((800, 600));
+        for (multiplier, expected) in [(1.0, 0), (0.999, 0), (0.986, 1), (0.984, 2)] {
+            panel.write(
+                &mut ui,
+                Some(crate::view::VitaeDisplay {
+                    multiplier,
+                    cp_pool: 9,
+                    threshold: 10,
+                }),
+            );
+            assert_eq!(panel.penalty_percent, expected);
+            assert_eq!(panel.text.contains("ID_Vitae_Text_Full"), expected == 0);
+        }
+        let previous = panel.text.clone();
+        panel.write(&mut ui, None);
+        assert_eq!(panel.text, previous);
     }
 
     /// Oracle: `crate::panels::catalogue`'s `VitaePanel` row.

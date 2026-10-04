@@ -477,14 +477,6 @@ pub struct ExaminationPanel {
     last_selected: Option<Option<dereth_primitives::ObjectId>>,
 }
 
-fn inscription_editable_from_live_object(
-    live_facts: Option<(bool, u32)>,
-    ordinary_permission: bool,
-    viewer_is_psr: bool,
-) -> bool {
-    live_facts.is_some_and(|(inscribable, _)| inscribable) && (ordinary_permission || viewer_is_psr)
-}
-
 impl Default for ExaminationPanel {
     fn default() -> Self {
         Self {
@@ -1080,14 +1072,14 @@ impl ExaminationPanel {
         // The pane fork, as retail makes it: not a creature is the item pane; a creature carrying
         // either `Template` (PropertyString 5) or `CharacterTitleId` (PropertyInt 0x105) is a
         // *player* and takes the character pane; anything else is the creature pane.
-        let sub = if p.creature {
-            if p.template || p.character_title {
-                ExamineSubUi::Char
-            } else {
-                ExamineSubUi::Creature
-            }
-        } else {
-            ExamineSubUi::Item
+        let sub = match dereth_client_contract::examination::appraisal_pane(
+            p.creature,
+            p.template,
+            p.character_title,
+        ) {
+            dereth_client_contract::examination::AppraisalPane::Item => ExamineSubUi::Item,
+            dereth_client_contract::examination::AppraisalPane::Creature => ExamineSubUi::Creature,
+            dereth_client_contract::examination::AppraisalPane::Character => ExamineSubUi::Char,
         };
         let new_object = self.sub_object != Some(id);
         // The live-object check — above every write, so an appraisal for an
@@ -1292,17 +1284,12 @@ impl ExaminationPanel {
     /// `inscribable` field is deliberately not that gate: hook appraisal data may substitute it
     /// for display, while this function reads the current object's public-description bit 2.
     fn set_inscription_editable_state(&mut self, ui: &mut UiSystem, p: &AppraisalView) {
-        // `stricmp` — the client's comparison on both legs is case-insensitive.
-        let mine = !self.scribe_name.is_empty()
-            && self.scribe_name.eq_ignore_ascii_case(&self.player_name);
-        // Ask about the live current object and test its PWD bit 2
-        // before either ownership or PSR. `None` is the missing-object lock; never fall back to
-        // the hook-substituted appraisal field.
-        let ordinary = (self.scribe_name.is_empty() || mine) && p.owned_by_player;
-        let editable = inscription_editable_from_live_object(
+        let editable = dereth_client_contract::examination::inscription_editable(
             self.inscription_mouse_facts,
-            ordinary,
+            p.owned_by_player,
             p.viewer_is_psr,
+            &self.scribe_name,
+            &self.player_name,
         );
         self.inscription_editable = editable;
         if let Some(h) = self.inscription_text {
@@ -1680,29 +1667,61 @@ impl ExaminationPanel {
 mod tests {
     use super::*;
 
+    /// Behaviour: appraisal.presentation.variants-preserve-order-and-world-facts
+    #[test]
+    fn item_reply_uses_modern_property_order_and_exact_experience() {
+        let mut ui = UiSystem::new((800, 600));
+        let mut panel = ExaminationPanel::default();
+        let id = dereth_primitives::ObjectId(9);
+        let mut p = AppraisalView {
+            success: true,
+            ..Default::default()
+        };
+        p.special.imbued = Some(0xa0000000);
+        p.special.absorb_magic_damage = true;
+        p.item_level = Some(dereth_client_contract::view::ItemLevelView {
+            total_xp: u64::MAX,
+            base_xp: 1,
+            max_level: 1,
+            xp_style: 1,
+        });
+        panel.examine_object(id);
+        assert!(panel.set_appraise_info(&mut ui, id, &p, Some(("Book", 1))));
+        let text = panel.item_text.as_deref().unwrap();
+        assert!(text.contains("Properties: Phantasmal, Magic Absorbing"));
+        assert!(!text.contains("Special Properties:"));
+        assert!(text.contains("Item XP: 18,446,744,073,709,551,615 /"));
+    }
+
     #[test]
     fn inscription_privilege_still_requires_a_live_inscribable_object() {
-        assert!(!inscription_editable_from_live_object(None, true, true));
-        assert!(!inscription_editable_from_live_object(
-            Some((false, 0)),
-            true,
-            true
-        ));
-        assert!(inscription_editable_from_live_object(
-            Some((true, 0)),
-            false,
-            true
-        ));
-        assert!(inscription_editable_from_live_object(
-            Some((true, 0)),
-            true,
-            false
-        ));
-        assert!(!inscription_editable_from_live_object(
-            Some((true, 0)),
-            false,
-            false
-        ));
+        let mut ui = UiSystem::new((800, 600));
+        let mut panel = ExaminationPanel {
+            player_name: "Aerin".into(),
+            ..Default::default()
+        };
+        for (live, owned, privileged, scribe, expected) in [
+            (None, true, true, "", false),
+            (Some((false, 0)), true, true, "", false),
+            (Some((true, 0)), false, true, "Other", true),
+            (Some((true, 0)), true, false, "aErIn", true),
+            (Some((true, 0)), true, false, "Other", false),
+            (Some((true, 0)), false, false, "", false),
+        ] {
+            panel.inscription_mouse_facts = live;
+            panel.scribe_name = scribe.into();
+            let profile = AppraisalView {
+                inscribable: true,
+                owned_by_player: owned,
+                viewer_is_psr: privileged,
+                ..Default::default()
+            };
+            panel.set_inscription_editable_state(&mut ui, &profile);
+            assert_eq!(
+                panel.inscription_editable, expected,
+                "{live:?}/{owned}/{privileged}/{scribe}"
+            );
+        }
     }
     use dereth_primitives::ObjectId;
 

@@ -4,7 +4,6 @@ use super::common::*;
 use crate::int::{i32_from, u32_from};
 use dereth_client_contract::spellbook::{level_mask, school_mask};
 use dereth_client_contract::view::{ComponentRow, SpellEntry};
-use dereth_primitives::num::to_i32;
 
 const FILTERS: [(&str, u32, i32, i32); 11] = [
     ("Creature", school_mask(4), 10, 277),
@@ -659,17 +658,42 @@ impl Panel for Vitae {
             false,
             None,
         );
-        if let Some(v) = ctx.game.vitae_display().filter(|v| v.multiplier < 1.0) {
-            let penalty = 100 - to_i32(v.multiplier * 100.0);
-            let xp = v.threshold - v.cp_pool;
-            text(&mut f,rect(15,35,275,327),format!("\n\nDue to your recent death, you have temporarily lost {penalty}% of your Vitae, or life force.\n\nThis means that your health, stamina, mana, and skills are temporarily reduced by {penalty}%.  A reduction of less than 15% will not hinder you much, but beware losing much more than that.\n\nYou will regain 1% of your Vitae once you earn {} more experience point{}.\n",number(xp),if xp==1{""}else{"s"}),"16-7",CREAM,0,true,None);
+        if let Some(v) = ctx
+            .game
+            .vitae_display()
+            .map(|v| {
+                dereth_presentation::stats::vitae_content(
+                    v,
+                    dereth_presentation::DisplayVariant::Classic,
+                )
+            })
+            .filter(|v| v.penalty > 0)
+        {
+            text(
+                &mut f,
+                rect(15, 35, 275, 327),
+                v.classic_text(),
+                "16-7",
+                CREAM,
+                0,
+                true,
+                None,
+            );
         }
+
         f
     }
     fn event(&mut self, e: ControlEvent, ctx: &Context<'_>) -> Vec<PanelAction> {
         if matches!(e,ControlEvent::Activate(ref id) if id=="close")
             || matches!(e, ControlEvent::Tick)
-                && ctx.game.vitae_display().is_none_or(|v| v.multiplier >= 1.0)
+                && ctx.game.vitae_display().is_none_or(|v| {
+                    dereth_presentation::stats::vitae_content(
+                        v,
+                        dereth_presentation::DisplayVariant::Classic,
+                    )
+                    .penalty
+                        <= 0
+                })
         {
             vec![PanelAction::Close]
         } else {
