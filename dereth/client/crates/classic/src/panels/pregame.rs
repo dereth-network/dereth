@@ -282,6 +282,11 @@ impl Pregame {
         if let Ok(d) = &data {
             state.begin_creation(&d.tables, CreationEntry::Normal, true);
         }
+        let zoom_face = page != "clothing"
+            && !matches!(
+                state.heritage_group,
+                dereth_chargen::HERITAGE_OLTHOI | dereth_chargen::HERITAGE_OLTHOI_ACID
+            );
         Self {
             page,
             startup: startup::Startup::default(),
@@ -290,7 +295,7 @@ impl Pregame {
             state,
             selected_skill: None,
             rotation_velocity: 0.0,
-            zoom_face: page != "clothing",
+            zoom_face,
             choice_scroll: 0,
             hair_scroll: 0,
             name_edit: String::new(),
@@ -345,6 +350,14 @@ impl Pregame {
                 "skills",
                 "name-summary",
             ]
+        }
+    }
+    fn initial_heritage_framing(&mut self) {
+        if matches!(
+            self.state.heritage_group,
+            dereth_chargen::HERITAGE_OLTHOI | dereth_chargen::HERITAGE_OLTHOI_ACID
+        ) {
+            self.zoom_face = false;
         }
     }
     fn enter_page(&mut self, page: &'static str) {
@@ -1360,6 +1373,7 @@ impl Panel for Pregame {
                             "heritage" if index < d.heritages.len() => {
                                 self.state
                                     .choose_heritage(&d.tables, d.heritages[index].key);
+                                self.initial_heritage_framing();
                                 self.heritage_chosen = true;
                                 self.name_edit.clear();
                                 self.custom_selected = false;
@@ -1543,6 +1557,7 @@ impl Panel for Pregame {
                             },
                             c.pregame.account_has_tod,
                         );
+                        self.initial_heritage_framing();
                         self.page = "heritage";
                         self.name_edit = self.state.name.clone();
                         self.custom_selected = false;
@@ -1639,6 +1654,7 @@ impl Panel for Pregame {
                         self.custom_selected = false;
                         self.name_edit = self.state.name.clone();
                         if self.page == "heritage" {
+                            self.initial_heritage_framing();
                             self.heritage_chosen = true;
                         }
                         if self.page == "sex" {

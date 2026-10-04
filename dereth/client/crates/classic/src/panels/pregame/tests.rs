@@ -1272,3 +1272,79 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
         });
     }
 }
+
+/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+#[test]
+fn special_heritage_skip_route_starts_with_body_framing_and_keeps_explicit_zoom() {
+    context(|c| {
+        let mut t = tables();
+        let heritage = t.chargen.heritage_groups[&1].clone();
+        for key in [12, 13] {
+            t.chargen.heritage_groups.insert(key, heritage.clone());
+            t.chargen.heritage_order.push(key);
+        }
+        let data = std::rc::Rc::new(CreationData::from_tables(std::rc::Rc::new(t)));
+        for (index, key) in [(1, 12), (2, 13)] {
+            let mut p = Pregame::new("heritage", Ok(std::rc::Rc::clone(&data)));
+            assert!(p.zoom_face, "ordinary initial framing");
+            p.event(
+                ControlEvent::Select {
+                    id: "heritage".into(),
+                    index,
+                },
+                c,
+            );
+            assert_eq!(p.state.heritage_group, key);
+            p.event(ControlEvent::Activate("next".into()), c);
+            assert_eq!(p.page, "sex");
+            p.event(
+                ControlEvent::Select {
+                    id: "sex".into(),
+                    index: 0,
+                },
+                c,
+            );
+            assert!(
+                !p.frame(c).previews[0]
+                    .appearance
+                    .as_ref()
+                    .unwrap()
+                    .zoom_face
+            );
+            p.event(ControlEvent::Activate("next".into()), c);
+            assert_eq!(p.page, "name-summary");
+            assert!(
+                !p.frame(c).previews[0]
+                    .appearance
+                    .as_ref()
+                    .unwrap()
+                    .zoom_face
+            );
+            p.event(
+                ControlEvent::Check {
+                    id: "zoom-face".into(),
+                    checked: true,
+                },
+                c,
+            );
+            p.event(ControlEvent::Activate("back".into()), c);
+            assert_eq!(p.page, "sex");
+            p.event(
+                ControlEvent::Select {
+                    id: "sex".into(),
+                    index: 0,
+                },
+                c,
+            );
+            p.event(ControlEvent::Activate("next".into()), c);
+            assert!(
+                p.frame(c).previews[0]
+                    .appearance
+                    .as_ref()
+                    .unwrap()
+                    .zoom_face,
+                "explicit zoom survives skipped route"
+            );
+        }
+    });
+}
