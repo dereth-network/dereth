@@ -3778,7 +3778,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Confirmed transfers remove only the completed submitted quantities from their basket. Failed, uncompleted and opposite-basket rows survive stock refreshes; explicit clearing, closing, another vendor and logout discard the corresponding cart state.",
         since: THIS_CLIENT,
         divergence: "CD-028",
-        evidence: Evidence::Private("AC-EVID-UI-VENDOR-RETAIN"),
+        evidence: Evidence::Private("AC-EVID-VENDOR-COMPLETED-TRANSFER"),
         station: "dereth-testkit::cpu::inventory::scenario_vendor_transactions_preserve_uncompleted_basket_rows",
         tier: Tier::Cpu,
     },
