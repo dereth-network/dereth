@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// Portal pixels are local to the active viewport, just like the eye transform that
+/// turns them back into world-space clipping planes. The device applies the viewport origin.
+fn portal_screen(
+    eye: &dereth_world_render::cells::clip::EyeTransform,
+) -> (f32, f32, dereth_world_render::cells::clip::ViewPoly) {
+    let (width, height) = (eye.width, eye.height);
+    let full = dereth_world_render::cells::clip::ViewPoly::full_screen(width, height, eye);
+    (width, height, full)
+}
+
 impl SceneDraw {
     /// Draw an interior viewpoint's frame:
     /// the portal traversal and the cells it reaches.
@@ -72,12 +82,10 @@ impl SceneDraw {
         // [`Self::view_params`] `per_frame` came from, for the reason
         // [`Self::eye_transform`] gives.
         let (vw, vh) = gpu.size();
-        #[allow(clippy::cast_precision_loss)] // a back-buffer extent
-        let (fw, fh) = (vw as f32, vh as f32);
         let vp = self.view_params(ws, vw, vh);
         let view_proj = dereth_render::camera::projection(&vp) * vp.view;
         let eye = self.eye_transform(ws, &vp);
-        let full = ViewPoly::full_screen(fw, fh, &eye);
+        let (fw, fh, full) = portal_screen(&eye);
 
         // Projecting a cell-portal polygon with the transformed-vertex path uses the same closure
         // [`Self::draw_building_interiors`] hands `construct_view_clipped`, because it is the
@@ -813,7 +821,7 @@ impl SceneDraw {
         drawn: &mut std::collections::HashSet<u32>,
     ) -> Result<(), RenderError> {
         use dereth_render::pso::portal_stamp_mask;
-        use dereth_world_render::cells::clip::{copy_view, get_clip, ScreenPoint, ViewPoly};
+        use dereth_world_render::cells::clip::{copy_view, get_clip, ScreenPoint};
         use dereth_world_render::cells::portal_view::{
             build_draw_portals_only, construct_view_clipped, construct_view_from, draw_portal,
             sidedness, Sidedness,
@@ -821,8 +829,6 @@ impl SceneDraw {
         use dereth_world_render::objects::buildings::portal_pass;
 
         let (vw, vh) = gpu.size();
-        #[allow(clippy::cast_precision_loss)] // a back-buffer extent
-        let (fw, fh) = (vw as f32, vh as f32);
         let view = self.view_params(ws, vw, vh);
         let view_proj = dereth_render::camera::projection(&view) * view.view;
         // The one
@@ -831,7 +837,7 @@ impl SceneDraw {
         // this pass draws are a building's own cells), and the object cull that does is the
         // phase-3 loop in `draw`.
         let eye = self.eye_transform(ws, &view);
-        let full = ViewPoly::full_screen(fw, fh, &eye);
+        let (fw, fh, full) = portal_screen(&eye);
         // A building sets sunlight use to 0 before drawing its cells, so they
         // take `minimize_envcell_lighting`'s dynamic set.
         let cell_set = self.cfg.object_lighting.then(|| self.envcell_light_set());
@@ -1035,5 +1041,90 @@ impl SceneDraw {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::portal_screen;
+    use dereth_primitives::{Frame, Vec3, Viewport};
+    use dereth_render::camera::{projection, view_from_frame, ViewParams};
+    use dereth_world_render::cells::clip::{
+        copy_view, poly_clip_finish, EyeTransform, ScreenPoint,
+    };
+    use dereth_world_render::cells::cull::{viewcone_check, viewer_near_plane, Bounding};
+
+    /// Behaviour: rendering.interior.each-reached-cell-draws-through-its-own-portal-view
+    #[test]
+    fn portal_planes_follow_the_active_viewport_instead_of_the_back_buffer() {
+        for viewport in [
+            Viewport {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+            },
+            Viewport {
+                x: 0,
+                y: 28,
+                width: 492,
+                height: 472,
+            },
+            Viewport {
+                x: 123,
+                y: 87,
+                width: 360,
+                height: 280,
+            },
+        ] {
+            #[allow(clippy::cast_precision_loss)] // bounded test viewport sizes
+            let (width, height) = (viewport.width as f32, viewport.height as f32);
+            let view = ViewParams {
+                view: view_from_frame(&Frame::default()),
+                fov_y_rad: 1.0,
+                aspect: width / height,
+                viewport,
+                ..Default::default()
+            };
+            let matrix = projection(&view);
+            let diagonal = matrix.to_cols_array();
+            let eye = EyeTransform {
+                viewpoint: Vec3::ZERO,
+                inv_view: view.view.inverse().to_cols_array(),
+                proj_11: diagonal[0],
+                proj_22: diagonal[5],
+                width,
+                height,
+            };
+            // A narrow opening straight ahead. Both drawing paths use this setup;
+            // no simulated object placement or graphics device is needed for its planes.
+            let (fw, fh, full) = portal_screen(&eye);
+            let points: Vec<_> = [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
+                .into_iter()
+                .map(|(x, z)| {
+                    let q = matrix * view.view * glam::Vec4::new(x, z, 5.0, 1.0);
+                    let clip = q.to_array();
+                    let pixel = ScreenPoint::from_clip(clip, fw, fh);
+                    let restored = pixel.to_clip(fw, fh);
+                    for (actual, expected) in restored.into_iter().zip(clip) {
+                        assert!((actual - expected).abs() < 1e-5);
+                    }
+                    pixel
+                })
+                .collect();
+            let clipped = poly_clip_finish(&points, &full);
+            let opening = copy_view(&clipped, &eye).expect("visible opening");
+            let near = viewer_near_plane(Vec3::ZERO, Vec3::new(0.0, 1.0, 0.0), 0.1);
+            assert_eq!(
+                viewcone_check(Vec3::new(0.0, 5.0, 0.0), 0.1, &near, &opening.planes),
+                Bounding::EntirelyInside,
+                "the object behind the opening must remain visible in {viewport:?}"
+            );
+            assert_eq!(
+                viewcone_check(Vec3::new(2.0, 5.0, 0.0), 0.1, &near, &opening.planes),
+                Bounding::Outside,
+                "objects outside the opening must still be culled"
+            );
+        }
     }
 }
