@@ -1274,6 +1274,92 @@ fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_
     );
 }
 
+/// Behaviour: rendering.object-parts.a-translucent-static-takes-its-place-among-the-translucent-parts
+/// **Rejecting.** A static's blended subsets go on the alpha list where its cell draws it, among
+/// every creature's and particle's, and the list is flushed in that order, far to near. So the
+/// landscape's translucent scenery behind a nearer translucent object is drawn first and blended
+/// under it; drawn after the object pass, a far blended bush would paint over the nearer object,
+/// which writes no depth to stop it.
+#[test]
+fn a_far_translucent_static_draws_before_a_nearer_translucent_object() {
+    use dereth_client::world::AlphaDraw;
+    let store = store();
+    let mut gpu = warp();
+    for multi_pass_alpha in [false, true] {
+        let mut r = populated("first-login-walk-jump");
+        let cfg = SceneConfig {
+            landblock: r.landblock,
+            character: false,
+            land_radius: 1,
+            // The blended scenery: the town's bushes stand in the next landblock south.
+            scenery_radius: 1,
+            particles: true,
+            part_degrade_levels: true,
+            part_billboards: true,
+            part_depth_sort: true,
+            part_alpha_lists: true,
+            object_viewcone: false,
+            render: dereth_client::render_prefs::RenderPreferences {
+                multi_pass_alpha,
+                ..dereth_client::render_prefs::RenderPreferences::default()
+            },
+            ..SceneConfig::default()
+        };
+        let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
+        scene.set_weather_enabled(false);
+        let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
+        let mut crossings = 0usize;
+        for (i, dz) in [8.0f32, 25.0, 80.0].into_iter().enumerate() {
+            scene.camera.position = Vec3::new(centre.x, centre.y, centre.z + dz);
+            for f in 0..10 {
+                // LINT-OK: a station and frame index.
+                #[allow(clippy::cast_precision_loss)]
+                let t = 60.0 + i as f64 + f64::from(f) * 0.1;
+                frame(&store, &mut gpu, &mut scene, &mut r.objects, t);
+            }
+            let blend = scene.drawn_blend_order();
+            let statics = blend
+                .iter()
+                .filter(|(k, _)| *k == AlphaDraw::StaticBlend)
+                .count();
+            eprintln!(
+                "  multipass {multi_pass_alpha}, +{dz:3.0} m: {statics} blended static(s) among {} \
+                 blended draw(s); landscape blend count {}",
+                blend.len(),
+                scene.drawn_landscape_alpha().blend
+            );
+            for w in blend.windows(2) {
+                assert!(
+                    w[0].1 >= w[1].1,
+                    "station {i}: {:?} at {:.2} m was drawn before {:?} at {:.2} m",
+                    w[0].0,
+                    w[0].1,
+                    w[1].0,
+                    w[1].1
+                );
+            }
+            // Blended statics farther than the nearest moving blended draw of the frame: the case
+            // drawing the statics after the object pass gets wrong.
+            let nearest_moving = blend
+                .iter()
+                .filter(|(k, _)| *k != AlphaDraw::StaticBlend)
+                .map(|(_, d)| *d)
+                .reduce(f32::min);
+            if let Some(near) = nearest_moving {
+                crossings += blend
+                    .iter()
+                    .filter(|(k, d)| *k == AlphaDraw::StaticBlend && *d > near)
+                    .count();
+            }
+        }
+        assert!(
+            crossings > 0,
+            "multipass {multi_pass_alpha}: no blended static lay beyond a blended part or \
+             particle, so the order was never tested"
+        );
+    }
+}
+
 /// Behaviour: rendering.particles.an-emitter-s-particles-take-their-place-among-the-parts
 /// **Rejecting.** An emitter's particles are parts of their object: they are sorted by viewer
 /// distance with every other part and go out through the same alpha list, so a far chimney's

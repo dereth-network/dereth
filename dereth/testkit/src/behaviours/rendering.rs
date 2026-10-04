@@ -433,6 +433,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.object-parts.a-translucent-static-takes-its-place-among-the-translucent-parts",
+        says: "Translucent scenery and furniture are drawn in their place by distance among the \
+               creatures', objects' and particles' translucent parts, so a bush behind a \
+               lifestone's crystal shows under the crystal and never over it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-ALPHA-ORDER"),
+        station: "dereth-client::gpu::rendering::object_part_submission::a_far_translucent_static_draws_before_a_nearer_translucent_object",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.object-parts.are-submitted-farthest-first-by-sort-centre",
         says: "The parts of creatures and objects in view are drawn farthest first, ordered by \
                each part's distance from the camera, measured to its own sort centre while the \
