@@ -80,9 +80,7 @@ raw-window-handle = "0.6"
 gpu-allocator = { version = "0.28", optional = true, default-features = false, features = ["vulkan", "std"] }
 naga = { version = "30", optional = true, features = ["wgsl-in", "spv-out"] }
 
-# The Win32 half of the crate: the top-level exception filter (`debug.rs`) and the two read-only
-# USER32/GDI queries in `window_proc.rs`. None of it is rendering; all of it is Windows-only and
-# compiled out everywhere else.
+# Native backend support and the top-level exception filter are Windows-only.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",

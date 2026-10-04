@@ -30,7 +30,6 @@
 //! the `iccvid.dll` comparison is a recorded result rather than a re-runnable test; the `ffmpeg`
 //! comparison still runs.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use dereth_primitives::LocalTime;
@@ -108,15 +107,7 @@ pub struct Movie {
 }
 
 impl Movie {
-    /// Open the movie. **`None` means the step is skipped silently**, which is what the client
-    /// does for a missing or undecodable file — no error, no log.
-    #[must_use]
-    pub fn open(path: &Path) -> Option<Self> {
-        let data = std::fs::read(path).ok()?;
-        Self::from_bytes(data)
-    }
-
-    /// The demux, split out so a test can drive it from bytes.
+    /// Demux movie bytes supplied by the host. Unsupported or malformed data returns `None`.
     #[must_use]
     pub fn from_bytes(data: Vec<u8>) -> Option<Self> {
         let d = demux(&data)?;
@@ -953,10 +944,9 @@ impl<'a> BitReader<'a> {
 mod tests {
     use super::*;
 
-    /// A missing or undecodable file skips the step silently, with no error and no log.
+    /// Undecodable movie bytes return no movie.
     #[test]
-    fn a_missing_file_returns_none_rather_than_failing() {
-        assert!(Movie::open(Path::new("no-such-movie-xyzzy.avi")).is_none());
+    fn undecodable_movie_bytes_return_none() {
         assert!(Movie::from_bytes(Vec::new()).is_none());
         assert!(Movie::from_bytes(b"RIFF\0\0\0\0AVI not really".to_vec()).is_none());
     }

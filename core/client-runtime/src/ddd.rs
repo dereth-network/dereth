@@ -595,7 +595,13 @@ impl DddPatcher {
         let iteration = m.iteration;
         match self.writer(target) {
             Err(e) => DataOutcome::Refused(DddRefusal::Write(e.to_string())),
-            Ok(w) => match w.save(id, &payload, version, iteration, 0) {
+            Ok(w) => match w.save(
+                id,
+                &payload,
+                version,
+                iteration,
+                entry_date(crate::platform::clock::system_unix_time()),
+            ) {
                 Ok(SaveOutcome::RefusedOlderIteration) => {
                     DataOutcome::RefusedOlderIteration { id, target }
                 }
@@ -728,9 +734,12 @@ impl DddPatcher {
             return;
         }
         let (target, iteration) = (rev.target, rev.iteration);
-        let outcome = self
-            .writer(target)
-            .and_then(|w| w.add_iteration(iteration, 0));
+        let outcome = self.writer(target).and_then(|w| {
+            w.add_iteration(
+                iteration,
+                entry_date(crate::platform::clock::system_unix_time()),
+            )
+        });
         match outcome {
             Ok(()) => {
                 if let Some(rev) = self.revisions.get_mut(index) {
@@ -825,9 +834,112 @@ pub fn drain_cache_misses<T: dereth_primitives::Transport>(
     sent
 }
 
+/// DAT entries store whole Unix seconds in a wrapping unsigned 32-bit field.
+fn entry_date(time: Option<std::time::Duration>) -> u32 {
+    #[allow(clippy::cast_possible_truncation)]
+    // LINT-OK: the stored field deliberately keeps the low 32 bits of Unix seconds.
+    time.map_or(0, |duration| duration.as_secs() as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: none (timestamp conversion preserves the stored unsigned seconds field).
+    #[test]
+    fn entry_dates_use_whole_seconds_with_zero_fallback_and_wrap() {
+        use std::time::Duration;
+        assert_eq!(entry_date(None), 0);
+        assert_eq!(entry_date(Some(Duration::ZERO)), 0);
+        assert_eq!(entry_date(Some(Duration::new(123, 999_999_999))), 123);
+        assert_eq!(
+            entry_date(Some(Duration::from_secs(u64::from(u32::MAX)))),
+            u32::MAX
+        );
+        assert_eq!(
+            entry_date(Some(Duration::from_secs(u64::from(u32::MAX) + 2))),
+            1
+        );
+    }
+
+    /// Behaviour: none (completed patch writes stamp both records and revision metadata at the host boundary).
+    #[test]
+    fn patch_records_and_completed_revisions_receive_wall_clock_dates() {
+        struct Scratch(PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "dereth-ddd-entry-dates-{}-{}",
+            std::process::id(),
+            crate::platform::clock::system_unix_time()
+                .expect("host time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).expect("unique scratch directory");
+        let scratch = Scratch(dir.clone());
+        let path = DatTarget::Local.in_dir(&dir);
+        {
+            let mut writer = DatWriter::create(&path, 0x400, 1, 3, 64 * 1024).expect("create");
+            writer
+                .save(
+                    dereth_dat::ITERATION_LIST,
+                    &dereth_dat::iteration::encode(&[1]),
+                    1,
+                    0,
+                    1,
+                )
+                .expect("seed iterations");
+        }
+        let id = DataId(0x2100_0001);
+        let mut patcher = DddPatcher::new(dir);
+        patcher.on_interrogation();
+        let (_, action) = patcher.on_begin(&DddBeginDdd {
+            data_expected: 4,
+            revisions: vec![dereth_protocol::admin::PatchRevision {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                iteration: 2,
+                ids_to_download: vec![id.raw()],
+                ids_to_purge: Vec::new(),
+            }],
+        });
+        assert!(!action.send_end);
+        let before = entry_date(crate::platform::clock::system_unix_time());
+        assert!(before > 1, "the host clock differs from the seeded date");
+        let (outcome, action) = patcher.on_data(&DddData {
+            dat_file_type: 1,
+            dat_file_id: 3,
+            resource_type: 0x21,
+            resource_id: id.raw(),
+            iteration: 2,
+            compressed: 0,
+            version: 1,
+            data_size: 8,
+            data: vec![1, 2, 3, 4],
+        });
+        let after = entry_date(crate::platform::clock::system_unix_time());
+        assert!(
+            matches!(outcome, DataOutcome::Applied { .. }),
+            "{outcome:?}"
+        );
+        assert!(action.send_end, "the revision completed");
+        patcher.on_end();
+        let reader = dereth_dat::DatFile::open(&path).expect("read completed patch");
+        for record in [id, dereth_dat::ITERATION_LIST] {
+            let date = reader.entry(record).expect("written entry").date;
+            assert!(
+                (before..=after).contains(&date),
+                "{record:?}: {date} outside {before}..={after}"
+            );
+        }
+        assert_eq!(reader.iteration_list().expect("iterations"), [1, 2]);
+        drop(reader);
+        drop(patcher);
+        drop(scratch);
+    }
 
     #[test]
     fn the_four_dat_file_pairs_are_the_ones_ace_writes() {

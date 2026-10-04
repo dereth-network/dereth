@@ -1,13 +1,11 @@
-//! The console the Windows client has to ask for, because its binary is linked under the windows
-//! subsystem.
+//! The desktop's native console attachment, error box and read-only display queries.
 //!
-//! **Depends on** no other workspace crate (`windows-sys`, on Windows). **Used by** the client
+//! **Depends on** no other crate. **Used by** the client
 //! (`dereth-client`) and the desktop host (`dereth-desktop`).
 //!
-//! **Must never** hold, dereference or close a handle, or pass a buffer: its unsafe is exactly one
-//! kernel32 call (`AttachConsole`) plus `GetLastError`, and everything else about the console is
-//! what `std` already does. It never reaches the client runtime (`cargo xtask
-//! seams`, `seam: client crates`).
+//! **Must never** own or close a native handle, retain a caller's buffer or reach the client
+//! runtime. Unsafe calls are confined to console attachment, the modal error box, and the
+//! read-only caret/monitor queries. Each call returns plain values and keeps its buffers local.
 //!
 //! Under the windows subsystem Windows creates no console, and this crate never makes one: a player
 //! who starts the client from Explorer or from the launcher sees the game's window and nothing
@@ -31,6 +29,37 @@ mod windows;
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod message_box;
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod desktop_queries;
+
+/// The system's caret interval in milliseconds; 530 on hosts without the native query.
+#[must_use]
+pub fn caret_blink_millis() -> u32 {
+    #[cfg(windows)]
+    {
+        desktop_queries::caret_blink_millis()
+    }
+    #[cfg(not(windows))]
+    {
+        530
+    }
+}
+
+/// The usable monitor rectangle, without owning the supplied opaque handle.
+#[must_use]
+pub fn monitor_work_area(handle: isize) -> Option<(i32, i32, i32, i32)> {
+    #[cfg(windows)]
+    {
+        desktop_queries::monitor_work_area(handle)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = handle;
+        None
+    }
+}
 
 /// Show the operating system's modal error box and return when the player has closed it.
 ///

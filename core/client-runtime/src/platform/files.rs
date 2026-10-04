@@ -24,6 +24,12 @@ pub struct FileHost {
     pub list: fn(&Path) -> io::Result<Vec<PathBuf>>,
     /// Whether the file is there.
     pub exists: fn(&Path) -> bool,
+    /// Whether the path names a file, rather than a directory.
+    pub is_file: fn(&Path) -> bool,
+    /// Remove one file. A missing file is [`io::ErrorKind::NotFound`].
+    pub remove_file: fn(&Path) -> io::Result<()>,
+    /// Remove only an empty directory. `false` means entries remain, including subdirectories.
+    pub remove_empty_dir: fn(&Path) -> io::Result<bool>,
     /// Whether the file may not be written.
     pub read_only: fn(&Path) -> io::Result<bool>,
     /// Make a directory and every directory above it; a store with no directories has nothing
@@ -58,6 +64,15 @@ pub const DISK: FileHost = FileHost {
         Ok(files)
     },
     exists: Path::exists,
+    is_file: Path::is_file,
+    remove_file: |p| std::fs::remove_file(p),
+    remove_empty_dir: |p| {
+        if std::fs::read_dir(p)?.next().is_some() {
+            return Ok(false);
+        }
+        std::fs::remove_dir(p)?;
+        Ok(true)
+    },
     read_only: |p| Ok(std::fs::metadata(p)?.permissions().readonly()),
     make_dirs: |p| std::fs::create_dir_all(p),
     cache_dir: disk_cache_dir,
@@ -127,6 +142,28 @@ pub fn exists(path: &Path) -> bool {
     (host().exists)(path)
 }
 
+/// Whether the path names a file, rather than a directory.
+#[must_use]
+pub fn is_file(path: &Path) -> bool {
+    (host().is_file)(path)
+}
+
+/// Remove one file.
+///
+/// # Errors
+/// The store's own; a missing file is [`io::ErrorKind::NotFound`].
+pub fn remove_file(path: &Path) -> io::Result<()> {
+    (host().remove_file)(path)
+}
+
+/// Remove an empty directory, or return `false` if any entry remains. Never removes contents.
+///
+/// # Errors
+/// The store cannot inspect or remove the directory.
+pub fn remove_empty_dir(path: &Path) -> io::Result<bool> {
+    (host().remove_empty_dir)(path)
+}
+
 /// Whether the file may not be written.
 ///
 /// # Errors
@@ -180,6 +217,14 @@ mod tests {
             }))
         },
         exists: |p| MEMORY.with(|m| m.borrow().contains_key(p)),
+        is_file: |p| MEMORY.with(|m| m.borrow().contains_key(p)),
+        remove_file: |p| {
+            MEMORY
+                .with(|m| m.borrow_mut().remove(p))
+                .map(|_| ())
+                .ok_or_else(|| io::ErrorKind::NotFound.into())
+        },
+        remove_empty_dir: |dir| Ok(MEMORY.with(|m| !m.borrow().keys().any(|p| p.starts_with(dir)))),
         read_only: |_| Ok(false),
         make_dirs: |_| Ok(()),
         cache_dir: || Some(PathBuf::from("/nowhere-on-disk/cache")),
@@ -218,5 +263,48 @@ mod tests {
         assert_eq!(read_to_string(&path).expect("read"), "keymap text");
         assert_eq!(list(dir).expect("listed"), vec![path.clone()]);
         assert!(!path.exists(), "nothing reached the disk");
+    }
+    #[test]
+    fn removing_files_and_retiring_directories_uses_the_installed_store() {
+        install(IN_MEMORY);
+        let dir = Path::new("/virtual/retirement");
+        let nested = dir.join("child/keep.keymap");
+        write(&nested, "keep").unwrap();
+        assert!(is_file(&nested));
+        assert!(!is_file(dir));
+        assert!(
+            list(dir).unwrap().is_empty(),
+            "the child is not a direct file"
+        );
+        assert!(
+            !remove_empty_dir(dir).unwrap(),
+            "nested content prevents retirement"
+        );
+        remove_file(&nested).unwrap();
+        assert!(!exists(&nested));
+        assert!(remove_empty_dir(dir).unwrap());
+        assert_eq!(
+            remove_file(&nested).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        install(DISK);
+    }
+
+    #[test]
+    fn disk_directory_retirement_keeps_empty_child_directories() {
+        let dir = std::env::temp_dir().join(format!(
+            "dereth-directory-retirement-{}",
+            std::process::id()
+        ));
+        let child = dir.join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        assert!(!(DISK.remove_empty_dir)(&dir).unwrap());
+        assert!(child.is_dir());
+        assert!((DISK.remove_empty_dir)(&child).unwrap());
+        assert!((DISK.remove_empty_dir)(&dir).unwrap());
+        assert_eq!(
+            (DISK.remove_empty_dir)(&dir).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
     }
 }

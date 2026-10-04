@@ -1682,6 +1682,7 @@ impl<H: Host> Ui<'_, '_, H> {
             // relative to the working directory". The client is started from its install directory;
             // this build takes the directory the dats came from, which is the same place.
             shell.client_dir = self.cx.config().dat_dir.clone();
+            shell.movie_bytes = H::movie_bytes;
             tracing::info!(
                 "UI up, {} mode(s) registered, {:?} queued",
                 dereth_ui::framework::mode::REGISTRATION_ORDER.len(),
@@ -3233,6 +3234,12 @@ fn build_classic<H: Host>(
         size,
     );
     ui.set_classic_keys(keys);
+    if dereth_classic_ui::help::make("help-game").is_none() {
+        if let Some(bytes) = H::classic_help_book().map_err(Refusal::Failed)? {
+            dereth_classic_ui::help::install(&bytes).map_err(Refusal::Failed)?;
+        }
+    }
+    ui.classic.welcome = H::classic_welcome();
     ui.start(cx).map_err(Refusal::Failed)?;
     Ok(ui)
 }

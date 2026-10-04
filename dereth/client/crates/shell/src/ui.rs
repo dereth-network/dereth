@@ -572,6 +572,8 @@ pub struct UiShell {
     /// Where the movie media step's no-database-file paths resolve from — the client's working
     /// directory in the original, the retail install directory here.
     pub client_dir: std::path::PathBuf,
+    /// Install resources are supplied by the host, independently of the preferences store.
+    pub movie_bytes: fn(&std::path::Path) -> Option<Vec<u8>>,
     /// The one movie player this build can have at a time. The client can have one per element;
     /// the shipped layouts play movies only from `IntroScreen`, one state at a time.
     movie: Option<MoviePlayer>,
@@ -675,9 +677,6 @@ impl UiShell {
         let interface = world.interface_files();
         let store = &interface;
 
-        // The text tick's caret blink query is the host's, installed before any frame.
-        crate::hud::install_shared();
-
         // `MasterProperty 0x39000001` first: `LayoutDesc` cannot decode a property stream without
         // the id-to-type table.
         let master_id = DataId(0x3900_0001);
@@ -775,6 +774,7 @@ impl UiShell {
             chargen_tables,
             last_char_set: None,
             client_dir: std::path::PathBuf::from("."),
+            movie_bytes: |_| None,
             movie: None,
             movie_frame: None,
             movie_audio_cue: None,
@@ -2035,7 +2035,7 @@ impl UiShell {
             // The client widens the name and `AddSourceFilter` resolves it against the working
             // directory; a no-database-file name is a plain path, so this is the install directory.
             let path = self.client_dir.join(&file_name);
-            match dereth_audio::video::Movie::open(&path) {
+            match (self.movie_bytes)(&path).and_then(dereth_audio::video::Movie::from_bytes) {
                 Some(movie) => {
                     let info = movie.info();
                     let duration = f64::from(info.total_frames)

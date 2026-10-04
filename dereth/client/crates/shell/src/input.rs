@@ -1252,7 +1252,7 @@ impl InputShell {
         if self.keymap_path.as_deref() == Some(path.as_path()) {
             return Ok(false);
         }
-        std::fs::remove_file(&path)?;
+        dereth_client_runtime::platform::files::remove_file(&path)?;
         Ok(true)
     }
 

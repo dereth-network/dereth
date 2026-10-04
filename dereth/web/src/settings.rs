@@ -96,6 +96,20 @@ const STORE: FileHost = FileHost {
         }))
     },
     exists: |p| FILES.with(|f| f.borrow().contains_key(p)),
+    is_file: |p| FILES.with(|f| f.borrow().contains_key(p)),
+    remove_file: |p| {
+        let whole = FILES.with(|f| {
+            let mut f = f.borrow_mut();
+            f.remove(p).ok_or(io::ErrorKind::NotFound)?;
+            Ok::<_, io::Error>(encode(&f))
+        })?;
+        if let Some(save) = SAVE.with(|s| *s.borrow()) {
+            save(&whole);
+        }
+        Ok(())
+    },
+    // Directories are virtual, but nested files still prevent retiring their parent.
+    remove_empty_dir: |dir| Ok(FILES.with(|f| !f.borrow().keys().any(|p| p.starts_with(dir)))),
     read_only: |_| Ok(false),
     // Paths are only names here: there are no directories to make.
     make_dirs: |_| Ok(()),
@@ -162,5 +176,33 @@ mod tests {
             vec![path.clone()]
         );
         assert_eq!(decode(&SAVED.with(|s| s.borrow().clone()))[&path].len(), 37);
+    }
+    #[test]
+    fn deletion_saves_once_and_nested_files_prevent_directory_retirement() {
+        thread_local! {
+            static SAVES: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+        }
+        let dir = Path::new("/settings/old");
+        let path = dir.join("nested/keys");
+        let initial = Files::from([(path.clone(), b"bindings".to_vec())]);
+        install(
+            &encode(&initial),
+            Some(|bytes| SAVES.with(|s| s.borrow_mut().push(bytes.to_vec()))),
+        );
+        assert!(files::is_file(&path));
+        assert!(!files::is_file(dir));
+        assert!(files::list(dir).unwrap().is_empty());
+        assert!(!files::remove_empty_dir(dir).unwrap());
+        files::remove_file(&path).unwrap();
+        assert_eq!(
+            files::remove_file(&path).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(files::remove_empty_dir(dir).unwrap());
+        SAVES.with(|s| {
+            assert_eq!(s.borrow().len(), 1);
+            assert!(decode(&s.borrow()[0]).is_empty());
+        });
+        files::install(files::DISK);
     }
 }

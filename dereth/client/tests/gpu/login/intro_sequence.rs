@@ -131,12 +131,15 @@ fn the_intro_state_list_is_the_four_states_the_shipped_layout_authors() {
 #[test]
 fn the_logo_movie_is_two_hundred_and_nineteen_distinct_frames_and_stops() {
     let path = client_dir().join("turbine_logo_ac.avi");
-    let mut movie = dereth_audio::video::Movie::open(&path).unwrap_or_else(|| {
-        panic!(
-            "the retail install's logo movie is this test's oracle and does not open at {}",
-            path.display()
-        )
-    });
+    let mut movie = std::fs::read(&path)
+        .ok()
+        .and_then(dereth_audio::video::Movie::from_bytes)
+        .unwrap_or_else(|| {
+            panic!(
+                "the retail install's logo movie is this test's oracle and does not open at {}",
+                path.display()
+            )
+        });
     let info = movie.info();
     assert_eq!((info.width, info.height), (640, 480));
     assert_eq!(info.total_frames, 219);

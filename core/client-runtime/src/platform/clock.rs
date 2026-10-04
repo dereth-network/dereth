@@ -69,8 +69,7 @@ pub trait Pacer {
     fn frame_sleep(&mut self, is_active_app: bool) -> u32;
 }
 
-/// `time(NULL)` -- the one wall-clock read in the client, with every caller's own fallback left to
-/// the caller. All five sites that read the wall clock go through it.
+/// Read wall-clock Unix time, leaving each caller's fallback and integer conversion to that caller.
 #[must_use]
 pub fn system_unix_time() -> Option<Duration> {
     web_time::SystemTime::now()

@@ -232,7 +232,9 @@ fn logo_avi() -> std::path::PathBuf {
 #[test]
 fn the_intro_movie_has_a_soundtrack_and_it_decodes() {
     let path = logo_avi();
-    let movie = dereth_audio::video::Movie::open(&path)
+    let movie = std::fs::read(&path)
+        .ok()
+        .and_then(dereth_audio::video::Movie::from_bytes)
         .unwrap_or_else(|| panic!("{} opens", path.display()));
 
     let info = movie
@@ -273,7 +275,9 @@ fn the_intro_movie_has_a_soundtrack_and_it_decodes() {
 #[test]
 fn the_movie_soundtrack_reaches_the_device_and_ignores_the_sound_preferences() {
     let path = logo_avi();
-    let movie = dereth_audio::video::Movie::open(&path)
+    let movie = std::fs::read(&path)
+        .ok()
+        .and_then(dereth_audio::video::Movie::from_bytes)
         .unwrap_or_else(|| panic!("{} opens", path.display()));
     let track = movie.audio().expect("the soundtrack decodes");
 

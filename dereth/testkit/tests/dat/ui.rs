@@ -2645,7 +2645,7 @@ const SENTINEL_INTERVAL: f64 = 17.0;
 
 /// The caret flashes at the player's own desktop interval, and is drawn inside it and gone past it.
 pub fn the_caret_flashes_at_the_players_own_desktop_interval() {
-    use dereth_client::pump::window_proc::caret_blink_time_seconds;
+    use dereth_client::platform::window::caret_blink_time_seconds;
     use dereth_primitives::LocalTime;
     use dereth_testkit::adapters_shell::element;
 

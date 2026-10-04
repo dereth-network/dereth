@@ -66,7 +66,7 @@ fn monitor_metrics(
         #[cfg(windows)]
         let work_area = {
             use winit::platform::windows::MonitorHandleExtWindows as _;
-            dereth_render::window_proc::monitor_work_area(m.hmonitor())
+            monitor_work_area(m.hmonitor())
         };
         #[cfg(not(windows))]
         let work_area = None;
@@ -1280,6 +1280,26 @@ pub fn mouse_button(button: winit::event::MouseButton) -> MouseButton {
     }
 }
 
+/// The host caret interval, including the disabled-blink sentinel conversion.
+#[must_use]
+pub fn caret_blink_time_seconds() -> f64 {
+    dereth_client_contract::window_proc::caret_blink_time_seconds_from_millis(
+        dereth_console::caret_blink_millis(),
+    )
+}
+
+/// The usable rectangle of a native monitor, when its handle is valid.
+#[must_use]
+pub fn monitor_work_area(handle: isize) -> Option<dereth_client_contract::window_proc::Rect> {
+    let (left, top, right, bottom) = dereth_console::monitor_work_area(handle)?;
+    Some(dereth_client_contract::window_proc::Rect {
+        left,
+        top,
+        right,
+        bottom,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1570,8 +1590,8 @@ mod tests {
         let mut primary = Primary(None);
         event_loop.pump_app_events(Some(std::time::Duration::ZERO), &mut primary);
         let monitor = primary.0.expect("primary monitor");
-        let expected = dereth_render::window_proc::monitor_work_area(monitor.hmonitor())
-            .expect("the primary monitor has a work area");
+        let expected =
+            monitor_work_area(monitor.hmonitor()).expect("the primary monitor has a work area");
         let actual = monitor_metrics(Some(&monitor), (3, 23, 3));
 
         assert_eq!(actual.work_area, Some(expected));
@@ -1579,8 +1599,8 @@ mod tests {
         assert!(expected.left >= actual.origin.0 && expected.top >= actual.origin.1);
         assert!(expected.right <= actual.origin.0 + actual.cx_screen);
         assert!(expected.bottom <= actual.origin.1 + actual.cy_screen);
-        assert_eq!(dereth_render::window_proc::monitor_work_area(0), None);
-        assert_eq!(dereth_render::window_proc::monitor_work_area(-1), None);
+        assert_eq!(monitor_work_area(0), None);
+        assert_eq!(monitor_work_area(-1), None);
         assert_eq!(monitor_metrics(None, (3, 23, 3)).work_area, None);
     }
 }

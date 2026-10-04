@@ -297,10 +297,10 @@ fn texture_values(s: &ClassicSettings) -> Vec<(&'static str, PrefValue)> {
 /// # Errors
 /// The file is there and cannot be read or is not the page's.
 pub fn migrate_settings_file(path: &Path, defaults: &ClassicSettings) -> Result<usize, String> {
-    if !path.is_file() {
+    if !dereth_client_runtime::platform::files::is_file(path) {
         return Ok(0);
     }
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = dereth_client_runtime::platform::files::read(path).map_err(|e| e.to_string())?;
     let stored = serde_json::from_slice::<Stored>(&bytes).map_err(|e| e.to_string())?;
     let mut file = stored.decode(defaults)?;
     // The file named a size, not a place in this machine's list of sizes.
@@ -330,7 +330,7 @@ pub fn migrate_settings_file(path: &Path, defaults: &ClassicSettings) -> Result<
             carried += 1;
         }
     }
-    std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    dereth_client_runtime::platform::files::remove_file(path).map_err(|e| e.to_string())?;
     Ok(carried)
 }
 
@@ -818,5 +818,92 @@ mod tests {
         host.resolution_readback((1024, 768), true);
         assert_eq!(host.saved.resolution, 1);
         assert_eq!(host.saved.brightness, saved_brightness);
+    }
+    /// Behaviour: presentation.settings.both-interfaces-edit-one-store
+    #[test]
+    fn hosted_settings_migration_keeps_unreadable_or_invalid_files_and_reports_delete_failure() {
+        use dereth_client_runtime::platform::files::{self, FileHost};
+        use std::{cell::RefCell, io};
+        #[derive(Default)]
+        struct Memory {
+            bytes: Option<Vec<u8>>,
+            read_error: bool,
+            delete_error: bool,
+            deletes: usize,
+        }
+        thread_local! { static MEMORY: RefCell<Memory> = RefCell::new(Memory::default()); }
+        const HOST: FileHost = FileHost {
+            is_file: |_| MEMORY.with(|m| m.borrow().bytes.is_some()),
+            read: |_| {
+                MEMORY.with(|m| {
+                    let m = m.borrow();
+                    if m.read_error {
+                        return Err(io::ErrorKind::PermissionDenied.into());
+                    }
+                    m.bytes
+                        .clone()
+                        .ok_or_else(|| io::ErrorKind::NotFound.into())
+                })
+            },
+            remove_file: |_| {
+                MEMORY.with(|m| {
+                    let mut m = m.borrow_mut();
+                    m.deletes += 1;
+                    if m.delete_error {
+                        return Err(io::ErrorKind::PermissionDenied.into());
+                    }
+                    m.bytes = None;
+                    Ok(())
+                })
+            },
+            ..files::DISK
+        };
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                files::install(files::DISK);
+            }
+        }
+        files::install(HOST);
+        let _restore = Restore;
+        store::init();
+        let path = Path::new("/virtual/settings.json");
+        assert_eq!(migrate_settings_file(path, &settings()).unwrap(), 0);
+        MEMORY.with(|m| {
+            m.borrow_mut().bytes = Some(b"not json".to_vec());
+        });
+        assert!(migrate_settings_file(path, &settings()).is_err());
+        MEMORY.with(|m| assert_eq!(m.borrow().deletes, 0));
+        let mut s = settings();
+        s.effects_volume = 0.3;
+        MEMORY.with(|m| {
+            let mut m = m.borrow_mut();
+            m.bytes = Some(serde_json::to_vec(&Stored::from_settings(&s)).unwrap());
+            m.read_error = true;
+        });
+        assert!(migrate_settings_file(path, &settings()).is_err());
+        MEMORY.with(|m| {
+            let mut m = m.borrow_mut();
+            assert_eq!(m.deletes, 0);
+            m.read_error = false;
+            m.delete_error = true;
+        });
+        assert!(migrate_settings_file(path, &settings()).is_err());
+        assert_eq!(
+            store::inq_value("Sound.SoundVolume"),
+            Some(PrefValue::Float(0.3))
+        );
+        MEMORY.with(|m| {
+            let mut m = m.borrow_mut();
+            assert!(m.bytes.is_some());
+            assert_eq!(m.deletes, 1);
+            m.delete_error = false;
+        });
+        assert!(migrate_settings_file(path, &settings()).unwrap() > 0);
+        assert_eq!(migrate_settings_file(path, &settings()).unwrap(), 0);
+        MEMORY.with(|m| {
+            assert!(m.borrow().bytes.is_none());
+            assert_eq!(m.borrow().deletes, 2);
+        });
     }
 }

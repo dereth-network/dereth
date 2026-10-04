@@ -19,8 +19,7 @@
 //! callers need not know about the split.
 //!
 //! It is one of the crates permitted `unsafe`, because Vulkan and Win32 are C ABIs: it lives in
-//! [`vulkan`], in [`debug`]'s top-level exception filter and in [`window_proc`]'s
-//! monitor-work-area and caret-blink queries, each block with a `SAFETY:` comment.
+//! [`vulkan`], in [`debug`]'s top-level exception filter and the native backend modules, each block with a `SAFETY:` comment.
 
 #![doc(html_no_source)]
 

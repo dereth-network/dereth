@@ -50,6 +50,29 @@ pub trait Host: 'static {
     fn classic_fonts() -> Option<std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>> {
         None
     }
+
+    /// The host's current text caret blink interval, in seconds.
+    fn caret_blink_secs() -> f64 {
+        dereth_client_contract::window_proc::caret_blink_time_seconds_from_millis(530)
+    }
+
+    /// An optional externally supplied help book, before portable decoding.
+    ///
+    /// # Errors
+    /// A configured, existing book cannot be read.
+    fn classic_help_book() -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
+    }
+
+    /// Welcome text used when the server supplies none.
+    fn classic_welcome() -> String {
+        String::new()
+    }
+
+    /// Read an install movie lazily. Missing or unreadable resources are skipped silently.
+    fn movie_bytes(_path: &std::path::Path) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// The host with nothing under it: no window, UTC, nothing launched, no sound, an empty

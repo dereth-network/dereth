@@ -1423,25 +1423,18 @@ impl ClassicUi {
     /// # Errors
     /// The key map cannot be read or the settings file is damaged.
     pub fn start<S: Host>(&mut self, cx: &mut Cx<'_, S>) -> Result<(), String> {
-        if let Some(help_path) =
-            std::env::var_os("DERETH_CLASSIC_HELP_BOOK").map(std::path::PathBuf::from)
-        {
-            if help_path.exists() && crate::help::make("help-game").is_none() {
-                crate::help::install(&help_path)?;
-            }
-        }
-        // The character screen's welcome text for a server that sends none: the world's own
-        // message, when it sends one, is shown first (the pre-game view's).
-        self.classic.welcome = std::env::var("DERETH_CLASSIC_WELCOME").unwrap_or_default();
         // This interface's own settings are in the shared store; a file of them left in its old
         // folder is carried there once.
         let retired = &self.paths.state;
-        if let Some(bits) = std::fs::read_to_string(retired.join("classic-options"))
-            .ok()
-            .and_then(|s| u32::from_str_radix(s.trim(), 16).ok())
+        if let Some(bits) =
+            dereth_client_runtime::platform::files::read_to_string(&retired.join("classic-options"))
+                .ok()
+                .and_then(|s| u32::from_str_radix(s.trim(), 16).ok())
         {
             crate::keyboard_runtime::set_classic_bits(bits);
-            let _ = std::fs::remove_file(retired.join("classic-options"));
+            let _ = dereth_client_runtime::platform::files::remove_file(
+                &retired.join("classic-options"),
+            );
             tracing::info!("the classic interface's own options moved into the profile");
         }
         let bindings = crate::keybindings::KeyBindings::new(&self.classic_keys);
@@ -2712,18 +2705,13 @@ fn names_of_own(name: &str) -> bool {
 /// The classic interface's old settings folder, once everything in it has moved into the shared
 /// store and key map: removed when nothing is left in it, and left with what is otherwise.
 fn retire_folder(folder: &std::path::Path) {
-    let Ok(mut entries) = std::fs::read_dir(folder) else {
-        return;
-    };
-    if entries.next().is_none() {
-        if std::fs::remove_dir(folder).is_ok() {
-            tracing::info!("the classic interface's old settings folder is retired");
-        }
-    } else {
-        tracing::info!(
+    match dereth_client_runtime::platform::files::remove_empty_dir(folder) {
+        Ok(true) => tracing::info!("the classic interface's old settings folder is retired"),
+        Ok(false) => tracing::info!(
             "the classic interface's old settings folder {} still holds files this client no longer reads",
             folder.display()
-        );
+        ),
+        Err(_) => {}
     }
 }
 

@@ -10,7 +10,6 @@ use crate::{
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
-    path::Path,
     sync::{Arc, OnceLock},
 };
 
@@ -38,12 +37,17 @@ pub struct Book {
 }
 static BOOK: OnceLock<Arc<Book>> = OnceLock::new();
 
-pub fn install(path: impl AsRef<Path>) -> Result<(), String> {
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    let book: Book = serde_json::from_slice(&data).map_err(|e| e.to_string())?;
-    validate(&book)?;
+pub fn install(data: &[u8]) -> Result<(), String> {
+    let book = decode(data)?;
     BOOK.set(Arc::new(book))
         .map_err(|_| "help book is already installed".into())
+}
+
+/// Decode and validate the supplied help pages without opening any host resource.
+pub fn decode(data: &[u8]) -> Result<Book, String> {
+    let book: Book = serde_json::from_slice(data).map_err(|e| e.to_string())?;
+    validate(&book)?;
+    Ok(book)
 }
 fn validate(book: &Book) -> Result<(), String> {
     if book.schema != 1 {
@@ -552,5 +556,21 @@ mod tests {
         h.scroll = 200;
         assert_eq!(h.cycle_link(), vec![PanelAction::Close]);
         assert!(h.pointer_art(6, 65).unwrap().0.ends_with(":156"));
+    }
+    #[test]
+    fn supplied_help_bytes_are_decoded_and_validated_without_a_path() {
+        let page = |width| serde_json::json!({"title":"Start", "screen":{"width":width,"height":100,"commands":[]},"links":[]});
+        let bytes = serde_json::to_vec(&serde_json::json!({"schema":1,"contexts":{
+            "50":{(0xCCCB685Eu32.to_string()):page(273)},
+            "51":{(0xA5D680F2u32.to_string()):page(290)}
+        }}))
+        .unwrap();
+        let book = decode(&bytes).unwrap();
+        assert_eq!(book.contexts[&51][&0xA5D680F2].screen.width, 290);
+        assert!(decode(b"not json").is_err());
+        assert_eq!(
+            decode(br#"{"schema":0,"contexts":{}}"#).unwrap_err(),
+            "unsupported help schema"
+        );
     }
 }

@@ -759,6 +759,14 @@ mod memory_files {
             }))
         },
         exists: |p| FILES.with(|m| m.borrow().contains_key(p)),
+        is_file: |p| FILES.with(|m| m.borrow().contains_key(p)),
+        remove_file: |p| {
+            FILES
+                .with(|m| m.borrow_mut().remove(p))
+                .map(|_| ())
+                .ok_or_else(|| io::ErrorKind::NotFound.into())
+        },
+        remove_empty_dir: |dir| Ok(FILES.with(|m| !m.borrow().keys().any(|p| p.starts_with(dir)))),
         read_only: |_| Ok(false),
         make_dirs: |_| Ok(()),
         cache_dir: || Some(Path::new("/memory/cache").to_path_buf()),

@@ -3,7 +3,7 @@
 //! 29.97 fps; a non-Cinepak file is skipped.
 //! Fixture: the shipped retail DAT records and recorded inputs.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use dereth_audio::video::{Movie, FOURCC_CVID};
@@ -24,7 +24,8 @@ fn movie_path() -> Option<PathBuf> {
 #[test]
 fn the_demux_reproduces_the_documented_header() {
     let p = movie_path().expect("the intro movie under the retail client directory");
-    let m = Movie::open(&p).expect("the shipped AVI demuxes");
+    let m = Movie::from_bytes(std::fs::read(&p).expect("the movie is readable"))
+        .expect("the shipped AVI demuxes");
     let i = m.info();
     assert_eq!((i.width, i.height), (640, 480));
     assert_eq!(i.micro_sec_per_frame, 33_367);
@@ -53,7 +54,8 @@ fn the_demux_reproduces_the_documented_header() {
 #[test]
 fn every_frame_decodes_and_the_movie_never_loops() {
     let p = movie_path().expect("the intro movie under the retail client directory");
-    let mut m = Movie::open(&p).expect("demuxes");
+    let mut m =
+        Movie::from_bytes(std::fs::read(&p).expect("the movie is readable")).expect("demuxes");
     let frame_count = m.frame_count();
     let info = m.info();
     assert!(frame_count > 0, "movie frames are exercised");
@@ -83,7 +85,8 @@ fn every_frame_decodes_and_the_movie_never_loops() {
 #[test]
 fn the_surface_is_the_dib_flipped() {
     let p = movie_path().expect("the intro movie under the retail client directory");
-    let mut m = Movie::open(&p).expect("demuxes");
+    let mut m =
+        Movie::from_bytes(std::fs::read(&p).expect("the movie is readable")).expect("demuxes");
     let surface = m.decode_frame(0).expect("frame 0").to_vec();
     let dib = m.bottom_up_dib();
     let w = 640usize;
@@ -139,7 +142,8 @@ fn the_cinepak_decode_matches_ffmpeg_pixel_for_pixel() {
         "the reference contains complete frames"
     );
 
-    let mut m = Movie::open(&p).expect("demuxes");
+    let mut m =
+        Movie::from_bytes(std::fs::read(&p).expect("the movie is readable")).expect("demuxes");
     assert_eq!(m.frame_count(), frames, "every reference frame is exposed");
     let mut matched = 0usize;
     let mut pixels = 0usize;
@@ -181,7 +185,8 @@ fn the_cinepak_decode_matches_ffmpeg_pixel_for_pixel() {
 #[test]
 fn frames_advance_at_the_movies_rate_and_none_is_skipped() {
     let p = movie_path().expect("the intro movie under the retail client directory");
-    let mut m = Movie::open(&p).expect("demuxes");
+    let mut m =
+        Movie::from_bytes(std::fs::read(&p).expect("the movie is readable")).expect("demuxes");
     assert!(
         m.next_frame(LocalTime(0.0)).is_some(),
         "the first frame shows immediately"
@@ -202,6 +207,5 @@ fn frames_advance_at_the_movies_rate_and_none_is_skipped() {
 /// A file that is not an AVI, and one whose video stream is not Cinepak, are both skipped silently.
 #[test]
 fn a_non_cinepak_file_is_skipped_silently() {
-    assert!(Movie::open(Path::new("definitely-not-here.avi")).is_none());
     assert!(Movie::from_bytes(b"not a riff file at all".to_vec()).is_none());
 }

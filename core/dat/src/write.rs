@@ -927,8 +927,8 @@ impl DatWriter {
 
     /// The public save, with `flags = 1`.
     ///
-    /// `version` becomes the entry's version field and must not be 0; `date` of 0 is filled with
-    /// the wall clock the way the client's save path does. A zero-length payload is refused: native
+    /// `version` becomes the entry's version field and must not be 0; `date` is stored unchanged,
+    /// including zero. The caller supplies the timestamp. A zero-length payload is refused: native
     /// would store an entry whose offset points at a block still on the free list, which the next
     /// allocation would hand out again.
     ///
@@ -953,7 +953,6 @@ impl DatWriter {
         if payload.is_empty() {
             return Err(DatError::EmptyPayload(id));
         }
-        let date = if date == 0 { now_unix() } else { date };
         #[allow(clippy::cast_possible_truncation)]
         let entry = BtEntry {
             bits: u32::from(version) << 16,
@@ -1752,12 +1751,4 @@ fn retail_shaped_header(
     h[0x3C..0x4C].copy_from_slice(&VERSION_MAJOR);
     h[0x4C..0x50].copy_from_slice(&0x1A01u32.to_le_bytes());
     h
-}
-
-/// Current real time in the form stored in each entry's date field.
-fn now_unix() -> u32 {
-    #[allow(clippy::cast_possible_truncation)]
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as u32)
 }

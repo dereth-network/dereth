@@ -684,7 +684,44 @@ fn adding_an_iteration_rewrites_0xffff0001_as_one_run() {
     assert_eq!(&raw[4..8], &(-(next as i32)).to_le_bytes());
     assert_eq!(&raw[8..12], &1u32.to_le_bytes());
     assert_eq!(r.entry(DataId(0xFFFF_0001)).expect("entry").version(), 1);
+    assert_eq!(
+        r.entry(DataId(0xFFFF_0001)).expect("entry").date,
+        1_700_000_001
+    );
     assert!(r.verify_structure().expect("verify").is_sound());
+}
+
+/// Behaviour: none (the writer stores the caller's timestamp without sampling a clock).
+#[test]
+fn supplied_dates_are_stored_unchanged_for_records_and_iteration_lists() {
+    let s = Scratch::new("supplied_dates");
+    let dat = s.path("dates.dat");
+    let id = DataId(0x2100_0001);
+    let mut w = DatWriter::create(&dat, 0x400, 1, 3, 64 * 1024).expect("create");
+    w.save(
+        dereth_dat::ITERATION_LIST,
+        &dereth_dat::iteration::encode(&[1]),
+        1,
+        0,
+        123,
+    )
+    .expect("seed iterations");
+
+    for date in [0, u32::MAX, 42] {
+        w.save(id, b"payload", 1, 0, date).expect("save record");
+        w.add_iteration(2, date).expect("save iterations");
+        let reader = DatFile::open(&dat).expect("read metadata");
+        assert_eq!(reader.entry(id).expect("record").date, date);
+        assert_eq!(
+            reader
+                .entry(dereth_dat::ITERATION_LIST)
+                .expect("iterations")
+                .date,
+            date
+        );
+        assert_eq!(reader.iteration_list().expect("decode iterations"), [1, 2]);
+    }
+    drop(w);
 }
 
 /// On save, an incoming entry with a non-zero `iter_` older than the stored one is

@@ -6,8 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-# The crate's tests are its modules' unit tests; the client's tier binaries exercise it through the
-# desktop client.
+# Unit tests cover the shell modules; the isolated host test owns process-wide hooks.
 autotests = false
 
 # As the scene's: the renderer is gated on a device backend, `wgpu` by default because it builds
@@ -57,3 +56,8 @@ dereth-render = { path = "../render", default-features = false, features = ["moc
 
 [lints]
 workspace = true
+
+[[test]]
+name = "host_resources"
+path = "tests/host_resources.rs"
+required-features = ["retail-dats"]

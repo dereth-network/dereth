@@ -164,6 +164,7 @@ pub fn entering_the_world_reaches_the_hud_from_the_wizard() {
     fn settled(store: &std::sync::Arc<dereth_dat::RetailDatStore>, want: UiMode) -> UiShell {
         let mut shell =
             UiShell::new(store, (800, 600)).expect("the shell comes up on the retail data files");
+        shell.movie_bytes = |path| std::fs::read(path).ok();
         let host = HostState::default();
         shell.queue(want);
         for i in 0..8 {

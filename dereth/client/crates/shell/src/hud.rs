@@ -30,11 +30,9 @@ pub struct Hud {
 }
 
 impl Default for Hud {
-    /// A fresh HUD. Constructing one is also where this build hands the model crate the answers
-    /// every host gives alike (see [`install_shared`]); the host's own, the local time among them,
-    /// are installed by the application that knows its host ([`install_platform`]).
+    /// A fresh HUD. Platform readers are installed by the application that knows its host
+    /// ([`install_platform`]); constructing a receiver does not choose a host.
     fn default() -> Self {
-        install_shared();
         Self {
             model: dereth_client_runtime::hud::Hud::default(),
             panels: RemainingPanels::default(),
@@ -125,12 +123,5 @@ impl std::ops::DerefMut for Hud {
 pub fn install_platform<H: crate::platform::host::Host>() {
     dereth_client_runtime::platform::clock::install_local_utc_offset(H::local_utc_offset_secs);
     dereth_client_runtime::platform::shell::install_uri_launcher(H::launch_uri);
-    install_shared();
-}
-
-/// The answers every host gives alike: the caret blink interval. Idempotent.
-pub fn install_shared() {
-    dereth_client_runtime::platform::caret::install_caret_blink(
-        dereth_render::window_proc::caret_blink_time_seconds,
-    );
+    dereth_client_runtime::platform::caret::install_caret_blink(H::caret_blink_secs);
 }

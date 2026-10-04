@@ -54,4 +54,54 @@ impl<P: Product> Host for Desktop<P> {
                 as std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>
         })
     }
+
+    fn caret_blink_secs() -> f64 {
+        crate::platform::window::caret_blink_time_seconds()
+    }
+
+    fn classic_help_book() -> Result<Option<Vec<u8>>, String> {
+        let Some(path) = std::env::var_os("DERETH_CLASSIC_HELP_BOOK") else {
+            return Ok(None);
+        };
+        read_help_book(std::path::Path::new(&path))
+    }
+
+    fn classic_welcome() -> String {
+        std::env::var("DERETH_CLASSIC_WELCOME").unwrap_or_default()
+    }
+
+    fn movie_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
+        std::fs::read(path).ok()
+    }
+}
+
+fn read_help_book(path: &std::path::Path) -> Result<Option<Vec<u8>>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    std::fs::read(path)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (the desktop supplies bytes and distinguishes absent from unreadable help).
+    use super::*;
+
+    #[test]
+    fn help_loading_distinguishes_missing_unreadable_and_readable_resources() {
+        let dir = std::env::temp_dir().join(format!("dereth-host-help-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("help.json");
+        assert_eq!(read_help_book(&path).unwrap(), None);
+        assert!(read_help_book(&dir).is_err());
+        std::fs::write(&path, b"host supplied bytes").unwrap();
+        assert_eq!(
+            read_help_book(&path).unwrap(),
+            Some(b"host supplied bytes".to_vec())
+        );
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 }
