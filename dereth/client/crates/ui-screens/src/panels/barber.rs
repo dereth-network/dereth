@@ -16,8 +16,8 @@ use crate::screens::chargen::{
     HUMAN_SETUP_ID, PALETTE_INDEX_EYES, PALETTE_OFFSET_HAIR, PALETTE_OFFSET_SKIN,
     STATE_ROW_SELECTED, STATE_ROW_UNSELECTED,
 };
-use crate::screens::chargen_state::CharGenState;
 use crate::view::{BarberAppearance, BarberView, GameView, UiRequest};
+use dereth_chargen::CharGenState;
 
 /// `<BRBR>`, the barber panel.
 pub const PANEL: ElementId = ElementId(0x1000_0598);

@@ -23,27 +23,22 @@ use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
 const PLAYER: ObjectId = ObjectId(0x5000_0EA6);
 const TARGET: ObjectId = ObjectId(0x5000_0EA7);
 
-struct TempDir(std::path::PathBuf);
+struct TempDir(dereth_dat::testing::ScratchDir);
 
 impl TempDir {
     fn new() -> Self {
-        let unique = format!(
-            "dereth-radar-environs-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("the system clock follows the epoch")
-                .as_nanos()
-        );
-        let path = std::env::temp_dir().join(unique);
-        std::fs::create_dir(&path).expect("create the disposable profile directory");
-        Self(path)
+        Self(
+            dereth_dat::testing::ScratchDir::new("radar-environs")
+                .expect("create disposable directory"),
+        )
     }
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).expect("remove the disposable profile directory");
+        self.0
+            .cleanup()
+            .expect("remove the disposable profile directory");
     }
 }
 
@@ -169,7 +164,7 @@ fn setup() -> (TempDir, App, Peer) {
         width: 800,
         height: 600,
         dat_dir: client_dir(),
-        preferences_file: temp.0.join("prefs.ini"),
+        preferences_file: temp.0.path().join("prefs.ini"),
         ..Config::default()
     })
     .expect("the WARP application starts");

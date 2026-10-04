@@ -27,7 +27,6 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::movement::{movement_type, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::{Message, Opcode};
-use dereth_render::device::Gpu;
 
 // ---------------------------------------------------------------------------------------------
 // 1. The retained capture corpus. A missing fixture directory is a broken checkout.
@@ -363,10 +362,6 @@ fn every_stance_change_on_a_remote_arm_is_a_turn_to_object_out_of_a_style_zero_h
 //    `WorldScene::sync_objects` — the application's own path and no other.
 // ---------------------------------------------------------------------------------------------
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 /// The retail dats, or **fail**: a missing dat is a failure, never a silent pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -411,7 +406,7 @@ struct Candidate {
 /// `WorldScene::sync_objects`, which is where `apply_movement` lives.
 fn drive(session: &str, limit: usize) -> (Vec<Station>, usize) {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     // Every `MoveTo`/`TurnTo` body this session sent something that is *not* its own character,
     // in wire order, kept whole so one of them can be re-delivered below.
     let candidates: Vec<Candidate> = {
@@ -644,9 +639,9 @@ fn cyclic_anim(p: &Pose) -> Option<DataId> {
 /// every `for` loop below vacuously.
 #[test]
 fn every_recorded_remote_arm_repeats_the_stance_in_force_and_is_inert() {
-    // The dats and the device are required: `store()` and `warp()` fail when they are absent.
+    // The dats and the device are required: `store()` and `crate::common::test_gpu(320, 240)` fail when they are absent.
     let _ = store();
-    let _ = warp();
+    let _ = crate::common::test_gpu(320, 240);
     let (stations, injected) = long_solo_play_stations();
     let arms: Vec<&Station> = stations
         .iter()
@@ -755,9 +750,9 @@ fn every_recorded_remote_arm_repeats_the_stance_in_force_and_is_inert() {
 /// server's; the moment is ours. Nothing is synthesised.
 #[test]
 fn the_style_word_on_a_remote_arm_changes_the_creatures_stance() {
-    // The dats and the device are required: `store()` and `warp()` fail when they are absent.
+    // The dats and the device are required: `store()` and `crate::common::test_gpu(320, 240)` fail when they are absent.
     let _ = store();
-    let _ = warp();
+    let _ = crate::common::test_gpu(320, 240);
     let (stations, _) = long_solo_play_stations();
     let edge = stations
         .iter()
@@ -815,9 +810,9 @@ fn the_style_word_on_a_remote_arm_changes_the_creatures_stance() {
 /// invented a different animation fails even though the stance word is right.
 #[test]
 fn the_creatures_pose_follows_the_style_word() {
-    // The dats and the device are required: `store()` and `warp()` fail when they are absent.
+    // The dats and the device are required: `store()` and `crate::common::test_gpu(320, 240)` fail when they are absent.
     let _ = store();
-    let _ = warp();
+    let _ = crate::common::test_gpu(320, 240);
     let (stations, _) = long_solo_play_stations();
     let edge = stations
         .iter()
@@ -885,9 +880,9 @@ fn the_creatures_pose_follows_the_style_word() {
 /// copies the state's own `current_style` over whatever the header's word left.
 #[test]
 fn the_interpreted_arm_still_carries_every_stance_the_corpus_holds() {
-    // The dats and the device are required: `store()` and `warp()` fail when they are absent.
+    // The dats and the device are required: `store()` and `crate::common::test_gpu(320, 240)` fail when they are absent.
     let _ = store();
-    let _ = warp();
+    let _ = crate::common::test_gpu(320, 240);
     let (stations, _) = long_solo_play_stations();
     let interpreted: Vec<&Station> = stations
         .iter()

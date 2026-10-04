@@ -4,14 +4,14 @@
 //! always-daylight state and the persisted at-day option; `@framerate` shows and hides the shipped
 //! smart-box frame-rate meter. Each is driven from a line typed in the chat entry.
 //!
-//! Fixture: the chat-command tests' headless App and input hand (`chat::chat_commands`), with a
+//! Fixture: a real GPU-backed headless App and the shared typed-chat input hand, with a
 //! small static landscape; no datagram leaves the process.
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use crate::chat::chat_commands::{
-    app, bubbles, chat_log, forced_saved_player_module, gameplay_element, install_player_module,
-    Hand,
+use crate::common::chat::{
+    app_with, bubbles, chat_log, forced_saved_player_module, gameplay_element,
+    install_player_module, Hand,
 };
 use crate::common::gpu_lock;
 
@@ -19,6 +19,10 @@ use dereth_assets::Decode;
 use dereth_client::{app::App, config::Config, world::SceneConfig};
 use dereth_primitives::AssetSource;
 use dereth_ui::framework::mode;
+
+fn app() -> App {
+    app_with(|cfg| App::new(cfg).expect("required retail DATs and headless graphics device"))
+}
 
 /// Behaviour: chat.commands.a-verb-the-client-knows-answers-it-and-a-word-it-does-not-know-is-passed-on
 ///

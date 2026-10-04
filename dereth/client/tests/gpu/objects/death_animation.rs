@@ -36,7 +36,7 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::Opcode;
 use dereth_render::device::Gpu;
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 
 const PLAYER: ObjectId = ObjectId(0x5000_000a);
 /// long-solo-play's Sparring Golem.
@@ -108,7 +108,7 @@ impl Station {
     /// into a live scene with the observer parked beside the corridor the golem walks.
     fn open() -> Self {
         let store = retail_store();
-        let mut gpu = software_gpu(320, 240);
+        let mut gpu = test_gpu(320, 240);
         let rows = read_rows();
         let mut stream = ObjectStream::new();
         for row in rows.iter().filter(|r| r.t_rel_micros < DEATH_MICROS) {

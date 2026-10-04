@@ -8,15 +8,11 @@ use std::sync::Arc;
 use dereth_dat::RetailDatStore;
 use dereth_render::device::{DeviceConfig, Gpu};
 
-/// A device that prefers a software rasteriser, with a back buffer of `width` by `height`, or a
-/// failed test.
+/// A device with a back buffer of `width` by `height`, or a failed test.
 ///
-/// The preference is only honoured where the backend has one: D3D12 always has WARP, but the
-/// default Vulkan backend picks a CPU-type physical device only when one is installed (lavapipe,
-/// SwiftShader) and otherwise takes the machine's GPU. `DERETH_TEST_GPU=hardware|software`
-/// overrides the preference for every device of a run; `DERETH_TEST_RENDERER=d3d12` with the
-/// preference left as it is runs the tier on WARP.
-pub fn software_gpu(width: u32, height: u32) -> Gpu {
+/// Backend and adapter selection use the renderer's normal test configuration, including
+/// `DERETH_TEST_RENDERER` and `DERETH_TEST_GPU`. The caller owns the binary's device lock.
+pub fn test_gpu(width: u32, height: u32) -> Gpu {
     let cfg = DeviceConfig {
         width,
         height,

@@ -33,10 +33,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The `GfxObjDegradeInfo` at an id, straight from the dat.
 fn record(store: &RetailDatStore, did: DataId) -> GfxObjDegradeInfo {
     let bytes = store
@@ -282,7 +278,7 @@ fn scene_for(store: &Arc<RetailDatStore>, gpu: &mut Gpu, r: &Replayed, on: bool)
 #[test]
 fn every_part_draws_the_level_get_degrade_names_at_three_distances() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let mut scene = scene_for(&store, &mut gpu, &r, true);
 
@@ -417,7 +413,7 @@ fn every_part_draws_the_level_get_degrade_names_at_three_distances() {
 #[test]
 fn the_local_body_does_not_degrade_however_far_the_chase_camera_pulls_back() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let cfg = SceneConfig {
         landblock: r.landblock,
@@ -525,7 +521,7 @@ const WALK: [f32; 12] = [
 #[test]
 fn baking_the_level_once_draws_the_same_parts_at_every_height() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     let mut arm = |on: bool| -> (Vec<usize>, usize, u64, usize, u32, usize) {
         let mut r = populated("first-login-walk-jump");
@@ -643,7 +639,7 @@ fn baking_the_level_once_draws_the_same_parts_at_every_height() {
 #[test]
 fn the_frame_changes_and_the_differ_is_calibrated_in_both_directions() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     // Four stations rather than one. A creature only degrades when it is far enough away to be
     // *small* on screen, so the changed-pixel count is bounded by the thing under test, and a
@@ -776,7 +772,7 @@ fn the_frame_changes_and_the_differ_is_calibrated_in_both_directions() {
 #[test]
 fn a_parts_level_zero_mesh_is_the_records_and_not_the_parts_own_id() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: 0xA9B4,

@@ -44,10 +44,6 @@ const CREATURE: u32 = 0x0200_0001;
 /// enough to paint a measurable number of pixels at range.
 const NEVER_DARK: u32 = 0x0200_004D;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn store() -> std::sync::Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -551,7 +547,7 @@ fn occlusion_margin(b: &Bench, cam: Vec3, t: Vec3) -> f32 {
 #[test]
 fn a_creature_stops_being_submitted_at_the_distance_the_record_names() {
     let store = store();
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut b = Bench::new(&store, gpu, CREATURE);
     let body_xy = (96.0f32, 20.0f32);
     let bz = b
@@ -614,9 +610,9 @@ fn a_creature_stops_being_submitted_at_the_distance_the_record_names() {
 #[test]
 fn terrain_occludes_a_distant_object_the_client_still_submits() {
     let store = store();
-    let g = warp();
+    let g = crate::common::test_gpu(W, H);
     let mut a = Bench::new(&store, g, NEVER_DARK);
-    let g = warp();
+    let g = crate::common::test_gpu(W, H);
     let mut b = Bench::new(&store, g, NEVER_DARK);
     // **The eye is this test's subject, so it must be the client's eye.** See [`Bench::sweep`]. Both arms, identically, so the differential still differs in one thing.
     a.sweep = true;

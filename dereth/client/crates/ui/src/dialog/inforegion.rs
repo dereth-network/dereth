@@ -7,7 +7,6 @@
 //! the game model's; what this crate owns is the binding, the element message it raises and the state
 //! forwarding that turns a stat row red or green.
 
-use crate::msg::element::id as msgid;
 use crate::{ElemHandle, StateId, UiSystem};
 
 /// The four information-region kinds.
@@ -47,18 +46,6 @@ impl InfoRegion {
             label: String::new(),
             tooltip: String::new(),
         }
-    }
-
-    /// A tracked quality changed — recompute the displayed value and broadcast
-    /// element message **`0x10000004`** with `p1 = StatType`, `p2 = new value`.
-    pub fn on_quality_changed(&mut self, ui: &mut UiSystem, value: i32) {
-        self.value = value;
-        ui.broadcast_element_message(
-            self.element,
-            msgid::QUALITY_CHANGED,
-            self.stat,
-            u32::from_ne_bytes(value.to_ne_bytes()),
-        );
     }
 
     /// Forwards to [`UiSystem::set_state`], which is how a stat

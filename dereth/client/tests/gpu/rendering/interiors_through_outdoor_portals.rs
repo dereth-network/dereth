@@ -25,10 +25,6 @@ const H: u32 = 480;
 /// One capture: the RGBA frame, and the outlines of the openings the pass opened while taking it.
 type Shot = (Vec<u8>, Vec<Vec<(f32, f32)>>);
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// The retail store, or **fail**: absent dats are a broken checkout, not a reason to skip.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -193,7 +189,7 @@ fn near_edge(poly: &[(f32, f32)], x: f32, y: f32, pad: f32) -> bool {
 #[test]
 fn the_resident_blocks_openings_are_found_and_face_outwards() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     let openings = scene.building_portal_openings();
     assert!(
@@ -240,7 +236,7 @@ fn an_interior_appears_through_the_window_and_nowhere_else() {
     // **One device per run.** `Gpu::upload_texture`'s descriptor slots are reclaimed but the heap
     // is still 2,048 pairs, and a scene per device is what makes these captures independent.
     let shot_with = |c: SceneConfig| -> Option<Shot> {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let mut scene = WorldScene::load(&store, &mut gpu, c).expect("loads");
         frame(
             &store,
@@ -461,7 +457,7 @@ fn edge_distance(poly: &[(f32, f32)], x: f32, y: f32) -> f32 {
 #[test]
 fn the_indoor_path_follows_the_camera_and_not_the_body() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     // A body, and with it a `CameraControl`. `cfg` has `character: false`, so ask for one.
@@ -521,7 +517,7 @@ fn nothing_changes_when_no_opening_is_on_the_screen() {
     let store = store();
 
     let shot = |on: bool| -> Option<Shot> {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let mut scene = WorldScene::load(&store, &mut gpu, cfg(on)).expect("loads");
         frame(
             &store,

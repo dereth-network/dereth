@@ -34,7 +34,7 @@ fn the_profile_s_camera_preferences_reach_the_camera_manager() {
         "Config::apply_preferences did not read the three Camera.* keys"
     );
 
-    let mut gpu = crate::common::software_gpu(800, 600);
+    let mut gpu = crate::common::test_gpu(800, 600);
     let store = crate::common::dats();
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let scene_config = SceneConfig {

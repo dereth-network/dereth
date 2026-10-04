@@ -748,11 +748,6 @@ fn the_back_buffer_format_is_non_srgb_and_bgra_ordered() {
 }
 
 #[test]
-fn the_module_does_not_change_the_fpu_control_word() {
-    assert!(assert_fpu_untouched());
-}
-
-#[test]
 fn the_gamma_value_is_clamped_the_way_setgamma_clamps_it() {
     let Some(mut gpu) = warp(16, 16) else { return };
     gpu.set_gamma(5.0);

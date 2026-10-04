@@ -18,27 +18,22 @@ use dereth_protocol::{
 
 const PLAYER: ObjectId = ObjectId(0x5000_00EA);
 
-struct TempDir(std::path::PathBuf);
+struct TempDir(dereth_dat::testing::ScratchDir);
 
 impl TempDir {
     fn new() -> Self {
-        let unique = format!(
-            "dereth-admin-environs-sound-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("the system clock follows the epoch")
-                .as_nanos()
-        );
-        let path = std::env::temp_dir().join(unique);
-        std::fs::create_dir(&path).expect("create the disposable profile directory");
-        Self(path)
+        Self(
+            dereth_dat::testing::ScratchDir::new("admin-environs-sound")
+                .expect("create disposable directory"),
+        )
     }
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).expect("remove the disposable profile directory");
+        self.0
+            .cleanup()
+            .expect("remove the disposable profile directory");
     }
 }
 
@@ -131,7 +126,7 @@ fn setup() -> (TempDir, App, Peer) {
             world: false,
             character: false,
             dat_dir: client_dir(),
-            preferences_file: temp.0.join("prefs.ini"),
+            preferences_file: temp.0.path().join("prefs.ini"),
             ..Config::default()
         },
         Box::new(NullPresentation::new(800, 600)),

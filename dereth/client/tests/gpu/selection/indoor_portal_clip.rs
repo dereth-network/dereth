@@ -26,6 +26,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use std::collections::BTreeSet;
 
 use dereth_client::app::App;
@@ -64,21 +66,6 @@ const CREATURE: ObjectId = ObjectId(0x7DA5_5030);
 /// value reports zero, so the unclipped control below can reach it without re-deriving it from a
 /// build that cannot tell the difference.
 const WALL_YAW: f32 = 202.5 * std::f32::consts::PI / 180.0;
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 /// A point a body could stand at inside `cell`, in the landblock's own metres.
 fn point_in(store: &dereth_dat::RetailDatStore, cell: u32) -> Option<Vec3> {

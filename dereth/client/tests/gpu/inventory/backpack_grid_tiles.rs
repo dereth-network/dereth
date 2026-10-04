@@ -42,7 +42,11 @@ fn corpus_sessions() -> Vec<String> {
     out
 }
 
-fn replay_to(session: &str, limit: usize) -> (ObjectStream, Vec<SessionEvent>) {
+fn replay_to(
+    session: &str,
+    limit: usize,
+    mut hud: Option<&mut Hud>,
+) -> (ObjectStream, Vec<SessionEvent>) {
     let records = shared_session(session);
     let mut net = ClientNetwork::new(
         "127.0.0.1:19000",
@@ -62,8 +66,9 @@ fn replay_to(session: &str, limit: usize) -> (ObjectStream, Vec<SessionEvent>) {
         }
         net.tick(now);
         let _ = net.take_outgoing();
-        for e in objects.pump(&mut net, now) {
-            if let SessionEvent::CharacterSet(set) = &e {
+        let batch = objects.pump(&mut net, now);
+        for e in &batch {
+            if let SessionEvent::CharacterSet(set) = e {
                 if !entered {
                     if let Some(c) = set.characters.first() {
                         let account = set.account.clone();
@@ -72,8 +77,12 @@ fn replay_to(session: &str, limit: usize) -> (ObjectStream, Vec<SessionEvent>) {
                     }
                 }
             }
-            events.push(e);
         }
+        if let Some(hud) = hud.as_deref_mut() {
+            hud.now = now;
+            let _ = hud.apply_events(&batch, &mut objects.world);
+        }
+        events.extend(batch);
     }
     (objects, events)
 }
@@ -120,12 +129,11 @@ fn busiest_instant(session: &str) -> usize {
     best.1
 }
 
-/// Replay to that populated instant, then deliver its events to Hud::apply_events. The initial
-/// player-pack contents arrive in 0x0013, so decoding object creates alone is insufficient.
+/// Replay to the populated instant, applying HUD events as each datagram arrives. Login pack
+/// contents must precede later item moves, rather than overwrite them after replay completes.
 fn scene(session: &str) -> (ObjectStream, Hud) {
-    let (mut objects, events) = replay_to(session, busiest_instant(session));
     let mut hud = Hud::new();
-    let _ = hud.apply_events(&events, &mut objects.world);
+    let (objects, _) = replay_to(session, busiest_instant(session), Some(&mut hud));
     hud.sync(&objects, None);
     (objects, hud)
 }
@@ -133,24 +141,6 @@ fn scene(session: &str) -> (ObjectStream, Hud) {
 // =================================================================================================
 // Gameplay elements created from the shipped layout, without a GPU.
 // =================================================================================================
-
-#[derive(Debug)]
-struct Store(dereth_dat::RetailDatStore);
-
-impl AssetSource for Store {
-    fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-}
 
 fn open_store() -> dereth_dat::RetailDatStore {
     crate::common::dat_store()
@@ -168,7 +158,7 @@ fn shipped_gameplay() -> (UiSystem, Box<dyn Screen>) {
     ui.property_types = master.property_types();
     let mut flow = dereth_ui::UiFlow::new();
     dereth_ui_screens::register_all(&mut ui, &mut flow);
-    let store = Rc::new(Store(store));
+    let store = Rc::new(store);
     let resolver =
         Rc::new(DidMapperResolver::load_via_master(store.as_ref()).expect("the DidMapper"));
     dereth_ui_screens::env::install(&mut ui, store, resolver);
@@ -508,6 +498,7 @@ fn opening_a_side_pack_resizes_the_grid_to_that_packs_capacity_and_takes_every_t
         let before = b.grid().slots.len();
         assert_eq!(before, 102, "{session}: the player's own pack is 102 cells");
 
+        let request_start = b.ui.requests.len();
         {
             let g = as_gameplay(&mut b.screen);
             assert!(
@@ -515,6 +506,21 @@ fn opening_a_side_pack_resizes_the_grid_to_that_packs_capacity_and_takes_every_t
                 "{session}: {pack:?} is on the side-pack strip, so opening the container succeeds"
             );
         }
+        let mut interaction = dereth_client::interaction::Interaction::default();
+        interaction.queue(Vec::new(), b.ui.requests.take_since(request_start));
+        assert!(interaction
+            .run_ui_requests(
+                &mut b.objects.world,
+                false,
+                dereth_primitives::ServerTime(2.0),
+            )
+            .is_empty());
+        assert!(interaction.pending_requests().is_empty());
+        assert_eq!(
+            b.objects.world.open_container,
+            Some(pack),
+            "{session}: the opened pack is owned"
+        );
         b.hud
             .drive(&mut b.ui, as_gameplay(&mut b.screen), 2, &b.objects);
 
@@ -830,6 +836,7 @@ fn the_background_tile_reaches_the_pixels_inside_the_grid_and_nowhere_else() {
         let (o, e) = replay_to(
             "first-login-walk-jump",
             busiest_instant("first-login-walk-jump"),
+            None,
         );
         (o, e)
     };
@@ -839,6 +846,7 @@ fn the_background_tile_reaches_the_pixels_inside_the_grid_and_nowhere_else() {
         *app.objects_mut() = replay_to(
             "first-login-walk-jump",
             busiest_instant("first-login-walk-jump"),
+            None,
         )
         .0;
         let _ = app.apply_hud_events(&events);

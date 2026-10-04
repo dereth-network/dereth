@@ -273,7 +273,7 @@ mod tests {
 
     /// Oracle: the stored placeholder string and timeout constant described in the module header.
     ///
-    /// The marker is **four** question marks. Three would be `super::inforegion::UNKNOWN`, which
+    /// The marker is **four** question marks. Three would be `dereth_client_contract::panels::inforegion::UNKNOWN`, which
     /// is a different string in a different function, and mixing them up is the kind of thing a
     /// paraphrase does.
     #[test]
@@ -282,7 +282,7 @@ mod tests {
         assert_eq!(UNKNOWN.len(), 4);
         assert_ne!(
             UNKNOWN,
-            super::super::inforegion::UNKNOWN,
+            dereth_client_contract::panels::inforegion::UNKNOWN,
             "not the InfoRegion's three"
         );
         assert!((PING_INTERVAL - 120.0).abs() < f64::EPSILON);

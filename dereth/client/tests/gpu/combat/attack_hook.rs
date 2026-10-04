@@ -152,7 +152,6 @@ mod seam {
     use dereth_physics::geom::Sphere;
     use dereth_physics::{SetupGeometry, V3 as _};
     use dereth_primitives::{DataId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
-    use dereth_render::device::Gpu;
 
     /// The target body's object id. The attack gesture itself is found by playing the dat:
     /// [`an_attack_motion`] finds the motion table whose `ATTACK_MED1` raises an
@@ -162,11 +161,6 @@ mod seam {
 
     fn store() -> Arc<RetailDatStore> {
         crate::common::dats()
-    }
-
-    /// The software device, or a failed test.
-    fn warp() -> Gpu {
-        crate::common::software_gpu(800, 600)
     }
 
     /// The first retail motion table whose `ATTACK_MED1` raises an `AnimEvent::Attack` on the
@@ -267,7 +261,7 @@ mod seam {
     /// One swing. `with_target` puts a body a metre in front; `scripted` sets the attacker's
     /// `SCRIPTED_COLLISION_PS`, which gates the impact-effect callback.
     fn swing(with_target: bool, scripted: bool) -> Run {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
         let store = store();
         let region = dereth_client::world::load_region(&store).expect("region");
         let (mtable, cone) = an_attack_motion(&store);

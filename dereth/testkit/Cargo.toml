@@ -64,6 +64,7 @@ dereth-transport = { path = "../../core/transport" }
 thiserror.workspace = true
 
 [dev-dependencies]
+dereth-chargen = { path = "../../core/chargen" }
 # `dereth_primitives::num::math`: the scenarios build headings with the same portable trigonometry as the client.
 dereth-primitives.workspace = true
 # The scenario modules whose drives build animation and asset records. Path-only and dev-only.

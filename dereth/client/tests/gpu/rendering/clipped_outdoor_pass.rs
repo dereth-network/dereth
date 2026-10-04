@@ -21,10 +21,6 @@ use std::sync::Arc;
 const W: u32 = 640;
 const H: u32 = 480;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// The retail store, or **fail**: absent dats are a failure, never a skip.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -204,7 +200,7 @@ fn counted_shot(
     back: f32,
     pitch: f32,
 ) -> Option<Counted> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let mut scene = WorldScene::load(store, &mut gpu, c).expect("loads");
     frame(
         store,
@@ -233,7 +229,7 @@ fn shot_with(
     back: f32,
     pitch: f32,
 ) -> Option<Shot> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let mut scene = WorldScene::load(store, &mut gpu, c).expect("loads");
     frame(
         store,
@@ -452,7 +448,7 @@ fn an_opening_that_leaves_the_viewport_is_clipped_away_entirely() {
     // Straight up at the sky, over the roofline, where the openings close again.
     let up = dereth_client::camera::PITCH_LIMIT;
     let sky = |clip: bool, portals: bool| -> Option<Shot> {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let mut c = cfg(clip, true);
         c.building_portals = portals;
         let mut scene = WorldScene::load(&store, &mut gpu, c).expect("loads");
@@ -545,7 +541,7 @@ fn the_alpha_flush_runs_before_the_building_and_changes_nothing_it_should_not() 
 
     // A differential over an empty queue proves nothing, so say how full it was.
     let queued = {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let scene = WorldScene::load(&store, &mut gpu, cfg(true, true)).expect("loads");
         scene.alpha_list_batches()
     };
@@ -649,7 +645,7 @@ fn the_alpha_flush_runs_before_the_building_and_changes_nothing_it_should_not() 
 fn the_interior_is_still_drawn_with_the_clip_and_the_stamp_on() {
     let store = store();
     let off = {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let mut c = cfg(true, true);
         c.building_portals = false;
         let mut scene = WorldScene::load(&store, &mut gpu, c).expect("loads");

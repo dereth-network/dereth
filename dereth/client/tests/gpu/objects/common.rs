@@ -1,5 +1,5 @@
 //! Fixtures the objects modules share: the recorded captures read through the workspace's one
-//! capture reader, the list of captures on disk, a software device and the retail dat store.
+//! capture reader, the list of captures on disk, a test device and the retail dat store.
 //!
 //! Behaviour: none (shared fixtures)
 
@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use dereth_client_net::client_session::testing::capture;
 use dereth_dat::RetailDatStore;
-use dereth_render::device::Gpu;
 
 use crate::common::{captures_dir, is_unclean_logout_recording, recorded_sessions};
 
@@ -61,11 +60,8 @@ pub fn corpus_sessions() -> Vec<String> {
     out
 }
 
-/// A software (WARP on D3D12) device of the given size, so the pixels do not depend on the
-/// machine's GPU. A missing device fails the test; it is never a skip.
-pub fn software_gpu(width: u32, height: u32) -> Gpu {
-    crate::common::software_gpu(width, height)
-}
+/// The binary's common device constructor, preserving renderer test configuration.
+pub use crate::common::test_gpu;
 
 /// The retail dat store, shared. Missing dats are a broken fixture and fail the test.
 pub fn retail_store() -> Arc<RetailDatStore> {

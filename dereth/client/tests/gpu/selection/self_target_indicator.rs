@@ -47,6 +47,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use dereth_client::app::App;
 use dereth_client::config::Config;
 use dereth_client::pick::PickScene;
@@ -55,7 +57,7 @@ use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::pick_geometry::selection_ray;
 use dereth_primitives::num::math;
-use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
+use dereth_primitives::{LocalTime, ObjectId, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
@@ -73,21 +75,6 @@ const OTHER: ObjectId = ObjectId(0x8000_3101);
 /// `PlayerOption::VividTargetingIndicator`, `hud.rs`'s index 14. A player-option notice re-evaluates
 /// this value to decide whether indicator display is enabled.
 const OPTION_VIVID_TARGETING_INDICATOR: usize = 14;
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 /// UI shell up, real `DEFAULT_LANDBLOCK` terrain, the local body given
 /// early-inventory-and-casting's recorded identity and un-hidden as a login does, plus the

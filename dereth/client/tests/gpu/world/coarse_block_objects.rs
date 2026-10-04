@@ -27,10 +27,6 @@ const LAND_RADIUS: u32 = 2;
 /// Where the body stands: the middle of Holtburg's own block.
 const STATION: (f32, f32) = (96.0, 96.0);
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -52,7 +48,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, scenery_radius: u32, guard: bool) -> Option<Self> {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let region = dereth_client::world::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,

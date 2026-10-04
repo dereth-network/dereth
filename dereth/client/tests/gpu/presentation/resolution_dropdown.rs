@@ -107,24 +107,6 @@ fn made_up_adapter() -> Vec<DisplayMode> {
 // 1. The shipped options page, driven the way a player drives it
 // =============================================================================================
 
-#[derive(Debug)]
-struct AssetStore(RetailDatStore);
-
-impl AssetSource for AssetStore {
-    fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-}
-
 /// The shipped UI over the retail dats, with the made-up adapter enumerated before the options
 /// controls are initialized, matching the original initialization order.
 fn ui_env() -> UiSystem {
@@ -138,7 +120,7 @@ fn ui_env() -> UiSystem {
     let mut ui = UiSystem::new((800, 600));
     ui.property_types = master.property_types();
     let mut flow = dereth_ui::UiFlow::new();
-    let store_ = Rc::new(AssetStore(store_));
+    let store_ = Rc::new(store_);
     let resolver =
         Rc::new(DidMapperResolver::load_via_master(store_.as_ref()).expect("the DidMapper loads"));
     dereth_ui_screens::env::install(&mut ui, store_, resolver);

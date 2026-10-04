@@ -267,21 +267,6 @@ impl GlyphList {
         self.lines.len().saturating_sub(1)
     }
 
-    /// Behavior: one wrapped line's height.
-    ///
-    /// `None` when the line index is past the end, which is the client's own `false` return and
-    /// what stops the scroll-delta query from stepping an empty element.
-    #[must_use]
-    pub fn glyph_line_height(&self, line: usize) -> Option<i32> {
-        self.lines.get(line).map(|l| l.height)
-    }
-
-    /// The width of one laid-out line.
-    #[must_use]
-    pub fn glyph_line_width(&self, line: usize) -> Option<i32> {
-        self.lines.get(line).map(|l| l.width)
-    }
-
     /// Find the complete line from a y coordinate — the last line that fits **entirely** above
     /// `y`, as retail computes it.
     ///

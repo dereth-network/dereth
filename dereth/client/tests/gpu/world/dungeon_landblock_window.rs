@@ -41,10 +41,6 @@ const DARK_ROOMS: [u32; 3] = [0x8602_0102, 0x8602_0110, 0x8602_0120];
 const SEEN_OUTSIDE_CELL: u32 = 0x2E6C_0381;
 const SEEN_OUTSIDE_BLOCK: u16 = 0x2E6C;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -193,7 +189,7 @@ fn a_dungeons_layout_space_is_authored_outside_its_block() {
 #[test]
 fn the_academy_rooms_draw_and_the_window_stays_on_their_own_block() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let own = block_xy(ACADEMY);
     for cell in DARK_ROOMS {
         let (before, wb_before) = station(&store, &mut gpu, ACADEMY, cell, false);
@@ -234,7 +230,7 @@ fn the_academy_rooms_draw_and_the_window_stays_on_their_own_block() {
 #[test]
 fn an_outdoor_viewer_still_re_centres() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let mut run = |gate: bool| -> (Option<(i32, i32)>, Option<(i32, i32)>) {
         let region = dereth_client::world::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
@@ -295,7 +291,7 @@ fn an_outdoor_viewer_still_re_centres() {
 #[test]
 fn the_gate_is_seen_outside_and_not_merely_indoors() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     // The premise, off the dat: this cell is interior, outside its block's box, and seen_outside.
     let id = dereth_primitives::DataId(SEEN_OUTSIDE_CELL);
     let bytes = store
@@ -375,7 +371,7 @@ mod teleport_into_a_dungeon {
     //! the training academy's rooms as the control.
     //! Fixture: the retail dats on a software device; fails without the dats or a device.
 
-    use super::{block_xy, store, warp, H, W};
+    use super::{block_xy, store, H, W};
     use dereth_assets::Decode;
     use dereth_client::character::CharacterInput;
     use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
@@ -704,7 +700,7 @@ mod teleport_into_a_dungeon {
     #[test]
     fn a_teleport_into_a_dungeon_brings_the_window_with_it() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let own = block_xy(DRUDGE_BLOCK);
         let before = arrive(&store, &mut gpu, SURFACE, DRUDGE_CELL, false);
         let after = arrive(&store, &mut gpu, SURFACE, DRUDGE_CELL, true);
@@ -783,7 +779,7 @@ mod teleport_into_a_dungeon {
     #[test]
     fn the_academy_rooms_still_draw_when_the_scene_starts_on_their_block() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let own = block_xy(ACADEMY_BLOCK);
         for cell in ACADEMY_ROOMS {
             let a = arrive(&store, &mut gpu, ACADEMY_BLOCK, cell, true);

@@ -7,7 +7,6 @@
 //! a mode still finishes the rest of its frame.
 
 pub mod chargen;
-pub mod chargen_state;
 pub mod charmgmt;
 pub mod credits;
 pub mod datapatch;

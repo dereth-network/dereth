@@ -16,7 +16,6 @@ use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
-use dereth_render::device::Gpu;
 use std::sync::Arc;
 
 pub(crate) const W: u32 = 1200;
@@ -28,10 +27,6 @@ pub(crate) const HOLTBURG: u16 = 0xA9B4;
 pub(crate) const RECORDED_CELL: u32 = 0xA9B4_0029;
 pub(crate) const RECORDED_ORIGIN: Vec3 = Vec3::new(136.289_993, 5.155, 94.082_001);
 pub(crate) const RECORDED_ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
-
-pub(crate) fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
 
 pub(crate) fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -191,7 +186,7 @@ fn door_shot_inner(
     isolated_building_portals: Option<bool>,
     tag: &str,
 ) -> Option<DoorShot> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_client::world::load_region(store).expect("the region decodes");
     let mut cfg = SceneConfig {
         landblock: HOLTBURG,

@@ -33,7 +33,7 @@ fn remote_action_completion_clears_owned_stick_and_subscription_in_both_animatio
     let corpus = Corpus::load("long-solo-play")
         .expect("locked decode")
         .expect("required long-solo-play");
-    let mut gpu = crate::common::software_gpu(320, 240);
+    let mut gpu = crate::common::test_gpu(320, 240);
     for attached in [false, true] {
         let mut stream = ObjectStream::new();
         for row in corpus.blobs.iter().filter(|r| {

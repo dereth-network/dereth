@@ -47,10 +47,6 @@ const HELD_ITEM: ObjectId = ObjectId(0x5000_0F33);
 const RIGHT_HAND: u32 = 1;
 const RIGHT_HAND_COMBAT: u32 = 1;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -105,7 +101,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, stamp: bool) -> Option<Self> {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(W, H);
         let region = dereth_client::world::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,

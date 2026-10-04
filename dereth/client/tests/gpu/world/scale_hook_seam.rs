@@ -17,7 +17,6 @@ use dereth_client::character::CharacterInput;
 use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime};
-use dereth_render::device::Gpu;
 
 /// The shipped script whose first hook is `SCALE end = 2.0, time = 0`; the scale-hook behavior in
 /// `dereth/testkit/tests/dat/world.rs` asserts that shape against the dat.
@@ -27,17 +26,13 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// Behaviour: world.physics-script.a-scale-hook-moves-the-objects-own-collision-radius
 ///
 /// A scale hook stores the new scale on the physics object and then on the object's part array.
 /// This asserts the physics-object store and the collision radius that reads it.
 #[test]
 fn a_scale_hook_fired_inside_the_frame_reaches_the_physics_object() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
     let region = dereth_client::world::load_region(&store).expect("region");
 

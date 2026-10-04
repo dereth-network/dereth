@@ -10,13 +10,6 @@
 
 use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::RetailDatStore;
-use dereth_render::device::Gpu;
-
-/// A WARP device at 800x600, or `None`. WARP so the pixels do not depend on the machine's GPU,
-/// which is what makes the byte-identical claim meaningful.
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
 
 /// The retail store, or **fail**: absent dats are a missing oracle, not a reason to pass, so the
 /// type offers no way to skip.
@@ -31,7 +24,7 @@ fn store() -> RetailDatStore {
 #[test]
 fn the_holtburg_scene_meshes_the_whole_window_and_texture_maps_every_cell() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let cfg = SceneConfig::default();
     assert_eq!(
         cfg.landblock, DEFAULT_LANDBLOCK,
@@ -106,7 +99,7 @@ fn the_holtburg_scene_meshes_the_whole_window_and_texture_maps_every_cell() {
 #[test]
 fn a_frame_of_the_static_scene_is_mostly_lit_below_the_horizon() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
 
     // Without this the very first frame executes a command list pointing into an upload buffer
@@ -158,7 +151,7 @@ fn a_frame_of_the_static_scene_is_mostly_lit_below_the_horizon() {
 #[test]
 fn two_frames_of_an_unmoved_camera_are_pixel_identical() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene.reserve_upload_arena(&mut gpu).expect("arena");
     let mut shots = Vec::new();
@@ -178,7 +171,7 @@ fn two_frames_of_an_unmoved_camera_are_pixel_identical() {
 #[test]
 fn scenery_only_grows_on_full_detail_blocks() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let near = SceneConfig {
         scenery_radius: 1,
         ..SceneConfig::default()

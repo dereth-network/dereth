@@ -27,23 +27,9 @@ mod tests {
     /// Behaviour: none (the recording host preserves file errors and delegates byte parsing).
     #[test]
     fn the_host_loader_distinguishes_file_errors_from_recording_errors() {
-        struct Scratch(std::path::PathBuf);
-        impl Drop for Scratch {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let directory = std::env::temp_dir().join(format!(
-            "dereth-headless-recording-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("host time")
-                .as_nanos()
-        ));
-        std::fs::create_dir(&directory).expect("unique directory");
-        let scratch = Scratch(directory);
-        let path = scratch.0.join("recording.jsonl");
+        let scratch = dereth_client_sdk::dat::testing::ScratchDir::new("headless-recording")
+            .expect("scratch directory");
+        let path = scratch.path().join("recording.jsonl");
         let name = path.display().to_string();
         assert!(matches!(load(&path), Err(CaptureError::Io { path, .. }) if path == name));
         std::fs::write(&path, [255]).expect("write invalid text");

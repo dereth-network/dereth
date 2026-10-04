@@ -15,7 +15,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use super::common::{addr, connection_sequence_number, load, retail_store, software_gpu};
+use super::common::{addr, connection_sequence_number, load, retail_store, test_gpu};
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -281,7 +281,7 @@ fn submitted(scene: &WorldScene, marked: &BTreeSet<ObjectId>) -> (usize, usize) 
 #[test]
 fn an_object_the_server_marks_nodraw_is_not_submitted() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let r = most_marked();
 
     // The two arms differ only in `object_state_draw`, and each gets its own copy of the replayed
@@ -562,7 +562,7 @@ fn two_stations(
 #[test]
 fn a_hidden_holder_takes_its_children_with_it_and_gives_them_back() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let h = hidden_holder_with_children();
 
     let (off_hidden, off_after, ..) = two_stations(&store, &mut gpu, &h, false);

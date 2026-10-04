@@ -27,7 +27,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{
-    addr, connection_sequence_number, corpus_sessions, load, retail_store, software_gpu,
+    addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::{recorded_enter_world_requests, recorded_world_sessions};
 
@@ -437,7 +437,7 @@ fn objects_move_from_position_events() {
 #[test]
 fn a_movement_buffer_animates_the_object_it_names() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let in_world = replay("first-login-walk-jump").last_populated;
     let mut r = replay_upto("first-login-walk-jump", in_world + 1);
     let (mut scene, _) = scene_for(&store, &mut gpu, &r);
@@ -547,7 +547,7 @@ fn a_movement_buffer_animates_the_object_it_names() {
 #[test]
 fn the_captures_objects_are_drawn_where_the_server_put_them() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let in_world = replay("first-login-walk-jump").last_populated;
     let mut r = replay_upto("first-login-walk-jump", in_world + 1);
     let (mut scene, landblock) = scene_for(&store, &mut gpu, &r);

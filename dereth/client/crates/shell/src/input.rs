@@ -812,13 +812,6 @@ impl InputShell {
         })
     }
 
-    /// The callback id the [`WHOLE_RUN_INPUT_MAPS`] are registered under, so a caller can
-    /// unregister them.
-    #[must_use]
-    pub const fn client_callback(&self) -> CallbackId {
-        self.client
-    }
-
     /// Entering a target mode registers map 0x1000000B under the UI's target-mode callback at
     /// priority 2000. Leaving it unregisters only this pair; do not clear another owner's held actions.
     ///

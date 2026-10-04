@@ -33,10 +33,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// No local body or server-object stream is introduced, so there is no character animation or
 /// chase-camera motion. Repeated builds follow identical time steps; the pixel tests separately
 /// require repeated enabled arms to be identical rather than assuming all rendering is static.
@@ -302,7 +298,7 @@ fn the_shipped_mode_census_over_the_whole_dat() {
 #[test]
 fn force_level_pins_every_baked_placement_through_the_scene() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = still(&store, &mut gpu, true);
     assert_eq!(
         scene.force_level(),
@@ -382,7 +378,7 @@ fn force_level_pins_every_baked_placement_through_the_scene() {
 #[test]
 fn every_placement_billboards_the_way_calc_draw_frame_says_at_three_stations() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = still(&store, &mut gpu, true);
     let mut records = Records::default();
 
@@ -495,7 +491,7 @@ fn every_placement_billboards_the_way_calc_draw_frame_says_at_three_stations() {
 #[test]
 fn a_mode_five_card_turns_as_the_camera_orbits_and_a_mode_one_static_never_does() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = still(&store, &mut gpu, true);
 
     // Four bearings at the same radius and the same height about the block's centre.
@@ -595,7 +591,7 @@ fn a_mode_five_card_turns_as_the_camera_orbits_and_a_mode_one_static_never_does(
 #[test]
 fn the_cost_is_reassembly_and_not_memory() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     const WALK: [f32; 8] = [60.0, 90.0, 130.0, 180.0, 250.0, 340.0, 460.0, 620.0];
 
     let mut arm = |on: bool| {
@@ -749,7 +745,7 @@ fn the_cost_is_reassembly_and_not_memory() {
 #[test]
 fn the_frame_changes_and_the_differ_is_calibrated_in_both_directions() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     // Four stations. A billboard is only visible where the cards are, so a single station would
     // understate or overstate the count by accident.
     const STATIONS: [(f32, f32, f32); 4] = [
@@ -1063,7 +1059,7 @@ fn scene_for(store: &Arc<RetailDatStore>, gpu: &mut Gpu, r: &Replayed, on: bool)
 #[test]
 fn every_part_draws_the_frame_calc_draw_frame_names_at_four_stations() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let mut scene = scene_for(&store, &mut gpu, &r, true);
     let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
@@ -1159,7 +1155,7 @@ fn every_part_draws_the_frame_calc_draw_frame_names_at_four_stations() {
 #[test]
 fn a_billboarding_part_turns_and_the_control_arm_does_not() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     const STATIONS: [f32; 4] = [8.0, 15.0, 30.0, 60.0];
 
     type Station = (

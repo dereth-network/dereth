@@ -348,7 +348,7 @@ mod persistence {
     //! only the post-init enum and zero stays guarded.
     //! Fixture: shipped layouts, strings and keymaps loaded from the retail DATs.
 
-    use crate::common::layout::{RegistrationOrder, Store};
+    use crate::common::layout::RegistrationOrder;
     use dereth_ui::{ElemHandle, Screen, UiSystem};
     use dereth_ui_screens::{
         screens::gameplay::{window, GamePlayScreen},
@@ -356,7 +356,7 @@ mod persistence {
     };
     use std::rc::Rc;
 
-    fn screen() -> (UiSystem, GamePlayScreen, Rc<Store>) {
+    fn screen() -> (UiSystem, GamePlayScreen, Rc<dereth_dat::RetailDatStore>) {
         let (mut ui, _flow, store) =
             crate::common::layout::load((800, 600), RegistrationOrder::BeforeResolver);
         ui.requests.clear();

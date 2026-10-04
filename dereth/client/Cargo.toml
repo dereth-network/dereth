@@ -137,6 +137,7 @@ dereth-launch = { path = "../launcher/crates/launch" }
 # replays bit-identically. See tests/gpu/movement/embodied_character.rs for why that is reproducibility and not
 # fidelity.
 [dev-dependencies]
+dereth-chargen = { path = "../../core/chargen" }
 dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
 dereth-physics = { path = "../../core/physics", features = ["trace"] }
 # `dereth_dat::testing`: where the tests find the retail dats.

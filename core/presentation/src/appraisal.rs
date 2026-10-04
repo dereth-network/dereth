@@ -216,76 +216,6 @@ pub fn flatten_item_info(runs: &[ItemInfo]) -> String {
 // The tables are the **client's**, taken from retail's own strings for each appraisal block.
 // Nothing here is invented and nothing is taken from a community page.
 //
-// The client calls its twenty-five blocks in one fixed order, and this build implements the ones
-// the two
-// reported subjects and the recorded corpus reach. What is still absent is listed in
-// [`ITEM_BLOCKS_NOT_IMPLEMENTED`], by name, so "not drawn" is a list and not a silence.
-
-/// The appraisal blocks that this build does **not**
-/// implement, in the client's call order. A denominator for the item pane.
-///
-/// The eight this build does implement are value, burden, weapon-and-armour data, armour mods,
-/// usage, lock appraisal and description, plus the inscription write, which is not a block but
-/// the edit box beside them.
-///
-/// **The count is load-bearing and is asserted** — see
-/// `the_unimplemented_block_list_is_the_calls_this_build_does_not_make`.
-pub const ITEM_BLOCKS_NOT_IMPLEMENTED: &[&str] = &[
-    // **This list is empty.** Every block is implemented, including tinkering
-    // [`tinkering_lines`], sets [`set_lines`], ratings [`ratings_lines`], defense mods
-    // [`defense_mod_lines`], level limit [`level_limit_lines`], wield requirements
-    // [`wield_requirement_lines`], usage limit [`usage_limit_lines`], item level
-    // [`item_level_lines`], activation requirements [`activation_requirement_lines`], caster data
-    // [`caster_data_lines`], boost value [`boost_value_lines`], heal kit values
-    // [`heal_kit_lines`], capacity [`capacity_lines`], mana stone [`mana_stone_lines`], remaining
-    // uses [`remaining_uses_lines`], craftsman [`craftsman_lines`], the bool `0x45` line
-    // [`cannot_be_sold_lines`], rare info [`rare_info_lines`], the lock block, the special
-    // properties and both spell blocks, short and full magic info.
-    //
-    // **An empty list is a claim, not an absence**, and it is asserted empty by
-    // `the_unimplemented_block_list_is_the_calls_this_build_does_not_make`. What is still partial
-    // lives one level down, in [`SPECIAL_PROPERTIES_NOT_IMPLEMENTED`] and
-    // [`CREATURE_MISC_NOT_IMPLEMENTED`].
-];
-
-/// The **creature and character** panes' extra-info list.
-///
-/// The row helper puts one two-cell row into the list box
-/// `MISC_LIST` (the extra-info list, bound by the constructor), whose cells are the
-/// same `0x1000012A` label / `0x1000012B` value pair `ROW_LABEL` and `ROW_VALUE` name. It has
-/// exactly **two** callers, and this build now draws both:
-///
-/// * The creature examine panel's appraise info write — [`creature_misc_rows`];
-/// * The character pane uses [`char_misc_rows`], plus the four text
-///   elements bound beside the list (`CHAR_HERITAGE_TEXT`,
-///   `CHAR_PROFESSION_TEXT`, `CHAR_PK_STATUS_TEXT`, `ALLEGIANCE_NAME_TEXT`) and the title
-///   bar that the allegiance data's full name read overwrites.
-///
-/// The list box itself is bound by `ExaminationPanel::post_init` and its rows are counted by
-/// `ExaminationPanel::misc_rows_drawn`, so "the pane drew nothing" and "the layout has no row
-/// template" are different answers.
-///
-/// **An empty list is a claim, not an absence**, and it is asserted empty by
-/// the creature-appraisal tests. Nothing was left out for want of data: every key the two
-/// functions read is an assessment property, so the server sends all of them on appraisal, and
-/// the only value in either function that is read and never drawn is
-/// int `0x143` `HealingBoostRating` — dead in retail too (see [`CHARACTER_RATING_ROWS`]).
-pub const CREATURE_MISC_NOT_IMPLEMENTED: &[&str] = &[];
-
-/// The parts of the special-properties block that [`special_properties_lines`]
-/// does **not** draw.
-///
-/// A block that is *partly* implemented is worse than one that is not, unless the missing part is
-/// named — the same rule [`ITEM_BLOCKS_NOT_IMPLEMENTED`] exists for, one level down. **The count
-/// is asserted**, by `the_special_properties_block_names_what_it_does_not_draw`.
-///
-/// The pair is one feature: float `0xA7` is the cooldown and int `0x118` is the shared
-/// cooldown group, and between them they draw the wide lines `"Cooldown When Used: "` and
-/// `"Cooldown Remaining: "` through
-/// the delta-time formatter and a player-description query for the group's own remaining
-/// time, which connect to the journal's formatter and the player registry query.
-pub const SPECIAL_PROPERTIES_NOT_IMPLEMENTED: &[&str] = &[];
-
 /// `AMMO_TYPE` — the ammunition type. The same four values as
 /// `dereth_client_model::appraisal_model::ammo_type`; this crate has no edge to `dereth-client-model` and the enum is
 /// three comparisons in the weapon-and-armour block's two ammunition arms.
@@ -732,7 +662,7 @@ fn weapon_and_armor_lines_for(
         }
     }
     if loc & equip::ANY_WEAPON == 0 {
-        // Arm 1: the clothing-priority name — see `ITEM_BLOCKS_NOT_IMPLEMENTED`'s note.
+        // Arm 1: the clothing-priority name.
         return out;
     }
     let Some(w) = p.weapon else {
@@ -2540,28 +2470,6 @@ pub fn lifespan_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     }]
 }
 
-/// The remaining description blocks and which ones this build implements.
-///
-/// The function has four blocks in this order:
-///
-/// 1. The **lifespan** block is implemented by [`lifespan_lines`].
-/// 2. The **description** block reads string `0x10` `LongDesc`, with
-///    string `0x0F` `ShortDesc` as its fallback, and, when
-///    int `0xAC` `AppraisalLongDescDecoration` is present, a rewrite that prefixes
-///    the workmanship adjective (`& 1`, int `0x69`), substitutes the material
-///    name (int `0x83`) and appends *", set with "* plus a gem count and name
-///    (`& 4`, int `0xB1`/int `0xB2`). **The plain `LongDesc` half
-///    and `ShortDesc` fallback are present; decoration is in [`decorated_description`].**
-/// 3. The **portal** block is implemented by [`portal_restriction_lines`].
-/// 4. The **augmentation cost** line reads int64 `3` `AugmentationCost` into a `StringInfo`
-///    with `ID_Examine_Item_AugmentationCost` and
-///    table `0x10000001`, which is the only line of this function that does not go through
-///    the add-item-info step at all. **Drawn in `set_appraise_info` after the ordinary runs.**
-///
-/// The property keys are read in this order: `0x10B`, `0x62`, `0x10C`, `0x10`, `0x34`, `0xAC`,
-/// `0x69`, `0x83`, `0xB1`, `0xB2`, `0x6F`, `0x0F`, `3`.
-pub const DESCRIPTION_BLOCKS_NOT_IMPLEMENTED: &[&str] = &[];
-
 /// The appraisal system's pluralized gem name read.
 ///
 /// It lives in [`dereth_client_contract::panels::examination`], because the host supplies
@@ -2615,9 +2523,7 @@ fn decorated_description_for(p: &AppraisalView, variant: crate::DisplayVariant) 
     Some(prefix)
 }
 
-/// The item pane's whole description block, in the client's
-/// order, minus the blocks named in
-/// [`ITEM_BLOCKS_NOT_IMPLEMENTED`].
+/// The item pane's whole description block, in the client's order.
 ///
 /// Value and burden are `same_line = TRUE`, as is every line of the weapon and armour blocks. The
 /// usage block and the description-text arm pass **0**, the blank-line separator — so the `Use`
@@ -3484,21 +3390,6 @@ mod tests {
         .is_empty());
     }
 
-    /// Both appraisal block lists are empty when all their rows are implemented.
-    #[test]
-    fn the_unimplemented_block_list_is_the_calls_this_build_does_not_make() {
-        assert_eq!(
-            ITEM_BLOCKS_NOT_IMPLEMENTED.len(),
-            0,
-            "all item appraisal blocks are implemented"
-        );
-        assert_eq!(
-            CREATURE_MISC_NOT_IMPLEMENTED.len(),
-            0,
-            "both creature appraisal callers populate the bound list box"
-        );
-    }
-
     /// The society row reads both factions.
     #[test]
     fn the_society_row_reads_both_factions() {
@@ -3996,16 +3887,6 @@ mod tests {
         assert!(
             !text.contains("Bonus to Healing Skill"),
             "not a healing kit"
-        );
-    }
-
-    /// The special properties block names what it does not draw.
-    #[test]
-    fn the_special_properties_block_names_what_it_does_not_draw() {
-        assert_eq!(
-            SPECIAL_PROPERTIES_NOT_IMPLEMENTED.len(),
-            0,
-            "the duration and shared-cooldown pair now have production readers"
         );
     }
 

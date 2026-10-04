@@ -340,8 +340,8 @@ mod bench {
     use dereth_render::device::Gpu;
     use std::sync::Arc;
 
-    const W: u32 = 800;
-    const H: u32 = 600;
+    pub const W: u32 = 800;
+    pub const H: u32 = 600;
     /// Holtburg.
     const HOLTBURG: u16 = 0xA9B4;
     /// A recorded `/loc`, block-local, transcribed digit for digit.
@@ -354,10 +354,6 @@ mod bench {
     /// `ETHEREAL_PS`, so the placement is not turned into a transition that lands the object on
     /// walkable ground. Included to show that the clamp this file measures is **not** gravity.
     pub const ETHEREAL_PS: u32 = 0x0000_0004;
-
-    pub fn warp() -> Gpu {
-        crate::common::software_gpu(W, H)
-    }
 
     pub fn outdoor(x: f32, y: f32, z: f32) -> Position {
         let mut cell = LandblockId(HOLTBURG).cell(1);
@@ -535,7 +531,7 @@ mod bench {
 /// a census of every boundary or an assertion of identical inward-edge heights.
 #[test]
 fn a_request_to_bury_an_object_is_discarded_so_it_cannot_be_a_leak_floor() {
-    let gpu = bench::warp();
+    let gpu = crate::common::test_gpu(bench::W, bench::H);
     let store = std::sync::Arc::new(dereth_dat::testing::open_store_or_fail());
     let mut b = bench::Bench::new(&store, gpu, 8);
     b.stand_at_the_recorded_station();

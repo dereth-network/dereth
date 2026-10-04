@@ -48,7 +48,8 @@ const UI_QUEUE: u16 = 9;
 const SMARTBOX_QUEUE: u16 = 10;
 
 // ---------------------------------------------------------------------------------------------
-// The socket-free peer. Copied in shape from `chat/chat_entry_after_login.rs` and `login::second_login`,
+// The socket-free peer follows `dereth/client/tests/dat/chat/chat_entry_after_login.rs`
+// and `login::second_login`,
 // which is the established way to drive `App` from the wire without a socket.
 // ---------------------------------------------------------------------------------------------
 

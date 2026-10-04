@@ -17,7 +17,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 use std::sync::Arc;
 
 use dereth_assets::Decode;
@@ -339,7 +339,7 @@ fn body_emitters(scene: &WorldScene) -> Vec<dereth_client::world::EmitterDegrade
 #[test]
 fn a_level_up_on_the_players_own_object_reaches_the_bodys_emitters() {
     let store = retail_store();
-    let mut gpu = software_gpu(640, 480);
+    let mut gpu = test_gpu(640, 480);
     let mut scene = scene(&store, &mut gpu);
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -454,7 +454,7 @@ fn a_level_up_on_the_players_own_object_reaches_the_bodys_emitters() {
 #[test]
 fn a_script_type_the_players_table_lacks_creates_nothing_on_the_body() {
     let store = retail_store();
-    let mut gpu = software_gpu(640, 480);
+    let mut gpu = test_gpu(640, 480);
     let mut scene = scene(&store, &mut gpu);
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();

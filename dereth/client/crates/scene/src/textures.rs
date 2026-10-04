@@ -15,8 +15,6 @@
 //!
 //! This module carries texture records from dat ids through decoding into GPU textures.
 
-use std::collections::HashMap;
-
 use dereth_assets::texture_lookup::{LookupError, TextureLookup};
 use dereth_assets::RenderSurface;
 use dereth_dat::RetailDatStore;
@@ -62,8 +60,6 @@ pub struct TextureStore<'a> {
     /// The other era's files, where a part drawn from these records reads some of its colour
     /// ranges ([`Self::with_colours_from`]).
     colours: Option<(TextureLookup<'a>, Vec<bool>)>,
-    // ORDER-OK: keyed by DataId and only ever looked up, never iterated for output.
-    bgra: HashMap<DataId, Option<Bgra8>>,
 }
 
 /// Three colour planes of `width` by `height` bytes, red, green and blue one after another, as
@@ -103,7 +99,6 @@ impl<'a> TextureStore<'a> {
         Self {
             lookup: TextureLookup::new(store, detail),
             colours: None,
-            bgra: HashMap::new(),
         }
     }
 
@@ -347,17 +342,6 @@ impl<'a> TextureStore<'a> {
             height: rs.height,
             pixels: pixels.as_chunks::<4>().0[..n].to_vec(),
         })
-    }
-
-    /// [`Self::bgra8`], memoised, and `None` rather than an error — which is what
-    /// `dereth_world_render::land::merge::TerrainTextureSource` is typed as.
-    pub fn bgra8_cached(&mut self, id: DataId) -> Option<Bgra8> {
-        if let Some(hit) = self.bgra.get(&id) {
-            return hit.clone();
-        }
-        let v = self.bgra8(id).ok();
-        self.bgra.insert(id, v.clone());
-        v
     }
 
     /// The palettised decode arms read the surface's default palette id. Only formats 41 (`P8`) and

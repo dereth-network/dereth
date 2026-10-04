@@ -548,10 +548,6 @@ impl ConstraintManager {
             pull,
         ));
     }
-
-    pub fn unconstrain(&mut self) {
-        *self = Self::default();
-    }
 }
 
 /// `PositionManager` — a thin holder for the three optional sub-managers.

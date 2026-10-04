@@ -73,14 +73,3 @@ pub use scenery::{generate_scenery, PlacedScenery};
 /// The same type the dat decoders produce and physics collides with; here it is constructed at run
 /// time from polygon geometry and is the one terrain, scenery placement and picking all read.
 pub use dereth_primitives::shape::Plane;
-
-/// Everything this crate can refuse to do.
-#[derive(Debug, thiserror::Error)]
-pub enum WorldRenderError {
-    #[error("landblock {0} has {1} cells per side; only 8, 4, 2 and 1 exist")]
-    BadDetail(dereth_primitives::LandblockId, u8),
-    #[error("region {0} uses the PalShift land surface, which no retail region does (OQ #78)")]
-    PalShiftRegion(dereth_primitives::DataId),
-    #[error("cell {0:#06X} is not one of the 64 outdoor land cells")]
-    NotALandCell(u16),
-}

@@ -439,21 +439,6 @@ impl UiTree {
                 .get(&id)
                 .is_none_or(|state| state.blink.visible)
     }
-    /// The optional smooth-scroll flag uses 150 pixels/second by default.
-    /// Caret visibility always cancels this animation and scrolls immediately.
-    pub fn scroll_edit_to(&mut self, id: NodeId, target: (i32, i32), smooth: bool, speed: i32) {
-        if let Some(state) = self.edit_layouts.get_mut(&id) {
-            let target = state
-                .layout
-                .clamp_scroll(state.viewport.w, state.viewport.h, target);
-            state.smooth = smooth.then(|| {
-                crate::text_edit::SmoothScroll::new(state.scroll, target, self.time, speed)
-            });
-            if !smooth {
-                state.scroll = target;
-            }
-        }
-    }
     fn edit_activity(&mut self, id: NodeId) {
         if let Some(state) = self.edit_layouts.get_mut(&id) {
             state.blink.activity(self.time);

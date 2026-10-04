@@ -19,11 +19,6 @@ use dereth_dat::RetailDatStore;
 use dereth_physics::LandSource;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
-use dereth_render::device::Gpu;
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
 
 /// The retail store, or a failed test.
 fn store() -> Arc<RetailDatStore> {
@@ -207,7 +202,7 @@ fn a_room(store: &RetailDatStore) -> Option<(CellId, Vec3)> {
 #[test]
 fn env_cells_become_visible_because_the_landblock_path_prefetched_them() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
@@ -263,7 +258,7 @@ fn env_cells_become_visible_because_the_landblock_path_prefetched_them() {
 #[test]
 fn a_body_inside_a_holtburg_building_is_stopped_by_its_walls() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     // Twenty rooms, not one: Holtburg's interiors are a mixture of sealed rooms, halls that run
     // the length of a building, and covered walkways with an opening on every side. A test that
@@ -896,7 +891,7 @@ clear_ahead_at_all={ahead_full_any}/{trials}",
 #[test]
 fn standing_inside_a_building_draws_its_interior() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let (room, inside) = a_room(&store).expect("Holtburg has an interior cell");
 
@@ -956,7 +951,7 @@ fn standing_inside_a_building_draws_its_interior() {
 #[test]
 fn a_body_standing_where_a_building_is_transits_into_its_interior_cell() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let (room, inside) = a_room(&store).expect("Holtburg has an interior cell");
 

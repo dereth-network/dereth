@@ -1,4 +1,6 @@
 mod animation_hook_census;
+mod death_sequence;
+mod descriptor_recovery_request;
 mod door_collision_symmetry;
 mod door_opens_ethereal;
 mod held_item_frame;

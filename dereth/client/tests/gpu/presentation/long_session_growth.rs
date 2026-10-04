@@ -503,7 +503,6 @@ fn census(app: &mut App) -> Vec<Row> {
         rows.push(("phys.cells", world.cell_count()));
         rows.push(("phys.cell_objects", world.cell_object_count()));
         rows.push(("phys.cell_shadows", world.cell_shadow_count()));
-        rows.push(("phys.static_animating", world.static_animating_count()));
         rows.push(("phys.notices", world.pending_notice_count()));
 
         rows.push(("scene.server_objects", scene.server_object_count()));

@@ -31,7 +31,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{
-    addr, connection_sequence_number, corpus_sessions, load, retail_store, software_gpu,
+    addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
 
@@ -402,7 +402,7 @@ fn the_capture_swaps_the_two_feet_and_the_two_lower_legs_of_its_players_body() {
 #[test]
 fn the_drawn_body_carries_exactly_the_captures_part_swaps() {
     let store = retail_store();
-    let mut gpu = software_gpu(640, 640);
+    let mut gpu = test_gpu(640, 640);
     let r = in_world("first-login-walk-jump");
     let (_, p) = r
         .player

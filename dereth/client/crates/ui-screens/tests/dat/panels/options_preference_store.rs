@@ -155,28 +155,32 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
     let mut ui = env();
     let s = screen(&mut ui);
 
-    assert_eq!(config::DEFAULT_DISAGREEMENTS.len(), 3);
-    for d in config::DEFAULT_DISAGREEMENTS {
-        let shown = value(&s, d.preference);
-        let registered: PrefValue = d.registered.into();
-        let ui_default: PrefValue = d.ui_restore.into();
-        assert_ne!(
-            registered, ui_default,
-            "{} — the two must differ",
-            d.preference
-        );
+    let disagreements = [
+        (
+            "Render.AutomaticDegrades",
+            PrefValue::Bool(true),
+            PrefValue::Bool(false),
+        ),
+        (
+            "Input.MouseLookSensitivity",
+            PrefValue::Float(0.25),
+            PrefValue::Float(0.55),
+        ),
+        (
+            "Render.TextureFiltering",
+            PrefValue::Int(0),
+            PrefValue::Int(1),
+        ),
+    ];
+    for (name, registered, restored) in &disagreements {
+        assert_ne!(registered, restored, "{name}: the two must differ");
         assert_eq!(
-            shown, registered,
-            "{} opened showing its SetDefault value; the store was not read",
-            d.preference
+            &value(&s, name),
+            registered,
+            "{name} opened with its registered value"
         );
-        // …and the page still knows its `SetDefault` value, which is what Defaults restores.
-        let i = index(&s, d.preference);
-        assert_eq!(
-            s.config_page.options[i].default, ui_default,
-            "{}",
-            d.preference
-        );
+        let i = index(&s, name);
+        assert_eq!(&s.config_page.options[i].default, restored, "{name}");
     }
 
     // The literals, so a wrong constant cannot hide behind either symbol.
@@ -189,10 +193,7 @@ fn the_page_opens_showing_the_registered_value_not_its_own_default() {
     assert_eq!(value(&s, "Render.TextureFiltering"), PrefValue::Int(0));
 
     // The other 26 controls agree with their `SetDefault`; all 29 still participate.
-    let disagreeing: Vec<&str> = config::DEFAULT_DISAGREEMENTS
-        .iter()
-        .map(|d| d.preference)
-        .collect();
+    let disagreeing: Vec<&str> = disagreements.iter().map(|(name, _, _)| *name).collect();
     let mut checked = 0;
     for o in s.config_page.retail_options() {
         if disagreeing.contains(&o.preference) {

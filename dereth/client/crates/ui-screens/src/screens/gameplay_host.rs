@@ -27,11 +27,11 @@ use crate::panels::external_container;
 use crate::panels::remaining::RemainingPanels;
 use crate::panels::statmgmt::{self, child, Footer};
 use crate::screens::chargen::{Cg3dView, CharGenTables};
-use crate::screens::chargen_state::CharGenState;
 use crate::screens::gameplay::{
     GamePlayScreen, PlayerSettingsView, SelectionQuery, ToolbarSelection,
 };
 use crate::view::GameView;
+use dereth_chargen::CharGenState;
 
 /// One host call. See the module documentation.
 #[allow(clippy::large_enum_variant)] // one call at a time, handed straight to its handler

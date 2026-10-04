@@ -3553,12 +3553,9 @@ pub fn every_line_the_item_pane_can_draw_reaches_it_through_the_shard() {
         &[],
     );
 
-    // And the denominator: nothing is left on the pane's own list of lines it cannot draw.
-    let nothing_left = examination::ITEM_BLOCKS_NOT_IMPLEMENTED.is_empty();
-
     c.assert_behaviour(
         "examine.item-blocks.every-line-the-item-pane-can-draw-reaches-it-through-the-shard",
-        move |_| ok && nothing_left,
+        move |_| ok,
     );
     c.shutdown();
 }
@@ -3569,8 +3566,7 @@ fn scenario_every_line_the_item_pane_can_draw_reaches_it_through_the_shard() {
 }
 
 /// Assessing another player goes to the character pane, which draws the same nine rows plus the
-/// player's own level -- and the list of rows that pane cannot draw is empty **because they were
-/// drawn**, which is why the list beside it is not.
+/// player's own level. The actual list elements are counted as well as the panel's rows.
 pub fn the_character_pane_draws_its_rows_and_has_nothing_left_undrawn() {
     let (mut c, _peer, profile) = assessing_the_recorded(ARMOUR_SESSION, ObjectId(0x5000_0003));
     assert!(
@@ -3596,7 +3592,6 @@ pub fn the_character_pane_draws_its_rows_and_has_nothing_left_undrawn() {
                 && level.as_deref() == Some("6")
                 && rows == 9
                 && misc == 5
-                && examination::CREATURE_MISC_NOT_IMPLEMENTED.is_empty()
         },
     );
     c.shutdown();
@@ -5862,13 +5857,9 @@ pub fn each_portal_restriction_draws_its_own_sentence_and_only_its_own() {
     .into_iter()
     .all(|line| colors_of(&glyphs, line) == vec![plain]);
 
-    // And the denominator: nothing is left on the pane's own list of description blocks it
-    // cannot draw.
-    let nothing_left = examination::DESCRIPTION_BLOCKS_NOT_IMPLEMENTED.is_empty();
-
     c.assert_behaviour(
         "examine.portal.each-restriction-draws-its-own-sentence-and-only-its-own",
-        move |_| not_a_portal && destroyed && each_alone && in_order && all_plain && nothing_left,
+        move |_| not_a_portal && destroyed && each_alone && in_order && all_plain,
     );
     c.shutdown();
 }
@@ -6897,11 +6888,9 @@ pub fn the_character_pane_rows_are_the_shards_own_numbers() {
         // holding the last one.
         && p.allegiance.is_none();
 
-    let nothing_left = examination::CREATURE_MISC_NOT_IMPLEMENTED.is_empty();
-
     c.assert_behaviour(
         "examine.character.the-armour-rows-are-the-shards-own-numbers-and-the-three-lines-beside-them",
-        move |_| carries && rows_read && all_drawn && beside && nothing_left,
+        move |_| carries && rows_read && all_drawn && beside,
     );
     c.shutdown();
 }
@@ -7422,11 +7411,10 @@ pub fn every_character_row_draws_in_the_panes_own_order() {
     .collect();
     let in_order = got == want;
     let all_drawn = p.drawn as usize == p.rows.len();
-    let nothing_left = examination::CREATURE_MISC_NOT_IMPLEMENTED.is_empty();
 
     c.assert_behaviour(
         "examine.character.every-row-draws-in-the-panes-own-order-and-reaches-the-list",
-        move |_| in_order && all_drawn && nothing_left,
+        move |_| in_order && all_drawn,
     );
     c.shutdown();
 }

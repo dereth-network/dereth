@@ -44,10 +44,6 @@ const TABLE: u32 = 0x3400_00A5;
 /// setup can never play a script type at all.
 const SETUP_WITHOUT_TABLE: u32 = 0x0200_0001;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 480)
-}
-
 /// The retail store, or **fail**: absent dats are a failure, never a skip.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -267,7 +263,7 @@ fn the_fixtures_are_what_this_file_claims() {
 #[test]
 fn a_wire_play_script_type_reaches_a_visible_emitter() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -373,7 +369,7 @@ fn a_wire_play_script_type_reaches_a_visible_emitter() {
 #[test]
 fn the_wire_triggered_effect_reaches_the_screen() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
 
     let run = |gpu: &mut Gpu, send: bool| -> Vec<u8> {
         let mut scene = WorldScene::load(&store, gpu, cfg()).expect("the landscape loads");
@@ -433,7 +429,7 @@ fn the_wire_triggered_effect_reaches_the_screen() {
 #[test]
 fn a_wire_phstable_id_is_what_makes_it_work_for_a_normal_object() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -508,7 +504,7 @@ fn a_wire_phstable_id_is_what_makes_it_work_for_a_normal_object() {
 #[test]
 fn a_wire_play_script_id_reaches_a_visible_emitter() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -565,7 +561,7 @@ fn a_wire_play_script_id_reaches_a_visible_emitter() {
 #[test]
 fn a_wire_message_past_the_tables_last_row_creates_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -604,7 +600,7 @@ fn a_wire_message_past_the_tables_last_row_creates_nothing() {
 #[test]
 fn a_wire_message_for_a_script_type_the_table_lacks_creates_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -668,7 +664,7 @@ fn a_wire_message_for_an_object_the_client_does_not_hold_is_parked_not_delivered
 #[test]
 fn the_queue_is_drained_and_does_not_grow() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut wire = Wire::new();
@@ -845,7 +841,7 @@ fn the_threshold_is_inclusive_so_an_exact_match_selects_its_own_row() {
 #[test]
 fn a_played_script_type_gives_the_object_it_names_live_emitters() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
@@ -946,7 +942,7 @@ fn a_played_script_type_gives_the_object_it_names_live_emitters() {
 #[test]
 fn a_played_script_id_takes_the_same_path_without_the_table() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
@@ -979,7 +975,7 @@ fn a_played_script_id_takes_the_same_path_without_the_table() {
 #[test]
 fn a_null_script_id_creates_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
@@ -1013,7 +1009,7 @@ fn a_null_script_id_creates_nothing() {
 #[test]
 fn an_intensity_past_the_tables_last_row_creates_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
@@ -1044,7 +1040,7 @@ fn an_intensity_past_the_tables_last_row_creates_nothing() {
 #[test]
 fn an_unknown_script_type_creates_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
@@ -1069,7 +1065,7 @@ fn an_unknown_script_type_creates_nothing() {
 #[test]
 fn an_unknown_object_is_not_scripted() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
@@ -1090,7 +1086,7 @@ fn an_unknown_object_is_not_scripted() {
 #[test]
 fn the_played_effect_reaches_the_screen() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
 
     let run = |gpu: &mut Gpu, play: bool| -> Vec<u8> {
         let mut scene = WorldScene::load(&store, gpu, cfg()).expect("the landscape loads");

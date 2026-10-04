@@ -32,7 +32,7 @@ use dereth_primitives::{DataId, LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
 
-use crate::common::software_gpu;
+use crate::common::test_gpu;
 
 /// One second of interleaved stereo at the client's own primary-buffer rate.
 const BLOCK: usize = (dereth_audio::MIX_RATE as usize) * 2;
@@ -127,7 +127,7 @@ fn run(
 #[test]
 fn the_regions_ambient_tables_and_their_waves_are_resident() {
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let mut scene = scene(&store, &mut gpu);
     let mut a = audio(dereth_audio::Prefs::default());
     let mut t = 0.0;
@@ -172,7 +172,7 @@ fn the_regions_ambient_tables_and_their_waves_are_resident() {
 #[test]
 fn the_terrain_rescan_is_driven_by_movement_and_not_by_the_frame() {
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let mut scene = scene(&store, &mut gpu);
     let mut a = audio(dereth_audio::Prefs::default());
 
@@ -216,7 +216,7 @@ fn the_terrain_rescan_is_driven_by_movement_and_not_by_the_frame() {
 #[test]
 fn holtburgs_ambience_reaches_the_mixer_as_samples() {
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let mut scene = scene(&store, &mut gpu);
     let mut a = audio(dereth_audio::Prefs::default());
 
@@ -430,7 +430,7 @@ fn the_seventeenth_concurrent_sound_is_dropped() {
 #[test]
 fn the_ambient_slider_is_quadratic_through_the_clients_own_path() {
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
 
     let peak = |gpu: &mut Gpu, ambient_volume: f32| -> f32 {
         let mut scene = scene(&store, gpu);
@@ -559,7 +559,7 @@ fn interface_sounds_are_scaled_by_the_effect_slider_not_the_interface_one() {
 #[test]
 fn the_animation_sound_hooks_resolve_against_the_objects_own_table() {
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let mut scene = scene(&store, &mut gpu);
     let mut a = audio(dereth_audio::Prefs {
         // Ambience off, so what is measured can only be the hooks.

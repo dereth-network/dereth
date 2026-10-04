@@ -17,7 +17,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 use std::sync::Arc;
 
 use dereth_animation::data::{AnimAssets, GfxObjLookup, NoAssets};
@@ -280,7 +280,7 @@ fn objdesc_event(id: ObjectId, od: ProtocolObjDesc, ts: u16) -> SessionEvent {
 #[test]
 fn the_local_body_keeps_the_limb_when_a_swap_names_an_absent_gfxobj() {
     let store = retail_store();
-    let mut gpu = software_gpu(320, 320);
+    let mut gpu = test_gpu(320, 320);
     let assets = DatAnimAssets::new(Arc::clone(&store));
     let base = setup_parts(&assets);
     let gone = absent_id(&store);
@@ -392,7 +392,7 @@ fn the_local_body_keeps_the_limb_when_a_swap_names_an_absent_gfxobj() {
 #[test]
 fn a_swapped_part_on_the_local_body_carries_the_new_objects_degrade_record() {
     let store = retail_store();
-    let mut gpu = software_gpu(320, 320);
+    let mut gpu = test_gpu(320, 320);
     let (mut scene, mut stream) = body_scene(&store, &mut gpu);
 
     let index: u8 = 0;
@@ -443,7 +443,7 @@ fn a_swapped_part_on_the_local_body_carries_the_new_objects_degrade_record() {
 #[test]
 fn a_server_objects_swap_naming_an_absent_gfxobj_keeps_the_setups_part() {
     let store = retail_store();
-    let mut gpu = software_gpu(320, 320);
+    let mut gpu = test_gpu(320, 320);
     let assets = DatAnimAssets::new(Arc::clone(&store));
     let base = setup_parts(&assets);
     let gone = absent_id(&store);
@@ -540,7 +540,7 @@ fn a_server_objects_swap_naming_an_absent_gfxobj_keeps_the_setups_part() {
 #[test]
 fn the_preview_refuses_a_swap_naming_an_absent_gfxobj_and_bakes_the_previous_limb() {
     let store = retail_store();
-    let mut gpu = software_gpu(320, 320);
+    let mut gpu = test_gpu(320, 320);
     let assets = Arc::new(DatAnimAssets::new(Arc::clone(&store)));
     let base = setup_parts(&assets);
     let gone = absent_id(&store);

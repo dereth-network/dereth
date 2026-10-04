@@ -37,10 +37,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 fn character(store: &Arc<RetailDatStore>) -> Character {
     let region = dereth_client::world::load_region(store).expect("the region decodes");
     Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created")
@@ -715,7 +711,7 @@ fn the_body_animates_and_the_part_placement_is_a_step_function() {
 #[test]
 fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("region");
 
     // The control is the **same scene from the same chase camera** with the body hidden, so the
@@ -795,7 +791,7 @@ fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
 #[test]
 fn two_identically_stepped_scenes_render_the_same_frame() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("region");
     let mut shots = Vec::new();
     for _ in 0..2 {

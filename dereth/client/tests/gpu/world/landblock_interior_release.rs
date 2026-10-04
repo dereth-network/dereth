@@ -27,10 +27,6 @@ use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The retail dats, or a failed test: a test that returned early without them would read as a
 /// pass that tested nothing.
 fn store() -> Arc<RetailDatStore> {
@@ -239,7 +235,7 @@ fn blocks_spanned(cells: &[CellId]) -> usize {
 #[test]
 fn a_walk_that_leaves_a_region_and_returns_ends_where_it_started() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     let (off, mut off_scene) = walk(&store, &mut gpu, false);
     off_scene.release_textures(&mut gpu);
@@ -586,7 +582,7 @@ fn a_walk_that_leaves_a_region_and_returns_ends_where_it_started() {
 #[test]
 fn a_re_entered_block_re_registers_and_holds_no_second_copy() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let (r, mut scene) = walk(&store, &mut gpu, true);
     let (home, far, back) = (r[0], r[FAR], r[WALK.len() - 1]);
 
@@ -1085,7 +1081,7 @@ fn confining_room(scene: &WorldScene, block: LandblockId) -> Option<(CellId, Vec
 #[test]
 fn the_walls_of_a_released_block_no_longer_stop_a_body() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = embodied(&store, &mut gpu, true);
     let home = LandblockId(DEFAULT_LANDBLOCK);
 
@@ -1320,7 +1316,7 @@ fn the_walls_of_a_released_block_no_longer_stop_a_body() {
 #[test]
 fn the_round_trip_changes_the_frame_at_home_by_the_same_pixels_in_both_arms() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
 
     let diff = |a: &[u8], b: &[u8]| -> usize {
@@ -1415,7 +1411,7 @@ mod interior_cell_objects {
     //! Fixture: six synthetic creates in Holtburg's block, a body walked five blocks away, on the
     //! retail dats (fails without them) and a software device.
 
-    use super::{block_at, store, warp};
+    use super::{block_at, store};
     use std::sync::Arc;
 
     use dereth_client::character::CharacterInput;
@@ -1652,7 +1648,7 @@ mod interior_cell_objects {
     #[test]
     fn a_departed_block_releases_the_objects_in_its_interior_cells() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
 
         let home = LandblockId(DEFAULT_LANDBLOCK);
         let inside = home.cell(INTERIOR);
@@ -1806,7 +1802,7 @@ mod interior_cell_objects {
     #[test]
     fn the_lost_cell_the_release_wrote_is_the_one_init_obj_cell_pops() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
 
         let home = LandblockId(DEFAULT_LANDBLOCK);
         let inside = home.cell(INTERIOR);

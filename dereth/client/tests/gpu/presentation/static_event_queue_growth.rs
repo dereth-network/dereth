@@ -21,16 +21,11 @@ use dereth_client::audio::SoundTrigger;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_primitives::LocalTime;
-use dereth_render::device::Gpu;
 
 /// One second of simulated time per cycle, so the series is readable in seconds.
 const FRAMES_PER_CYCLE: u32 = 30;
 const WARMUP_CYCLES: u32 = 2;
 const CYCLES: u32 = 14;
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 480)
-}
 
 /// Behaviour: presentation.long-session.a-static-emitters-event-queue-stays-bounded
 ///
@@ -38,7 +33,7 @@ fn warp() -> Gpu {
 /// every second: the pending-event count never leaves its baseline of zero.
 #[test]
 fn a_landblock_statics_event_queue_stays_bounded_over_a_long_session() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the landscape loads");

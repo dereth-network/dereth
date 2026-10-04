@@ -55,11 +55,6 @@ const PLAYER: ObjectId = ObjectId(0x5000_0167);
 /// An id nothing ever creates — the object-existence gate's control.
 const STRANGER: ObjectId = ObjectId(0x6167_0001);
 
-/// The software device, or a failed test.
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 480)
-}
-
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -473,7 +468,7 @@ fn logged_in(
 #[test]
 fn the_recorded_fizzle_reaches_the_bodys_emitter_and_raises_its_sound() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (mut scene, mut stream, mut wire, mut t, mut sounds) = logged_in(&store, &mut gpu);
     let table = scene
         .character_sound_table()
@@ -551,7 +546,7 @@ fn the_recorded_fizzle_reaches_the_bodys_emitter_and_raises_its_sound() {
 #[test]
 fn a_script_type_the_players_table_lacks_creates_nothing_and_is_silent() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (mut scene, mut stream, mut wire, mut t, mut sounds) = logged_in(&store, &mut gpu);
 
     assert!(wire.send(
@@ -587,7 +582,7 @@ fn a_script_type_the_players_table_lacks_creates_nothing_and_is_silent() {
 #[test]
 fn a_fizzle_for_an_object_the_client_does_not_hold_plays_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (mut scene, mut stream, mut wire, mut t, mut sounds) = logged_in(&store, &mut gpu);
 
     let delivered = wire.send(

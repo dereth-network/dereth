@@ -25,7 +25,6 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{movement_type, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::{Message, Opcode};
-use dereth_render::device::Gpu;
 
 // ---------------------------------------------------------------------------------------------
 // 1. The retained capture corpus. A missing fixture directory is a broken checkout.
@@ -196,10 +195,6 @@ fn every_style_word_the_server_sends_the_player_is_a_known_stance() {
 //    through `WorldScene::sync_objects` — the application's own path and no other.
 // ---------------------------------------------------------------------------------------------
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -233,7 +228,7 @@ struct Station {
 /// `WorldScene::sync_objects`, which is where `apply_player_movement` lives.
 fn drive(session: &str, limit: usize) -> (Vec<Station>, ObjectId, bool, u64) {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     // Every `MoveTo`/`TurnTo` body this session sent its own character, in wire order, kept whole
     // so one of them can be re-delivered below.
     let edge_candidates: Vec<(u8, u16, Vec<u8>)> = {

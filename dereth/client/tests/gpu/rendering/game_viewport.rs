@@ -33,10 +33,6 @@ const INSET: Viewport = Viewport {
     height: 240,
 };
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// The retail store, or **fail**.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -97,7 +93,7 @@ fn outside_points() -> Vec<(u32, u32)> {
 #[test]
 fn the_scene_renders_inside_the_world_view_rectangle() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
 
     let full = frame(&store, &mut gpu, None);
     let inset = frame(&store, &mut gpu, Some(INSET));
@@ -262,7 +258,7 @@ fn resizing_the_world_view_moves_the_game_viewport() {
 #[test]
 fn the_scene_does_paint_outside_the_rect_when_the_viewport_is_the_window() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let cleared = {
         gpu.begin_frame().expect("begin");
         gpu.end_frame().expect("end");
@@ -292,7 +288,7 @@ fn the_scene_does_paint_outside_the_rect_when_the_viewport_is_the_window() {
 #[test]
 fn the_aspect_is_the_viewports_and_not_the_windows() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg()).expect("the landscape loads");
 
     let full = scene.view_params(W, H);

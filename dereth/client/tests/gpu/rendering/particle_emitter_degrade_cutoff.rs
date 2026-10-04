@@ -20,10 +20,6 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 480)
-}
-
 /// The retail dats, or **fail**: a missing oracle must not read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -108,7 +104,7 @@ fn spread(rows: &[EmitterDegrade]) -> Vec<f32> {
 #[test]
 fn should_draw_particles_is_called_and_the_defect_is_the_distance_it_is_handed() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (scene, _stream) = lit(&store, &mut gpu);
     let rows = scene.emitter_degrade_probe();
 
@@ -157,7 +153,7 @@ fn should_draw_particles_is_called_and_the_defect_is_the_distance_it_is_handed()
 #[test]
 fn an_emitter_is_asked_about_its_manager_and_not_about_itself() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (mut scene, mut stream) = lit(&store, &mut gpu);
 
     // Require a mixed manager and choose an emitter at its smallest individual cutoff.

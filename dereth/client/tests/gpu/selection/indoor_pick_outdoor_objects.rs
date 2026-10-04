@@ -35,6 +35,8 @@
 // This suite drives a real GPU-backed `App`.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use std::collections::BTreeSet;
 
 use dereth_client::app::App;
@@ -74,21 +76,6 @@ const OPEN_CELL: u32 = 0xA9B4_0146;
 /// The id the corpus chest is created under, and the base for the control's spread-out attempts.
 const CORPUS_CHEST: ObjectId = ObjectId(0x7DA5_5005);
 const CONTROL_CHEST: ObjectId = ObjectId(0x7DA5_5010);
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 /// A point a body could stand at inside `cell`, in the landblock's own metres: inside the cell
 /// BSP and outside its solid physics BSP.

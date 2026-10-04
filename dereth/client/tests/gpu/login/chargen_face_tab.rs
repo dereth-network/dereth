@@ -263,12 +263,7 @@ fn a_character_created_without_opening_the_clothes_tab_goes_out_bare_headed() {
 /// Typing uses the actual text widget and a text-changed message, rather than assigning the
 /// name-entered guard. The assertion below confirms delivery; `login::chargen_wizard` covers
 /// wizard typing separately. This helper tests the accepted finish method and queue, not a Finish-button click.
-fn create_character(
-    open_clothes: bool,
-) -> (
-    dereth_ui_screens::screens::chargen_state::CharGenResultData,
-    i32,
-) {
+fn create_character(open_clothes: bool) -> (dereth_chargen::CharGenResultData, i32) {
     let mut app = wizard_on(EcgProgress::Appearance);
     let parked = wizard(&mut app).hold_headgear;
     if open_clothes {

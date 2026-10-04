@@ -16,8 +16,8 @@ pub static ROWS: &[Behaviour] = &[
                held they rotate the camera instead, and releasing it gives them back to movement.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O165-KEYS-ALTERNATE"),
-        station: "dereth-client::gpu::movement::command_lists::the_arrow_keys_are_movement_until_the_alternate_camera_key_is_held",
-        tier: Tier::Gpu,
+        station: "dereth-client::dat::movement::command_lists::the_arrow_keys_are_movement_until_the_alternate_camera_key_is_held",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "camera.mouse-look.only-moves-from-the-sixth-frame",

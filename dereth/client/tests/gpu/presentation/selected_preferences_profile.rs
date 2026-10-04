@@ -13,31 +13,26 @@ use std::path::{Path, PathBuf};
 use dereth_client::app::App;
 use dereth_client::config::{Config, FORCED_LOGIN_SIZE};
 
-struct TempDir(PathBuf);
+struct TempDir(dereth_dat::testing::ScratchDir);
 
 impl TempDir {
     fn new() -> Self {
-        let unique = format!(
-            "dereth-selected-preferences-profile-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("the system clock follows the epoch")
-                .as_nanos()
-        );
-        let path = std::env::temp_dir().join(unique);
-        std::fs::create_dir(&path).expect("create the disposable profile directory");
-        Self(path)
+        Self(
+            dereth_dat::testing::ScratchDir::new("selected-preferences-profile")
+                .expect("create disposable directory"),
+        )
     }
 
     fn path(&self) -> &Path {
-        &self.0
+        self.0.path()
     }
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).expect("remove the disposable profile directory");
+        self.0
+            .cleanup()
+            .expect("remove the disposable profile directory");
     }
 }
 

@@ -30,13 +30,6 @@ const BLOCK: f32 = 192.0;
 /// `t >= 1` would mix the two populations.
 const BRACKETS: [u8; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(
-        u32::try_from(W).expect("a back-buffer width"),
-        u32::try_from(H).expect("a back-buffer height"),
-    )
-}
-
 /// The retail dats, or a failed test: a skipped test would read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -400,7 +393,10 @@ fn a_round_trip_moves_no_pixel_and_the_landscape_re_bakes_bit_identically() {
         ("adjacent block, stays in the window", &SHORT[..], false),
         ("five blocks out, leaves the window", &LONG[..], true),
     ] {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(
+            u32::try_from(W).expect("a back-buffer width"),
+            u32::try_from(H).expect("a back-buffer height"),
+        );
         let t = round_trip(&store, &mut gpu, legs);
 
         let moved = deltas(&t.home, &t.back);
@@ -556,7 +552,10 @@ fn a_round_trip_moves_no_pixel_and_the_landscape_re_bakes_bit_identically() {
 #[test]
 fn the_bodys_parts_do_not_lag_the_window_recentre() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(
+        u32::try_from(W).expect("a back-buffer width"),
+        u32::try_from(H).expect("a back-buffer height"),
+    );
     let t = round_trip(&store, &mut gpu, &SHORT);
 
     // The control: the body did not move. `render_frame` is the object's own position in the same
@@ -644,7 +643,10 @@ fn a_multi_block_shift_keeps_the_cameras_bits_because_it_is_re_derived_not_shift
     }
     let mut arms: Vec<Arm> = Vec::new();
     for (label, legs) in [("one block", &SHORT[..]), ("four blocks", &[(4, 4)][..])] {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(
+            u32::try_from(W).expect("a back-buffer width"),
+            u32::try_from(H).expect("a back-buffer height"),
+        );
         let t = round_trip(&store, &mut gpu, legs);
         // The control, per arm: the body's own position is bit-identical across the trip, so
         // anything the camera does is the camera's own arithmetic and not the subject moving.

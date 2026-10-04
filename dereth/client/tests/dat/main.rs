@@ -11,6 +11,7 @@
 mod common;
 
 mod audio;
+mod chat;
 mod inventory;
 mod login;
 mod movement;

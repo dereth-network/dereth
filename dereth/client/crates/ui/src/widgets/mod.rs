@@ -3754,25 +3754,6 @@ pub mod meter {
     }
 
     impl Meter {
-        /// Start an animation to `to`, registering for the frame tick for exactly as long as it
-        /// runs — the register-only-while-working idiom.
-        pub fn animate_to(
-            &mut self,
-            ui: &mut UiSystem,
-            me: ElemHandle,
-            to: f32,
-            now: f64,
-            secs: f64,
-        ) {
-            self.anim_start_pos = self.position;
-            self.anim_end_pos = to;
-            self.anim_start_time = now;
-            self.anim_end_time = now + secs;
-            self.animating = true;
-            ui.want_tick(me, true);
-            ui.broadcast_element_message(me, msgid::METER_ANIM_START, 0, 0);
-        }
-
         /// The eased position at `now`, using the UI animation's 0..1024 curve.
         #[must_use]
         pub fn eased(&self, table: &[i16; 100], now: f64) -> f32 {

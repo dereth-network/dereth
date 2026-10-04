@@ -809,12 +809,6 @@ mod imp {
             }
         }
 
-        /// What [`Renderer::set_movie_frame`]'s own releases have done, for the descriptor report.
-        #[must_use]
-        pub fn movie_release_report(&self) -> UiReleaseReport {
-            self.ui_release
-        }
-
         /// How many distinct UI images are resident, for the descriptor-heap note in the report.
         #[must_use]
         pub fn ui_texture_count(&self) -> usize {

@@ -7154,8 +7154,8 @@ impl<S: Shell> App<S> {
     }
 
     /// The world state this `App` owns: the body, the server objects' simulation,
-    /// the residency window, the camera and the clock. `None` before a world is loaded, and always
-    /// with a presentation that has no device.
+    /// the residency window, the camera and the clock. `None` before a world is loaded, and with
+    /// a presentation that does not build a world.
     #[must_use]
     pub fn world_state(&self) -> Option<&crate::world_state::WorldState> {
         self.world.as_ref()

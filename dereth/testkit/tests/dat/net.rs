@@ -100,17 +100,17 @@ fn digest(path: &Path) -> (u64, u64) {
 /// A scratch directory, and the retail files it promises not to touch.
 struct Scratch {
     dir: PathBuf,
+    _directory: dereth_dat::testing::ScratchDir,
     pristine: Vec<(PathBuf, (u64, u64))>,
 }
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("ddd_cache_miss_{}_{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let directory = dereth_dat::testing::ScratchDir::new(name).expect("a scratch directory");
+        let dir = directory.path().to_path_buf();
         Self {
             dir,
+            _directory: directory,
             pristine: Vec::new(),
         }
     }
@@ -146,7 +146,6 @@ impl Drop for Scratch {
                 src.display()
             );
         }
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -643,23 +642,6 @@ fn link_panel_text(loss: f32) -> String {
     use dereth_ui::{ElementId, UiSystem};
     use dereth_ui_screens::panels::linkstatus::LinkStatusPanel;
 
-    #[derive(Debug)]
-    struct Store(std::sync::Arc<dereth_dat::RetailDatStore>);
-    impl dereth_primitives::AssetSource for Store {
-        fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-            self.0.read(id)
-        }
-        fn exists(&self, id: DataId) -> bool {
-            self.0.exists(id)
-        }
-        fn iter_type(
-            &self,
-            kind: dereth_primitives::DataType,
-        ) -> Box<dyn Iterator<Item = DataId> + '_> {
-            self.0.iter_type(kind)
-        }
-    }
-
     let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect(
         "the shipped string table lives in the retail data files: set DERETH_TEST_DAT_DIR",
     ));
@@ -672,7 +654,7 @@ fn link_panel_text(loss: f32) -> String {
     ui.property_types = master.property_types();
     let mut flow = dereth_ui::UiFlow::new();
     dereth_ui_screens::register_all(&mut ui, &mut flow);
-    let source = std::rc::Rc::new(Store(std::sync::Arc::clone(&store)));
+    let source = std::rc::Rc::new(std::sync::Arc::clone(&store));
     let resolver = std::rc::Rc::new(
         DidMapperResolver::load_via_master(source.as_ref()).expect("the id mapper"),
     );

@@ -18,8 +18,8 @@ use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 
 use crate::rendering::building_boundary_draw::{
-    door_shot, store, warp, DOORWAY, DOOR_ROT, H, HOLTBURG, RECORDED_CELL, RECORDED_ORIGIN,
-    RECORDED_ROT, W,
+    door_shot, store, DOORWAY, DOOR_ROT, H, HOLTBURG, RECORDED_CELL, RECORDED_ORIGIN, RECORDED_ROT,
+    W,
 };
 
 /// Where a frame goes when no variable names a place: cargo's scratch folder for integration
@@ -32,7 +32,7 @@ fn default_dir() -> &'static str {
 #[ignore = "evidence generator: writes PNGs, run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
 fn render_the_recorded_pose_frame() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
@@ -140,7 +140,7 @@ fn shot(
     yaw_deg: f32,
     tag: &str,
 ) -> Option<()> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_client::world::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,

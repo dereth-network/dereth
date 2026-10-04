@@ -292,8 +292,8 @@ pub static ROWS: &[Behaviour] = &[
                radar.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1121-DEATH-CORPSE"),
-        station: "dereth-client::gpu::objects::death_sequence::neither_corpse_is_ever_a_radar_blip",
-        tier: Tier::Gpu,
+        station: "dereth-client::dat::objects::death_sequence::neither_corpse_is_ever_a_radar_blip",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "objects.death.a-killed-creature-falls-over-once-across-itself-and-its-corpse",
@@ -323,8 +323,8 @@ pub static ROWS: &[Behaviour] = &[
                and vitae wears off.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1121-DEATH"),
-        station: "dereth-client::gpu::objects::death_sequence::the_death_sequence_from_the_fight_to_the_vitae_wearing_off",
-        tier: Tier::Gpu,
+        station: "dereth-client::dat::objects::death_sequence::the_death_sequence_from_the_fight_to_the_vitae_wearing_off",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "objects.deletion.the-shards-remove-detaches-the-item-and-defers-the-rest",
@@ -354,8 +354,8 @@ pub static ROWS: &[Behaviour] = &[
                description, and sends that request on the next packet-processing pass.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P140-DESCRIPTOR-RECOVERY"),
-        station: "dereth-client::gpu::objects::descriptor_recovery_request::duplicate_drop_create_queues_descriptor_recovery_at_its_message_boundary",
-        tier: Tier::Gpu,
+        station: "dereth-client::dat::objects::descriptor_recovery_request::duplicate_drop_create_queues_descriptor_recovery_at_its_message_boundary",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "objects.door.a-closing-door-will-not-close-on-a-body",

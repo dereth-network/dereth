@@ -21,6 +21,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::gameplay;
+
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 use crate::common::workspace_root;
@@ -38,7 +40,7 @@ use dereth_ui::framework::mode;
 use dereth_ui::{Box2D, ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::interface::ChatMessage;
 use dereth_ui_screens::chat::window::{LOG, NEW_TEXT_BELOW, SCROLLBAR};
-use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+
 use winit::event::MouseButton;
 
 fn base_config() -> Config {
@@ -75,18 +77,6 @@ fn app_in_gameplay(frames: u32) -> App {
         app.frame();
     }
     app
-}
-
-fn gameplay(app: &mut App) -> (&mut UiSystem, &mut GamePlayScreen) {
-    let shell = app.ui_mut().expect("shell");
-    let ui = &mut shell.ui;
-    let screen = shell.flow.current_mut().expect("a screen is up");
-    let any: &mut dyn std::any::Any = &mut **screen;
-    (
-        ui,
-        any.downcast_mut::<GamePlayScreen>()
-            .expect("gameplay screen"),
-    )
 }
 
 fn find(app: &App, id: ElementId) -> ElemHandle {

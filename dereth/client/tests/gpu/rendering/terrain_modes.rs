@@ -122,7 +122,7 @@ fn moved(a: &[u8], b: &[u8]) -> usize {
 #[test]
 fn a_ground_switch_rebuilds_every_resident_block_and_switching_back_restores_the_frame() {
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = load_ground(&store, &mut gpu, cfg(None, None));
     assert!(scene.draw.ground_is_worlds_own());
     assert!(!scene.draw.ground_palette_shifts());
@@ -211,7 +211,7 @@ fn a_ground_switch_rebuilds_every_resident_block_and_switching_back_restores_the
 #[test]
 fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut own = load(&store, &mut gpu, cfg(None, None));
     let own_px = draw(&mut own, &store, &mut gpu);
     let own_census = dereth_client_runtime::present::Scene::census(&own);
@@ -303,7 +303,7 @@ fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
 #[test]
 fn a_style_without_its_files_is_refused_and_the_world_keeps_its_own() {
     let store = crate::common::dats();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = load_ground(&store, &mut gpu, cfg(None, None));
     let before = draw(&mut scene, &store, &mut gpu);
     assert_eq!(
@@ -357,7 +357,7 @@ fn a_style_without_its_files_is_refused_and_the_world_keeps_its_own() {
 #[test]
 fn a_terrain_type_the_ground_region_does_not_name_takes_its_neighbours_ground() {
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let at = |ground| SceneConfig {
         landblock: 0xF930,
         ..cfg(ground, None)
@@ -552,7 +552,7 @@ fn the_detail_textures_follow_the_drawn_ground_style_and_palette_shift_draws_the
     use dereth_client::world::DetailSource;
     use dereth_world_render::detail::DetailClass;
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let with_detail = |ground: Option<RegionStyle>, on: bool| {
         let mut c = cfg(ground, None);
         c.render.landscape_detail_textures = on;

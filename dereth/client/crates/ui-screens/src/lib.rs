@@ -34,7 +34,6 @@ pub mod env;
 pub mod hud;
 pub mod items;
 pub mod mapradar;
-pub mod notices;
 pub mod options;
 pub mod panels;
 pub mod requests;

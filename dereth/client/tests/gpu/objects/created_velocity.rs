@@ -58,7 +58,7 @@
 use dereth_physics::math::V3 as _;
 use dereth_physics::{PhysicsState, TransientState};
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
@@ -215,7 +215,7 @@ fn a_create_carrying_a_velocity_parks_it_for_the_body() {
 #[test]
 fn a_projectile_created_with_a_velocity_travels() {
     let store = retail_store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
 
     let recorded = recorded_create();
     let mut at: Position = recorded.physicsdesc.position.expect("placed").into();
@@ -324,7 +324,7 @@ struct Outcome {
 
 fn drop_an_item(up: f32, state: u32, frames: usize) -> Outcome {
     let store = retail_store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
 
     let recorded = recorded_create();
     let mut at: Position = recorded.physicsdesc.position.expect("placed").into();

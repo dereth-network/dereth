@@ -107,10 +107,6 @@ pub fn sync_options<S: Shell>(cx: &mut Cx<'_, S>) {
     }
 }
 
-pub fn right_click_mouse_look(_world: &World) -> bool {
-    classic_bits() & RIGHT_CLICK_LOOK != 0
-}
-
 /// The sample to hand on for the real one at `(x, y)`. `previous` is the last real sample and
 /// `handed_on` the last sample handed on: inverted, the next one handed on moves from `handed_on`
 /// by the real vertical motion reversed, so the motion the camera sees is the real motion with

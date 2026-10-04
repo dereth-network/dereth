@@ -124,10 +124,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 // ---------------------------------------------------------------------------------------------
 // The recording: the `house-purchase-and-trade` session's messages, read through the shared corpus
 // reader.
@@ -467,7 +463,7 @@ fn bench_with_the_house(
     blobs: &[Blob],
     player: ObjectId,
 ) -> Option<Bench> {
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut b = Bench::new(store, gpu, player);
     b.create_player(player, dereth_client_model::weenie::bitfield::PLAYER);
     b.create_house_from_the_capture(blobs, HOUSE);
@@ -637,7 +633,7 @@ fn the_shard_and_the_dat_name_the_same_house() {
 #[test]
 fn the_dats_restriction_objects_reach_the_physics_cells() {
     let s = store();
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut b = Bench::new(&s, gpu, PLAYER_OBJECT_ID);
     b.step(CharacterInput::default());
     b.step(CharacterInput::default());

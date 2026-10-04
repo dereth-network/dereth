@@ -22,7 +22,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{
-    addr, connection_sequence_number, corpus_sessions, load, retail_store, software_gpu,
+    addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
 
@@ -284,7 +284,7 @@ fn a_wire_subpalette_changes_exactly_the_ranges_it_names() {
 #[test]
 fn the_captures_objects_wear_what_the_server_sent() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let in_world = last_populated("first-login-walk-jump");
     let mut r = replay_upto("first-login-walk-jump", in_world + 1);
 
@@ -386,7 +386,7 @@ fn the_captures_objects_wear_what_the_server_sent() {
 #[test]
 fn the_players_own_body_wears_his_objdesc() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let in_world = last_populated("first-login-walk-jump");
     let mut r = replay_upto("first-login-walk-jump", in_world + 1);
     let (_, p) = r.player.as_ref().expect("the capture creates a player");
@@ -489,7 +489,7 @@ fn no_objdesc_in_the_corpus_fails_to_apply() {
         .iter()
         .filter(|s| s.as_str() != "first-login-walk-jump")
     {
-        let mut gpu = software_gpu(800, 600);
+        let mut gpu = test_gpu(800, 600);
         let in_world = last_populated(name);
         let mut r = replay_upto(name, in_world + 1);
         let (_, p) = r.player.as_ref().expect("the capture creates a player");

@@ -10254,29 +10254,6 @@ pub mod world_support {
     // The shipped gameplay screen, and the map window on it
     // ---------------------------------------------------------------------------------------
 
-    /// The retail store behind an asset source, which is what the shell reads its layouts
-    /// through.
-    #[derive(Debug)]
-    struct ScreenStore(RetailDatStore);
-
-    impl dereth_primitives::AssetSource for ScreenStore {
-        fn read(
-            &self,
-            id: dereth_primitives::DataId,
-        ) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-            self.0.read(id)
-        }
-        fn exists(&self, id: dereth_primitives::DataId) -> bool {
-            self.0.exists(id)
-        }
-        fn iter_type(
-            &self,
-            kind: dereth_primitives::DataType,
-        ) -> Box<dyn Iterator<Item = dereth_primitives::DataId> + '_> {
-            self.0.iter_type(kind)
-        }
-    }
-
     /// The real gameplay screen, built from the shipped layout, with no client around it.
     ///
     /// The claims in this section are about what a panel writes into the element tree, which the
@@ -10304,7 +10281,7 @@ pub mod world_support {
         ui.property_types = master.property_types();
         let mut flow = dereth_ui::UiFlow::new();
         dereth_ui_screens::register_all(&mut ui, &mut flow);
-        let store = std::rc::Rc::new(ScreenStore(store));
+        let store = std::rc::Rc::new(store);
         let resolver = std::rc::Rc::new(
             DidMapperResolver::load_via_master(store.as_ref()).expect("the id mapper"),
         );
@@ -10457,7 +10434,7 @@ pub mod world_support {
         ui.property_types = master.property_types();
         let mut flow = dereth_ui::UiFlow::new();
         dereth_ui_screens::register_all(&mut ui, &mut flow);
-        let store = std::rc::Rc::new(ScreenStore(store));
+        let store = std::rc::Rc::new(store);
         let resolver = std::rc::Rc::new(
             DidMapperResolver::load_via_master(store.as_ref()).expect("the id mapper"),
         );

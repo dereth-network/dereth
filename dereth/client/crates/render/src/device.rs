@@ -23,7 +23,7 @@
 //!
 //! # The FPU
 //!
-//! Neither backend changes the FPU control word; see each module's `assert_fpu_untouched`.
+//! The backends leave the FPU control word unchanged.
 
 // The items only the device enum names are gated with it: a build with no backend compiles this
 // module for its plain data alone.

@@ -115,10 +115,6 @@ impl Walk {
 /// would issue, and how many batches those are.
 type Shot = (Vec<u8>, u32, u32, Vec<(f32, f32, f32, f32)>, usize);
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The retail store, or a failed test.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -344,7 +340,7 @@ fn a_dungeon_door_is_a_server_weenie_and_not_one_of_these_statics() {
 #[test]
 fn standing_in_the_training_dungeon_draws_its_furniture() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
 
     // Where the body stands, and which of that cell's baked objects it faces. Both come out of
@@ -737,7 +733,7 @@ fn collision_top(store: &RetailDatStore, frame: &Frame, id: u32) -> (f32, f32) {
 #[test]
 fn a_holtburg_dinnertable_answers_a_body_walking_into_it_and_an_unregistered_one_does_not() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
 
     let room = CellId(HOLTBURG_DINING_ROOM);
@@ -855,7 +851,7 @@ fn a_holtburg_dinnertable_answers_a_body_walking_into_it_and_an_unregistered_one
 #[test]
 fn the_setups_step_height_says_which_of_two_statics_can_be_climbed() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
 
     // 1. The step height, read from the player's own setup rather than assumed.
@@ -990,7 +986,7 @@ fn the_setups_step_height_says_which_of_two_statics_can_be_climbed() {
 #[test]
 fn the_training_dungeons_braziers_run_their_default_scripts() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: TRAINING_DUNGEON,
@@ -1032,7 +1028,7 @@ fn the_training_dungeons_braziers_run_their_default_scripts() {
 #[test]
 fn every_training_dungeon_placement_is_accounted_for() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: TRAINING_DUNGEON,

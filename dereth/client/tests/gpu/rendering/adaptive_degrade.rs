@@ -67,10 +67,6 @@ use dereth_world_render::degrade_loop::{DegradeGovernor, DegradeLevel, Framerate
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 480)
-}
-
 /// The retail store, or **fail**: absent dats are a missing oracle, not a reason to pass, so the
 /// type offers no way to skip.
 fn store() -> Arc<RetailDatStore> {
@@ -303,7 +299,7 @@ fn warm_up(store: &Arc<RetailDatStore>, gpu: &mut Gpu, scene: &mut WorldScene, h
 #[test]
 fn the_loop_runs_exactly_once_per_frame_of_the_apps_own_update_path() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     assert_eq!(
         scene.draw.degrade.frames, 0,
@@ -328,7 +324,7 @@ fn the_loop_runs_exactly_once_per_frame_of_the_apps_own_update_path() {
 #[test]
 fn the_measured_frame_rate_is_the_clients_twenty_frame_window() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     let mut h = Harness::new();
     for _ in 0..FrameRate::WINDOW {
@@ -371,7 +367,7 @@ fn the_measured_frame_rate_is_the_clients_twenty_frame_window() {
 #[test]
 fn detail_falls_back_under_load_and_recovers_when_frames_get_cheap() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     let mut h = Harness::new();
     warm_up(&store, &mut gpu, &mut scene, &mut h);
@@ -446,7 +442,7 @@ fn detail_falls_back_under_load_and_recovers_when_frames_get_cheap() {
 #[test]
 fn a_frame_rate_in_the_rest_band_leaves_the_bias_alone() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     let mut h = Harness::new();
     // 11 fps: above `wb`'s support and below `we`'s, where only `wc` is non-zero.
@@ -666,7 +662,7 @@ fn pixels_changed(a: &Survey, b: &Survey) -> usize {
 #[test]
 fn a_live_governor_draws_less_detail_under_load_than_a_pinned_one() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let control = survey(&store, &mut gpu, false, EXPENSIVE_DT);
     let live = survey(&store, &mut gpu, true, EXPENSIVE_DT);
 
@@ -739,7 +735,7 @@ fn a_live_governor_draws_less_detail_under_load_than_a_pinned_one() {
 #[test]
 fn the_extra_culling_appears_under_load_and_goes_away_on_recovery() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
 
     /// The tail of each phase, over which the bias has saturated and the meter's window holds
     /// nothing but that phase.
@@ -870,7 +866,7 @@ fn the_extra_culling_appears_under_load_and_goes_away_on_recovery() {
 #[test]
 fn the_headless_path_is_reproducible_with_the_loop_live() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
 
     let run = |gpu: &mut Gpu| -> (Vec<u8>, Vec<f32>) {
         let mut scene = WorldScene::load(&store, gpu, cfg(true)).expect("the landscape loads");
@@ -928,7 +924,7 @@ fn the_headless_path_is_reproducible_with_the_loop_live() {
 fn the_shipped_client_runs_automatic_degrades_and_the_preference_turns_them_off() {
     use dereth_client_runtime::config::{Config, Preferences};
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let shipped = Config::from_args_and_prefs_with(&[], &Preferences::parse(""))
         .expect("an empty profile parses")
         .scene_config();
@@ -1027,7 +1023,7 @@ fn the_shipped_client_runs_automatic_degrades_and_the_preference_turns_them_off(
 #[test]
 fn the_bias_the_loop_reaches_sets_the_whole_degrade_level() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     let mut h = Harness::new();
     // Before the loop first accepts a bias the outputs are the client's startup ones, whose share
@@ -1075,7 +1071,7 @@ fn the_bias_the_loop_reaches_sets_the_whole_degrade_level() {
 #[test]
 fn the_overhead_camera_mode_disables_degrades() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let scene_cfg = SceneConfig {
         character: true,
         ..cfg(true)

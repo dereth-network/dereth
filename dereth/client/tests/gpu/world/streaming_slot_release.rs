@@ -38,12 +38,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-/// `None` when the machine has no D3D12 device at all, which is the one condition nothing here can
-/// work around.
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 /// `(blockX, blockY)` as a [`LandblockId`], which is `x << 8 | y`.
 fn block_at(x: i32, y: i32) -> LandblockId {
     assert!(
@@ -218,7 +212,7 @@ fn embodied(
 #[test]
 fn a_window_that_scrolls_away_from_its_blocks_and_back_holds_the_same_slots() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let (mut scene, window_only, with_body) = embodied(&store, &mut gpu, 2);
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
 
@@ -409,7 +403,7 @@ fn a_window_that_scrolls_away_from_its_blocks_and_back_holds_the_same_slots() {
 #[test]
 fn a_block_that_scrolls_out_of_the_scenery_radius_returns_its_links_in_place() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     // Scenery radius 1 inside a radius-2 window: the outer ring holds terrain and no objects, so
     // every block crosses the boundary twice per lap while staying resident.
     let (mut scene, _, _) = embodied(&store, &mut gpu, 1);
@@ -557,7 +551,7 @@ fn objdesc_event(od: ProtocolObjDesc, ts: u16) -> SessionEvent {
 #[test]
 fn repeated_appearance_changes_on_the_player_do_not_accumulate_slots() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let cfg = SceneConfig {
         landblock: LANDBLOCK,
         start_cell: Some(dereth_primitives::CellId(CELL)),
@@ -707,7 +701,7 @@ fn repeated_appearance_changes_on_the_player_do_not_accumulate_slots() {
 #[test]
 fn the_combined_texture_cache_is_wired_and_serves_hits_over_a_shipped_window() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let (mut scene, _, _) = embodied(&store, &mut gpu, 2);
     let s = &scene.draw.stats;
     eprintln!(
@@ -792,7 +786,7 @@ mod terrain_surfaces {
     //! station for station. Fixture: the retail dats on a WARP device, a 5x5 window walked
     //! diagonally out of Holtburg and home twice. Fails without the dats or a device is absent.
 
-    use super::{block_at, store, warp, LAP, LAPS};
+    use super::{block_at, store, LAP, LAPS};
     use std::sync::Arc;
 
     use dereth_client::character::CharacterInput;
@@ -959,7 +953,7 @@ mod terrain_surfaces {
     #[test]
     fn a_window_that_scrolls_away_from_its_blocks_and_back_holds_the_same_device_slots() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let mut scene = embodied(&store, &mut gpu, 2);
         let stations = walk(&mut scene, &store, &mut gpu);
 
@@ -1163,7 +1157,7 @@ mod terrain_surfaces {
     #[test]
     fn a_block_re_meshed_in_place_returns_the_terrain_surfaces_its_previous_mesh_held() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         for radius in [1u32, 2u32] {
             let mut scene = embodied(&store, &mut gpu, radius);
             let stations = walk(&mut scene, &store, &mut gpu);
@@ -1241,7 +1235,7 @@ mod terrain_surfaces {
     #[test]
     fn tearing_a_scene_down_returns_its_merged_terrain_surfaces_too() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let before = gpu.descriptor_usage().live;
         let mut scene = embodied(&store, &mut gpu, 2);
         let held = gpu.descriptor_usage().live;

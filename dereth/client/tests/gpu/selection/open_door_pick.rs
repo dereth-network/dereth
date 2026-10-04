@@ -284,6 +284,7 @@ fn the_recorded_door_is_the_one_these_stations_animate() {
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 mod in_the_doorway {
+    use crate::common::app::{frames, position};
     use dereth_animation::MotionCommand;
     use dereth_client::app::App;
     use dereth_client::config::Config;
@@ -315,21 +316,6 @@ mod in_the_doorway {
     const PICK_SETTLE: usize = 90;
     /// The frames the whole open/close swing needs to finish (it settles at ~29 of 30/s).
     const SWING: usize = 120;
-
-    fn frames(app: &mut App, count: usize) {
-        for _ in 0..count {
-            assert!(app.frame());
-        }
-    }
-
-    fn position(app: &App) -> Position {
-        app.world_state()
-            .unwrap()
-            .character
-            .as_ref()
-            .unwrap()
-            .position()
-    }
 
     /// One recorded server blob into [`dereth_client::objects::ObjectStream`], and **only** there.
     ///

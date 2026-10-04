@@ -358,3 +358,25 @@ fn differing_sex_budgets_are_refused_before_sharing_creation_rules() {
         })
     ));
 }
+
+/// Shared asset pointers retain the record layout used by the creation-table decoder.
+#[test]
+fn shared_asset_pointers_preserve_older_creation_table_layouts() {
+    use dereth_primitives::AssetSource;
+    use std::sync::Arc;
+    let store = Arc::new(store());
+    let owned: Arc<dyn AssetSource> = store.clone();
+    let borrowed: &dyn AssetSource = store.as_ref();
+    for source in [&owned as &dyn AssetSource, &borrowed] {
+        let id = DataId(0x0e00_0002);
+        let table = CharGen::decode_payload_in(
+            source.container_era_of(id),
+            id,
+            &source.read(id).expect("creation bytes"),
+        )
+        .expect("older creation table");
+        assert_eq!(table.heritage_groups.len(), 3);
+        assert_eq!(table.heritage_groups[&1].name, "Aluvian");
+        assert_eq!(table.heritage_groups[&1].sexes.len(), 2);
+    }
+}

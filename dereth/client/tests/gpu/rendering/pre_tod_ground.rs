@@ -99,7 +99,7 @@ fn load_and_draw(
 #[test]
 fn an_older_world_draws_the_hardware_ground_and_on_request_the_software_one() {
     let store = older_world();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (hardware, hardware_px) = load_and_draw(&store, &mut gpu, cfg(None));
     assert!(
         !hardware.draw.ground_palette_shifts(),
@@ -166,7 +166,7 @@ fn an_older_world_draws_the_hardware_ground_and_on_request_the_software_one() {
 #[test]
 fn the_later_ground_draws_an_older_world_with_the_later_land_surface_under_its_own_scenery() {
     let store = older_world();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let (own, own_px) = load_and_draw(&store, &mut gpu, cfg(None));
     let own_census = dereth_client_runtime::present::Scene::census(&own);
     drop(own);

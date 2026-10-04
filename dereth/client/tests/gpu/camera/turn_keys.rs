@@ -11,6 +11,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position, unhide_recorded_player as unhide_the_player};
+
 use dereth_animation::MotionCommand;
 use dereth_client::app::App;
 use dereth_client::camera::IN_HEAD_OFFSET;
@@ -18,26 +20,11 @@ use dereth_client::config::Config;
 use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
-use dereth_primitives::{LocalTime, ObjectId, Position};
+use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::actions::unpack_action;
 use dereth_protocol::movement::{MovementAutonomousPosition, MovementMoveToState};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::{Message, Opcode};
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 /// Degrees, with 0 north and values increasing **clockwise**, matching the first-person arm's
 /// 8-degree increment.
@@ -176,36 +163,6 @@ fn setup(mouse_turning: bool) -> App {
         );
     }
     app
-}
-
-/// early-inventory-and-casting's recorded `0xF745` for the player is the *login-tunnel* create:
-/// its physics-state word is `0x00404410` — `HIDDEN_PS | GRAVITY_PS | IGNORE_COLLISIONS_PS |
-/// EDGE_SLIDE_PS` — and retail unhides the body 6.7 s later with the `0xF74B Item_SetState` at
-/// `t_rel = 24.562`, `state = 0x00400408`. Object creation applies the create's state word to the
-/// player's physics body, and its position update skips the part array's complete animation
-/// offset while `HIDDEN_PS` is set, rotation and translation both, so a station that replays the
-/// create without the later unhide drives a body that cannot walk or turn. The full byte-level
-/// note is in `movement::run_speed`.
-fn unhide_the_player(app: &mut App, corpus: &Corpus, id: ObjectId) {
-    let row = corpus
-        .blobs
-        .iter()
-        .find(|b| {
-            b.dir == Direction::ServerToClient
-                && b.opcode == 0xf74b
-                && b.payload[4..8] == id.0.to_le_bytes()
-                && u32::from_le_bytes(b.payload[8..12].try_into().unwrap())
-                    & dereth_physics::PhysicsState::HIDDEN_PS
-                    == 0
-        })
-        .expect("early-inventory-and-casting's recorded 0xF74B unhide for the player");
-    app.objects_mut().apply_event(
-        &SessionEvent::WorldObject {
-            opcode: Opcode::ITEM_SET_STATE,
-            body: row.payload[4..].to_vec(),
-        },
-        LocalTime(1.0),
-    );
 }
 
 /// One input action event delivered through the current input-manager queue.

@@ -44,11 +44,6 @@ const DOOR: ObjectId = ObjectId(0x5000_0D25);
 /// How long an object that found no cell lives after its create.
 const DESTRUCTION_TIME: f64 = 25.0;
 
-/// A headless software device, or a failed test.
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// Apply a synthetic object-create event directly through the current object stream.
 fn place_door(stream: &mut ObjectStream, at: Position, now: f64) {
     let payload = dereth_protocol::objects::ObjectCreatePayload {
@@ -103,7 +98,7 @@ struct Reading {
 /// `cell` is the cell the create names: `OWNER_CELL` is the outdoor land cell the recorded create
 /// carried, `ROOM_CELL` the interior cell that contains the same point.
 fn run(store: &Arc<RetailDatStore>, cell: u32, early: f64, late: f64) -> (Reading, Reading) {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_client::world::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,

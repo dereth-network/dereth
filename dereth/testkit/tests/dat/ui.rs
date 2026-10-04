@@ -1318,28 +1318,6 @@ fn scenario_putting_the_same_screen_up_again_builds_it_fresh() {
 // panes that measure themselves without being told to.
 // ---------------------------------------------------------------------------------------------
 
-/// A store over the retail data files, as an asset source.
-#[derive(Debug)]
-struct RetailAssets(std::sync::Arc<dereth_dat::RetailDatStore>);
-
-impl dereth_primitives::AssetSource for RetailAssets {
-    fn read(
-        &self,
-        id: dereth_primitives::DataId,
-    ) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: dereth_primitives::DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = dereth_primitives::DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-}
-
 /// A UI over the shipped data files, with the two resolvers that make a shipped caption real text
 /// measured in the shipped font. Without them every caption reads empty and a scenario about the
 /// width of a line would be measuring its own gap.
@@ -1372,7 +1350,7 @@ fn a_shipped_ui() -> (
     )));
     let mut flow = dereth_ui::UiFlow::new();
     dereth_ui_screens::register_all(&mut ui, &mut flow);
-    let s = Rc::new(RetailAssets(Arc::clone(&store)));
+    let s = Rc::new(Arc::clone(&store));
     let resolver = Rc::new(
         dereth_ui::framework::DidMapperResolver::load_via_master(s.as_ref()).expect("the mapper"),
     );
@@ -1551,7 +1529,7 @@ pub fn a_scrolling_pane_measures_itself_from_the_draw() {
             };
             let roots: Vec<u32> = desc.elements.values().map(|e| e.element_id.0).collect();
             for eid in roots {
-                let s = Rc::new(RetailAssets(Arc::clone(store)));
+                let s = Rc::new(Arc::clone(store));
                 let Ok(h) = dereth_ui::framework::create_and_add_root_element_by_data_id(
                     ui,
                     s.as_ref(),
@@ -4297,7 +4275,7 @@ fn scenario_a_real_failure_takes_the_player_off_the_world() {
 // =============================================================================================
 
 use dereth_ui_screens::options::gameplay::button as support_button;
-use dereth_ui_screens::options::pages::{SHELL_EXECUTE_ERROR_TITLE, SUPPORT_URL};
+use dereth_ui_screens::options::pages::SHELL_EXECUTE_ERROR_TITLE;
 use dereth_ui_screens::panels::urgent_assistance as ua;
 
 /// The shipped element tree, with the real text tables behind it.
@@ -4308,26 +4286,6 @@ fn a_shipped_tree() -> (
 ) {
     use dereth_primitives::AssetSource as _;
     use dereth_ui::framework::{DidMapperResolver, Screen as _};
-
-    #[derive(Debug)]
-    struct Store(dereth_dat::RetailDatStore);
-    impl dereth_primitives::AssetSource for Store {
-        fn read(
-            &self,
-            id: dereth_primitives::DataId,
-        ) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-            self.0.read(id)
-        }
-        fn exists(&self, id: dereth_primitives::DataId) -> bool {
-            self.0.exists(id)
-        }
-        fn iter_type(
-            &self,
-            kind: dereth_primitives::DataType,
-        ) -> Box<dyn Iterator<Item = dereth_primitives::DataId> + '_> {
-            self.0.iter_type(kind)
-        }
-    }
 
     let dir = dereth_dat::testing::dat_dir();
     let store = dereth_dat::RetailDatStore::open_dir(&dir).expect("the retail data files open");
@@ -4340,7 +4298,7 @@ fn a_shipped_tree() -> (
     ui.property_types = master.property_types();
     let mut flow = dereth_ui::UiFlow::new();
     dereth_ui_screens::register_all(&mut ui, &mut flow);
-    let source = std::rc::Rc::new(Store(store));
+    let source = std::rc::Rc::new(store);
     let resolver =
         std::rc::Rc::new(DidMapperResolver::load_via_master(source.as_ref()).expect("the mapper"));
     dereth_ui_screens::env::install(&mut ui, source, resolver);
@@ -4490,14 +4448,15 @@ pub fn a_browser_that_will_not_open_says_so_in_a_box_with_the_address_in_it() {
         apply_open_url_requests, record_shell_calls_answering, shell_error_text, ShellCall,
     };
 
-    let request = || vec![dereth_ui_screens::UiRequest::OpenUrl(SUPPORT_URL)];
+    const URL: &str = "https://example.invalid/support";
+    let request = || vec![dereth_ui_screens::UiRequest::OpenUrl(URL)];
 
     record_shell_calls_answering(0);
     let (_, calls) = apply_open_url_requests(request());
     let the_box = calls
         == vec![
             ShellCall::Open {
-                url: SUPPORT_URL.to_owned(),
+                url: URL.to_owned(),
                 result: 0,
             },
             ShellCall::ErrorBox {
@@ -4505,12 +4464,12 @@ pub fn a_browser_that_will_not_open_says_so_in_a_box_with_the_address_in_it() {
                 text: format!(
                     "An error occurred while trying to launch your web browser. \
                      (Error code 0)\nThe web site to submit an urgent assistance request is \
-                     listed below. Please go there to complete your request.\n{SUPPORT_URL}\n"
+                     listed below. Please go there to complete your request.\n{URL}\n"
                 ),
             },
         ]
         && SHELL_EXECUTE_ERROR_TITLE == "Asheron's Call Error"
-        && shell_error_text(0, SUPPORT_URL)
+        && shell_error_text(0, URL)
             == match &calls[1] {
                 ShellCall::ErrorBox { text, .. } => text.clone(),
                 other => panic!("{other:?}"),

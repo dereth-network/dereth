@@ -53,10 +53,6 @@ fn store() -> std::sync::Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 // ---------------------------------------------------------------------------------------------
 // The dat-only half: what is out there, and how far away it is.
 // ---------------------------------------------------------------------------------------------
@@ -466,13 +462,13 @@ fn differing(a: &[u8], b: &[u8]) -> usize {
 #[test]
 fn the_recorded_frame_loses_the_far_terrain_to_the_window() {
     let store = store();
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut near = Bench::new(&store, gpu, 3);
     near.stand_at_the_recorded_station();
     let shipped = near.settle();
     drop(near);
 
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut far = Bench::new(&store, gpu, RETAIL_DEFAULT_MID_RADIUS);
     far.stand_at_the_recorded_station();
     let retail = far.settle();
@@ -511,7 +507,7 @@ fn the_recorded_frame_loses_the_far_terrain_to_the_window() {
     // against the same frame under retail's registered default: the two arms are the same window
     // and the frame is identical. A client defaulting to radius 3 differs in thousands of pixels.
     let configured = dereth_client::config::Config::default().land_radius;
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut own = Bench::new(&store, gpu, configured);
     own.stand_at_the_recorded_station();
     let ours = own.settle();
@@ -628,9 +624,9 @@ fn an_object_behind_a_ridge_beyond_the_window_draws_through_it() {
         .into_iter()
         .enumerate()
     {
-        let g = warp();
+        let g = crate::common::test_gpu(W, H);
         let mut a = Bench::new(&store, g, radius);
-        let g = warp();
+        let g = crate::common::test_gpu(W, H);
         let mut b = Bench::new(&store, g, radius);
         a.stand_at_the_recorded_station();
         b.stand_at_the_recorded_station();

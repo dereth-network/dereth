@@ -14,7 +14,7 @@
 //! **Nothing in this module changes the FPU control word**, and nothing may be added that does. D3D12
 //! has no equivalent flag because it has no equivalent behaviour: it does not touch the control word
 //! at all. On x86-64 the Rust ABI computes in SSE2, which the FPU control word does not govern, so
-//! the invariant is preserved by leaving it alone. See `assert_fpu_untouched`.
+//! the invariant is preserved by leaving it alone.
 
 #![allow(clippy::cast_possible_truncation)] // Graphics APIs are full of u32 sizes; each site is bounded.
 
@@ -95,20 +95,6 @@ fn adapter_description(desc: &DXGI_ADAPTER_DESC1) -> String {
         .position(|&c| c == 0)
         .unwrap_or(desc.Description.len());
     String::from_utf16_lossy(&desc.Description[..end])
-}
-
-/// This module does not change the FPU control word, and this is the assertion that says so.
-///
-/// On x86-64 there is nothing to check at runtime — the Rust ABI never consults
-/// the FPU control word — so the check is a compile-time statement of intent plus a runtime
-/// round-trip of a value whose result would differ under a narrowed precision.
-#[must_use]
-pub fn assert_fpu_untouched() -> bool {
-    // 1 + 2^-53 is representable at 64-bit precision and rounds away at 53-bit precision. The
-    // point is not the value; it is that this module never executes an `fldcw`.
-    let a: f64 = 1.0;
-    let b: f64 = f64::from_bits(0x3CA0_0000_0000_0000); // 2^-53
-    (a + b) != a || (a + b) == a
 }
 
 /// Where a frame is rendered.
@@ -3569,13 +3555,6 @@ mod tests {
             DEPTH_FORMAT, DXGI_FORMAT_D24_UNORM_S8_UINT,
             "D24S8 is the client's first choice"
         );
-    }
-
-    // Oracle: "dereth-render must not change the FPU control word
-    // and must document that it does not."
-    #[test]
-    fn the_module_does_not_change_the_fpu_control_word() {
-        assert!(assert_fpu_untouched());
     }
 
     // Oracle: the gamma/brightness value is clamped to [-0.2, 1.0].

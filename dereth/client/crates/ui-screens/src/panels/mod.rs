@@ -15,7 +15,6 @@ pub mod external_container;
 pub mod fellowship;
 pub mod friends;
 pub mod house;
-pub mod inforegion;
 pub mod inventory;
 pub mod journal;
 pub mod linkstatus;

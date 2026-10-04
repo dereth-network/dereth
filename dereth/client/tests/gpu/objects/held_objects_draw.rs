@@ -19,7 +19,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 use std::sync::Arc;
 
 use dereth_assets::{Decode, Setup};
@@ -215,7 +215,7 @@ fn dist(a: Vec3, b: Vec3) -> f32 {
 #[test]
 fn a_wielded_weapon_is_drawn_in_the_holders_hand() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let holder_dat = setup_of(&store, HOLDER_SETUP);
     let item_dat = setup_of(&store, ITEM_SETUP);
     let holding = holder_dat.holding_locations[&RIGHT_HAND];
@@ -322,7 +322,7 @@ fn a_wielded_weapon_is_drawn_in_the_holders_hand() {
 #[test]
 fn moving_the_holder_moves_what_it_holds() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let mut scene = scene_of(&store, &mut gpu, false);
     let mut stream = ObjectStream::with_store(Arc::clone(&store));
     stream.apply_event(
@@ -379,7 +379,7 @@ fn moving_the_holder_moves_what_it_holds() {
 #[test]
 fn a_parent_event_moves_an_already_drawn_object_onto_its_holder() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let holder_dat = setup_of(&store, HOLDER_SETUP);
     let holding = holder_dat.holding_locations[&RIGHT_HAND];
 
@@ -460,7 +460,7 @@ fn a_parent_event_moves_an_already_drawn_object_onto_its_holder() {
 #[test]
 fn a_parent_location_the_holder_does_not_carry_holds_nothing() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let holder_dat = setup_of(&store, HOLDER_SETUP);
     // 7 is `ParentLocation::Mouth`, which this setup does not carry (it has 0..6, 8, 9).
     const MOUTH: u32 = 7;
@@ -514,7 +514,7 @@ fn a_parent_location_the_holder_does_not_carry_holds_nothing() {
 #[test]
 fn wielding_a_weapon_changes_pixels_and_only_where_the_weapon_is() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let viewport = (800u32, 600u32);
 
     let mut shot = |wielding: bool| -> Option<(Vec<u8>, u32, u32)> {
@@ -647,7 +647,7 @@ fn to_anim(e: dereth_assets::geometry::LocationEntry) -> dereth_animation::data:
 #[test]
 fn a_weapon_wielded_by_the_player_hangs_off_his_own_body() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let player_setup = dereth_client::character::ALUVIAN_MALE_SETUP;
     let holder_dat = setup_of(&store, player_setup.0);
     let Some(holding) = holder_dat.holding_locations.get(&RIGHT_HAND).copied() else {
@@ -749,7 +749,7 @@ fn a_wielded_weapon_the_server_puts_away_stops_being_drawn() {
     use dereth_protocol::objects::InventoryPickupEvent;
 
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let mut scene = scene_of(&store, &mut gpu, false);
     let mut stream = ObjectStream::with_store(Arc::clone(&store));
     stream.apply_event(

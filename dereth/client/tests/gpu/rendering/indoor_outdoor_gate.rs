@@ -42,10 +42,6 @@ const HOLTBURG: u16 = 0xA9B4;
 /// `outside_view.view_count`, an indoor viewer with the land visible through the windows.
 const HOLTBURG_STAIRWELL: u32 = 0xA9B4_0146;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// The retail store, or **fail**.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -152,7 +148,7 @@ fn outdoor_frame(store: &Arc<RetailDatStore>, gpu: &mut Gpu, gate: bool) -> Vec<
 #[test]
 fn a_sealed_dungeon_room_sees_no_outdoors_and_a_house_with_windows_does() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
 
     let sealed = outside_view_count_at(&store, &mut gpu, TRAINING_DUNGEON, STATION_CELL);
     let windowed = outside_view_count_at(&store, &mut gpu, HOLTBURG, HOLTBURG_STAIRWELL);
@@ -275,7 +271,7 @@ fn outside_view_count_at(
 #[test]
 fn an_outdoor_viewer_is_untouched() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let a = outdoor_frame(&store, &mut gpu, false);
     let b = outdoor_frame(&store, &mut gpu, true);
     assert_eq!(a.len(), b.len());

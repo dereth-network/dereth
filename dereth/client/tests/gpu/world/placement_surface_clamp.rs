@@ -43,10 +43,6 @@ const BEARING_DEGREES: f32 = 17.5;
 /// Mid distance on the Holtburg hill.
 const MID_DISTANCE: f32 = 300.0;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn outdoor(x: f32, y: f32, z: f32) -> Position {
     let mut cell = LandblockId(HOLTBURG).cell(1);
     let mut o = Vec3::new(x, y, z);
@@ -217,7 +213,7 @@ impl Bench {
 /// A bench standing at the station with the hill in front of it, and the ground height at
 /// the point this file measures.
 fn bench(store: &Arc<RetailDatStore>) -> Option<(Bench, f32, f32, f32)> {
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut b = Bench::new(store, gpu, 8);
     b.stand_at_the_station();
     for _ in 0..12 {

@@ -40,7 +40,7 @@
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;
-use crate::common::software_gpu;
+use crate::common::test_gpu;
 
 use std::sync::Arc;
 
@@ -560,7 +560,7 @@ fn the_click_sound_still_obeys_the_three_shipped_bugs() {
 fn a_physics_scripts_sound_hook_reaches_the_mixer() {
     let _gpu = gpu_lock();
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let cfg = SceneConfig {
         scenery_radius: 1,
         time_of_day: Some(0.5),
@@ -666,7 +666,7 @@ fn a_physics_scripts_sound_hook_reaches_the_mixer() {
 fn the_listener_follows_the_camera_every_frame() {
     let _gpu = gpu_lock();
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let cfg = SceneConfig {
         scenery_radius: 1,
         time_of_day: Some(0.5),
@@ -740,7 +740,7 @@ fn the_listener_follows_the_camera_every_frame() {
 fn running_into_new_terrain_swaps_the_ambient_set() {
     let _gpu = gpu_lock();
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let cfg = SceneConfig {
         scenery_radius: 1,
         time_of_day: Some(0.5),

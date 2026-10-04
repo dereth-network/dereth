@@ -44,16 +44,17 @@ fn digest(path: &Path) -> (u64, u64) {
 
 struct Scratch {
     dir: PathBuf,
+    _directory: dereth_dat::testing::ScratchDir,
     pristine: Vec<(PathBuf, (u64, u64))>,
 }
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("dat_patch_{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let directory = dereth_dat::testing::ScratchDir::new(name).expect("a scratch directory");
+        let dir = directory.path().to_path_buf();
         Self {
             dir,
+            _directory: directory,
             pristine: Vec::new(),
         }
     }
@@ -114,7 +115,6 @@ impl Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         self.assert_pristine();
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 

@@ -6747,11 +6747,11 @@ fn scenario_the_options_page_turns_full_screen_on_and_off_mid_session() {
 // a town, the summary tab and a name typed into the box.
 // =============================================================================================
 
+use dereth_chargen::Attr;
 use dereth_ui_screens::screens::chargen::{
     self as chargen, EcgProgress, ATTRIBUTE_SLIDERS, FINISH_BUTTON, LEFT_BUTTON, RIGHT_BUTTON,
     STATE_TAB_OFF, STATE_TAB_ON,
 };
-use dereth_ui_screens::screens::chargen_state::Attr;
 
 /// Press a wizard button and run the frame that drains the screen's action queue -- a click.
 fn click_wizard(c: &mut HeadlessClient, id: ElementId) {
@@ -7115,9 +7115,7 @@ pub fn finish_composes_the_character_the_player_built_and_only_once() {
         trained += 1;
         let id = u32::try_from(id).expect("a skill id fits");
         every_one_is_real &= skills.skills.contains_key(&id);
-        let (t, s) = dereth_ui_screens::screens::chargen_state::CharGenState::skill_costs(
-            &cg, &skills, heritage, id,
-        );
+        let (t, s) = dereth_chargen::CharGenState::skill_costs(&cg, &skills, heritage, id);
         used += if *sac == 3 { s } else { t };
     }
     let affordable = trained >= 8
@@ -7576,10 +7574,8 @@ fn scenario_the_finish_buttons_caption_is_drawn_in_the_font_the_layout_names() {
 // is the client's own pair of streams and the very thing the claim is about.
 // =============================================================================================
 
+use dereth_chargen::{CharGenRng, CharGenState, HERITAGE_OLTHOI, HERITAGE_OLTHOI_ACID};
 use dereth_ui_screens::screens::chargen::CharGenDialog;
-use dereth_ui_screens::screens::chargen_state::{
-    CharGenRng, CharGenState, HERITAGE_OLTHOI, HERITAGE_OLTHOI_ACID,
-};
 
 /// Everything the opening roll writes, as one comparable value.
 #[derive(Debug, Clone, PartialEq)]
@@ -8139,9 +8135,7 @@ pub fn the_last_page_warns_before_re_rolling_the_whole_character() {
             .state
             .skill_levels
             .iter()
-            .filter(|s| {
-                **s == dereth_ui_screens::screens::chargen_state::SkillAdvancementClass::Specialized
-            })
+            .filter(|s| **s == dereth_chargen::SkillAdvancementClass::Specialized)
             .count();
         w.state.template >= 1
             && specialised >= 1
@@ -8489,11 +8483,11 @@ fn scenario_clicking_a_colour_moves_the_marker_and_tints_the_shade_wheel() {
 // `adapters_shell::Hands`.
 // =============================================================================================
 
+use dereth_chargen::CgVerification;
 use dereth_ui_screens::screens::chargen::{
     CREDIT_WARNING_STRING, MESSAGE_BUTTON, RANDOMIZE_WARNING_STRING, RANDOM_BUTTON,
     TOD_WARNING_STRING,
 };
-use dereth_ui_screens::screens::chargen_state::CgVerification;
 
 /// The handle of a dialog the wizard has raised, if it is on screen.
 fn wizard_dialog(c: &mut HeadlessClient, which: CharGenDialog) -> Option<dereth_ui::ElemHandle> {
@@ -9693,8 +9687,8 @@ fn scenario_a_pane_measures_its_whole_paragraph_and_the_blank_row_after_it() {
 // the page compared against the original client's own drawing of the same character.
 // =============================================================================================
 
+use dereth_chargen::SkillAdvancementClass;
 use dereth_ui_screens::screens::chargen::{ATTR_ROW_SKILL_ID, STATE_ARROW_OFF, STATE_ARROW_ON};
-use dereth_ui_screens::screens::chargen_state::SkillAdvancementClass;
 
 /// What one entry of the skills list is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16848,8 +16842,8 @@ fn scenario_deleting_and_restoring_over_the_wire_leaves_the_list_where_it_starte
 /// button that closes it -- and the same is true of the reason that shares the client's general
 /// arm, which must not leave nothing on the screen at all.
 pub fn a_refused_creation_stops_the_wizard_waiting_and_says_why() {
+    use dereth_chargen::CgVerification;
     use dereth_ui_screens::screens::chargen::{CharGenDialog, MESSAGE_BUTTON};
-    use dereth_ui_screens::screens::chargen_state::CgVerification;
 
     // The name already taken.
     let mut c = a_client_on_the_wizard();
@@ -16928,7 +16922,7 @@ fn scenario_a_refused_creation_stops_the_wizard_waiting_and_says_why() {
 /// names -- including two that could be answered with a token nobody had written and two that could
 /// be answered with silence.
 pub fn every_refusal_the_shard_can_send_draws_its_own_sentence() {
-    use dereth_ui_screens::screens::chargen_state::CgVerification;
+    use dereth_chargen::CgVerification;
 
     let table: [(u32, &str); 7] = [
         (0, "ID_Character_Err_NameDBDown"),

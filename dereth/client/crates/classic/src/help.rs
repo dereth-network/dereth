@@ -66,9 +66,6 @@ fn validate(book: &Book) -> Result<(), String> {
     }
     Ok(())
 }
-pub fn print_screen(book: &Book, context: u32, topic: u32) -> Option<Screen> {
-    Some(book.contexts.get(&context)?.get(&topic)?.screen.clone())
-}
 pub fn make(id: &str, book: Option<&Arc<Book>>) -> Option<Box<dyn Panel>> {
     let context = match id {
         "help-chargen" => 50,

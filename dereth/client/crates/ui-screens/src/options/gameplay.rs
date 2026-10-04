@@ -66,7 +66,7 @@
 //! | `0x10000203` | [`crate::screens::gameplay::GamePlayScreen::on_end_character_session`] — the asking form |
 //! | `0x10000617` | the key-press path with `0x10000027` |
 //! | `0x10000206` / `0x10000207` | the in-game Urgent Assistance and Report Abuse forms ([`GameplayOptionsPage::arrange`]) |
-//! | `0x100005CC` | *Use Mouse Turning Settings*: the mouse-turning preset — see `MOUSE_TURNING_NOTE` |
+//! | `0x100005CC` | *Use Mouse Turning Settings*: the mouse-turning preset — see `super::config::MOUSE_TURNING_PRESET` |
 //! | `0x10000204` / `0x10000205` | the generic button path, `dereth_ui::widgets`' `BUTTON_INPUT_ACTION` dispatch |
 
 use dereth_ui::{ElemHandle, ElementId, MessageId, UiSystem};
@@ -97,9 +97,9 @@ pub mod button {
     pub const MOUSE_TURNING_SETTINGS: ElementId = ElementId(0x1000_05CC);
     /// No class arm; the layout fires input action `0x7B` `ToggleHelp`.
     pub const HELP: ElementId = ElementId(0x1000_0205);
-    /// The upper support-ticket button — `ShellExecuteA("open", SUPPORT_URL)`.
+    /// The upper support button opens Urgent Assistance.
     pub const SUPPORT_TICKET_UPPER: ElementId = ElementId(0x1000_0206);
-    /// The lower support-ticket button — the same URL, a second arm.
+    /// The lower support button opens Report Abuse.
     pub const SUPPORT_TICKET_LOWER: ElementId = ElementId(0x1000_0207);
 }
 
@@ -126,18 +126,6 @@ pub const LAYOUT_DRIVEN: [(ElementId, u32); 2] = [
     (button::KEY_BINDINGS, 0x1000_001F),
     (button::HELP, 0x0000_007B),
 ];
-
-/// What global message (`0x0C`, 0) means.
-///
-/// Global message `0x0C` is [`dereth_ui::msg::global::MOUSE_TURNING_DEFAULTS`]. Its two
-/// listeners are the Client Options page, which sets Camera Stiffness, Camera Adjustment Speed,
-/// Mouselook Sensitivity, Align Camera to Slope, Invert Mouselook Axes and Turn your character
-/// with camera turning to the mouse-turning preset
-/// ([`super::config::MOUSE_TURNING_PRESET`]) and prints a chat line for each it changes, and the
-/// key bindings page's camera-zoom rows, which take the mouse wheel. It restores no defaults and
-/// writes no character option.
-pub const MOUSE_TURNING_NOTE: &str =
-    "global 0x0C applies the mouse-turning preset and binds the wheel to the camera zoom";
 
 /// The input action that opens the in-game Urgent Assistance form, `ToggleUrgentAssistancePanel`.
 pub const URGENT_ASSISTANCE_ACTION: u32 = crate::panels::urgent_assistance::TOGGLE_ACTION;
@@ -261,9 +249,6 @@ fn is_under(ui: &UiSystem, mut h: ElemHandle, root: ElemHandle) -> bool {
         }
     }
 }
-
-/// The support URL, re-exported so a consumer needs one import.
-pub use super::pages::SUPPORT_URL;
 
 #[cfg(test)]
 mod tests {

@@ -67,24 +67,6 @@ const LOGIN: (i32, i32) = (800, 600);
 /// A display nobody has ever viewed these screens at.
 const BIG: (i32, i32) = (1600, 900);
 
-#[derive(Debug)]
-struct Store(dereth_dat::RetailDatStore);
-
-impl AssetSource for Store {
-    fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-}
-
 fn ui_at(display: (i32, i32)) -> UiSystem {
     let dir = dereth_dat::testing::dat_dir();
     assert!(
@@ -102,7 +84,7 @@ fn ui_at(display: (i32, i32)) -> UiSystem {
     ui.property_types = master.property_types();
     let mut flow = UiFlow::new();
     dereth_ui_screens::register_all(&mut ui, &mut flow);
-    let store = Rc::new(Store(store));
+    let store = Rc::new(store);
     let resolver =
         Rc::new(DidMapperResolver::load_via_master(store.as_ref()).expect("the DidMapper loads"));
     dereth_ui_screens::env::install(&mut ui, store, resolver);

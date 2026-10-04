@@ -12,34 +12,7 @@ use crate::common::client_dir;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A folder under the system temporary folder, removed when dropped.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(what: &str) -> Self {
-        let unique = format!(
-            "dereth-headless-settings-{what}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("the system clock follows the epoch")
-                .as_nanos()
-        );
-        let path = std::env::temp_dir().join(unique);
-        std::fs::create_dir_all(&path).expect("a scratch folder");
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+use dereth_dat::testing::ScratchDir as Scratch;
 
 /// The settings folder under a home folder of `home`, per platform, spelled out independently of
 /// the client's own rule so that a change to that rule breaks this test rather than moving it.
@@ -129,7 +102,7 @@ fn a_headless_run_leaves_the_players_preferences_and_key_map_untouched() {
          set DERETH_TEST_DAT_DIR",
         dat_dir.display()
     );
-    let home = Scratch::new("home");
+    let home = Scratch::new("home").expect("scratch directory");
     let settings = settings_dir_under(home.path());
     std::fs::create_dir_all(&settings).expect("the player's settings folder");
     std::fs::write(settings.join("UserPreferences.ini"), PLAYER_PREFERENCES)
@@ -148,7 +121,7 @@ fn a_headless_run_leaves_the_players_preferences_and_key_map_untouched() {
 
     // The control: asked for a file, the same run writes it on exit, so the quiet run above is a
     // run that would have written and did not, rather than one that never saves at all.
-    let scratch = Scratch::new("named");
+    let scratch = Scratch::new("named").expect("scratch directory");
     let named = scratch.path().join("UserPreferences.ini");
     run_headless(
         home.path(),
@@ -185,7 +158,7 @@ fn a_clean_run_leaves_no_crash_log() {
          set DERETH_TEST_DAT_DIR",
         dat_dir.display()
     );
-    let home = Scratch::new("clean");
+    let home = Scratch::new("clean").expect("scratch directory");
     run_headless(home.path(), &dat_dir, &[]);
     let logs = settings_dir_under(home.path()).join("crash-logs");
     let left: Vec<PathBuf> = std::fs::read_dir(&logs)

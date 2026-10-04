@@ -702,10 +702,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 // -------------------------------------------------------------------------------------------
 // The capture reader and the replay; `load` is read once so one file read serves every arm of a
 // differential.
@@ -929,7 +925,7 @@ fn tour(
     viewcone: bool,
     stations: &[Station],
 ) -> Vec<Shot> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let mut r = replay(records);
     let mut scene =
         WorldScene::load(store, &mut gpu, cfg_for(r.landblock, viewcone)).expect("the scene loads");
@@ -1288,7 +1284,7 @@ fn the_cull_changes_no_pixel_at_any_station() {
 #[test]
 fn the_cone_and_the_projection_share_a_znear() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let r = replay(&load("first-login-walk-jump"));
     let scene =
         WorldScene::load(&store, &mut gpu, cfg_for(r.landblock, true)).expect("the scene loads");

@@ -124,24 +124,6 @@ pub(crate) fn scene(session: &str) -> (ObjectStream, Hud) {
 // Gameplay elements constructed from the shipped layout without a GPU.
 // =================================================================================================
 
-#[derive(Debug)]
-struct Store(dereth_dat::RetailDatStore);
-
-impl AssetSource for Store {
-    fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-}
-
 pub(crate) fn open_store() -> dereth_dat::RetailDatStore {
     dereth_dat::testing::open_store_or_fail()
 }
@@ -158,7 +140,7 @@ pub(crate) fn shipped_gameplay() -> (UiSystem, Box<dyn Screen>) {
     ui.property_types = master.property_types();
     let mut flow = dereth_ui::UiFlow::new();
     dereth_ui_screens::register_all(&mut ui, &mut flow);
-    let store = Rc::new(Store(store));
+    let store = Rc::new(store);
     let resolver =
         Rc::new(DidMapperResolver::load_via_master(store.as_ref()).expect("the DidMapper"));
     dereth_ui_screens::env::install(&mut ui, store, resolver);

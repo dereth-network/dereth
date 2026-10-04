@@ -30,10 +30,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The `GfxObjDegradeInfo` a graphics object names, straight from the dat.
 fn record(store: &RetailDatStore, gfxobj: DataId) -> Option<GfxObjDegradeInfo> {
     let bytes = store.read_typed(DbType::GfxObj, gfxobj).ok()?;
@@ -229,7 +225,7 @@ fn the_dat_says_how_many_records_can_switch_at_all() {
 #[test]
 fn every_placement_draws_the_level_get_degrade_names_at_three_distances() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         character: false,
@@ -364,7 +360,7 @@ fn every_placement_draws_the_level_get_degrade_names_at_three_distances() {
 #[test]
 fn every_static_in_a_land_cell_more_than_fifty_metres_away_is_measured_at_the_cells_distance() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         character: false,
@@ -423,7 +419,7 @@ fn every_static_in_a_land_cell_more_than_fifty_metres_away_is_measured_at_the_ce
 #[test]
 fn the_triangle_count_over_a_fixed_walk_falls_with_the_switch_on() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     /// Nine stations along the diagonal of Holtburg at eye height, then three from above. Fixed,
     /// so both arms visit exactly the same points.
@@ -525,7 +521,7 @@ fn the_triangle_count_over_a_fixed_walk_falls_with_the_switch_on() {
 #[test]
 fn map_mode_puts_every_placement_back_on_level_zero() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region loads");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
@@ -628,7 +624,7 @@ fn map_mode_puts_every_placement_back_on_level_zero() {
 #[test]
 fn the_paired_frame_changes_only_where_the_degraded_geometry_was() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let station = Vec3::new(96.0, 96.0, 40.0);
 
     let mut shot = |on: bool, at: Vec3| -> Vec<u8> {
@@ -719,7 +715,7 @@ const TABLE_RECORD: u32 = 0x1100_0170;
 fn the_furniture_beside_the_player_takes_the_level_its_distance_from_the_eye_selects() {
     use dereth_primitives::{CellId, Frame, Position, Quat};
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region loads");
     let cfg = SceneConfig {
         landblock: HOLTBURG,

@@ -200,7 +200,7 @@ fn moved(a: &[u8], b: &[u8]) -> usize {
 #[test]
 fn an_object_mode_switch_rebuilds_the_town_and_the_body_and_switching_back_restores_the_frame() {
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = load(&store, &mut gpu, cfg(None));
     assert!(!scene.draw.objects_from_other_files());
     let own_px = draw(&mut scene, &store, &mut gpu);
@@ -285,7 +285,7 @@ fn an_object_mode_switch_rebuilds_the_town_and_the_body_and_switching_back_resto
 #[test]
 fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups() {
     let store = older_world();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut own = load(&store, &mut gpu, cfg(None));
     let own_px = draw(&mut own, &store, &mut gpu);
     // The February 2005 body, its first sixteen parts at the nearest level of the records their
@@ -327,7 +327,7 @@ fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups
 #[test]
 fn the_february_2005_world_takes_the_degrade_distance_setting_with_either_look() {
     let store = older_world();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     for objects in [None, Some(RegionStyle::Modern)] {
         for setting in [0.0f32, 50.0, 100.0] {
             let mut c = cfg(objects);
@@ -349,7 +349,7 @@ fn the_february_2005_world_takes_the_degrade_distance_setting_with_either_look()
 #[test]
 fn an_object_mode_without_its_files_is_refused_and_the_world_keeps_its_own() {
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = load(&store, &mut gpu, cfg(None));
     let own_px = draw(&mut scene, &store, &mut gpu);
     scene.draw.cfg.render.objects = Some(RegionStyle::LegacyHardware);
@@ -455,7 +455,7 @@ fn the_paper_doll_wears_the_look_the_body_wears_in_the_world() {
     use dereth_client::anim_assets::DatAnimAssets;
     use dereth_client::preview::PreviewSpace;
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(320, 240);
+    let mut gpu = crate::common::test_gpu(320, 240);
     let scene = load(&store, &mut gpu, cfg(Some(RegionStyle::LegacyHardware)));
     assert!(scene.draw.objects_from_other_files());
     let body = scene.character_built_from().to_vec();
@@ -517,7 +517,7 @@ fn holtburg_rooms(scene: &WorldScene) -> Vec<(u32, bool)> {
 #[test]
 fn holtburgs_rooms_take_the_other_eras_look_with_their_buildings_and_go_back_with_them() {
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = load(&store, &mut gpu, cfg(None));
     draw(&mut scene, &store, &mut gpu);
     let own = holtburg_rooms(&scene);
@@ -574,7 +574,7 @@ fn identity_of(
 #[test]
 fn an_object_mode_asked_for_before_its_verdicts_are_ready_keeps_the_look_until_they_arrive() {
     let store = end_of_retail_with_legacy_files();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let background = SceneConfig {
         object_identity_budget: Some(std::time::Duration::from_millis(3)),
         ..cfg(Some(RegionStyle::LegacyHardware))

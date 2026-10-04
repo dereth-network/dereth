@@ -39,7 +39,7 @@
 //! D3D9 never reset the FPU control word and the client ran its whole session at 53-bit precision.
 //! **Nothing in this module changes the FPU control word**, and nothing may be added that does.
 //! On x86-64 the Rust ABI computes in SSE2, which the FPU control word does not govern, so the
-//! invariant is preserved by leaving it alone. See [`assert_fpu_untouched`].
+//! invariant is preserved by leaving it alone.
 
 #![allow(clippy::cast_possible_truncation)] // Graphics APIs are full of u32 sizes; each site is bounded.
 
@@ -94,18 +94,6 @@ pub const DEPTH_FORMAT: vk::Format = vk::Format::D24_UNORM_S8_UINT;
 
 fn vkr<T>(what: &'static str, r: Result<T, vk::Result>) -> Result<T, RenderError> {
     r.map_err(|e| RenderError::Device(format!("{what}: {e}")))
-}
-
-/// This module does not change the FPU control word, and this is the assertion that says so.
-///
-/// On x86-64 there is nothing to check at runtime — the Rust ABI never consults
-/// the FPU control word — so the check is a compile-time statement of intent plus a runtime
-/// round-trip of a value whose result would differ under a narrowed precision.
-#[must_use]
-pub fn assert_fpu_untouched() -> bool {
-    let a: f64 = 1.0;
-    let b: f64 = f64::from_bits(0x3CA0_0000_0000_0000); // 2^-53
-    (a + b) != a || (a + b) == a
 }
 
 /// A buffer and the memory behind it.

@@ -30,10 +30,6 @@ const BLOCK: f32 = 192.0;
 /// `CELL_SIZE` — the side of one of a landblock's 8x8 cells.
 const CELL: f32 = 24.0;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The retail dats, or a failed test: a skipped test would read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -207,7 +203,7 @@ fn sq_of_local(p: Vec3) -> (u8, u8) {
 #[test]
 fn the_cell_index_tracks_every_24_m_boundary_inside_a_block() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let home = block_at(hx, hy);
     let mut scene = embodied(&store, &mut gpu);
@@ -316,7 +312,7 @@ fn the_cell_index_tracks_every_24_m_boundary_inside_a_block() {
 #[test]
 fn the_cell_index_tracks_the_land_cell_under_every_room_of_the_block() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let home = block_at(hx, hy);
     let mut scene = embodied(&store, &mut gpu);
@@ -464,7 +460,7 @@ fn the_cell_index_tracks_the_land_cell_under_every_room_of_the_block() {
 #[test]
 fn at_a_block_boundary_the_index_wraps_rather_than_saturating() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let mut scene = embodied(&store, &mut gpu);
 
@@ -581,7 +577,7 @@ fn at_a_block_boundary_the_index_wraps_rather_than_saturating() {
 #[test]
 fn the_clamp_reports_a_cell_the_viewer_is_not_in() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     // No body: `WorldScene::load` alone, which is the `--no-character` path and the state every
     // scene passes through before `attach_character` runs.
     let scene =
@@ -679,7 +675,7 @@ fn the_clamp_reports_a_cell_the_viewer_is_not_in() {
 #[test]
 fn indoors_the_clamp_reports_a_cell_the_viewer_is_not_in() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let home = block_at(hx, hy);
     let mut scene = embodied(&store, &mut gpu);
@@ -819,7 +815,7 @@ fn indoors_the_clamp_reports_a_cell_the_viewer_is_not_in() {
 #[test]
 fn a_viewpoint_off_the_edge_of_the_world_leaves_the_last_cell_standing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     // No body, so the flycam is the viewpoint and its position is settable from here.
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("it loads");
 
@@ -977,7 +973,7 @@ fn the_id_and_the_position_name_different_cells_on_a_plain_walk() {
     let mut total_differ = 0usize;
     let mut lines = Vec::new();
     for (name, x) in [("on a 24 m line", 96.0f32), ("4 m inside a cell", 100.0f32)] {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
         let w = walk_north(&store, &mut gpu, x);
         lines.push(format!(
             "x = {x:.1} ({name}): {} of {} frame(s) differ; the SqCoord changed on {}; {} \
@@ -1029,7 +1025,7 @@ mod cell_source {
     //! checked against `find_terrain_poly` on the shipped terrain in both directions. Fixture: the
     //! retail dats on a software device; fails when the dats or a device are absent.
 
-    use super::{block_at, store, warp, CELL};
+    use super::{block_at, store, CELL};
     use std::sync::Arc;
 
     use dereth_client::camera::CameraInput;
@@ -1191,7 +1187,7 @@ mod cell_source {
     #[test]
     fn the_closed_square_is_point_in_cell_on_retail_terrain() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
         let scene = embodied(&store, &mut gpu);
         let land = scene.character.as_ref().expect("a body").world.land();
         let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
@@ -1437,7 +1433,7 @@ mod cell_source {
             ),
         ];
         for (name, start, heading, axis_x, sign) in walks {
-            let mut gpu = warp();
+            let mut gpu = crate::common::test_gpu(800, 600);
             let c = crossing(&store, &mut gpu, start, heading, axis_x, 150);
 
             // Premise 1: the body moved, and it moved the way this walk says it did.
@@ -1529,7 +1525,7 @@ mod cell_source {
     #[test]
     fn riding_the_line_is_where_the_container_rule_and_a_floor_part() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
         let c = crossing(
             &store,
             &mut gpu,
@@ -1605,10 +1601,6 @@ mod load_time {
     use dereth_primitives::Vec3;
     use dereth_render::device::Gpu;
 
-    fn warp() -> Gpu {
-        crate::common::software_gpu(320, 240)
-    }
-
     fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         let mut scene =
             WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
@@ -1665,7 +1657,7 @@ mod load_time {
     #[test]
     fn a_re_centre_cannot_change_the_flycams_cell_index() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         // No body: `WorldScene::load` alone, which is the `--no-character` path and the state every
         // scene passes through before `attach_character` runs.
         let mut scene =
@@ -1764,7 +1756,7 @@ mod load_time {
     #[test]
     fn the_bodys_viewpoint_is_untouched_by_the_re_centre() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
         let mut scene = embodied(&store, &mut gpu);
 
@@ -1845,7 +1837,7 @@ mod load_time {
     #[test]
     fn a_re_centre_at_load_would_scroll_off_the_block_load_was_asked_for() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let cfg = SceneConfig::default();
         let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the scene loads");
 
@@ -1899,7 +1891,7 @@ mod load_time {
     #[test]
     fn neither_load_time_arm_re_centres() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
 
         // Arm 1 — `WorldScene::load`. Its flycam is a block south and the window stays put.
@@ -1971,7 +1963,7 @@ mod load_time {
     #[test]
     fn the_next_update_recomputes_the_same_index_from_the_re_centred_viewpoint() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
         let mut scene = embodied(&store, &mut gpu);
         for i in 1..=10 {
@@ -2057,7 +2049,7 @@ mod load_time {
     #[test]
     fn the_frame_loops_re_centre_normalises_the_flycam_into_the_centre_block() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
         let home = scene.viewer_block().expect("a viewer block");

@@ -3538,24 +3538,6 @@ mod panels {
     use dereth_ui_screens::screens::gameplay::GamePlayScreen;
     use dereth_ui_screens::view::{GameView, Vital};
 
-    #[derive(Debug)]
-    pub struct Store(pub Arc<dereth_dat::RetailDatStore>);
-
-    impl AssetSource for Store {
-        fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-            self.0.read(id)
-        }
-        fn exists(&self, id: DataId) -> bool {
-            self.0.exists(id)
-        }
-        fn iter_type(
-            &self,
-            kind: dereth_primitives::DataType,
-        ) -> Box<dyn Iterator<Item = DataId> + '_> {
-            self.0.iter_type(kind)
-        }
-    }
-
     /// The shipped `classic_gameplay` tree, built by the screen's own startup.
     pub fn gameplay() -> (UiSystem, GamePlayScreen) {
         let store = Arc::new(dereth_dat::testing::open_store_or_fail());
@@ -3575,7 +3557,7 @@ mod panels {
         )));
         let mut flow = dereth_ui::UiFlow::new();
         dereth_ui_screens::register_all(&mut ui, &mut flow);
-        let assets = Rc::new(Store(store));
+        let assets = Rc::new(store);
         let resolver = Rc::new(
             dereth_ui::framework::DidMapperResolver::load_via_master(assets.as_ref())
                 .expect("the shipped mapper"),

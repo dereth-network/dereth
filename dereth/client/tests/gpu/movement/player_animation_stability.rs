@@ -20,7 +20,6 @@ use dereth_client_runtime::actions::movement::{
 use dereth_dat::RetailDatStore;
 use dereth_input::ActionId;
 use dereth_primitives::{DataId, LocalTime, Vec3};
-use dereth_render::device::Gpu;
 
 /// The middle of Holtburg's own landblock, where the other embodied-body tests spawn.
 const SPAWN: (f32, f32) = (96.0, 96.0);
@@ -260,10 +259,6 @@ fn the_players_own_animation_does_not_oscillate_between_two_frames_at_any_frame_
     }
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 /// **The body's travel is forward on every frame; the sawtooth on screen is the camera's lag over
 /// the 30 Hz gate, not a physics oscillation.**
 ///
@@ -279,7 +274,7 @@ fn warp() -> Gpu {
 fn the_drawn_bodys_own_travel_is_monotone_and_the_screen_sawtooth_is_the_gate() {
     let store = store();
     for hz in RATES {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("scene");
         let region = load_region(&store).expect("the region decodes");
         scene

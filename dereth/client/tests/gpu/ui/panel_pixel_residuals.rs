@@ -26,6 +26,7 @@
 
 use crate::common::client_dir;
 
+use dereth_chargen::SkillAdvancementClass;
 use dereth_client::app::App;
 use dereth_client::config::Config;
 use dereth_client::net::ClientNetwork;
@@ -37,7 +38,6 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_ui::framework::mode;
 use dereth_ui::{Box2D, ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::screens::chargen::{self, CharGenScreen, EcgProgress};
-use dereth_ui_screens::screens::chargen_state::SkillAdvancementClass;
 use dereth_ui_screens::screens::gameplay::{window::INVENTORY_PAGE, GamePlayScreen};
 
 // ---------------------------------------------------------------------------------------------

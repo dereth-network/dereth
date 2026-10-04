@@ -66,7 +66,7 @@
 //! that advances the application clock, never by a model call.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 use std::sync::Arc;
 
 use dereth_client::app::App;
@@ -924,7 +924,7 @@ fn the_ghost_band_is_the_gap_between_aces_pvs_and_the_clients_landblock_window()
     use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc};
 
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
 
     let recorded = recorded();
     let home = LandblockId(DEFAULT_LANDBLOCK);

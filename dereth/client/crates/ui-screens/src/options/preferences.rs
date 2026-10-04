@@ -276,16 +276,11 @@ mod tests {
         assert_eq!(hashes.len(), 68, "two tokens hash to the same string id");
     }
 
-    /// Oracle: the preference registrations' *default* column and
-    /// `super::super::config::DEFAULT_DISAGREEMENTS`, independently cross-checked against the
-    /// options behavior.
-    ///
-    /// The historical three disagreements plus texture filtering (registered 0 at startup,
-    /// 1 on *Restore Defaults*):
-    /// different registered/UI values prove that a page seeded itself from the store.
+    /// Adaptive degrades, mouse sensitivity and texture filtering have distinct registration
+    /// and page defaults, so neither source can silently replace the other.
     #[test]
     fn the_registered_defaults_disagree_with_the_ui_defaults_in_exactly_three_places() {
-        use super::super::config::{config_rows, DEFAULT_DISAGREEMENTS};
+        use super::super::config::config_rows;
         let mut differing = Vec::new();
         for row in config_rows() {
             let Some(p) = find(row.preference) else {
@@ -297,8 +292,11 @@ mod tests {
             }
         }
         differing.sort_unstable();
-        let mut named: Vec<&str> = DEFAULT_DISAGREEMENTS.iter().map(|d| d.preference).collect();
-        named.sort_unstable();
+        let named = [
+            "Input.MouseLookSensitivity",
+            "Render.AutomaticDegrades",
+            "Render.TextureFiltering",
+        ];
         assert_eq!(differing, named, "the disagreements this table produces");
         // The registered values are pinned as literals.
         assert_eq!(
@@ -315,14 +313,10 @@ mod tests {
                 .registered_default,
             Float(0.25)
         );
-        for d in DEFAULT_DISAGREEMENTS {
-            assert_eq!(
-                find(d.preference).unwrap().registered_default,
-                d.registered,
-                "{} must have the registered default value",
-                d.preference
-            );
-        }
+        assert_eq!(
+            find("Render.TextureFiltering").unwrap().registered_default,
+            Int(0)
+        );
     }
 
     /// Every range agrees with the independently transcribed slider table.

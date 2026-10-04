@@ -70,10 +70,6 @@ const EYE: f32 = 0.75;
 /// root, so the line of sight runs through the eastern frond rather than the gap.
 const ACROSS: f32 = 0.7;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// The retail store, or **fail**: a skipped test and a passing test are the same green line, so
 /// this file has no skip in it.
 fn store() -> Arc<RetailDatStore> {
@@ -535,7 +531,7 @@ const PLACE_ON: usize = 8;
 /// [`the_plants_leaves_hide_a_creature_standing_behind_them`] asserts that noise floor before it
 /// asserts anything else.
 fn shot(store: &Arc<RetailDatStore>, arm: Arm) -> (Vec<u8>, usize, f32) {
-    let mut b = Bench::new(store, warp());
+    let mut b = Bench::new(store, crate::common::test_gpu(W, H));
     let plant = PLANT_AT;
     let eye = Vec3::new(plant.x + ACROSS, plant.y - CAMERA_BACK, plant.z + EYE);
     let range = CAMERA_BACK + CREATURE_BEHIND;
@@ -632,7 +628,7 @@ fn the_plants_leaves_hide_a_creature_standing_behind_them() {
 #[test]
 fn the_clip_list_is_drawn_before_the_alpha_list() {
     let store = store();
-    let mut b = Bench::new(&store, warp());
+    let mut b = Bench::new(&store, crate::common::test_gpu(W, H));
     let plant = PLANT_AT;
     let eye = Vec3::new(plant.x + ACROSS, plant.y - CAMERA_BACK, plant.z + EYE);
     b.look(eye, Vec3::new(eye.x, eye.y + 1.0, eye.z));

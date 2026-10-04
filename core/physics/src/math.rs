@@ -8,7 +8,7 @@
 
 use dereth_primitives::num::consts::EPSILON;
 use dereth_primitives::num::math;
-use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
+use dereth_primitives::{Frame, Position, Quat, Vec3};
 
 pub use dereth_primitives::frame::{
     combine, euler_set_rotate, frame_is_valid, get_heading, get_vector_heading, globaltolocal,
@@ -188,13 +188,6 @@ pub fn position_is_valid(p: &Position) -> bool {
     landdefs::inbound_valid_cellid(p.cell) && frame_is_valid(&p.frame)
 }
 
-/// A `Position` at the origin of a cell with an identity frame - the shape the client's
-/// set-position struct initialises.
-#[must_use]
-pub fn identity_position(cell: CellId) -> Position {
-    Position::new(cell, Frame::new(Vec3::ZERO, Quat::IDENTITY))
-}
-
 /// Frame equality - component-wise, exact.
 #[must_use]
 pub fn frame_is_equal(a: &Frame, b: &Frame) -> bool {
@@ -204,6 +197,7 @@ pub fn frame_is_equal(a: &Frame, b: &Frame) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dereth_primitives::CellId;
 
     // Oracle: the client's own frame code -- the cached rotation, the local-to-global vector
     // transform, the global rotate, the rotation setter and the heading accessor.

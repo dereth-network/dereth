@@ -13,6 +13,7 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 
+use dereth_chargen::{Attr, CharGenState, SkillAdvancementClass};
 use dereth_client::app::App;
 use dereth_client::config::Config;
 use dereth_primitives::{DataId, ObjectId};
@@ -21,7 +22,6 @@ use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::screens::chargen::{
     self, CharGenScreen, EParts, EcgProgress, PROFESSION_BUTTONS,
 };
-use dereth_ui_screens::screens::chargen_state::{Attr, CharGenState, SkillAdvancementClass};
 
 /// Fails the test when the retail dats are not where `$DERETH_TEST_DAT_DIR` says.
 fn have_dats() {
@@ -1030,7 +1030,7 @@ fn the_turntable_describes_the_character_the_wizard_has_built() {
     // Zoomed in again: re-entering the page selects Face and applies its zoomed-in camera.
     assert_eq!(
         w.view3d.camera_position,
-        chargen::zoomed_in_camera(dereth_ui_screens::screens::chargen_state::HERITAGE_OLTHOI_ACID)
+        chargen::zoomed_in_camera(dereth_chargen::HERITAGE_OLTHOI_ACID)
     );
     app.shutdown();
 }

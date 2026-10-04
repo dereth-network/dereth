@@ -418,7 +418,7 @@ fn landscape_frame(
     use dereth_client::world::WorldScene;
     use dereth_primitives::LocalTime;
     let store = crate::common::dats();
-    let mut gpu = crate::common::software_gpu(640, 480);
+    let mut gpu = crate::common::test_gpu(640, 480);
     let base = scene();
     let cfg = SceneConfig {
         character: false,

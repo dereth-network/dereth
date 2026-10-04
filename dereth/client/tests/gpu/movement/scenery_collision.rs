@@ -84,10 +84,6 @@ const APPROACH: f32 = 6.5;
 /// well past the target. The displacement and closest-approach predicates are what is asserted.
 const FRAMES: usize = 120;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// Sampled body position and transition contact/walkable flags. Requiring both flags separates
 /// stopping on walkable ground from a fall or a non-walkable contact. No pixels are read back.
 #[derive(Debug, Clone, Copy)]
@@ -193,7 +189,7 @@ impl Bench {
 }
 
 fn bench(store: &Arc<RetailDatStore>) -> Bench {
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     Bench::new(store, gpu)
 }
 

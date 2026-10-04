@@ -83,38 +83,50 @@ pub trait ClientPresentation: Presentation {
     }
 }
 
-impl ClientPresentation for NullPresentation {
-    fn draw_ui(&mut self, _cmds: &[dereth_ui::UiDrawCmd]) -> Result<(), PresentError> {
-        self.counts_mut().draw_ui += 1;
-        Ok(())
-    }
-    fn prepare_ui(
-        &mut self,
-        _interface: &RetailDatStore,
-        _world: &RetailDatStore,
-        _cmds: &[dereth_ui::UiDrawCmd],
-    ) {
-        self.counts_mut().prepare_ui += 1;
-    }
-    fn release_ui_textures(&mut self) -> UiReleaseReport {
-        self.counts_mut().release_ui_textures += 1;
-        UiReleaseReport::default()
-    }
-    fn set_movie_frame(&mut self, _id: DataId, _texture: &dereth_primitives::TextureData) {
-        self.counts_mut().set_movie_frame += 1;
-    }
-    fn target_projection(
-        &self,
-        _id: ObjectId,
-        _world: Option<&WorldState>,
-    ) -> Option<dereth_ui_screens::hud::target::Projection> {
-        None
-    }
+macro_rules! counted_ui {
+    ($presentation:ty) => {
+        impl ClientPresentation for $presentation {
+            fn draw_ui(&mut self, _cmds: &[dereth_ui::UiDrawCmd]) -> Result<(), PresentError> {
+                self.counts_mut().draw_ui += 1;
+                Ok(())
+            }
+            fn prepare_ui(
+                &mut self,
+                _interface: &RetailDatStore,
+                _world: &RetailDatStore,
+                _cmds: &[dereth_ui::UiDrawCmd],
+            ) {
+                self.counts_mut().prepare_ui += 1;
+            }
+            fn release_ui_textures(&mut self) -> UiReleaseReport {
+                self.counts_mut().release_ui_textures += 1;
+                UiReleaseReport::default()
+            }
+            fn set_movie_frame(&mut self, _id: DataId, _texture: &dereth_primitives::TextureData) {
+                self.counts_mut().set_movie_frame += 1;
+            }
+            fn target_projection(
+                &self,
+                _id: ObjectId,
+                _world: Option<&WorldState>,
+            ) -> Option<dereth_ui_screens::hud::target::Projection> {
+                None
+            }
 
-    fn preview_queue(&mut self, _id: PreviewId, _who: dereth_ui::ElemHandle, _rect: Viewport) {
-        self.counts_mut().preview_calls += 1;
-    }
+            fn preview_queue(
+                &mut self,
+                _id: PreviewId,
+                _who: dereth_ui::ElemHandle,
+                _rect: Viewport,
+            ) {
+                self.counts_mut().preview_calls += 1;
+            }
+        }
+    };
 }
+
+counted_ui!(NullPresentation);
+counted_ui!(dereth_client_runtime::sim_present::SimPresentation);
 
 #[cfg(test)]
 mod tests {

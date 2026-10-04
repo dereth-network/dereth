@@ -208,7 +208,6 @@ pub struct PhysicsWorld {
     /// The physics timer's current time. Initialised to `-1.0`.
     sim_time: f64,
     player: Option<PhysHandle>,
-    static_animating: Vec<PhysHandle>,
     notices: Vec<PhysicsNotice>,
     /// The interpolation sub-manager only: the node queue filled by interpolation requests and
     /// walked by the interpolation pass.
@@ -257,7 +256,6 @@ impl PhysicsWorld {
             // The physics timer's current time is initialised to -1.0, not to zero.
             sim_time: -1.0,
             player: None,
-            static_animating: Vec::new(),
             interpolation: BTreeMap::new(),
             notices: Vec::new(),
             obj_maint_is_active: true,
@@ -331,12 +329,6 @@ impl PhysicsWorld {
             .sum()
     }
 
-    /// Static animating-object set. Instrumentation.
-    #[must_use]
-    pub fn static_animating_count(&self) -> usize {
-        self.static_animating.len()
-    }
-
     /// Notices raised and not yet drained by [`Self::drain_notices`]. Instrumentation.
     #[must_use]
     pub fn pending_notice_count(&self) -> usize {
@@ -359,7 +351,6 @@ impl PhysicsWorld {
         for c in self.cells.values_mut() {
             c.object_list.retain(|x| *x != h);
         }
-        self.static_animating.retain(|x| *x != h);
         // The manager dies with the object it hangs off.
         self.interpolation.remove(&h);
         if self.player == Some(h) {
@@ -426,18 +417,6 @@ impl PhysicsWorld {
     #[must_use]
     pub const fn player(&self) -> Option<PhysHandle> {
         self.player
-    }
-
-    /// Add a static animating object.
-    pub fn add_static_animating(&mut self, h: PhysHandle) {
-        if !self.static_animating.contains(&h) {
-            self.static_animating.push(h);
-        }
-    }
-
-    /// Remove a static animating object.
-    pub fn remove_static_animating(&mut self, h: PhysHandle) {
-        self.static_animating.retain(|x| *x != h);
     }
 
     /// Drain the notices raised during the last tick, in the order they were raised.

@@ -13,10 +13,6 @@ use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_render::device::Gpu;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(400, 300)
-}
-
 /// The retail store, or **fail**: a missing oracle must not read as a pass.
 fn store() -> RetailDatStore {
     crate::common::dat_store()
@@ -63,7 +59,7 @@ fn draw_and_count(scene: &WorldScene, gpu: &mut Gpu) -> (usize, Vec<u8>) {
 #[test]
 fn every_sky_object_the_region_names_resolves_to_triangles() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
     let scene = scene_at(&store, &mut gpu, 0.5);
     let s = scene.draw.stats.sky_stats;
@@ -146,7 +142,7 @@ fn the_shipped_region_does_use_the_sky_object_property_bits() {
 #[test]
 fn the_sky_is_not_black_and_the_day_cycle_moves_it() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
 
     let noon = scene_at(&store, &mut gpu, 0.5);
@@ -212,7 +208,7 @@ fn the_sky_is_not_black_and_the_day_cycle_moves_it() {
 #[test]
 fn advancing_the_clock_relights_the_world_from_inside_the_frame_loop() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
     let mut scene = scene_at(&store, &mut gpu, 0.25);
     let before_light = scene.landscape_lighting();
@@ -277,7 +273,7 @@ fn advancing_the_clock_relights_the_world_from_inside_the_frame_loop() {
 #[test]
 fn the_landscape_sun_vector_keeps_its_brightness() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
 
@@ -347,7 +343,7 @@ fn the_sky_is_drawn_with_four_times_the_far_plane() {
 #[test]
 fn the_sky_scrolls_by_elapsed_time_and_not_by_frame_count() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
     let cfg = || SceneConfig {
         land_radius: 0,

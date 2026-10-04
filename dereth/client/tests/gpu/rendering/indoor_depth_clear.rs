@@ -18,7 +18,7 @@ use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
-use dereth_render::device::Gpu;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -32,10 +32,6 @@ const STAIRWELL: u32 = 0xA9B4_0146;
 /// The ground floor immediately above it, and the cellar below.
 const GROUND_FLOOR: u32 = 0xA9B4_0143;
 const CELLAR: [u32; 3] = [0xA9B4_0147, 0xA9B4_0148, 0xA9B4_0149];
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
 
 /// The retail store, or **fail**.
 fn store() -> Arc<RetailDatStore> {
@@ -161,7 +157,7 @@ fn indoor_shot_with(
     buildings: bool,
     pixels: bool,
 ) -> Shot {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_client::world::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
@@ -254,7 +250,7 @@ fn indoor_shot_with(
 /// The same, outdoors over Holtburg with no body — the control that says the change is keyed to the
 /// indoor path and nothing else.
 fn outdoor_shot(store: &Arc<RetailDatStore>, z_clear: bool) -> Vec<u8> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         character: false,

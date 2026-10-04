@@ -71,7 +71,7 @@ pub struct ConfigRow {
 pub use dereth_client_contract::options::config::PrefValueConst;
 
 use Control::{Check, CheckSlider, Menu, Slider};
-use PrefValueConst::{Bool, Float, Int};
+use PrefValueConst::{Bool, Float};
 
 /// Derive a control from the shared sheet, including controls hosted by the Chat page.
 #[must_use]
@@ -128,38 +128,6 @@ pub fn config_rows() -> impl Iterator<Item = ConfigRow> {
 /// ids. UI-preference initialisation attaches no enum choices for it either, so routing it
 /// through the UI-preference leg would produce a drop-down with a popup and no rows.
 pub const USER_PREFERENCE_MENUS: [&str; 1] = ["Display.Resolution"];
-
-/// One preference whose *Restore Defaults* value differs from its registration default.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DefaultDisagreement {
-    pub preference: &'static str,
-    /// The value the preference is registered with.
-    pub registered: PrefValueConst,
-    /// The value the Client Options page assigns as the row default.
-    pub ui_restore: PrefValueConst,
-}
-
-/// The three preferences whose registered default and page default disagree.
-///
-/// **Do not reconcile them.** Both values are real: the registered default is what a fresh
-/// `UserPreferences.ini` gets, and the UI value is what *Defaults* writes over it.
-pub const DEFAULT_DISAGREEMENTS: [DefaultDisagreement; 3] = [
-    DefaultDisagreement {
-        preference: "Render.AutomaticDegrades",
-        registered: Bool(true),
-        ui_restore: Bool(false),
-    },
-    DefaultDisagreement {
-        preference: "Input.MouseLookSensitivity",
-        registered: Float(0.25),
-        ui_restore: Float(0.55),
-    },
-    DefaultDisagreement {
-        preference: "Render.TextureFiltering",
-        registered: Int(0), // Startup feeds quality 3 to the overall-graphics-quality update.
-        ui_restore: Int(1),
-    },
-];
 
 /// One row of the mouse-turning preset: the preference the Game / Support page's *Use Mouse
 /// Turning Settings* button sets, the value it sets it to, and the chat line it prints when the
@@ -316,6 +284,7 @@ pub const OPTION_STRING_TABLE_ENUM: u32 = 0x1000_0003;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use PrefValueConst::Int;
 
     /// Behaviour: options.client-page.every-row-header-and-slider-end-carries-its-shipped-caption
     #[test]
@@ -365,23 +334,22 @@ mod tests {
     /// resolution is restored to the size the client starts at.
     #[test]
     fn the_three_restore_defaults_values_differ_from_the_registered_defaults() {
-        assert_eq!(DEFAULT_DISAGREEMENTS.len(), 3);
-        for d in DEFAULT_DISAGREEMENTS {
-            assert_ne!(d.registered, d.ui_restore, "{} must disagree", d.preference);
-            let row = config_rows()
-                .find(|r| r.preference == d.preference)
-                .unwrap_or_else(|| panic!("{} is not on the page", d.preference));
+        for (name, registered, restored) in [
+            ("Render.AutomaticDegrades", Bool(true), Bool(false)),
+            ("Input.MouseLookSensitivity", Float(0.25), Float(0.55)),
+            ("Render.TextureFiltering", Int(0), Int(1)),
+        ] {
+            assert_ne!(registered, restored, "{name} must disagree");
+            let row = config_rows().find(|r| r.preference == name).unwrap();
+            assert_eq!(row.ui_default, restored, "{name} restores the UI value");
             assert_eq!(
-                row.ui_default, d.ui_restore,
-                "{} restores the UI value",
-                d.preference
+                super::super::preferences::find(name)
+                    .unwrap()
+                    .registered_default,
+                registered,
+                "{name} retains its registration default"
             );
         }
-        // The specific values, spelled out.
-        assert_eq!(DEFAULT_DISAGREEMENTS[0].registered, Bool(true));
-        assert_eq!(DEFAULT_DISAGREEMENTS[0].ui_restore, Bool(false));
-        assert_eq!(DEFAULT_DISAGREEMENTS[1].registered, Float(0.25));
-        assert_eq!(DEFAULT_DISAGREEMENTS[1].ui_restore, Float(0.55));
 
         // The resolution is restored to the size the client starts at, 1024x768: the words pack
         // as width<<16 | height.

@@ -944,6 +944,7 @@ dependencies = [
  "dereth-animation",
  "dereth-assets",
  "dereth-audio",
+ "dereth-chargen",
  "dereth-classic-ui",
  "dereth-client-contract",
  "dereth-client-model",
@@ -1309,6 +1310,7 @@ version = "0.0.0"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
+ "dereth-chargen",
  "dereth-client",
  "dereth-client-contract",
  "dereth-client-model",
@@ -1439,7 +1441,6 @@ dependencies = [
  "dereth-landscape",
  "dereth-primitives",
  "dereth-terrain",
- "thiserror 2.0.20",
 ]
 
 [[package]]

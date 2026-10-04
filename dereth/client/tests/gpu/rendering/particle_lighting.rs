@@ -108,10 +108,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn base_cfg() -> SceneConfig {
     SceneConfig {
         landblock: 0x8602,
@@ -482,7 +478,7 @@ fn the_fixture_is_what_this_file_claims() {
 #[test]
 fn a_non_luminous_particle_is_lit_by_the_scene() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
 
     let mut rows: Vec<(&str, [f64; 3], [f64; 3], [f64; 3])> = Vec::new();
     for (name, metres) in [("far", FAR_METRES), ("near", NEAR_METRES)] {

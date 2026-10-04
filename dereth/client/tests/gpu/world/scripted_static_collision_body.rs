@@ -321,10 +321,6 @@ mod scene {
     /// the chosen scale target; the station does not assert particle creation or sound playback.
     const SCALE_SETUP: u32 = 0x0200_161A;
 
-    fn warp() -> Gpu {
-        crate::common::software_gpu(640, 480)
-    }
-
     fn scene(gpu: &mut Gpu, store: &Arc<RetailDatStore>, landblock: u16) -> WorldScene {
         let cfg = SceneConfig {
             landblock,
@@ -355,7 +351,7 @@ mod scene {
     /// handles at all; it does not establish why that cell registered no bodies.
     #[test]
     fn every_landblock_static_that_runs_a_script_carries_its_own_collision_body() {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(640, 480);
         let store = Arc::new(dereth_dat::testing::open_store_or_fail());
         let mut scene = scene(&mut gpu, &store, dereth_client::world::DEFAULT_LANDBLOCK);
         let mut stream = ObjectStream::new();
@@ -444,7 +440,7 @@ mod scene {
     /// and setup ID; they do not compare placement indices or explicitly assert handle identity.
     #[test]
     fn the_one_shipped_static_that_a_script_doubles_doubles_its_collision_body() {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(640, 480);
         let store = Arc::new(dereth_dat::testing::open_store_or_fail());
         let mut scene = scene(&mut gpu, &store, SCALE_BLOCK);
         let mut stream = ObjectStream::new();

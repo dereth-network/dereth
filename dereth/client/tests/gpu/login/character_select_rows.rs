@@ -741,12 +741,7 @@ fn the_wizard_builds_a_character_ace_will_accept() {
             "skill {id} is trained and is not in SkillBaseHash -- InvalidSkillRequested"
         );
         let (trained, specialized) =
-            dereth_ui_screens::screens::chargen_state::CharGenState::skill_costs(
-                &cg,
-                &skills,
-                msg.heritage_group,
-                id,
-            );
+            dereth_chargen::CharGenState::skill_costs(&cg, &skills, msg.heritage_group, id);
         used += if *sac == 3 { specialized } else { trained };
     }
     assert!(

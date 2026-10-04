@@ -50,10 +50,6 @@ const FIXTURE: &str = "[Render]\r\n\
      GraphicsPerformance=0.30\r\n\
      DegradeDistance=75.00\r\n";
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// The retail store, or **fail**.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -127,7 +123,7 @@ fn the_profile_s_render_preferences_reach_the_projection_and_the_device() {
     assert_eq!(RenderPreferences::image_scale(1), 0);
     assert_eq!(RenderPreferences::image_scale(4), 3);
 
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let store = store();
     let scene = WorldScene::load(&store, &mut gpu, scene_config(&cfg)).expect("the scene loads");
 
@@ -291,7 +287,7 @@ fn mean_luma(gpu: &mut Gpu, store: &Arc<RetailDatStore>, scene: &mut WorldScene,
 /// 0.299/0.587/0.114. No player body is attached to this scene.
 #[test]
 fn a_brighter_profile_draws_a_brighter_frame() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let store = store();
     let (_, cfg) = config_from("");
     let mut scene = WorldScene::load(&store, &mut gpu, scene_config(&cfg)).expect("loads");
@@ -333,24 +329,6 @@ fn a_brighter_profile_draws_a_brighter_frame() {
 // 3. the options page's Apply
 // ---------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-struct AssetStore(RetailDatStore);
-
-impl AssetSource for AssetStore {
-    fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-}
-
 fn ui_env() -> UiSystem {
     let dir = dereth_dat::testing::dat_dir();
     let store = RetailDatStore::open_dir(&dir).expect("the retail dats open");
@@ -362,7 +340,7 @@ fn ui_env() -> UiSystem {
     let mut ui = UiSystem::new((800, 600));
     ui.property_types = master.property_types();
     let mut flow = dereth_ui::UiFlow::new();
-    let store = Rc::new(AssetStore(store));
+    let store = Rc::new(store);
     let resolver =
         Rc::new(DidMapperResolver::load_via_master(store.as_ref()).expect("the DidMapper loads"));
     dereth_ui_screens::env::install(&mut ui, store, resolver);
@@ -457,7 +435,7 @@ fn drag(ui: &mut UiSystem, preference: &str, frac: f32) -> f32 {
 /// (`dereth_client::render_prefs::apply_preference_requests`).
 #[test]
 fn the_options_pages_apply_changes_the_picture_live() {
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     drop(gpu); // the renderer below creates its own device; this was only the availability probe.
     let store = store();
     let mut renderer =

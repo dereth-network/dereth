@@ -21,17 +21,12 @@ use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::V3;
 use dereth_primitives::{DataId, LocalTime, Vec3};
-use dereth_render::device::Gpu;
 
 /// The door setup used while scanning for a table with the required hook pair.
 const DOOR_SETUP: u32 = 0x0200_024F;
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
-}
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
 }
 
 /// The first retail motion table whose `On` raises `SetEthereal(true)` and whose `Off` raises
@@ -79,7 +74,7 @@ fn an_ethereal_motion_table(store: &Arc<RetailDatStore>) -> DataId {
 /// this local-character substitution.
 #[test]
 fn an_ethereal_hook_fired_inside_the_frame_reaches_the_physics_object() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
     let region = dereth_client::world::load_region(&store).expect("region");
     let mtable = an_ethereal_motion_table(&store);
@@ -190,7 +185,7 @@ fn quarter_turn_per_second() -> Vec3 {
 /// integrated it, or one that integrated it once and stopped, both pass a state-word test.
 #[test]
 fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
     let region = dereth_client::world::load_region(&store).expect("region");
 
@@ -310,7 +305,7 @@ fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
 /// queue in order. A build that added would leave their sum.
 #[test]
 fn the_last_set_omega_hook_of_a_step_wins() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
     let region = dereth_client::world::load_region(&store).expect("region");
 

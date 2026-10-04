@@ -116,7 +116,7 @@ fn expected(nx: f32) -> u8 {
 #[test]
 fn an_unevenly_scaled_part_is_lit_along_its_inverse_transpose_normal_moving_or_baked() {
     let _lock = crate::common::gpu_lock();
-    let mut gpu = crate::common::software_gpu(N, N);
+    let mut gpu = crate::common::test_gpu(N, N);
     let frame = Frame::new(Vec3::ZERO, Quat::IDENTITY);
     // The model normal, half way between x and y. Squashing x to a quarter tilts the true
     // surface normal toward x: n / s = (4, 1, 0) / |..|, whose x is 0.970; the plain world

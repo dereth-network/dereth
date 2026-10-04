@@ -2,7 +2,7 @@
 //!
 //! `dereth_ui_screens::options::config` re-exports it. `super::store::init` and
 //! `super::preferences::UI_PREFERENCES` both name it, so it lives with them; the option *page* —
-//! `ConfigRow`, `Control`, `CONFIG_PAGE`, `DEFAULT_DISAGREEMENTS` and the element ids — stays in
+//! `ConfigRow`, `Control`, `CONFIG_PAGE` and the element ids — stays in
 //! the UI.
 
 use crate::view::PrefValue;

@@ -28,10 +28,6 @@ const CELL: f64 = 24.0;
 /// `MIN_QUANTUM`, the client's own step. The lag is one of these.
 const STEP: f64 = dereth_physics::globals::MIN_QUANTUM;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The retail dats, or a failed test: a skipped test would read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -173,7 +169,7 @@ fn measure(store: &Arc<RetailDatStore>, st: &Station) -> Reading {
     // A device per station: five scenes on one software device exhaust its 2048 descriptor
     // slots, and separate devices keep the stations independent, so they do not share one
     // subject or its resource history.
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let gpu = &mut gpu;
     let mut scene = embodied(store, gpu);
     stand(&mut scene, st.x, st.y, st.heading);
@@ -485,7 +481,7 @@ fn the_one_frame_lag_is_bounded_by_one_frame_of_camera_travel_at_every_station()
 #[test]
 fn world_scene_update_does_not_move_the_viewpoint_which_is_why_the_lag_is_exactly_one_frame() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = embodied(&store, &mut gpu);
     stand(&mut scene, 24.0, 24.0, 0.0);
 
@@ -576,7 +572,7 @@ fn world_scene_update_does_not_move_the_viewpoint_which_is_why_the_lag_is_exactl
 #[test]
 fn driving_update_without_the_sweep_freezes_the_viewpoint_exactly() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = embodied(&store, &mut gpu);
     stand(&mut scene, 24.0, 24.0, 0.0);
 
@@ -664,7 +660,7 @@ fn driving_update_without_the_sweep_freezes_the_viewpoint_exactly() {
 #[test]
 fn a_bodiless_scene_never_counts_an_update_as_unswept() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     assert!(

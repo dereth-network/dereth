@@ -67,10 +67,6 @@ const HOLDER_SETUP: u32 = 0x0200_0001;
 // Harness: `world::landblock_object_release::outdoor_objects`'s, plus the physics sync it does not run.
 // =================================================================================================
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The retail dats, or a failed test: a skipped test would read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -437,7 +433,7 @@ fn on_terrain(scene: WorldSceneRef<'_>, block: LandblockId, x: f32, y: f32) -> (
 #[test]
 fn a_teleport_leaves_nothing_of_the_origin_behind_not_even_what_arrives_after_it() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let home = block_at(hx, hy);
@@ -581,7 +577,7 @@ fn a_teleport_leaves_nothing_of_the_origin_behind_not_even_what_arrives_after_it
 #[test]
 fn the_ring_shift_still_releases_and_a_resident_block_still_places() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let home = block_at(hx, hy);
@@ -632,7 +628,7 @@ fn the_ring_shift_still_releases_and_a_resident_block_still_places() {
 #[test]
 fn an_outdoor_parent_returning_with_its_block_rescues_its_held_child_from_the_old_deadline() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
     let home = block_at(hx, hy);
@@ -1338,8 +1334,8 @@ mod outdoor_objects {
     //! so the scene object here survives until the queued deletion (checked as stored frames, not
     //! pixels). Fixture: the retail dats on a software device, Holtburg; no datagram leaves.
     use super::{
-        block_at, doomed, embodied, feed, store, warp, DESTRUCTION_TIME, DOOR_OPEN, PORTAL,
-        PORTAL_2, SETUP,
+        block_at, doomed, embodied, feed, store, DESTRUCTION_TIME, DOOR_OPEN, PORTAL, PORTAL_2,
+        SETUP,
     };
     use std::sync::Arc;
 
@@ -1469,7 +1465,7 @@ mod outdoor_objects {
     #[test]
     fn a_portal_on_the_terrain_of_a_departed_block_is_released_rather_than_left_drawn() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
 
         let home = LandblockId(DEFAULT_LANDBLOCK);
         let outside = home.cell(OUTDOOR);

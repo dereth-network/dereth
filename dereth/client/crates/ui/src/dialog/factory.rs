@@ -336,13 +336,6 @@ impl DialogController {
         }
     }
 
-    /// Dialog done — remove a queued, not yet shown, dialog.
-    pub fn dialog_done(&mut self, context: u64) {
-        for q in self.queues.values_mut() {
-            q.retain(|i| i.context != context);
-        }
-    }
-
     /// The tick every open dialog gets on global message 3: returns the contexts that timed out.
     #[must_use]
     pub fn tick(&self, now: f64) -> Vec<u64> {

@@ -707,7 +707,7 @@ impl UiShell {
 
         // The mapper performs a two-level lookup. Never hard-code a
         // layout DataID: a DDD patch can move one.
-        let assets: Rc<dyn AssetSource> = Rc::new(SharedStore(Arc::clone(store)));
+        let assets: Rc<dyn AssetSource> = Rc::new(Arc::clone(store));
         let resolver = DidMapperResolver::load_via_master(assets.as_ref())
             .map_err(|e| UiShellError::Resolver(e.to_string()))?;
         dereth_ui_screens::env::install_env(
@@ -719,7 +719,7 @@ impl UiShell {
         // Tooltip creation builds its window from a layout inside the per-frame update, with no
         // caller to hand it an asset source. Without this every tooltip in the client is nothing
         // at all.
-        ui.assets = Some(Rc::new(SharedStore(Arc::clone(store))));
+        ui.assets = Some(Rc::new(Arc::clone(store)));
         // A new UI starts with an empty request queue of its own: nothing a previous shell queued
         // can reach this one, which is the client's "the objects that would have made the calls
         // no longer exist".
@@ -757,7 +757,7 @@ impl UiShell {
         // and `4` are `CharGen_CharacterData` and `Weenie_SkillTable`. Hard-coding `0x0E000002`
         // would work against this dat build and break on any other.
         let mut stats = UiStats::default();
-        let chargen_tables = load_chargen_tables(&SharedStore(Arc::clone(world)), world);
+        let chargen_tables = load_chargen_tables(&Arc::clone(world), world);
         let classic_creation = chargen_tables
             .as_ref()
             .map(|tables| {
@@ -2646,35 +2646,6 @@ impl dereth_ui_screens::screens::chargen::CgColorSource for DatColorSource {
         })();
         self.cache.borrow_mut().insert((pal_set, index), v);
         v
-    }
-}
-
-/// `dereth_ui_screens::env` wants an `Rc<dyn AssetSource>` and the application holds an `Arc`; this
-/// is the one line that joins them. It owns nothing and decodes nothing.
-#[derive(Debug)]
-struct SharedStore(Arc<dereth_dat::RetailDatStore>);
-
-impl dereth_primitives::AssetSource for SharedStore {
-    fn read(
-        &self,
-        id: dereth_primitives::DataId,
-    ) -> Result<Vec<u8>, dereth_primitives::AssetError> {
-        self.0.read(id)
-    }
-    fn exists(&self, id: dereth_primitives::DataId) -> bool {
-        self.0.exists(id)
-    }
-    fn iter_type(
-        &self,
-        kind: dereth_primitives::DataType,
-    ) -> Box<dyn Iterator<Item = dereth_primitives::DataId> + '_> {
-        self.0.iter_type(kind)
-    }
-    fn container_era(&self) -> dereth_primitives::ContainerEra {
-        self.0.era()
-    }
-    fn container_era_of(&self, id: dereth_primitives::DataId) -> dereth_primitives::ContainerEra {
-        self.0.era_of(id)
     }
 }
 

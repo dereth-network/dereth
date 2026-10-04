@@ -865,21 +865,9 @@ mod tests {
     /// Behaviour: none (completed patch writes stamp both records and revision metadata at the host boundary).
     #[test]
     fn patch_records_and_completed_revisions_receive_wall_clock_dates() {
-        struct Scratch(PathBuf);
-        impl Drop for Scratch {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let dir = std::env::temp_dir().join(format!(
-            "dereth-ddd-entry-dates-{}-{}",
-            std::process::id(),
-            crate::platform::clock::system_unix_time()
-                .expect("host time")
-                .as_nanos()
-        ));
-        std::fs::create_dir(&dir).expect("unique scratch directory");
-        let scratch = Scratch(dir.clone());
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("ddd-entry-dates").expect("scratch directory");
+        let dir = scratch.path().to_path_buf();
         let path = DatTarget::Local.in_dir(&dir);
         {
             let mut writer = DatWriter::create(&path, 0x400, 1, 3, 64 * 1024).expect("create");

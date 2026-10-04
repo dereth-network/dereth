@@ -32,8 +32,7 @@ pub struct UiPref {
     /// **the popup that shows it is not built yet.**
     pub choices: &'static [&'static str],
     /// The value preference registration gave the bound variable. **Not** the `SetDefault` value
-    /// the option page restores; three of
-    /// them differ, which is `super::config::DEFAULT_DISAGREEMENTS`.
+    /// the option page restores; adaptive degrades, mouse sensitivity and texture filtering differ.
     pub registered_default: PrefValueConst,
 }
 

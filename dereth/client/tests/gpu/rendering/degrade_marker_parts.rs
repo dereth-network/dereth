@@ -34,10 +34,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// Drive the app's own per-frame order and hand back the last capture as RGBA.
 ///
 /// Every call below is one `App::frame` makes every frame, so the frame is the binary's and not a
@@ -92,7 +88,7 @@ fn marker_green(p: &[u8; 4]) -> bool {
 #[test]
 fn the_library_draws_no_red_primitive() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let start = CellId(LIBRARY);
 

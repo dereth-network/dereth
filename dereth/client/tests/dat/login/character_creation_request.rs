@@ -7,6 +7,7 @@
 
 use crate::common::client_dir;
 
+use dereth_chargen::CgVerification;
 use dereth_client::app::App;
 use dereth_client::config::Config;
 use dereth_client::present::NullPresentation;
@@ -14,7 +15,6 @@ use dereth_primitives::ObjectId;
 use dereth_ui::framework::mode;
 use dereth_ui::ElementId;
 use dereth_ui_screens::screens::chargen::CharGenScreen;
-use dereth_ui_screens::screens::chargen_state::CgVerification;
 use dereth_ui_screens::screens::charmgmt::CharacterManagementScreen;
 
 /// Three characters in the server's order, which is not the list's alphabetical one: `+Alba`

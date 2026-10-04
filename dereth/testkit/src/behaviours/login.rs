@@ -216,8 +216,8 @@ pub static ROWS: &[Behaviour] = &[
                revive it: the player has to press again.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-LOGOFF"),
-        station: "dereth-client::gpu::login::airborne_logoff_refusal::a_log_off_pressed_in_mid_air_is_refused_out_loud_and_landing_does_not_revive_it",
-        tier: Tier::Gpu,
+        station: "dereth-client::dat::login::airborne_logoff_refusal::a_log_off_pressed_in_mid_air_is_refused_out_loud_and_landing_does_not_revive_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "login.patch.the-data-patch-screen-shows-the-documented-states",

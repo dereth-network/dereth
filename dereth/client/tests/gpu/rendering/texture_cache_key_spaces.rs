@@ -81,16 +81,12 @@ use dereth_client::textures::TextureStore;
 use dereth_client::world::{load_region, SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
-use dereth_render::device::Gpu;
+
 use dereth_render::{combined_texture_key, TextureKey, TextureSpace};
 use dereth_ui::region::SurfaceOp;
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
-}
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -173,7 +169,7 @@ fn the_ui_and_world_key_spaces_can_produce_the_same_sixty_four_bits() {
 /// slot the allocator had handed back.
 #[test]
 fn one_payload_offered_to_every_producer_takes_four_slots() {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let one_texel = |b: u8| dereth_primitives::TextureData {
         width: 1,
         height: 1,
@@ -270,7 +266,7 @@ fn one_payload_offered_to_every_producer_takes_four_slots() {
 #[test]
 fn the_cross_space_census_over_a_shipped_window_is_reported_with_its_denominator() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let cfg = SceneConfig {
         land_radius: 2,
         scenery_radius: 2,
@@ -422,7 +418,7 @@ fn the_cross_space_census_over_a_shipped_window_is_reported_with_its_denominator
 #[test]
 fn a_clipmap_key_conflict_is_photographed_under_both_settings() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     // Holtburg's conflict is ring-2 scenery and retail does not grow it; see the doc comment. `lod_object_guard` stays at its shipped default, so this window is the one the
     // client draws.
     let cfg = SceneConfig {

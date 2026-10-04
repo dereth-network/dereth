@@ -15,7 +15,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use super::common::{retail_store, software_gpu};
+use super::common::{retail_store, test_gpu};
 
 use dereth_assets::{Decode, Setup};
 use dereth_client::models::{placement_frames, PLACEMENT_DEFAULT, PLACEMENT_RESTING};
@@ -90,7 +90,7 @@ fn create(placement: Option<u32>) -> SessionEvent {
 /// Build the scene, put one object in it, and hand back its part frames plus its world frame.
 fn part_frames_for(placement: Option<u32>) -> Option<(Vec<Frame>, Frame)> {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let cfg = SceneConfig {
         landblock: LANDBLOCK,
         character: false,
@@ -237,7 +237,7 @@ fn a_placement_the_setup_does_not_carry_falls_back_to_key_zero() {
 #[test]
 fn a_later_position_event_reposes_an_object_already_on_screen() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
     let dat = setup_of(&store);
     let named = dat.placement_frames[&52].frames.clone();
     // Created naming nothing, so `set_description` installed `Placement.Default` — see
@@ -338,7 +338,7 @@ fn position_naming(placement: u32) -> SessionEvent {
 #[test]
 fn the_named_placement_moves_pixels_and_only_where_the_object_is() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
 
     // Where the camera is looking, from the same ray the picker builds — so the object is put in
     // front of the lens rather than at a guessed point. `selection_ray` through the middle pixel is
@@ -508,7 +508,7 @@ fn create_at(setup: u32, placement: Option<u32>, at: Vec3) -> SessionEvent {
 #[test]
 fn an_object_with_an_animation_refuses_a_position_events_placement() {
     let store = retail_store();
-    let mut gpu = software_gpu(800, 600);
+    let mut gpu = test_gpu(800, 600);
 
     // Any real motion table enters the default state, which queues
     // the standing cycle and is what makes `has_anims()` true.

@@ -286,10 +286,6 @@ impl ClassicUi {
             dereth_client_contract::feedback::Feedback::local(severity),
         );
     }
-    #[must_use]
-    pub fn composed_screen(&self) -> &Screen {
-        &self.screen
-    }
     /// Whether the classic interface shows the world now.
     #[must_use]
     pub fn in_gameplay(&self) -> bool {
@@ -1699,17 +1695,6 @@ impl ClassicUi {
     pub fn take_runtime_actions(&mut self) -> Vec<dereth_client_contract::actions::Action> {
         std::mem::take(&mut self.actions)
     }
-    /// The 3D previews this frame shows, and where.
-    #[must_use]
-    pub fn shown_previews(
-        &self,
-    ) -> &[(
-        dereth_client_contract::overlay::PreviewSpace,
-        crate::widgets::Rect,
-    )] {
-        self.previews.shown()
-    }
-
     /// The interface is shown again: its settings page reads the shared store again, which the
     /// other interface may have changed meanwhile.
     pub fn shown_again(&mut self) {

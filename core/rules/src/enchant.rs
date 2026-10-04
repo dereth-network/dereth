@@ -490,7 +490,7 @@ impl EnchantmentRegistry {
     /// ```
     ///
     /// `beneficial` is the caller's answer to the two middle lines, because the spell table lives
-    /// above this crate — see `crate::magic::MagicState::spell_is_beneficial`. `None` is *both*
+    /// above this crate. The caller looks up whether the spell is beneficial. `None` is *both*
     /// "no table" and "the table does not know this spell", and on both the client changes no
     /// counter at all; that is why this returns rather than defaulting.
     ///

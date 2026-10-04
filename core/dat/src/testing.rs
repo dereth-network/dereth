@@ -12,10 +12,75 @@
 //! The directory found is declared read-only for the run ([`crate::protect_install`]), so no test
 //! can write to the install every other test reads.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use crate::{locate_retail_dats, DatDir, DatsNotFound, RetailDat, RetailDatStore};
+
+/// A uniquely owned temporary directory. Existing paths are never removed during allocation.
+#[derive(Debug)]
+pub struct ScratchDir {
+    path: PathBuf,
+    owned: bool,
+}
+
+impl ScratchDir {
+    /// Allocate an empty directory using an ASCII alphanumeric, hyphen or underscore tag.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error for an unsafe tag, or the directory creation error.
+    pub fn new(tag: &str) -> std::io::Result<Self> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        Self::create_in(&std::env::temp_dir(), tag, &NEXT)
+    }
+
+    fn create_in(root: &Path, tag: &str, next: &AtomicU64) -> std::io::Result<Self> {
+        if tag.is_empty()
+            || !tag
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "unsafe directory tag",
+            ));
+        }
+        loop {
+            let serial = next.fetch_add(1, Ordering::Relaxed);
+            let path = root.join(format!("dereth-{tag}-{}-{serial}", std::process::id()));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path, owned: true }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// The allocated path, also available after explicit cleanup.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Remove the owned directory. Successful cleanup is idempotent.
+    ///
+    /// # Errors
+    /// Returns the removal error and retains ownership so cleanup can be retried.
+    pub fn cleanup(&mut self) -> std::io::Result<()> {
+        if self.owned {
+            std::fs::remove_dir_all(&self.path)?;
+            self.owned = false;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = self.cleanup();
+    }
+}
 
 /// The test-only variable naming the retail dat directory.
 pub const DAT_DIR_VAR: &str = "DERETH_TEST_DAT_DIR";
@@ -229,4 +294,65 @@ pub fn dat_captures_or_fail() -> Vec<(String, String, PathBuf)> {
     }
     out.sort();
     out
+}
+
+#[cfg(test)]
+mod scratch_tests {
+    use super::*;
+
+    /// Behaviour: none (temporary directory owners remain independent and support checked cleanup).
+    #[test]
+    fn same_tag_owners_are_independent_and_cleanup_is_explicit() {
+        let first = ScratchDir::new("independent").unwrap();
+        let mut second = ScratchDir::new("independent").unwrap();
+        assert_ne!(first.path(), second.path());
+        std::fs::write(second.path().join("kept"), b"retained").unwrap();
+        let first_path = first.path().to_owned();
+        drop(first);
+        assert!(!first_path.exists());
+        assert_eq!(
+            std::fs::read(second.path().join("kept")).unwrap(),
+            b"retained"
+        );
+        second.cleanup().unwrap();
+        assert!(!second.path().exists());
+        second.cleanup().unwrap();
+    }
+
+    /// Behaviour: none (allocation skips existing candidates without altering their contents).
+    #[test]
+    fn existing_candidates_are_preserved() {
+        let parent = ScratchDir::new("collision").unwrap();
+        let occupied = parent
+            .path()
+            .join(format!("dereth-child-{}-0", std::process::id()));
+        std::fs::create_dir(&occupied).unwrap();
+        std::fs::write(occupied.join("kept"), b"original").unwrap();
+        let child = ScratchDir::create_in(parent.path(), "child", &AtomicU64::new(0)).unwrap();
+        assert_eq!(
+            child.path(),
+            parent
+                .path()
+                .join(format!("dereth-child-{}-1", std::process::id()))
+        );
+        drop(child);
+        assert_eq!(std::fs::read(occupied.join("kept")).unwrap(), b"original");
+    }
+
+    /// Behaviour: none (invalid tags and non-collision filesystem errors do not retry).
+    #[test]
+    fn unsafe_tags_and_non_directory_roots_fail() {
+        for tag in ["", "../escape", "a/b", "a\\b", "/absolute"] {
+            assert_eq!(
+                ScratchDir::new(tag).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+        let parent = ScratchDir::new("failure").unwrap();
+        let file = parent.path().join("file");
+        std::fs::write(&file, b"file").unwrap();
+        let next = AtomicU64::new(0);
+        assert!(ScratchDir::create_in(&file, "child", &next).is_err());
+        assert_eq!(next.load(Ordering::Relaxed), 1);
+    }
 }

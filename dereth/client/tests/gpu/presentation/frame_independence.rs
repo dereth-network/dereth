@@ -42,7 +42,6 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{MovementPositionEvent, PositionPack};
 use dereth_protocol::{write_body, Opcode};
-use dereth_render::device::Gpu;
 
 /// The four refresh rates in play. 60 and 120 are the two that sit *on* `MIN_QUANTUM` (two and
 /// four frames respectively land on 1/30 s in exact arithmetic, so the accumulated clock decides
@@ -54,10 +53,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 /// One display frame: whether the gate opened, where the body was drawn and where the camera was.
 struct Shot {
     ticked: bool,
@@ -67,7 +62,7 @@ struct Shot {
 
 /// Ten seconds of held *run forward* at `hz`, through `App::frame`'s own order.
 fn run(store: &Arc<RetailDatStore>, hz: f64) -> Vec<Shot> {
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let mut scene = WorldScene::load(store, &mut gpu, SceneConfig::default()).expect("scene");
     let region = load_region(store).expect("the region decodes");
     scene
@@ -268,7 +263,7 @@ fn position_correction(stream: &ObjectStream) -> SessionEvent {
 #[test]
 fn a_bodyless_remote_animation_uses_the_shared_tick_but_position_corrections_do_not() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let rows: Vec<_> = Corpus::shared("long-solo-play")
         .blobs
         .iter()

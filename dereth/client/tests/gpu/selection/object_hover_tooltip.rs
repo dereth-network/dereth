@@ -36,6 +36,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use std::collections::BTreeSet;
 
 use dereth_client::app::App;
@@ -59,21 +61,6 @@ const TELEPORT_UNHIDE_STATE: u32 = 0x0040_0408;
 const SMART_BOX: dereth_ui::ElementId = dereth_ui_screens::hud::world_view::SMART_BOX;
 /// Public ShowTooltips option, represented by mask `0x100` in the first option word.
 const SHOW_TOOLTIPS: usize = dereth_client_model::player::option::SHOW_TOOLTIPS;
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 // =================================================================================================
 // The bench: the player on real terrain, with early-inventory-and-casting's chest in front

@@ -41,10 +41,6 @@ const REPORTED_STATION_CANDIDATE: CellId = CellId(0x8602_01AD);
 /// Six fixed updates before returning the station image; this is not a measured settling time.
 const FRAMES: u32 = 6;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
@@ -177,7 +173,7 @@ fn outdoor_cfg(time_of_day: f32, lighting: bool) -> SceneConfig {
 #[test]
 fn the_holtburg_starter_cell_has_the_complete_indoor_lighting_chain() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
 
     gpu.clear_stage1_binds();
     let (scene, lit) = station(
@@ -303,7 +299,7 @@ fn a_torch_in_an_academy_cell_enters_the_static_pool_when_the_body_stands_there(
             cell.0, id.0, at.x, at.y, at.z
         );
     }
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let (cell, _, _, _) = torches[0];
     let (scene, _) = station(&store, &mut gpu, indoor_cfg(cell, true));
     assert!(
@@ -402,7 +398,7 @@ fn burn_byte(c: f32) -> u8 {
 #[test]
 fn a_torch_lit_wall_falls_off_with_distance_as_calc_point_light_says() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let torches = torch_cells(&store);
     assert!(
         !torches.is_empty(),
@@ -533,7 +529,7 @@ fn a_torch_lit_wall_falls_off_with_distance_as_calc_point_light_says() {
 #[test]
 fn an_outdoor_station_is_lit_by_the_sun_and_darker_at_night() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let (day, day_lit) = station(&store, &mut gpu, outdoor_cfg(0.5, true));
     let (_, day_unlit) = station(&store, &mut gpu, outdoor_cfg(0.5, false));
     let (night, night_lit) = station(&store, &mut gpu, outdoor_cfg(0.0, true));
@@ -716,7 +712,7 @@ fn the_per_draw_selection_caps_at_eight_dynamics_first_in_distance_order() {
 #[test]
 fn the_selection_blink_bright_half_now_exceeds_the_baseline() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     // The control: frames 6, 7 and 8 of an untouched station.
     let (mut control, _) = station(&store, &mut gpu, outdoor_cfg(0.5, true));
     let mut cs = ObjectStream::new();

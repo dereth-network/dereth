@@ -19,16 +19,11 @@ use dereth_client::character::CharacterInput;
 use dereth_client::world::{block_xy, load_region, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
-use dereth_render::device::Gpu;
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
 use dereth_render::{PipelineKey, SurfaceContext, VertexFormat};
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
-}
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
 }
 
 /// The `Surface` `resolve_surface` builds out of a decoded surface record, so that this file
@@ -192,7 +187,7 @@ fn the_colour_word_is_a_function_of_the_record_alone_and_the_dat_bounds_it() {
 #[test]
 fn a_session_reaches_a_small_fraction_of_the_ceiling_and_stops_growing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let (_, untextured, _, ceiling) = dat_colour_words(&store);
 
     let cfg = SceneConfig {

@@ -217,10 +217,6 @@ pub const CHAT_OPTIONS_SLIDER_CHILD: ElementId = ElementId(0x1000_021C);
 // Game / Support page — GameplayOptionsPanel
 // -------------------------------------------------------------------------------------------
 
-/// The support-ticket URL both buttons open.
-pub const SUPPORT_URL: &str =
-    "http://support.turbine.com/ics/support/ticketnewwizard.asp?style=classic";
-
 /// The title of the `MessageBoxA` shown when `ShellExecute` fails (result ≤ 32).
 pub use dereth_client_contract::options::SHELL_EXECUTE_ERROR_TITLE;
 
@@ -241,7 +237,7 @@ pub enum GameplayOptionAction {
 /// The buttons on the Game/Support page the page itself answers. The two support buttons are
 /// not among them: they open the in-game Urgent Assistance and Report Abuse forms through the
 /// input action each is given ([`super::gameplay::GameplayOptionsPage::arrange`]), where retail
-/// opened [`SUPPORT_URL`], which is gone.
+/// opened an external support website.
 #[must_use]
 pub fn gameplay_option_action(element: ElementId) -> Option<GameplayOptionAction> {
     use GameplayOptionAction::{BroadcastGlobal, Request};
@@ -318,27 +314,6 @@ pub fn input_map_caption(map_id: u32) -> Option<&'static str> {
         .find(|r| r.map_id == map_id)
         .map(|r| r.caption)
 }
-
-/// The eight attributes from which the keyboard panel reads element ids.
-///
-/// **They are not eight list-box containers.** Only the first, `0x10000018`, names a
-/// list box, and it names **one child id looked up inside each of the six tab pages**
-/// ([`super::keybinding::KEYBOARD_TAB_PAGES`]) rather than eight separate boxes — in the shipped
-/// tree its value is `0x10000025` and every tab page carries a `0x10000025`, which is exactly why
-/// the lookup is scoped to the page. The other seven name the keymap load/save controls and the
-/// filename label; `0x1000001E` names the load button and `0x1000001F` names
-/// the save button. The mapping-list lookup is keyed by **action class**, of which
-/// there are six.
-pub const KEYBOARD_LIST_BOX_ATTRIBUTES: [u32; 8] = [
-    0x1000_0018,
-    0x1000_0019,
-    0x1000_001A,
-    0x1000_001B,
-    0x1000_001C,
-    0x1000_001D,
-    0x1000_001E,
-    0x1000_001F,
-];
 
 /// The action key map option control's post-init's two attributes.
 ///
@@ -458,7 +433,6 @@ mod tests {
             "the quit input action, synthesised as a global message 1"
         );
         assert_eq!(gameplay_option_action(ElementId(0xDEAD)), None);
-        assert!(SUPPORT_URL.starts_with("http://support.turbine.com/"));
     }
 
     /// The key binding page captions every input map it knows.
@@ -481,9 +455,6 @@ mod tests {
         assert_eq!(input_map_caption(7), None);
         assert_eq!(input_map_caption(8), None);
         assert_eq!(input_map_caption(0x0A), None);
-        assert_eq!(KEYBOARD_LIST_BOX_ATTRIBUTES.len(), 8);
-        assert_eq!(KEYBOARD_LIST_BOX_ATTRIBUTES[0], 0x1000_0018);
-        assert_eq!(KEYBOARD_LIST_BOX_ATTRIBUTES[7], 0x1000_001F);
     }
 
     /// The row templates are the indices the helpers pass.

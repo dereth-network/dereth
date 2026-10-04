@@ -1341,15 +1341,6 @@ impl UiSystem {
         self.pending_cursor.take()
     }
 
-    /// Behavior: write the one `Device` clipboard.
-    ///
-    /// Both halves, because the client's clipboard *is* the system's: the in-process mirror that
-    /// `Paste` reads without a round trip, and the record the host drains to reach Win32.
-    pub fn send_string_to_clipboard(&mut self, text: String) {
-        self.clipboard.clone_from(&text);
-        self.pending_clipboard = Some(text);
-    }
-
     /// Take the clipboard write `Copy` or `Cut` let through, if any.
     ///
     /// The client's half, and a **take** rather than a peek:
@@ -1918,11 +1909,6 @@ impl UiSystem {
                 n.listeners.retain(|l| *l != who);
             }
         }
-    }
-
-    /// The spec's name for [`Self::unregister_for_all_messages`].
-    pub fn unregister_deferred(&mut self, who: ListenerId) {
-        self.unregister_for_all_messages(who);
     }
 
     /// Behavior: register on the element *pointer*, the

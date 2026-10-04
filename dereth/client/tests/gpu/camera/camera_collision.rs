@@ -19,7 +19,6 @@ use dereth_physics::math::V3;
 use dereth_physics::source::EnvCellGeometry;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
-use dereth_render::device::Gpu;
 
 /// The camera's per-tick inputs (current time, frame rate, the mouse-turning preference),
 /// supplied as the frame loop supplies them.
@@ -30,10 +29,6 @@ fn tick(now: f64) -> CameraTick {
         mouse_turning: false,
         player_heading: Some(0.0),
     }
-}
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
 }
 
 /// The retail store, or **fail**: an absent dat is a failure, never a skip.
@@ -108,7 +103,7 @@ fn in_cell_space(g: &EnvCellGeometry, at: CellId, p: Position) -> Vec3 {
 #[test]
 fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let found = rooms(&store, 20);
     assert!(
@@ -252,7 +247,7 @@ fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
 #[test]
 fn the_swept_camera_does_not_sink_into_a_hillside() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
@@ -458,7 +453,7 @@ fn the_swept_camera_does_not_sink_into_a_hillside() {
 #[test]
 fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
@@ -521,7 +516,7 @@ fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
 #[test]
 fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
@@ -601,7 +596,7 @@ fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
 #[test]
 fn a_frame_from_inside_a_holtburg_room_is_of_the_room() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let (inside, g) = rooms(&store, 1)
         .into_iter()

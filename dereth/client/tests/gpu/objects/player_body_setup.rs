@@ -33,7 +33,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{
-    addr, connection_sequence_number, corpus_sessions, load, retail_store, software_gpu,
+    addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
 
@@ -434,7 +434,7 @@ fn every_captures_body_is_built_from_the_setup_the_server_named() {
     let (mut checked, mut rebuilt_sessions) = (0usize, 0usize);
     let (mut total_swaps, mut total_applied) = (0usize, 0usize);
     for name in world_sessions() {
-        let mut gpu = software_gpu(640, 640);
+        let mut gpu = test_gpu(640, 640);
         let r = in_world(name);
         let (_, p) = r
             .player
@@ -716,7 +716,7 @@ fn the_non_aluvian_players_are_dressed_rather_than_left_in_the_loincloth() {
             continue;
         }
         sessions += 1;
-        let mut gpu = software_gpu(640, 640);
+        let mut gpu = test_gpu(640, 640);
         let pos = p.position.expect("the player has a position");
         let block = pos.cell.landblock();
         let cfg = SceneConfig {
@@ -880,7 +880,7 @@ fn re_offering_the_same_setup_does_not_rebuild_the_body() {
         })
         .cloned()
         .expect("a capture whose player is not an Aluvian male");
-    let mut gpu = software_gpu(640, 640);
+    let mut gpu = test_gpu(640, 640);
     let r = in_world(&name);
     let (_, p) = r.player.as_ref().expect("a player").clone();
     let pos = p.position.expect("a position");
@@ -953,7 +953,7 @@ fn re_offering_the_same_setup_does_not_rebuild_the_body() {
 fn a_setup_the_dat_does_not_hold_leaves_the_body_alone() {
     let store = retail_store();
     let region = load_region(&store).expect("the region decodes");
-    let mut gpu = software_gpu(640, 640);
+    let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
         landblock: dereth_client::world::DEFAULT_LANDBLOCK,
         character: true,
@@ -1017,7 +1017,7 @@ fn no_player_description_in_the_corpus_is_refused() {
     let (mut mismatches, mut applied, mut sessions) = (0u64, 0u64, 0usize);
     let mut refused: Vec<(String, DataId, DataId, u64)> = Vec::new();
     for name in world_sessions() {
-        let mut gpu = software_gpu(640, 640);
+        let mut gpu = test_gpu(640, 640);
         let mut r = in_world(name);
         let (_, p) = r
             .player
@@ -1172,7 +1172,7 @@ fn a_rebuilt_body_takes_the_new_setups_collision_half() {
         panic!("scanned {scanned} setup records and none differs from the Aluvian male's collision half")
     });
 
-    let mut gpu = software_gpu(640, 640);
+    let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
         landblock: dereth_client::world::DEFAULT_LANDBLOCK,
         character: true,
@@ -1232,7 +1232,7 @@ fn a_rebuilt_body_takes_the_new_setups_collision_half() {
 fn a_motion_table_the_dat_does_not_hold_leaves_the_body_alone() {
     let store = retail_store();
     let region = load_region(&store).expect("the region decodes");
-    let mut gpu = software_gpu(640, 640);
+    let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
         landblock: dereth_client::world::DEFAULT_LANDBLOCK,
         character: true,

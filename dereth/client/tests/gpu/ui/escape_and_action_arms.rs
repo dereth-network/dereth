@@ -73,7 +73,7 @@ impl Bench {
             dereth_dat::testing::open_store()
                 .expect("the retail dats are `use_time`'s own argument: set DERETH_TEST_DAT_DIR"),
         );
-        let mut gpu = crate::common::software_gpu(800, 600);
+        let mut gpu = crate::common::test_gpu(800, 600);
         let region = dereth_client::world::load_region(&store).expect("the region decodes");
         let scfg = SceneConfig {
             cell_statics: false,

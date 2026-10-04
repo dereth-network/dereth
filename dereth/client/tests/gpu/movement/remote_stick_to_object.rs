@@ -29,7 +29,6 @@ use dereth_protocol::movement::{
     motion_flags, movement_type, MovementBody, MovementSetObjectMovement,
 };
 use dereth_protocol::{Message, Opcode};
-use dereth_render::device::Gpu;
 
 // ---------------------------------------------------------------------------------------------
 // 1. The corpus.
@@ -252,10 +251,6 @@ fn every_recorded_remote_stick_names_the_sessions_own_character() {
 // 3. The seam: a real `WorldScene` driven by a capture's own datagrams.
 // ---------------------------------------------------------------------------------------------
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 /// The retail dats, or **fail**: a missing dat is a failure, never a silent pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -294,7 +289,7 @@ struct Run {
 /// this function.
 fn drive(session: &str) -> Run {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let records = shared_session(session);
     assert!(!records.is_empty(), "{session} is empty");
     let csn = connection_sequence_number(records).unwrap_or(0);
@@ -429,7 +424,7 @@ fn drive(session: &str) -> Run {
 fn every_recorded_remote_stick_reaches_the_position_manager() {
     // The dats and the device are required: both fail when absent.
     let _ = store();
-    let _ = warp();
+    let _ = crate::common::test_gpu(320, 240);
     let mut total_remote = 0usize;
     let mut total_player = 0usize;
     let mut resolved_remote = 0usize;
@@ -524,7 +519,7 @@ fn every_recorded_remote_stick_reaches_the_position_manager() {
 fn a_stuck_creature_is_pulled_toward_what_it_is_stuck_to() {
     // The dats and the device are required: both fail when absent.
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
     let session = "long-solo-play";
     let records = shared_session(session);
     let csn = connection_sequence_number(records).unwrap_or(0);

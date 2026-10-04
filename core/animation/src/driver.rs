@@ -265,17 +265,6 @@ impl MotionDriver {
         self.events.len()
     }
 
-    /// Put events raised through a **caller-built** [`MotionCtx`] back on this driver's own queue.
-    ///
-    /// Performing movement, updating the target and sticking to an object all need
-    /// a `MotionCtx`, which the application assembles out of the
-    /// driver's public fields (as `character.rs` does). Everything the driver
-    /// raises for itself lands in one queue with one drain, [`Self::take_events`], and this is how
-    /// a caller-driven call joins it rather than opening a second one.
-    pub fn queue_events(&mut self, events: Vec<AnimEvent>) {
-        self.events.extend(events);
-    }
-
     /// Drain the physics requests the movement layer made. Physics applies them.
     pub fn take_effects(&mut self) -> Vec<MotionEffect> {
         std::mem::take(&mut self.effects)

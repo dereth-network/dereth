@@ -16,10 +16,6 @@ use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 480)
-}
-
 /// The retail store, or **fail**: a missing oracle must not read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -107,7 +103,7 @@ fn look_at_an_emitter(scene: &mut WorldScene, index: usize) -> Vec3 {
 #[test]
 fn the_scripted_statics_around_holtburg_become_live_emitters() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     let mut stream = ObjectStream::new();
     // One `sync_objects` is what spawns the hosts; one `update` is what runs their scripts.
@@ -144,7 +140,7 @@ fn the_scripted_statics_around_holtburg_become_live_emitters() {
 #[test]
 fn every_live_emitter_resolves_to_a_mesh() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     run(&store, &mut gpu, &mut scene, 4);
     look_at_an_emitter(&mut scene, 4);
@@ -188,7 +184,7 @@ fn a_frame_with_the_emitters_running_differs_from_the_same_frame_without() {
     // in one device exhausts it. A fresh WARP device per run takes four independent captures,
     // and is also what makes them independent.
     let shot = |particles: bool| -> Option<(Vec<u8>, usize)> {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(640, 480);
         let mut scene = WorldScene::load(&store, &mut gpu, cfg(particles)).expect("loads");
         run(&store, &mut gpu, &mut scene, 4);
         look_at_an_emitter(&mut scene, 4);

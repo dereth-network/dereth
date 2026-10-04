@@ -25,7 +25,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn device() -> Gpu {
-    crate::common::software_gpu(320, 240)
+    crate::common::test_gpu(320, 240)
 }
 
 fn config(budget: Option<Duration>) -> SceneConfig {

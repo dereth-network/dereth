@@ -1,7 +1,6 @@
 //! Login and leaving: the connect and patch screens, the intro, character select, the
 //! character-creation wizard and its preview, entering the world again, and logging out.
 
-mod airborne_logoff_refusal;
 mod booted_and_banned;
 mod character_select_rows;
 mod chargen_appearance_controls;

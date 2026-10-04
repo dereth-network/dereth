@@ -15,7 +15,7 @@ use dereth_primitives::LocalTime;
 
 use crate::msg::element::id as msgid;
 use crate::msg::MessagePoint;
-use crate::{ElemHandle, ListenerId, UiSystem};
+use crate::{ElemHandle, UiSystem};
 
 /// One input action delivered by the input manager.
 ///
@@ -1444,21 +1444,6 @@ impl UiSystem {
         }
         self.drag = DragState::default();
         Some(info)
-    }
-
-    /// Clear the drag — the abort path.
-    pub fn clear_drag_and_drop(&mut self) {
-        if let Some(p) = self.drag.element {
-            if self.node(p).is_some_and(|n| n.flags.object_is_temporary()) {
-                self.add_to_delete_queue(p);
-            }
-        }
-        self.drag = DragState::default();
-    }
-
-    /// Register an element as a listener on itself, the common panel idiom.
-    pub fn listen_to_self(&mut self, h: ElemHandle) {
-        self.register_for_element_messages(h, ListenerId::Element(h));
     }
 }
 

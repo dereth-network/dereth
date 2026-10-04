@@ -1003,13 +1003,6 @@ fn stance_resume_requires_all_four_conditions() {
 // Three stations, one per link, because a link nothing proves is present may as well be absent.
 // ---------------------------------------------------------------------------------------------
 
-/// A WARP device — the scene stations need one to bake the body's parts, exactly as
-/// `tests/gpu/movement/local_motion_style.rs` does. Nothing here draws.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
-fn warp() -> dereth_render::device::Gpu {
-    crate::common::software_gpu(320, 240)
-}
-
 /// The scene `attach_character` builds at the middle of Holtburg's own landblock — the same body
 /// [`settled_character`] builds, inside the `WorldScene` the application actually holds it in, so
 /// the seam under test is reached through the type `App::frame` hands it.
@@ -1066,7 +1059,7 @@ fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
     use dereth_client_net::client_session::SessionEvent;
 
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
 
     // **Calibration, and it is the direction a stuck latch would pass.** A scene that has never
     // synced anything must read `false`, and the seam must do nothing at all over it.
@@ -1313,7 +1306,7 @@ fn speed(at: &[(f32, f32)], a: usize, b: usize) -> f32 {
 #[test]
 fn the_seam_retakes_control_for_a_held_key_and_never_for_a_cancelled_auto_run() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(320, 240);
 
     // `(retakes, frame of the first retake, speed before the stance change, speed after it)`.
     let mut arm = |auto_run: bool| -> (u32, Option<usize>, f32, f32) {

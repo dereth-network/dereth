@@ -11,6 +11,8 @@
 // The application test is available with Vulkan or Windows D3D12.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
@@ -48,21 +50,6 @@ const SWEEP_SETTLE: usize = 20;
 /// The frames a station needs before it may believe a **pick** — `Character::teleport` leaves the
 /// viewer on the pivot, so a pick read too early answers with the body's own parts.
 const PICK_SETTLE: usize = 90;
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 /// Sample points inside the cell BSP and outside its solid physics BSP, transformed to
 /// block-local metres. It does not prove support under a body. Actual object placement and submission are checked later.

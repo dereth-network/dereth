@@ -72,6 +72,9 @@
 /// proxy wrote them down.
 pub mod capture;
 
+/// Shared sizes and classifications of the recorded corpus.
+pub mod corpus_size;
+
 /// Each time a recording's client entered the world, and as whom, read from its own blobs.
 pub mod enter_world;
 

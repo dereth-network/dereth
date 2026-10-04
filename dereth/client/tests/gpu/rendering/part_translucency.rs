@@ -23,10 +23,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 640)
-}
-
 type Shot = (Vec<u8>, u32, u32);
 
 fn shot(scene: &mut WorldScene, gpu: &mut Gpu) -> Shot {
@@ -175,7 +171,7 @@ const HALF: f32 = 0.5;
 #[test]
 fn the_camera_fade_moves_the_body_and_only_the_body() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 640);
 
     let opaque = render(&store, &mut gpu, true, 0.0);
     let hidden = render(&store, &mut gpu, true, 1.0);
@@ -279,7 +275,7 @@ fn the_camera_fade_moves_the_body_and_only_the_body() {
 #[test]
 fn a_part_with_has_alpha_clear_is_byte_identical_to_the_previous_build() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 640);
 
     let before = render(&store, &mut gpu, false, 0.0);
     let after = render(&store, &mut gpu, true, 0.0);
@@ -330,7 +326,7 @@ fn a_part_with_has_alpha_clear_is_byte_identical_to_the_previous_build() {
 #[test]
 fn the_ramp_reaches_the_raster_at_one_minus_t() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 640);
 
     let opaque = render(&store, &mut gpu, true, 0.0);
     let hidden = render(&store, &mut gpu, true, 1.0);
@@ -459,7 +455,7 @@ fn the_ramp_reaches_the_raster_at_one_minus_t() {
 #[test]
 fn the_hook_channel_ramps_to_invisible_and_comes_back() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 640);
 
     let mut scene =
         WorldScene::load(&store, &mut gpu, populated(true)).expect("the landscape loads");
@@ -630,7 +626,7 @@ fn the_hook_channel_ramps_to_invisible_and_comes_back() {
 #[test]
 fn first_person_hides_the_body_through_the_frames_own_camera_call() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 640);
 
     let mut scene =
         WorldScene::load(&store, &mut gpu, populated(true)).expect("the landscape loads");

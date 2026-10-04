@@ -6,7 +6,7 @@
 //!
 //! # What is wired
 //!
-//! The model ([`crate::screens::chargen_state::CharGenState`]) and the path that actually creates
+//! The model ([`dereth_chargen::CharGenState`]) and the path that actually creates
 //! a character: **heritage → town → name → Finish → `0xF656` → `0xF643` → the new `0xF658` → log
 //! the new character straight in**.
 //!
@@ -21,7 +21,7 @@
 //! one, and the *Random* button has its five non-summary arms. The two generators it draws from are
 //! kept apart the way the client keeps them -- the dice roll (`ran2`) for the heritage and the
 //! gender, the C-runtime `rand()` for the start area, the appearance, the clothing and the
-//! template. See [`crate::screens::chargen_state::CharGenRng`].
+//! template. See [`dereth_chargen::CharGenRng`].
 //!
 //! The appearance page's nine colour spots and its shade disk are *runtime-generated surfaces* --
 //! the colour-spot and gradient-disk builders blit a template into a local surface and recolour it
@@ -46,7 +46,7 @@ use dereth_ui::{
 use crate::bind::{bind_children, child, Bound, ChildBinding};
 use crate::element_types::ty;
 use crate::panels::listbox::ListBoxWidget;
-use crate::screens::chargen_state::{
+use dereth_chargen::{
     Attr, CgVerification, CharGenState, SkillAdvancementClass, HERITAGE_GEAR_KNIGHT,
     HERITAGE_OLTHOI, HERITAGE_OLTHOI_ACID,
 };
@@ -4568,9 +4568,9 @@ impl Screen for CharGenScreen {
             {
                 // The client generator's seed and the C runtime's seed are the two
                 // seeds the roll comes out of. See
-                // [`crate::screens::chargen_state::CharGenRng`].
+                // [`dereth_chargen::CharGenRng`].
                 if let Some((ran2, crt)) = host.chargen_seeds {
-                    self.state.rng = crate::screens::chargen_state::CharGenRng::new(ran2, crt);
+                    self.state.rng = dereth_chargen::CharGenRng::new(ran2, crt);
                 }
                 self.set_tables(t);
             }
@@ -4690,7 +4690,7 @@ mod tests {
     /// The *shape* is the retail one — `attribute_credits` 330 and `skill_credits` 52 are what
     /// every non-Olthoi heritage carries — but the numbers here are this test's, so nothing below
     /// asserts fidelity against them. The fidelity assertions are in
-    /// [`super::super::chargen_state`], against retail's behaviour.
+    /// [`dereth_chargen`], against retail's behaviour.
     fn tables() -> Rc<CharGenTables> {
         use dereth_assets::tables::{HeritageGroup, SexCg};
         use std::collections::BTreeMap;

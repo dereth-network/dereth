@@ -11,80 +11,6 @@ use dereth_primitives::{CellId, DataId, Vec3};
 use crate::globals::{
     BLOCK_LENGTH, CELL_SIZE, LAND_HEIGHT_MAX, LAND_HEIGHT_TABLE_LEN, LCOORD_LIMIT,
 };
-use crate::math::V3;
-
-/// A landblock's direction relative to the viewer block. [`heading`] returns the corresponding
-/// angle in **radians**.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum Direction {
-    InViewerBlock = 0,
-    NorthOfViewer = 1,
-    SouthOfViewer = 2,
-    EastOfViewer = 3,
-    WestOfViewer = 4,
-    NorthwestOfViewer = 5,
-    SouthwestOfViewer = 6,
-    NortheastOfViewer = 7,
-    SoutheastOfViewer = 8,
-    Unknown = 9,
-}
-
-/// Heading for a relative block direction, in **radians**, from the client's switch table.
-///
-/// The literals are the floats the client's switch holds, not derived from `f32::consts`:
-/// they are data, and substituting a "more accurate" constant would be substituting a value the
-/// client does not have. Hence the `approx_constant` exemption.
-#[allow(clippy::approx_constant)]
-#[must_use]
-pub fn heading(d: Direction) -> f32 {
-    match d {
-        Direction::SouthOfViewer => 3.141_592_7,
-        Direction::EastOfViewer => 1.570_796_4,
-        Direction::WestOfViewer => 4.712_389,
-        Direction::NorthwestOfViewer => 5.497_787,
-        Direction::SouthwestOfViewer => 3.926_990_7,
-        Direction::NortheastOfViewer => 0.785_398_2,
-        Direction::SoutheastOfViewer => 2.356_194_5,
-        _ => 0.0,
-    }
-}
-
-/// Convert a signed block delta to a [`Direction`].
-#[must_use]
-pub fn get_dir(dx: i32, dy: i32) -> Direction {
-    if dx < 0 {
-        if dy < 0 {
-            return Direction::SouthwestOfViewer;
-        }
-        // WestOfViewer + (dy > 0) == west or northwest
-        return if dy > 0 {
-            Direction::NorthwestOfViewer
-        } else {
-            Direction::WestOfViewer
-        };
-    }
-    if dx < 1 {
-        if dy < 0 {
-            return Direction::SouthOfViewer;
-        }
-        // 0 or 1 == InViewerBlock or NorthOfViewer
-        return if dy > 0 {
-            Direction::NorthOfViewer
-        } else {
-            Direction::InViewerBlock
-        };
-    }
-    if dy < 0 {
-        return Direction::SoutheastOfViewer;
-    }
-    // (dy > 0) * 4 + EastOfViewer == east or northeast
-    if dy > 0 {
-        Direction::NortheastOfViewer
-    } else {
-        Direction::EastOfViewer
-    }
-}
 
 /// The cell-index half of `inbound_valid_cellid`: `1..=0x40` (land), `0x100..=0xFFFD` (interior)
 /// and `0xFFFF` (the whole-block pseudo cell). This is the index test the re-basing paths
@@ -321,13 +247,6 @@ pub fn cellid_to_coordinates(id: CellId) -> Option<(f32, f32)> {
 #[must_use]
 pub fn cell_of(v: f32) -> i32 {
     floor_to_i32(v / CELL_SIZE)
-}
-
-/// The horizontal distance between two landblock-relative points that may be in different
-/// blocks, used by the tests below and by `land.rs`.
-#[must_use]
-pub fn offset_between(from: CellId, from_p: Vec3, to: CellId, to_p: Vec3) -> Vec3 {
-    get_block_offset(from, to).add(to_p).sub(from_p)
 }
 
 #[cfg(test)]
@@ -580,18 +499,5 @@ mod tests {
             validate_height_table(&good[..255]).is_none(),
             "a short table is rejected"
         );
-    }
-
-    #[test]
-    fn direction_headings_are_radians() {
-        assert_eq!(heading(Direction::InViewerBlock), 0.0);
-        assert_eq!(heading(Direction::NorthOfViewer), 0.0);
-        assert!((heading(Direction::EastOfViewer) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
-        assert!((heading(Direction::SouthOfViewer) - std::f32::consts::PI).abs() < 1e-6);
-        assert_eq!(get_dir(-1, -1), Direction::SouthwestOfViewer);
-        assert_eq!(get_dir(0, 0), Direction::InViewerBlock);
-        assert_eq!(get_dir(1, 1), Direction::NortheastOfViewer);
-        assert_eq!(get_dir(1, 0), Direction::EastOfViewer);
-        assert_eq!(get_dir(0, 1), Direction::NorthOfViewer);
     }
 }

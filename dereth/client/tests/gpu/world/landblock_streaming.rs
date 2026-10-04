@@ -18,11 +18,6 @@ use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;
 use dereth_world_render::consts::BLOCK_LENGTH;
 
-/// A WARP device at 800x600, or `None`. WARP so the pixels do not depend on the machine's GPU.
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The retail store, or **fail**. The return type offers no skip, so no caller can turn a missing
 /// oracle into a green line.
 fn store() -> RetailDatStore {
@@ -76,7 +71,7 @@ fn step(scene: &mut WorldScene, store: &RetailDatStore, gpu: &mut Gpu, dx: f32, 
 #[test]
 fn crossing_a_block_boundary_recentres_the_window_and_the_render_space() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = settled(&store, &mut gpu);
     let start = block_xy(DEFAULT_LANDBLOCK);
     let resident = scene.resident_blocks();
@@ -114,7 +109,7 @@ fn crossing_a_block_boundary_recentres_the_window_and_the_render_space() {
 #[test]
 fn after_a_scroll_every_slot_is_the_right_block_at_the_right_ring() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = settled(&store, &mut gpu);
 
     for _ in 0..3 {
@@ -157,7 +152,7 @@ fn after_a_scroll_every_slot_is_the_right_block_at_the_right_ring() {
 #[test]
 fn walking_out_of_the_starting_block_keeps_the_world_and_its_objects_drawn() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = settled(&store, &mut gpu);
     let at_home = scene.draw.stats;
     assert!(at_home.buildings > 0, "Holtburg has buildings");
@@ -219,7 +214,7 @@ fn walking_out_of_the_starting_block_keeps_the_world_and_its_objects_drawn() {
 #[test]
 fn a_teleport_beyond_the_window_reloads_it_without_leaking_the_old_blocks() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = settled(&store, &mut gpu);
     let start = block_xy(DEFAULT_LANDBLOCK);
 
@@ -255,7 +250,7 @@ fn a_teleport_beyond_the_window_reloads_it_without_leaking_the_old_blocks() {
 #[test]
 fn walking_back_over_seen_ground_re_merges_from_the_cache_and_not_from_scratch() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = settled(&store, &mut gpu);
     let first = scene.draw.stats.terrain_surfaces;
     let built_at_load = scene.draw.stats.terrain_surfaces_built;
@@ -333,7 +328,7 @@ fn walking_back_over_seen_ground_re_merges_from_the_cache_and_not_from_scratch()
 #[test]
 fn a_walking_body_carries_the_window_with_it() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let store = std::sync::Arc::new(store);
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
@@ -469,7 +464,7 @@ fn a_walking_body_carries_the_window_with_it() {
 #[test]
 fn a_twenty_block_walk_releases_what_it_leaves_and_reuses_what_it_has_seen() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = settled(&store, &mut gpu);
     let start = block_xy(DEFAULT_LANDBLOCK);
     let first = scene.draw.stats.terrain_surfaces;
@@ -583,7 +578,7 @@ fn scenery_window(store: &RetailDatStore, gpu: &mut Gpu) -> WorldScene {
 #[test]
 fn a_block_that_scrolls_back_into_full_detail_re_bakes_its_scenery() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene = scenery_window(&store, &mut gpu);
     let start = block_xy(DEFAULT_LANDBLOCK);
     let at_home = scene.draw.stats.scenery_objects;

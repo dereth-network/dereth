@@ -34,10 +34,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 /// The `GfxObjDegradeInfo` at an id, straight from the dat.
 fn record(store: &RetailDatStore, did: DataId) -> GfxObjDegradeInfo {
     let bytes = store
@@ -289,7 +285,7 @@ fn far_cell(origin: Vec3, outdoors: bool, cam: Vec3) -> Option<(f32, Vec3)> {
 #[test]
 fn every_part_is_submitted_farthest_first_on_the_clients_own_cypt() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let mut scene = scene_for(&store, &mut gpu, &r, true);
     let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
@@ -459,7 +455,7 @@ fn every_part_is_submitted_farthest_first_on_the_clients_own_cypt() {
 #[test]
 fn past_the_share_distance_every_part_sorts_and_turns_at_its_objects_own_distance() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let mut scene = scene_for(&store, &mut gpu, &r, true);
     let _ = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
@@ -562,7 +558,7 @@ fn past_the_share_distance_every_part_sorts_and_turns_at_its_objects_own_distanc
 #[test]
 fn the_control_arm_is_server_id_order_and_the_sort_removes_every_inversion() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
 
     // Vary only sorting, with alpha lists disabled in both arms so all subsets form one in-place
     // run; varying both switches would change the compared runs.
@@ -650,7 +646,7 @@ fn the_control_arm_is_server_id_order_and_the_sort_removes_every_inversion() {
 #[test]
 fn the_degrade_visibility_gate_is_already_wired() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let mut scene = scene_for(&store, &mut gpu, &r, true);
     let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
@@ -740,7 +736,7 @@ fn the_degrade_visibility_gate_is_already_wired() {
 #[test]
 fn sorting_the_parts_leaves_the_scene_recognisable_and_the_control_arm_is_the_old_build() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     const STATIONS: [f32; 4] = [8.0, 15.0, 30.0, 60.0];
 
     type Station = (
@@ -869,7 +865,7 @@ fn scene_for_alpha(
 #[test]
 fn every_subset_lands_where_add_mesh_to_alpha_list_would_put_it() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let mut scene = scene_for_alpha(&store, &mut gpu, &r, true);
     let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
@@ -1084,7 +1080,7 @@ fn every_subset_lands_where_add_mesh_to_alpha_list_would_put_it() {
 #[test]
 fn deferring_the_transparent_subsets_is_visible_and_the_control_arm_queues_nothing() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     const STATIONS: [f32; 4] = [8.0, 15.0, 30.0, 60.0];
 
     type Station = (
@@ -1207,7 +1203,7 @@ fn deferring_the_transparent_subsets_is_visible_and_the_control_arm_queues_nothi
 fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_flush() {
     use dereth_client::world::AlphaDraw;
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
     let cfg = SceneConfig {
         landblock: r.landblock,
@@ -1284,7 +1280,7 @@ fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_
 fn a_far_translucent_static_draws_before_a_nearer_translucent_object() {
     use dereth_client::world::AlphaDraw;
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     for multi_pass_alpha in [false, true] {
         let mut r = populated("first-login-walk-jump");
         let cfg = SceneConfig {
@@ -1370,7 +1366,7 @@ fn a_far_translucent_static_draws_before_a_nearer_translucent_object() {
 fn a_far_emitter_s_blended_particles_draw_before_a_nearer_blended_object() {
     use dereth_client::world::AlphaDraw;
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     for multi_pass_alpha in [false, true] {
         // A fresh replay per scene: the object stream hands its objects to the scene that
         // syncs it.

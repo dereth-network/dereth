@@ -15,7 +15,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{
-    addr, connection_sequence_number, corpus_sessions, load, retail_store, software_gpu,
+    addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
 
@@ -507,7 +507,7 @@ fn diff(a: &Shot, b: &Shot) -> (usize, (u32, u32, u32, u32)) {
 #[test]
 fn the_guard_takes_the_markers_off_creatures_and_leaves_the_local_player_alone() {
     let store = retail_store();
-    let mut gpu = software_gpu(640, 640);
+    let mut gpu = test_gpu(640, 640);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let pos = {
         let r = in_world("first-login-walk-jump");

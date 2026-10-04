@@ -708,13 +708,7 @@ impl Pregame {
         let mut f = PanelFrame::new(800, 600);
         f.fill(rect(0, 0, 800, 600), 0xff000000);
         for (did, r) in [
-            (
-                self.resources
-                    .art
-                    .as_ref()
-                    .map_or(crate::art::CHARACTER_PANEL, |a| a.character_panel()),
-                rect(0, 0, 282, 600),
-            ),
+            (crate::art::CHARACTER_PANEL, rect(0, 0, 282, 600)),
             (0x600123a, rect(282, 0, 518, 67)),
             (0x6001231, rect(746, 563, 28, 21)),
             (0x6001232, rect(746, 264, 28, 21)),

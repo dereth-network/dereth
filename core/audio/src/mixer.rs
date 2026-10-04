@@ -210,11 +210,6 @@ impl VoicePool {
             out.fill(0.0);
         }
     }
-
-    /// Shutdown step 2: stop and delete all 16 slots.
-    pub fn stop_all(&mut self) {
-        self.voices = [const { None }; NUM_VOICES];
-    }
 }
 
 #[cfg(test)]

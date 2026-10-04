@@ -28,7 +28,7 @@ use dereth_protocol::types::{
 use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
 
-use crate::common::software_gpu;
+use crate::common::test_gpu;
 
 /// One second of interleaved stereo at the client's own primary-buffer rate.
 const BLOCK: usize = (dereth_audio::MIX_RATE as usize) * 2;
@@ -124,7 +124,7 @@ struct Rig {
 
 fn rig() -> Rig {
     let store = store();
-    let mut gpu = software_gpu(320, 240);
+    let mut gpu = test_gpu(320, 240);
     let cfg = SceneConfig {
         landblock: LANDBLOCK,
         character: false,

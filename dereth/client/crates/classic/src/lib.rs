@@ -171,15 +171,4 @@ pub enum Command {
     },
 }
 
-/// What `dereth-classic --version` prints.
-#[must_use]
-pub fn version_text() -> String {
-    format!(
-        "dereth-classic {}\ncommit: {}\ntarget: {}\n",
-        env!("CARGO_PKG_VERSION"),
-        option_env!("DERETH_BUILD_COMMIT").unwrap_or("unknown"),
-        option_env!("DERETH_BUILD_TARGET").unwrap_or("unknown"),
-    )
-}
-
 mod clock;

@@ -794,19 +794,6 @@ impl TerrainMergeCache {
         Self::default()
     }
 
-    /// [`cell_rotation`] for one cell of a landblock.
-    #[must_use]
-    pub fn key_for_cell(
-        lb: &CellLandblock,
-        region: &Region,
-        side_cell_count: usize,
-        i: u8,
-        j: u8,
-    ) -> (MergeKey, Rotation) {
-        let (k, r, _) = cell_rotation(lb, region, side_cell_count, i as usize, j as usize);
-        (k, r)
-    }
-
     /// Cached surface index for a key, if it has one.
     #[must_use]
     pub fn index_of(&self, k: MergeKey) -> Option<u16> {

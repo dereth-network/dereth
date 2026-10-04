@@ -7,7 +7,7 @@ use std::rc::Rc;
 use dereth_ui::ElemHandle;
 
 use crate::screens::chargen::{Cg3dView, CharGenTables};
-use crate::screens::chargen_state::CharGenState;
+use dereth_chargen::CharGenState;
 
 /// One pre-game host call.
 #[allow(clippy::large_enum_variant)] // one call at a time, handed straight to its handler

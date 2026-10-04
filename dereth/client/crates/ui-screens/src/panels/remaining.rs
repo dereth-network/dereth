@@ -487,7 +487,7 @@ impl RemainingPanels {
         //
         // Drained here rather than in the panel's own `on_element_message` because a notice is not
         // an element message: it has no source element, and this is the one slot that holds the
-        // spell bar, a `UiSystem` and a `GameView` at once. See [`crate::notices`].
+        // spell bar, a `UiSystem` and a `GameView` at once. See [`dereth_client_contract::notices`].
         let magic: u32 = ui
             .notice_inbox
             .take()

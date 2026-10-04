@@ -59,6 +59,11 @@ impl SimPresentation {
         &self.device
     }
 
+    /// The device counters, for a front end that also submits UI operations.
+    pub fn counts_mut(&mut self) -> &mut crate::present::NullPresentationCounts {
+        self.device.counts_mut()
+    }
+
     /// The resident blocks, when a world is loaded.
     pub fn resident_blocks(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
         self.world.iter().flat_map(|w| w.residency.resident())

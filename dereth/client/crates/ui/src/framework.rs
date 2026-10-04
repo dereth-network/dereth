@@ -254,14 +254,6 @@ impl<'a> ScreenCx<'a> {
     ) -> Self {
         Self { ui, view }
     }
-
-    /// The same context, reborrowed for a nested call.
-    pub fn reborrow(&mut self) -> ScreenCx<'_> {
-        ScreenCx {
-            ui: &mut *self.ui,
-            view: self.view,
-        }
-    }
 }
 
 impl std::fmt::Debug for ScreenCx<'_> {

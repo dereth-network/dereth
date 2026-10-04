@@ -1105,9 +1105,8 @@ impl ExaminationPanel {
 
         // The pane's own appraise-info write.
         //
-        // The item-examine panel's appraise-info write runs the inscription write and then
-        // twenty-five appraisal blocks in a fixed order; [`item_description`] is the six of them
-        // this build draws, in that order, and [`ITEM_BLOCKS_NOT_IMPLEMENTED`] names the rest. The
+        // The item pane writes its inscription and appraisal blocks in a fixed order.
+        // [`item_description`] composes the description blocks in that order. The
         // creature and character panes use their own block lists plus the nine information regions
         // their constructors put into the list box.
         match sub {

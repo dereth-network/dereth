@@ -16,10 +16,6 @@ use dereth_render::device::Gpu;
 const W: u32 = 640;
 const H: u32 = 480;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 fn draw(scene: &WorldScene, gpu: &mut Gpu) -> Vec<u8> {
     scene.reserve_upload_arena(gpu).expect("reserve");
     gpu.begin_frame().expect("begin");
@@ -49,7 +45,7 @@ fn the_weather_layer_falls_across_the_whole_view() {
             dereth_dat::testing::dat_dir().display()
         )
     });
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(W, H);
     let store = std::sync::Arc::new(store);
     let cfg = SceneConfig {
         land_radius: 2,

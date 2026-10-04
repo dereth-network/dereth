@@ -79,10 +79,6 @@ const FRAMES: usize = 120;
 /// half orders below that and the settled body's z does not move at all.
 const NO_FALL: f32 = 0.001;
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(W, H)
-}
-
 /// One frame's reading of position and footing. `contact` is `CONTACT_TS` and `walkable` is
 /// `ON_WALKABLE_TS`: position finalization derives both from the transition's contact plane, and
 /// the ground-transition arm requires contact on the following frame.
@@ -187,7 +183,7 @@ impl Bench {
 }
 
 fn bench(store: &Arc<RetailDatStore>) -> Bench {
-    let gpu = warp();
+    let gpu = crate::common::test_gpu(W, H);
     let mut b = Bench::new(store, gpu);
     b.stand_at_the_ledge();
     b

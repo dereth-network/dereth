@@ -770,14 +770,8 @@ mod tests {
     #[test]
     fn a_settings_file_left_by_the_classic_interface_is_carried_into_the_store_once() {
         store::init();
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir()
-            .join("dereth-classic-settings-tests")
-            .join(format!("{}-{nonce}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let mut scratch = dereth_dat::testing::ScratchDir::new("classic-settings").unwrap();
+        let dir = scratch.path();
         let path = dir.join("settings.json");
         let mut s = settings();
         s.effects_volume = 0.3;
@@ -799,7 +793,7 @@ mod tests {
         );
         assert!(!path.exists(), "the file is gone");
         assert_eq!(migrate_settings_file(&path, &settings()).unwrap(), 0);
-        std::fs::remove_dir_all(dir).unwrap();
+        scratch.cleanup().unwrap();
     }
     /// Behaviour: presentation.resolution.shared-transaction
     #[test]

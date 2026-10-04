@@ -35,10 +35,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
-
 // ---------------------------------------------------------------------------------------------
 // The capture reader.
 // ---------------------------------------------------------------------------------------------
@@ -348,7 +344,7 @@ fn arm(
 #[test]
 fn an_item_dropped_out_of_the_pack_is_drawn_in_the_world() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let st = station();
     println!(
         "{SESSION} datagram {} -- landblock 0x{:04X}, player {:#010X}, \

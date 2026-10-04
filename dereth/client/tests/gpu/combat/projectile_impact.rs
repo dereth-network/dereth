@@ -353,7 +353,7 @@ fn fly_with_bystander(
     let store = std::sync::Arc::new(
         dereth_dat::testing::open_store().expect("DERETH_TEST_DAT_DIR required"),
     );
-    let mut gpu = crate::common::software_gpu(320, 240);
+    let mut gpu = crate::common::test_gpu(320, 240);
 
     let recorded = recorded_create();
     let mut at: Position = recorded.physicsdesc.position.expect("placed").into();
@@ -522,7 +522,7 @@ fn move_player_pair(mover_flags: u32, obstacle_flags: u32) -> (Vec3, Vec3) {
     let store = std::sync::Arc::new(
         dereth_dat::testing::open_store().expect("DERETH_TEST_DAT_DIR required"),
     );
-    let mut gpu = crate::common::software_gpu(320, 240);
+    let mut gpu = crate::common::test_gpu(320, 240);
 
     let recorded = recorded_create();
     let mut at: Position = recorded.physicsdesc.position.expect("placed").into();

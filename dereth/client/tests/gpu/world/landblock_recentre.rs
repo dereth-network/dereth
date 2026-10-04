@@ -34,13 +34,6 @@ const BLOCK: f32 = 192.0;
 /// hiding which pixel differences produced it.
 const BRACKETS: [u8; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(
-        u32::try_from(W).expect("a back-buffer width"),
-        u32::try_from(H).expect("a back-buffer height"),
-    )
-}
-
 /// The retail dats, or a failed test: a skipped test would read as a pass.
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -234,7 +227,10 @@ fn the_crossing_frame_and_the_next_frame_are_the_same_picture() {
     let store = store();
 
     for legs in CROSSINGS {
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(
+            u32::try_from(W).expect("a back-buffer width"),
+            u32::try_from(H).expect("a back-buffer height"),
+        );
         let c = cross(&store, &mut gpu, legs);
         let moved = deltas(&c.crossing, &c.settled);
         let control = deltas(&c.crossing, &c.far);
@@ -345,10 +341,6 @@ mod frame_writers {
     const PROP: u32 = 0x7000_0042;
     /// The human setup, a real drawable body out of the dats.
     const PROP_SETUP: u32 = 0x0200_0001;
-
-    fn warp() -> Gpu {
-        crate::common::software_gpu(320, 240)
-    }
 
     /// A create-event fixture for one object stood at `at` of `cell`.
     fn create_ev(id: u32, setup: u32, cell: u32, at: Vec3) -> SessionEvent {
@@ -481,7 +473,7 @@ mod frame_writers {
     #[test]
     fn a_crossing_moves_the_render_space_by_exactly_the_block_shift() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let Some((mut s, _, (hx, hy))) = settled(&store, &mut gpu) else {
             return;
         };
@@ -535,7 +527,7 @@ mod frame_writers {
     #[test]
     fn the_body_writer_is_on_the_far_side_of_the_recentre() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let Some((mut s, _, (hx, hy))) = settled(&store, &mut gpu) else {
             return;
         };
@@ -601,7 +593,7 @@ mod frame_writers {
     #[test]
     fn the_server_object_writer_is_on_the_far_side_of_the_recentre() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(320, 240);
         let Some((mut s, prop_at, (hx, hy))) = settled(&store, &mut gpu) else {
             return;
         };

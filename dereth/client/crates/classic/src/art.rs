@@ -46,19 +46,12 @@ pub struct ClassicPaths {
     pub state: PathBuf,
 }
 
-/// The character screen's left panel and its Enter Game button (normal, pressed, disabled) in
-/// the game's first years. Later portals carry seasonal art under other ids (the early 2005 portal
-/// shows spring flowers) or repaint these ids.
-pub const FIRST_YEARS_CHARACTER_ART: [u32; 4] =
-    [0x0600_1239, 0x0600_122e, 0x0600_122f, 0x0600_1230];
 /// The early 2005 portal's own left panel for the character screen.
 pub const CHARACTER_PANEL: u32 = 0x0600_1924;
 
 /// The classic portal's art and tables.
 pub struct ClassicArt {
     portal: ClassicPortal,
-    /// An older portal whose character-screen art is used instead of the classic portal's.
-    character_art: Option<ClassicPortal>,
     images: Mutex<BTreeMap<u32, Option<Arc<Image>>>>,
     fonts: BTreeMap<String, Arc<FontAtlas>>,
 }
@@ -91,29 +84,9 @@ impl ClassicArt {
         }
         Ok(Self {
             portal,
-            character_art: None,
             images: Mutex::default(),
             fonts,
         })
-    }
-
-    /// Take the character screen's art (its left panel and Enter Game button) from `older`, a
-    /// portal from the game's first years, instead of the classic portal's seasonal art.
-    #[must_use]
-    pub fn with_character_art(mut self, older: ClassicPortal) -> Self {
-        self.character_art = Some(older);
-        self
-    }
-
-    /// The character screen's left panel: the first years' panel when an older portal gives it,
-    /// else the classic portal's own.
-    #[must_use]
-    pub fn character_panel(&self) -> u32 {
-        if self.character_art.is_some() {
-            FIRST_YEARS_CHARACTER_ART[0]
-        } else {
-            CHARACTER_PANEL
-        }
     }
 
     /// The classic portal itself.
@@ -162,12 +135,7 @@ impl ClassicArt {
         images
             .entry(id)
             .or_insert_with(|| {
-                let older = self
-                    .character_art
-                    .as_ref()
-                    .filter(|_| FIRST_YEARS_CHARACTER_ART.contains(&id))
-                    .and_then(|p| p.get(id));
-                let payload = older.or_else(|| self.portal.get(id))?;
+                let payload = self.portal.get(id)?;
                 let decoded = dereth_classic_dat::image::decode_rgb(&payload, Some(id)).ok()?;
                 Some(Arc::new(Image {
                     width: decoded.width,

@@ -53,6 +53,42 @@ pub trait AssetSource {
     }
 }
 
+impl<T: AssetSource + ?Sized> AssetSource for std::sync::Arc<T> {
+    fn read(&self, id: DataId) -> Result<Vec<u8>, AssetError> {
+        (**self).read(id)
+    }
+    fn exists(&self, id: DataId) -> bool {
+        (**self).exists(id)
+    }
+    fn iter_type(&self, kind: DataType) -> Box<dyn Iterator<Item = DataId> + '_> {
+        (**self).iter_type(kind)
+    }
+    fn container_era(&self) -> ContainerEra {
+        (**self).container_era()
+    }
+    fn container_era_of(&self, id: DataId) -> ContainerEra {
+        (**self).container_era_of(id)
+    }
+}
+
+impl<T: AssetSource + ?Sized> AssetSource for &T {
+    fn read(&self, id: DataId) -> Result<Vec<u8>, AssetError> {
+        (**self).read(id)
+    }
+    fn exists(&self, id: DataId) -> bool {
+        (**self).exists(id)
+    }
+    fn iter_type(&self, kind: DataType) -> Box<dyn Iterator<Item = DataId> + '_> {
+        (**self).iter_type(kind)
+    }
+    fn container_era(&self) -> ContainerEra {
+        (**self).container_era()
+    }
+    fn container_era_of(&self, id: DataId) -> ContainerEra {
+        (**self).container_era_of(id)
+    }
+}
+
 /// Which of the two dat sets a file or record belongs to. The container layout, and the layout of
 /// a few record types, changed once, with the file renaming at Throne of Destiny (June 2005):
 /// `portal.dat` and `cell.dat` before it, the four `client_*.dat` files from it on.
@@ -115,4 +151,71 @@ pub struct MeshData {
     pub vertices: Vec<u8>,
     pub indices: Vec<u32>,
     pub stride: u32,
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    struct Mixed;
+    impl AssetSource for Mixed {
+        fn read(&self, id: DataId) -> Result<Vec<u8>, AssetError> {
+            if id == DataId(2) {
+                Ok(vec![4, 5])
+            } else {
+                Err(AssetError::Malformed {
+                    id,
+                    reason: "invalid fixture".into(),
+                })
+            }
+        }
+        fn exists(&self, id: DataId) -> bool {
+            id == DataId(2)
+        }
+        fn iter_type(&self, kind: DataType) -> Box<dyn Iterator<Item = DataId> + '_> {
+            Box::new(
+                [DataId(2), DataId(4)]
+                    .into_iter()
+                    .filter(move |_| kind == DataType::Setup),
+            )
+        }
+        fn container_era(&self) -> ContainerEra {
+            ContainerEra::PreTod
+        }
+        fn container_era_of(&self, id: DataId) -> ContainerEra {
+            if id == DataId(2) {
+                ContainerEra::Tod
+            } else {
+                ContainerEra::PreTod
+            }
+        }
+    }
+    fn check(source: impl AssetSource) {
+        assert_eq!(source.read(DataId(2)).unwrap(), [4, 5]);
+        assert!(
+            matches!(source.read(DataId(9)), Err(AssetError::Malformed { id: DataId(9), reason }) if reason == "invalid fixture")
+        );
+        assert!(source.exists(DataId(2)));
+        assert!(!source.exists(DataId(9)));
+        assert_eq!(
+            source.iter_type(DataType::Setup).collect::<Vec<_>>(),
+            [DataId(2), DataId(4)]
+        );
+        assert_eq!(source.iter_type(DataType::Animation).count(), 0);
+        assert_eq!(source.container_era(), ContainerEra::PreTod);
+        assert_eq!(source.container_era_of(DataId(2)), ContainerEra::Tod);
+        assert_eq!(source.container_era_of(DataId(4)), ContainerEra::PreTod);
+    }
+    /// Behaviour: none (shared asset sources preserve bytes, errors, iteration and per-record layouts).
+    #[test]
+    fn an_arc_forwards_every_asset_operation_for_an_unsized_source() {
+        let source: std::sync::Arc<dyn AssetSource> = std::sync::Arc::new(Mixed);
+        check(source);
+    }
+    /// Behaviour: none (borrowed asset sources preserve bytes, errors, iteration and per-record layouts).
+    #[test]
+    fn a_reference_forwards_every_asset_operation_for_an_unsized_source() {
+        let source: &dyn AssetSource = &Mixed;
+        check(source);
+    }
 }

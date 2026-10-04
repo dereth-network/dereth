@@ -58,23 +58,6 @@ impl Fellowship {
         self.members.contains_key(&id)
     }
 
-    /// Behavior: the first member whose key is **not**
-    /// `_leader`, or `0` when there is none.
-    ///
-    /// The Quit button's own arm reads it: a leader who quits first assigns a new leader, then
-    /// sends `0x00A3 Quit(0)`. Runtime traffic confirms both requests occur at the same timestamp,
-    /// with the leadership assignment first.
-    ///
-    /// Retail walks a `PackableHashTable` in bucket order and this walks a `BTreeMap` in id
-    /// order, so the *identity* of the fellow chosen can differ when a fellowship holds more than
-    /// two. Any non-leader is a correct answer to the question the client asks — "is there
-    /// somebody to hand this to" — and the shard decides the rest; the order is recorded here
-    /// rather than pretended away.
-    #[must_use]
-    pub fn non_leader_fellow(&self) -> Option<ObjectId> {
-        self.members.keys().copied().find(|id| *id != self.leader)
-    }
-
     /// The locked-fellowship remove: when `_locked` is set, a departing member is recorded
     /// with the real time, **replacing** any earlier entry.
     pub fn remove_fellow(&mut self, id: ObjectId, real_time: i64) -> Option<Fellow> {

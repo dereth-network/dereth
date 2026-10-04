@@ -41,6 +41,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use dereth_animation::parts::{
     DEFAULT_DIFFUSE, DEFAULT_LUMINOSITY, SELECTION_HIGH_LIGHTING, SELECTION_LOW_LIGHTING,
 };
@@ -53,7 +55,7 @@ use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::pick_geometry::selection_ray;
 use dereth_primitives::num::math;
-use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
+use dereth_primitives::{LocalTime, ObjectId, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
@@ -90,21 +92,6 @@ const RESTORED: (f32, f32) = (DEFAULT_LUMINOSITY, DEFAULT_DIFFUSE);
 /// above the baseline.
 #[allow(dead_code)]
 const BRIGHT_READS: &str = "above the baseline";
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 /// Start the UI shell and real `DEFAULT_LANDBLOCK` terrain. An application that cannot be
 /// initialized fails the GPU station. The recorded player create is relocated onto this terrain

@@ -44,6 +44,8 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use crate::common::app::{frames, position};
+
 use dereth_client::app::App;
 use dereth_client::config::Config;
 use dereth_client::pick::PickScene;
@@ -75,21 +77,6 @@ const GUTTERS: [(i32, i32, (i32, i32)); 3] = [
     (725, 407, (718, 739)),
     (785, 407, (776, 794)),
 ];
-
-fn frames(app: &mut App, count: usize) {
-    for _ in 0..count {
-        assert!(app.frame());
-    }
-}
-
-fn position(app: &App) -> Position {
-    app.world_state()
-        .unwrap()
-        .character
-        .as_ref()
-        .unwrap()
-        .position()
-}
 
 fn setup() -> App {
     let mut app = App::new(Config {

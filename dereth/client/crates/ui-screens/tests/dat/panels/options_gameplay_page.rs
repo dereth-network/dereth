@@ -11,7 +11,7 @@ use dereth_ui::msg::Delivery;
 use dereth_ui::{ElemHandle, ElementId, MessageId, UiSystem};
 
 use dereth_ui_screens::options::gameplay::{button, GameplayOptionsPage, BUTTONS, LAYOUT_DRIVEN};
-use dereth_ui_screens::options::pages::{GameplayOptionAction, SUPPORT_URL};
+use dereth_ui_screens::options::pages::GameplayOptionAction;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::UiRequest;
 
@@ -216,8 +216,6 @@ fn each_support_button_opens_its_in_game_form_and_help_is_hidden() {
     };
     assert_eq!(y(&ui, button::SUPPORT_TICKET_UPPER), 200);
     assert_eq!(y(&ui, button::SUPPORT_TICKET_LOWER), 240);
-    // The address retail opened is gone; nothing here opens it.
-    assert!(SUPPORT_URL.starts_with("http://support.turbine.com/"));
 }
 
 /// Behaviour: options.gameplay-page.mouse-turning-settings-sets-the-preset-and-nothing-else

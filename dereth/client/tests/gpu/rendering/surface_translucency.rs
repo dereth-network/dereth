@@ -23,10 +23,6 @@ fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
 }
 
-fn warp() -> Gpu {
-    crate::common::software_gpu(640, 640)
-}
-
 type Shot = (Vec<u8>, u32, u32);
 
 fn shot(scene: &mut WorldScene, gpu: &mut Gpu) -> Shot {
@@ -149,7 +145,7 @@ fn split_by_band(a: &Shot, b: &Shot) -> (usize, usize) {
 #[test]
 fn the_pair_differs_only_where_a_translucent_surface_is_drawn() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(640, 640);
 
     let (opaque_stats, opaque_frame) = render(&store, &mut gpu, false, 0.0);
     let (alpha_stats, alpha_frame) = render(&store, &mut gpu, true, 0.0);

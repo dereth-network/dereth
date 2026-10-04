@@ -24,3 +24,9 @@ pub mod app;
 
 /// A world with no device, for the modules whose claim is about the simulation and reads no pixel.
 pub mod sim;
+
+/// The real client shell and frame loop over a device-free world presentation.
+pub mod sim_app;
+
+#[path = "../../common/chat.rs"]
+pub mod chat;

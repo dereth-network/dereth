@@ -1073,14 +1073,6 @@ mod tests {
         });
     }
 
-    fn journal_dir(name: &str) -> std::path::PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("classic-journal-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        dir
-    }
-
     fn act(j: &mut Journal, id: &str, c: &TestContext<'_>) {
         drive(j, ControlEvent::Activate(id.into()), c);
     }
@@ -1098,7 +1090,8 @@ mod tests {
 
     #[test]
     fn a_journal_page_written_in_the_classic_interface_is_in_the_file_both_interfaces_read() {
-        let dir = journal_dir("page");
+        let scratch = dereth_dat::testing::ScratchDir::new("page").expect("journal directory");
+        let dir = scratch.path().to_path_buf();
         let game = Game {
             journal_dir: Some(dir.clone()),
             coords: Some((12.5, -33.25)),
@@ -1159,12 +1152,13 @@ mod tests {
             act(&mut fresh, "timer", c);
             assert!(fresh.frame(c).controls.iter().any(|k| k.id == "days"));
         });
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(scratch);
     }
 
     #[test]
     fn new_pages_go_at_the_end_and_deleting_one_numbers_the_rest_from_one() {
-        let dir = journal_dir("pages");
+        let scratch = dereth_dat::testing::ScratchDir::new("pages").expect("journal directory");
+        let dir = scratch.path().to_path_buf();
         let game = Game {
             journal_dir: Some(dir.clone()),
             ..Game::default()
@@ -1195,17 +1189,19 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(1, "one"), (2, "three")]
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(scratch);
     }
 
     #[test]
     fn a_world_without_the_journal_says_so() {
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("journal-none").expect("journal directory");
         let mut era = dereth_client_contract::EraView::default();
         era.era = dereth_primitives::era::EraId::Infiltration;
         era.era_announced = true;
         let game = Game {
             era: Some(era),
-            journal_dir: Some(journal_dir("none")),
+            journal_dir: Some(scratch.path().to_path_buf()),
             ..Game::default()
         };
         let mut j = Journal::default();
@@ -1250,7 +1246,8 @@ mod tests {
 
     #[test]
     fn the_journal_page_has_a_contracts_tab_on_a_world_with_both() {
-        let dir = journal_dir("tabs");
+        let scratch = dereth_dat::testing::ScratchDir::new("tabs").expect("journal directory");
+        let dir = scratch.path().to_path_buf();
         let game = Game {
             journal_dir: Some(dir.clone()),
             ..Game::default()
@@ -1295,12 +1292,13 @@ mod tests {
             ..Game::default()
         };
         with(&plain, |c| assert!(!has(&j.frame(c), "tab-contracts")));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(scratch);
     }
 
     #[test]
     fn the_page_list_names_every_page_and_turns_to_the_one_chosen() {
-        let dir = journal_dir("list");
+        let scratch = dereth_dat::testing::ScratchDir::new("list").expect("journal directory");
+        let dir = scratch.path().to_path_buf();
         let game = Game {
             journal_dir: Some(dir.clone()),
             ..Game::default()
@@ -1339,12 +1337,13 @@ mod tests {
             assert_eq!(list(&j, c).1, 0);
             assert!(format!("{:?}", j.frame(c)).contains("Rats"));
         });
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(scratch);
     }
 
     #[test]
     fn the_page_list_tab_sorts_searches_deletes_and_turns_to_a_page_pressed_twice() {
-        let dir = journal_dir("pagelist");
+        let scratch = dereth_dat::testing::ScratchDir::new("pagelist").expect("journal directory");
+        let dir = scratch.path().to_path_buf();
         let mut game = Game {
             journal_dir: Some(dir.clone()),
             now: 10.0,
@@ -1443,7 +1442,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(1, "alpha"), (2, "Charlie")]
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(scratch);
     }
     /// Behaviour: presentation.era.shared-facts-follow-the-world-profile
     #[test]

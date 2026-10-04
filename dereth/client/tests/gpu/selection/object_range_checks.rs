@@ -32,13 +32,8 @@ use dereth_client_model::range::RangeHandler;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::types::PublicWeenieDesc;
-use dereth_render::device::Gpu;
 
 const VENDOR: ObjectId = ObjectId(0x8000_0001);
-
-fn warp() -> Gpu {
-    crate::common::software_gpu(800, 600)
-}
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -57,7 +52,7 @@ fn put(w: &mut dereth_client_model::World, id: ObjectId, pwd: PublicWeenieDesc) 
 #[test]
 fn a_frame_closes_the_vendor_the_player_has_walked_away_from() {
     let store = store();
-    let mut gpu = warp();
+    let mut gpu = crate::common::test_gpu(800, 600);
     let region = dereth_client::world::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
@@ -269,13 +264,8 @@ mod range_watch {
     use dereth_physics::LandSource;
     use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::types::PublicWeenieDesc;
-    use dereth_render::device::Gpu;
 
     const TARGET: ObjectId = ObjectId(0x8000_0011);
-
-    fn warp() -> Gpu {
-        crate::common::software_gpu(800, 600)
-    }
 
     fn store() -> Arc<RetailDatStore> {
         crate::common::dats()
@@ -351,7 +341,7 @@ mod range_watch {
     #[test]
     fn the_selection_watch_arms_at_the_range_the_players_own_cell_chooses() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
         let region = dereth_client::world::load_region(&store).expect("the region decodes");
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
@@ -450,7 +440,7 @@ mod range_watch {
     #[test]
     fn the_range_follows_the_body_when_it_goes_back_outside() {
         let store = store();
-        let mut gpu = warp();
+        let mut gpu = crate::common::test_gpu(800, 600);
         let region = dereth_client::world::load_region(&store).expect("the region decodes");
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");

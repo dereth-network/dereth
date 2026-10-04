@@ -44,7 +44,7 @@
 //! * So `PlayerOptionPage` seeded current = saved = default and its own snapshot stood in
 //!   for the store. Within one page visit that is indistinguishable from the client; across a
 //!   visit it is not, and the **`SetDefault` values that disagree with the registration**
-//!   (`super::config::DEFAULT_DISAGREEMENTS`) make the difference observable without a running
+//!   make the difference observable without a running
 //!   client: the client opens the page showing adaptive degrades **on** and mouse sensitivity
 //!   0.25, and a page that seeds itself from `SetDefault` opens showing degrades **off** and
 //!   0.55.

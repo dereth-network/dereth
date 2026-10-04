@@ -24,7 +24,13 @@ pub mod gpu;
 
 pub use gpu::gpu_lock;
 
-/// The software device and the retail dats, opened the one way the tier's stations open them.
+/// The test device and the retail dats, opened the one way the tier's stations open them.
 pub mod device;
 
-pub use device::{dat_store, dats, software_gpu};
+pub use device::{dat_store, dats, test_gpu};
+
+/// Real application construction and input helpers.
+pub mod app;
+
+#[path = "../../common/chat.rs"]
+pub mod chat;

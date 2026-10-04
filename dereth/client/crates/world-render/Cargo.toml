@@ -16,7 +16,6 @@ retail-dats = []
 
 [dependencies]
 dereth-primitives.workspace = true
-thiserror.workspace = true
 # World data only: the decoded landblock / Region / Scene / GfxObjDegradeInfo structs. This crate
 # consumes decoded structs; it decodes nothing itself. The renderer is reached only through
 # the `RenderBackend` trait in dereth-primitives, and no renderer crate is linked.

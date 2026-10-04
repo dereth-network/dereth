@@ -49,8 +49,6 @@ pub struct RecordingBackend {
     pub calls: Vec<RecordedCall>,
     next_mesh: u32,
     next_texture: u32,
-    /// The pipeline the next `draw()` will be recorded under, if the caller set one.
-    current: Option<(PipelineKey, DrawConstants)>,
 }
 
 impl RecordingBackend {
@@ -76,14 +74,7 @@ impl RecordingBackend {
 
     /// Record the pipeline state a subsequent `draw()` runs under.
     pub fn set_pipeline(&mut self, key: PipelineKey, constants: DrawConstants) {
-        self.current = Some((key, constants));
         self.calls.push(RecordedCall::SetPipeline(key, constants));
-    }
-
-    /// The pipeline currently selected, if any.
-    #[must_use]
-    pub fn current_pipeline(&self) -> Option<(PipelineKey, DrawConstants)> {
-        self.current
     }
 
     /// Every recorded `draw()`, in submission order. The whole point of the backend: a test that
