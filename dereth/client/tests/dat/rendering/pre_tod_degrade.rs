@@ -1,19 +1,21 @@
 //! A graphics object from before Throne of Destiny reaches its detail record by its own id, so a
 //! February 2005 body part draws the record's levels, nearest the denser mesh the record lists
 //! first, whether it is drawn on the February 2005 world or as the older look on the end-of-retail
-//! world. The level is chosen from the raw viewing distance on the older world and from the
-//! distance less the 50 m degrade distance on the end-of-retail world, whichever look it draws.
-//! These are the data halves; the record each reader takes is the one the scene builds its levels
-//! from.
+//! world. On either world the level is chosen from the viewing distance less the Degrade Distance
+//! setting, so at 0 the levels change at the record's own distances and at the default 50 each
+//! change sits 50 m further out. These are the data halves; the record each reader takes is the
+//! one the scene builds its levels from.
 //!
 //! Fixture: the February 2005 dats (`DERETH_TEST_PRETOD_DAT_DIR`) with the retail dats
 //! (`DERETH_TEST_DAT_DIR`) beside them. A missing input fails.
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo};
-use dereth_client::world::world_degrade_distance;
 use dereth_dat::{ContainerEra, DbType, RetailDatStore};
 use dereth_primitives::DataId;
 use dereth_world_render::objects::degrade::{get_degrade, DegradeGlobals, DegradeMode};
+
+/// The shipped Degrade Distance setting.
+const DEFAULT: f32 = dereth_animation::parts::S_R_DEGRADE_DISTANCE;
 
 /// The male torso, the same id in every era.
 const TORSO: DataId = DataId(0x0100_004E);
@@ -51,13 +53,11 @@ fn record(store: &RetailDatStore, gfxobj: DataId) -> Option<(DataId, GfxObjDegra
     Some((did, info))
 }
 
-/// The mesh drawn at `distance` on a world of `world_era`'s files, with the shipped settings.
-fn drawn(info: &GfxObjDegradeInfo, world_era: ContainerEra, distance: f32) -> (u32, DegradeMode) {
+/// The mesh drawn at `distance` with the Degrade Distance setting at `degrade_distance` and the
+/// shipped bias.
+fn drawn(info: &GfxObjDegradeInfo, degrade_distance: f32, distance: f32) -> (u32, DegradeMode) {
     let g = DegradeGlobals {
-        degrade_distance: world_degrade_distance(
-            world_era,
-            dereth_animation::parts::S_R_DEGRADE_DISTANCE,
-        ),
+        degrade_distance,
         ..DegradeGlobals::default()
     };
     let (level, mode) = get_degrade(info, distance, &g);
@@ -76,14 +76,14 @@ fn a_february_2005_torso_draws_its_records_nearest_level_up_close_on_either_worl
     let look = eor
         .object_files(ContainerEra::PreTod)
         .expect("the February 2005 files are beside the world");
-    for (name, store, world_era) in [
-        ("the February 2005 world", &older, ContainerEra::PreTod),
-        ("the older look", &look, ContainerEra::Tod),
+    for (name, store) in [
+        ("the February 2005 world", &older),
+        ("the older look", &look),
     ] {
         let (did, info) = record(store, TORSO).unwrap_or_else(|| panic!("{name}: no record"));
         assert_eq!(did, DataId(0x1100_004E), "{name}");
         assert_eq!(info.degrades.len(), 6, "{name}");
-        assert_eq!(drawn(&info, world_era, 1.0).0, TORSO_NEAR, "{name}");
+        assert_eq!(drawn(&info, DEFAULT, 1.0).0, TORSO_NEAR, "{name}");
         assert!(
             dereth_client::models::draws_at_near_band(store, TORSO),
             "{name}: the part draws at the near band"
@@ -91,31 +91,38 @@ fn a_february_2005_torso_draws_its_records_nearest_level_up_close_on_either_worl
     }
     let (did, info) = record(&eor, TORSO).expect("the end-of-retail torso names a record");
     assert_eq!(did, DataId(0x1100_06C6));
-    assert_eq!(drawn(&info, ContainerEra::Tod, 1.0).0, TORSO_NEAR);
+    assert_eq!(drawn(&info, DEFAULT, 1.0).0, TORSO_NEAR);
 }
 
-/// Behaviour: rendering.degrade.an-older-world-chooses-detail-from-the-raw-distance
-/// On the February 2005 world the torso changes level at its record's own distances: the dense
-/// torso inside 3 m, the torso itself to 5 m, coarser meshes to 7 and 15 m, an upright card to
-/// 84 m and nothing beyond. On the end-of-retail world, drawing the same record as the older
-/// look, each change sits 50 m further out.
+/// Behaviour: rendering.degrade.the-degrade-distance-applies-on-an-older-world
+/// On the February 2005 world the Degrade Distance setting moves the torso's detail changes as it
+/// does on the end-of-retail world. At 0 they sit at the record's own distances: the dense torso
+/// inside 3 m, the torso itself to 5 m, coarser meshes to 7 and 15 m, an upright card to 84 m and
+/// nothing beyond. At the default 50 each change sits 50 m further out, and at 100, 100 m.
 #[test]
-fn an_older_world_changes_the_torsos_level_at_the_raw_distance_and_the_later_world_50_m_out() {
+fn the_degrade_distance_moves_an_older_worlds_torso_levels_out_by_its_own_value() {
     let older = older_world();
     let (_, info) = record(&older, TORSO).expect("the torso reaches its record");
-    let pre = |d| drawn(&info, ContainerEra::PreTod, d);
-    assert_eq!(pre(2.0).0, TORSO_NEAR);
-    assert_eq!(pre(4.0).0, TORSO.raw());
-    assert_eq!(pre(6.0).0, 0x0100_01A2);
-    assert_eq!(pre(10.0).0, 0x0100_01A0);
-    assert_eq!(pre(20.0), (0x0100_01F1, DegradeMode::AxisZ));
-    assert_eq!(pre(100.0).0, 0, "nothing is drawn past 84 m");
-
-    let later = |d| drawn(&info, ContainerEra::Tod, d);
-    assert_eq!(later(4.0).0, TORSO_NEAR);
-    assert_eq!(later(20.0).0, TORSO_NEAR);
-    assert_eq!(later(54.0).0, TORSO.raw());
-    assert_eq!(later(70.0), (0x0100_01F1, DegradeMode::AxisZ));
+    for offset in [0.0, DEFAULT, 100.0] {
+        let at = |d: f32| drawn(&info, offset, d + offset);
+        assert_eq!(at(2.0).0, TORSO_NEAR, "Degrade Distance {offset}");
+        assert_eq!(at(4.0).0, TORSO.raw(), "Degrade Distance {offset}");
+        assert_eq!(at(6.0).0, 0x0100_01A2, "Degrade Distance {offset}");
+        assert_eq!(at(10.0).0, 0x0100_01A0, "Degrade Distance {offset}");
+        assert_eq!(
+            at(20.0),
+            (0x0100_01F1, DegradeMode::AxisZ),
+            "Degrade Distance {offset}"
+        );
+        assert_eq!(
+            at(100.0).0,
+            0,
+            "nothing is drawn past 84 m beyond the setting"
+        );
+    }
+    // At 49 m the default keeps the nearest level, where 0 has reached the upright card.
+    assert_eq!(drawn(&info, DEFAULT, 49.0).0, TORSO_NEAR);
+    assert_eq!(drawn(&info, 0.0, 49.0), (0x0100_01F1, DegradeMode::AxisZ));
 }
 
 /// Behaviour: rendering.degrade.an-older-eras-part-draws-the-levels-its-own-id-reaches

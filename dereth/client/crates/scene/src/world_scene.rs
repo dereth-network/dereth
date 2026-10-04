@@ -1056,9 +1056,6 @@ mod imp {
         fog: dereth_render::camera::FogParams,
         /// Frame-rate estimate and degrade multiplier.
         pub degrade: DegradeState,
-        /// The layout of the world's own files, which with the objects' look decides how far away
-        /// a detail level is chosen ([`SceneDraw::degrade_era`]).
-        world_era: dereth_dat::ContainerEra,
         /// Draw the landscape by splatting its layers rather than with its composites. See
         /// [`SceneConfig::terrain_splat`] and [`Self::toggle_terrain_splat`].
         terrain_splat: bool,
@@ -5099,19 +5096,6 @@ mod imp {
         }
     }
 
-    /// The distance taken off the viewing distance before a detail level is chosen, on a world of
-    /// `era`'s files. From Throne of Destiny on it is the degrade-distance preference (50 m by
-    /// default), so everything inside it draws its nearest level. A world from before has none:
-    /// its clients compared the raw distance, so another character's parts change level within a
-    /// few metres.
-    #[must_use]
-    pub fn world_degrade_distance(era: dereth_dat::ContainerEra, preference: f32) -> f32 {
-        match era {
-            dereth_dat::ContainerEra::PreTod => 0.0,
-            dereth_dat::ContainerEra::Tod => preference,
-        }
-    }
-
     impl SceneDraw {
         /// The drawing half of a server object, which every object in
         /// `world.objects` has under the same id: the two maps gain and lose an id together.
@@ -5372,7 +5356,6 @@ mod imp {
                 // the region's: colour `0x00AAAAAA`, 400..2000, disabled.
                 fog: dereth_render::camera::FogParams::default(),
                 degrade: DegradeState::new(cfg.auto_degrades),
-                world_era: store.era(),
                 // The palette-shift landscape has no splat form (`splat` already says so).
                 terrain_splat: splat,
                 stats: SceneStats::default(),
@@ -7625,7 +7608,7 @@ mod imp {
         #[must_use]
         pub fn part_degrade_probe(&self, ws: &WorldState) -> Vec<PartLevelProbe> {
             let globals = self.degrade_globals(ws);
-            let cam = ws.camera.position;
+            let cam = detail_viewer(ws);
             let share = self.degrade.governor.level();
             let mut out = Vec::new();
             let mut push = |object: Option<ObjectId>,
@@ -7715,7 +7698,7 @@ mod imp {
         /// on the device turned.
         #[must_use]
         pub fn degrade_probe(&self, ws: &WorldState) -> Vec<StaticLevelProbe> {
-            let cam = ws.camera.position;
+            let cam = detail_viewer(ws);
             let share_2dsq = self.degrade.governor.level().share_distance_2dsq(false);
             let mut out = Vec::new();
             for block in self.blocks.values() {
@@ -8473,7 +8456,7 @@ mod imp {
         /// have already had theirs ticked by `Self::advance_objects` and
         /// [`dereth_client_runtime::character::Character::update`].
         fn update_particles(&mut self, ws: &mut WorldState, now: dereth_primitives::LocalTime) {
-            let viewer = ws.camera.position;
+            let viewer = detail_viewer(ws);
             let shift = self.block_shift(ws);
             // The particle draw decision is per **emitter**, because its argument is that
             // emitter's own `degrade_distance`. The animation crate's `MotionDriver::update_particles`
@@ -9481,7 +9464,7 @@ mod imp {
         /// `block.origin` moves with it.
         fn refresh_degrade_levels(&mut self, ws: &mut WorldState) -> u32 {
             let globals = self.degrade_globals(ws);
-            let cam = ws.camera.position;
+            let cam = detail_viewer(ws);
             // Every baked placement belongs to an ordinary object, never a particle emitter.
             let share_2dsq = self.degrade.governor.level().share_distance_2dsq(false);
             let mut switches = 0u32;
@@ -9551,7 +9534,7 @@ mod imp {
         fn refresh_part_levels(&mut self, ws: &mut WorldState) -> u32 {
             let globals = self.degrade_globals(ws);
             let billboards = self.cfg.part_degrade_levels && self.cfg.part_billboards;
-            let cam = ws.camera.position;
+            let cam = detail_viewer(ws);
             let share = self.degrade.governor.level();
             let mut switches = 0u32;
             let mut resident = 0usize;
@@ -9688,23 +9671,6 @@ mod imp {
             switches
         }
 
-        /// The era whose rule places the detail levels ([`world_degrade_distance`]): the later
-        /// files' whenever the world or the look its objects are drawn with is from Throne of
-        /// Destiny on. The later files' detail records are made for the later rule, so an older
-        /// world drawing the later look keeps the degrade distance, and only an older world
-        /// drawing its own look chooses from the raw distance. The end-of-retail world keeps
-        /// its own rule whichever era's look it draws.
-        fn degrade_era(&self) -> dereth_dat::ContainerEra {
-            let look = self.land.objects.as_ref().map(|l| l.files.era());
-            if self.world_era == dereth_dat::ContainerEra::Tod
-                || look == Some(dereth_dat::ContainerEra::Tod)
-            {
-                dereth_dat::ContainerEra::Tod
-            } else {
-                dereth_dat::ContainerEra::PreTod
-            }
-        }
-
         /// The current degrade inputs read this frame.
         ///
         /// The bias is `deg_mul` when automatic degrades are on and the user-supplied degrade bias otherwise, so a **pinned**
@@ -9740,12 +9706,9 @@ mod imp {
                     g.deg_mul
                 },
                 // The degrade-distance preference -- `Render.DegradeDistance`, whose
-                // initial value is the 50.0 `DegradeGlobals::default()` carried -- by the rule
-                // of the files the objects are drawn with ([`Self::degrade_era`]).
-                degrade_distance: world_degrade_distance(
-                    self.degrade_era(),
-                    self.cfg.render.degrade_distance,
-                ),
+                // initial value is the 50.0 `DegradeGlobals::default()` carried -- on every
+                // world, the 2005 one included (CD-026).
+                degrade_distance: self.cfg.render.degrade_distance,
             }
         }
 
@@ -11700,7 +11663,7 @@ mod imp {
         /// viewer distance from the same origin arithmetic.
         #[must_use]
         pub fn emitter_degrade_probe(&self, ws: &WorldState) -> Vec<EmitterDegrade> {
-            let viewer = ws.camera.position;
+            let viewer = detail_viewer(ws);
             let shift = self.block_shift(ws);
             let mut out = Vec::new();
             let mut push = |owner: EmitterOwner,
@@ -12651,8 +12614,9 @@ mod imp {
         ///
         /// **What is still not performed, named rather than skipped silently.**
         ///
-        /// * The viewer-distance update and the shell's degrade level: this build bakes a building
-        ///   at degrade level 0 and never re-selects it here.
+        /// * The viewer-distance update of the shell itself, here: the shell's degrade level is
+        ///   chosen once per frame with every other baked placement's
+        ///   ([`Self::refresh_degrade_levels`]), not in this traversal.
         /// * The per-object test against the view polygons. The traversal is
         ///   clipped at **cell** granularity here; the client also culls each object in a cell
         ///   against every one of that cell's view polygons. A cell that survives the clip
@@ -13800,6 +13764,22 @@ mod imp {
         pub fn drawing_past_its_own_cutoff(&self) -> bool {
             self.this_build_draws() && !self.client_draws()
         }
+    }
+
+    /// The point every detail level, part sort distance and particle cut-off is measured from:
+    /// the placed viewer, which is the eye the frame is drawn from. With no body (or before the
+    /// body's camera is first placed) the free camera is that eye.
+    ///
+    /// **Not `ws.camera`.** The scene update runs before the camera sweep, and at that moment
+    /// `ws.camera` holds the unswept chase camera the update has just placed, about 4.4 m behind
+    /// and 2.5 m above the feet where the eye is 2.75 m behind and 2.3 m above. Measured from
+    /// there, everything near the player stood about 1.6 m further away than it is drawn, so at a
+    /// Degrade Distance of 0 the furniture beside the player dropped a level the eye's own
+    /// distance keeps. The placed viewer is the sweep's result from the frame before: when the
+    /// camera is still it is the eye exactly, and a moving camera is one frame of travel behind,
+    /// as the landblock window's re-centre already is.
+    fn detail_viewer(ws: &WorldState) -> Vec3 {
+        dereth_client_runtime::world_stream::viewpoint(&ws.character, &ws.camera)
     }
 
     /// Select the degrade level for a whole block's baked

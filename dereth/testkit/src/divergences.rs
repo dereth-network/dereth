@@ -211,6 +211,14 @@ pub static DIVERGENCES: &[Divergence] = &[
                  at 3000 by 2000.",
         why: "Retail's limit left the backdrop showing on large screens.",
     },
+    Divergence {
+        id: "CD-026",
+        title: "Degrade Distance applies on every world",
+        change: "The Degrade Distance setting moves where detail changes on worlds from before \
+                 Throne of Destiny too, where the 2005 client had no such setting and chose \
+                 detail from the distance alone.",
+        why: "One setting that does the same thing on every world.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

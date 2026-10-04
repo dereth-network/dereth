@@ -696,3 +696,138 @@ fn the_paired_frame_changes_only_where_the_degraded_geometry_was() {
         "{changed} of {total} pixels changed -- more than the distant scenery can account for"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The eye the levels are measured from
+// ---------------------------------------------------------------------------------------------
+
+/// The Holtburg tavern room with the pedestal table, its stool and the long table at the far wall.
+const TAVERN_ROOM: u32 = 0xA9B4_0163;
+/// The stool beside the pedestal table: nearest mesh inside 4 m (3 to 8 m with the bias).
+const STOOL_RECORD: u32 = 0x1100_0150;
+/// The pedestal table: nearest mesh inside 4 m, the next inside 12 m.
+const TABLE_RECORD: u32 = 0x1100_0170;
+
+/// Behaviour: rendering.degrade.detail-is-measured-from-the-eye-the-frame-is-drawn-from
+/// Standing in the Holtburg tavern beside the pedestal table, with the bias at 0 and adaptive
+/// degrade off, every piece of furniture in the room is drawn at the level its record selects for
+/// its distance from the eye the frame is drawn from, at Degrade Distance 0, 50 and 100: the stool
+/// and the table, both under 4 m from the eye, keep their nearest meshes at each, as the retail
+/// client draws them, where measured from the chase camera behind the eye furniture dropped a
+/// level at 0.
+#[test]
+fn the_furniture_beside_the_player_takes_the_level_its_distance_from_the_eye_selects() {
+    use dereth_primitives::{CellId, Frame, Position, Quat};
+    let store = store();
+    let mut gpu = warp();
+    let region = dereth_client::world::load_region(&store).expect("the region loads");
+    let cfg = SceneConfig {
+        landblock: HOLTBURG,
+        scenery_radius: 0,
+        auto_degrades: false,
+        ..SceneConfig::default()
+    };
+    let mut scene = still_scene(&store, &mut gpu, cfg);
+    scene
+        .attach_character(&store, &region, &mut gpu)
+        .expect("the body is created");
+    scene.draw.cfg.render.graphics_performance = 0.0;
+    // Facing north-north-east, the pedestal table ahead and to the right, its stool nearer.
+    let at = Position::new(
+        CellId(TAVERN_ROOM),
+        Frame::new(
+            Vec3::new(100.64, 37.63, 94.005),
+            Quat::new(0.951, 0.0, 0.0, -0.309),
+        ),
+    );
+    scene.character.as_mut().expect("a body").teleport(at);
+
+    let mut stream = ObjectStream::new();
+    let mut now = 0.0f64;
+    for (distance, stool_level, table_level) in [(0.0, 0, 0), (50.0, 0, 0), (100.0, 0, 0)] {
+        scene.draw.cfg.render.degrade_distance = distance;
+        for _ in 0..6 {
+            now += dereth_client::app::HEADLESS_STEP;
+            scene
+                .sync_objects(&store, &mut gpu, &mut stream)
+                .expect("sync_objects");
+            scene.update(
+                dereth_client::camera::CameraInput::default(),
+                CharacterInput::default(),
+                LocalTime(now),
+                1.0 / 30.0,
+            );
+            // The production camera, as the application places it after the scene update.
+            dereth_client::camera::update_viewer(
+                &mut scene,
+                dereth_client::camera::CameraInput::default(),
+                LocalTime(now),
+                dereth_client::app::HEADLESS_STEP,
+            );
+            scene.stream(&store, &mut gpu).expect("stream");
+            scene
+                .reserve_upload_arena(&mut gpu)
+                .expect("reserve the arena");
+            gpu.begin_frame().expect("begin");
+            scene.draw(&mut gpu).expect("draw");
+            gpu.end_frame().expect("end");
+        }
+        let g = scene.degrade_globals();
+        assert_eq!(
+            g.degrade_distance, distance,
+            "the setting reached the scene"
+        );
+        assert!(!g.auto_update_deg_mul && g.user_bias == 0.0);
+        let eye = scene.camera.position;
+        let room: Vec<_> = scene
+            .degrade_probe()
+            .into_iter()
+            .filter(|p| !p.outdoors && p.cypt < 12.0)
+            .collect();
+        assert!(
+            room.len() > 5,
+            "the room's furniture is resident: {}",
+            room.len()
+        );
+        let mut records: BTreeMap<u32, GfxObjDegradeInfo> = BTreeMap::new();
+        for p in &room {
+            // The probe measures from the eye the frame was drawn from.
+            assert!(
+                (p.viewer.z - eye.z).abs() < 1e-4,
+                "the probe's viewer is not the eye: {:?} against {eye:?}",
+                p.viewer
+            );
+            let info = records.entry(p.record.raw()).or_insert_with(|| {
+                let bytes = store
+                    .read_typed(DbType::DegradeInfo, p.record)
+                    .expect("the record reads");
+                GfxObjDegradeInfo::decode_payload(p.record, &bytes).expect("the record decodes")
+            });
+            // LINT-OK: a level index; the longest shipped record has six.
+            #[allow(clippy::cast_possible_truncation)]
+            let want = get_degrade(info, p.distance, &g).0 as u32;
+            assert_eq!(
+                p.level,
+                want,
+                "Degrade Distance {distance}: record {:#010X} at {:.2} m from the eye drew level \
+                 {} where its distance selects {want}",
+                p.record.raw(),
+                p.distance,
+                p.level
+            );
+        }
+        let nearest = |record: u32| {
+            room.iter()
+                .filter(|p| p.record.raw() == record)
+                .min_by(|a, b| a.distance.total_cmp(&b.distance))
+                .unwrap_or_else(|| panic!("no {record:#010X} in the room"))
+        };
+        let (stool, table) = (nearest(STOOL_RECORD), nearest(TABLE_RECORD));
+        eprintln!(
+            "Degrade Distance {distance}: stool {:.2} m level {}, table {:.2} m level {}",
+            stool.distance, stool.level, table.distance, table.level
+        );
+        assert_eq!(stool.level, stool_level, "the stool at {distance}");
+        assert_eq!(table.level, table_level, "the table at {distance}");
+    }
+}

@@ -122,14 +122,6 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "rendering.degrade.an-older-world-chooses-detail-from-the-raw-distance",
-        says: "On a world from before Throne of Destiny drawing its own objects, another character's parts change detail at                their own distances, within a few metres of the camera, while the end-of-retail                world keeps every part at its nearest detail for the first 50 m.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-PRETOD-DEGRADE-DISTANCE"),
-        station: "dereth-client::dat::rendering::pre_tod_degrade::an_older_world_changes_the_torsos_level_at_the_raw_distance_and_the_later_world_50_m_out",
-        tier: Tier::Dat,
-    },
-    behaviour! {
         id: "rendering.degrade.detail-falls-under-load-and-recovers",
         says: "With automatic degrades on, the detail bias climbs to its highest while frames are \
                cheap, is driven to its lowest while they are expensive and climbs back when they \
@@ -138,6 +130,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-DEGRADE-DEGRADE"),
         station: "dereth-client::gpu::rendering::adaptive_degrade::detail_falls_back_under_load_and_recovers_when_frames_get_cheap",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.degrade.detail-is-measured-from-the-eye-the-frame-is-drawn-from",
+        says: "Standing in a Holtburg tavern room beside a table and its stool, each piece of \
+               furniture is drawn at the detail its own record gives its distance from the eye the \
+               picture is drawn from, whatever the Degrade Distance: the stool and the \
+               table, both under 4 m from the eye, keep their finest models at 0, 50 and 100.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DEGRADE-EYE"),
+        station: "dereth-client::gpu::rendering::static_degrade_levels::the_furniture_beside_the_player_takes_the_level_its_distance_from_the_eye_selects",
         tier: Tier::Gpu,
     },
     behaviour! {
@@ -170,6 +173,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-SHARE-DISTANCE-PAST"),
         station: "dereth-world-render::lib::objects::parts::tests::past_the_share_distance_every_part_takes_the_objects_distance_and_heading",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "rendering.degrade.the-degrade-distance-applies-on-an-older-world",
+        says: "On a world from before Throne of Destiny, whichever era's look its objects are \
+               drawn with, the Degrade Distance setting moves where detail changes as it does on \
+               the end-of-retail world: at 0 a character's parts change detail within a few \
+               metres of the camera, and at the default 50 every change sits 50 m further out.",
+        since: THIS_CLIENT,
+        divergence: "CD-026",
+        evidence: Evidence::Private("AC-EVID-PRETOD-DEGRADE-DISTANCE"),
+        station: "dereth-client::gpu::rendering::object_modes::the_february_2005_world_takes_the_degrade_distance_setting_with_either_look",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "rendering.degrade.the-degrade-distance-is-subtracted-from-the-viewer-distance",
