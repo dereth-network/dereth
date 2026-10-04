@@ -563,6 +563,7 @@ mod tests {
         DatSet {
             id: "s".into(),
             path: PathBuf::from("C:/ac"),
+            kind: crate::datset::SetKind::Modern,
             origin,
             files: DatRole::ALL
                 .iter()

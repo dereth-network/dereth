@@ -9,12 +9,13 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--era <era>] [--era-features <systems>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--era <era>] [--era-features <systems>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
 //! A retail client runs from its own folder and reads the dats beside it. The Dereth client runs
-//! from its own folder too, and reads the dat set it is given. When the world names the era it
+//! from its own folder too, and reads the dat set it is given, and the Classic set when it is
+//! given one ([`crate::choices::dat_dirs`] decides which). When the world names the era it
 //! plays, the Dereth client is told it, and the systems the world has with it, so its screens show
 //! that world's systems from the start.
 
@@ -50,6 +51,9 @@ pub struct LaunchRequest<'a> {
     /// The dats the Dereth client should open. Ignored for a retail client, which reads the dats
     /// beside it.
     pub dat_dir: Option<PathBuf>,
+    /// The Classic set (`portal.dat`, `cell.dat`) for the Dereth client, when it is not in
+    /// `dat_dir`. Ignored for a retail client.
+    pub classic_dat_dir: Option<PathBuf>,
     /// Operator-supplied arguments, placed first.
     pub extra_args: &'a [String],
 }
@@ -99,6 +103,12 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                 plain("--dat-dir"),
                 plain(dats.display().to_string()),
             ]);
+            if let Some(classic) = &req.classic_dat_dir {
+                args.extend([
+                    plain("--classic-dat-dir"),
+                    plain(classic.display().to_string()),
+                ]);
+            }
             if let Some(era) = req.world.era.as_deref().filter(|e| !e.is_empty()) {
                 args.extend([plain("--era"), plain(era)]);
             }
@@ -217,6 +227,7 @@ mod tests {
             install: i,
             account: "player",
             dat_dir: Some(PathBuf::from("/lib/eor")),
+            classic_dat_dir: None,
             extra_args: &[],
         }
     }
@@ -265,8 +276,31 @@ mod tests {
             ]
         );
 
-        // A retail client has no such switch.
+        // And the Classic set, between the data folder and the era.
+        let mut r = req(&w, &i);
+        r.classic_dat_dir = Some(PathBuf::from("/lib/feb2005"));
+        let argv = plan(&r).unwrap().argv("pw");
+        assert_eq!(
+            argv[9..],
+            [
+                "/lib/eor",
+                "--classic-dat-dir",
+                "/lib/feb2005",
+                "--era",
+                "infiltration",
+                "--era-features",
+                "trade=false,aetheria=true"
+            ]
+        );
+
+        // A retail client has no such switches.
         let i = inst(ClientKind::Retail);
+        let mut r = req(&w, &i);
+        r.classic_dat_dir = Some(PathBuf::from("/lib/feb2005"));
+        assert_eq!(
+            plan(&r).unwrap().argv("pw"),
+            ["-a", "player", "-v", "pw", "-h", "eulmore.example:19000"]
+        );
         assert!(!plan(&req(&w, &i))
             .unwrap()
             .argv("pw")

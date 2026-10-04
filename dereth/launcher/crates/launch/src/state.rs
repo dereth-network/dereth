@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::datset::{DatOrigin, DatSet, SHARED_SET_ID};
+use crate::datset::{DatOrigin, DatSet, SetKind, SHARED_SET_ID};
+use crate::eras::EraChoice;
 use crate::install::{ClientKind, Installation};
 use crate::world::{Endpoint, World};
 
@@ -58,6 +59,9 @@ pub struct Favourite {
     /// The Dereth client's data files. A retail client plays with the ones beside it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat_set_id: Option<String>,
+    /// The Dereth client's Classic set, when one was chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classic_set_id: Option<String>,
 }
 
 /// One combination played recently: world, account, client and, for the Dereth client, the data
@@ -69,6 +73,8 @@ pub struct Recent {
     pub client: ClientKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat_set_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classic_set_id: Option<String>,
     /// Seconds since the epoch.
     pub last_played: u64,
 }
@@ -97,13 +103,17 @@ pub struct CustomWorld {
     pub name: String,
     pub host: String,
     pub port: u16,
+    /// The rules the player said it plays (`PvE` or `PvP`), if they said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruleset: Option<String>,
 }
 
 impl CustomWorld {
-    /// The world record the rest of the launcher works with. Its status, software and rules are
-    /// not known.
+    /// The world record the rest of the launcher works with. Its status and software are not
+    /// known; its rules are what the player said.
     pub fn to_world(&self) -> World {
         let mut w = World::new(self.slug.clone(), self.name.clone());
+        w.ruleset.clone_from(&self.ruleset);
         w.endpoint = Some(Endpoint {
             address: self.host.clone(),
             port: self.port,
@@ -144,6 +154,9 @@ pub struct WorldPrefs {
     pub client: Option<ClientKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dat_set_id: Option<String>,
+    /// The Classic set chosen for the Dereth client, if one was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classic_set_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
     /// Seconds since the epoch.
@@ -199,6 +212,9 @@ pub struct LauncherState {
     pub custom_worlds: Vec<CustomWorld>,
     #[serde(default)]
     pub world_prefs: BTreeMap<String, WorldPrefs>,
+    /// The era and systems the player chose, per world, for worlds that do not say theirs.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub world_eras: BTreeMap<String, EraChoice>,
     #[serde(default)]
     pub settings: Settings,
 }
@@ -214,6 +230,7 @@ impl Default for LauncherState {
             recent: Vec::new(),
             custom_worlds: Vec::new(),
             world_prefs: BTreeMap::new(),
+            world_eras: BTreeMap::new(),
             settings: Settings::default(),
         }
     }
@@ -279,8 +296,43 @@ impl LauncherState {
         self.dat_sets.iter_mut().find(|s| s.id == id)
     }
 
+    /// The default Modern set.
     pub fn shared_set(&self) -> Option<&DatSet> {
-        self.dat_sets.iter().find(|s| s.origin == DatOrigin::Shared)
+        self.default_set(SetKind::Modern)
+    }
+
+    /// The default set of a kind.
+    pub fn default_set(&self, kind: SetKind) -> Option<&DatSet> {
+        self.dat_sets
+            .iter()
+            .find(|s| s.kind == kind && s.origin == DatOrigin::Shared)
+    }
+
+    /// Choose a world's era (`None`: not chosen), forgetting the choice when nothing is left of it.
+    pub fn set_world_era(&mut self, slug: &str, era: Option<&str>) {
+        self.world_eras
+            .entry(slug.to_owned())
+            .or_default()
+            .set_era(era);
+        self.drop_empty_era_choice(slug);
+    }
+
+    /// Turn one of a world's systems on or off over its chosen era's table. Answers whether
+    /// `name` is a system's.
+    pub fn set_world_feature(&mut self, slug: &str, name: &str, on: bool) -> bool {
+        let known = self
+            .world_eras
+            .entry(slug.to_owned())
+            .or_default()
+            .set_feature(name, on);
+        self.drop_empty_era_choice(slug);
+        known
+    }
+
+    fn drop_empty_era_choice(&mut self, slug: &str) {
+        if self.world_eras.get(slug).is_some_and(EraChoice::is_empty) {
+            self.world_eras.remove(slug);
+        }
     }
 
     /// The private set for a world, if one has been made.
@@ -359,6 +411,7 @@ impl LauncherState {
         name: &str,
         host: &str,
         port: &str,
+        ruleset: Option<&str>,
     ) -> Result<String, CustomWorldError> {
         let host = host.trim();
         if host.is_empty() {
@@ -379,12 +432,17 @@ impl LauncherState {
             name.trim()
         }
         .to_owned();
+        let ruleset = ruleset
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .map(str::to_owned);
         if let Some(w) = self
             .custom_worlds
             .iter_mut()
             .find(|w| w.host.eq_ignore_ascii_case(host) && w.port == port)
         {
             w.name = name;
+            w.ruleset = ruleset;
             return Ok(w.slug.clone());
         }
         let slug = (1u32..)
@@ -396,6 +454,7 @@ impl LauncherState {
             name,
             host: host.to_owned(),
             port,
+            ruleset,
         });
         Ok(slug)
     }
@@ -408,6 +467,7 @@ impl LauncherState {
         self.favourites.retain(|f| f.world_slug != slug);
         self.recent.retain(|r| r.world_slug != slug);
         self.world_prefs.remove(slug);
+        self.world_eras.remove(slug);
     }
 
     /// Record a combination as the most recent, keeping each combination once and the last
@@ -425,17 +485,19 @@ impl LauncherState {
         self.recent.truncate(RECENT_LIMIT);
     }
 
-    /// Make the set `id` the default one the Dereth client is offered first. Only a set the player
-    /// added can be the default: a world's private copy or a custom set belongs to its world.
+    /// Make the set `id` the default of its kind, the one the Dereth client is offered first. Only
+    /// a set the player added can be the default: a world's private copy or a custom set belongs to
+    /// its world. The other kind's default is untouched.
     pub fn set_default_set(&mut self, id: &str) -> bool {
-        let eligible = self
+        let Some(kind) = self
             .dat_set(id)
-            .is_some_and(|s| matches!(s.origin, DatOrigin::Shared | DatOrigin::Unassigned));
-        if !eligible {
+            .filter(|s| matches!(s.origin, DatOrigin::Shared | DatOrigin::Unassigned))
+            .map(|s| s.kind)
+        else {
             return false;
-        }
+        };
         for s in &mut self.dat_sets {
-            if s.origin == DatOrigin::Shared {
+            if s.kind == kind && s.origin == DatOrigin::Shared {
                 s.origin = DatOrigin::Unassigned;
             }
             if s.id == id {
@@ -532,6 +594,7 @@ mod tests {
             account: "player".into(),
             client: ClientKind::Dereth,
             dat_set_id: None,
+            classic_set_id: None,
         });
         s.world_prefs.insert(
             "eulmore".into(),
@@ -553,6 +616,7 @@ mod tests {
             account: "player".into(),
             client: ClientKind::Dereth,
             dat_set_id: Some("eor".into()),
+            classic_set_id: None,
             last_played: t,
         };
         s.record_recent(r("a", 1));
@@ -579,22 +643,25 @@ mod tests {
     fn a_typed_server_is_checked_kept_once_and_removed_with_what_used_it() {
         let mut s = LauncherState::default();
         assert_eq!(
-            s.add_custom_world("", "", "9000"),
+            s.add_custom_world("", "", "9000", None),
             Err(CustomWorldError::NoHost)
         );
         assert_eq!(
-            s.add_custom_world("", "a:1", "9000"),
+            s.add_custom_world("", "a:1", "9000", None),
             Err(CustomWorldError::BadHost)
         );
         assert_eq!(
-            s.add_custom_world("", "a", "0"),
+            s.add_custom_world("", "a", "0", None),
             Err(CustomWorldError::BadPort)
         );
-        let slug = s.add_custom_world("", " play.example ", "9000").unwrap();
+        let slug = s
+            .add_custom_world("", " play.example ", "9000", Some("PvP"))
+            .unwrap();
         assert_eq!(slug, "custom-1");
         assert_eq!(s.custom_worlds[0].name, "play.example");
         assert_eq!(
-            s.add_custom_world("Mine", "PLAY.example", "9000").unwrap(),
+            s.add_custom_world("Mine", "PLAY.example", "9000", Some(" PvE "))
+                .unwrap(),
             "custom-1"
         );
         assert_eq!(
@@ -602,14 +669,80 @@ mod tests {
             (1, "Mine")
         );
         let w = s.custom_worlds[0].to_world();
+        assert_eq!(w.ruleset.as_deref(), Some("PvE"), "the rules said last");
         assert_eq!(
             w.endpoint.as_ref().map(|e| (e.address.as_str(), e.port)),
             Some(("play.example", 9000))
         );
 
         s.upsert_account(account(&slug, "player"));
+        s.set_world_era(&slug, Some("infiltration"));
         s.remove_custom_world(&slug);
         assert!(s.custom_worlds.is_empty() && s.accounts.is_empty());
+        assert!(s.world_eras.is_empty(), "its era choice goes with it");
+    }
+
+    #[test]
+    fn a_worlds_era_and_systems_are_kept_per_world_and_round_trip() {
+        let d = tmp("state-eras");
+        let mut s = LauncherState::default();
+        s.set_world_era("leafcull", Some("infiltration"));
+        assert!(s.set_world_feature("leafcull", "aetheria", true));
+        assert!(!s.set_world_feature("leafcull", "nothing", true));
+        assert!(s.set_world_feature("coldeve", "trade", false));
+        s.save(&d).unwrap();
+        let (back, _) = LauncherState::load(&d);
+        assert_eq!(back.world_eras, s.world_eras);
+        let c = &back.world_eras["leafcull"];
+        assert_eq!(c.era.as_deref(), Some("infiltration"));
+        assert_eq!(c.features_text().as_deref(), Some("aetheria=true"));
+        assert_eq!(
+            back.world_eras["coldeve"].era, None,
+            "systems without an era are over the end of retail's table"
+        );
+
+        // Undoing every choice forgets the world's entry.
+        s.set_world_feature("coldeve", "trade", true);
+        assert!(!s.world_eras.contains_key("coldeve"));
+        s.set_world_feature("leafcull", "aetheria", false);
+        s.set_world_era("leafcull", None);
+        assert!(s.world_eras.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn each_kind_of_set_has_its_own_default() {
+        let set = |id: &str, kind: SetKind, origin: DatOrigin| DatSet {
+            id: id.into(),
+            path: PathBuf::from(id),
+            kind,
+            origin,
+            files: vec![],
+            last_patched_by_server: None,
+            created_by_launcher: false,
+        };
+        let mut s = LauncherState {
+            dat_sets: vec![
+                set("eor", SetKind::Modern, DatOrigin::Shared),
+                set("m2", SetKind::Modern, DatOrigin::Unassigned),
+                set("c1", SetKind::Classic, DatOrigin::Shared),
+                set("c2", SetKind::Classic, DatOrigin::Unassigned),
+            ],
+            ..Default::default()
+        };
+        let id = |d: Option<&DatSet>| d.map(|d| d.id.clone());
+        assert_eq!(id(s.shared_set()), Some("eor".into()));
+        assert_eq!(id(s.default_set(SetKind::Classic)), Some("c1".into()));
+        assert!(s.set_default_set("c2"));
+        assert_eq!(id(s.default_set(SetKind::Classic)), Some("c2".into()));
+        assert_eq!(
+            id(s.shared_set()),
+            Some("eor".into()),
+            "the Modern default stays"
+        );
+        assert!(s.set_default_set("m2"));
+        assert_eq!(id(s.shared_set()), Some("m2".into()));
+        assert_eq!(id(s.default_set(SetKind::Classic)), Some("c2".into()));
     }
 
     #[test]

@@ -831,6 +831,7 @@ dependencies = [
 name = "dereth-launch"
 version = "0.0.0"
 dependencies = [
+ "dereth-primitives",
  "dereth-transport",
  "ed25519-dalek",
  "serde",

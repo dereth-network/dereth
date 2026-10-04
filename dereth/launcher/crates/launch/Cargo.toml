@@ -28,6 +28,9 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # The server-tracker login that asks a server whether it is up is an ordinary first packet; the
 # transport crate builds and parses it.
 dereth-transport.workspace = true
+# The eras a world can play and the systems each has: the client's own table, so the launcher
+# offers exactly the eras and systems the client reads from `--era` and `--era-features`.
+dereth-primitives.workspace = true
 
 [dev-dependencies]
 # Where the tests find the retail dats, when a run has them: one test reads their iterations.
@@ -36,7 +39,6 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 # client's era view: one test follows a world's announced era and systems that far.
 dereth-client-runtime.workspace = true
 dereth-client-contract.workspace = true
-dereth-primitives.workspace = true
 
 [features]
 # Builders for synthetic dats and installs, for other crates' tests. Never in a release build.

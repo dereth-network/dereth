@@ -33,7 +33,8 @@ impl Emulator {
         match s.to_ascii_lowercase().as_str() {
             "empyrean" => Emulator::Empyrean,
             "ace" => Emulator::Ace,
-            "gdle" => Emulator::Gdle,
+            // The community list spells it `GDL`.
+            "gdle" | "gdl" => Emulator::Gdle,
             "" => Emulator::Unknown,
             _ => Emulator::Other,
         }
@@ -179,6 +180,16 @@ pub struct Operator {
     pub key_id: Option<String>,
 }
 
+/// Who said a world's era, or the systems it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Told {
+    /// The world: its status document or its directory row.
+    World,
+    /// The player, for a world that does not say.
+    Player,
+}
+
 /// One world.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct World {
@@ -196,7 +207,23 @@ pub struct World {
     /// it answers; each one over the era's table. `None` when it does not say.
     #[serde(default)]
     pub era_features: Option<String>,
+    /// Who named [`World::era`]; `None` when nobody has.
+    #[serde(default)]
+    pub era_source: Option<Told>,
+    /// Who named [`World::era_features`]; `None` when nobody has.
+    #[serde(default)]
+    pub features_source: Option<Told>,
     pub emulator: Emulator,
+    /// The server software's version, when the world says it (Empyrean's status document, or what
+    /// a server reported to the directory).
+    #[serde(default)]
+    pub emulator_version: Option<String>,
+    /// The community list's id for the world, which never changes.
+    #[serde(default)]
+    pub list_id: Option<String>,
+    /// How settled the world says it is: `Stable`, `Development` or `Experimental`.
+    #[serde(default)]
+    pub development_status: Option<String>,
     pub endpoint: Option<Endpoint>,
     /// Client ids the world accepts. Empty means "the end-of-retail wire protocol"; see
     /// [`World::accepts`].
@@ -316,9 +343,17 @@ pub fn parse_world(row: &Value) -> Option<World> {
     w.description = string_at(row, &["description"]);
     w.ruleset = string_at(row, &["ruleset"]);
     w.era = string_at(row, &["era"]);
+    w.era_source = w.era.is_some().then_some(Told::World);
+    // The directory spells the emulator as a string, or as `{"family": ...}` with `software` too.
     w.emulator = str_at(row, &["emulator"])
+        .or_else(|| str_at(row, &["emulator", "family"]))
+        .or_else(|| str_at(row, &["software"]))
         .map(Emulator::parse)
         .unwrap_or_default();
+    w.emulator_version = string_at(row, &["emulator", "version"])
+        .or_else(|| string_at(row, &["status", "reported", "emulatorVersion"]));
+    w.list_id = string_at(row, &["provenance", "externalId"]);
+    w.development_status = string_at(row, &["maturity"]);
 
     // `endpoint` is where the client connects; the directory's own `fqdn`/`port` fill gaps only.
     let host = str_at(row, &["endpoint", "address"]).or_else(|| str_at(row, &["fqdn"]));
@@ -384,8 +419,12 @@ pub fn parse_world(row: &Value) -> Option<World> {
         u64_at(row, &["status", "playersOnline"]).map(|n| u32::try_from(n).unwrap_or(u32::MAX));
 
     w.links = Links {
-        website: string_at(row, &["links", "website"]).or_else(|| string_at(row, &["website_url"])),
-        discord: string_at(row, &["links", "discord"]).or_else(|| string_at(row, &["discord_url"])),
+        website: string_at(row, &["links", "website"])
+            .or_else(|| string_at(row, &["website"]))
+            .or_else(|| string_at(row, &["website_url"])),
+        discord: string_at(row, &["links", "discord"])
+            .or_else(|| string_at(row, &["discord"]))
+            .or_else(|| string_at(row, &["discord_url"])),
         rules: string_at(row, &["links", "rules"]),
         guide: string_at(row, &["links", "guide"]),
     };
@@ -562,6 +601,33 @@ mod tests {
         assert_eq!(w.dats.expected, None);
         assert_eq!(w.dats.patches_over_wire, None);
         assert_eq!(w.endpoint, None, "a port that does not fit is no endpoint");
+    }
+
+    /// A row as `/v1/servers` returns it now: the emulator as an object, the links at the top, and
+    /// what the server reported under its status.
+    #[test]
+    fn todays_directory_row_names_its_emulator_version_links_and_list_id() {
+        let w = world(
+            r#"{"slug":"eulmore","name":"Eulmore","maturity":"Stable","emulator":{"family":"ACE"},
+            "website":"https://w.example","discord":"https://d.example",
+            "provenance":{"source":"community-list","externalId":"abc"},
+            "status":{"state":"stale","reported":{"emulatorVersion":"1.77.4778"}}}"#,
+        );
+        assert_eq!(w.emulator, Emulator::Ace);
+        assert_eq!(w.emulator_version.as_deref(), Some("1.77.4778"));
+        assert_eq!(w.list_id.as_deref(), Some("abc"));
+        assert_eq!(w.development_status.as_deref(), Some("Stable"));
+        assert_eq!(w.links.website.as_deref(), Some("https://w.example"));
+        assert_eq!(w.links.discord.as_deref(), Some("https://d.example"));
+        assert_eq!(
+            world(r#"{"slug":"a","software":"GDL"}"#).emulator,
+            Emulator::Gdle
+        );
+        assert_eq!(w.era_source, None);
+        assert_eq!(
+            world(r#"{"slug":"a","era":"eor"}"#).era_source,
+            Some(Told::World)
+        );
     }
 
     #[test]

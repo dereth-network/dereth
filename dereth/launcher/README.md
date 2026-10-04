@@ -32,16 +32,36 @@ dereth-launch` from the repository root.
 - **The retail client** (Windows only): the player can point the launcher at one retail install,
   the folder that holds `acclient.exe`. There is only ever one; choosing another replaces it. On
   macOS and Linux the launcher offers the Dereth client alone and never mentions retail.
-- **Data sets**: a library of folders that hold the four `.dat` files. Adding the retail install
+- **Data sets**: a library of folders of data files, of two kinds, each with its own default.
+  A **Modern** set is the four `client_*.dat` files from Throne of Destiny on; a **Classic** set is
+  the pair from before it, `portal.dat` and `cell.dat`. One folder may hold both, and is then two
+  sets. The Library lists the two kinds apart. Adding the retail install
   adds its data files too.
 
 On a world's page the player chooses **Dereth** or **Retail**. The retail client plays with the
-data files beside it. The Dereth client plays with whichever data set the player picks. A world
+data files beside it. The Dereth client plays with the Modern set and the Classic set the player
+picks: the world's era decides which one it needs (a Classic set for an era before Throne of
+Destiny, a Modern set for any other, or when the era is not known), and the other is optional
+(a Classic set beside a Modern one gives the classic interface and looks). The Modern set is
+`--dat-dir`, the Classic set `--classic-dat-dir` (`--dat-dir` when no Modern set is chosen for a
+Classic-era world), and the world's era and systems `--era` and `--era-features`. A world
 that patches data files over the network, or ships its own, gets a private copy, and only the
 Dereth client can use one.
 
 Both clients receive the account and password on their command line (`-a <account> -v <password>`).
 The launcher shows and logs the command line with the password replaced by `***`.
+
+## The world list
+
+Worlds shows three sections, each opened and closed by its header: **Custom** (the servers the
+player added, each with a bin to remove it), **Online** (listed worlds that are up, or not yet
+asked) and **Offline** (closed at first). A search shows every match, closed section or not. Each
+row names the world, its server software and version (`ACE`, `Empyrean | v0.1.2`; the version only
+when the world says it), its era (a drop-down, `Unknown` first, when the world does not say it),
+its rules and its players (`unknown` when nobody says). Clicking a row opens it, one at a time:
+its description, website and Discord, how settled it says it is, and the era's systems as check
+boxes, which the player may change when the world does not say them. Its `>` opens the world's
+page, whose `<` comes back.
 
 ## Where things are
 
@@ -51,7 +71,9 @@ The launcher shows and logs the command line with the password replaced by `***`
 | data: private copies of data files, the web view's cache | `%LOCALAPPDATA%\Dereth\launcher` on Windows, the settings folder on macOS, `$XDG_DATA_HOME/dereth/launcher` (`~/.local/share`) on Linux |
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
 | passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (the Secret Service: GNOME Keyring, KWallet): one entry per account per world, named `dereth:world/<slug>/<account>` |
-| the world list | `https://api.dereth.network/v1/servers` (`DERETH_SERVERS_API` overrides), and the servers the player added, which are kept in the state |
+| the world list | the community's list, `Servers.xml` in [acresources/serverslist](https://github.com/acresources/serverslist) (`DERETH_SERVERS_LIST` overrides), fetched at most once a day (the refresh button fetches it again) and kept in the data folder as `world-list.json`; and the servers the player added, which are kept in the state |
+| what a world adds to the list | the dereth.network directory, `https://api.dereth.network/v1/servers` (`DERETH_SERVERS_API` overrides; empty for none), fetched with the list: a listed world takes its row's status address, era, systems and software version. The directory's worlds the list does not name are not shown |
+| a world's era and systems | its Empyrean status document or its directory row when either says them; otherwise the player's choice on the world's row, kept per world in the state |
 | whether a world is up | its Empyrean status document when it has one; otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on |
 
 Nothing is kept beside the launcher, and the launcher writes nothing outside its own `launcher`
@@ -142,7 +164,7 @@ cd dereth/launcher && cargo build          # once, to copy the art into ui/asset
 cd ui && python3 -m http.server 8765 --bind 127.0.0.1    # then open http://127.0.0.1:8765/
 ```
 
-`#worlds`, `#worlds=add`, `#world=eulmore`, `#library`, `#library=add`, `#accounts`,
+`#worlds`, `#worlds=add`, `#worlds=harvestgain` (that row open), `#world=eulmore`, `#library`, `#library=add`, `#accounts`,
 `#first-run`, `#first-run=guide` and `#first-run=found` open a screen directly. The window opens
 at, and cannot be made smaller than, 1100 x 700.
 

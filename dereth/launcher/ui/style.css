@@ -293,16 +293,35 @@ select.field:disabled { color: var(--faint); cursor: default; }
 .check:hover { color: var(--text); }
 .check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--gold); cursor: pointer; }
 
-.chip {
-  height: 28px; padding: 0 12px;
+/* Two choices in one pill, a line between them: the chosen half is lit, and neither is when the
+ * choice is off. */
+.toggle {
+  display: inline-flex;
+  height: 28px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--well);
+  overflow: hidden;
+}
+.toggle button {
+  padding: 0 14px;
+  border: 0;
+  background: none;
   font: 14px var(--body); color: var(--muted);
   cursor: pointer;
 }
-.chip:hover { border-color: var(--line-strong); color: var(--text); }
-.chip.on { border-color: var(--gold-bright); background: rgba(181, 138, 60, 0.22); color: #fff; }
+.toggle button + button { border-left: 1px solid var(--line); }
+.toggle button:hover { color: var(--text); background: rgba(233, 199, 122, 0.06); }
+.toggle button.on { background: rgba(181, 138, 60, 0.34); color: #fff; }
+.toggle:has(button.on) { border-color: var(--line-strong); }
+
+/* A small drop-down, for a table cell. */
+select.field.mini { height: 28px; width: auto; min-width: 120px; max-width: 220px; padding: 0 28px 0 8px; font-size: 15px; background-position: right 9px center; }
+
+/* The pixel-grid icons inside buttons: chevrons and the bin. */
+.btn svg { width: 10px; height: 14px; shape-rendering: crispEdges; }
+.btn.trash svg { width: 13px; height: 13px; }
+.btn.trash { color: var(--muted); }
 
 /* A status dot: a plain disc, with the state said in words beside it. */
 .dot {
@@ -364,7 +383,36 @@ table.worlds tbody tr { cursor: pointer; }
 table.worlds tbody tr:hover { background: rgba(233, 199, 122, 0.07); }
 table.worlds td.name { font-size: 19px; color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 table.worlds td { color: var(--muted); }
-table.worlds td.dim { opacity: 0.55; }
+table.worlds tr.dim td { opacity: 0.6; }
+table.worlds td.end { text-align: right; width: 1%; }
+table.worlds tr.open { background: rgba(181, 138, 60, 0.12); }
+table.worlds tr.open td { border-bottom-color: transparent; }
+/* A section's header: its name, how many it holds, and whether it is open. */
+table.worlds tr.section td {
+  padding: 14px 8px 6px;
+  font: 600 12px var(--display); letter-spacing: 0.14em;
+  color: var(--gold-bright);
+  cursor: pointer;
+}
+table.worlds tr.section td .fold { display: inline-block; width: 16px; color: var(--gold); }
+table.worlds tr.section td .muted { margin-left: 10px; font: 14px var(--body); letter-spacing: 0; }
+table.worlds tr.section:hover td { color: #fff; }
+/* An open row's details, under it. */
+table.worlds tr.detail { cursor: default; background: rgba(181, 138, 60, 0.12); }
+table.worlds tr.detail:hover { background: rgba(181, 138, 60, 0.12); }
+table.worlds tr.detail td { white-space: normal; padding-top: 0; }
+.detail-body { display: flex; flex-direction: column; gap: 10px; padding: 2px 0 8px; color: var(--text); }
+.detail-body p { margin: 0; }
+.detail-top { display: flex; gap: 14px; align-items: flex-start; }
+.detail-top p { flex: 1; }
+.detail-body .strip b, .era-line b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 6px; }
+.era-line { display: flex; align-items: center; gap: 4px; font-size: 16px; }
+.btn.disclose { min-width: 40px; min-height: 40px; }
+.features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px; }
+.features .check { font-size: 15px; gap: 8px; }
+.features .check input { width: 15px; height: 15px; }
+.features .check:has(input:disabled) { cursor: default; color: var(--muted); }
+.features .check input:disabled { cursor: default; }
 
 /* ----- the world page --------------------------------------------------------------------------- */
 

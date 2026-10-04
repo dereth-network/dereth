@@ -1,4 +1,8 @@
-//! Dat sets: a folder of the four data files, identified by what a world compares.
+//! Dat sets: a folder of the game's data files, Modern or Classic ([`SetKind`]).
+//!
+//! A Modern set is the four later files, identified by what a world compares. A Classic set is the
+//! pair from before Throne of Destiny, `portal.dat` and `cell.dat`, known by being the pair. One
+//! folder may hold both: the names never collide, and the launcher lists them as two sets.
 //!
 //! **Identity is iterations, not file hashes.** Two correct end-of-retail sets can hash differently:
 //! the 6096 and 4186 installs have the same `client_local_English.dat` contents in a different
@@ -183,8 +187,8 @@ pub struct DatFileState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DatOrigin {
-    /// The shared end-of-retail set: the player's own install, used read-only by every world that
-    /// neither patches nor ships its own.
+    /// The default set of its kind: for a Modern set, the player's own install, used read-only by
+    /// every world that neither patches nor ships its own.
     Shared,
     /// A private copy for one world, which may write to it.
     World { slug: String },
@@ -194,11 +198,32 @@ pub enum DatOrigin {
     Unassigned,
 }
 
+/// Which of the two sets the game shipped a folder holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SetKind {
+    /// The files from Throne of Destiny on (`client_portal.dat`, `client_cell_1.dat`,
+    /// `client_local_English.dat`, `client_highres.dat`): every world's set at the end of retail.
+    /// A set saved before there were two kinds is one of these.
+    #[default]
+    Modern,
+    /// The files from before Throne of Destiny, `portal.dat` and `cell.dat`, which always come as
+    /// a pair: the world of an era before it, and the classic interface and looks for any other.
+    Classic,
+}
+
+/// The two files of a Classic set, by the role each plays: the portal file and the cell file.
+pub const CLASSIC_FILES: [(DatRole, &str); 2] =
+    [(DatRole::Portal, "portal.dat"), (DatRole::Cell, "cell.dat")];
+
 /// A dat set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DatSet {
     pub id: String,
     pub path: PathBuf,
+    /// Modern or Classic. Each kind has its own default ([`DatOrigin::Shared`]).
+    #[serde(default)]
+    pub kind: SetKind,
     pub origin: DatOrigin,
     pub files: Vec<DatFileState>,
     /// When a patching world last raised this set's iterations, detected after a session.
@@ -245,6 +270,10 @@ impl DatSet {
     /// Returns whether any iteration rose, which after a session on a patching world means the
     /// world wrote to the set; `now` is recorded as the time it did.
     pub fn refresh(&mut self, now: u64) -> bool {
+        if self.kind == SetKind::Classic {
+            self.files = scan_classic_dir(&self.path);
+            return false;
+        }
         let before = self.iterations();
         self.files = scan_files(&self.path, &self.files);
         let after = self.iterations();
@@ -262,6 +291,40 @@ impl DatSet {
 /// present but unreadable are listed with their error, so the interface can say which one is wrong.
 pub fn scan_dir(path: &Path) -> Vec<DatFileState> {
     scan_files(path, &[])
+}
+
+/// Read a folder's Classic pair, `portal.dat` and `cell.dat`: each file that is there, by its size
+/// and time. Their iterations are not read; a Classic set is known by being the pair. Empty when
+/// neither is there.
+pub fn scan_classic_dir(dir: &Path) -> Vec<DatFileState> {
+    CLASSIC_FILES
+        .iter()
+        .filter_map(|&(role, name)| {
+            let meta = std::fs::metadata(dir.join(name))
+                .ok()
+                .filter(|m| m.is_file())?;
+            Some(DatFileState {
+                role,
+                file_name: name.to_owned(),
+                size: meta.len(),
+                modified: meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs()),
+                read_only: meta.permissions().readonly(),
+                iterations: None,
+                error: None,
+            })
+        })
+        .collect()
+}
+
+/// Whether a Classic set's files are the whole pair.
+pub fn is_classic_pair(files: &[DatFileState]) -> bool {
+    CLASSIC_FILES
+        .iter()
+        .all(|(role, _)| files.iter().any(|f| f.role == *role))
 }
 
 fn local_file_name(dir: &Path) -> String {
@@ -381,6 +444,7 @@ pub(crate) mod tests {
         let set = DatSet {
             id: "x".into(),
             path: d.clone(),
+            kind: SetKind::Modern,
             origin: DatOrigin::Unassigned,
             files: scan_dir(&d),
             last_patched_by_server: None,
@@ -411,6 +475,7 @@ pub(crate) mod tests {
         let mut set = DatSet {
             id: "w".into(),
             path: d.clone(),
+            kind: SetKind::Modern,
             origin: DatOrigin::World {
                 slug: "coldeve".into(),
             },
@@ -471,6 +536,46 @@ pub(crate) mod tests {
             ..Default::default()
         };
         assert!(have.compare(&expected, &DatRole::ALL).matches());
+    }
+
+    #[test]
+    fn a_classic_pair_is_read_beside_a_modern_set_and_one_file_alone_is_not_a_pair() {
+        let d = tmp("classic");
+        fake_set(&d, Iterations::END_OF_RETAIL);
+        std::fs::write(d.join("portal.dat"), b"portal").unwrap();
+        let one = scan_classic_dir(&d);
+        assert_eq!(one.len(), 1);
+        assert!(!is_classic_pair(&one));
+        std::fs::write(d.join("cell.dat"), b"cell!").unwrap();
+        let mut set = DatSet {
+            id: "c".into(),
+            path: d.clone(),
+            kind: SetKind::Classic,
+            origin: DatOrigin::Unassigned,
+            files: scan_classic_dir(&d),
+            last_patched_by_server: None,
+            created_by_launcher: false,
+        };
+        assert!(is_classic_pair(&set.files));
+        assert_eq!(set.total_size(), 11);
+        assert_eq!(
+            scan_dir(&d).len(),
+            4,
+            "the Modern files beside it are read as before"
+        );
+        std::fs::remove_file(d.join("cell.dat")).unwrap();
+        assert!(!set.refresh(5), "a Classic set is never patched");
+        assert!(!is_classic_pair(&set.files));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_set_saved_before_there_were_two_kinds_is_modern() {
+        let s: DatSet = serde_json::from_str(
+            r#"{"id":"eor","path":"C:/ac","origin":{"kind":"shared"},"files":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(s.kind, SetKind::Modern);
     }
 
     #[test]

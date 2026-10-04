@@ -84,9 +84,22 @@ fn restart_to_update(app: tauri::AppHandle) -> Cmd<()> {
     update::install_and_restart(&app)
 }
 
+/// Fetch the world list again, whatever its copy's age.
 #[tauri::command]
 fn refresh(b: State<'_, Shared>) {
     Backend::refresh(&b);
+}
+
+/// Choose the era of a world that does not say its own; `None` unchooses it.
+#[tauri::command]
+fn set_world_era(b: State<'_, Shared>, slug: String, era: Option<String>) -> Cmd<()> {
+    lock(&b).set_world_era(&slug, era.as_deref())
+}
+
+/// Turn one of a world's systems on or off, for a world that does not say its own.
+#[tauri::command]
+fn set_world_feature(b: State<'_, Shared>, slug: String, name: String, on: bool) -> Cmd<()> {
+    lock(&b).set_world_feature(&slug, &name, on)
 }
 
 #[tauri::command]
@@ -187,8 +200,16 @@ fn set_remember(b: State<'_, Shared>, slug: String, username: String, remember: 
 }
 
 #[tauri::command]
-fn add_custom_world(b: State<'_, Shared>, name: String, host: String, port: String) -> Cmd<String> {
-    let slug = lock(&b).add_custom_world(&name, &host, &port)?;
+fn add_custom_world(
+    b: State<'_, Shared>,
+    name: String,
+    host: String,
+    port: String,
+    ruleset: Option<String>,
+    era: Option<String>,
+) -> Cmd<String> {
+    let slug =
+        lock(&b).add_custom_world(&name, &host, &port, ruleset.as_deref(), era.as_deref())?;
     Backend::probe(&b, vec![slug.clone()]);
     Ok(slug)
 }
@@ -369,17 +390,20 @@ fn main() {
                 .devtools(DEVTOOLS)
                 .build()?;
 
+            let servers_list = std::env::var("DERETH_SERVERS_LIST")
+                .unwrap_or_else(|_| backend::DEFAULT_SERVERS_LIST.into());
             let servers_api = std::env::var("DERETH_SERVERS_API")
                 .unwrap_or_else(|_| backend::DEFAULT_SERVERS_API.into());
             let (vault, name) = vault();
             let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(Backend::new(
                 folders.clone(),
+                servers_list,
                 servers_api,
                 client.clone(),
                 vault,
                 name,
             )));
-            Backend::refresh(&shared);
+            Backend::load_list(&shared);
             let ticker = shared.clone();
             std::thread::spawn(move || loop {
                 Backend::tick(&ticker);
@@ -404,6 +428,8 @@ fn main() {
             snapshot,
             restart_to_update,
             refresh,
+            set_world_era,
+            set_world_feature,
             world_view,
             has_password,
             launch,
@@ -469,6 +495,40 @@ mod tests {
             body.contains("input, textarea"),
             "text boxes keep their menu: {body}"
         );
+    }
+
+    /// Every command the page calls is one the app registers, and one the demo backend answers, so
+    /// a new control never reaches the player calling nothing.
+    #[test]
+    fn every_command_the_page_calls_is_registered_and_in_the_demo() {
+        let page = include_str!("../ui/app.js");
+        let demo = include_str!("../ui/demo.js");
+        let main = include_str!("main.rs");
+        let handler = &main[main.find("generate_handler![").expect("the handler list")..];
+        let handler = &handler[..handler.find(']').unwrap()];
+        let mut called = std::collections::BTreeSet::new();
+        for opener in ["api(\"", "act(\""] {
+            for (at, _) in page.match_indices(opener) {
+                let rest = &page[at + opener.len()..];
+                called.insert(&rest[..rest.find('"').unwrap()]);
+            }
+        }
+        assert!(
+            called.contains("set_world_era") && called.contains("snapshot"),
+            "{called:?}"
+        );
+        for cmd in called {
+            assert!(
+                handler
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|w| w == cmd),
+                "the page calls {cmd}, which the app does not register"
+            );
+            assert!(
+                demo.contains(&format!("{cmd}:")),
+                "the demo backend does not answer {cmd}"
+            );
+        }
     }
 
     /// The launcher's window can be resized by its edges and minimized, and never maximized.

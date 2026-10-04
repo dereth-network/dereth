@@ -22,7 +22,9 @@ const ui = {
   homeSel: 0,
   search: "",
   filter: null,            // the Worlds list's one rules filter: null | "pve" | "pvp"
-  addServer: null,         // the Worlds list's "add a server" form, while it is open: { name, host, port, error }
+  expanded: null,          // the Worlds list's one open row: a world's slug, or null
+  folded: { custom: false, online: false, offline: true },   // the Worlds list's closed sections
+  addServer: null,         // the Worlds list's "add a server" form, while it is open: { name, host, port, ruleset, era, error }
   world: null,             // the world page: { view, form, notice }
   firstRun: { step: "ask", find: null, dismissed: false },
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
@@ -35,7 +37,6 @@ const worldBy = (slug) => ui.snap?.worlds.find((w) => w.slug === slug);
 // The two clients: the Dereth client the launcher found beside itself, and the player's retail one.
 const clientOf = (kind) => (kind === "retail" ? ui.snap?.state.retail : ui.snap?.dereth) ?? null;
 const clients = () => [ui.snap?.dereth, ui.snap?.state.retail].filter(Boolean);
-const setBy = (id) => ui.snap?.state.dat_sets.find((s) => s.id === id);
 // The retail client is a Windows program. Elsewhere the page offers the Dereth client alone and
 // never mentions retail.
 const retailHere = () => ui.snap?.platform === "windows";
@@ -66,13 +67,40 @@ function installName(i) {
 }
 function setName(s) {
   if (!s) return "No data files";
+  if (s.kind === "classic") return `Classic  portal.dat + cell.dat`;
   const it = setIterations(s);
   const o = s.origin;
   const what =
     o.kind === "world" ? `${worldBy(o.slug)?.name ?? o.slug} (private)`
     : o.kind === "custom" ? "Custom data files"
-    : isEndOfRetail(it) ? "End-of-retail" : "Data files";
+    : isEndOfRetail(it) ? "Modern" : "Modern (older)";
   return `${what}  ${iterLabel(it)}`;
+}
+// The era a world plays, in words; `null` when nobody has said.
+function eraLabel(name) {
+  if (!name) return null;
+  return ui.snap?.eras.find((e) => e.name === name)?.label ?? name;
+}
+// The server software and, when the world says it, its version: "ACE | v1.77.4778".
+function emulatorLabel(w) {
+  const name = { empyrean: "Empyrean", ace: "ACE", gdle: "GDLE", other: "Other", unknown: "Unknown" }[w.emulator] ?? w.emulator;
+  const v = (w.emulator_version ?? "").replace(/^v/i, "");
+  return v ? `${name} | v${v}` : name;
+}
+// The systems a world has: its era's table (the end of retail's when no era is named), with what
+// the world or the player turned on or off over it, as the client reads them.
+function worldFeatures(w) {
+  const era = ui.snap.eras.find((e) => e.name === (w.era || "eor")) ?? ui.snap.eras[0];
+  const f = { ...(era?.features ?? {}) };
+  const said = {};
+  for (const part of String(w.era_features ?? "").split(",")) {
+    const [k, v] = part.split("=").map((x) => (x ?? "").trim().toLowerCase());
+    if (k in f) said[k] = v === "true" || v === "on" || v === "1";
+  }
+  Object.assign(f, said);
+  if (said.housing === false && !("apartments" in said)) f.apartments = false;
+  if (f.apartments) f.housing = true;
+  return f;
 }
 function stateLabel(w) {
   return { online: "online", high: "busy", offline: "offline", starting: "starting", unknown: "status unknown" }[w.state] ?? w.state;
@@ -275,16 +303,15 @@ function home() {
   } else {
     list = `<div class="list">` + entries.map((e, i) => {
       const w = worldBy(e.world_slug);
-      const set = setBy(e.dat_set_id);
-      const data = e.client === "retail" ? "its own dats" : !set ? "no data" : set.origin.kind === "world" ? "private dats" : set.origin.kind === "custom" ? "custom dats" : setName(set).split("  ")[0];
-      const end = !w ? "not listed" : w.state === "offline" ? "offline" : `${w.players ?? "-"} online`;
+      const era = eraLabel(w?.era) ?? "era unknown";
+      const end = !w ? "not listed" : w.state === "offline" ? "offline" : w.players != null ? `${w.players} online` : "players unknown";
       const pin = e.fav
         ? `<span class="star" title="Favourite">★</span><button class="btn icon-btn mini" data-unfav="${esc(e.fav.id)}" title="Remove from favourites">✕</button>`
         : `<button class="btn icon-btn mini" data-fav="${i}" title="Add to favourites">☆</button>`;
       return `<div class="row ${i === ui.homeSel ? "sel" : ""} ${e.fav ? "fav" : ""}" data-home="${i}" data-dbl-home="${i}">
           ${bead(w?.state ?? "unknown")}
           <div class="grow"><div class="name">${esc(w?.name ?? e.world_slug)}</div>
-          <div class="sub">${esc(e.account || "no account yet")} · ${esc(clientShort(e.client))} · ${esc(data)}</div></div>
+          <div class="sub">${esc(e.account || "no account yet")} · ${esc(clientShort(e.client))} · ${esc(era)}</div></div>
           <div class="end">${esc(end)}</div>
           <div class="pin">${pin}</div>
         </div>`;
@@ -307,6 +334,17 @@ const FILTERS = [
   ["pvp", "PvP"],
 ];
 
+const isCustom = (w) => ui.snap.state.custom_worlds.some((c) => c.slug === w.slug);
+
+// The three sections of the list, in order: the player's own servers, the listed worlds that are
+// up (or not yet asked), and the listed worlds that are down.
+const SECTIONS = [
+  ["custom", "CUSTOM"],
+  ["online", "ONLINE"],
+  ["offline", "OFFLINE"],
+];
+const sectionOf = (w) => (isCustom(w) ? "custom" : w.state === "offline" ? "offline" : "online");
+
 function visibleWorlds() {
   const q = ui.search.trim().toLowerCase();
   const favs = new Set(ui.snap.state.favourites.map((f) => f.world_slug));
@@ -319,35 +357,102 @@ function visibleWorlds() {
       if (ui.filter === "pvp") return rs.includes("pvp") || rs.includes("pk");
       return true;
     })
-    .sort((a, b) => (favs.has(b.slug) - favs.has(a.slug)) || (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)));
+    .sort((a, b) => (favs.has(b.slug) - favs.has(a.slug)) || (rank[a.state] - rank[b.state]) || ((b.players ?? 0) - (a.players ?? 0)) || a.name.localeCompare(b.name));
+}
+
+// Chevrons on the same pixel grid as the rest of the chrome: ">" opens, "<" goes back.
+const CHEVRON_RIGHT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="2" height="2"/><rect x="3" y="3" width="2" height="2"/><rect x="5" y="5" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/><rect x="1" y="9" width="2" height="2"/></svg>`;
+const CHEVRON_LEFT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><rect x="5" y="1" width="2" height="2"/><rect x="3" y="3" width="2" height="2"/><rect x="1" y="5" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/><rect x="5" y="9" width="2" height="2"/></svg>`;
+// A bin, for taking a server of your own off the list.
+const TRASH_ICON = `<svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="4" y="0" width="4" height="1"/><rect x="1" y="2" width="10" height="1"/><rect x="2" y="4" width="1" height="8"/><rect x="9" y="4" width="1" height="8"/><rect x="2" y="11" width="8" height="1"/><rect x="5" y="5" width="1" height="5"/><rect x="7" y="5" width="1" height="5"/></svg>`;
+
+// The era drop-down: "Unknown", then every era. `id` is what the change handler reads.
+function eraSelect(w, id, extraClass = "") {
+  const opts = [`<option value="" ${w.era ? "" : "selected"}>Unknown</option>`]
+    .concat(ui.snap.eras.map((e) => `<option value="${esc(e.name)}" ${w.era === e.name ? "selected" : ""}>${esc(e.label)}</option>`));
+  return `<select class="field ${extraClass}" id="${esc(id)}" data-era-for="${esc(w.slug)}" title="The era this world plays">${opts.join("")}</select>`;
+}
+// A world's era: in words when the world says it, else the drop-down the player chooses it with.
+function eraCell(w) {
+  return w.era_source === "world" ? esc(eraLabel(w.era)) : eraSelect(w, `era-${w.slug}`, "mini");
+}
+function playersLabel(w) {
+  return w.state === "offline" ? "offline" : w.players != null ? `${w.players}` : "unknown";
+}
+
+// An open row: what the world says about itself, its era and systems, and the way to its page.
+function worldDetail(w) {
+  const links = [["Website", w.links.website], ["Discord", w.links.discord], ["Rules", w.links.rules]].filter(([, u]) => u);
+  const fixed = w.features_source === "world";
+  const on = worldFeatures(w);
+  const boxes = ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" data-feature="${esc(f.name)}" data-slug="${esc(w.slug)}" ${on[f.name] ? "checked" : ""} ${fixed ? "disabled" : ""}>${esc(f.label)}</label>`).join("");
+  const said = w.era_source === "world" && fixed ? "This world says its era and the systems it has."
+    : w.era_source === "world" ? "This world says its era but not its systems: tick what it has, and the Dereth client is told."
+    : "This world does not say its era or systems: choose what it plays, and the Dereth client is told.";
+  const facts = [
+    ["SERVER", emulatorLabel(w)],
+    ["STATUS", w.development_status ?? "unknown"],
+    ["RULES", w.ruleset ?? "unknown"],
+    ["PLAYERS", playersLabel(w)],
+  ];
+  return `<tr class="detail" data-stop><td></td><td colspan="6">
+      <div class="detail-body">
+        <div class="detail-top">
+          <p class="${w.description ? "" : "muted"}">${esc(w.description ?? "No description.")}</p>
+          <button class="btn disclose" data-open-world="${esc(w.slug)}" title="Play on ${esc(w.name)}">${CHEVRON_RIGHT}</button>
+        </div>
+        <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
+        ${links.length ? `<div class="btns">${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}</div>` : ""}
+        <div class="era-line"><b>ERA</b>${w.era_source === "world" ? `<span>${esc(eraLabel(w.era))}</span>` : eraSelect(w, `era-detail-${w.slug}`, "mini")}</div>
+        <p class="small muted">${esc(said)}</p>
+        <div class="features">${boxes}</div>
+      </div></td></tr>`;
+}
+
+function worldRow(w) {
+  const open = ui.expanded === w.slug;
+  const trash = isCustom(w) ? `<button class="btn icon-btn trash" data-trash="${esc(w.slug)}" title="Remove ${esc(w.name)}">${TRASH_ICON}</button>` : "";
+  return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""} ${open ? "open" : ""}">
+      <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
+      <td>${esc(emulatorLabel(w))}</td><td ${w.era_source === "world" ? "" : "data-stop"}>${eraCell(w)}</td>
+      <td>${esc(w.ruleset ?? "")}</td><td>${esc(playersLabel(w))}</td><td class="end">${trash}</td></tr>`
+    + (open ? worldDetail(w) : "");
 }
 
 function worlds() {
   const rows = visibleWorlds();
   const s = ui.snap;
+  const searching = ui.search.trim() !== "";
   let body;
   if (rows.length === 0) {
     const msg = s.list_state === "loading" ? "Fetching the world list..."
-      : s.list_state === "unavailable" ? `The world list is unavailable: ${s.list_error ?? ""}`
+      : s.list_state === "unavailable" && s.worlds.length === 0 ? `The world list is unavailable: ${s.list_error ?? ""}`
       : s.worlds.length === 0 ? "No worlds are listed." : "No world matches these filters.";
     body = `<p class="muted">${esc(msg)}</p>`;
   } else {
-    body = `<table class="worlds"><thead><tr><th></th><th>WORLD</th><th>RULES</th><th>PLAYERS</th></tr></thead><tbody>` +
-      rows.map((w) => {
-        const players = w.state === "offline" ? "offline" : w.players != null ? `${w.players}` : "--";
-        return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""}">
-          <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
-          <td>${w.slug.startsWith("custom-") && ui.snap.state.custom_worlds.some((c) => c.slug === w.slug) ? `<span class="muted">your server</span>` : esc(w.ruleset ?? "")}</td><td>${esc(players)}</td></tr>`;
+    body = `<table class="worlds"><thead><tr><th></th><th>WORLD</th><th>SERVER</th><th>ERA</th><th>RULES</th><th>PLAYERS</th><th></th></tr></thead><tbody>` +
+      SECTIONS.map(([key, label]) => {
+        const these = rows.filter((w) => sectionOf(w) === key);
+        if (these.length === 0) return "";
+        // A search shows every match, whether its section is folded or not.
+        const open = searching || !ui.folded[key];
+        return `<tr class="section ${open ? "" : "shut"}" data-section="${key}"><td colspan="7"><span class="fold">${open ? "▾" : "▸"}</span>${label}<span class="muted small">${these.length}</span></td></tr>`
+          + (open ? these.map(worldRow).join("") : "");
       }).join("") + `</tbody></table>`;
   }
-  const stale = s.list_state === "unavailable" && s.worlds.length ? `<p class="small warn">${esc(s.list_error ?? "")} — showing the last list</p>` : "";
+  const fetched = s.list_fetched_at ? new Date(s.list_fetched_at * 1000) : null;
+  const stale = s.list_state === "unavailable" && s.worlds.length
+    ? `<p class="small warn">${esc(s.list_error ?? "")} — showing the list from ${esc(fetched ? fetched.toLocaleString() : "before")}</p>` : "";
   const a = ui.addServer;
+  const rulesOpts = [["", "Unknown"], ["PvE", "PvE"], ["PvP", "PvP"]].map(([v, l]) => `<option value="${v}" ${a?.ruleset === v ? "selected" : ""}>${l}</option>`).join("");
   const form = a
     ? `<section class="panel pending"><header><h1>ADD A SERVER</h1></header>
         <div class="form">
           <label class="lab" for="srv-name">NAME</label><input id="srv-name" class="field" placeholder="optional" value="${esc(a.name)}">
           <label class="lab" for="srv-host">HOST</label><input id="srv-host" class="field" placeholder="play.example.org or 203.0.113.7" value="${esc(a.host)}">
           <label class="lab" for="srv-port">PORT</label><input id="srv-port" class="field" inputmode="numeric" style="max-width:140px" value="${esc(a.port)}">
+          <label class="lab" for="srv-ruleset">RULES</label><select id="srv-ruleset" class="field" style="max-width:220px">${rulesOpts}</select>
+          <label class="lab" for="srv-era">ERA</label>${eraSelect({ slug: "", era: a.era }, "srv-era").replace(' data-era-for=""', "").replace("<select", '<select style="max-width:320px"')}
           ${a.error ? `<p class="note bad">${esc(a.error)}</p>` : ""}
         </div>
         <div class="btns end" style="margin-top:12px"><button class="btn" data-act="server-cancel">Cancel</button><button class="btn" data-act="server-add">Add</button></div>
@@ -357,10 +462,10 @@ function worlds() {
       ${form}
       <section class="panel grow"><header><h1>WORLDS</h1><span class="muted small">${rows.length} worlds</span>
         <button class="btn" data-act="server-open" title="Add a server of your own">+ Add server</button>
-        <button class="btn icon-btn" data-act="refresh" title="Refresh">↻</button></header>
+        <button class="btn icon-btn" data-act="refresh" title="Fetch the world list again">↻</button></header>
         <div class="btns" style="margin-bottom:12px">
           <input id="search" class="field" style="max-width:360px" placeholder="search" value="${esc(ui.search)}">
-          ${FILTERS.map(([k, l]) => `<button class="chip ${ui.filter === k ? "on" : ""}" data-filter="${k}">${l}</button>`).join("")}
+          <div class="toggle" role="group" aria-label="Rules">${FILTERS.map(([k, l]) => `<button class="${ui.filter === k ? "on" : ""}" data-filter="${k}" aria-pressed="${ui.filter === k}">${l}</button>`).join("")}</div>
         </div>
         ${stale}
         <div class="scroll">${body}</div>
@@ -384,9 +489,14 @@ async function openWorld(slug, notice, preset) {
   const account = preset?.account ?? (known.find((a) => a.toLowerCase() === (p.account ?? "").toLowerCase()) || known[0] || "");
   const offered = (k) => view.clients.some((c) => c.kind === k);
   const validSet = (id) => view.dat_sets.some((s) => s.id === id);
+  const validClassic = (id) => view.classic_sets.some((s) => s.id === id);
   const client = [preset?.client, p.client, view.default_client].find((k) => k && offered(k)) ?? view.clients[0]?.kind ?? null;
+  // Each kind starts on what was played here last, else its own default, else (for the Modern
+  // kind, where a world's own copy may be the only one) the first there is.
   const fallback = view.dat_sets.find((s) => s.origin.kind === "shared") ?? view.dat_sets[0];
   const set = [preset?.dat_set_id, p.dat_set_id].find(validSet) ?? fallback?.id ?? null;
+  const classicDefault = view.classic_sets.find((s) => s.origin.kind === "shared");
+  const classic = [preset?.classic_set_id, p.classic_set_id].find(validClassic) ?? classicDefault?.id ?? null;
   const acct = view.accounts.find((a) => a.username === account);
   ui.world = {
     view,
@@ -398,6 +508,7 @@ async function openWorld(slug, notice, preset) {
       remember: acct ? acct.remember : true,
       client,
       dat_set_id: set,
+      classic_set_id: classic,
     },
     notice: notice ?? null,
   };
@@ -429,7 +540,22 @@ function formChoice() {
     remember: f.remember,
     client: f.client,
     dat_set_id: f.client === "dereth" ? f.dat_set_id : null,
+    classic_set_id: f.client === "dereth" ? f.classic_set_id : null,
   };
+}
+
+// Which kind of data files the world's era needs: the Classic pair for an era before Throne of
+// Destiny, the Modern files for any other, and for an era nobody has named.
+function requiredKind(world) {
+  return ui.snap.eras.find((e) => e.name === world.era)?.needs ?? "modern";
+}
+
+// Whether the Dereth client has the data files the world's era needs.
+function hasRequiredSet() {
+  const w = ui.world;
+  const world = worldBy(w.view.world.slug) ?? w.view.world;
+  if (w.form.client !== "dereth") return true;
+  return requiredKind(world) === "classic" ? !!w.form.classic_set_id : !!w.form.dat_set_id;
 }
 
 // Whether PLAY can go, and what the account field warns about: redrawn in place while typing, so
@@ -437,7 +563,7 @@ function formChoice() {
 function worldCanPlay() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
-  return !!formChoice() && !!world.endpoint;
+  return !!formChoice() && !!world.endpoint && hasRequiredSet();
 }
 function worldNotice() {
   const w = ui.world;
@@ -457,21 +583,13 @@ function syncWorld() {
   }
 }
 
-// The era a world plays, for the world's facts; nothing for the end of retail, which is every
-// world's unless it says otherwise.
-function eraLabel(era) {
-  if (!era || era === "eor") return null;
-  const names = { infiltration: "Infiltration era (February 2005)" };
-  return names[era] ?? `${era} era`;
-}
-
 function worldPage() {
   const w = ui.world;
   if (!w) return home();
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   const f = w.form;
 
-  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : null, world.ruleset, eraLabel(world.era)].filter(Boolean);
+  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraLabel(world.era) ?? "era unknown", emulatorLabel(world)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 
@@ -494,19 +612,29 @@ function worldPage() {
     ? null
     : `<div class="plain">${chosen ? esc(installName(chosen.install)) : `<span class="warn">The Dereth client was not found beside the launcher.</span>`}</div>`;
   const clientNote = !chosen ? "" : !chosen.runnable ? `<span class="warn small">needs Windows</span>` : `<span class="muted small">${esc(installName(chosen.install))}</span>`;
-  const setOpts = (w.view.dat_sets.length ? "" : `<option value="" selected>No data files for this world yet</option>`) + w.view.dat_sets.map((s) => `<option value="${esc(s.id)}" ${s.id === f.dat_set_id ? "selected" : ""}>${esc(setName(s))}${s.origin.kind === "shared" ? "  (default)" : ""}</option>`).join("")
+  const needs = requiredKind(world);
+  const option = (s, chosen) => `<option value="${esc(s.id)}" ${s.id === chosen ? "selected" : ""}>${esc(setName(s))}${s.origin.kind === "shared" ? "  (default)" : ""}</option>`;
+  const none = (chosen) => `<option value="" ${chosen ? "" : "selected"}>None</option>`;
+  const setOpts = none(f.dat_set_id) + w.view.dat_sets.map((s) => option(s, f.dat_set_id)).join("")
     + (w.view.offers_private_copy ? `<option value="__private">Create a private copy (1.4 GB)</option>` : "")
     + (world.dats.custom ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
+  const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
+  const eraName = eraLabel(world.era);
+  const dataNote = needs === "classic"
+    ? `${eraName} is before Throne of Destiny: it needs Classic data files. Modern ones are optional.`
+    : `${eraName ? `${eraName} needs` : "With no era named, the Dereth client plays the end of retail, which needs"} Modern data files. Classic ones are optional, for the classic interface and looks.`;
+  const missing = f.client === "dereth" && !hasRequiredSet();
   const dataRow = f.client === "retail"
-    ? `<div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
-    : `<select id="dats" class="field">${setOpts}</select>`;
+    ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
+    : `<label class="lab" for="dats">MODERN DATA</label><select id="dats" class="field">${setOpts}</select>
+       <label class="lab" for="classic">CLASSIC DATA</label><select id="classic" class="field">${classicOpts}</select>
+       <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
 
   return `<div class="column wide">
-      <section class="panel"><header><h1>${esc(world.name.toUpperCase())}</h1>
+      <section class="panel"><header><button class="btn icon-btn back" data-go="worlds" title="Back to worlds">${CHEVRON_LEFT}</button><h1>${esc(world.name.toUpperCase())}</h1>
           ${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}
-          ${custom ? `<button class="btn" data-act="server-remove">Remove server</button>` : ""}
-          <button class="btn icon-btn" data-go="worlds" title="Back to worlds">✕</button></header>
+          ${custom ? `<button class="btn" data-act="server-remove">Remove server</button>` : ""}</header>
         <div class="scroll">
           <div class="facts">${bead(world.state)}<span>${esc(facts.join("  ·  "))}</span></div>
           ${world.description ? `<p class="muted small">${esc(world.description)}</p>` : ""}
@@ -518,7 +646,7 @@ function worldPage() {
               <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
             <label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}
-            <label class="lab" for="dats">DATA</label>${dataRow}
+            ${dataRow}
           </div>
         </div>
       </section>
@@ -562,21 +690,26 @@ function library() {
   const dereth = d
     ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
     : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`;
-  const sets = s.dat_sets.map((d) => {
+  const setRow = (d) => {
     const size = d.files.reduce((n, f) => n + f.size, 0);
-    const facts = [d.created_by_launcher ? gb(size) : d.files.every((f) => f.read_only) ? "read-only" : null, d.last_patched_by_server && "patched by its world", d.files.some((f) => f.error) && "some files unreadable"].filter(Boolean);
+    const pairBroken = d.kind === "classic" && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
+    const facts = [d.created_by_launcher ? gb(size) : d.files.every((f) => f.read_only) ? "read-only" : null, d.last_patched_by_server && "patched by its world", d.files.some((f) => f.error) && "some files unreadable", pairBroken && "portal.dat or cell.dat is missing"].filter(Boolean);
     const isDefault = d.origin.kind === "shared";
     const defaultBtn = isDefault ? `<span class="tag">DEFAULT</span>`
       : d.origin.kind === "unassigned" ? `<button class="btn" data-default-set="${esc(d.id)}">Set default</button>` : "";
     return `<div class="row static"><div class="grow"><div class="name">${esc(setName(d))} <span class="muted small">${esc(facts.join("; "))}</span></div>
         <div class="sub">${esc(d.path)}</div></div>
         <div class="btns">${defaultBtn}${d.origin.kind === "world" ? `<button class="btn" data-reset-set="${esc(d.id)}">Reset</button>` : ""}<button class="btn" data-delete-set="${esc(d.id)}">${d.created_by_launcher ? "Delete" : "Remove"}</button></div></div>`;
-  }).join("") || `<p class="muted">No data files yet. Add a folder that holds the four .dat files.</p>`;
+  };
+  const modern = s.dat_sets.filter((d) => d.kind !== "classic").map(setRow).join("")
+    || `<p class="muted">No Modern data files yet. Add a folder that holds the four client_*.dat files.</p>`;
+  const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
+    || `<p class="muted">No Classic data files yet. Add a folder that holds portal.dat and cell.dat.</p>`;
 
   let pending = "";
   if (ui.addFind) {
     const { purpose, find: f } = ui.addFind;
-    const ok = purpose === "retail" ? !!f.retail : !!f.dats;
+    const ok = purpose === "retail" ? !!f.retail : !!(f.dats || f.classic);
     pending = `<section class="panel pending"><header><h1>${purpose === "retail" ? "RETAIL CLIENT" : "DATA FILES"}</h1></header>
       <p class="muted small">${esc(f.folder)}</p>${findSummary(f, purpose)}
       <div class="btns end" style="margin-top:10px">
@@ -587,7 +720,8 @@ function library() {
       <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button></header>
         <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
           <h2>DERETH CLIENT</h2><div class="list">${dereth}</div>
-          <h2>DATA SETS</h2><p class="muted small">The Dereth client plays with any of these; you choose one per world, and new worlds start on the default.</p><div class="list">${sets}</div></div>
+          <h2>MODERN DATA SETS</h2><p class="muted small">The files from Throne of Destiny on. The Dereth client plays with any of these; you choose one per world, and new worlds start on the default.</p><div class="list">${modern}</div>
+          <h2>CLASSIC DATA SETS</h2><p class="muted small">portal.dat and cell.dat, from before Throne of Destiny: what a world of an earlier era is drawn from, and the classic interface and looks for any world. They have their own default.</p><div class="list">${classic}</div></div>
       </section>
     </div>`;
 }
@@ -608,8 +742,12 @@ function findSummary(f, purpose) {
   }
   if (f.dats) {
     const it = setIterations(f.dats);
-    lines.push(`<p><span class="${isEndOfRetail(it) ? "good" : "warn"}">${isEndOfRetail(it) ? "MATCHES" : "OLDER"}</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}, local ${it.local ?? "-"}, highres ${it.highres ?? "-"}${isEndOfRetail(it) ? " = end of retail" : " (from before the final patch)"}</p>`);
-  } else {
+    lines.push(`<p><span class="${isEndOfRetail(it) ? "good" : "warn"}">${isEndOfRetail(it) ? "MODERN" : "MODERN, OLDER"}</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}, local ${it.local ?? "-"}, highres ${it.highres ?? "-"}${isEndOfRetail(it) ? " = end of retail" : " (from before the final patch)"}</p>`);
+  }
+  if (f.classic) {
+    lines.push(`<p><span class="good">CLASSIC</span> — portal.dat and cell.dat, from before Throne of Destiny</p>`);
+  }
+  if (!f.dats && !f.classic && !f.error) {
     lines.push(`<p class="warn">No data files in this folder.</p>`);
   }
   return lines.join("");
@@ -646,7 +784,7 @@ function firstRun() {
   } else if (fr.step === "found") {
     const f = fr.find;
     body = `<header><h1>${esc(f.folder)}</h1></header>${findSummary(f, "both")}
-      <div class="btns" style="margin-top:10px"><button class="btn" data-act="fr-continue" ${f.retail || f.dats ? "" : "disabled"}>Continue</button>
+      <div class="btns" style="margin-top:10px"><button class="btn" data-act="fr-continue" ${f.retail || f.dats || f.classic ? "" : "disabled"}>Continue</button>
         <button class="btn" data-act="fr-choose">Choose another folder</button>
         ${f.dats && !isEndOfRetail(setIterations(f.dats)) ? `<button class="btn" data-url="${GUIDE}">Open community guide</button>` : ""}</div>`;
   } else {
@@ -662,7 +800,7 @@ function firstRun() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-stop]");
+  const t = ev.target.closest("[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-stop]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -670,13 +808,17 @@ document.addEventListener("click", async (ev) => {
   if (d.fav) {
     ev.stopPropagation();
     const e = homeEntries()[Number(d.fav)];
-    if (e) await act("save_favourite", { favourite: { id: "", world_slug: e.world_slug, account: e.account, client: e.client, dat_set_id: e.client === "dereth" ? e.dat_set_id ?? null : null } });
+    if (e) await act("save_favourite", { favourite: { id: "", world_slug: e.world_slug, account: e.account, client: e.client, dat_set_id: e.client === "dereth" ? e.dat_set_id ?? null : null, classic_set_id: e.client === "dereth" ? e.classic_set_id ?? null : null } });
     return;
   }
   if (d.go) { ui.screen = d.go; if (d.go === "home") ui.firstRun.dismissed = ui.firstRun.dismissed || ui.snap.state.dat_sets.length > 0; render(); return; }
   if (d.url) { ev.preventDefault(); await act("open_url", { url: d.url }); return; }
   if (d.home) { ui.homeSel = Number(d.home); render(); return; }
-  if (d.world) { await openWorld(d.world); return; }
+  // A row opens in place, one at a time; its ">" goes to the world's page.
+  if (d.world) { ui.expanded = ui.expanded === d.world ? null : d.world; if (ui.expanded) api("probe_world", { slug: d.world }).catch(() => {}); render(); return; }
+  if (d.openWorld) { await openWorld(d.openWorld); return; }
+  if (d.section) { ui.folded[d.section] = !ui.folded[d.section]; render(); return; }
+  if (d.trash) { if (ui.expanded === d.trash) ui.expanded = null; await act("remove_custom_world", { slug: d.trash }); return; }
   if (d.filter) { ui.filter = ui.filter === d.filter ? null : d.filter; render(); return; }
   if (d.client && ui.world) { ui.world.form.client = d.client; render(); return; }
   if (d.defaultSet) { await act("set_default_set", { id: d.defaultSet }); return; }
@@ -689,14 +831,14 @@ document.addEventListener("click", async (ev) => {
     case "refresh": await act("refresh"); break;
     case "home-play": {
       const e = homeEntries()[ui.homeSel];
-      if (e) await play({ world_slug: e.world_slug, account: e.account, password: null, remember: true, client: e.client, dat_set_id: e.client === "dereth" ? e.dat_set_id ?? null : null });
+      if (e) await play({ world_slug: e.world_slug, account: e.account, password: null, remember: true, client: e.client, dat_set_id: e.client === "dereth" ? e.dat_set_id ?? null : null, classic_set_id: e.client === "dereth" ? e.classic_set_id ?? null : null });
       break;
     }
     case "world-play": { const c = formChoice(); if (c) await play(c); break; }
     case "add-account": ui.world.form = { ...ui.world.form, adding: true, account: "", password: "", remembered: false }; render(); focusSoon("acct-name"); break;
     case "known-accounts": { const a = ui.world.view.accounts[0]; ui.world.form = { ...ui.world.form, adding: false, account: a.username, password: "", remember: a.remember }; await recallPassword(); render(); break; }
     case "choose-retail": { const f = await act("pick_folder", { title: "Choose the folder that holds acclient.exe" }); if (f) { ui.addFind = { purpose: "retail", find: f }; render(); } break; }
-    case "add-dats": { const f = await act("pick_folder", { title: "Choose a folder that holds the four .dat files" }); if (f) { ui.addFind = { purpose: "dats", find: f }; render(); } break; }
+    case "add-dats": { const f = await act("pick_folder", { title: "Choose a folder of data files: the four client_*.dat files, or portal.dat and cell.dat" }); if (f) { ui.addFind = { purpose: "dats", find: f }; render(); } break; }
     case "add-cancel": ui.addFind = null; render(); break;
     case "add-confirm": {
       const { purpose, find } = ui.addFind;
@@ -710,7 +852,7 @@ document.addEventListener("click", async (ev) => {
     case "forget-all-accounts": await act("forget_all_accounts"); break;
     case "restart-update": await act("restart_to_update"); break;
     case "shortcut": { const where = await act("create_desktop_shortcut"); if (where) toast("Desktop shortcut created."); break; }
-    case "server-open": ui.addServer = { name: "", host: "", port: "9000", error: null }; render(); focusSoon("srv-host"); break;
+    case "server-open": ui.addServer = { name: "", host: "", port: "9000", ruleset: "", era: "", error: null }; render(); focusSoon("srv-host"); break;
     case "server-cancel": ui.addServer = null; render(); break;
     case "server-add": await addServer(); break;
     case "server-remove": {
@@ -732,7 +874,7 @@ document.addEventListener("click", async (ev) => {
 async function addServer() {
   const a = ui.addServer;
   try {
-    const slug = await api("add_custom_world", { name: a.name, host: a.host, port: a.port });
+    const slug = await api("add_custom_world", { name: a.name, host: a.host, port: a.port, ruleset: a.ruleset || null, era: a.era || null });
     ui.addServer = null;
     await pull();
     await openWorld(slug);
@@ -745,7 +887,7 @@ async function addServer() {
 document.addEventListener("dblclick", async (ev) => {
   const row = ev.target.closest("[data-dbl-home]");
   const e = row && homeEntries()[Number(row.dataset.dblHome)];
-  if (e) await openWorld(e.world_slug, null, { account: e.account, client: e.client, dat_set_id: e.dat_set_id });
+  if (e) await openWorld(e.world_slug, null, { account: e.account, client: e.client, dat_set_id: e.dat_set_id, classic_set_id: e.classic_set_id });
 });
 
 document.addEventListener("input", (ev) => {
@@ -760,6 +902,10 @@ document.addEventListener("input", (ev) => {
 
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
+  // The Worlds list: a world's era and systems, for a world that does not say them.
+  if (t.dataset.eraFor) { await act("set_world_era", { slug: t.dataset.eraFor, era: t.value || null }); return; }
+  if (t.dataset.feature) { await act("set_world_feature", { slug: t.dataset.slug, name: t.dataset.feature, on: t.checked }); return; }
+  if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-era")) { ui.addServer[t.id.slice(4)] = t.value; return; }
   if (!ui.world) return;
   const f = ui.world.form;
   switch (t.id) {
@@ -775,6 +921,9 @@ document.addEventListener("change", async (ev) => {
       if (t.value === "__private") { await act("create_private_copy", { slug: ui.world.view.world.slug }); ui.world.notice = "Copying data files for this world. PLAY when it is done."; }
       else if (t.value === "__custom") { if (await act("add_custom_dats", { slug: ui.world.view.world.slug })) await openWorld(ui.world.view.world.slug, null, formChoice() ?? undefined); return; }
       else f.dat_set_id = t.value || null;
+      break;
+    case "classic":
+      f.classic_set_id = t.value || null;
       break;
   }
   render();
@@ -825,6 +974,7 @@ async function watchLibrary() {
     if (view) {
       ui.world.view = view;
       if (!view.dat_sets.some((s) => s.id === ui.world.form.dat_set_id)) ui.world.form.dat_set_id = view.dat_sets[0]?.id ?? null;
+      if (!view.classic_sets.some((s) => s.id === ui.world.form.classic_set_id)) ui.world.form.classic_set_id = view.classic_sets.find((s) => s.origin.kind === "shared")?.id ?? null;
       render();
     }
   }
@@ -860,7 +1010,8 @@ async function vista() {
 
 // ----- start --------------------------------------------------------------------------------------
 
-// In the browser demo, `#world=eulmore`, `#worlds`, `#worlds=add`, `#library`, `#library=add`,
+// In the browser demo, `#world=eulmore`, `#worlds`, `#worlds=add`, `#worlds=<slug>` (that row
+// open), `#library`, `#library=add`,
 // `#accounts`, `#first-run` and `#first-run=guide` open that screen directly, for looking at designs.
 async function demoJump() {
   const [what, arg] = location.hash.slice(1).split("=");
@@ -868,8 +1019,13 @@ async function demoJump() {
   await pull();
   if (what === "world") await openWorld(arg || "eulmore");
   else if (what === "worlds" && arg === "add") {
-    ui.addServer = { name: "", host: "play.example.org", port: "9000", error: null };
+    ui.addServer = { name: "", host: "play.example.org", port: "9000", ruleset: "PvE", era: "infiltration", error: null };
     ui.filter = "pve";
+    ui.screen = "worlds";
+  }
+  else if (what === "worlds" && arg) {
+    // `#worlds=<slug>`: the list with that world's row open.
+    ui.expanded = arg;
     ui.screen = "worlds";
   }
   else if (what === "library" && arg === "add") {

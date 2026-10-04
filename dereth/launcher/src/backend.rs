@@ -15,18 +15,25 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dereth_launch::check::RunningClient;
 use dereth_launch::choices::{self, ClientOption};
-use dereth_launch::datset::{scan_dir, DatOrigin, DatSet};
+use dereth_launch::datset::{scan_dir, DatOrigin, DatSet, SetKind};
+use dereth_launch::eras::{self, EraInfo, FeatureInfo};
 use dereth_launch::folders::Folders;
 use dereth_launch::install::{ClientKind, Installation};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
+use dereth_launch::serverlist::{self, ListCache};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, Vault};
-use dereth_launch::world::{AccountModel, StatusMethod, World, WorldState};
+use dereth_launch::world::{AccountModel, Emulator, StatusMethod, Told, World, WorldState};
 use serde::{Deserialize, Serialize};
 
-/// Where the world list comes from unless `DERETH_SERVERS_API` says otherwise.
+/// Where the world list comes from unless `DERETH_SERVERS_LIST` says otherwise: the community's
+/// list.
+pub const DEFAULT_SERVERS_LIST: &str = serverlist::COMMUNITY_LIST_URL;
+
+/// The directory whose rows add to the list's worlds, unless `DERETH_SERVERS_API` says otherwise
+/// (an empty value: none).
 pub const DEFAULT_SERVERS_API: &str = "https://api.dereth.network/v1/servers";
 
 const STATUS_INTERVAL: Duration = Duration::from_secs(60);
@@ -158,6 +165,12 @@ pub struct Snapshot {
     pub worlds: Vec<World>,
     pub list_state: ListState,
     pub list_error: Option<String>,
+    /// When the world list was fetched, in seconds since the epoch; `None` before it ever was.
+    pub list_fetched_at: Option<u64>,
+    /// The eras a world can play, for the era drop-downs.
+    pub eras: Vec<EraInfo>,
+    /// Every system an era has or lacks, for the check boxes.
+    pub features: Vec<FeatureInfo>,
     pub state: LauncherState,
     /// The Dereth client the launcher found beside itself (or, in a build from the repository, the
     /// one that build made).
@@ -176,8 +189,12 @@ pub struct WorldView {
     pub world: World,
     pub clients: Vec<ClientView>,
     pub default_client: Option<ClientKind>,
-    /// The dat sets the Dereth client may be given here.
+    /// The Modern sets the Dereth client may be given here.
     pub dat_sets: Vec<DatSet>,
+    /// The Classic sets the Dereth client may be given here.
+    pub classic_sets: Vec<DatSet>,
+    /// Which kind of set the world's era needs; the other is optional.
+    pub requires: SetKind,
     pub offers_private_copy: bool,
     pub accounts: Vec<Account>,
     pub prefs: WorldPrefs,
@@ -204,6 +221,9 @@ pub struct Choice {
     pub client: ClientKind,
     /// The Dereth client's data files. A retail client plays with the ones beside it.
     pub dat_set_id: Option<String>,
+    /// The Dereth client's Classic set, if one is chosen.
+    #[serde(default)]
+    pub classic_set_id: Option<String>,
 }
 
 /// What pressing PLAY came to.
@@ -234,12 +254,15 @@ const RETAIL_HERE: bool = cfg!(windows);
 /// The launcher's state and everything it is doing.
 pub struct Backend {
     folders: Folders,
+    servers_list: String,
     servers_api: String,
     state: LauncherState,
     dereth: Option<Installation>,
     worlds: Vec<World>,
     list_state: ListState,
     list_error: Option<String>,
+    /// The day's copy of the list, when there is one.
+    list_cache: Option<ListCache>,
     live: HashMap<String, LiveStatus>,
     polled: HashMap<String, Instant>,
     /// Whether each server answered the server-tracker login, for worlds with no status document.
@@ -269,12 +292,15 @@ pub fn lock(b: &Shared) -> MutexGuard<'_, Backend> {
 }
 
 impl Backend {
-    /// Load the state from the settings folder, read the Dereth client at `dereth_exe`, and start.
+    /// Load the state from the settings folder and the last copy of the world list from the data
+    /// folder, read the Dereth client at `dereth_exe`, and start. `servers_list` is the list's
+    /// address and `servers_api` the directory's (empty: none).
     ///
     /// A first run whose Dereth client has a full end-of-retail set beside it (a developer's
     /// checkout, say) takes that set as the shared one, so there is something to play with at once.
     pub fn new(
         folders: Folders,
+        servers_list: String,
         servers_api: String,
         dereth_exe: Option<PathBuf>,
         vault: Box<dyn Vault + Send>,
@@ -306,14 +332,21 @@ impl Backend {
                 }
             }
         }
+        let list_cache = ListCache::load(&folders.data);
+        let worlds = list_cache
+            .as_ref()
+            .and_then(|c| c.worlds().ok())
+            .unwrap_or_default();
         Self {
             folders,
+            servers_list,
             servers_api,
             state,
             dereth,
-            worlds: Vec::new(),
+            worlds,
             list_state: ListState::Loading,
             list_error: None,
+            list_cache,
             live: HashMap::new(),
             polled: HashMap::new(),
             probed: HashMap::new(),
@@ -361,7 +394,15 @@ impl Backend {
                 WorldState::Offline
             };
         }
+        if w.era_features.is_some() {
+            w.features_source = Some(Told::World);
+        }
         if let Some(l) = self.live.get(&w.slug) {
+            // Only Empyrean publishes the document.
+            w.emulator = Emulator::Empyrean;
+            if l.version.is_some() {
+                w.emulator_version.clone_from(&l.version);
+            }
             w.state = l.state;
             if l.players.is_some() {
                 w.players = l.players;
@@ -371,12 +412,27 @@ impl Backend {
             }
             if l.era.is_some() {
                 w.era.clone_from(&l.era);
+                w.era_source = Some(Told::World);
             }
             if l.era_features.is_some() {
                 w.era_features.clone_from(&l.era_features);
+                w.features_source = Some(Told::World);
             }
             if w.account_model == AccountModel::Unknown && l.auto_create_accounts == Some(true) {
                 w.account_model = AccountModel::AutoCreateOnFirstLogin;
+            }
+        }
+        // What the world does not say, the player may have chosen.
+        if let Some(c) = self.state.world_eras.get(&w.slug) {
+            if w.era.is_none() && c.era.is_some() {
+                w.era.clone_from(&c.era);
+                w.era_source = Some(Told::Player);
+            }
+            if w.era_features.is_none() {
+                if let Some(text) = c.features_text() {
+                    w.era_features = Some(text);
+                    w.features_source = Some(Told::Player);
+                }
             }
         }
         w
@@ -396,6 +452,9 @@ impl Backend {
             worlds: self.all_worlds().collect(),
             list_state: self.list_state.clone(),
             list_error: self.list_error.clone(),
+            list_fetched_at: self.list_cache.as_ref().map(|c| c.fetched_at),
+            eras: eras::eras(),
+            features: eras::features(),
             state: self.state.clone(),
             dereth: self.dereth.clone(),
             running: self.running_clients(),
@@ -426,20 +485,42 @@ impl Backend {
 
     // ----- the world list ------------------------------------------------------------------------
 
-    /// Fetch the directory on a thread, following its pages.
+    /// The world list at start: the day's copy when it is less than a day old, else fetched again.
+    pub fn load_list(shared: &Shared) {
+        let fresh = {
+            let mut b = lock(shared);
+            let fresh = b.list_cache.as_ref().is_some_and(|c| c.is_fresh(now()));
+            if fresh {
+                b.list_state = ListState::Loaded;
+            }
+            fresh
+        };
+        if fresh {
+            Self::probe_all(shared);
+        } else {
+            Self::refresh(shared);
+        }
+    }
+
+    /// Fetch the list again on a thread, and the directory's pages with it, whatever the copy's
+    /// age: the refresh button. A failure keeps the last copy's worlds on screen.
     pub fn refresh(shared: &Shared) {
-        let url = {
+        let (list_url, api_url) = {
             let mut b = lock(shared);
             b.list_state = ListState::Loading;
-            b.servers_api.clone()
+            (b.servers_list.clone(), b.servers_api.clone())
         };
         let shared = shared.clone();
         std::thread::spawn(move || {
-            let result = fetch_all(&url);
+            let result = fetch_list(&list_url, &api_url, now());
             let mut b = lock(&shared);
             match result {
-                Ok(worlds) => {
+                Ok((cache, worlds)) => {
+                    if let Err(e) = cache.save(&b.folders.data) {
+                        eprintln!("dereth-launcher: the world list's copy was not saved: {e}");
+                    }
                     b.worlds = worlds;
+                    b.list_cache = Some(cache);
                     b.list_state = ListState::Loaded;
                     b.list_error = None;
                 }
@@ -577,6 +658,8 @@ impl Backend {
                 .collect(),
             default_client,
             dat_sets: choices::dat_sets_for(&self.state, &world),
+            classic_sets: choices::classic_sets_for(&self.state),
+            requires: eras::required_set(world.era.as_deref()),
             offers_private_copy: choices::offers_private_copy(&self.state, &world),
             accounts: self.state.accounts_for(slug).cloned().collect(),
             prefs,
@@ -637,18 +720,30 @@ impl Backend {
                 }
             },
         };
-        let dat_set_id = (choice.client == ClientKind::Dereth)
-            .then(|| choice.dat_set_id.clone())
-            .flatten();
-        let dat_dir = dat_set_id
-            .as_deref()
-            .and_then(|id| self.state.dat_set(id))
-            .map(|s| s.path.clone());
+        let dereth = choice.client == ClientKind::Dereth;
+        let dat_set_id = dereth.then(|| choice.dat_set_id.clone()).flatten();
+        let classic_set_id = dereth.then(|| choice.classic_set_id.clone()).flatten();
+        let path_of = |id: Option<&str>, kind: SetKind| {
+            id.and_then(|id| self.state.dat_set(id))
+                .filter(|s| s.kind == kind)
+                .map(|s| s.path.clone())
+        };
+        let (dat_dir, classic_dat_dir) = if dereth {
+            let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
+            let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
+            match choices::dat_dirs(world.era.as_deref(), modern.as_deref(), classic.as_deref()) {
+                Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
+                Err(e) => return err(e.to_string()),
+            }
+        } else {
+            (None, None)
+        };
         let req = LaunchRequest {
             world: &world,
             install: &install,
             account: &choice.account,
             dat_dir,
+            classic_dat_dir,
             extra_args: &[],
         };
         let plan = match plan(&req) {
@@ -658,7 +753,7 @@ impl Backend {
         if !plan.exe.exists() {
             return err(format!("Client not found: {}", plan.exe.display()));
         }
-        // The one form of the command line that may be logged; the page names only the world and\r
+        // The one form of the command line that may be logged; the page names only the world and
         // account.
         let shown = plan.redacted();
         eprintln!("dereth-launcher: starting {shown}");
@@ -697,6 +792,7 @@ impl Backend {
             WorldPrefs {
                 client: Some(choice.client),
                 dat_set_id: dat_set_id.clone(),
+                classic_set_id: classic_set_id.clone(),
                 account: Some(choice.account.clone()),
                 last_played: Some(now()),
             },
@@ -706,6 +802,7 @@ impl Backend {
             account: choice.account.clone(),
             client: choice.client,
             dat_set_id: dat_set_id.clone(),
+            classic_set_id,
             last_played: now(),
         });
         self.save();
@@ -750,7 +847,42 @@ impl Backend {
         self.save();
     }
 
-    /// Make a set the default the Dereth client is offered first.
+    /// Choose the era of a world that does not say its own. `None`: not chosen.
+    pub fn set_world_era(&mut self, slug: &str, era: Option<&str>) -> Result<(), String> {
+        let w = self.world(slug).ok_or("That world is no longer listed.")?;
+        if w.era_source == Some(Told::World) {
+            return Err(format!("{} says its own era.", w.name));
+        }
+        self.state.set_world_era(slug, era);
+        self.save();
+        Ok(())
+    }
+
+    /// Turn one of a world's systems on or off, for a world that does not say its own. The choice
+    /// is made over the era the world plays, whoever named it.
+    pub fn set_world_feature(&mut self, slug: &str, name: &str, on: bool) -> Result<(), String> {
+        let w = self.world(slug).ok_or("That world is no longer listed.")?;
+        if w.features_source == Some(Told::World) {
+            return Err(format!("{} says which systems it has.", w.name));
+        }
+        if w.era_source == Some(Told::World)
+            && self
+                .state
+                .world_eras
+                .get(slug)
+                .and_then(|c| c.era.as_deref())
+                != w.era.as_deref()
+        {
+            self.state.set_world_era(slug, w.era.as_deref());
+        }
+        if !self.state.set_world_feature(slug, name, on) {
+            return Err(format!("{name} is not a system the client knows."));
+        }
+        self.save();
+        Ok(())
+    }
+
+    /// Make a set the default of its kind, the one the Dereth client is offered first.
     pub fn set_default_set(&mut self, id: &str) -> Result<(), String> {
         if !self.state.set_default_set(id) {
             return Err("Only a folder you added can be the default; a world's own copy stays with its world.".into());
@@ -770,6 +902,7 @@ impl Backend {
         let set = DatSet {
             id: self.state.new_id("d"),
             path: path.to_path_buf(),
+            kind: SetKind::Modern,
             origin: DatOrigin::Custom {
                 sha256: custom.sha256.clone().unwrap_or_default(),
             },
@@ -877,6 +1010,7 @@ impl Backend {
                     id,
                     files: scan_dir(&to),
                     path: to,
+                    kind: SetKind::Modern,
                     origin: DatOrigin::World { slug },
                     last_patched_by_server: None,
                     created_by_launcher: true,
@@ -952,17 +1086,20 @@ impl Backend {
         self.save();
     }
 
-    /// Add a server by hand.
+    /// Add a server by hand, with the rules and the era the player says it plays.
     pub fn add_custom_world(
         &mut self,
         name: &str,
         host: &str,
         port: &str,
+        ruleset: Option<&str>,
+        era: Option<&str>,
     ) -> Result<String, String> {
         let slug = self
             .state
-            .add_custom_world(name, host, port)
+            .add_custom_world(name, host, port, ruleset)
             .map_err(|e| e.to_string())?;
+        self.state.set_world_era(&slug, era);
         self.save();
         Ok(slug)
     }
@@ -1037,8 +1174,30 @@ impl Backend {
     }
 }
 
-/// Follow the directory's `nextOffset` until it is exhausted, up to a bound.
-fn fetch_all(url: &str) -> Result<Vec<World>, String> {
+/// Fetch the list, and the directory's pages when there is a directory, as the day's copy and the
+/// worlds it holds. The list must answer; the directory need not.
+fn fetch_list(list_url: &str, api_url: &str, now: u64) -> Result<(ListCache, Vec<World>), String> {
+    let body = http_get(list_url)?;
+    let list = String::from_utf8(body).map_err(|e| format!("{list_url}: {e}"))?;
+    let directory = if api_url.is_empty() {
+        Vec::new()
+    } else {
+        fetch_pages(api_url).unwrap_or_else(|e| {
+            eprintln!("dereth-launcher: the directory did not answer: {e}");
+            Vec::new()
+        })
+    };
+    let cache = ListCache {
+        fetched_at: now,
+        list,
+        directory,
+    };
+    let worlds = cache.worlds().map_err(|e| e.to_string())?;
+    Ok((cache, worlds))
+}
+
+/// Follow the directory's `nextOffset` until it is exhausted, up to a bound: every page's body.
+fn fetch_pages(url: &str) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     let mut next: Option<u64> = None;
     for _ in 0..20 {
@@ -1050,9 +1209,8 @@ fn fetch_all(url: &str) -> Result<Vec<World>, String> {
             ),
         };
         let body = http_get(&page_url)?;
-        let (mut rows, more) =
-            dereth_launch::world::parse_page(&body).map_err(|e| e.to_string())?;
-        out.append(&mut rows);
+        let (_, more) = dereth_launch::world::parse_page(&body).map_err(|e| e.to_string())?;
+        out.push(String::from_utf8_lossy(&body).into_owned());
         match more {
             Some(off) => next = Some(off),
             None => break,
@@ -1096,6 +1254,7 @@ mod tests {
         let mut b = Backend::new(
             Folders::single(dir.join("state")),
             String::new(),
+            String::new(),
             Some(exe),
             Box::new(MemoryVault::default()),
             "memory",
@@ -1121,6 +1280,7 @@ mod tests {
             remember: true,
             client: ClientKind::Dereth,
             dat_set_id: Some("eor".into()),
+            classic_set_id: None,
         }
     }
 
@@ -1221,13 +1381,29 @@ mod tests {
     #[test]
     fn a_server_added_by_hand_is_a_world_and_goes_with_its_accounts() {
         let (mut b, dir) = backend("custom");
-        let slug = b.add_custom_world("Home", "127.0.0.1", "9001").unwrap();
+        let slug = b
+            .add_custom_world(
+                "Home",
+                "127.0.0.1",
+                "9001",
+                Some("PvP"),
+                Some("infiltration"),
+            )
+            .unwrap();
         assert!(b
             .snapshot()
             .worlds
             .iter()
             .any(|w| w.slug == slug && w.name == "Home"));
-        assert!(b.world_view(&slug).is_ok());
+        let v = b.world_view(&slug).unwrap();
+        assert_eq!(v.world.ruleset.as_deref(), Some("PvP"));
+        assert_eq!(v.world.era.as_deref(), Some("infiltration"));
+        assert_eq!(v.world.era_source, Some(Told::Player));
+        assert_eq!(
+            v.requires,
+            SetKind::Classic,
+            "an era before Throne of Destiny"
+        );
         b.state.upsert_account(Account {
             world_slug: slug.clone(),
             username: "player".into(),
@@ -1264,6 +1440,146 @@ mod tests {
         let (mut b, dir) = backend("probe");
         b.probed.insert("eulmore".into(), false);
         assert_eq!(b.world("eulmore").unwrap().state, WorldState::Offline);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_players_era_fills_in_for_a_world_that_does_not_say_and_never_over_one_that_does() {
+        let (mut b, dir) = backend("eras");
+        let mut w = World::new("leafcull", "Leafcull");
+        w.endpoint = b.worlds[0].endpoint.clone();
+        b.worlds.push(w);
+
+        b.set_world_era("leafcull", Some("infiltration")).unwrap();
+        b.set_world_feature("leafcull", "aetheria", true).unwrap();
+        let w = b.world("leafcull").unwrap();
+        assert_eq!(w.era.as_deref(), Some("infiltration"));
+        assert_eq!(w.era_source, Some(Told::Player));
+        assert_eq!(w.era_features.as_deref(), Some("aetheria=true"));
+        assert_eq!(w.features_source, Some(Told::Player));
+        assert_eq!(b.world_view("leafcull").unwrap().requires, SetKind::Classic);
+        assert!(b.set_world_feature("leafcull", "nothing", true).is_err());
+
+        // Eulmore's status says its era and systems: they stand, and the player cannot change them.
+        b.live.insert(
+            "eulmore".into(),
+            dereth_launch::status::parse_world_document(
+                br#"{"world_open":true,"version":"0.1.2","era":"eor","features":{"trade":true}}"#,
+            )
+            .unwrap(),
+        );
+        let w = b.world("eulmore").unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.era_source),
+            (Some("eor"), Some(Told::World))
+        );
+        assert_eq!(w.emulator_version.as_deref(), Some("0.1.2"));
+        assert!(b.set_world_era("eulmore", Some("infiltration")).is_err());
+        assert!(b.set_world_feature("eulmore", "trade", false).is_err());
+
+        // A world that says its era but not its systems: the player's systems are over its era.
+        b.live.get_mut("eulmore").unwrap().era_features = None;
+        b.set_world_feature("eulmore", "trade", false).unwrap();
+        assert_eq!(b.state.world_eras["eulmore"].era.as_deref(), Some("eor"));
+        let w = b.world("eulmore").unwrap();
+        assert_eq!(
+            (w.era_features.as_deref(), w.features_source),
+            (Some("trade=false"), Some(Told::Player))
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_classic_era_world_is_not_started_without_classic_data_files() {
+        let (mut b, dir) = backend("classic-needed");
+        b.worlds[0].era = Some("infiltration".into());
+        let out = b.launch(choice(Some("pw")));
+        assert!(
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("Classic")),
+            "{out:?}"
+        );
+        // A Classic set's id is not taken as the Modern one.
+        let classic = dir.join("feb2005");
+        std::fs::create_dir_all(&classic).unwrap();
+        std::fs::write(classic.join("portal.dat"), b"p").unwrap();
+        std::fs::write(classic.join("cell.dat"), b"c").unwrap();
+        let find = b.read_folder(&classic);
+        let id = find.classic.as_ref().unwrap().id.clone();
+        b.add_folder(find);
+        b.worlds[0].era = None;
+        let out = b.launch(Choice {
+            dat_set_id: Some(id),
+            ..choice(Some("pw"))
+        });
+        assert!(
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("Modern")),
+            "{out:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_dereth_client_is_given_the_classic_set_and_the_chosen_era() {
+        let (mut b, dir) = backend("classic-play");
+        let classic = dir.join("feb2005");
+        std::fs::create_dir_all(&classic).unwrap();
+        std::fs::write(classic.join("portal.dat"), b"p").unwrap();
+        std::fs::write(classic.join("cell.dat"), b"c").unwrap();
+        let find = b.read_folder(&classic);
+        let id = find.classic.as_ref().unwrap().id.clone();
+        b.add_folder(find);
+        b.set_world_era("eulmore", Some("infiltration")).unwrap();
+        b.set_world_feature("eulmore", "aetheria", true).unwrap();
+        let out = b.launch(Choice {
+            classic_set_id: Some(id.clone()),
+            ..choice(Some("pw"))
+        });
+        assert!(matches!(out, LaunchOutcome::Launched { .. }), "{out:?}");
+        b.running.remove(0).child.wait().unwrap();
+        let args = std::fs::read_to_string(dir.join("client/args.txt")).unwrap();
+        assert!(
+            args.contains(&format!("--classic-dat-dir {}", classic.display()))
+                && args.contains("--era infiltration --era-features aetheria=true"),
+            "{args}"
+        );
+        assert_eq!(
+            b.state.recent[0].classic_set_id.as_deref(),
+            Some(id.as_str())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_last_copy_of_the_list_is_on_screen_at_start() {
+        let dir = tmp("list-copy");
+        let folders = Folders::single(dir.join("state"));
+        ListCache {
+            fetched_at: now(),
+            list: "<ArrayOfServerItem><ServerItem><name>Leafcull</name><server_host>l.example</server_host>\
+                   <server_port>9000</server_port><type>PvE</type></ServerItem></ArrayOfServerItem>"
+                .into(),
+            directory: vec![],
+        }
+        .save(&folders.data)
+        .unwrap();
+        let b = Backend::new(
+            folders,
+            String::new(),
+            String::new(),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+        );
+        let s = b.snapshot();
+        assert_eq!(s.worlds.len(), 1);
+        assert_eq!(s.worlds[0].slug, "leafcull");
+        assert!(s.list_fetched_at.is_some());
+        assert!(
+            b.list_cache.as_ref().unwrap().is_fresh(now()),
+            "fresh: no fetch at start"
+        );
+        assert_eq!(s.eras.len(), 2);
         let _ = std::fs::remove_dir_all(dir);
     }
 

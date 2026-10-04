@@ -1,7 +1,8 @@
 //! What the Dereth launcher knows, with no window, no renderer and no operating system in it.
 //!
 //! **Depends on** the transport crate (`dereth-transport`), for the server-tracker login that asks
-//! a server whether it is up; its tests read the retail dats through `dereth-dat` when a run has
+//! a server whether it is up, and the primitives crate (`dereth-primitives`), for the client's era
+//! table; its tests read the retail dats through `dereth-dat` when a run has
 //! them. **Used by** the launcher's window, the Tauri app in `dereth/launcher`, which is a
 //! workspace of its own.
 //!
@@ -16,8 +17,10 @@
 //! | module | what it knows |
 //! |---|---|
 //! | [`world`] | a registry entry, read tolerantly: which clients a world accepts, which dats it expects |
+//! | [`serverlist`] | the community's world list, its day-old copy, and what the directory adds to it |
+//! | [`eras`] | the eras and systems a world can play, and the player's choice for a world that does not say |
 //! | [`dat`] | a dat's iteration number, read straight off disk in a few small reads |
-//! | [`datset`] | a folder of the four dats, identified by iterations rather than hashes |
+//! | [`datset`] | a Modern set (the four later dats, identified by iterations) or a Classic one (`portal.dat` and `cell.dat`) |
 //! | [`install`] | which client build a folder holds, by the executable's hash and a manifest |
 //! | [`library`] | the one retail client, and the dat sets, as the player adds them |
 //! | [`choices`] | which clients and dat sets a world may be played with |
@@ -45,6 +48,7 @@ pub mod copy;
 pub mod dat;
 pub mod datset;
 pub mod desktop;
+pub mod eras;
 pub mod folders;
 pub mod install;
 pub mod launch;
@@ -52,6 +56,7 @@ pub mod library;
 pub mod probe;
 pub mod registry;
 pub mod releases;
+pub mod serverlist;
 pub mod state;
 pub mod status;
 pub mod swap;
@@ -63,7 +68,7 @@ pub mod world;
 pub mod testing;
 
 pub use check::{check, CheckId, CheckInput, Finding, Fix, Report, RunningClient, Verdict};
-pub use datset::{DatOrigin, DatRole, DatSet, Iterations};
+pub use datset::{DatOrigin, DatRole, DatSet, Iterations, SetKind};
 pub use install::{ClientKind, Installation};
 pub use launch::{plan, LaunchPlan, LaunchRequest};
 pub use state::{Account, Favourite, LauncherState, WorldPrefs};
