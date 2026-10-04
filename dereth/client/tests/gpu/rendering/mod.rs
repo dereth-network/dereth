@@ -39,6 +39,7 @@ mod sky;
 mod solid_colour_textures;
 mod static_degrade_levels;
 mod static_scene;
+mod stretched_part_lighting;
 mod surface_translucency;
 mod terrain_compositor_parity;
 mod terrain_lod_seams;

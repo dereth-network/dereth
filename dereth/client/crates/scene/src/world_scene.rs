@@ -14017,7 +14017,6 @@ mod imp {
                 #[allow(clippy::cast_possible_truncation)]
                 let start = buf.len() as u32;
                 let rot = dereth_world_render::math::l2g(world.rotation);
-                let uniform = scale.x == scale.y && scale.y == scale.z;
                 for (i, (p, u, v)) in g.vertices.iter().enumerate() {
                     let scaled = Vec3::new(p.x * scale.x, p.y * scale.y, p.z * scale.z);
                     // A billboarding placement is baked in the part's own frame
@@ -14039,17 +14038,7 @@ mod imp {
                     // part's own scale can differ per axis, and then the normal goes through the
                     // inverse transpose, `n / scale`, before it is renormalised.
                     let n = g.normals.get(i).copied().unwrap_or(Vec3::ZERO);
-                    let n = if uniform {
-                        n
-                    } else {
-                        let m = Vec3::new(n.x / scale.x, n.y / scale.y, n.z / scale.z);
-                        let len = m.magnitude();
-                        if len > 0.0 && len.is_finite() {
-                            Vec3::new(m.x / len, m.y / len, m.z / len)
-                        } else {
-                            n
-                        }
-                    };
+                    let n = baked_normal(n, scale);
                     let n = if local {
                         n
                     } else {
@@ -15705,8 +15694,47 @@ mod imp {
         let s = glam::Mat4::from_scale(glam::Vec3::new(scale.x, scale.y, scale.z));
         PerDrawConstants {
             world: hlsl_matrix(swap_zup_to_d3d() * frame_matrix(f) * s),
+            normal_scale: normal_scale(scale),
             ..PerDrawConstants::identity()
         }
+    }
+
+    /// A part's model-space normal as a baked static carries it when its mesh is drawn at
+    /// `scale`: through the inverse transpose of the scale, `n / scale`, renormalised. The
+    /// placement's rotation is applied after. A uniform scale leaves the normal as it is, exactly
+    /// as the normalising lighting would see it.
+    #[must_use]
+    pub fn baked_normal(n: Vec3, scale: Vec3) -> Vec3 {
+        if scale.x == scale.y && scale.y == scale.z {
+            return n;
+        }
+        let m = Vec3::new(n.x / scale.x, n.y / scale.y, n.z / scale.z);
+        let len = m.magnitude();
+        if len > 0.0 && len.is_finite() {
+            Vec3::new(m.x / len, m.y / len, m.z / len)
+        } else {
+            n
+        }
+    }
+
+    /// [`PerDrawConstants::normal_scale`] for a part drawn at `scale`: lighting takes the normal
+    /// through the inverse transpose of the world matrix, which for a rotation times this scale is
+    /// the world matrix applied to `n / scale²`. A uniform scale changes only the normal's length,
+    /// which the normalisation removes, so it keeps the plain transform and draws as it always did.
+    #[must_use]
+    pub fn normal_scale(scale: Vec3) -> [f32; 4] {
+        if scale.x == scale.y && scale.y == scale.z {
+            return [0.0; 4];
+        }
+        let inv = |v: f32| {
+            let q = 1.0 / (v * v);
+            if q.is_finite() {
+                q
+            } else {
+                0.0
+            }
+        };
+        [inv(scale.x), inv(scale.y), inv(scale.z), 1.0]
     }
 
     /// The axis conversion swaps forward and up: client `(x, y, z)`

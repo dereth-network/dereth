@@ -78,6 +78,10 @@ struct PerDraw {
     // (`v[0x24] = factor * v[0x1C]`, `v[0x28] = factor * v[0x20]`, for the whole vertex buffer);
     // y = 1 when stage 1 holds a detail texture. Zero on every other draw.
     detail_params: vec4<f32>,
+    // The normal transform under a per-axis scale: xyz = 1 / s^2 per model axis, w = 1 to use
+    // it. The inverse transpose of a rotation times a per-axis scale is the matrix itself applied
+    // to n / s^2. w = 0 on every draw whose scale is uniform.
+    normal_scale: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g_frame: PerFrame;

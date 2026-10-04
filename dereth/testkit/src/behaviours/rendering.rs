@@ -379,6 +379,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.lighting.a-stretched-part-is-lit-along-its-true-surface",
+        says: "A piece of a creature, item or plant that its model squashes or stretches along one \
+               axis is lit along the true slope of its stretched surface, the same whether it is \
+               a moving object or part of the landscape, while a piece scaled evenly is lit \
+               exactly as its own shape says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-PART-NORMALS"),
+        station: "dereth-client::gpu::rendering::stretched_part_lighting::an_unevenly_scaled_part_is_lit_along_its_inverse_transpose_normal_moving_or_baked",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.lighting.interior-station-matches-the-retail-pair-region-by-region",
         says: "Standing at a fixed spot in a training academy room, the lit room the client draws \
                matches a retail screenshot from the same spot region by region: each lit surface's \

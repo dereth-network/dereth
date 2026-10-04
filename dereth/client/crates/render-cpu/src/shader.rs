@@ -21,7 +21,8 @@ const POSITION_PRETRANSFORMED: &str = "    let vp = max(g_draw.uv_offset.zw, vec
 /// The `HAS_NORMAL && !PRETRANSFORMED` `{{LIGHTING}}` block. The derivation is in the
 /// shader source's comment block.
 const LIGHTING: &str = "    if (g_draw.lighting_params.x > 0.5) {
-        let N = normalize((vec4<f32>(i.normal, 0.0) * g_draw.world).xyz);
+        let nrm = select(i.normal, i.normal * g_draw.normal_scale.xyz, g_draw.normal_scale.w > 0.5);
+        let N = normalize((vec4<f32>(nrm, 0.0) * g_draw.world).xyz);
         let P = world.xyz;
         let bound = g_draw.material_lighting.z;
         let Md = mix(color.rgb, vec3<f32>(g_draw.material_lighting.y), bound);

@@ -336,6 +336,12 @@ pub struct PerDrawConstants {
     /// decided to use detail. `y == 0` (the `Default`) is every draw without detail, and
     /// the pixel shader then never samples `t1`.
     pub detail_params: [f32; 4],
+    /// **The normal transform under a per-axis scale.** Fixed-function lighting takes a normal
+    /// through the inverse transpose of the world matrix. For a world matrix that is a rotation
+    /// times a per-axis scale `s`, that is the world matrix itself applied to `n / s²`, so `xyz`
+    /// holds `1 / s²` per model axis and `w` = 1 says to use it. `w` = 0 (the `Default`) takes
+    /// the normal through the world matrix as it is, which is exact for a uniform scale.
+    pub normal_scale: [f32; 4],
 }
 
 impl PerDrawConstants {

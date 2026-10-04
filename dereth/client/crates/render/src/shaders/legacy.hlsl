@@ -69,6 +69,10 @@ cbuffer PerDraw : register(b1)
     // (`v[0x24] = factor * v[0x1C]`, `v[0x28] = factor * v[0x20]`, for the whole vertex buffer);
     // y = 1 when stage 1 holds a detail texture. Zero on every other draw.
     float4 g_detailParams;
+    // The normal transform under a per-axis scale: xyz = 1 / s^2 per model axis, w = 1 to use
+    // it. The inverse transpose of a rotation times a per-axis scale is the matrix itself applied
+    // to n / s^2. w = 0 on every draw whose scale is uniform.
+    float4 g_normalScale;
 };
 
 // The DIFFUSE colour argument of a stage, after the material's lighting. `arg2` is what
@@ -162,7 +166,10 @@ VSOut vs_main(VSIn i)
     // colour, which `build_meshes` writes white.
     if (g_lightingParams.x > 0.5)
     {
-        float3 N = normalize(mul(float4(i.normal, 0.0), g_world).xyz);
+        // D3D transforms the normal by the inverse transpose of the world matrix before it
+        // normalises it.
+        float3 nrm = g_normalScale.w > 0.5 ? i.normal * g_normalScale.xyz : i.normal;
+        float3 N = normalize(mul(float4(nrm, 0.0), g_world).xyz);
         float3 P = world.xyz;
         float bound = g_materialLighting.z;
         float3 Md = lerp(i.color.rgb, g_materialLighting.yyy, bound);

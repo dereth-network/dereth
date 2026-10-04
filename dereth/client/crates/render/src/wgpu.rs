@@ -57,7 +57,7 @@ const FRAME_BYTES: u64 = 192;
 const FRAME_BLOCK: usize = 192;
 const FRAME_SLOT: usize = 256;
 /// The per-draw constant block's size, and its slot.
-const DRAW_BYTES: u64 = 416;
+const DRAW_BYTES: u64 = 432;
 const DRAW_SLOT: usize = 512;
 
 /// The depth attachment's format.
@@ -1200,6 +1200,7 @@ impl Gpu {
             put(l);
         }
         put(&draw.detail_params);
+        put(&draw.normal_scale);
         self.uniform_arena.resize(offset + DRAW_SLOT, 0);
         u32::try_from(offset).unwrap_or(u32::MAX)
     }

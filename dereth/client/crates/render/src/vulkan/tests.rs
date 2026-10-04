@@ -772,5 +772,5 @@ fn the_constant_block_holds_both_structs_aligned() {
     assert!(std::mem::size_of::<PerFrameConstants>() <= PER_DRAW_OFFSET);
     assert_eq!(std::mem::size_of::<PerFrameConstants>() % 16, 0);
     assert_eq!(std::mem::size_of::<PerDrawConstants>() % 16, 0);
-    assert_eq!(CONSTANT_BLOCK_BYTES, 256 + 416);
+    assert_eq!(CONSTANT_BLOCK_BYTES, 256 + 432);
 }
