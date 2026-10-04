@@ -36,7 +36,7 @@ log.workspace = true
 zlib-rs.workspace = true
 
 [dev-dependencies]
-dereth-client-net.workspace = true
+dereth-client-net = { workspace = true, features = ["test-support"] }
 dereth-dat = { path = "../../../core/dat", features = ["test-support"] }
 dereth-transport.workspace = true
 serde_json.workspace = true

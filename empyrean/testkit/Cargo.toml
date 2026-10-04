@@ -47,7 +47,7 @@ name = "all"
 path = "tests/all/main.rs"
 
 [dev-dependencies]
-dereth-client-net.workspace = true
+dereth-client-net = { workspace = true, features = ["test-support"] }
 # The golden-vector schema test needs exact double parsing.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 # The chat command scenarios drive empyrean-command through a TestServer.

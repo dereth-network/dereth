@@ -2,9 +2,8 @@
 //! number of its login request, and the client blobs each time the recorded client entered the
 //! world.
 //!
-//! The datagrams themselves come from the shared reader beside the decoded corpus,
-//! [`client_session::testing::capture`](crate::client_session::testing::capture), and the blobs'
-//! meaning from [`client_session::testing::enter_world`](crate::client_session::testing::enter_world).
+//! Recording values and blob parsing come from the storage-independent
+//! [`client_session::recording`](crate::client_session::recording) module.
 //! The half here parses datagram headers and fragments, which is the transport's work, and the
 //! client session reaches the transport only through [`Transport`](dereth_primitives::Transport).
 //! Every harness that replays a recording into a client needs both halves, so they are here once
@@ -14,9 +13,8 @@ use std::collections::BTreeSet;
 
 use dereth_transport::wire::{PacketFlags, ParsedPacket};
 
-use crate::client_session::testing::capture::Datagram;
-use crate::client_session::testing::enter_world::entries;
-pub use crate::client_session::testing::enter_world::RecordedEntry;
+use crate::client_session::recording::entries;
+pub use crate::client_session::recording::{parse, peer, CaptureError, Datagram, RecordedEntry};
 
 /// The connection sequence number this endpoint's authenticator carries, read out of the
 /// recording's own login request rather than invented, or `None` when the recording has no login
@@ -42,14 +40,14 @@ pub fn connection_sequence_number(records: &[Datagram]) -> Option<u32> {
 
 /// Every enter-world in a recording, in order: the whole-blob fragments of the client's
 /// datagrams, each blob once however many times it was retransmitted, read by
-/// [`enter_world::entries`](crate::client_session::testing::enter_world::entries). Both messages
+/// [`entries`](crate::client_session::recording::entries). Both messages
 /// an enter-world is made of fit in one fragment, so no reassembly is needed.
 ///
 /// `c2s` yields `(index, datagram)` for the client-to-server datagrams only, in capture order; the
 /// index is whatever the caller uses to find its place again.
 ///
 /// # Panics
-/// As `enter_world::entries`: an enter-world request with no answer, or an answer with no request.
+/// As [`entries`](crate::client_session::recording::entries): an enter-world request with no answer, or an answer with no request.
 pub fn recorded_enter_world_requests<'a>(
     c2s: impl IntoIterator<Item = (usize, &'a [u8])>,
 ) -> Vec<RecordedEntry> {

@@ -1000,6 +1000,7 @@ dependencies = [
 name = "dereth-client-net"
 version = "0.0.0"
 dependencies = [
+ "dereth-client-net",
  "dereth-primitives",
  "dereth-protocol",
  "dereth-transport",

@@ -39,7 +39,7 @@ dereth-primitives = { workspace = true, features = ["host-nls"] }
 # `fixtures/message-corpus` so that the suite's denominators are not integers typed into assertions,
 # through `dereth_client_net::client_session::testing`. `dereth-client-model` itself does not depend
 # on `dereth-client-net`.
-dereth-client-net = { path = "../client-net" }
+dereth-client-net = { path = "../client-net", features = ["test-support"] }
 
 [lints]
 workspace = true

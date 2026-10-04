@@ -1,14 +1,69 @@
-//! Reading a raw recording: the shared readers, under the name this crate's callers use.
-//!
-//! **Nothing is read here.** The datagrams come from the reader beside the decoded corpus,
-//! [`dereth_client_sdk::net::client_session::testing::capture`], and what only a datagram-header
-//! parse can read -- the login request's connection sequence number, and each enter-world -- from
-//! [`dereth_client_sdk::net::recording`]. This module re-exports both so that there is one reader
-//! in the workspace rather than one per harness.
+//! Read recording files supplied to this host and parse them through the shared network crate.
 
-pub use dereth_client_sdk::net::client_session::testing::capture::{
-    load, load_session, peer, shared_session, CaptureError, Datagram,
-};
+use std::path::Path;
+
 pub use dereth_client_sdk::net::recording::{
-    connection_sequence_number, enter_world_requests, recorded_enter_world_requests, RecordedEntry,
+    connection_sequence_number, enter_world_requests, peer, recorded_enter_world_requests,
+    CaptureError, Datagram, RecordedEntry,
 };
+
+/// Load every datagram in a recording, in recorded order.
+///
+/// # Errors
+/// Returns [`CaptureError`] when the file is unreadable, empty or malformed.
+pub fn load(path: &Path) -> Result<Vec<Datagram>, CaptureError> {
+    let name = path.display().to_string();
+    let text = std::fs::read_to_string(path).map_err(|source| CaptureError::Io {
+        path: name.clone(),
+        source,
+    })?;
+    dereth_client_sdk::net::recording::parse(&name, &text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Behaviour: none (the recording host preserves file errors and delegates byte parsing).
+    #[test]
+    fn the_host_loader_distinguishes_file_errors_from_recording_errors() {
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory = std::env::temp_dir().join(format!(
+            "dereth-headless-recording-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("host time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).expect("unique directory");
+        let scratch = Scratch(directory);
+        let path = scratch.0.join("recording.jsonl");
+        let name = path.display().to_string();
+        assert!(matches!(load(&path), Err(CaptureError::Io { path, .. }) if path == name));
+        std::fs::write(&path, [255]).expect("write invalid text");
+        assert!(matches!(load(&path), Err(CaptureError::Io { path, .. }) if path == name));
+        std::fs::write(&path, "\n").expect("write empty recording");
+        assert!(matches!(load(&path), Err(CaptureError::Empty { path }) if path == name));
+        std::fs::write(&path, "\n{}").expect("write malformed recording");
+        assert!(
+            matches!(load(&path), Err(CaptureError::Malformed { path, line: 2, what }) if path == name && what == "no t")
+        );
+        std::fs::write(&path, r#"{"t":1.5,"dir":"c2s","pair":1,"data":"00ff"}"#)
+            .expect("write recording");
+        assert_eq!(
+            load(&path).expect("recording"),
+            vec![Datagram {
+                t: 1.5,
+                c2s: true,
+                pair: 1,
+                raw: vec![0, 255]
+            }]
+        );
+    }
+}

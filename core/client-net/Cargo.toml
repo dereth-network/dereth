@@ -34,6 +34,8 @@ socket2 = "0.5"
 # tier tooling passes the same name to every client crate.
 retail-dats = []
 default = ["replay"]
+# Fixture loaders, corpus replay drivers and mock transport for tests and corpus tools.
+test-support = []
 # The capture/replay harness and its gate test, the transport's acceptance gate.
 #
 # **On by default, and the reason is a measurement.** `tests/replay.rs` carries
@@ -47,6 +49,8 @@ default = ["replay"]
 replay = ["dep:serde_json"]
 
 [dev-dependencies]
+# Integration tests use the fixture helpers without enabling them for ordinary clients.
+dereth-client-net = { path = ".", features = ["test-support"] }
 serde_json = "1"
 
 # This crate is one of the two allowed unsafe (socket interop). It does NOT inherit the workspace

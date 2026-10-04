@@ -12,7 +12,7 @@ autotests = false
 # The transport. `ParsedPacket` gives the header/payload hashes, `crc::wire_checksum` puts them
 # together and `CryptoSystem` is the key stream -- so the scrubbed recordings are checksummed by
 # the same code the replay gate checks them with, rather than by a second implementation.
-dereth-client-net = { path = "../../core/client-net" }
+dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
 dereth-transport = { path = "../../core/transport" }
 # The four readers discovery is allowed to use: the character set, enter-world, character-delete
 # and create-object. Nothing else in a payload is decoded.

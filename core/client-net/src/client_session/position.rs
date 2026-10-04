@@ -3,7 +3,7 @@
 //! Without this module nothing in this workspace would *send* a position. The
 //! recorded corpus is **1,187 `0xF61C` + 640 `0xF753` + 2 `0xF61B` = 1,829 of its 2,564 outbound
 //! game actions, 71.33%** (counted over `fixtures/message-corpus/*/blobs.jsonl`), and
-//! the session's own [`crate::client_session::testing`] replay catalogue is otherwise their only
+//! the session's own `client_session::testing` replay catalogue is otherwise their only
 //! constructor — a test fixture standing in for a producer. ACE writes
 //! `Player.Location` only from `GameActionMoveToState`, `GameActionAutonomousPosition` and
 //! `GameActionJump`, so a client that sends none of the three leaves the server's copy of the

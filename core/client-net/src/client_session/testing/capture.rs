@@ -1,69 +1,14 @@
-//! Reading one **raw** recorded session out of `fixtures/packet-captures/<name>.jsonl`.
+//! Raw recording fixtures, with corpus lookup and shared per-process loading.
 //!
-//! `super::Corpus` owns the *decoded* corpus (`fixtures/message-corpus`): blobs, already reassembled,
-//! already typed. This module is the layer below it -- the datagrams as they were recorded, before
-//! reassembly -- and it lives here for the same reason `Corpus` does: a harness that replays a
-//! login needs the bytes a socket would have delivered.
-//!
-//! **It is shared so there are not dozens of private copies.** A test target is one file and a
-//! test file cannot lend a helper to another crate, so without this every capture-replaying module
-//! would carry its own `fn load(session: &str)` over the same four fields and its own
-//! `fn addr(pair: u16)`.
-//!
-//! A line is `{"t": <secs>, "dir": "c2s"|"s2c", "pair": <n>, "data": "<hex>"}` plus fields this
-//! reader does not need. The scan is by field name rather than by a JSON parser for the same reason
-//! a test would: the file is machine-written, one object per line, and the session
-//! layer is not taking a JSON dependency to read four fields out of it.
-//!
-//! [`shared_session`] reads each recording once per process, so a test binary whose modules replay
-//! the same recording parses it once.
-//!
-//! **What is deliberately not here.** The connection sequence number a replay endpoint is built
-//! with is read out of the recording's own login request, and each enter-world out of the client's
-//! own datagrams, which means parsing datagram headers; that is the transport's work, which the
-//! session layer does not name (the isolation rule in the module root). Both live in
-//! `dereth_client_net::recording` and take a `&[Datagram]` from here.
+//! Parsing and recording values are shared with production hosts; only fixture lookup,
+//! filesystem loading and the shared cache live here.
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-/// One recorded datagram, exactly as the proxy wrote it down.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Datagram {
-    /// Seconds from the start of the recording.
-    ///
-    /// **Not a clock to feed at.** A replay feeds at the client's own local time, because the login
-    /// state machine's give-up timer is measured against the time a datagram arrives at, and a
-    /// datagram fed at its recorded `t` arrives from the client's own future.
-    pub t: f64,
-    /// True when the client sent it, false when the shard did.
-    pub c2s: bool,
-    /// Which address pair it belongs to: the logon server is 0 and each world server that followed
-    /// is the next number up.
-    pub pair: u16,
-    /// The datagram itself.
-    pub raw: Vec<u8>,
-}
-
-impl Datagram {
-    /// Where a datagram of this pair arrives from. See [`peer`].
-    #[must_use]
-    pub fn peer(&self) -> SocketAddr {
-        peer(self.pair)
-    }
-}
-
-/// The address a recorded pair's datagrams arrive from, and the address a replay endpoint sends to.
-///
-/// Pair 0 is the logon server and each world server the recording moved on to is the next port up.
-/// Nothing binds this socket -- it is a name for a direction, so that every replaying harness gives
-/// the same recording the same addresses and a session's per-peer state lines up.
-#[must_use]
-pub fn peer(pair: u16) -> SocketAddr {
-    SocketAddr::from(([127, 0, 0, 1], 19_000 + pair))
-}
+use super::super::recording::parse;
+pub use super::super::recording::{peer, CaptureError, Datagram};
 
 /// Where the raw recordings live, relative to the workspace root.
 ///
@@ -109,25 +54,6 @@ pub fn without_disconnect() -> &'static [&'static str] {
     })
 }
 
-/// A capture file that is missing, unreadable, or not shaped like one.
-#[derive(Debug, thiserror::Error)]
-pub enum CaptureError {
-    #[error("{path}: {source}")]
-    Io {
-        path: String,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("{path} line {line}: {what}")]
-    Malformed {
-        path: String,
-        line: usize,
-        what: String,
-    },
-    #[error("{path} records no datagram at all")]
-    Empty { path: String },
-}
-
 /// Every datagram of the recording at `path`, in recorded order.
 ///
 /// # Errors
@@ -141,38 +67,7 @@ pub fn load(path: &Path) -> Result<Vec<Datagram>, CaptureError> {
         path: name.clone(),
         source,
     })?;
-    let mut out = Vec::new();
-    for (i, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let bad = |what: &str| CaptureError::Malformed {
-            path: name.clone(),
-            line: i + 1,
-            what: what.to_owned(),
-        };
-        let t: f64 = field(line, "\"t\"")
-            .ok_or_else(|| bad("no t"))?
-            .parse()
-            .map_err(|_| bad("t is not a number"))?;
-        let dir = field(line, "\"dir\"").ok_or_else(|| bad("no dir"))?;
-        let pair: u16 = field(line, "\"pair\"")
-            .ok_or_else(|| bad("no pair"))?
-            .parse()
-            .map_err(|_| bad("pair is not a number"))?;
-        let data = field(line, "\"data\"").ok_or_else(|| bad("no data"))?;
-        let raw = hex(data).ok_or_else(|| bad("data is not hex"))?;
-        out.push(Datagram {
-            t,
-            c2s: dir == "c2s",
-            pair,
-            raw,
-        });
-    }
-    if out.is_empty() {
-        return Err(CaptureError::Empty { path: name });
-    }
-    Ok(out)
+    parse(&name, &text)
 }
 
 /// [`load`] by recording name -- its content slug, the file stem -- under
@@ -208,24 +103,6 @@ pub fn shared_session(name: &str) -> &'static [Datagram] {
         .leak();
     cache.insert(name.to_owned(), d);
     d
-}
-
-/// The value of one `"key"` on a one-object JSON line, as text.
-fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    let at = line.find(key)?;
-    let rest = line[at + key.len()..].trim_start_matches([' ', ':', '"']);
-    let end = rest.find(['"', ',', '}'])?;
-    Some(&rest[..end])
-}
-
-fn hex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    s.as_bytes()
-        .chunks(2)
-        .map(|c| u8::from_str_radix(std::str::from_utf8(c).ok()?, 16).ok())
-        .collect()
 }
 
 #[cfg(test)]

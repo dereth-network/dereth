@@ -72,6 +72,7 @@ web-time = "0.2"
 blake3.workspace = true
 
 [dev-dependencies]
+dereth-client-net = { path = "../client-net", features = ["test-support"] }
 dereth-dat = { path = "../dat", features = ["test-support"] }
 
 [lints]

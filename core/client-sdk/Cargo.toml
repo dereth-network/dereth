@@ -13,9 +13,8 @@ publish = false
 # expressed in. It adds no code of its own; each re-export is the crate itself, so a type reached
 # through the facade is the same type reached directly.
 [features]
-# `dat::testing`, where tests find the retail dats: for a crate that reaches `dereth-dat` only
-# through this facade, enabled in its `[dev-dependencies]`.
-test-support = ["dereth-dat/test-support"]
+# Fixture and mock helpers reached through this facade, enabled by test dependencies.
+test-support = ["dereth-dat/test-support", "dereth-client-net/test-support"]
 
 [dependencies]
 dereth-client-runtime = { path = "../client-runtime" }

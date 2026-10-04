@@ -59,7 +59,7 @@ dereth-physics = { path = "../../core/physics" }
 # datagram and parse the ones a scenario sends, so the crate that frames and parses a datagram is
 # library code here. Path-only, and nothing in `tools/`,
 # `core/*/src` or `dereth/*/src` gains an edge, because nothing there may depend on this crate at all.
-dereth-client-net = { path = "../../core/client-net" }
+dereth-client-net = { path = "../../core/client-net", features = ["test-support"] }
 dereth-transport = { path = "../../core/transport" }
 thiserror.workspace = true
 
