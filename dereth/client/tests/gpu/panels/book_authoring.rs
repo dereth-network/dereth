@@ -794,9 +794,12 @@ fn book_open_builds_real_page_menu_rows_and_physical_choices_turn_or_refuse() {
     click_handle(&mut app, second);
     settle(&mut app);
     assert_eq!(
-        gameplay(&mut app).book.cur_page,
-        1,
-        "the physical row click turns to page two"
+        (
+            app.objects_mut().world.book_session_view().current_page,
+            gameplay(&mut app).book.cur_page,
+        ),
+        (1, 1),
+        "the physical row click turns the shared session and its projection to page two"
     );
     assert_eq!(gameplay(&mut app).book.page_body, "anonymous second page");
     assert!(

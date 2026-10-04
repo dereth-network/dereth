@@ -250,8 +250,9 @@ impl World {
                     })
                     .unwrap_or_default();
                 let revision = self.book.session.revision;
+                let current = self.book.session.current_page;
                 self.book.turn(page, player, &name);
-                if self.book.session.revision == revision {
+                if page != current && self.book.session.revision == revision {
                     self.book.changed();
                 }
             }
@@ -420,6 +421,17 @@ mod tests {
         let mut world = World::new();
         world.player = Some(ObjectId(7));
         open(&mut world, 5, 3, 4);
+        assert!(world.take_book_requests().is_empty());
+        let initial = world.book_session_view();
+        world.book_action(BookAction::Turn {
+            book: ObjectId(5),
+            page: initial.current_page,
+        });
+        assert_eq!(
+            world.book_session_view(),
+            initial,
+            "an unchanged selection does not invalidate the displayed page menu"
+        );
         assert!(world.take_book_requests().is_empty());
         world.book_action(BookAction::Turn {
             book: ObjectId(5),

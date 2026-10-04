@@ -7,9 +7,9 @@
 
 use crate::combat::game_view_clicks::{seed_container, seed_item, seed_player};
 
-use dereth_client::interaction::Interaction;
 use dereth_client_model::inventory::SplitState;
 use dereth_client_model::RecordingRequests;
+use dereth_client_model::World;
 use dereth_primitives::{ObjectId, ServerTime};
 
 /// Behaviour: inventory.lock.an-inventory-request-wedges-until-answered
