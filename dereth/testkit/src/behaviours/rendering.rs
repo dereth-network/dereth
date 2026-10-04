@@ -834,6 +834,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.preferences.multiple-pass-alpha-s-soft-edges-go-out-before-translucent-objects",
+        says: "With Multiple Pass Alpha on, the soft edges of trees and other cut-out textures \
+               are drawn before the translucent things around them, so a translucent object \
+               standing in front of a tree (a lifestone's crystal, smoke) shows over the tree's \
+               soft edge rather than under it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MULTIPASS-ALPHA-ORDER"),
+        station: "dereth-client::gpu::rendering::object_part_submission::with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_flush",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.preferences.render-options-reach-projection-and-device",
         says: "The render settings saved in the player's profile reach the picture: field of view \
                and aspect ratio set the projection, degrade distance and graphics performance set \

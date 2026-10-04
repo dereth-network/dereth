@@ -1196,3 +1196,80 @@ fn deferring_the_transparent_subsets_is_visible_and_the_control_arm_queues_nothi
     }
     eprintln!("alpha lists differential: {best} of {total} px at the widest station");
 }
+
+/// Behaviour: rendering.preferences.multiple-pass-alpha-s-soft-edges-go-out-before-translucent-objects
+/// **Rejecting.** With "Multiple Pass Alpha" on, the soft second pass of every cut-out (the
+/// scenery's trees and the creatures' own) belongs to the clip list, and every flush drains the
+/// whole clip list before any of the alpha list. So within one flush no second pass follows a
+/// blended draw: a translucent object standing in front of a tree is blended over the tree's soft
+/// edge, and never has that edge painted over it.
+#[test]
+fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_flush() {
+    use dereth_client::world::AlphaDraw;
+    let store = store();
+    let mut gpu = warp();
+    let mut r = populated("first-login-walk-jump");
+    let cfg = SceneConfig {
+        landblock: r.landblock,
+        character: false,
+        land_radius: 1,
+        // The trees: the scenery is what carries the landscape's clip-mapped batches.
+        scenery_radius: 1,
+        part_degrade_levels: true,
+        part_billboards: true,
+        part_depth_sort: true,
+        part_alpha_lists: true,
+        object_viewcone: false,
+        render: dereth_client::render_prefs::RenderPreferences {
+            multi_pass_alpha: true,
+            ..dereth_client::render_prefs::RenderPreferences::default()
+        },
+        ..SceneConfig::default()
+    };
+    let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
+    scene.set_weather_enabled(false);
+    let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
+
+    let mut both = 0usize;
+    for (i, dz) in [8.0f32, 25.0, 80.0].into_iter().enumerate() {
+        scene.camera.position = Vec3::new(centre.x, centre.y, centre.z + dz);
+        // LINT-OK: a station index.
+        #[allow(clippy::cast_precision_loss)]
+        let t = 40.0 + i as f64;
+        frame(&store, &mut gpu, &mut scene, &mut r.objects, t);
+        let order = scene.drawn_alpha_order();
+        let count = |k: AlphaDraw| order.iter().filter(|d| **d == k).count();
+        eprintln!(
+            "  +{dz:3.0} m: {} flush(es); clip: {} part, {} part second, {} static second, \
+             {} particle second; blend: {} part, {} static",
+            count(AlphaDraw::FlushStart),
+            count(AlphaDraw::PartClip),
+            count(AlphaDraw::PartForced),
+            count(AlphaDraw::StaticForced),
+            count(AlphaDraw::ParticleForced),
+            count(AlphaDraw::PartBlend),
+            count(AlphaDraw::StaticBlend),
+        );
+        for (f, flush) in order.split(|d| *d == AlphaDraw::FlushStart).enumerate() {
+            if let Some(b) = flush.iter().position(|d| !d.is_clip_list()) {
+                if let Some(late) = flush[b..].iter().find(|d| d.is_clip_list()) {
+                    panic!(
+                        "station {i}, flush {f}: {late:?} was drawn after {:?}, so a blended \
+                         draw lies under a soft edge it stands in front of",
+                        flush[b]
+                    );
+                }
+            }
+            let forced = flush
+                .iter()
+                .any(|d| matches!(d, AlphaDraw::StaticForced | AlphaDraw::PartForced));
+            if forced && flush.contains(&AlphaDraw::PartBlend) {
+                both += 1;
+            }
+        }
+    }
+    assert!(
+        both > 0,
+        "no flush held both a soft second pass and a blended part, so the order was never tested"
+    );
+}

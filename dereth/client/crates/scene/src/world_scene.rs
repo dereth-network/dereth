@@ -241,6 +241,42 @@ mod imp {
         pub multipass: usize,
     }
 
+    /// One draw out of the alpha lists, by kind, as [`WorldScene::drawn_alpha_order`] records
+    /// them in device order.
+    ///
+    /// The client keeps one clip list and one alpha list and drains the whole clip list before
+    /// any of the alpha list at every flush, so within one flush (from one [`Self::FlushStart`] to
+    /// the next) no clip-list kind follows a blend-list kind.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum AlphaDraw {
+        /// A flush begins: a building's own, or the object pass's, which the frame's blended
+        /// landscape batches then continue.
+        FlushStart,
+        /// Clip list: an animated part's alpha-tested entry.
+        PartClip,
+        /// Clip list: an animated part's "Multiple Pass Alpha" second pass.
+        PartForced,
+        /// Clip list: a landscape batch's "Multiple Pass Alpha" second pass.
+        StaticForced,
+        /// Clip list: a particle's "Multiple Pass Alpha" second pass.
+        ParticleForced,
+        /// Alpha list: an animated part's blended entry.
+        PartBlend,
+        /// Alpha list: a landscape batch's blended draw.
+        StaticBlend,
+    }
+
+    impl AlphaDraw {
+        /// Whether this draw belongs to the clip list.
+        #[must_use]
+        pub const fn is_clip_list(self) -> bool {
+            matches!(
+                self,
+                Self::PartClip | Self::PartForced | Self::StaticForced | Self::ParticleForced
+            )
+        }
+    }
+
     /// Which of the two points the client issues its alpha flush from.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum AlphaFlush {
@@ -953,6 +989,8 @@ mod imp {
         /// building's own flush inside the walk has nothing on this list yet, and the frame's
         /// flush drains it first, clip list before alpha list.
         frame_multipass_pending: std::cell::RefCell<Vec<(i32, i32)>>,
+        /// Same bracket: the alpha-list draws in device order. See [`AlphaDraw`].
+        frame_alpha_order: std::cell::RefCell<Vec<AlphaDraw>>,
         /// What the per-object frustum test did on the last [`WorldScene::draw`].
         frame_object_cone: std::cell::Cell<ObjectConeStats>,
         /// Same bracket: one entry per subset of every part the last
@@ -5010,6 +5048,11 @@ mod imp {
             self.draw.drawn_landscape_alpha()
         }
 
+        /// [`SceneDraw::drawn_alpha_order`] on this scene.
+        pub fn drawn_alpha_order(&self) -> Vec<AlphaDraw> {
+            self.draw.drawn_alpha_order()
+        }
+
         /// [`SceneDraw::drawn_object_cone`] on this scene.
         pub fn drawn_object_cone(&self) -> ObjectConeStats {
             self.draw.drawn_object_cone()
@@ -5339,6 +5382,7 @@ mod imp {
                 frame_landscape_alpha: std::cell::Cell::new(LandscapeAlphaStats::default()),
                 frame_alpha_pending: std::cell::RefCell::new(Vec::new()),
                 frame_multipass_pending: std::cell::RefCell::new(Vec::new()),
+                frame_alpha_order: std::cell::RefCell::new(Vec::new()),
                 frame_object_cone: std::cell::Cell::new(ObjectConeStats::default()),
                 frame_part_order: std::cell::RefCell::new(Vec::new()),
                 frame_drawn_cells: std::cell::RefCell::new(None),
@@ -10778,6 +10822,39 @@ mod imp {
                         self.current_detail(dereth_world_render::detail::DetailClass::Building),
                     )?;
                 }
+                // "Multiple Pass Alpha": a clip-mapped subset is drawn in place, where its cell
+                // draws it, **and** queued on the clip list, so its second pass goes out with the
+                // next flush (the next building's, or the frame's) ahead of everything on the
+                // alpha list. Drawing the first pass here, inside the walk, is what lets a
+                // building's own flush carry the second.
+                if self.cfg.render.multi_pass_alpha {
+                    let detail =
+                        self.current_detail(dereth_world_render::detail::DetailClass::Building);
+                    let mut queued = false;
+                    let mut stats = self.frame_landscape_alpha.get();
+                    for batch in block
+                        .blended
+                        .iter()
+                        .filter(|b| static_multipass_member(b, detail.is_some()))
+                    {
+                        submit_static_batch(
+                            gpu,
+                            per_frame,
+                            &world,
+                            batch,
+                            sun_set.as_deref(),
+                            detail,
+                        )?;
+                        stats.clip += usize::from(batch.key.alpha_test);
+                        queued = true;
+                    }
+                    self.frame_landscape_alpha.set(stats);
+                    if queued {
+                        self.frame_multipass_pending
+                            .borrow_mut()
+                            .push((slot.block_x, slot.block_y));
+                    }
+                }
                 // This block's translucency is now "queued": the next building's
                 // `FlushAlphaList(0.0)` is what draws it, and the frame's own is what draws the
                 // rest.
@@ -10808,7 +10885,16 @@ mod imp {
                 let Some(block) = self.blocks.get(&(slot.block_x, slot.block_y)) else {
                     continue;
                 };
-                if !block.blended.iter().any(static_clip_list_member) {
+                // With "Multiple Pass Alpha" on, the clip-mapped batches were drawn inside the
+                // walk; what is left here is the alpha-tested rest (an `Alpha | ClipMap` surface,
+                // a shell under the building detail texture).
+                let detail =
+                    self.current_detail(dereth_world_render::detail::DetailClass::Building);
+                let in_walk = |b: &StaticBatch| {
+                    self.cfg.render.multi_pass_alpha && static_multipass_member(b, detail.is_some())
+                };
+                let here = |b: &&StaticBatch| static_clip_list_member(b) && !in_walk(b);
+                if !block.blended.iter().any(|b| here(&b)) {
                     continue;
                 }
                 let world = world_constants(&Frame::new(
@@ -10816,7 +10902,7 @@ mod imp {
                     Quat::IDENTITY,
                 ));
                 let mut stats = self.frame_landscape_alpha.get();
-                for batch in block.blended.iter().filter(|b| static_clip_list_member(b)) {
+                for batch in block.blended.iter().filter(here) {
                     submit_static_batch(
                         gpu,
                         per_frame,
@@ -10831,13 +10917,6 @@ mod imp {
                     stats.blend_before_clip = stats.blend_before_clip.max(stats.blend);
                 }
                 self.frame_landscape_alpha.set(stats);
-                // "Multiple Pass Alpha" queues each clip-mapped subset on the clip list as well as
-                // drawing it, so this block owes the frame's flush a second pass.
-                if self.cfg.render.multi_pass_alpha {
-                    self.frame_multipass_pending
-                        .borrow_mut()
-                        .push((slot.block_x, slot.block_y));
-                }
             }
 
             // --- the blended list, queued --------------------------------------------------
@@ -10934,6 +11013,7 @@ mod imp {
             // cannot leak its unflushed blocks into the next one's flush.
             self.frame_alpha_pending.borrow_mut().clear();
             self.frame_multipass_pending.borrow_mut().clear();
+            self.frame_alpha_order.borrow_mut().clear();
             self.frame_landscape_alpha
                 .set(LandscapeAlphaStats::default());
             let (w, h) = gpu.size();
@@ -11017,6 +11097,11 @@ mod imp {
                      outside_views: &[dereth_world_render::cells::clip::ViewPoly]|
                      -> Result<(), RenderError> {
                         *s = true;
+                        let particles = if self.cfg.particles {
+                            self.collect_particles(ws, Some(building_cells), true)
+                        } else {
+                            Vec::new()
+                        };
                         self.draw_object_pass(
                             ws,
                             gpu,
@@ -11033,29 +11118,19 @@ mod imp {
                             a,
                             n,
                             t,
+                            &mut |gpu| {
+                                self.clip_list_tail(ws, gpu, &per_frame, &particles, &light_set, ps)
+                            },
                         )?;
-                        let particles = if self.cfg.particles {
-                            self.collect_particles(ws, Some(building_cells), true)
-                        } else {
-                            Vec::new()
-                        };
-                        if !particles.is_empty() {
-                            crate::particles::draw(
-                                gpu,
-                                &self.particle_gfx,
-                                &per_frame,
-                                ws.camera.position,
-                                &particles,
-                                &self.degrade.governor.level(),
-                                &self.degrade_globals(ws),
-                                // `minimize_object_lighting` per particle.
-                                self.cfg.object_lighting.then_some(
-                                    &light_set as crate::particles::ParticleLightSet<'_>,
-                                ),
-                                ps,
-                                self.cfg.render.multi_pass_alpha,
-                            )?;
-                        }
+                        self.draw_particles(
+                            ws,
+                            gpu,
+                            &per_frame,
+                            &particles,
+                            &light_set,
+                            ps,
+                            crate::particles::ParticlePhase::Rest,
+                        )?;
                         Ok(())
                     };
                 self.draw_inside(
@@ -11067,6 +11142,22 @@ mod imp {
                     &mut after_outdoors,
                 )?;
             }
+            // Particle parts are ordinary shadow parts of their one owning cell. On a
+            // split indoor frame, outdoor/building-cell particles were already drawn with the
+            // pre-clear object pass; this stage takes only particles in cells reached by the
+            // main portal traversal after the clear. An unsplit frame retains the original one
+            // global set. Their second passes under "Multiple Pass Alpha" go out with the object
+            // pass's clip list; the rest are drawn last within the stage, because their surfaces
+            // are almost always alpha or additive.
+            let parts = if self.cfg.particles {
+                if split {
+                    self.collect_particles(ws, Some(&interior_cells), false)
+                } else {
+                    self.collect_particles(ws, None, true)
+                }
+            } else {
+                Vec::new()
+            };
             self.draw_object_pass(
                 ws,
                 gpu,
@@ -11087,6 +11178,16 @@ mod imp {
                 &mut alpha,
                 &mut counts,
                 &mut trace,
+                &mut |gpu| {
+                    self.clip_list_tail(
+                        ws,
+                        gpu,
+                        &per_frame,
+                        &parts,
+                        &light_set,
+                        &mut particle_stats,
+                    )
+                },
             )?;
             self.frame_object_cone.set(cone);
             self.frame_alpha_lists.set(alpha);
@@ -11103,44 +11204,86 @@ mod imp {
             self.flush_pending_alpha_list(gpu, &per_frame)?;
 
             // --- the particles -------------------------------------------------------------
-            // Particle parts are ordinary shadow parts of their one owning cell. On a
-            // split indoor frame, outdoor/building-cell particles were already drawn with the
-            // pre-clear object pass; this tail draws only particles in cells reached by the
-            // main portal traversal after the clear. An unsplit frame retains the original one
-            // global tail. Each call keeps particles last within its object stage because their
-            // surfaces are almost always alpha or additive.
-            let parts = if self.cfg.particles {
-                if split {
-                    self.collect_particles(ws, Some(&interior_cells), false)
-                } else {
-                    self.collect_particles(ws, None, true)
-                }
-            } else {
-                Vec::new()
-            };
-            if !parts.is_empty() {
-                crate::particles::draw(
-                    gpu,
-                    &self.particle_gfx,
-                    &per_frame,
-                    ws.camera.position,
-                    &parts,
-                    // The governor's outputs; an emitter's particle object shares at its
-                    // particle distance.
-                    &self.degrade.governor.level(),
-                    // Live degrade inputs, so that `get_degrade`'s thresholds
-                    // slide with the measured frame rate instead of sitting on `ideal_dist`.
-                    &self.degrade_globals(ws),
-                    // `minimize_object_lighting` per particle.
-                    self.cfg
-                        .object_lighting
-                        .then_some(&light_set as crate::particles::ParticleLightSet<'_>),
-                    &mut particle_stats,
-                    self.cfg.render.multi_pass_alpha,
-                )?;
-            }
+            // The rest of this stage's particles, collected above the object pass.
+            self.draw_particles(
+                ws,
+                gpu,
+                &per_frame,
+                &parts,
+                &light_set,
+                &mut particle_stats,
+                crate::particles::ParticlePhase::Rest,
+            )?;
             self.frame_particles.set(particle_stats);
             Ok(())
+        }
+
+        /// The end of an object pass's clip list: the second passes "Multiple Pass Alpha" queued
+        /// for the landscape's clip-mapped batches, then this stage's particles that the option
+        /// draws twice (both passes). It runs after the parts' own clip entries and before their
+        /// first blend entry, so a translucent object drawn from the alpha list blends over the
+        /// soft edge of a tree rather than having the edge painted over it.
+        fn clip_list_tail(
+            &self,
+            ws: &WorldState,
+            gpu: &mut Gpu,
+            per_frame: &PerFrameConstants,
+            particles: &[crate::particles::ParticlePart],
+            light_set: &dyn Fn(Vec3, f32, bool) -> Vec<D3dLight>,
+            stats: &mut crate::particles::ParticleStats,
+        ) -> Result<(), RenderError> {
+            self.drain_multipass_pending(gpu, per_frame)?;
+            if self.cfg.render.multi_pass_alpha {
+                let forced = self.draw_particles(
+                    ws,
+                    gpu,
+                    per_frame,
+                    particles,
+                    light_set,
+                    stats,
+                    crate::particles::ParticlePhase::Multipass,
+                )?;
+                self.frame_alpha_order
+                    .borrow_mut()
+                    .extend(std::iter::repeat_n(AlphaDraw::ParticleForced, forced));
+            }
+            Ok(())
+        }
+
+        /// One phase of a stage's particle draws; see [`crate::particles::draw`]. Returns how
+        /// many forced second passes were drawn.
+        #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
+        fn draw_particles(
+            &self,
+            ws: &WorldState,
+            gpu: &mut Gpu,
+            per_frame: &PerFrameConstants,
+            particles: &[crate::particles::ParticlePart],
+            light_set: &dyn Fn(Vec3, f32, bool) -> Vec<D3dLight>,
+            stats: &mut crate::particles::ParticleStats,
+            phase: crate::particles::ParticlePhase,
+        ) -> Result<usize, RenderError> {
+            if particles.is_empty() {
+                return Ok(0);
+            }
+            crate::particles::draw(
+                gpu,
+                &self.particle_gfx,
+                per_frame,
+                ws.camera.position,
+                particles,
+                // The governor's outputs; an emitter's particle object shares at its
+                // particle distance.
+                &self.degrade.governor.level(),
+                // Live degrade inputs, so that `get_degrade`'s thresholds
+                // slide with the measured frame rate instead of sitting on `ideal_dist`.
+                &self.degrade_globals(ws),
+                // `minimize_object_lighting` per particle.
+                self.cfg.object_lighting.then_some(light_set),
+                stats,
+                self.cfg.render.multi_pass_alpha,
+                phase,
+            )
         }
 
         /// One of cell rendering's two object passes.
@@ -11188,6 +11331,12 @@ mod imp {
             alpha_out: &mut AlphaListStats,
             counts_out: &mut (u32, u32),
             trace_out: &mut Vec<PartSubsetDraw>,
+            // The rest of this flush's **clip list**, drawn after the parts' clip entries and
+            // before their blend entries: the second passes "Multiple Pass Alpha" queued for the
+            // landscape's statics and for this stage's particles. The client has one pair of lists
+            // and drains the whole clip list before any of the alpha list, so a translucent object
+            // blends over the soft edge of a cut-out instead of under it.
+            clip_tail: &mut dyn FnMut(&mut Gpu) -> Result<(), RenderError>,
         ) -> Result<(), RenderError> {
             // The landscape half takes the objects in each outdoor landcell and in the building
             // env cells that building drawing reached. The per-cell object draw's later half takes the
@@ -11594,8 +11743,19 @@ mod imp {
             // Flushing the alpha list at 0.0 draws the clip list in insertion order, then the blend
             // list. `ready(0.0)` is always true and is *called* rather than assumed,
             // so the threshold has one statement (`AlphaLists::ready`) and not a second copy here.
+            self.frame_alpha_order
+                .borrow_mut()
+                .push(AlphaDraw::FlushStart);
+            let mut tail_drawn = false;
             if pass.lists.ready(0.0) {
-                for e in pass.lists.take_draw_order() {
+                let clip_entries = pass.lists.clip_len();
+                for (k, e) in pass.lists.take_draw_order().into_iter().enumerate() {
+                    // The clip list is exhausted: the rest of it goes down before the first blend
+                    // entry.
+                    if k == clip_entries {
+                        clip_tail(gpu)?;
+                        tail_drawn = true;
+                    }
                     // The entry's `mesh` handle indexes `queued`, which is the push order; its
                     // `surface_num` is the client's own surface number and is *not* the lookup key,
                     // because two subsets of one part push two entries with different surface numbers
@@ -11635,9 +11795,23 @@ mod imp {
                         force_alpha: e.multipass,
                         ..q.probe
                     });
+                    self.frame_alpha_order
+                        .borrow_mut()
+                        .push(if k < clip_entries {
+                            if e.multipass {
+                                AlphaDraw::PartForced
+                            } else {
+                                AlphaDraw::PartClip
+                            }
+                        } else {
+                            AlphaDraw::PartBlend
+                        });
                     stats.flushed += 1;
                     stats.multipass += usize::from(e.multipass);
                 }
+            }
+            if !tail_drawn {
+                clip_tail(gpu)?;
             }
             alpha_out.parts += stats.parts;
             alpha_out.clip += stats.clip;
@@ -11756,6 +11930,13 @@ mod imp {
         #[must_use]
         pub fn drawn_landscape_alpha(&self) -> LandscapeAlphaStats {
             self.frame_landscape_alpha.get()
+        }
+
+        /// Same bracket: every alpha-list draw of the last [`Self::draw`] in device order, by
+        /// kind, with an [`AlphaDraw::FlushStart`] where each flush begins. See [`AlphaDraw`].
+        #[must_use]
+        pub fn drawn_alpha_order(&self) -> Vec<AlphaDraw> {
+            self.frame_alpha_order.borrow().clone()
         }
 
         /// What did on the last
@@ -12492,24 +12673,43 @@ mod imp {
                 .object_lighting
                 .then(|| self.object_light_set(Vec3::ZERO, 0.0, true));
             let detail = self.current_detail(dereth_world_render::detail::DetailClass::Building);
+            // A building's flush is a whole flush of its own: the clip list first, which here is
+            // the second passes "Multiple Pass Alpha" queued in the cells walked so far.
+            if when == AlphaFlush::Building {
+                self.frame_alpha_order
+                    .borrow_mut()
+                    .push(AlphaDraw::FlushStart);
+                self.drain_multipass_pending(gpu, per_frame)?;
+            }
+            // A clip-mapped subset the option queued is on the clip list, not this one, even when
+            // its surface blends (`Translucent | ClipMap`): it was drawn inside the walk and its
+            // second pass went out above.
+            let blended = |b: &&StaticBatch| {
+                static_alpha_list_member(b)
+                    && !(self.cfg.render.multi_pass_alpha
+                        && static_multipass_member(b, detail.is_some()))
+            };
             let mut stats = self.frame_landscape_alpha.get();
             for key in pending {
                 let Some(block) = self.blocks.get(key) else {
                     continue;
                 };
-                if !block.blended.iter().any(static_alpha_list_member) {
+                if !block.blended.iter().any(|b| blended(&b)) {
                     continue;
                 }
                 let world = world_constants(&Frame::new(
                     Vec3::new(block.origin.0, block.origin.1, 0.0),
                     Quat::IDENTITY,
                 ));
-                for batch in block.blended.iter().filter(|b| static_alpha_list_member(b)) {
+                for batch in block.blended.iter().filter(blended) {
                     submit_static_batch(gpu, per_frame, &world, batch, sun_set.as_deref(), detail)?;
                     match when {
                         AlphaFlush::Building => stats.blend_early += 1,
                         AlphaFlush::Frame => stats.blend += 1,
                     }
+                    self.frame_alpha_order
+                        .borrow_mut()
+                        .push(AlphaDraw::StaticBlend);
                 }
                 flushed.insert(*key);
             }
@@ -12517,27 +12717,31 @@ mod imp {
             Ok(())
         }
 
-        /// The landscape's clip-list entries under "Multiple Pass Alpha": every alpha-tested
-        /// batch of `blocks` that the option queued, drawn again with surface setup's force-alpha
-        /// argument.
+        /// The landscape's clip-list entries under "Multiple Pass Alpha": every clip-mapped
+        /// batch of the blocks [`Self::frame_multipass_pending`] holds, drawn again with surface
+        /// setup's force-alpha argument, in the order the walk drew their first passes. Drains the
+        /// queue, so the next flush starts from what the walk queues after this one.
         ///
         /// That state blends `SRCALPHA / INVSRCALPHA`, drops the alpha test and writes no depth,
         /// and keeps the `LESS` depth test. The batch's first pass wrote depth wherever its
         /// texels passed the alpha test, so this pass fails there and lands only on the texels
         /// the test cut away, blending the soft edge of a leaf over whatever is behind it.
-        fn flush_multipass_list(
+        fn drain_multipass_pending(
             &self,
             gpu: &mut Gpu,
             per_frame: &PerFrameConstants,
-            blocks: &[(i32, i32)],
         ) -> Result<(), RenderError> {
+            let blocks = std::mem::take(&mut *self.frame_multipass_pending.borrow_mut());
+            if blocks.is_empty() {
+                return Ok(());
+            }
             let sun_set = self
                 .cfg
                 .object_lighting
                 .then(|| self.object_light_set(Vec3::ZERO, 0.0, true));
             let detail = self.current_detail(dereth_world_render::detail::DetailClass::Building);
             let mut stats = self.frame_landscape_alpha.get();
-            for key in blocks {
+            for key in &blocks {
                 let Some(block) = self.blocks.get(key) else {
                     continue;
                 };
@@ -12560,6 +12764,9 @@ mod imp {
                         true,
                     )?;
                     stats.multipass += 1;
+                    self.frame_alpha_order
+                        .borrow_mut()
+                        .push(AlphaDraw::StaticForced);
                 }
             }
             self.frame_landscape_alpha.set(stats);
@@ -12575,11 +12782,10 @@ mod imp {
             gpu: &mut Gpu,
             per_frame: &PerFrameConstants,
         ) -> Result<(), RenderError> {
-            // The clip list drains first: the second passes "Multiple Pass Alpha" owes.
-            let multipass = std::mem::take(&mut *self.frame_multipass_pending.borrow_mut());
-            if !multipass.is_empty() {
-                self.flush_multipass_list(gpu, per_frame, &multipass)?;
-            }
+            // The clip list drains first. The object pass has already drawn these second passes
+            // between its own clip and blend entries; this finds the queue empty unless no object
+            // pass ran.
+            self.drain_multipass_pending(gpu, per_frame)?;
             let pending = std::mem::take(&mut *self.frame_alpha_pending.borrow_mut());
             if pending.is_empty() {
                 return Ok(());
@@ -14660,19 +14866,22 @@ mod imp {
         static_subset_visible(batch) && batch.key.alpha_blend && batch.key.alpha_test
     }
 
-    /// Whether "Multiple Pass Alpha", when on, queues this alpha-tested batch for a second pass
+    /// Whether "Multiple Pass Alpha", when on, queues this clip-mapped batch for a second pass
     /// at the alpha flush as well as drawing it in place.
     ///
     /// Two things decide it besides the option: the mesh draw consults the alpha lists at all
     /// (not while a detail surface is installed, which for a static is a building's shell drawn
     /// with the building detail texture), and the subset's mask is the clip-mapped one, 8. An
-    /// `Alpha | ClipMap` surface is alpha-tested too but is mask 2, so it has one pass.
+    /// `Alpha | ClipMap` surface is alpha-tested too but is mask 2, so it has one pass. A
+    /// `Translucent | ClipMap` surface is mask 8 and so takes both passes, although surface setup
+    /// draws its first one blended rather than alpha-tested.
     fn static_multipass_member(batch: &StaticBatch, detail_installed: bool) -> bool {
         use dereth_world_render::consts::S_ALPHA_DELAY_MASK;
         use dereth_world_render::objects::draw::{
             classify_subset_passes, mesh_draw_defers, subset_mask,
         };
-        static_clip_list_member(batch)
+        static_subset_visible(batch)
+            && batch.key.alpha_blend
             && mesh_draw_defers(
                 false,
                 S_ALPHA_DELAY_MASK,
@@ -16557,6 +16766,11 @@ mod imp {
             self.draw.drawn_landscape_alpha()
         }
 
+        /// [`SceneDraw::drawn_alpha_order`] on this view.
+        pub fn drawn_alpha_order(&self) -> Vec<AlphaDraw> {
+            self.draw.drawn_alpha_order()
+        }
+
         /// [`SceneDraw::drawn_object_cone`] on this view.
         pub fn drawn_object_cone(&self) -> ObjectConeStats {
             self.draw.drawn_object_cone()
@@ -17021,6 +17235,11 @@ mod imp {
         /// [`SceneDraw::drawn_landscape_alpha`] on this view.
         pub fn drawn_landscape_alpha(&self) -> LandscapeAlphaStats {
             self.draw.drawn_landscape_alpha()
+        }
+
+        /// [`SceneDraw::drawn_alpha_order`] on this view.
+        pub fn drawn_alpha_order(&self) -> Vec<AlphaDraw> {
+            self.draw.drawn_alpha_order()
         }
 
         /// [`SceneDraw::drawn_object_cone`] on this view.

@@ -541,6 +541,12 @@ pub(crate) fn prepare(
 /// clip-before-alpha split is reproduced exactly, because that split is what *breaks* depth order
 /// in the original and is therefore visible.
 ///
+/// `phase` splits the frame's particles at the clip list's end. [`ParticlePhase::Multipass`] is
+/// every subset "Multiple Pass Alpha" draws twice, both passes, which the caller puts down with
+/// the rest of the flush's clip list, ahead of everything on the alpha list.
+/// [`ParticlePhase::Rest`] is everything else, as before. Returns how many forced second passes
+/// were drawn.
+///
 /// # Errors
 /// Any device failure from `Gpu::draw_dynamic`.
 #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
@@ -556,13 +562,25 @@ pub(crate) fn draw(
     stats: &mut ParticleStats,
     // The live `Render.MultiPassAlpha` preference.
     multi_pass_alpha: bool,
-) -> Result<(), RenderError> {
-    let ready = prepare(geometry, viewer, parts, share, globals, light_set, stats);
+    phase: ParticlePhase,
+) -> Result<usize, RenderError> {
+    // The two phases prepare the same parts; only one of them may count them.
+    let mut scratch = ParticleStats::default();
+    let counted = match phase {
+        ParticlePhase::Rest => &mut *stats,
+        ParticlePhase::Multipass => &mut scratch,
+    };
+    let ready = prepare(geometry, viewer, parts, share, globals, light_set, counted);
+    let mut forced = 0;
     for (i, j, force_alpha) in draw_passes(&ready, geometry, multi_pass_alpha) {
         let r = &ready[i];
         let Some(m) = geometry.get(r.gfx).and_then(|g| g.meshes.get(j)) else {
             continue;
         };
+        if (phase == ParticlePhase::Multipass) != subset_multipass(m, multi_pass_alpha) {
+            continue;
+        }
+        forced += usize::from(force_alpha);
         // The same keys every animated part picks between. A particle whose
         // `1 - t` is not 0xFF is a part whose material has alpha enabled.
         let key = *crate::world::part_subset_key(m, r.texture_factor >> 24 != 0xFF, force_alpha);
@@ -611,7 +629,29 @@ pub(crate) fn draw(
         stats.batches += 1;
     }
     stats.meshes = geometry.len();
-    Ok(())
+    Ok(forced)
+}
+
+/// Which half of the frame's particle draws [`draw`] puts down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParticlePhase {
+    /// The subsets "Multiple Pass Alpha" draws twice: the in-place pass and the forced one.
+    Multipass,
+    /// Everything else.
+    Rest,
+}
+
+/// Whether "Multiple Pass Alpha" draws this subset twice: the option is on and the subset's mask
+/// is the clip-mapped one, 8.
+#[must_use]
+pub(crate) fn subset_multipass(m: &crate::world::PartMesh, multi_pass_alpha: bool) -> bool {
+    multi_pass_alpha
+        && dereth_world_render::objects::draw::classify_subset_passes(
+            m.subset_mask,
+            dereth_world_render::consts::S_ALPHA_DELAY_MASK,
+            true,
+        )
+        .multipass
 }
 
 /// [`draw_passes`] with the option off, without the flags.
@@ -646,15 +686,7 @@ pub(crate) fn draw_passes(
     geometry: &ParticleGeometry,
     multi_pass_alpha: bool,
 ) -> Vec<(usize, usize, bool)> {
-    let multipass = |m: &crate::world::PartMesh| {
-        multi_pass_alpha
-            && dereth_world_render::objects::draw::classify_subset_passes(
-                m.subset_mask,
-                dereth_world_render::consts::S_ALPHA_DELAY_MASK,
-                true,
-            )
-            .multipass
-    };
+    let multipass = |m: &crate::world::PartMesh| subset_multipass(m, multi_pass_alpha);
     let mut out = Vec::new();
     if multi_pass_alpha {
         for (i, r) in ready.iter().enumerate() {
