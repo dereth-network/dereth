@@ -270,6 +270,25 @@ impl StructureReport {
     }
 }
 
+/// What [`DatFile::read_iterations`] reads: which file a dat is, from its header, and its
+/// iterations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileIterations {
+    /// Which container layout the file uses.
+    pub era: ContainerEra,
+    /// The data set: [`PORTAL_DATFILE`], [`CELL_DATFILE`] or [`LOCAL_DATFILE`].
+    pub data_set: u32,
+    /// The subset: the cell file's region, the local file's language, the high-resolution
+    /// portal's `HiFi` stamp; 0 for the portal file and for every file from before Throne of
+    /// Destiny.
+    pub data_subset: u32,
+    /// How many iterations the file holds: the number a server compares.
+    pub count: u32,
+    /// The highest iteration present. Equal to `count` unless the list has gaps, which no retail
+    /// file has.
+    pub highest: u32,
+}
+
 /// One retail `.dat` file, opened read-only.
 ///
 /// A file may carry a world's overlay ([`DatFile::layered`]): every read of a record then asks the
@@ -304,6 +323,14 @@ impl DatFile {
     /// # Errors
     /// The header and directory errors [`DatFile::open`] reports, and the storage's read errors.
     pub fn from_storage(path: PathBuf, storage: Box<dyn DatStorage>) -> Result<Self, DatError> {
+        let mut me = Self::header_only(path, storage)?;
+        me.load_directory()?;
+        Ok(me)
+    }
+
+    /// The container with its header read and its directory not walked: what
+    /// [`DatFile::read_iterations`] needs, and the first half of [`DatFile::from_storage`].
+    fn header_only(path: PathBuf, storage: Box<dyn DatStorage>) -> Result<Self, DatError> {
         let mut me = Self {
             path,
             storage: Arc::from(storage),
@@ -351,8 +378,82 @@ impl DatFile {
             }
             Err(e) => return Err(e),
         }
-        me.load_directory()?;
         Ok(me)
+    }
+
+    /// What a file is and how many iterations it holds, read in a few small reads however large
+    /// the file: the header, then (from Throne of Destiny on) one path down the directory to the
+    /// `0xFFFF0001` list and that list's blocks. A file from before Throne of Destiny keeps its
+    /// iteration in its header. The whole directory is never walked, so a caller may afford it
+    /// before every use of the file.
+    ///
+    /// Every length and offset read is bounded before it is used: a truncated file, a file of
+    /// something else, a looping directory or an implausible list is an error, never a panic or a
+    /// large allocation.
+    ///
+    /// # Errors
+    /// The header errors [`DatFile::open`] reports; [`DatError::NotFound`] for a file with no list;
+    /// [`DatError::Overrun`] for a list larger than any real one; [`DatError::DirectoryLoop`] for a
+    /// directory deeper than any real one; the chain and decoding errors of reading it.
+    pub fn read_iterations(path: &Path) -> Result<FileIterations, DatError> {
+        Self::iterations_of(Self::header_only(
+            path.to_path_buf(),
+            Box::new(File::open(path)?),
+        )?)
+    }
+
+    /// [`DatFile::read_iterations`] over bytes kept in `storage`.
+    ///
+    /// # Errors
+    /// As [`DatFile::read_iterations`].
+    pub fn read_iterations_from(
+        path: PathBuf,
+        storage: Box<dyn DatStorage>,
+    ) -> Result<FileIterations, DatError> {
+        Self::iterations_of(Self::header_only(path, storage)?)
+    }
+
+    fn iterations_of(me: Self) -> Result<FileIterations, DatError> {
+        /// The list is 12 bytes in every retail file; anything this large is not one.
+        const MAX_LIST: u32 = 64 * 1024;
+        /// Retail's deepest directory is 3 levels; deeper than this is a loop, not a tree.
+        const MAX_DEPTH: usize = 16;
+        let found = |count, highest| FileIterations {
+            era: me.era,
+            data_set: me.header.data_set,
+            data_subset: me.header.data_subset,
+            count,
+            highest,
+        };
+        if let Some(n) = me.header_iteration {
+            return Ok(found(n, n));
+        }
+        let id = crate::divine::ITERATION_LIST;
+        let mut offset = me.header.btree_root;
+        for _ in 0..MAX_DEPTH {
+            let node = me.load_node(offset)?;
+            match node.search(id.raw()) {
+                Ok(i) => {
+                    let e = node.entries[i];
+                    if e.compressed() {
+                        return Err(DatError::CompressionUnsupported(id));
+                    }
+                    if e.size > MAX_LIST {
+                        return Err(DatError::Overrun(e.size as usize));
+                    }
+                    let raw = me.read_chain(id, e.offset, e.size as usize)?;
+                    let (count, highest) = crate::iteration::summarize(&raw)?;
+                    return Ok(found(count, highest));
+                }
+                Err(i) => {
+                    if node.is_leaf() || node.entries.is_empty() {
+                        return Err(DatError::NotFound(id));
+                    }
+                    offset = node.children[i];
+                }
+            }
+        }
+        Err(DatError::DirectoryLoop(offset))
     }
 
     /// Which container layout the file uses.

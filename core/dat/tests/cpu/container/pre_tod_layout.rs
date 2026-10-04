@@ -547,3 +547,80 @@ fn a_pre_tod_dat_set_opens_as_a_store_whose_portal_file_answers_language_reads()
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The cheap iteration read: a file from before Throne of Destiny answers from its header, a later
+/// one from its `0xFFFF0001` list, each with the data set its header names; neither walks the
+/// whole directory, and a file that is not a whole dat is an error.
+#[test]
+fn read_iterations_answers_both_layouts_and_refuses_what_is_not_a_dat() {
+    use dereth_dat::container::LOCAL_DATFILE;
+    use dereth_dat::write::DatWriter;
+    let dir = std::env::temp_dir().join(format!("dereth-read-iterations-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    let (cell, _) = two_level(0x100, 1593);
+    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
+    let it = DatFile::read_iterations(&PreTodDat::Cell.in_dir(&dir)).expect("reads");
+    assert_eq!(it.era, ContainerEra::PreTod);
+    assert_eq!(
+        (it.data_set, it.count, it.highest),
+        (CELL_DATFILE, 1593, 1593)
+    );
+
+    let later = RetailDat::Local.in_dir(&dir);
+    {
+        let mut w =
+            DatWriter::create(&later, 0x400, LOCAL_DATFILE, 1, 0x400 + 0x400 * 32).expect("create");
+        // A list with a gap: 1..=990, then 994.
+        let mut list: Vec<u32> = (1..=990).collect();
+        list.push(994);
+        w.save(
+            dereth_dat::ITERATION_LIST,
+            &dereth_dat::iteration::encode(&list),
+            1,
+            0,
+            1,
+        )
+        .expect("save");
+        for k in 0..200u32 {
+            w.save(DataId(0x2300_0000 + k), b"filler", 1, 1, 1)
+                .expect("save");
+        }
+    }
+    let it = DatFile::read_iterations(&later).expect("reads");
+    assert_eq!(it.era, ContainerEra::Tod);
+    assert_eq!(
+        (it.data_set, it.data_subset, it.count, it.highest),
+        (LOCAL_DATFILE, 1, 991, 994)
+    );
+    assert_eq!(
+        DatFile::open(&later)
+            .expect("opens")
+            .iteration_list()
+            .expect("list")
+            .len(),
+        991,
+        "the count the full reader decodes"
+    );
+
+    // A later file with no list, a truncated file and a file of something else are errors.
+    let none = RetailDat::Portal.in_dir(&dir);
+    {
+        let mut w =
+            DatWriter::create(&none, 0x400, PORTAL_DATFILE, 0, 0x400 + 0x400 * 8).expect("create");
+        w.save(DataId(0x0600_0001), b"x", 1, 1, 1).expect("save");
+    }
+    assert!(matches!(
+        DatFile::read_iterations(&none),
+        Err(DatError::NotFound(_))
+    ));
+    let bytes = std::fs::read(&later).expect("read");
+    let short = dir.join("short.dat");
+    std::fs::write(&short, &bytes[..0x200]).expect("write");
+    assert!(DatFile::read_iterations(&short).is_err());
+    let junk = dir.join("junk.dat");
+    std::fs::write(&junk, vec![0x5Au8; 0x2000]).expect("write");
+    assert!(DatFile::read_iterations(&junk).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

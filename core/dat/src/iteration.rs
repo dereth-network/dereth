@@ -44,6 +44,41 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<u32>, DatError> {
     Ok(out)
 }
 
+/// How many values an encoded set holds and the highest of them, without expanding its runs: what
+/// a reader that only compares counts needs, at a cost bounded by the bytes rather than by the
+/// values they describe. It counts what [`decode`] would produce.
+///
+/// # Errors
+/// As [`decode`]: a truncated set, or bytes after its last item.
+pub fn summarize(bytes: &[u8]) -> Result<(u32, u32), DatError> {
+    let mut c = Cursor::new(bytes);
+    let count = c.i32()?;
+    if count <= 0 {
+        c.expect_end()?;
+        return Ok((0, 0));
+    }
+    let want = u64::from(count.unsigned_abs());
+    let (mut have, mut highest) = (0u64, 0u32);
+    while have < want {
+        let v = c.i32()?;
+        if v < 0 {
+            let start = c.i32()? as u32;
+            let n = v.unsigned_abs();
+            have += u64::from(n);
+            highest = highest.max(start.wrapping_add(n - 1));
+        } else {
+            let mut u = v as u32;
+            if u & 0x4000_0000 != 0 {
+                u |= 0x8000_0000;
+            }
+            have += 1;
+            highest = highest.max(u);
+        }
+    }
+    c.expect_end()?;
+    Ok((u32::try_from(have).unwrap_or(u32::MAX), highest))
+}
+
 /// The mostly-consecutive int set, write direction.
 ///
 /// `values` must already be sorted and deduplicated -- the client sorts and
@@ -82,6 +117,28 @@ pub fn encode(values: &[u32]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summarize_counts_what_decode_produces_without_expanding_runs() {
+        for list in [
+            vec![],
+            vec![7],
+            (1..=2072).collect::<Vec<u32>>(),
+            (1..=990).chain([994, 0x4000_0001]).collect(),
+        ] {
+            let raw = encode(&list);
+            let decoded = decode(&raw).unwrap();
+            let (count, highest) = summarize(&raw).unwrap();
+            assert_eq!(count as usize, decoded.len());
+            assert_eq!(highest, decoded.iter().copied().max().unwrap_or(0));
+        }
+        // A run claiming two billion values costs no more than its eight bytes.
+        let mut huge = 0x7FFF_FFFFu32.to_le_bytes().to_vec();
+        huge.extend_from_slice(&(-0x7FFF_FFFFi32).to_le_bytes());
+        huge.extend_from_slice(&1u32.to_le_bytes());
+        assert_eq!(summarize(&huge).unwrap(), (0x7FFF_FFFF, 0x7FFF_FFFF));
+        assert!(summarize(&huge[..8]).is_err(), "a truncated set");
+    }
 
     /// Oracle: the portal dat payload for `0xFFFF0001`, captured byte for byte.
     #[test]
