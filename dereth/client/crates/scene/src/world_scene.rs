@@ -999,6 +999,10 @@ mod imp {
         frame_multipass_pending: std::cell::RefCell<Vec<(i32, i32)>>,
         /// Same bracket: the alpha-list draws in device order. See [`AlphaDraw`].
         frame_alpha_order: std::cell::RefCell<Vec<AlphaDraw>>,
+        /// The blended static batches queued for the next object pass's alpha list: the
+        /// interior cells' (queued where cell drawing draws them) and, once that pass takes them,
+        /// the landscape's still pending. See [`StaticBlendRef`].
+        frame_static_blend: std::cell::RefCell<Vec<StaticBlendRef>>,
         /// Same bracket: the object pass's blend-list draws (parts and particles) in device
         /// order, each with the viewer distance it was sorted by.
         frame_blend_order: std::cell::RefCell<Vec<(AlphaDraw, f32)>>,
@@ -3678,6 +3682,11 @@ mod imp {
         parts: HashMap<DataId, Vec<dereth_client_runtime::models::ModelPart>>,
         // ORDER-OK: as above.
         geometry: HashMap<DataId, Vec<dereth_client_runtime::models::SurfaceGroup>>,
+        /// Whether a surface record's type blends (`Alpha`, `InvAlpha`, `Additive` or
+        /// `Translucent`): the surfaces whose baked batches are kept one per placed object, so the
+        /// alpha list can draw each at its own distance. See [`BatchKey::instance`].
+        // ORDER-OK: a decode memo, only ever looked up.
+        surface_blends: HashMap<DataId, bool>,
         /// The scene-texture loader's answer per group. Uploading a tree's bark
         /// texture once per landblock instead of once per session is what this stops.
         // ORDER-OK: as above.
@@ -3902,6 +3911,7 @@ mod imp {
             Self {
                 parts: HashMap::new(),
                 geometry: HashMap::new(),
+                surface_blends: HashMap::new(),
                 surfaces: HashMap::new(),
                 links: HashMap::new(),
                 by_slot: HashMap::new(),
@@ -5399,6 +5409,7 @@ mod imp {
                 frame_alpha_pending: std::cell::RefCell::new(Vec::new()),
                 frame_multipass_pending: std::cell::RefCell::new(Vec::new()),
                 frame_alpha_order: std::cell::RefCell::new(Vec::new()),
+                frame_static_blend: std::cell::RefCell::new(Vec::new()),
                 frame_blend_order: std::cell::RefCell::new(Vec::new()),
                 frame_object_cone: std::cell::Cell::new(ObjectConeStats::default()),
                 frame_part_order: std::cell::RefCell::new(Vec::new()),
@@ -11031,6 +11042,7 @@ mod imp {
             self.frame_alpha_pending.borrow_mut().clear();
             self.frame_multipass_pending.borrow_mut().clear();
             self.frame_alpha_order.borrow_mut().clear();
+            self.frame_static_blend.borrow_mut().clear();
             self.frame_blend_order.borrow_mut().clear();
             self.frame_landscape_alpha
                 .set(LandscapeAlphaStats::default());
@@ -11544,11 +11556,85 @@ mod imp {
             };
             particle_stats.meshes = self.particle_gfx.len();
             let particles_lit = self.cfg.object_lighting;
+            // The blended static batches: the landscape's still waiting for a flush, taken from
+            // its queue here, and whatever cell drawing queued. Sorted far to near and merged in
+            // after the parts and the particles, so each goes onto the alpha list in its place.
+            let detail_on = self
+                .current_detail(dereth_world_render::detail::DetailClass::Building)
+                .is_some();
+            let mut statics = std::mem::take(&mut *self.frame_static_blend.borrow_mut());
+            for key in std::mem::take(&mut *self.frame_alpha_pending.borrow_mut()) {
+                let Some(block) = self.blocks.get(&key) else {
+                    continue;
+                };
+                for (i, b) in block.blended.iter().enumerate() {
+                    // A batch whose selected levels draw nothing has nothing to queue.
+                    if !static_alpha_entry(b, multi_pass_alpha, detail_on)
+                        || drawn_vertices(b).is_empty()
+                    {
+                        continue;
+                    }
+                    let c = Vec3::new(
+                        b.sphere.0.x + block.origin.0,
+                        b.sphere.0.y + block.origin.1,
+                        b.sphere.0.z,
+                    );
+                    statics.push(StaticBlendRef {
+                        source: StaticBlendSource::Block(key),
+                        batch: i,
+                        cypt: c.sub(ws.camera.position).mag2().sqrt(),
+                    });
+                }
+            }
+            dereth_world_render::objects::parts::insertion_sort_by_cypt_key(&mut statics, |r| {
+                r.cypt
+            });
+            // A cell's batches are found through the traversal's own placement map.
+            let placed_cells = statics
+                .iter()
+                .any(|r| matches!(r.source, StaticBlendSource::Cell(_)))
+                .then(|| self.traversal_cells(ws).1);
             let sub_cypts: Vec<f32> = subs.iter().map(|s| s.cypt).collect();
             let ready_cypts: Vec<f32> = ready.iter().map(|r| r.cypt).collect();
-            let order =
+            let moving =
                 dereth_world_render::objects::parts::merge_far_to_near(&sub_cypts, &ready_cypts);
+            let moving_cypts: Vec<f32> = moving
+                .iter()
+                .map(|m| match m {
+                    dereth_world_render::objects::parts::Merged::First(i) => sub_cypts[*i],
+                    dereth_world_render::objects::parts::Merged::Second(p) => ready_cypts[*p],
+                })
+                .collect();
+            let static_cypts: Vec<f32> = statics.iter().map(|r| r.cypt).collect();
+            let order = dereth_world_render::objects::parts::merge_far_to_near(
+                &moving_cypts,
+                &static_cypts,
+            );
             for slot in order {
+                let slot = match slot {
+                    dereth_world_render::objects::parts::Merged::First(k) => moving[k],
+                    dereth_world_render::objects::parts::Merged::Second(si) => {
+                        // A blended static: straight onto the alpha list, in its place.
+                        // LINT-OK: an index into this frame's own static queue. Not a float.
+                        #[allow(clippy::cast_possible_truncation)]
+                        let handle = STATIC_ENTRY | si as u32;
+                        if pass.lists.push(
+                            dereth_world_render::objects::alpha::AlphaList::Blend,
+                            dereth_world_render::objects::alpha::AlphaEntry {
+                                mesh: dereth_primitives::MeshHandle(handle),
+                                surface_num: 0,
+                                texture: None,
+                                first_of_kind: false,
+                                world_matrix: Frame::default(),
+                                multipass: false,
+                                range: 0..0,
+                            },
+                        ) {
+                            pass.static_blend += 1;
+                        }
+                        continue;
+                    }
+                };
                 let index = match slot {
                     dereth_world_render::objects::parts::Merged::First(i) => i,
                     dereth_world_render::objects::parts::Merged::Second(p) => {
@@ -11756,7 +11842,7 @@ mod imp {
             let mut stats = AlphaListStats {
                 parts: subs.len(),
                 clip: pass.lists.clip_len() - pass.particle_clip,
-                blend: pass.lists.blend_len() - pass.particle_blend,
+                blend: pass.lists.blend_len() - pass.particle_blend - pass.static_blend,
                 dropped: pass.lists.dropped,
                 immediate: pass.counts.immediate,
                 flushed: 0,
@@ -11780,6 +11866,69 @@ mod imp {
                     }
                     // A particle's entry: drawn here, in its list and in its place in it, exactly
                     // as a part's is.
+                    // A blended static batch's entry.
+                    if e.mesh.0 & STATIC_ENTRY != 0 {
+                        let Some(r) = statics.get((e.mesh.0 & !STATIC_ENTRY) as usize) else {
+                            continue;
+                        };
+                        let (batch, origin, outdoors) = match r.source {
+                            StaticBlendSource::Block(key) => {
+                                let Some(block) = self.blocks.get(&key) else {
+                                    continue;
+                                };
+                                (block.blended.get(r.batch), block.origin, true)
+                            }
+                            StaticBlendSource::Cell(id) => {
+                                let Some((cell, origin)) =
+                                    placed_cells.as_ref().and_then(|p| p.get(&id))
+                                else {
+                                    continue;
+                                };
+                                (cell.statics_blended.get(r.batch), *origin, false)
+                            }
+                        };
+                        let Some(batch) = batch else {
+                            continue;
+                        };
+                        let world = world_constants(&Frame::new(
+                            Vec3::new(origin.0, origin.1, 0.0),
+                            Quat::IDENTITY,
+                        ));
+                        // The landscape's batches take the outdoor pass's own set (the sun), as
+                        // its flush does; a cell's take its own sphere's, as cell drawing does.
+                        let set = self.cfg.object_lighting.then(|| {
+                            if outdoors {
+                                self.object_light_set(Vec3::ZERO, 0.0, true)
+                            } else {
+                                let c = Vec3::new(
+                                    batch.sphere.0.x + origin.0,
+                                    batch.sphere.0.y + origin.1,
+                                    batch.sphere.0.z,
+                                );
+                                self.object_light_set(c, batch.sphere.1, false)
+                            }
+                        });
+                        submit_static_batch(
+                            gpu,
+                            per_frame,
+                            &world,
+                            batch,
+                            set.as_deref(),
+                            self.current_detail(dereth_world_render::detail::DetailClass::Building),
+                        )?;
+                        if outdoors {
+                            let mut land = self.frame_landscape_alpha.get();
+                            land.blend += 1;
+                            self.frame_landscape_alpha.set(land);
+                        }
+                        self.frame_alpha_order
+                            .borrow_mut()
+                            .push(AlphaDraw::StaticBlend);
+                        self.frame_blend_order
+                            .borrow_mut()
+                            .push((AlphaDraw::StaticBlend, r.cypt));
+                        continue;
+                    }
                     if e.mesh.0 & PARTICLE_ENTRY != 0 {
                         let Some(&(p, j)) = pass
                             .particle_queued
@@ -12458,19 +12607,25 @@ mod imp {
                             let Some((cell, origin)) = placed.get(&id.0) else {
                                 continue;
                             };
-                            self.draw_cell_statics(gpu, per_frame, &cell.statics, *origin)?;
+                            self.draw_cell_statics(gpu, per_frame, &cell.statics, *origin, None)?;
                         }
                     }
                     // Flush the alpha list at depth 0.0: the queue everything that blends was
-                    // put on. The interior statics have no deferred queue (a standing deviation), so
-                    // the blending batches are simply drawn last — which for one traversal is the
-                    // same order.
+                    // put on. The interior statics' blended batches go to the interior object
+                    // pass's alpha list, which flushes them among the creatures' and particles'
+                    // by distance; their alpha-tested ones are drawn here.
                     IndoorStep::FlushAlphaList => {
                         for id in view.draw_order() {
                             let Some((cell, origin)) = placed.get(&id.0) else {
                                 continue;
                             };
-                            self.draw_cell_statics(gpu, per_frame, &cell.statics_blended, *origin)?;
+                            self.draw_cell_statics(
+                                gpu,
+                                per_frame,
+                                &cell.statics_blended,
+                                *origin,
+                                Some((id.0, ws.camera.position)),
+                            )?;
                         }
                     }
                     _ => {}
@@ -12508,6 +12663,9 @@ mod imp {
             per_frame: &PerFrameConstants,
             batches: &[StaticBatch],
             origin: (f32, f32),
+            // `Some((cell, viewer))` queues the batches that belong on the alpha list for the
+            // object pass, at their distance from `viewer`, instead of drawing them here.
+            defer: Option<(u32, Vec3)>,
         ) -> Result<(), RenderError> {
             if batches.is_empty() || !self.cfg.cell_statics {
                 return Ok(());
@@ -12516,7 +12674,28 @@ mod imp {
                 Vec3::new(origin.0, origin.1, 0.0),
                 Quat::IDENTITY,
             ));
-            for b in batches {
+            let detail_on = self
+                .current_detail(dereth_world_render::detail::DetailClass::Building)
+                .is_some();
+            for (i, b) in batches.iter().enumerate() {
+                if let Some((cell, viewer)) = defer {
+                    if static_alpha_entry(b, self.cfg.render.multi_pass_alpha, detail_on) {
+                        if drawn_vertices(b).is_empty() {
+                            continue;
+                        }
+                        let c = Vec3::new(
+                            b.sphere.0.x + origin.0,
+                            b.sphere.0.y + origin.1,
+                            b.sphere.0.z,
+                        );
+                        self.frame_static_blend.borrow_mut().push(StaticBlendRef {
+                            source: StaticBlendSource::Cell(cell),
+                            batch: i,
+                            cypt: c.sub(viewer).mag2().sqrt(),
+                        });
+                        continue;
+                    }
+                }
                 // The per-cell object draw draws these as parts, each through
                 // the inner mesh draw's `minimize_object_lighting` with its own drawing
                 // sphere; a baked batch offers the union sphere of the statics it merged.
@@ -12755,9 +12934,7 @@ mod imp {
             // its surface blends (`Translucent | ClipMap`): it was drawn inside the walk and its
             // second pass went out above.
             let blended = |b: &&StaticBatch| {
-                static_alpha_list_member(b)
-                    && !(self.cfg.render.multi_pass_alpha
-                        && static_multipass_member(b, detail.is_some()))
+                static_alpha_entry(b, self.cfg.render.multi_pass_alpha, detail.is_some())
             };
             let mut stats = self.frame_landscape_alpha.get();
             for key in pending {
@@ -12853,8 +13030,8 @@ mod imp {
             per_frame: &PerFrameConstants,
         ) -> Result<(), RenderError> {
             // The clip list drains first. The object pass has already drawn these second passes
-            // between its own clip and blend entries; this finds the queue empty unless no object
-            // pass ran.
+            // between its own clip and blend entries, and has taken the landscape's blended
+            // batches into its alpha list; this finds both queues empty unless no object pass ran.
             self.drain_multipass_pending(gpu, per_frame)?;
             let pending = std::mem::take(&mut *self.frame_alpha_pending.borrow_mut());
             if pending.is_empty() {
@@ -13122,13 +13299,19 @@ mod imp {
                         let Some((cell, origin)) = placed.get(id) else {
                             continue;
                         };
-                        self.draw_cell_statics(gpu, per_frame, &cell.statics, *origin)?;
+                        self.draw_cell_statics(gpu, per_frame, &cell.statics, *origin, None)?;
                     }
                     for id in &order {
                         let Some((cell, origin)) = placed.get(id) else {
                             continue;
                         };
-                        self.draw_cell_statics(gpu, per_frame, &cell.statics_blended, *origin)?;
+                        self.draw_cell_statics(
+                            gpu,
+                            per_frame,
+                            &cell.statics_blended,
+                            *origin,
+                            Some((*id, ws.camera.position)),
+                        )?;
                     }
                 }
             }
@@ -13604,6 +13787,9 @@ mod imp {
         defer: Option<&'a mut crate::mip_worker::MipWorker>,
         /// Whether `store` and `cache` are another era's look ([`StaticBatch::from_look`]).
         from_look: bool,
+        /// How many objects this bake has placed; the current one's index is
+        /// [`BatchKey::instance`] for its blending surfaces.
+        instances: u32,
     }
 
     /// One entry of the decoded-surface memo: the surface record, the two polygon flags it
@@ -13622,6 +13808,12 @@ mod imp {
     struct BatchKey {
         material: GroupKey,
         building_pass: bool,
+        /// The placed object a **blending** surface's triangles came from, `None` for every other
+        /// surface. The client queues each object's blended subsets on the alpha list where its
+        /// cell draws it, so they come out in the traversal's far-to-near order among every other
+        /// translucent thing; a batch merging a whole block's objects has no one distance to take
+        /// that place by. Opaque and alpha-tested surfaces write depth and stay merged.
+        instance: Option<u32>,
     }
 
     impl<'a> ObjectBaker<'a> {
@@ -13643,6 +13835,7 @@ mod imp {
                 placements: Vec::new(),
                 defer: None,
                 from_look: false,
+                instances: 0,
             }
         }
 
@@ -13663,6 +13856,7 @@ mod imp {
             scale: f32,
             building_pass: bool,
         ) {
+            self.instances += 1;
             let store = self.store;
             let parts = self
                 .cache
@@ -13792,6 +13986,18 @@ mod imp {
                 .or_insert_with(|| build_gfxobj(store, gfxobj))
                 .clone();
             for g in &groups {
+                let blends = g.surface.is_some_and(|id| {
+                    *self.cache.surface_blends.entry(id).or_insert_with(|| {
+                        read_surface(store, id).is_some_and(|s| {
+                            s.surface_type
+                                & (dereth_world_render::objects::draw::surface_type::ALPHA
+                                    | dereth_world_render::objects::draw::surface_type::INV_ALPHA
+                                    | dereth_world_render::objects::draw::surface_type::ADDITIVE
+                                    | dereth_world_render::objects::draw::surface_type::TRANSLUCENT)
+                                != 0
+                        })
+                    })
+                });
                 // Scenery, buildings and statics carry no object-description overrides; block
                 // initialization makes them straight from the dat.
                 let key = BatchKey {
@@ -13802,6 +14008,7 @@ mod imp {
                         appearance: SurfaceAppearance::default(),
                     },
                     building_pass,
+                    instance: blends.then_some(self.instances),
                 };
                 let (buf, chunks) = self.groups.entry(key.clone()).or_insert_with(|| {
                     self.order.push(key);
@@ -14824,11 +15031,40 @@ mod imp {
         /// The particle entries on each list, kept out of the parts' census.
         particle_clip: usize,
         particle_blend: usize,
+        /// The blended static batches on the alpha list, kept out of the parts' census.
+        static_blend: usize,
     }
 
     /// The bit that marks an alpha-list entry's `mesh` handle as a particle's (indexing
     /// `PartPass::particle_queued`) rather than a part's (indexing `PartPass::queued`).
     const PARTICLE_ENTRY: u32 = 0x8000_0000;
+    /// The bit that marks an alpha-list entry's `mesh` handle as a blended static batch's
+    /// (indexing the pass's sorted [`StaticBlendRef`]s).
+    const STATIC_ENTRY: u32 = 0x4000_0000;
+
+    /// Where a queued blended static batch lives.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum StaticBlendSource {
+        /// `BlockDraw::blended` of this landblock.
+        Block((i32, i32)),
+        /// `statics_blended` of this environment cell.
+        Cell(u32),
+    }
+
+    /// One blended static batch waiting for the object pass's alpha list.
+    ///
+    /// The client queues a static's blended subsets on the alpha list where its cell draws it,
+    /// among every creature's and particle's, and flushes the list in that order. This build
+    /// draws the moving parts in one far-to-near pass after the walk, so a static takes its place
+    /// among them by the same measure: its viewer distance.
+    #[derive(Debug, Clone, Copy)]
+    struct StaticBlendRef {
+        source: StaticBlendSource,
+        /// The index in the source's batch list.
+        batch: usize,
+        /// The distance from the viewer to the batch's sphere centre.
+        cypt: f32,
+    }
 
     /// One deferred subset, as [`PartPass::queued`] holds it.
     #[derive(Debug, Clone, Copy)]
@@ -14935,6 +15171,13 @@ mod imp {
 
     fn static_alpha_list_member(batch: &StaticBatch) -> bool {
         static_subset_visible(batch) && is_alpha_list_member(&batch.key)
+    }
+
+    /// Whether a static batch goes on the **alpha** list: it blends without an alpha test, and
+    /// is not a clip-mapped one "Multiple Pass Alpha" puts on the clip list instead.
+    fn static_alpha_entry(batch: &StaticBatch, multi_pass_alpha: bool, detail: bool) -> bool {
+        static_alpha_list_member(batch)
+            && !(multi_pass_alpha && static_multipass_member(batch, detail))
     }
 
     /// The other of the two lists a non-opaque subset can be appended to: the alpha-**tested**

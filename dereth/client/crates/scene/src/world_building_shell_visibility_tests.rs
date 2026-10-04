@@ -111,7 +111,7 @@ fn real_building_and_ordinary_geometry_keep_separate_batches_with_identical_mate
     let mut solids = 0;
     for key in &baker.order[..building_count] {
         assert!(key.building_pass);
-        let ordinary = BatchKey { material: key.material.clone(), building_pass: false };
+        let ordinary = BatchKey { material: key.material.clone(), building_pass: false, instance: key.instance.map(|i| i + 1) };
         assert_eq!(baker.groups[key], baker.groups[&ordinary], "geometry/chunks are not filtered");
         if key
             .material
@@ -264,7 +264,7 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
     assert_eq!(gpu.draw_calls(), before_flush + 1, "eligible batch is submitted once");
     // The same production helper also backs indoor object drawing. These are NOT env-cell faces.
     gpu.begin_frame().unwrap();
-    scene.draw.draw_cell_statics(&mut gpu, &frame(), &scene.draw.blocks[&key].blended, (0.0, 0.0)).unwrap();
+    scene.draw.draw_cell_statics(&mut gpu, &frame(), &scene.draw.blocks[&key].blended, (0.0, 0.0), None).unwrap();
     gpu.end_frame().unwrap();
     assert!(gpu.capture().unwrap().bgra == expected, "cell static ordinary solid remains visible");
     assert_eq!(gpu.draw_calls(), before_flush + 2);
