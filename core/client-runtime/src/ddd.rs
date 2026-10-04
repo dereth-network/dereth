@@ -507,6 +507,15 @@ impl DddPatcher {
         self.overlay_refused.as_deref()
     }
 
+    /// The file a patch target names, as this client holds it (`portal.dat` beside an older
+    /// world, `client_portal.dat` beside a later one).
+    fn name_of(&self, target: DatTarget) -> String {
+        self.target
+            .as_ref()
+            .and_then(|t| t.bases.get(&target))
+            .map_or_else(|| target.file_name().to_owned(), |(_, n)| n.clone())
+    }
+
     fn refuse(&mut self, why: String) {
         if self.overlay_refused.is_none() {
             tracing::warn!(
@@ -576,8 +585,7 @@ impl DddPatcher {
             let have = dereth_dat::overlay::fingerprint(base);
             if have != f.base_fingerprint {
                 mismatch = Some(format!(
-                    "the world's {} overlay was made against {} {}, and this client holds {name} {}",
-                    t.file_name(),
+                    "the world's {name} overlay was made against {} {}, and this client holds {name} {}",
                     f.base_name,
                     dereth_dat::overlay::hex(&f.base_fingerprint),
                     dereth_dat::overlay::hex(&have)
@@ -610,7 +618,7 @@ impl DddPatcher {
         if let Some((t, id)) = forged.copied() {
             self.refuse(format!(
                 "{id:#010X} of {} is not the record the world's overlay manifest names",
-                t.file_name()
+                self.name_of(t)
             ));
             return;
         }
@@ -862,9 +870,9 @@ impl DddPatcher {
     pub fn on_end(&mut self) -> DddSummary {
         let date = entry_date(crate::platform::clock::system_unix_time());
         let mut failed = Vec::new();
-        for (t, w) in &mut self.writers {
+        for w in self.writers.values_mut() {
             if let Err(e) = w.flush(date) {
-                failed.push(format!("{}: {e}", t.file_name()));
+                failed.push(format!("{}: {e}", w.path().display()));
             }
         }
         for line in failed {
@@ -1066,7 +1074,7 @@ impl DddPatcher {
                     "0xF7E7 iteration {iteration}: {} deletion(s) of {} written to the overlay \
                      ({removed} of its own record(s) went)",
                     ids.len(),
-                    target.file_name()
+                    self.name_of(target)
                 ));
                 true
             }
@@ -1075,7 +1083,7 @@ impl DddPatcher {
                     "0xF7E7 iteration {iteration}: the purge of {} id(s) from {} failed ({e}); \
                      {removed} record(s) went, and the iteration is not recorded",
                     ids.len(),
-                    target.file_name()
+                    self.name_of(target)
                 ));
                 false
             }
@@ -1177,7 +1185,7 @@ impl DddPatcher {
             }
             Err(e) => self.note(format!(
                 "iteration {iteration} could not be recorded in {}: {e}",
-                target.file_name()
+                self.name_of(target)
             )),
         }
     }
