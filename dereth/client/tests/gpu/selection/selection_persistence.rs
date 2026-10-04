@@ -919,7 +919,10 @@ fn a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view() {
         b.parts_drawn_for(NEAR) > 0,
         "premise: the draw submitted {NEAR:?}'s parts at 90 m"
     );
-    assert!(b.exits() > 0, "premise: the selection's watch fired at 90 m");
+    assert!(
+        b.exits() > 0,
+        "premise: the selection's watch fired at 90 m"
+    );
     assert_eq!(
         b.clears(),
         0,
@@ -928,7 +931,11 @@ fn a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view() {
         b.exits(),
         b.clears()
     );
-    assert_eq!(b.selected(), Some(NEAR), "and the far target is still selected");
+    assert_eq!(
+        b.selected(),
+        Some(NEAR),
+        "and the far target is still selected"
+    );
     assert!(
         b.exits() >= 5,
         "the watch kept firing at every poll, {} exits",
