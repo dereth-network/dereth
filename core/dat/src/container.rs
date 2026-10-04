@@ -537,6 +537,7 @@ impl DatFile {
                 return layer.read(id);
             }
             if layer.hides(id) {
+                layer.note_hidden();
                 return Err(DatError::NotFound(id));
             }
         }

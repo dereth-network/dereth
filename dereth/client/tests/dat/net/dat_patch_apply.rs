@@ -1517,3 +1517,73 @@ fn a_deletion_the_manifest_names_hides_that_record_alone() {
     );
     assert!(world.iteration_list().expect("a set").contains(&next));
 }
+
+/// Behaviour: net.dat-patch.a-record-the-manifest-does-not-name-is-refused
+/// Records may arrive ahead of the world's manifest (a long manifest is overtaken by short
+/// records). Those the session wrote go into containers under the name the client knew the world
+/// by, take the world's own name when the manifest arrives, and are held to it then: one whose
+/// bytes the manifest does not name refuses the world's overlay, and the containers this session
+/// made go with it.
+#[test]
+fn records_ahead_of_the_manifest_take_the_worlds_name_and_are_held_to_it() {
+    let next = 9998;
+    let body = payload(0x31, 400);
+    let early = |s: &Scratch| {
+        let mut p = DddPatcher::new(Some(OverlayTarget::new(
+            s.overlay.clone(),
+            &s.store,
+            "127.0.0.1:19661",
+        )));
+        p.on_interrogation();
+        assert!(p.on_data(&data_msg(NEW_STRING, &body, 3, next)).0.wrote());
+        p
+    };
+    let s = Scratch::new("early_adopted");
+    let mut p = early(&s);
+    p.on_manifest(&manifest(&s, WORLD, &[(NEW_STRING, &body)], &[], next));
+    assert_eq!(p.refused(), None, "{:?}", p.notices());
+    let (_, action) = p.on_begin(&begin(next, &[NEW_STRING.raw()], 400));
+    assert!(action.send_end, "the early record retired its download");
+    p.on_end();
+    assert_eq!(s.overlay.world_key().as_deref(), Some(WORLD));
+    assert_eq!(s.local().read(NEW_STRING).expect("reads"), body);
+
+    let s = Scratch::new("early_forged");
+    let mut p = early(&s);
+    let other = payload(0x32, 400);
+    p.on_manifest(&manifest(&s, WORLD, &[(NEW_STRING, &other)], &[], next));
+    assert!(
+        p.refused().is_some_and(|r| r.contains("not the record")),
+        "{:?}",
+        p.refused()
+    );
+    assert_eq!(
+        s.overlay_digest(),
+        None,
+        "the session's container went with the refusal"
+    );
+}
+
+/// Behaviour: net.dat-patch.a-malformed-or-older-record-writes-nothing
+/// The routing rail reads a cell id by its shape: a room of landblock `0x2562`, whose number also
+/// lies in a portal type's range, is a cell record and is written to the cell file's overlay; a
+/// portal id offered for the cell file is still refused.
+#[test]
+fn a_room_whose_landblock_number_is_a_portal_range_is_still_a_cell_record() {
+    let s = Scratch::new("cell_rail");
+    let mut p = s.patcher();
+    let cell = |id: u32| DddData {
+        dat_file_type: 1,
+        dat_file_id: 2,
+        resource_type: 3,
+        resource_id: id,
+        ..data_msg(DataId(id), &payload(0x41, 96), 3, 0)
+    };
+    assert!(p.on_data(&cell(0x2562_0100)).0.wrote());
+    assert!(matches!(
+        p.on_data(&cell(0x0100_0001)).0,
+        DataOutcome::Refused(DddRefusal::WrongDatFile { .. })
+    ));
+    p.on_end();
+    assert!(s.world().cell().contains(DataId(0x2562_0100)));
+}

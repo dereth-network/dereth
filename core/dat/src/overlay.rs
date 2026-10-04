@@ -37,6 +37,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dereth_primitives::DataId;
 use sha2::{Digest, Sha256};
@@ -324,6 +325,9 @@ pub struct Layer {
     iterations: Vec<u32>,
     own_iterations: Vec<u32>,
     len: usize,
+    /// How many reads the overlay has answered with its own record, and how many with a deletion.
+    served: AtomicU64,
+    hidden: AtomicU64,
 }
 
 impl Layer {
@@ -394,6 +398,8 @@ impl Layer {
             iterations,
             own_iterations: own,
             len: 0,
+            served: AtomicU64::new(0),
+            hidden: AtomicU64::new(0),
         };
         let kept = base
             .base_entries()
@@ -454,7 +460,23 @@ impl Layer {
         if is_reserved(id) {
             return Err(DatError::NotFound(id));
         }
+        self.served.fetch_add(1, Ordering::Relaxed);
         self.file.read(id)
+    }
+
+    /// Count a read a deletion answered.
+    pub(crate) fn note_hidden(&self) {
+        self.hidden.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many reads the overlay has answered with its own record, and how many with one of
+    /// its deletions, since it was opened.
+    #[must_use]
+    pub fn reads(&self) -> (u64, u64) {
+        (
+            self.served.load(Ordering::Relaxed),
+            self.hidden.load(Ordering::Relaxed),
+        )
     }
 
     /// The base file's iterations and the overlay's together, ascending.
@@ -714,6 +736,20 @@ impl OverlayWriter {
     #[must_use]
     pub fn tombstones(&self) -> &[Tombstone] {
         &self.tombstones
+    }
+
+    /// Name the world the overlay belongs to: for a container made before the world named itself.
+    pub fn set_world_key(&mut self, world_key: &str) {
+        if self.manifest.world_key != world_key {
+            world_key.clone_into(&mut self.manifest.world_key);
+            self.dirty = true;
+        }
+    }
+
+    /// The SHA-256 of the overlay's record `id`, as it was written.
+    #[must_use]
+    pub fn hash_of(&self, id: DataId) -> Option<[u8; 32]> {
+        self.manifest.hashes.get(&id.raw()).copied()
     }
 
     /// Put a world record in the overlay. As the retail save rule has it, a record whose

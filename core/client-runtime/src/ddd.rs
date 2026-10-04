@@ -400,6 +400,14 @@ pub struct DddPatcher {
     manifest_tombstones: BTreeMap<(DatTarget, u32), Vec<(u32, u32)>>,
     /// The world keys whose overlays the player refuses.
     blocklist: BTreeSet<String>,
+    /// The overlay containers this patcher made, which a refusal takes away again: they hold only
+    /// what this session wrote.
+    created: BTreeSet<DatTarget>,
+    /// The records written before the manifest arrived (they may come ahead of it), checked
+    /// against it when it does.
+    unchecked: Vec<(DatTarget, u32)>,
+    /// Whether the manifest has arrived.
+    manifest_seen: bool,
     /// The files whose overlay carries the world's own iteration list, by the manifest: their
     /// records are the world's whatever iteration the base has of them.
     exact: BTreeSet<DatTarget>,
@@ -440,6 +448,9 @@ impl DddPatcher {
             expected: BTreeMap::new(),
             manifest_tombstones: BTreeMap::new(),
             blocklist: BTreeSet::new(),
+            created: BTreeSet::new(),
+            unchecked: Vec::new(),
+            manifest_seen: false,
             exact: BTreeSet::new(),
             phase: DddPhase::Idle,
             writers: BTreeMap::new(),
@@ -505,6 +516,12 @@ impl DddPatcher {
                 .push(format!("the world's overlay is refused: {why}"));
             self.overlay_refused = Some(why);
             self.writers.clear();
+            // What this session made of the overlay goes with it.
+            if let Some(t) = &self.target {
+                for c in std::mem::take(&mut self.created) {
+                    let _ = std::fs::remove_file(t.dir.container(c));
+                }
+            }
         }
     }
 
@@ -518,12 +535,26 @@ impl DddPatcher {
             ));
             return;
         }
+        self.manifest_seen = true;
         let Some(target) = &mut self.target else {
             self.refuse("there is no overlay folder for this world".into());
             return;
         };
         if let Some(found) = target.dir.world_key() {
-            if found != m.world_key {
+            // Records may arrive ahead of the manifest. The containers they went into carry the
+            // name the client knew the world by; when this session made every one of them, the
+            // world's own name is theirs.
+            let ours = found == target.world_key
+                && target
+                    .dir
+                    .containers()
+                    .iter()
+                    .all(|p| self.created.iter().any(|c| target.dir.container(*c) == *p));
+            if found != m.world_key && ours {
+                for w in self.writers.values_mut() {
+                    w.set_world_key(&m.world_key);
+                }
+            } else if found != m.world_key {
                 let why = format!(
                     "{} holds the overlay of the world {found:?}, and this world is {:?}",
                     target.dir.path().display(),
@@ -570,6 +601,20 @@ impl DddPatcher {
             self.refuse(why);
             return;
         }
+        // The records that came ahead of the manifest are held to it now.
+        let forged = self.unchecked.iter().find(|(t, id)| {
+            let want = self.expected.get(&(*t, *id));
+            let have = self.writers.get(t).and_then(|w| w.hash_of(DataId(*id)));
+            want.is_some_and(|w| have != Some(*w))
+        });
+        if let Some((t, id)) = forged.copied() {
+            self.refuse(format!(
+                "{id:#010X} of {} is not the record the world's overlay manifest names",
+                t.file_name()
+            ));
+            return;
+        }
+        self.unchecked.clear();
         self.note(format!(
             "0xF7EC the world {:?} names {} file(s), {} record(s) and {} deletion(s)",
             m.world_key,
@@ -677,7 +722,23 @@ impl DddPatcher {
             let mut blocked = !self.purge(target, rev.iteration, &rev.ids_to_purge);
             // The deletions only the manifest can say (a single interior cell), in the revision
             // that made them.
-            if let Some(more) = self.manifest_tombstones.remove(&(target, rev.iteration)) {
+            if let Some(mut more) = self.manifest_tombstones.remove(&(target, rev.iteration)) {
+                // Those the revision's purges already wrote are not written twice.
+                let mask = if target == DatTarget::Cell {
+                    LANDBLOCK_MASK
+                } else {
+                    0
+                };
+                more.retain(|(id, m)| {
+                    *m != mask
+                        || !rev.ids_to_purge.iter().any(|p| {
+                            if mask == 0 {
+                                p == id
+                            } else {
+                                p & mask == id & mask
+                            }
+                        })
+                });
                 blocked |= !self.tombstone_all(target, rev.iteration, &more);
             }
             let index = self.revisions.len();
@@ -706,6 +767,12 @@ impl DddPatcher {
             }
         }
 
+        tracing::info!(
+            "DDD 0xF7E7 {} revision(s), {} download(s) pending, {} byte(s) expected",
+            self.revisions.len(),
+            self.pending.len(),
+            m.data_expected
+        );
         let expected = u64::from(m.data_expected).saturating_sub(self.early_bytes);
         (
             expected,
@@ -725,6 +792,9 @@ impl DddPatcher {
             } => {
                 self.applied += 1;
                 self.changed.insert(*target);
+                if !self.manifest_seen {
+                    self.unchecked.push((*target, id.raw()));
+                }
                 // Save completion retires the request the record answers.
                 // A record that answered a *run-time* get (`0xF7E3`) also has to reach whatever
                 // cached the miss, which is what `take_resupplied` is for.
@@ -859,7 +929,14 @@ impl DddPatcher {
         if let Some(why) = &self.overlay_refused {
             return DataOutcome::Refused(DddRefusal::OverlayRefused(why.clone()));
         }
-        let belongs = id_home(id);
+        // A cell id is keyed by its landblock, and a landblock's number can fall in a portal
+        // type's range (`0x2562xxxx` is a landblock and also a portal id map's range): for the
+        // cell file the id's shape decides.
+        let belongs = if target == DatTarget::Cell {
+            dereth_dat::classify_cell_id(id).map(|t| t.dat())
+        } else {
+            id_home(id)
+        };
         if belongs != Some(target.kind()) {
             return DataOutcome::Refused(DddRefusal::WrongDatFile {
                 id: id.raw(),
@@ -1011,6 +1088,7 @@ impl DddPatcher {
             let t = self.target.as_ref().ok_or(DatError::NotFound(DataId(0)))?;
             let (base, name) = t.bases.get(&target).ok_or(DatError::NotFound(DataId(0)))?;
             let date = entry_date(crate::platform::clock::system_unix_time());
+            let fresh = !t.dir.container(target).is_file();
             let w = match OverlayWriter::open_or_create(
                 &t.dir.container(target),
                 base,
@@ -1027,6 +1105,9 @@ impl DddPatcher {
                 }
             };
             let mut w = w;
+            if fresh {
+                self.created.insert(target);
+            }
             // A world with its own iteration list starts from the base's: the iterations of the
             // records the client already holds.
             if self.exact.contains(&target) && !w.manifest().exact_iterations {

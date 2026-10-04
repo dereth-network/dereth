@@ -368,6 +368,39 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
         );
     }
     {
+        // The world's overlay over the locked data files: where it is, and how many reads its own
+        // records and its deletions answered since the files were last opened.
+        let s = &app.store;
+        let files = [
+            ("portal", Some(s.portal())),
+            ("cell", Some(s.cell())),
+            ("local", Some(s.local())),
+            ("highres", s.highres()),
+        ];
+        let read: Vec<String> = files
+            .iter()
+            .filter_map(|(name, f)| {
+                let l = (*f)?.layer()?;
+                let (served, hidden) = l.reads();
+                Some(format!(
+                    "{name} {} record(s), {} deletion(s), {served} read(s) answered, {hidden} hidden",
+                    l.records().count(),
+                    l.tombstones().len()
+                ))
+            })
+            .collect();
+        tracing::info!(
+            "overlay -- {}{}",
+            s.overlay_dir()
+                .map_or_else(|| "none".to_owned(), |d| d.path().display().to_string()),
+            if read.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", read.join("; "))
+            }
+        );
+    }
+    {
         // The era the client plays and the systems it takes the world to lack (the server's
         // announcement over the era's table), and what the screens last took away for them.
         let h = app.hud();
