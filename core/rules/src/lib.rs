@@ -41,7 +41,6 @@ pub mod pwd_mirror;
 pub mod quality;
 pub mod skills;
 pub mod slots;
-#[cfg(feature = "proto")]
 pub mod taboo;
 pub mod vendor;
 pub mod weenie;

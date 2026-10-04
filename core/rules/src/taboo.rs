@@ -72,7 +72,7 @@ pub fn string_matches_filter(candidate: &[u8], pattern: &[u8]) -> bool {
 ///
 /// `encoding` is the host's, because the narrowing is a `CP_ACP` conversion and this crate has no
 /// platform. Every host takes the one retail path through whichever implementation it installed;
-/// `dereth_protocol::cp1252::encode` is a *different* rule (it rejects a token it cannot encode
+/// `dereth_primitives::text::cp1252::encode` is a *different* rule (it rejects a token it cannot encode
 /// instead of escaping it) and must not stand in for it.
 #[must_use]
 pub fn censors_chat_token(table: &TabooTable, encoding: &dyn HostEncoding, token: &str) -> bool {
@@ -93,7 +93,7 @@ pub fn censors_chat_token(table: &TabooTable, encoding: &dyn HostEncoding, token
                 // 1 -> 3, 2 -> 4, 3 -> 6, 4 -> 5. Other keys never tell the caller to replace.
                 (1..=4).contains(key)
                     && patterns.iter().any(|pattern| {
-                        dereth_protocol::cp1252::encode(pattern)
+                        dereth_primitives::text::cp1252::encode(pattern)
                             .is_some_and(|pattern| string_matches_filter(&check, &pattern))
                     })
             })
@@ -144,8 +144,8 @@ fn censored(token: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use dereth_primitives::text::cp1252::Cp1252;
     use dereth_primitives::DataId;
-    use dereth_protocol::cp1252::Cp1252;
 
     use super::*;
 
