@@ -313,6 +313,81 @@ pub fn insertion_sort_by_cypt_key<T: Copy>(items: &mut [T], cypt: impl Fn(&T) ->
     }
 }
 
+/// Where one item of a merged far-to-near submission comes from: the `n`th of the first list or
+/// of the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Merged {
+    First(usize),
+    Second(usize),
+}
+
+/// Two submission lists, each already far to near, merged into the one order the part sort would
+/// have given their concatenation: descending viewer distance, and at equal distance the first
+/// list's item first, as the stable sort keeps registration order.
+///
+/// An emitter's particles are parts of their object, sorted with every other part, so this is
+/// how the particles take their places among the objects' parts.
+#[must_use]
+pub fn merge_far_to_near(first: &[f32], second: &[f32]) -> Vec<Merged> {
+    let mut out = Vec::with_capacity(first.len() + second.len());
+    let (mut i, mut j) = (0, 0);
+    while i < first.len() || j < second.len() {
+        let take_second = match (first.get(i), second.get(j)) {
+            (Some(a), Some(b)) => b > a,
+            (None, Some(_)) => true,
+            _ => false,
+        };
+        if take_second {
+            out.push(Merged::Second(j));
+            j += 1;
+        } else {
+            out.push(Merged::First(i));
+            i += 1;
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+
+    /// Oracle: the part sort is a stable descending insertion sort over every part, particles
+    /// included, so merging two descending lists gives the sort of their concatenation.
+    #[test]
+    fn two_far_to_near_lists_merge_as_the_part_sort_of_both() {
+        let parts = [90.0, 40.0, 40.0, 5.0];
+        let particles = [60.0, 40.0, 1.0];
+        let merged = merge_far_to_near(&parts, &particles);
+        assert_eq!(
+            merged,
+            vec![
+                Merged::First(0),
+                Merged::Second(0),
+                Merged::First(1),
+                Merged::First(2),
+                Merged::Second(1),
+                Merged::First(3),
+                Merged::Second(2),
+            ]
+        );
+        // The same answer as sorting the concatenation.
+        let mut all: Vec<(f32, Merged)> = parts
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (*d, Merged::First(i)))
+            .chain(
+                particles
+                    .iter()
+                    .enumerate()
+                    .map(|(i, d)| (*d, Merged::Second(i))),
+            )
+            .collect();
+        insertion_sort_by_cypt_key(&mut all, |x| x.0);
+        assert_eq!(all.iter().map(|x| x.1).collect::<Vec<_>>(), merged);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

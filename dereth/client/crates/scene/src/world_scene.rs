@@ -258,10 +258,14 @@ mod imp {
         PartForced,
         /// Clip list: a landscape batch's "Multiple Pass Alpha" second pass.
         StaticForced,
+        /// Clip list: a particle's alpha-tested entry.
+        ParticleClip,
         /// Clip list: a particle's "Multiple Pass Alpha" second pass.
         ParticleForced,
         /// Alpha list: an animated part's blended entry.
         PartBlend,
+        /// Alpha list: a particle's blended entry.
+        ParticleBlend,
         /// Alpha list: a landscape batch's blended draw.
         StaticBlend,
     }
@@ -272,7 +276,11 @@ mod imp {
         pub const fn is_clip_list(self) -> bool {
             matches!(
                 self,
-                Self::PartClip | Self::PartForced | Self::StaticForced | Self::ParticleForced
+                Self::PartClip
+                    | Self::PartForced
+                    | Self::StaticForced
+                    | Self::ParticleClip
+                    | Self::ParticleForced
             )
         }
     }
@@ -991,6 +999,9 @@ mod imp {
         frame_multipass_pending: std::cell::RefCell<Vec<(i32, i32)>>,
         /// Same bracket: the alpha-list draws in device order. See [`AlphaDraw`].
         frame_alpha_order: std::cell::RefCell<Vec<AlphaDraw>>,
+        /// Same bracket: the object pass's blend-list draws (parts and particles) in device
+        /// order, each with the viewer distance it was sorted by.
+        frame_blend_order: std::cell::RefCell<Vec<(AlphaDraw, f32)>>,
         /// What the per-object frustum test did on the last [`WorldScene::draw`].
         frame_object_cone: std::cell::Cell<ObjectConeStats>,
         /// Same bracket: one entry per subset of every part the last
@@ -5053,6 +5064,11 @@ mod imp {
             self.draw.drawn_alpha_order()
         }
 
+        /// [`SceneDraw::drawn_blend_order`] on this scene.
+        pub fn drawn_blend_order(&self) -> Vec<(AlphaDraw, f32)> {
+            self.draw.drawn_blend_order()
+        }
+
         /// [`SceneDraw::drawn_object_cone`] on this scene.
         pub fn drawn_object_cone(&self) -> ObjectConeStats {
             self.draw.drawn_object_cone()
@@ -5383,6 +5399,7 @@ mod imp {
                 frame_alpha_pending: std::cell::RefCell::new(Vec::new()),
                 frame_multipass_pending: std::cell::RefCell::new(Vec::new()),
                 frame_alpha_order: std::cell::RefCell::new(Vec::new()),
+                frame_blend_order: std::cell::RefCell::new(Vec::new()),
                 frame_object_cone: std::cell::Cell::new(ObjectConeStats::default()),
                 frame_part_order: std::cell::RefCell::new(Vec::new()),
                 frame_drawn_cells: std::cell::RefCell::new(None),
@@ -11014,6 +11031,7 @@ mod imp {
             self.frame_alpha_pending.borrow_mut().clear();
             self.frame_multipass_pending.borrow_mut().clear();
             self.frame_alpha_order.borrow_mut().clear();
+            self.frame_blend_order.borrow_mut().clear();
             self.frame_landscape_alpha
                 .set(LandscapeAlphaStats::default());
             let (w, h) = gpu.size();
@@ -11064,15 +11082,6 @@ mod imp {
             // outdoor viewer, and a dungeon with no outdoor portal in sight -- takes
             // [`ObjectPhase::All`] and is the single sorted pass this build has always had.
             let material = self.cfg.material_translucency;
-            // One particle's `D3DLIGHT9` set. Particle drawing hands the particle to
-            // mesh drawing, writes the placed,
-            // scaled drawing sphere into the local object centre and radius, and
-            // object-light minimization (the inner mesh draw, under
-            // sunlight use 0) reads exactly those. So the set is chosen per particle, at the
-            // particle, by the same [`Self::object_light_set`] every animated part uses.
-            let light_set = |centre: Vec3, radius: f32, outdoors: bool| {
-                self.object_light_set(centre, radius, outdoors)
-            };
             let mut cone = ObjectConeStats::default();
             let mut alpha = AlphaListStats::default();
             let mut counts = (0u32, 0u32);
@@ -11118,18 +11127,9 @@ mod imp {
                             a,
                             n,
                             t,
-                            &mut |gpu| {
-                                self.clip_list_tail(ws, gpu, &per_frame, &particles, &light_set, ps)
-                            },
-                        )?;
-                        self.draw_particles(
-                            ws,
-                            gpu,
-                            &per_frame,
+                            &mut |gpu| self.drain_multipass_pending(gpu, &per_frame),
                             &particles,
-                            &light_set,
                             ps,
-                            crate::particles::ParticlePhase::Rest,
                         )?;
                         Ok(())
                     };
@@ -11146,9 +11146,8 @@ mod imp {
             // split indoor frame, outdoor/building-cell particles were already drawn with the
             // pre-clear object pass; this stage takes only particles in cells reached by the
             // main portal traversal after the clear. An unsplit frame retains the original one
-            // global set. Their second passes under "Multiple Pass Alpha" go out with the object
-            // pass's clip list; the rest are drawn last within the stage, because their surfaces
-            // are almost always alpha or additive.
+            // global set. The object pass sorts them with the parts and draws them through the
+            // same two lists.
             let parts = if self.cfg.particles {
                 if split {
                     self.collect_particles(ws, Some(&interior_cells), false)
@@ -11178,16 +11177,9 @@ mod imp {
                 &mut alpha,
                 &mut counts,
                 &mut trace,
-                &mut |gpu| {
-                    self.clip_list_tail(
-                        ws,
-                        gpu,
-                        &per_frame,
-                        &parts,
-                        &light_set,
-                        &mut particle_stats,
-                    )
-                },
+                &mut |gpu| self.drain_multipass_pending(gpu, &per_frame),
+                &parts,
+                &mut particle_stats,
             )?;
             self.frame_object_cone.set(cone);
             self.frame_alpha_lists.set(alpha);
@@ -11203,87 +11195,8 @@ mod imp {
             // [`IndoorStep::FlushBeforeClear`], and this call finds it empty.
             self.flush_pending_alpha_list(gpu, &per_frame)?;
 
-            // --- the particles -------------------------------------------------------------
-            // The rest of this stage's particles, collected above the object pass.
-            self.draw_particles(
-                ws,
-                gpu,
-                &per_frame,
-                &parts,
-                &light_set,
-                &mut particle_stats,
-                crate::particles::ParticlePhase::Rest,
-            )?;
             self.frame_particles.set(particle_stats);
             Ok(())
-        }
-
-        /// The end of an object pass's clip list: the second passes "Multiple Pass Alpha" queued
-        /// for the landscape's clip-mapped batches, then this stage's particles that the option
-        /// draws twice (both passes). It runs after the parts' own clip entries and before their
-        /// first blend entry, so a translucent object drawn from the alpha list blends over the
-        /// soft edge of a tree rather than having the edge painted over it.
-        fn clip_list_tail(
-            &self,
-            ws: &WorldState,
-            gpu: &mut Gpu,
-            per_frame: &PerFrameConstants,
-            particles: &[crate::particles::ParticlePart],
-            light_set: &dyn Fn(Vec3, f32, bool) -> Vec<D3dLight>,
-            stats: &mut crate::particles::ParticleStats,
-        ) -> Result<(), RenderError> {
-            self.drain_multipass_pending(gpu, per_frame)?;
-            if self.cfg.render.multi_pass_alpha {
-                let forced = self.draw_particles(
-                    ws,
-                    gpu,
-                    per_frame,
-                    particles,
-                    light_set,
-                    stats,
-                    crate::particles::ParticlePhase::Multipass,
-                )?;
-                self.frame_alpha_order
-                    .borrow_mut()
-                    .extend(std::iter::repeat_n(AlphaDraw::ParticleForced, forced));
-            }
-            Ok(())
-        }
-
-        /// One phase of a stage's particle draws; see [`crate::particles::draw`]. Returns how
-        /// many forced second passes were drawn.
-        #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
-        fn draw_particles(
-            &self,
-            ws: &WorldState,
-            gpu: &mut Gpu,
-            per_frame: &PerFrameConstants,
-            particles: &[crate::particles::ParticlePart],
-            light_set: &dyn Fn(Vec3, f32, bool) -> Vec<D3dLight>,
-            stats: &mut crate::particles::ParticleStats,
-            phase: crate::particles::ParticlePhase,
-        ) -> Result<usize, RenderError> {
-            if particles.is_empty() {
-                return Ok(0);
-            }
-            crate::particles::draw(
-                gpu,
-                &self.particle_gfx,
-                per_frame,
-                ws.camera.position,
-                particles,
-                // The governor's outputs; an emitter's particle object shares at its
-                // particle distance.
-                &self.degrade.governor.level(),
-                // Live degrade inputs, so that `get_degrade`'s thresholds
-                // slide with the measured frame rate instead of sitting on `ideal_dist`.
-                &self.degrade_globals(ws),
-                // `minimize_object_lighting` per particle.
-                self.cfg.object_lighting.then_some(light_set),
-                stats,
-                self.cfg.render.multi_pass_alpha,
-                phase,
-            )
         }
 
         /// One of cell rendering's two object passes.
@@ -11331,12 +11244,18 @@ mod imp {
             alpha_out: &mut AlphaListStats,
             counts_out: &mut (u32, u32),
             trace_out: &mut Vec<PartSubsetDraw>,
-            // The rest of this flush's **clip list**, drawn after the parts' clip entries and
+            // The rest of this flush's **clip list**, drawn after the objects' clip entries and
             // before their blend entries: the second passes "Multiple Pass Alpha" queued for the
-            // landscape's statics and for this stage's particles. The client has one pair of lists
-            // and drains the whole clip list before any of the alpha list, so a translucent object
-            // blends over the soft edge of a cut-out instead of under it.
+            // landscape's statics. The client has one pair of lists and drains the whole clip
+            // list before any of the alpha list, so a translucent object blends over the soft
+            // edge of a cut-out instead of under it.
             clip_tail: &mut dyn FnMut(&mut Gpu) -> Result<(), RenderError>,
+            // This stage's particles. An emitter's particles are parts of their object: they are
+            // sorted by viewer distance with every other part and go through the same per-subset
+            // classification and the same two lists, so a far emitter's smoke is drawn before a
+            // nearer translucent object and not over it.
+            particles: &[crate::particles::ParticlePart],
+            particle_stats: &mut crate::particles::ParticleStats,
         ) -> Result<(), RenderError> {
             // The landscape half takes the objects in each outdoor landcell and in the building
             // env cells that building drawing reached. The per-cell object draw's later half takes the
@@ -11593,7 +11512,110 @@ mod imp {
             // `Render.MultiPassAlpha`, read once for the loop because it is a
             // render preference and not a per-part decision.
             let multi_pass_alpha = self.cfg.render.multi_pass_alpha;
-            for (index, s) in subs.iter().enumerate() {
+            // The particles, prepared (viewer distance, degrade level, draw frame, lights) and
+            // already far to near, then merged into the parts' order by that distance.
+            //
+            // One particle's `D3DLIGHT9` set: particle drawing hands the particle to mesh
+            // drawing, writes the placed, scaled drawing sphere into the local object centre and
+            // radius, and object-light minimization (the inner mesh draw, under sunlight use 0)
+            // reads exactly those. So the set is chosen per particle, at the particle, by the
+            // same [`Self::object_light_set`] every animated part uses.
+            let particle_lights =
+                |c: Vec3, r: f32, outdoors: bool| self.object_light_set(c, r, outdoors);
+            let ready = if particles.is_empty() {
+                Vec::new()
+            } else {
+                crate::particles::prepare(
+                    &self.particle_gfx,
+                    ws.camera.position,
+                    particles,
+                    // The governor's outputs; an emitter's particle object shares at its
+                    // particle distance.
+                    &self.degrade.governor.level(),
+                    // Live degrade inputs, so that `get_degrade`'s thresholds slide with the
+                    // measured frame rate instead of sitting on `ideal_dist`.
+                    &self.degrade_globals(ws),
+                    // `minimize_object_lighting` per particle.
+                    self.cfg
+                        .object_lighting
+                        .then_some(&particle_lights as crate::particles::ParticleLightSet<'_>),
+                    particle_stats,
+                )
+            };
+            particle_stats.meshes = self.particle_gfx.len();
+            let particles_lit = self.cfg.object_lighting;
+            let sub_cypts: Vec<f32> = subs.iter().map(|s| s.cypt).collect();
+            let ready_cypts: Vec<f32> = ready.iter().map(|r| r.cypt).collect();
+            let order =
+                dereth_world_render::objects::parts::merge_far_to_near(&sub_cypts, &ready_cypts);
+            for slot in order {
+                let index = match slot {
+                    dereth_world_render::objects::parts::Merged::First(i) => i,
+                    dereth_world_render::objects::parts::Merged::Second(p) => {
+                        let r = &ready[p];
+                        let Some(gfx) = self.particle_gfx.get(r.gfx) else {
+                            continue;
+                        };
+                        for (j, m) in gfx.meshes.iter().enumerate() {
+                            let passes = if self.cfg.part_alpha_lists {
+                                dereth_world_render::objects::draw::classify_subset_passes(
+                                    m.subset_mask,
+                                    dereth_world_render::consts::S_ALPHA_DELAY_MASK,
+                                    multi_pass_alpha,
+                                )
+                            } else {
+                                dereth_world_render::objects::draw::SubsetPasses {
+                                    list: None,
+                                    immediate: true,
+                                    multipass: false,
+                                }
+                            };
+                            if let Some(list) = passes.list {
+                                // LINT-OK: an index into this frame's own particle queue, capped
+                                // by `AlphaLists` itself. Not a float conversion.
+                                #[allow(clippy::cast_possible_truncation)]
+                                let handle = PARTICLE_ENTRY | pass.particle_queued.len() as u32;
+                                if pass.lists.push(
+                                    list,
+                                    dereth_world_render::objects::alpha::AlphaEntry {
+                                        mesh: dereth_primitives::MeshHandle(handle),
+                                        // LINT-OK: a subset index within one emitter mesh.
+                                        #[allow(clippy::cast_possible_truncation)]
+                                        surface_num: j as u32,
+                                        texture: None,
+                                        first_of_kind: false,
+                                        world_matrix: Frame::default(),
+                                        multipass: passes.multipass,
+                                        range: 0..0,
+                                    },
+                                ) {
+                                    pass.particle_queued.push((p, j));
+                                    match list {
+                                        dereth_world_render::objects::alpha::AlphaList::Clip => {
+                                            pass.particle_clip += 1;
+                                        }
+                                        dereth_world_render::objects::alpha::AlphaList::Blend => {
+                                            pass.particle_blend += 1;
+                                        }
+                                    }
+                                }
+                            }
+                            if passes.immediate {
+                                crate::particles::draw_one(
+                                    gpu,
+                                    per_frame,
+                                    r,
+                                    m,
+                                    particles_lit,
+                                    false,
+                                    particle_stats,
+                                )?;
+                            }
+                        }
+                        continue;
+                    }
+                };
+                let s = &subs[index];
                 // The view cone for this part: the full-screen cone of
                 // the null portal-list branch —
                 // unless this is the pass cell drawing issues with the outside view as its portal list, in
@@ -11733,8 +11755,8 @@ mod imp {
             cone_out.culled += cone.culled;
             let mut stats = AlphaListStats {
                 parts: subs.len(),
-                clip: pass.lists.clip_len(),
-                blend: pass.lists.blend_len(),
+                clip: pass.lists.clip_len() - pass.particle_clip,
+                blend: pass.lists.blend_len() - pass.particle_blend,
                 dropped: pass.lists.dropped,
                 immediate: pass.counts.immediate,
                 flushed: 0,
@@ -11755,6 +11777,42 @@ mod imp {
                     if k == clip_entries {
                         clip_tail(gpu)?;
                         tail_drawn = true;
+                    }
+                    // A particle's entry: drawn here, in its list and in its place in it, exactly
+                    // as a part's is.
+                    if e.mesh.0 & PARTICLE_ENTRY != 0 {
+                        let Some(&(p, j)) = pass
+                            .particle_queued
+                            .get((e.mesh.0 & !PARTICLE_ENTRY) as usize)
+                        else {
+                            continue;
+                        };
+                        let r = &ready[p];
+                        let Some(m) = self.particle_gfx.get(r.gfx).and_then(|g| g.meshes.get(j))
+                        else {
+                            continue;
+                        };
+                        crate::particles::draw_one(
+                            gpu,
+                            per_frame,
+                            r,
+                            m,
+                            particles_lit,
+                            e.multipass,
+                            particle_stats,
+                        )?;
+                        let kind = if k >= clip_entries {
+                            AlphaDraw::ParticleBlend
+                        } else if e.multipass {
+                            AlphaDraw::ParticleForced
+                        } else {
+                            AlphaDraw::ParticleClip
+                        };
+                        self.frame_alpha_order.borrow_mut().push(kind);
+                        if kind == AlphaDraw::ParticleBlend {
+                            self.frame_blend_order.borrow_mut().push((kind, r.cypt));
+                        }
+                        continue;
                     }
                     // The entry's `mesh` handle indexes `queued`, which is the push order; its
                     // `surface_num` is the client's own surface number and is *not* the lookup key,
@@ -11806,6 +11864,11 @@ mod imp {
                         } else {
                             AlphaDraw::PartBlend
                         });
+                    if k >= clip_entries {
+                        self.frame_blend_order
+                            .borrow_mut()
+                            .push((AlphaDraw::PartBlend, s.cypt));
+                    }
                     stats.flushed += 1;
                     stats.multipass += usize::from(e.multipass);
                 }
@@ -11937,6 +12000,13 @@ mod imp {
         #[must_use]
         pub fn drawn_alpha_order(&self) -> Vec<AlphaDraw> {
             self.frame_alpha_order.borrow().clone()
+        }
+
+        /// Same bracket: the object pass's blend-list draws of the last [`Self::draw`], parts and
+        /// particles, in device order with the viewer distance each was sorted by.
+        #[must_use]
+        pub fn drawn_blend_order(&self) -> Vec<(AlphaDraw, f32)> {
+            self.frame_blend_order.borrow().clone()
         }
 
         /// What did on the last
@@ -14748,7 +14818,17 @@ mod imp {
         /// One entry per subset put on the device, in **device submission** order.
         trace: Vec<PartSubsetDraw>,
         counts: PartDrawCounts,
+        /// One `(prepared particle, subset)` per particle entry pushed onto `lists`; an entry's
+        /// `mesh` handle is [`PARTICLE_ENTRY`] or'd with its index here.
+        particle_queued: Vec<(usize, usize)>,
+        /// The particle entries on each list, kept out of the parts' census.
+        particle_clip: usize,
+        particle_blend: usize,
     }
+
+    /// The bit that marks an alpha-list entry's `mesh` handle as a particle's (indexing
+    /// `PartPass::particle_queued`) rather than a part's (indexing `PartPass::queued`).
+    const PARTICLE_ENTRY: u32 = 0x8000_0000;
 
     /// One deferred subset, as [`PartPass::queued`] holds it.
     #[derive(Debug, Clone, Copy)]
@@ -16771,6 +16851,11 @@ mod imp {
             self.draw.drawn_alpha_order()
         }
 
+        /// [`SceneDraw::drawn_blend_order`] on this view.
+        pub fn drawn_blend_order(&self) -> Vec<(AlphaDraw, f32)> {
+            self.draw.drawn_blend_order()
+        }
+
         /// [`SceneDraw::drawn_object_cone`] on this view.
         pub fn drawn_object_cone(&self) -> ObjectConeStats {
             self.draw.drawn_object_cone()
@@ -17240,6 +17325,11 @@ mod imp {
         /// [`SceneDraw::drawn_alpha_order`] on this view.
         pub fn drawn_alpha_order(&self) -> Vec<AlphaDraw> {
             self.draw.drawn_alpha_order()
+        }
+
+        /// [`SceneDraw::drawn_blend_order`] on this view.
+        pub fn drawn_blend_order(&self) -> Vec<(AlphaDraw, f32)> {
+            self.draw.drawn_blend_order()
         }
 
         /// [`SceneDraw::drawn_object_cone`] on this view.

@@ -532,192 +532,68 @@ pub(crate) fn prepare(
 /// gets from `PipelineKey::state_from_surface` with
 /// `SurfaceContext::material_has_alpha = Some(true)` — the renderer's own table, so the particle
 /// and animated-part paths share the same row of it.
-/// Draw every collected particle, in the documented order.
+/// Draw one subset of one prepared particle.
 ///
-/// The traversal is depth-ordered at the part level: cells far→near, parts within each cell
-/// far→near by viewer-space depth, then the two alpha lists
-/// flushed **clip before alpha**. This renderer has no per-cell shadow-part lists yet, so the two
-/// outer levels collapse into one far→near sort over every particle part in the frame; the
-/// clip-before-alpha split is reproduced exactly, because that split is what *breaks* depth order
-/// in the original and is therefore visible.
-///
-/// `phase` splits the frame's particles at the clip list's end. [`ParticlePhase::Multipass`] is
-/// every subset "Multiple Pass Alpha" draws twice, both passes, which the caller puts down with
-/// the rest of the flush's clip list, ahead of everything on the alpha list.
-/// [`ParticlePhase::Rest`] is everything else, as before. Returns how many forced second passes
-/// were drawn.
+/// There is no particle renderer of its own: an emitter's particles are parts of their object,
+/// sorted by viewer distance with every other part and put down through the ordinary per-subset
+/// mesh path, in place or out of the alpha lists, which is where the object pass calls this from.
+/// `force_alpha` is surface setup's force-alpha argument, set only for the alpha-list flush's draw
+/// of an entry "Multiple Pass Alpha" queued.
 ///
 /// # Errors
 /// Any device failure from `Gpu::draw_dynamic`.
-#[allow(clippy::too_many_arguments)] // one parameter per input the call takes
-pub(crate) fn draw(
+pub(crate) fn draw_one(
     gpu: &mut Gpu,
-    geometry: &ParticleGeometry,
     per_frame: &PerFrameConstants,
-    viewer: Vec3,
-    parts: &[ParticlePart],
-    share: &DegradeLevel,
-    globals: &DegradeGlobals,
-    light_set: Option<ParticleLightSet<'_>>,
+    r: &Prepared,
+    m: &crate::world::PartMesh,
+    lit: bool,
+    force_alpha: bool,
     stats: &mut ParticleStats,
-    // The live `Render.MultiPassAlpha` preference.
-    multi_pass_alpha: bool,
-    phase: ParticlePhase,
-) -> Result<usize, RenderError> {
-    // The two phases prepare the same parts; only one of them may count them.
-    let mut scratch = ParticleStats::default();
-    let counted = match phase {
-        ParticlePhase::Rest => &mut *stats,
-        ParticlePhase::Multipass => &mut scratch,
-    };
-    let ready = prepare(geometry, viewer, parts, share, globals, light_set, counted);
-    let mut forced = 0;
-    for (i, j, force_alpha) in draw_passes(&ready, geometry, multi_pass_alpha) {
-        let r = &ready[i];
-        let Some(m) = geometry.get(r.gfx).and_then(|g| g.meshes.get(j)) else {
-            continue;
+) -> Result<(), RenderError> {
+    // The same keys every animated part picks between. A particle whose
+    // `1 - t` is not 0xFF is a part whose material has alpha enabled.
+    let key = *crate::world::part_subset_key(m, r.texture_factor >> 24 != 0xFF, force_alpha);
+    if let Some(slot) = m.texture {
+        gpu.bind_texture(slot, m.sampler);
+    }
+    // Part drawing binds the material, then draws the mesh through the ordinary per-subset mesh
+    // path. Two things follow:
+    //
+    // * **the lights.** Mesh drawing minimizes object lighting once per mesh against the
+    //   drawing sphere just placed for this card. [`prepare`] computed that sphere and
+    //   `bind_lights` applies the resulting set.
+    // * **the emissive.** With `luminosity > 0`, subset drawing writes luminosity into the
+    //   bound clone's `Emissive`, or into the default material when no clone is bound. At
+    //   `<= 0`, it keeps the material's zero emissive. Lighting remains enabled for every subset.
+    //
+    // So a luminous particle still saturates to white and is the picture it always was, and a
+    // `luminosity == 0` one is lit by the scene like any other part. **86 of the 268 distinct
+    // surfaces the shipped particle emitters draw through are the latter**, referenced by 140
+    // of the 2,051 shipped emitters.
+    let mut world = r.world;
+    if lit {
+        world.material_lighting = PARTICLE_MATERIAL_LIGHTING;
+        let emissive = if m.luminosity > 0.0 {
+            m.luminosity
+        } else {
+            PARTICLE_MATERIAL_LIGHTING[0]
         };
-        if (phase == ParticlePhase::Multipass) != subset_multipass(m, multi_pass_alpha) {
-            continue;
-        }
-        forced += usize::from(force_alpha);
-        // The same keys every animated part picks between. A particle whose
-        // `1 - t` is not 0xFF is a part whose material has alpha enabled.
-        let key = *crate::world::part_subset_key(m, r.texture_factor >> 24 != 0xFF, force_alpha);
-        if let Some(slot) = m.texture {
-            gpu.bind_texture(slot, m.sampler);
-        }
-        // A particle is not drawn by a renderer of its own: its object's parts
-        // are added to the cell's shadow list by cell-shadow registration and drawn
-        // from there like every other part. Part drawing binds the
-        // material, then draws the mesh through the ordinary per-subset mesh path.
-        //
-        // Two things follow:
-        //
-        // * **the lights.** Mesh drawing minimizes object lighting once per mesh against the
-        //   drawing sphere just placed for this card. [`prepare`] computed that sphere and
-        //   `bind_lights` applies the resulting set.
-        // * **the emissive.** With `luminosity > 0`, subset drawing writes luminosity into the
-        //   bound clone's `Emissive`, or into the default material when no clone is bound. At
-        //   `<= 0`, it keeps the material's zero emissive. Lighting remains enabled for every subset.
-        //
-        // So a luminous particle still saturates to white and is the picture it always was, and a
-        // `luminosity == 0` one is lit by the scene like any other part. **86 of the 268 distinct
-        // surfaces the shipped particle emitters draw through are the latter**, referenced by 140
-        // of the 2,051 shipped emitters.
-        let mut world = r.world;
-        if light_set.is_some() {
-            world.material_lighting = PARTICLE_MATERIAL_LIGHTING;
-            let emissive = if m.luminosity > 0.0 {
-                m.luminosity
-            } else {
-                PARTICLE_MATERIAL_LIGHTING[0]
-            };
-            crate::world::bind_lights(&mut world, &r.lights, emissive, false);
-        }
-        gpu.draw_dynamic(
-            &key,
-            &DrawConstants {
-                alpha_ref: m.alpha_ref,
-                texture_factor: r.texture_factor,
-                ..DrawConstants::default()
-            },
-            per_frame,
-            &world,
-            &m.vertices,
-        )?;
-        stats.batches += 1;
+        crate::world::bind_lights(&mut world, &r.lights, emissive, false);
     }
-    stats.meshes = geometry.len();
-    Ok(forced)
-}
-
-/// Which half of the frame's particle draws [`draw`] puts down.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ParticlePhase {
-    /// The subsets "Multiple Pass Alpha" draws twice: the in-place pass and the forced one.
-    Multipass,
-    /// Everything else.
-    Rest,
-}
-
-/// Whether "Multiple Pass Alpha" draws this subset twice: the option is on and the subset's mask
-/// is the clip-mapped one, 8.
-#[must_use]
-pub(crate) fn subset_multipass(m: &crate::world::PartMesh, multi_pass_alpha: bool) -> bool {
-    multi_pass_alpha
-        && dereth_world_render::objects::draw::classify_subset_passes(
-            m.subset_mask,
-            dereth_world_render::consts::S_ALPHA_DELAY_MASK,
-            true,
-        )
-        .multipass
-}
-
-/// [`draw_passes`] with the option off, without the flags.
-#[cfg(test)]
-#[must_use]
-pub(crate) fn draw_order(ready: &[Prepared], geometry: &ParticleGeometry) -> Vec<(usize, usize)> {
-    draw_passes(ready, geometry, false)
-        .into_iter()
-        .map(|(i, j, _)| (i, j))
-        .collect()
-}
-
-/// The submission order: `(index into ready, index into that emitter mesh's subsets,
-/// force_alpha)`.
-///
-/// The alpha-list renderer drains **the clip list first and the alpha list second**, each in
-/// insertion order, whatever their depths. That split is
-/// the one place the far→near order is deliberately broken, and it is faithful client behaviour
-/// The clip list always flushes before the alpha list regardless of depth.
-///
-/// Insertion order inside each list is the traversal order, which [`prepare`] has already put
-/// far→near; within one part it is mesh-subset order.
-///
-/// **"Multiple Pass Alpha"** (`multi_pass_alpha`) adds passes and clears none. With it on, the
-/// mesh draw renders a clip-mapped subset (mask 8) in place **and** queues it on the clip list,
-/// and the flush draws that entry with surface setup's force-alpha argument. The in-place draws
-/// come first, in traversal order, as they do while the cells are drawn; then the clip list, its
-/// clip-mapped entries forced; then the alpha list. With it off every flag is clear.
-#[must_use]
-pub(crate) fn draw_passes(
-    ready: &[Prepared],
-    geometry: &ParticleGeometry,
-    multi_pass_alpha: bool,
-) -> Vec<(usize, usize, bool)> {
-    let multipass = |m: &crate::world::PartMesh| subset_multipass(m, multi_pass_alpha);
-    let mut out = Vec::new();
-    if multi_pass_alpha {
-        for (i, r) in ready.iter().enumerate() {
-            let Some(gfx) = geometry.get(r.gfx) else {
-                continue;
-            };
-            for (j, m) in gfx.meshes.iter().enumerate() {
-                if multipass(m) {
-                    out.push((i, j, false));
-                }
-            }
-        }
-    }
-    for clip_list in [true, false] {
-        for (i, r) in ready.iter().enumerate() {
-            let Some(gfx) = geometry.get(r.gfx) else {
-                continue;
-            };
-            for (j, m) in gfx.meshes.iter().enumerate() {
-                // The mesh-subset path classifies a subset from its `SurfaceType`:
-                // `Base1ClipMap` (mask 8) goes to the clip list, `Alpha`/`InvAlpha`/`Additive`
-                // (mask 2) to the alpha list. Alpha-testing is exactly what `BASE1_CLIPMAP` sets.
-                // The option's arm puts every mask-8 subset on the clip list.
-                let forced = multipass(m);
-                if (m.key.alpha_test || forced) == clip_list {
-                    out.push((i, j, forced));
-                }
-            }
-        }
-    }
-    out
+    gpu.draw_dynamic(
+        &key,
+        &DrawConstants {
+            alpha_ref: m.alpha_ref,
+            texture_factor: r.texture_factor,
+            ..DrawConstants::default()
+        },
+        per_frame,
+        &world,
+        &m.vertices,
+    )?;
+    stats.batches += 1;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1102,108 +978,12 @@ mod tests {
         );
     }
 
-    /// ORACLE: the two alpha lists flush in insertion order (clip before alpha), and
-    /// "What breaks the order is the split between the clip list and the alpha list (the clip list
-    /// is always flushed first regardless of depth)".
-    ///
-    /// So the assertion is deliberately **not** "everything is drawn far to near": a near
-    /// clip-mapped subset is drawn before a far alpha one, and that is the client's behaviour, not
-    /// a defect to be tidied.
+    /// ORACLE: the alpha-list flush draws an entry "Multiple Pass Alpha" queued through surface
+    /// setup with force alpha, which blends `SRCALPHA / INVSRCALPHA`, skips the alpha test and the
+    /// depth write, and keeps the `LESS` depth test; the first, in-place pass is the alpha-tested
+    /// cut-out. A particle's material alpha does not change the second pass.
     #[test]
-    fn the_clip_list_is_flushed_before_the_alpha_list() {
-        use dereth_render::pso::{PipelineKey, SurfaceContext};
-        use dereth_render::surface::{surface_type, Surface, SurfaceHandler};
-        use dereth_render::vertex::VertexFormat;
-
-        // The two real classifications: `BASE1_CLIPMAP` is the clip list, `ALPHA` is the alpha
-        // list. Both come out of `PipelineKey::from_surface`, not out of a hand-built key.
-        let key = |t: u32| {
-            let s = Surface {
-                r#type: t,
-                handler: SurfaceHandler::Database,
-                ..Surface::default()
-            };
-            let ctx = SurfaceContext {
-                vertex_format: VertexFormat::XyzDiffuseTex1,
-                texture_is_set: true,
-                lighting: false,
-                ..SurfaceContext::default()
-            };
-            PipelineKey::from_surface(&s, ctx).0
-        };
-        let mesh = |t: u32| crate::world::PartMesh {
-            key: key(t),
-            surface_type: t,
-            key_material_alpha: key(t),
-            key_force_alpha: key(t),
-            key_detail: key(t),
-            alpha_ref: 0,
-            texture: None,
-            sampler: 0,
-            subset_mask: dereth_world_render::objects::draw::subset_mask(t),
-            surface: None,
-            luminosity: 0.0,
-            vertices: Vec::new(),
-        };
-        let mut g = ParticleGeometry::default();
-        // Subset 0 is alpha-blended, subset 1 is clip-mapped: the *mesh* order is 0 then 1 and the
-        // *list* order has to invert it.
-        g.insert(
-            DataId(7),
-            Some(ParticleGfx {
-                meshes: vec![
-                    mesh(surface_type::BASE1_IMAGE | surface_type::ALPHA),
-                    mesh(surface_type::BASE1_IMAGE | surface_type::BASE1_CLIPMAP),
-                ],
-                sort_center: Vec3::ZERO,
-                degrade: None,
-                drawing_sphere: None,
-            }),
-        );
-        let parts = vec![part(7, 10.0, 1.0, 0.0), part(7, 90.0, 1.0, 0.0)];
-        let mut stats = ParticleStats::default();
-        let ready = prepare(
-            &g,
-            Vec3::ZERO,
-            &parts,
-            &DegradeLevel::startup(),
-            &DegradeGlobals::default(),
-            None,
-            &mut stats,
-        );
-        assert_eq!(
-            ready.iter().map(|r| r.cypt).collect::<Vec<_>>(),
-            vec![90.0, 10.0]
-        );
-
-        let order = draw_order(&ready, &g);
-        assert_eq!(
-            order,
-            vec![(0, 1), (1, 1), (0, 0), (1, 0)],
-            "both clip subsets first, far to near, then both alpha subsets, far to near"
-        );
-        // The near clip subset is drawn before the far alpha one. That is the shipped artefact.
-        let clip_near = order
-            .iter()
-            .position(|&(i, j)| i == 1 && j == 1)
-            .expect("near clip");
-        let alpha_far = order
-            .iter()
-            .position(|&(i, j)| i == 0 && j == 0)
-            .expect("far alpha");
-        assert!(
-            clip_near < alpha_far,
-            "the clip list is flushed first regardless of depth"
-        );
-    }
-
-    /// ORACLE: with "Multiple Pass Alpha" on, the mesh draw renders a clip-mapped subset in place
-    /// and also queues it on the clip list flagged multipass; the flush draws a multipass entry
-    /// through surface setup with force alpha, which blends `SRCALPHA / INVSRCALPHA`, skips the
-    /// alpha test and the depth write, and keeps the `LESS` depth test. With the option off there
-    /// is one pass, alpha-tested, exactly as before.
-    #[test]
-    fn multiple_pass_alpha_draws_a_clip_mapped_subset_again_blended_and_untested() {
+    fn a_forced_particle_pass_is_blended_untested_and_writes_no_depth() {
         use dereth_render::pso::{PipelineKey, SurfaceContext, ZFunc};
         use dereth_render::surface::{surface_type, Surface, SurfaceHandler};
         use dereth_render::vertex::VertexFormat;
@@ -1238,49 +1018,6 @@ mod tests {
             vertices: Vec::new(),
         };
         let clip_type = surface_type::BASE1_IMAGE | surface_type::BASE1_CLIPMAP;
-        let mut g = ParticleGeometry::default();
-        g.insert(
-            DataId(7),
-            Some(ParticleGfx {
-                meshes: vec![
-                    mesh(surface_type::BASE1_IMAGE | surface_type::ALPHA),
-                    mesh(clip_type),
-                ],
-                sort_center: Vec3::ZERO,
-                degrade: None,
-                drawing_sphere: None,
-            }),
-        );
-        let parts = vec![part(7, 10.0, 1.0, 0.0), part(7, 90.0, 1.0, 0.0)];
-        let mut stats = ParticleStats::default();
-        let ready = prepare(
-            &g,
-            Vec3::ZERO,
-            &parts,
-            &DegradeLevel::startup(),
-            &DegradeGlobals::default(),
-            None,
-            &mut stats,
-        );
-
-        assert_eq!(
-            draw_passes(&ready, &g, false),
-            vec![(0, 1, false), (1, 1, false), (0, 0, false), (1, 0, false)],
-            "option off: one pass per subset, clip list then alpha list"
-        );
-        assert_eq!(
-            draw_passes(&ready, &g, true),
-            vec![
-                (0, 1, false),
-                (1, 1, false),
-                (0, 1, true),
-                (1, 1, true),
-                (0, 0, false),
-                (1, 0, false)
-            ],
-            "option on: the clip subsets in place, then the clip list forced, then the alpha list"
-        );
-
         let clip = mesh(clip_type);
         let first = *crate::world::part_subset_key(&clip, false, false);
         assert!(
