@@ -142,7 +142,7 @@ mod tests {
     }
 
     /// The tie-break is not stable and is not arbitrary either: it is whatever the strict-`<` sift
-    /// produces, and it is what the original produces. Contract 7.5 names it as observable, so this
+    /// produces, and it is what the original produces. The order is observable, so this
     /// test pins the exact sequence rather than merely asserting the keys are non-decreasing.
     #[test]
     fn equal_keys_come_out_in_the_heaps_own_order() {

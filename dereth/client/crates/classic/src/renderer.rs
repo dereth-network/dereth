@@ -297,7 +297,7 @@ pub struct Canvas {
     /// Palette-indexed images by image and palette.
     indexed: BTreeMap<String, Vec<(Palette, TextureSlot)>>,
     /// Composed spell icons by icon, raw power and flags.
-    spells: BTreeMap<(u32, u32, u32), TextureSlot>,
+    spells: BTreeMap<(u32, u32, u32, bool), TextureSlot>,
     size: (u32, u32),
     white: Option<TextureSlot>,
     /// The next texture key this canvas hands out.
@@ -596,12 +596,13 @@ impl Canvas {
         icon: u32,
         power: u32,
         bits: u32,
+        transparent: bool,
     ) -> Result<TextureSlot> {
-        let key = (icon, power, bits);
+        let key = (icon, power, bits, transparent);
         if let Some(slot) = self.spells.get(&key) {
             return Ok(*slot);
         }
-        let pixels = self.spell_pixels(icon, power, bits)?;
+        let pixels = self.spell_pixels(icon, power, bits, transparent)?;
         let slot = self.upload(
             gpu,
             &TextureData {
@@ -614,7 +615,7 @@ impl Canvas {
         self.spells.insert(key, slot);
         Ok(slot)
     }
-    fn spell_pixels(&self, icon: u32, power: u32, bits: u32) -> Result<Vec<u8>> {
+    fn spell_pixels(&self, icon: u32, power: u32, bits: u32, transparent: bool) -> Result<Vec<u8>> {
         let read = |id: u32| -> Result<Vec<u8>> {
             let asset = self
                 .manifest
@@ -637,6 +638,13 @@ impl Canvas {
         } else {
             read(background)?
         };
+        if transparent {
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                if pixel[..3] == [0, 0, 0] {
+                    pixel[3] = 0;
+                }
+            }
+        }
         let raw = read(icon)?;
         let reverse = if layers.reversed {
             Some(read(0x060013f2)?)
@@ -969,6 +977,7 @@ impl Canvas {
                     icon,
                     power,
                     bitfield,
+                    transparent,
                     ..
                 } => {
                     quad(
@@ -979,7 +988,7 @@ impl Canvas {
                         0xffffffff,
                         self.size,
                     );
-                    self.spell_texture(gpu, *icon, *power, *bitfield)?
+                    self.spell_texture(gpu, *icon, *power, *bitfield, *transparent)?
                 }
                 Command::TextBox { .. } | Command::RichTextBox { .. } => {
                     unreachable!("text boxes expanded")

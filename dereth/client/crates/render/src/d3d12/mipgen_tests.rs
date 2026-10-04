@@ -1,4 +1,4 @@
-// A-F18 synthetic device inputs. These test runtime policy/linear filtering/resource ownership,
+// synthetic device inputs. These test runtime policy/linear filtering/resource ownership,
 // not D3DX BOX or cross-driver rounding. The separate client tests supply real DAT/world owners.
 
 fn mip_solid(width: u32, height: u32, color: [u8; 4]) -> TextureData {

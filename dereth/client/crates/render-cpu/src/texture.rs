@@ -96,12 +96,12 @@ impl Default for Caps {
 pub const DATA_CATEGORY_UI: u32 = 6;
 /// Data category 10 — conversion is suppressed entirely.
 ///
-/// UNVERIFIED: which dat category 10 *is*, and therefore which
+/// which dat category 10 *is*, and therefore which
 /// surfaces keep their authored format, was not traced. The client branches on exactly 6 and
 /// 10, and so do this constant and [`select_surface_format`].
 pub const DATA_CATEGORY_UNCONVERTED: u32 = 10;
 
-/// The surface-format selection, "verified", verbatim:
+/// The surface-format selection, verbatim:
 ///
 /// ```text
 /// src not a D3D format                     -> src                  // keep P8/INDEX16/LSCAPE
@@ -734,11 +734,11 @@ mod tests {
         );
     }
 
-    // Oracle: the client's indexed-image copy, "verified" --
+    // Oracle: the client's indexed-image copy --
     //   idx = (src format == PFID_INDEX16) ? ((uint16*)srcRow)[x] : ((uint8*)srcRow)[x]
     //   dst32[x] = (bClipMap && idx <= 7) ? 0x00000000 : palette->ARGB[idx]
     // plus the 8x replication during palette loading. Getting the replication wrong "shifts every
-    // colour in every indexed texture" (spec trap 3).
+    // colour in every indexed texture".
     #[test]
     fn palettised_sources_expand_through_the_2048_entry_table() {
         let pal = ramp_palette();
@@ -1055,7 +1055,7 @@ mod tests {
         assert_eq!(scaled_dimensions(1, 1, ImageScale::FullRes), (1, 1));
     }
 
-    // Oracle: the brief -- "Parsers return Result; they do not panic on malformed input, because
+    // Oracle: "Parsers return Result; they do not panic on malformed input, because
     // they will meet malformed input."
     #[test]
     fn short_or_impossible_input_is_an_error_not_a_panic() {

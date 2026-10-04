@@ -191,7 +191,8 @@ fn check_recovered(db_path: &Path, last_acked: u64) -> (u64, bool) {
 #[test]
 fn durability_kill_points() {
     let exe = std::env::current_exe().unwrap();
-    let base = std::env::temp_dir().join(format!("serv-store-durability-{}", std::process::id()));
+    let base =
+        std::env::temp_dir().join(format!("empyrean-store-durability-{}", std::process::id()));
     std::fs::create_dir_all(&base).unwrap();
     let mut mid_transaction = 0;
     let mut unacked_but_committed = 0;

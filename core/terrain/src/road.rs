@@ -143,7 +143,7 @@ mod tests {
         }
     }
 
-    /// Oracle: trap 7 — ACE answers `(terrain & 3) != 0`, i.e. "on road" whenever *any* corner has
+    /// Oracle: ACE answers `(terrain & 3) != 0`, i.e. "on road" whenever *any* corner has
     /// a road bit. The cell centre of a single-corner road cell is the cheapest place to see the
     /// two disagree, and this test pins the disagreement so nobody "simplifies" it away.
     #[test]

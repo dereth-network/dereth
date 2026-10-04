@@ -365,7 +365,7 @@ mod tests {
         }
     }
 
-    // Oracle: the brief's rule that a parser meets malformed input and must not panic.
+    // Oracle: malformed input must return an error rather than panic.
     #[test]
     fn short_and_unsupported_input_is_an_error_not_a_panic() {
         let err = decode(PixelFormatId::Dxt1, &[0u8; 4], 4, 4).unwrap_err();

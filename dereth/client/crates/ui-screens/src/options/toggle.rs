@@ -11,8 +11,7 @@
 //! Player-option binding is used by the Character Options page (`super::character`),
 //! three controls in combat-panel initialization ([`crate::hud::combat_window`]), one
 //! in friends-panel initialization and **five** across the two social panels. This
-//! module owns the five social controls. Their caption targets were verified from the complete
-//! binding sequence because an intermediate representation obscured the destination field.
+//! module owns the five social controls and their caption bindings.
 //!
 //! Allegiance initialization finds child `0x10000262`, verifies the option-checkbox
 //! type `0x10000035`, binds option 1 and installs the caption token

@@ -214,8 +214,9 @@ fn picked_equipment(ctx: &Context<'_>, mask: u32) -> Option<ObjectId> {
 }
 #[derive(Debug, Default)]
 pub struct Inventory {
+    height: Option<u32>,
     item_scroll: std::cell::Cell<i32>,
-    container_scroll: i32,
+    container_scroll: std::cell::Cell<i32>,
     displayed_container: std::cell::Cell<Option<ObjectId>>,
 }
 impl Inventory {
@@ -224,6 +225,9 @@ impl Inventory {
     }
 }
 impl Panel for Inventory {
+    fn resize(&mut self, _width: u32, height: u32) {
+        self.height = Some(height.max(362));
+    }
     fn id(&self) -> &'static str {
         "inventory"
     }
@@ -241,8 +245,28 @@ impl Panel for Inventory {
         }
         // Stretched, the page's art keeps its top 360 rows with a dark tile below, and the
         // contents grid grows downwards.
-        let height = crate::panels::side_height() as i32;
+        let height = self.height.unwrap_or_else(crate::panels::side_height) as i32;
         let grid_height = (height - 266) / 32 * 32;
+        let container_extent = g.player().map_or(0, |player| {
+            i32_from(slots(g, player, true, 1, 7).len()) * 36
+        });
+        let item_extent = self.container(g).map_or(0, |container| {
+            i32_from(
+                slots(g, container, false, 6, (grid_height / 32 * 6) as usize)
+                    .len()
+                    .div_ceil(6),
+            ) * 32
+        });
+        self.container_scroll.set(
+            self.container_scroll
+                .get()
+                .clamp(0, (container_extent - 252).max(0)),
+        );
+        self.item_scroll.set(
+            self.item_scroll
+                .get()
+                .clamp(0, (item_extent - grid_height).max(0)),
+        );
         let mut f = PanelFrame::new(300, height as u32);
         image(&mut f, 0x06000f5b, rect(0, 0, 300, 362), None, true, false);
         if height > 360 {
@@ -329,7 +353,7 @@ impl Panel for Inventory {
                 &{
                     let all = slots(g, player, true, 1, 7);
                     all.into_iter()
-                        .skip((self.container_scroll.max(0) / 36) as usize)
+                        .skip((self.container_scroll.get().max(0) / 36) as usize)
                         .collect::<Vec<_>>()
                 },
                 1,
@@ -368,28 +392,24 @@ impl Panel for Inventory {
                 32,
             );
         }
-        if let Some(player) = g.player() {
+        if container_extent > 252 {
             scrollbar(
                 &mut f,
                 "containers-scroll",
                 rect(283, 82, 16, 256),
-                i32_from(slots(g, player, true, 1, 7).len()) * 36,
+                container_extent,
                 252,
-                self.container_scroll,
+                self.container_scroll.get(),
                 36,
                 true,
             );
         }
-        if let Some(container) = self.container(g) {
+        if item_extent > grid_height {
             scrollbar(
                 &mut f,
                 "items-scroll",
                 rect(207, 257, 20, grid_height),
-                i32_from(
-                    slots(g, container, false, 6, (grid_height / 32 * 6) as usize)
-                        .len()
-                        .div_ceil(6),
-                ) * 32,
+                item_extent,
                 grid_height,
                 self.item_scroll.get(),
                 32,
@@ -436,6 +456,12 @@ impl Panel for Inventory {
         let double = matches!(e, ControlEvent::DoubleClick { .. });
         let right = matches!(e, ControlEvent::RightClick { .. });
         match e {
+            ControlEvent::PreviewDrag { equipment_mask } => {
+                return picked_equipment(ctx, equipment_mask)
+                    .filter(|object| Some(*object) != g.player())
+                    .map(|object| vec![PanelAction::BeginDrag(DragPayload::Object(object))])
+                    .unwrap_or_default();
+            }
             ControlEvent::PreviewHit {
                 equipment_mask,
                 right_click,
@@ -472,7 +498,7 @@ impl Panel for Inventory {
                 self.item_scroll.set(value.max(0))
             }
             ControlEvent::Scroll { id, value } if id == "containers-scroll" => {
-                self.container_scroll = value.max(0)
+                self.container_scroll.set(value.max(0))
             }
             ControlEvent::Activate(id) if id == "close" => return vec![PanelAction::Close],
             ControlEvent::Select { id, index }
@@ -488,7 +514,7 @@ impl Panel for Inventory {
                 } else if id == "containers" {
                     g.player().and_then(|p| {
                         g.contained_containers(p)
-                            .get(index + (self.container_scroll.max(0) / 36) as usize)
+                            .get(index + (self.container_scroll.get().max(0) / 36) as usize)
                             .copied()
                     })
                 } else if id == "backpack" {
@@ -581,7 +607,7 @@ impl Panel for Inventory {
                     } {
                         let slot = slot
                             + if id == "containers" {
-                                (self.container_scroll.max(0) / 36) as u32
+                                (self.container_scroll.get().max(0) / 36) as u32
                             } else {
                                 (self.item_scroll.get().max(0) / 32) as u32 * 6
                             };
@@ -1018,5 +1044,76 @@ mod later_slot_tests {
         let slots = equipment_slots(&World(Some(era)));
         assert_eq!(slots.len(), EQUIPMENT.len() + 1);
         assert_eq!(slots.last().map(|s| s.3), Some(0x0800_0000));
+    }
+}
+
+#[cfg(test)]
+mod fitting_scroll_tests {
+    //! Behaviour: none (inventory control layout and scroll projection).
+    use super::*;
+    #[derive(Debug)]
+    struct Contents {
+        items: i32,
+        packs: i32,
+    }
+    impl GameView for Contents {
+        fn player(&self) -> Option<ObjectId> {
+            Some(ObjectId(1))
+        }
+        fn open_inventory_container(&self) -> Option<ObjectId> {
+            self.player()
+        }
+        fn items_capacity(&self, _: ObjectId) -> Option<i32> {
+            Some(self.items)
+        }
+        fn containers_capacity(&self, _: ObjectId) -> Option<i32> {
+            Some(self.packs)
+        }
+    }
+    /// Behaviour: classic.inventory.hides-fitting-scrollbars
+    #[test]
+    fn inventory_bars_follow_capacity_and_stretch_and_clamp_the_visible_origin() {
+        let mut game = Contents {
+            items: 120,
+            packs: 10,
+        };
+        let mut panel = Inventory::default();
+        let frame = |game: &Contents, panel: &Inventory| {
+            panel.frame(&Context {
+                game,
+                pregame: &Default::default(),
+                keyboard: &Default::default(),
+                settings: &Default::default(),
+                classic: &Default::default(),
+                map_teleport_allowed: false,
+            })
+        };
+        panel.resize(300, 362);
+        let initial = frame(&game, &panel);
+        for id in ["items-scroll", "containers-scroll"] {
+            assert!(initial.controls.iter().any(|c| c.id == id));
+        }
+        panel.item_scroll.set(544);
+        panel.container_scroll.set(108);
+        game.items = 18;
+        game.packs = 7;
+        let fits = frame(&game, &panel);
+        assert!(!fits.controls.iter().any(|c| c.id.ends_with("-scroll")));
+        assert_eq!(
+            (panel.item_scroll.get(), panel.container_scroll.get()),
+            (0, 0)
+        );
+        game.items = 60;
+        assert!(frame(&game, &panel)
+            .controls
+            .iter()
+            .any(|c| c.id == "items-scroll"));
+        panel.item_scroll.set(224);
+        panel.resize(300, 618);
+        let stretched = frame(&game, &panel);
+        assert!(!stretched.controls.iter().any(|c| c.id == "items-scroll"));
+        assert_eq!(panel.item_scroll.get(), 0);
+        let items = stretched.controls.iter().find(|c| c.id == "items").unwrap();
+        assert!(matches!(&items.kind, ControlKind::Items { entries, .. } if entries.len() == 60));
     }
 }

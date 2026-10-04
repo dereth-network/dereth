@@ -3571,7 +3571,7 @@ mod tests {
         );
     }
 
-    // Oracle: contract item 1.1 and spec trap 1 -- "dereth-render must not change the FPU control word
+    // Oracle: "dereth-render must not change the FPU control word
     // and must document that it does not."
     #[test]
     fn the_module_does_not_change_the_fpu_control_word() {

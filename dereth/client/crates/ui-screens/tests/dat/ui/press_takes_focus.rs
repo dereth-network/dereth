@@ -249,7 +249,7 @@ fn the_widening_moves_only_the_scrollable_subtree_across_the_eight_shipped_scree
         after - before
     );
 
-    // --- the instrument can produce a non-zero (§7.8) -----------------------------------------
+    // --- the instrument can produce a non-zero -----------------------------------------
     assert!(
         after > before,
         "the widening changed nothing at all: {before} -> {after}"
@@ -267,7 +267,7 @@ fn the_widening_moves_only_the_scrollable_subtree_across_the_eight_shipped_scree
         "the picture probe said *every* element changes picture"
     );
 
-    // --- the instrument can produce a zero (§7.14) --------------------------------------------
+    // --- the instrument can produce a zero --------------------------------------------
     // Eight types, thousands of elements, and not one of them may move.
     for (ty, name) in OUTSIDE {
         let r = grand.get(&ty).copied().unwrap_or_default();

@@ -508,7 +508,7 @@ impl AllegianceHierarchy {
     /// The blocks the wire form carries at a given version, expressed as booleans so a decoder or a
     /// test can check the gate table directly.
     ///
-    /// `// UNVERIFIED:` the tail of the unpack routine for versions 5, 10, and 11 is inferred from
+    /// the tail of the unpack routine for versions 5, 10, and 11 is inferred from
     /// the version enum rather than read from the client's control flow.
     #[must_use]
     pub fn version_gates(v: u32) -> VersionGates {

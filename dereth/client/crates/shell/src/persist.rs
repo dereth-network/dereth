@@ -116,9 +116,9 @@ mod tests {
     /// The file on disk is the single line the client writes.
     #[test]
     fn the_file_on_disk_is_the_single_line_the_client_writes() {
-        let dir = std::env::temp_dir().join("dere-o246-screen-layout");
+        let dir = std::env::temp_dir().join("dereth-screen-layout");
         std::fs::create_dir_all(&dir).expect("a scratch directory");
-        let path = dir.join("UI-o246.txt");
+        let path = dir.join("screen-layout.txt");
         let _ = std::fs::remove_file(&path);
 
         // "the file did not open" is `Ok(None)` and is what a first run sees.

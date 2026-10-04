@@ -212,7 +212,7 @@ impl MotionTableManager {
                 self.add_to_queue(MotionCommand::READY, n, seq);
                 Ok(())
             }
-            // UNVERIFIED: the unknown-type result is unresolved. The client's default arm appears
+            // the unknown-type result is unresolved. The client's default arm appears
             // to return a sequence pointer as an unsigned integer,
             // probably an unreachable path. The caller returns
             // `0x47 GeneralMovementFailure` for an unknown type; that remains the approximation here.

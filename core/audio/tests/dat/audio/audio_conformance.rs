@@ -469,7 +469,7 @@ fn a_seeded_ran2_reproduces_the_ambient_schedule_including_the_draw_order() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The SoundTweakedHook field order (contract 10.6)
+// The SoundTweakedHook field order
 // ---------------------------------------------------------------------------------------------
 
 /// The client reads `SoundTweakedHook`'s two middle floats as **probability then priority**; ACE has

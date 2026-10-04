@@ -491,14 +491,14 @@ impl PipelineKey {
         // Polygon and mesh-subset draws: cull CW unless the polygon is two-sided.
         // Two debug globals that could force CULLMODE_NONE are read-only constants whose values
         // were not recovered.
-        // UNVERIFIED: the six unnamed device toggles in the object draw path.
+        // the six unnamed device toggles in the object draw path.
         // Implemented as "the debug override is off", which is the only setting under which the
         // shipped client culls back faces at all.
         let cull = if ctx.two_sided { Cull::None } else { Cull::Cw };
 
         // Meshes light when a debug lighting global is set or the sky is being drawn; terrain
         // never lights. The sky term is unconditional.
-        // UNVERIFIED: that global's value. Modelled as the caller's choice.
+        // that global's value. Modelled as the caller's choice.
         let lighting = ctx.lighting || ctx.drawing_sky;
 
         // Step 8. Fog is disabled unless the device fog is on and the surface is not ADDITIVE.
@@ -977,7 +977,7 @@ mod tests {
         assert_eq!(bldg.z_func, ZFunc::LessEqual);
     }
 
-    // Oracle: same document, section 5. Contract 11.2: 100 for a palettised source, 200 for a
+    // Oracle: 100 for a palettised source, 200 for a
     // block-compressed one -- never 128.
     #[test]
     fn alpha_test_references_are_100_and_200_never_128() {

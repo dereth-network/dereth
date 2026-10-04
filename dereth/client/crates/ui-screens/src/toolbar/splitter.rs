@@ -141,7 +141,7 @@ pub(crate) fn parse_stack_quantity(text: &str) -> u32 {
 /// **The gate is the object's live stack size, and nothing else** — it is not `WeenieType`, not
 /// the max stack size, and not any bitfield bit. The branch never looks at `WeenieType`, so a
 /// single arrow (stack size absent, therefore 0) and a stack of exactly one both fall on the
-/// *creature* side of the same test. `\[verified\]`
+/// *creature* side of the same test.
 pub const MIN_SPLITTABLE_STACK: u32 = 2;
 
 /// The gate itself: may the split marker be shown for a selection of this stack size?
@@ -193,7 +193,7 @@ impl Splitter {
 mod tests {
     use super::*;
 
-    /// Oracle: §2.2's two element ids.
+    /// The splitter binds its text entry and slider by their element ids.
     #[test]
     fn the_splitter_is_the_documented_text_box_and_slider() {
         assert_eq!(ENTRY_BOX, ElementId(0x1000_01A3));
@@ -234,7 +234,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §2.2's text-box rule — clamp into `1 … max_split_size`, then drive the slider.
+    /// clamp into `1 … max_split_size`, then drive the slider.
     #[test]
     fn the_text_box_clamps_into_range_and_writes_the_slider_back() {
         let mut s = Splitter::new(20);
@@ -361,7 +361,7 @@ mod tests {
         assert!(wants_reseed(25, s.max_split_size));
     }
 
-    /// Oracle: §7's rebuild note — "both clamp to `1 … max_split_size` and **both emit
+    /// "both clamp to `1 … max_split_size` and **both emit
     /// `StackSliderChanged`**", i.e. the two views round-trip to the same integer.
     #[test]
     fn the_two_views_agree_on_the_same_integer() {

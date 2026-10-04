@@ -43,7 +43,7 @@ pub const PALETTE_REPLICATION: usize = 8;
 pub const CLIP_MAP_TRANSPARENT_MAX_INDEX: u16 = 7;
 
 impl ExpandedPalette {
-    /// The palette load, "verified":
+    /// The palette load:
     ///
     /// ```text
     /// if (num_colors == 256) {
@@ -82,7 +82,7 @@ impl ExpandedPalette {
         self.0[usize::from(index) & (PALETTE_ENTRIES - 1)]
     }
 
-    /// Apply a sub-palette, "verified": copies `count` ARGB
+    /// Apply a sub-palette: copies `count` ARGB
     /// entries into `ARGB[offset .. offset+count)`, **refusing when `offset + count > num_colors`**.
     ///
     /// Returns `false` on that refusal, leaving the palette untouched, exactly as the client does.
@@ -176,7 +176,7 @@ mod tests {
         assert!(ExpandedPalette::from_dat(&[]).is_none());
     }
 
-    // Oracle: the sub-palette apply, "verified" -- "copies count ARGB entries into
+    // Oracle: the sub-palette apply -- "copies count ARGB entries into
     // ARGB[offset ... offset+count), refusing when offset + count > num_colors".
     #[test]
     fn modify_writes_a_range_and_refuses_to_overrun() {
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(p.0[0], 0);
     }
 
-    // Oracle: the expansion, "verified" -- "Palette indices 0...7 are the
+    // Oracle: the expansion -- "Palette indices 0...7 are the
     // transparent range for clip-mapped surfaces... For non-clip-mapped surfaces every index goes
     // through the palette unchanged, so index 0 is an ordinary colour."
     #[test]

@@ -481,7 +481,7 @@ mod tests {
 
     /// A continuous ambient sound is a **re-trigger on a timer**, not a loop: it comes back onto the
     /// queue at exactly `min_rate` every time, with no draw. Oracle: a constant sound's play
-    /// interval, and contract 10.4.
+    /// interval.
     #[test]
     fn continuous_ambience_re_triggers_at_min_rate_with_no_random_draw() {
         let region = test_region();

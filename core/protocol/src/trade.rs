@@ -268,7 +268,7 @@ pub struct TradeAddToTradeRecv {
     pub item: ObjectId,
     /// See [`trade_side`].
     pub side: u32,
-    // UNVERIFIED: the third dword is [inferred] to be a container-properties
+    // The third dword is treated as a container-properties
     // flag. It is decoded and passed through; name it when a capture explains it.
     pub container_properties: u32,
 }

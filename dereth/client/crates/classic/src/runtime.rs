@@ -108,6 +108,7 @@ pub struct ClassicUi {
     dialogs: ClassicDialogs,
     panel_events: Vec<(String, ControlEvent)>,
     preview_click: Option<(u64, i32, i32, std::time::Instant)>,
+    preview_held: Option<(u64, Preview, i32, i32)>,
     settings_host: Option<crate::settings_host::SettingsHost>,
     /// The classic key map as the host last handed it over.
     classic_keys: crate::keystore::ClassicKeys,
@@ -209,6 +210,7 @@ impl ClassicUi {
             dialogs: Default::default(),
             panel_events: vec![],
             preview_click: None,
+            preview_held: None,
             settings_host: None,
             classic_keys: crate::keystore::ClassicKeys::default(),
             ui_actions: vec![],
@@ -846,6 +848,7 @@ impl ClassicUi {
         (if help { !down } else { down }).then_some(Input::RightClick { x, y })
     }
     fn keyboard_focus_lost<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
+        self.preview_held = None;
         let steer = self.steering.release();
         self.actions.extend(steer);
         self.shift = false;
@@ -1974,6 +1977,7 @@ impl ClassicUi {
                 self.desktop.dispatch_panel(&id, event, &context);
             }
             if in_world != self.last_in_world {
+                self.preview_held = None;
                 self.dialogs.generation += 1;
                 self.desktop.close_all(&context);
                 self.desktop
@@ -2057,6 +2061,49 @@ impl ClassicUi {
             // clicked is the target) and then ends it, as a click in the world does; a right
             // click neither acts nor ends it.
             for input in std::mem::take(&mut self.inputs) {
+                let doll_drag = match input {
+                    Input::PointerMove { .. } => take_preview_drag(&mut self.preview_held, &input)
+                        .and_then(|(origin, preview, px, py)| {
+                            self.preview_click = None;
+                            let store = std::sync::Arc::clone(cx.store());
+                            match self
+                                .previews
+                                .pick(cx.present_mut(), &store, &preview, px, py)
+                            {
+                                Ok(hit) => hit.map(|hit| (origin, hit.equipment_mask)),
+                                Err(error) => {
+                                    self.errors.push(error);
+                                    None
+                                }
+                            }
+                        }),
+                    Input::PointerDown { x, y } => {
+                        self.preview_held = (!armed
+                            && !self.desktop.modal_open()
+                            && self.desktop.drag_payload.is_none()
+                            && self.desktop.item_at(x, y).is_none())
+                        .then(|| {
+                            self.desktop
+                                .previews
+                                .iter()
+                                .enumerate()
+                                .rev()
+                                .find(|(_, p)| {
+                                    p.kind == PreviewKind::PaperDoll && p.rect.contains(x, y)
+                                })
+                                .map(|(index, p)| {
+                                    (self.desktop.preview_owners[index], p.clone(), x, y)
+                                })
+                        })
+                        .flatten();
+                        None
+                    }
+                    Input::PointerUp { .. } | Input::Cancel | Input::RightClick { .. } => {
+                        self.preview_held = None;
+                        None
+                    }
+                    _ => None,
+                };
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
                     game: &view,
@@ -2066,6 +2113,15 @@ impl ClassicUi {
                     map_teleport_allowed: map_allowed,
                     classic: &self.classic,
                 };
+
+                if let Some((origin, equipment_mask)) = doll_drag {
+                    self.desktop.release_pointer(&context);
+                    self.desktop.dispatch(
+                        origin,
+                        ControlEvent::PreviewDrag { equipment_mask },
+                        &context,
+                    );
+                }
 
                 // Escape, with no dialog up and no text being typed, first ends a targeting
                 // cursor, then clears the selection, and only then closes pages.
@@ -2496,6 +2552,7 @@ impl ClassicUi {
                     if let Some(spell) = view.spell(*id) {
                         if let Some(icon) = spell.icon {
                             self.cursor_commands.push(crate::Command::SpellIcon {
+                                transparent: true,
                                 icon: icon.0,
                                 power: spell.icon_power,
                                 bitfield: spell.bitfield,
@@ -3034,6 +3091,43 @@ mod escape_tests {
 
 /// How far the pointer moves from a press on the world before the pressed object is picked up.
 const WORLD_DRAG_DISTANCE: i32 = 5;
+
+fn take_preview_drag(
+    held: &mut Option<(u64, Preview, i32, i32)>,
+    input: &Input,
+) -> Option<(u64, Preview, i32, i32)> {
+    let Input::PointerMove { x, y } = input else {
+        return None;
+    };
+    let (_, _, px, py) = held.as_ref()?;
+    ((x - px).abs().max((y - py).abs()) >= WORLD_DRAG_DISTANCE)
+        .then(|| held.take())
+        .flatten()
+}
+
+#[cfg(test)]
+mod paper_doll_drag_tests {
+    use super::*;
+    /// Behaviour: classic.paper-doll.drag-picks-equipped-item
+    #[test]
+    fn drag_threshold_keeps_the_original_pick_and_consumes_it_once() {
+        let preview = Preview {
+            kind: PreviewKind::PaperDoll,
+            rect: rect(10, 20, 80, 180),
+            object: None,
+            appearance: None,
+        };
+        let mut held = Some((42, preview, 35, 70));
+        assert!(take_preview_drag(&mut held, &Input::PointerMove { x: 36, y: 71 }).is_none());
+        assert!(held.is_some());
+        let (origin, preview, x, y) =
+            take_preview_drag(&mut held, &Input::PointerMove { x: 400, y: 500 }).unwrap();
+        assert_eq!((origin, x, y), (42, 35, 70));
+        assert_eq!(preview.rect, rect(10, 20, 80, 180));
+        assert!(held.is_none());
+        assert!(take_preview_drag(&mut held, &Input::PointerMove { x: 500, y: 600 }).is_none());
+    }
+}
 
 /// What a press on the world and a move pick up: the object under the pointer (not the selection:
 /// a drag over open ground picks up nothing), at peace, when it lies loose in the world and nobody

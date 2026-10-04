@@ -1027,8 +1027,7 @@ pub fn all() -> impl Iterator<Item = (u16, MotionCommand, &'static str)> {
 /// The 2013 table ends at index 407.
 ///
 /// Rows are `(first 2013 index, last 2013 index, shift)`. Used by
-/// [`retail_2013_index_to_current`] and nothing else. `\[verified\]` against both clients' tables,
-/// entry by entry.
+/// [`retail_2013_index_to_current`] and nothing else.
 pub const RETAIL_2013_INDEX: [(u16, u16, u16); 3] =
     [(0x000, 0x10E, 0), (0x10F, 0x15D, 3), (0x15F, 0x197, 3)];
 
@@ -1740,8 +1739,8 @@ mod tests {
     }
 
     /// **The table is the 2015 one at the rows that moved**, pinned by id, name and index -- the
-    /// rows a 2013 table gets wrong. `SnowAngelState` is the owner's case: under the 2013 numbering
-    /// it was `0x43000115`, which no shipped motion table plays.
+    /// rows a 2013 table gets wrong. Under the 2013 numbering, `SnowAngelState`
+    /// was `0x43000115`, which no shipped motion table plays.
     #[test]
     fn the_rows_the_2015_client_renumbered_have_their_2015_ids() {
         for (i, id, name, c) in [
@@ -2104,7 +2103,7 @@ mod tests {
         }
     }
 
-    /// Spot checks against the values the track spec quotes.
+    /// Spot checks of representative command values.
     #[test]
     fn the_spec_quoted_constants_have_the_spec_quoted_values() {
         assert_eq!(MotionCommand::INVALID.0, 0x8000_0000);

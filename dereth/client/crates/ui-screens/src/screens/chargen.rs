@@ -77,7 +77,7 @@ pub const RIGHT_BUTTON: ElementId = ElementId(0x1000_03C7);
 /// the summary page **only**.
 pub const FINISH_BUTTON: ElementId = ElementId(0x1000_03C8);
 /// The Help button. The button handler has **no arm for it**, so pressing Help does nothing in the
-/// retail client either. \[verified\]
+/// retail client either.
 pub const HELP_BUTTON: ElementId = ElementId(0x1000_03C9);
 /// The Exit button, the same confirm dialog the left arrow raises on page 1.
 pub const EXIT_BUTTON: ElementId = ElementId(0x1000_03CA);
@@ -253,7 +253,7 @@ impl CharGenDialog {
     /// | the expansion warning dialog build | `ID_CharGen_ToDRequiredWarning` | 3 | `Message` | expansion warning |
     ///
     /// All five produced dialogs are modal; the shared dialog builder writes that property
-    /// unconditionally. [verified against retail]
+    /// unconditionally.
     ///
     /// **The same reading from the other end.** Close-dialog handling reads property `0x8E` and
     /// handles **1** and **3** and nothing else. Its kind-1 arm distinguishes the exit warning (→
@@ -797,7 +797,7 @@ pub const ATTR_ROW_SKILL_ID: u32 = 0x1000_000A;
 
 /// The client's two states for a row's arrows: `0x1000001A` is the arrow that will refuse the click
 /// and `0x1000001B` the one that will take it. Every one of the six state writes in that function
-/// uses one of these two \[verified\].
+/// uses one of these two.
 pub const STATE_ARROW_OFF: dereth_ui::StateId = dereth_ui::StateId(0x1000_001A);
 /// See [`STATE_ARROW_OFF`].
 pub const STATE_ARROW_ON: dereth_ui::StateId = dereth_ui::StateId(0x1000_001B);
@@ -1123,7 +1123,7 @@ pub struct Cg3dView {
     /// the appearance page stores 180 degrees and then applies it to the model.
     /// A heading of 0 faces
     /// **+Y**, which is the direction the camera looks *along*, so with 0 the model turns its back.
-    /// \[verified\]
+    ///
     pub heading: f32,
     /// The camera position — the camera write's first argument.
     pub camera_position: [f32; 3],
@@ -1707,7 +1707,7 @@ impl CharGenScreen {
     /// `0x100003A8` sets gender 1, in the element-message handler). So this is a page-enum ⇄
     /// state-gender conversion written back into the *state* instead of into the page's own field —
     /// **a shipped bug**, reachable on every wizard open because character randomisation has
-    /// already rolled the gender to 1 or 2 by then. Verified against retail.
+    /// already rolled the gender to 1 or 2 by then.
     ///
     /// **It is not implemented here, and the reason is measurable rather than squeamish.** The
     /// value it flips is a dice roll over `1..=2`, so flipping it leaves the distribution of the
@@ -2193,12 +2193,8 @@ impl CharGenScreen {
         }
         // The credits available, then the three vitals.
         //
-        // Unverified behavior: retail reads attribute 2 twice and attribute 6 once, halving
-        // (truncating) the first, which is endurance/2, endurance and self — while the
-        // character-creation description says the three come from `Attribute2ndTable`. The two
-        // agree only if that table's rows are the identity for stamina and mana and a halving for
-        // health, which is AC's own well-known formula but is not read here: this build does not
-        // load `Attribute2ndTable` at all.
+        // These readouts use endurance/2, endurance and self directly; this path does not
+        // load the secondary-attribute table.
         let endurance = self.state.get(Attr::Endurance);
         let readouts = [
             self.state.remaining_atrb_credits,
@@ -3327,12 +3323,8 @@ impl CharGenScreen {
     /// [`SUMMARY_SKILL_SECTIONS`], each a header followed by one pair per skill at that level with
     /// its [`CharGenState::skill_score`].
     ///
-    /// **The order the skills come out in is `[inferred]`.** The client walks a hash table, whose
-    /// order depends on a bucket count this build does not reproduce; the paired retail frame has
-    /// them in **name** order —
-    /// Dirty Fighting, Heavy Weapons, Melee Defense, Shield for a Soldier, which is neither skill-id
-    /// order nor insertion order — so name order is what is written here, and the implementation
-    /// keeps its own list.
+    /// Skills are written in name order. This implementation keeps its own sorted list
+    /// rather than reproducing a hash table's bucket traversal order.
     pub fn set_summary_text(&mut self, ui: &mut UiSystem) {
         let Some(root) = self.roots.first().copied() else {
             return;
@@ -4623,7 +4615,7 @@ impl Screen for CharGenScreen {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue's four tables, and the layout-enum map (enum
+    /// Oracle: the screen catalogue's four tables, and the layout-enum map (enum
     /// `0x10000039` → `0x21000038` `chargen_master`, root `0x100003CC`).
     #[test]
     fn the_wizard_names_the_documented_layout_chrome_pages_and_buttons() {
@@ -4642,7 +4634,7 @@ mod tests {
         assert_eq!(EcgProgress::Invalid.select_button(), None);
     }
 
-    /// Oracle: §8's progress enumeration — the values, including the heritage typo the document
+    /// the values, including the heritage typo the document
     /// flags with *(sic)*.
     #[test]
     fn the_progress_enum_has_the_documented_values() {

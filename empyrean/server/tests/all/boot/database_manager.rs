@@ -271,7 +271,10 @@ fn database_paths_come_from_the_config_then_the_default() {
 
 #[test]
 fn database_files_are_created_and_reopened() {
-    let dir = std::env::temp_dir().join(format!("serv-server-f22-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "empyrean-server-database-manager-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let (shard_path, auth_path) = (dir.join("shard.db"), dir.join("auth.db"));
     let _ = std::fs::remove_file(&shard_path);

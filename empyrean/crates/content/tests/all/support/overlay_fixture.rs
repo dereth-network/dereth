@@ -18,7 +18,10 @@ pub(crate) fn base_sql() -> PathBuf {
 }
 
 pub(crate) fn tmp(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("serv-content-8b2-{}-{name}", std::process::id()));
+    let d = std::env::temp_dir().join(format!(
+        "empyrean-content-overlay-{}-{name}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d

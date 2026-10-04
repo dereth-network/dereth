@@ -1,4 +1,4 @@
-//! The per-frame pass sequence, in contract-11.7 order.
+//! The per-frame draw-pass sequence.
 //!
 //! The smart box's draw and its normal-mode arm, the landscape draw, the block draw and the
 //! cell draw.
@@ -150,7 +150,7 @@ mod tests {
     use super::*;
     use crate::cells::portal_view::ConstructedView;
 
-    /// Oracle: contract 11.7's exact order — outdoors the frame is clear → sky pass 0 → landblocks
+    /// Oracle: the exact draw order — outdoors the frame is clear → sky pass 0 → landblocks
     /// far→near → sky pass 1 → alpha list.
     /// The two sky passes bracket the landblocks, and the alpha list is last.
     #[test]
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(crate::consts::ALPHA_FLUSH_MIN_Z, 0.75);
     }
 
-    /// Oracle: contract 11.7's indoor half — the frame takes the indoor path, and it still runs the
+    /// Oracle: indoor rendering — the frame takes the indoor path, and it still runs the
     /// outdoor path first, clipped to the portal polygons.
     #[test]
     fn the_indoor_path_is_selected_and_still_runs_the_outdoor_pass() {

@@ -54,7 +54,7 @@ use dereth_protocol::types::{PositionWire, Vec3};
 /// this is an exact floating-point value, not a rounded decimal approximation.
 /// The interval is initialized before any position report is sent.
 /// The observed initialization and the independent timing distribution below agree;
-/// no alternate interval is inferred from the shorter gaps. \[verified\]
+/// no alternate interval is inferred from the shorter gaps.
 ///
 /// Corroborated independently by the recording itself: the 551 gaps between the 552 `0xF753`
 /// blobs of `long-solo-play` have median **1.00048 s**, with 67 of them inside the 0.02 s-wide
@@ -65,7 +65,7 @@ pub const TIME_BETWEEN_POSITION_EVENTS: f64 = 1.0;
 
 /// The `0.0002f` constant (exactly `0.00019999999494757503`), which both comparisons below
 /// use. Plane equality compares against it directly, while frame equality uses it for each origin
-/// and quaternion component. \[verified\]
+/// and quaternion component.
 pub const POSITION_EPSILON: f32 = 0.0002;
 
 /// `MIN_JUMP_EXTENT`, the `float` `0x3A83126F`, i.e.
@@ -75,7 +75,7 @@ pub const POSITION_EPSILON: f32 = 0.0002;
 /// and both reads are the **same constant**. Together they implement
 /// `extent = max(level, MIN_JUMP_EXTENT)`, so an instantaneous tap jumps at 0.001,
 /// never at 0. Corroborated independently by `dereth_animation::motion::power_bar_level`, which is
-/// derived the same way. \[verified\]
+/// derived the same way.
 pub const MIN_JUMP_EXTENT: f32 = 0.001;
 
 /// The player's contact plane, in the frame of `contact_plane_cell_id`.
@@ -183,7 +183,7 @@ pub struct PositionReporter {
     last_sent_position_time: f64,
     last_sent_position: PositionWire,
     last_sent_contact_plane: ContactPlane,
-    /// **This build's edge detector for `0xF61C`, and a declared deviation.**
+    /// **The edge detector for `0xF61C`.**
     ///
     /// The client sends a `MoveToState` from six handlers after changing a movement command list.
     /// This build does not store those lists; their common observable is that the
@@ -380,7 +380,7 @@ impl PositionReporter {
     /// position senders pass — the instance, server-controlled-move, teleport and force-position
     /// sequences — so this reads them off the
     /// same [`PlayerMotion`] and a slot wired to a neighbour is wrong here for the same reason.
-    /// Left to right the four are `update_times[8], [5], [4], [6]`. \[verified\]
+    /// Left to right the four are `update_times[8], [5], [4], [6]`.
     ///
     /// `velocity` is **not** the body's world velocity: the jump path reads the local physics
     /// velocity, which is transformed

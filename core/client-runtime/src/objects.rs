@@ -2836,7 +2836,7 @@ mod tests {
     #[test]
     fn character_session_reset_preserves_the_process_chat_output_handle() {
         let dir =
-            std::env::temp_dir().join(format!("dere-object-reset-log-{}", std::process::id()));
+            std::env::temp_dir().join(format!("dereth-object-reset-log-{}", std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
         }

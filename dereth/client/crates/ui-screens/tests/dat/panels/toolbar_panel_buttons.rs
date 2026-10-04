@@ -92,7 +92,7 @@ fn click(ui: &mut UiSystem, s: &mut GamePlayScreen, h: ElemHandle) {
 }
 
 /// The seven buttons, as `(element id, panel id, handle)`, read off the live toolbar rather than
-/// paired by hand — trap 11.
+/// paired by hand.
 fn buttons(_ui: &UiSystem, s: &GamePlayScreen) -> Vec<(u32, u32, ElemHandle)> {
     assert_eq!(
         s.toolbar.buttons.len(),

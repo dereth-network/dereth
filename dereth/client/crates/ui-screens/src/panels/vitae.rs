@@ -26,8 +26,7 @@
 //! # The three strings, and how the numbers get into them
 //!
 //! Each is a `StringInfo` in table enum `0x10000001` (`0x23000001`) holding **two literal pieces
-//! around one variable**, read out of the shipped dats
-//! [verified against the shipped string table]:
+//! around one variable** in the shipped string table:
 //!
 //! ```text
 //! ID_Vitae_Text_Full       ["Your Vitae, or life force, is at full strength."]

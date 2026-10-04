@@ -5,7 +5,7 @@
 
 /// The encumbrance capacity.
 ///
-/// `\[verified\]` identical to ACE `ACE.Server/Physics/Common/EncumbranceSystem.cs`.
+/// Identical to ACE `ACE.Server/Physics/Common/EncumbranceSystem.cs`.
 #[must_use]
 pub fn encumbrance_capacity(strength: i32, num_augs: i32) -> i32 {
     if strength < 1 {

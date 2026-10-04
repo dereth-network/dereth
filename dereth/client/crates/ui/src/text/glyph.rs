@@ -776,7 +776,7 @@ mod tests {
         assert_eq!(g.inq_text(false), "defgh", "with it the oldest glyphs go");
     }
 
-    /// Oracle: transcribed in §2.4. "1 = centre,
+    /// Oracle: transcribed in the description "1 = centre,
     /// 3 or 5 = far, anything else = near."
     #[test]
     fn justification_matches_the_transcribed_formula() {

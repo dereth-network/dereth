@@ -633,7 +633,7 @@ mod tests {
 
     /// Oracle: [`gfx_obj_under_selection_ray`] — "the ray direction is divided by
     /// **`|gfxobj_scale|`** (the length of the scale vector), not by each component — a non-uniform
-    /// scale gives a slightly wrong ray. \[verified\]". Reproducing the *wrong* division is the
+    /// scale gives a slightly wrong ray.". Reproducing the *wrong* division is the
     /// point.
     #[test]
     fn the_ray_is_divided_by_the_scale_vectors_length_not_per_component() {

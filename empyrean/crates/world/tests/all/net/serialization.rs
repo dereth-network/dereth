@@ -1422,7 +1422,9 @@ use empyrean_world::network::game_messages::game_message_opcode::GameMessageOpco
 use empyrean_world::sessions::SessionData;
 
 // V236.
-fn rule3_body<M: ProtoMessage + std::fmt::Debug + PartialEq>(body: &[u8]) -> Result<M, String> {
+fn decode_client_body<M: ProtoMessage + std::fmt::Debug + PartialEq>(
+    body: &[u8],
+) -> Result<M, String> {
     let decoded = dp::read_body_padded::<M>(body)
         .map_err(|e| format!("dereth-protocol rejects {}: {e}", hex(body)))?;
     let again = dp::write_body(&decoded).map_err(|e| format!("re-encode: {e}"))?;
@@ -1445,7 +1447,7 @@ fn rule3_body<M: ProtoMessage + std::fmt::Debug + PartialEq>(body: &[u8]) -> Res
 }
 
 /// The body of a message: after the opcode, or after the 0xF7B0 ordered-event header and type.
-fn rule3_decode<M: ProtoMessage + std::fmt::Debug + PartialEq>(m: &GameMessage) -> M {
+fn decode_client_message<M: ProtoMessage + std::fmt::Debug + PartialEq>(m: &GameMessage) -> M {
     let data = &m.data;
     let (ty, body) = if m.opcode == GameMessageOpcode::GameEvent {
         (
@@ -1459,11 +1461,11 @@ fn rule3_decode<M: ProtoMessage + std::fmt::Debug + PartialEq>(m: &GameMessage) 
         )
     };
     assert_eq!(ty, M::OPCODE.0, "opcode / event type");
-    rule3_body(body).unwrap_or_else(|e| panic!("{e}"))
+    decode_client_body(body).unwrap_or_else(|e| panic!("{e}"))
 }
 
 #[test]
-fn rule3_object_descriptions_decode_as_the_client_reads_them() {
+fn object_descriptions_decode_as_the_client_reads_them() {
     let file = vectors::load_named("messages", "serialization_world_objects");
     let mut failures = Vec::new();
     for case in &file.cases {
@@ -1475,9 +1477,9 @@ fn rule3_object_descriptions_decode_as_the_client_reads_them() {
         for key in ["create", "create_admin", "update"] {
             let data = unhex(case.output[key].as_str().expect("hex"));
             let r = if key == "update" {
-                rule3_body::<dp::objects::ItemUpdateObject>(&data[4..]).map(|d| d.0.id.0)
+                decode_client_body::<dp::objects::ItemUpdateObject>(&data[4..]).map(|d| d.0.id.0)
             } else {
-                rule3_body::<dp::objects::ItemCreateObject>(&data[4..]).map(|d| d.0.id.0)
+                decode_client_body::<dp::objects::ItemCreateObject>(&data[4..]).map(|d| d.0.id.0)
             };
             match r {
                 Ok(id) => assert_eq!(id, u(&case.input["object"]["guid"])),
@@ -1485,7 +1487,7 @@ fn rule3_object_descriptions_decode_as_the_client_reads_them() {
             }
         }
         let data = unhex(case.output["obj_desc"].as_str().expect("hex"));
-        if let Err(e) = rule3_body::<dp::objects::ItemObjDescEvent>(&data[4..]) {
+        if let Err(e) = decode_client_body::<dp::objects::ItemObjDescEvent>(&data[4..]) {
             failures.push(format!("{label} obj_desc: {e}"));
         }
     }
@@ -1493,23 +1495,23 @@ fn rule3_object_descriptions_decode_as_the_client_reads_them() {
 }
 
 #[test]
-fn rule3_appraisals_decode_as_the_client_reads_them() {
+fn appraisals_decode_as_the_client_reads_them() {
     let file = vectors::load_named("messages", "serialization_appraise");
     for case in &file.cases {
         let mut body = u(&case.input["object"]["guid"]).to_le_bytes().to_vec();
         body.extend(unhex(&hex_out(case)));
-        let d: dp::objects::ItemSetAppraiseInfo =
-            rule3_body(&body).unwrap_or_else(|e| panic!("{}: {e}", case.input["object"]["class"]));
+        let d: dp::objects::ItemSetAppraiseInfo = decode_client_body(&body)
+            .unwrap_or_else(|e| panic!("{}: {e}", case.input["object"]["class"]));
         assert_eq!(d.object.0, u(&case.input["object"]["guid"]));
     }
     // and the full structure
     let mut body = 0x8000_0001u32.to_le_bytes().to_vec();
     appraise_info::write(&mut body, &full_appraisal());
-    let _: dp::objects::ItemSetAppraiseInfo = rule3_body(&body).expect("full appraisal");
+    let _: dp::objects::ItemSetAppraiseInfo = decode_client_body(&body).expect("full appraisal");
 }
 
 #[test]
-fn rule3_movement_data_decodes_as_the_client_reads_it() {
+fn movement_data_decodes_as_the_client_reads_it() {
     use empyrean_world::network::game_messages::messages::game_message_update_motion;
     let file = vectors::load_named("messages", "serialization_motion");
     let mut checked = 0;
@@ -1540,7 +1542,7 @@ fn rule3_movement_data_decodes_as_the_client_reads_it() {
             &data,
             dereth_world_data::command_numbering::CommandNumbering::Final,
         );
-        let m: dp::movement::MovementSetObjectMovement = rule3_decode(&msg);
+        let m: dp::movement::MovementSetObjectMovement = decode_client_message(&msg);
         m.decoded_movement()
             .unwrap_or_else(|e| panic!("{}: movement buffer: {e}", case.input));
         checked += 1;
@@ -1549,7 +1551,7 @@ fn rule3_movement_data_decodes_as_the_client_reads_it() {
 }
 
 #[test]
-fn rule3_position_pack_decodes_as_the_client_reads_it() {
+fn position_pack_decodes_as_the_client_reads_it() {
     use empyrean_world::network::game_messages::messages::game_message_update_position;
     let mut w = world();
     let mut o = WorldObject::allocate(Class::GenericObject);
@@ -1576,7 +1578,7 @@ fn rule3_position_pack_decodes_as_the_client_reads_it() {
             g(0x8000_0301),
             admin_move,
         );
-        let d: dp::movement::MovementPositionEvent = rule3_decode(&m);
+        let d: dp::movement::MovementPositionEvent = decode_client_message(&m);
         assert_eq!(d.id.0, 0x8000_0301);
     }
 }
@@ -1589,7 +1591,7 @@ fn ses() -> SessionData {
 }
 
 #[test]
-fn rule3_structure_events_decode_as_the_client_reads_them() {
+fn structure_events_decode_as_the_client_reads_them() {
     let file = vectors::load_named("messages", "serialization_structures");
     let fields = |kind: &str| -> Vec<Vec<Value>> {
         file.cases
@@ -1602,7 +1604,7 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
     // enchantments
     for e in fields("enchantment") {
         let e = enchantment(&Value::Array(e));
-        let _: dp::qualities::MagicUpdateEnchantment = rule3_decode(
+        let _: dp::qualities::MagicUpdateEnchantment = decode_client_message(
             &ev::game_event_magic_update_enchantment::game_event_magic_update_enchantment(
                 &mut ses(),
                 &e,
@@ -1614,7 +1616,7 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
         .map(|e| enchantment(&Value::Array(e)))
         .collect();
     let _: dp::qualities::MagicUpdateMultipleEnchantments =
-        rule3_decode(&ev::game_event_magic_update_multiple_enchantments::game_event_magic_update_multiple_enchantments(&mut ses(), &list));
+        decode_client_message(&ev::game_event_magic_update_multiple_enchantments::game_event_magic_update_multiple_enchantments(&mut ses(), &list));
 
     // houses
     for x in fields("house_data") {
@@ -1627,7 +1629,7 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
             rent: payments(&x[5]),
             position: Some(position(&x[6])),
         };
-        let _: dp::trade::HouseDataMessage = rule3_decode(
+        let _: dp::trade::HouseDataMessage = decode_client_message(
             &ev::game_event_house_data::game_event_house_data(&mut ses(), &hd),
         );
     }
@@ -1644,9 +1646,9 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
             g(0x7000_0001 + n as u32),
             &hp,
         );
-        let _: dp::trade::HouseProfileMessage = rule3_decode(&m);
+        let _: dp::trade::HouseProfileMessage = decode_client_message(&m);
     }
-    let _: dp::trade::HouseUpdateRentPayment = rule3_decode(
+    let _: dp::trade::HouseUpdateRentPayment = decode_client_message(
         &ev::game_event_house_update_rent_payment::game_event_house_update_rent_payment(&mut ses()),
     );
     let mut r = restriction_db::RestrictionDB {
@@ -1656,7 +1658,7 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
     };
     r.table.add(g(0x5000_0059), 1);
     let mut holder = SequencedObject::new(0x7000_0018);
-    let _: dp::trade::HouseUpdateRestrictions = rule3_decode(
+    let _: dp::trade::HouseUpdateRestrictions = decode_client_message(
         &ev::game_event_house_update_restrictions::game_event_house_update_restrictions(
             &mut ses(),
             &mut holder,
@@ -1671,12 +1673,12 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
         squelch_info::SquelchInfo::from_filter(SquelchMask(4), "A", false),
     );
     db.globals.filters.push(SquelchMask(0x10));
-    let _: dp::comms::CommunicationSetSquelchDb = rule3_decode(
+    let _: dp::comms::CommunicationSetSquelchDb = decode_client_message(
         &ev::game_event_communication_set_squelch::game_event_set_squelch_db(&mut ses(), &db),
     );
 
     // allegiance (no allegiance)
-    let _: dp::social::AllegianceInfoResponse = rule3_decode(
+    let _: dp::social::AllegianceInfoResponse = decode_client_message(
         &ev::game_event_allegiance_info_response::game_event_allegiance_info_response(
             &mut ses(),
             0x5000_0001,
@@ -1693,7 +1695,7 @@ fn rule3_structure_events_decode_as_the_client_reads_them() {
         from: Some(chess_move_data::ChessPieceCoord { x: 1, y: 2 }),
         to: Some(chess_move_data::ChessPieceCoord { x: 3, y: 4 }),
     };
-    let _: dp::trade::GameOpponentTurn = rule3_decode(
+    let _: dp::trade::GameOpponentTurn = decode_client_message(
         &ev::game_event_opponent_turn::game_event_opponent_turn(&mut ses(), g(0x8000_0010), &data),
     );
 }
@@ -1853,7 +1855,7 @@ fn player_description_writes_every_section_in_aces_order() {
         8
     );
 
-    let d: dp::login::LoginPlayerDescription = rule3_decode(&m);
+    let d: dp::login::LoginPlayerDescription = decode_client_message(&m);
     assert_eq!(d.player_module.options, 0x11);
     assert_eq!(d.player_module.options2, 0x22);
 }
@@ -1997,7 +1999,7 @@ fn player_description_orders_inventory_spells_and_equipment_as_ace_does() {
         ];
     }
     let m = game_event_player_description(&mut w, SESSION);
-    let d: dp::login::LoginPlayerDescription = rule3_decode(&m);
+    let d: dp::login::LoginPlayerDescription = decode_client_message(&m);
 
     // "+" for a plussed character below cloak level Player.
     let names: Vec<_> = format!("{:?}", d.qualities.base)
@@ -2054,8 +2056,8 @@ fn a_players_object_description_has_its_characters_hair_and_the_login_physics_st
         game_message_create_object::game_message_create_object(&mut w, g(PLAYER), false, false);
     let admin =
         game_message_create_object::game_message_create_object(&mut w, g(PLAYER), true, false);
-    let plain_d: dp::objects::ItemCreateObject = rule3_decode(&plain);
-    let admin_d: dp::objects::ItemCreateObject = rule3_decode(&admin);
+    let plain_d: dp::objects::ItemCreateObject = decode_client_message(&plain);
+    let admin_d: dp::objects::ItemCreateObject = decode_client_message(&admin);
     assert_eq!(
         format!("{:?}", plain_d.0.physicsdesc)
             .matches("translucency: None")
@@ -2093,7 +2095,7 @@ fn the_descriptions_script_is_data_id_44_and_the_default_script_data_id_30() {
     o.set_property(PropertyDataId::RestrictionEffect, 0x98);
     w.objects.insert(o).expect("fresh guid");
     let scripts = |w: &mut World| {
-        let d: dp::objects::ItemCreateObject = rule3_decode(
+        let d: dp::objects::ItemCreateObject = decode_client_message(
             &game_message_create_object::game_message_create_object(w, guid, false, false),
         );
         (d.0.wdesc.pscript, d.0.physicsdesc.default_script)
@@ -2242,7 +2244,7 @@ mod real_content {
                     continue;
                 }
             };
-            match rule3_body::<dp::objects::ItemCreateObject>(&msg.data[4..]) {
+            match decode_client_body::<dp::objects::ItemCreateObject>(&msg.data[4..]) {
                 Ok(_) => decoded += 1,
                 Err(e) => failures
                     .entry(e.chars().take(60).collect())
@@ -2250,7 +2252,7 @@ mod real_content {
                     .push(*wcid),
             }
             let desc = game_message_obj_desc_event::game_message_obj_desc_event(&mut w, guid);
-            if let Err(e) = rule3_body::<dp::objects::ItemObjDescEvent>(&desc.data[4..]) {
+            if let Err(e) = decode_client_body::<dp::objects::ItemObjDescEvent>(&desc.data[4..]) {
                 failures
                     .entry(format!(
                         "obj desc: {}",

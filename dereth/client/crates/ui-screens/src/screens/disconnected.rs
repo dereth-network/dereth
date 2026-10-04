@@ -160,7 +160,7 @@ impl Screen for DisconnectedScreen {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue, and the shipped `disconnected` layout `0x21000002`,
+    /// Oracle: the screen catalogue, and the shipped `disconnected` layout `0x21000002`,
     /// whose four elements are the root, the panel and these two.
     #[test]
     fn the_screen_names_the_documented_layout_root_child_and_button() {
@@ -170,8 +170,8 @@ mod tests {
         assert_eq!(OK_BUTTON, ElementId(0x1000_0418));
     }
 
-    /// Oracle: §5 — the OK button is the screen's one exit path, and it goes to the epilogue rather
-    /// than exiting directly (§10: "the quit path goes GamePlay → Epilogue → Done, never
+    /// the OK button is the screen's one exit path, and it goes to the epilogue rather
+    /// than exiting directly (the description: "the quit path goes GamePlay → Epilogue → Done, never
     /// straight to `exit`").
     #[test]
     fn the_ok_button_takes_the_screens_one_exit_path() {
@@ -200,7 +200,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the recovered disconnect and shutdown behavior's character-error table — 25 codes,
+    /// 25 codes,
     /// 21 with a token, four (0, 2, 7, 22) that "never queue a mode", and 4/8 sharing one token.
     #[test]
     fn the_character_error_table_is_the_documented_one() {

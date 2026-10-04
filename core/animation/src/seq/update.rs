@@ -401,7 +401,7 @@ mod tests {
         //   `9 < 9` and frame 9 is never *left*. It fires only when the frame is crossed the other
         //   way (see the backwards test below).
         // * a pure cycle never reports `AnimationDone`, because the list head **is**
-        //   `first_cyclic` (contract 6.6).
+        //   `first_cyclic`.
         out.clear();
         s.update(dt, None, &mut out);
         assert!(fired(&out).is_empty());
@@ -442,7 +442,7 @@ mod tests {
     }
 
     /// Several frames crossed in one step fire every hook and apply every `pos_frames` delta.
-    /// This is contract 6.2 in one assertion.
+    /// This pins every crossed animation frame.
     #[test]
     fn multiple_frames_in_one_step_fire_every_hook_and_move_once_per_frame() {
         let (id, a) = tagged_anim(1, 10, true);

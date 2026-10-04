@@ -582,7 +582,7 @@ mod tests {
         );
     }
 
-    /// Contract 9.10: `x * 9 + y`, x major. If this were transposed the world would be mirrored.
+    /// `x * 9 + y`, x major. If this were transposed the world would be mirrored.
     #[test]
     fn the_terrain_array_is_x_major() {
         let mut b = vec![0u8; LANDBLOCK_BYTES];

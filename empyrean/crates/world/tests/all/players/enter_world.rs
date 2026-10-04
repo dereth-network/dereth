@@ -734,7 +734,7 @@ fn view_contents_lists_the_items_by_placement_with_their_container_type() {
     assert_eq!(hex(&m.data), e);
 }
 
-mod f40 {
+mod object_description_vectors {
     // Vector fields are C# values of the width the structure declares: narrowing them is intended.
     #![allow(clippy::cast_possible_truncation)]
 

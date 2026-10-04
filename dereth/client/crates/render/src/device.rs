@@ -300,7 +300,7 @@ impl PerFrameConstants {
 #[repr(C)]
 pub struct PerDrawConstants {
     pub world: [f32; 16],
-    /// The `D3DTS_TEXTURE0` translation built from the mesh buffer's UV delta. Unverified.
+    /// The `D3DTS_TEXTURE0` translation built from the mesh buffer's UV delta.
     pub uv_offset: [f32; 4],
     /// `D3DRS_TEXTUREFACTOR`.
     pub texture_factor: [f32; 4],

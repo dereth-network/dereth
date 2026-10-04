@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(q.check_pos.frame.origin, Vec3::new(5.0, 5.0, 0.0));
     }
 
-    /// Contract item 5.4: the halving is permanent, and it is what makes a character fall off a
+    /// The halving is permanent, and it is what makes a character fall off a
     /// narrow ledge after a bounded number of probes.
     #[test]
     fn check_walkables_halves_the_probe_radius_in_place_until_it_fails() {

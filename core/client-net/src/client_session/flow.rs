@@ -351,7 +351,7 @@ mod tests {
         LocalTime(s)
     }
 
-    /// The H3 acceptance test: `Connected → CharacterSelect → EnteringWorld → Playable`, with the
+    /// `Connected → CharacterSelect → EnteringWorld → Playable`, with the
     /// two-step enter-world emitting `0xF7C8` **then** `0xF657`, in that order.
     ///
     /// Oracle: the recovered character-selection flow §"Enter world" and its

@@ -1564,7 +1564,7 @@ use dereth_protocol::{self as dp, Message as ProtoMessage};
 
 /// Decodes `m` as `M`: a plain message by its opcode, a game event (0xF7B0) by its event type
 /// after the 12-byte ordered-event header.
-fn rule3_decode<M: ProtoMessage + std::fmt::Debug>(m: &GameMessage) -> M {
+fn decode_client_message<M: ProtoMessage + std::fmt::Debug>(m: &GameMessage) -> M {
     let data = &m.data;
     let (ty, body) = if m.opcode == GameMessageOpcode::GameEvent {
         let mut r = dp::Reader::new(data);
@@ -1602,13 +1602,13 @@ fn rule3_decode<M: ProtoMessage + std::fmt::Debug>(m: &GameMessage) -> M {
     decoded
 }
 
-macro_rules! rule3 {
+macro_rules! message_roundtrip_test {
     ($(#[$attr:meta])* $name:ident, $ty:ty, $build:expr, |$d:ident| $check:block) => {
         #[test]
         $(#[$attr])*
         fn $name() {
             let m: GameMessage = $build;
-            let $d: $ty = rule3_decode(&m);
+            let $d: $ty = decode_client_message(&m);
             $check
         }
     };
@@ -1620,8 +1620,8 @@ fn ses() -> SessionData {
 
 // -- messages --
 
-rule3!(
-    rule3_set_stack_size,
+message_roundtrip_test!(
+    set_stack_size_round_trips_through_the_client_protocol,
     dp::items::ItemUpdateStackSize,
     {
         let mut o = obj(0x8000_0030);
@@ -1637,8 +1637,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_player_killed,
+message_roundtrip_test!(
+    player_killed_round_trips_through_the_client_protocol,
     dp::combat::CombatHandlePlayerDeathEvent,
     game_message_player_killed::game_message_player_killed(
         "You died",
@@ -1653,8 +1653,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_hear_speech,
+message_roundtrip_test!(
+    hear_speech_round_trips_through_the_client_protocol,
     dp::comms::CommunicationHearSpeech,
     game_message_hear_speech::game_message_hear_speech(
         "hello",
@@ -1675,8 +1675,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_hear_ranged_speech,
+message_roundtrip_test!(
+    hear_ranged_speech_round_trips_through_the_client_protocol,
     dp::comms::CommunicationHearRangedSpeech,
     game_message_hear_ranged_speech::game_message_hear_ranged_speech(
         "yo",
@@ -1690,8 +1690,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_admin_environs,
+message_roundtrip_test!(
+    admin_environs_round_trips_through_the_client_protocol,
     dp::admin::AdminEnvirons,
     game_message_admin_environs::game_message_admin_environs(EnvironChangeType(2)),
     |d| {
@@ -1699,8 +1699,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_character_create_response,
+message_roundtrip_test!(
+    character_create_response_round_trips_through_the_client_protocol,
     dp::login::CharGenVerificationResponse,
     game_message_character_create_response::game_message_character_create_response(
         empyrean_net::enums::CharacterGenerationVerificationResponse::Ok,
@@ -1715,8 +1715,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_character_create_response_failure,
+message_roundtrip_test!(
+    character_create_response_failure_round_trips_through_the_client_protocol,
     dp::login::CharGenVerificationResponse,
     game_message_character_create_response::game_message_character_create_response(
         empyrean_net::enums::CharacterGenerationVerificationResponse::NameInUse,
@@ -1728,8 +1728,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_character_restore,
+message_roundtrip_test!(
+    character_restore_round_trips_through_the_client_protocol,
     dp::login::CharGenVerificationResponse,
     game_message_character_restore::game_message_character_restore(0x5000_0006, "Back", 60),
     |d| {
@@ -1744,23 +1744,23 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_character_log_off,
+message_roundtrip_test!(
+    character_log_off_round_trips_through_the_client_protocol,
     dp::login::LoginExecuteLogOff,
     game_message_character_log_off::game_message_character_log_off(),
     |_d| {}
 );
-rule3!(
-    rule3_character_delete,
+message_roundtrip_test!(
+    character_delete_round_trips_through_the_client_protocol,
     dp::login::CharacterDeleteAck,
     game_message_character_delete::game_message_character_delete(),
     |_d| {}
 );
-rule3!(rule3_enter_world_server_ready, dp::login::LoginEnterGameServerReady,
+message_roundtrip_test!(enter_world_server_ready_round_trips_through_the_client_protocol, dp::login::LoginEnterGameServerReady,
     game_message_character_enter_world_server_ready::game_message_character_enter_world_server_ready(), |_d| {});
 
-rule3!(
-    rule3_character_error,
+message_roundtrip_test!(
+    character_error_round_trips_through_the_client_protocol,
     dp::login::CharacterError,
     game_message_character_error::game_message_character_error(
         CharacterError::EnterGameCharacterLocked
@@ -1770,8 +1770,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_character_list,
+message_roundtrip_test!(
+    character_list_round_trips_through_the_client_protocol,
     dp::login::LoginCharacterSet,
     {
         let w = world();
@@ -1798,8 +1798,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_player_create,
+message_roundtrip_test!(
+    player_create_round_trips_through_the_client_protocol,
     dp::objects::LoginCreatePlayer,
     game_message_player_create::game_message_player_create(g(0x5000_0008)),
     |d| {
@@ -1807,8 +1807,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_delete_object,
+message_roundtrip_test!(
+    delete_object_round_trips_through_the_client_protocol,
     dp::objects::ItemDeleteObject,
     {
         let mut o = obj(0x8000_0009);
@@ -1820,8 +1820,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_parent_event,
+message_roundtrip_test!(
+    parent_event_round_trips_through_the_client_protocol,
     dp::objects::ItemParentEvent,
     {
         let mut c = obj(0x5000_000A);
@@ -1841,8 +1841,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_pickup_event,
+message_roundtrip_test!(
+    pickup_event_round_trips_through_the_client_protocol,
     dp::objects::InventoryPickupEvent,
     game_message_pickup_event::game_message_pickup_event(&mut obj(0x8000_000C)),
     |d| {
@@ -1850,8 +1850,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_set_state,
+message_roundtrip_test!(
+    set_state_round_trips_through_the_client_protocol,
     dp::objects::ItemSetState,
     game_message_set_state::game_message_set_state(&mut obj(0x8000_000D), PhysicsState(0x408)),
     |d| {
@@ -1859,8 +1859,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_vector_update,
+message_roundtrip_test!(
+    vector_update_round_trips_through_the_client_protocol,
     dp::movement::MovementVectorUpdate,
     game_message_vector_update::game_message_vector_update_of(
         &mut obj(0x8000_000E),
@@ -1873,8 +1873,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_sound,
+message_roundtrip_test!(
+    sound_round_trips_through_the_client_protocol,
     dp::objects::EffectsSoundEvent,
     game_message_sound::game_message_sound(g(0x8000_000F), Sound(0x77), 0.5),
     |d| {
@@ -1885,8 +1885,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_player_teleport,
+message_roundtrip_test!(
+    player_teleport_round_trips_through_the_client_protocol,
     dp::objects::EffectsPlayerTeleport,
     game_message_player_teleport::game_message_player_teleport(&mut obj(0x5000_0010)),
     |d| {
@@ -1894,8 +1894,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_autonomous_position,
+message_roundtrip_test!(
+    autonomous_position_round_trips_through_the_client_protocol,
     dp::movement::MovementAutonomousPosition,
     {
         let mut p = Obj {
@@ -1918,8 +1918,8 @@ rule3!(
     |_d| {}
 );
 
-rule3!(
-    rule3_script,
+message_roundtrip_test!(
+    script_round_trips_through_the_client_protocol,
     dp::objects::EffectsPlayScriptType,
     game_message_script::game_message_script(g(0x8000_0012), PlayScript(0x76), 1.0),
     |d| {
@@ -1930,8 +1930,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_account_banned,
+message_roundtrip_test!(
+    account_banned_round_trips_through_the_client_protocol,
     dp::login::LoginAccountBanned,
     {
         let w = world();
@@ -1946,8 +1946,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_boot_account,
+message_roundtrip_test!(
+    boot_account_round_trips_through_the_client_protocol,
     dp::login::LoginAccountBooted,
     game_message_boot_account::game_message_boot_account(Some(" because")),
     |d| {
@@ -1955,8 +1955,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_boot_account_without_reason,
+message_roundtrip_test!(
+    boot_account_without_reason_round_trips_through_the_client_protocol,
     dp::login::LoginAccountBooted,
     game_message_boot_account::game_message_boot_account(None),
     |d| {
@@ -1964,8 +1964,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_system_chat,
+message_roundtrip_test!(
+    system_chat_round_trips_through_the_client_protocol,
     dp::comms::CommunicationTextboxString,
     game_message_system_chat::game_message_system_chat("Welcome", ChatMessageType(4)),
     |d| {
@@ -1973,8 +1973,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_server_name,
+message_roundtrip_test!(
+    server_name_round_trips_through_the_client_protocol,
     dp::login::LoginWorldInfo,
     game_message_server_name::game_message_server_name("Dereth", 3, -1),
     |d| {
@@ -1985,8 +1985,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_turbine_chat,
+message_roundtrip_test!(
+    turbine_chat_round_trips_through_the_client_protocol,
     dp::comms::CommunicationTurbineChat,
     game_message_turbine_chat::game_message_turbine_chat(
         ChatNetworkBlobType::NETBLOB_EVENT_BINARY,
@@ -2002,8 +2002,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_ddd_error,
+message_roundtrip_test!(
+    ddd_error_round_trips_through_the_client_protocol,
     dp::admin::DddError,
     game_message_ddd_error_message::game_message_ddd_error_message(1, 2, 3),
     |d| {
@@ -2011,8 +2011,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_ddd_interrogation,
+message_roundtrip_test!(
+    ddd_interrogation_round_trips_through_the_client_protocol,
     dp::admin::DddInterrogation,
     game_message_ddd_interrogation::game_message_ddd_interrogation(&world()),
     |d| {
@@ -2027,8 +2027,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_ddd_begin_ddd,
+message_roundtrip_test!(
+    ddd_begin_ddd_round_trips_through_the_client_protocol,
     dp::admin::DddBeginDdd,
     {
         let mut d: HashMap<DatDatabaseType, DotNetDict<u32, Vec<u32>>> = HashMap::new();
@@ -2060,15 +2060,15 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_ddd_end,
+message_roundtrip_test!(
+    ddd_end_round_trips_through_the_client_protocol,
     dp::admin::DddEndDdd,
     game_message_ddd_end_ddd::game_message_ddd_end_ddd(),
     |_d| {}
 );
 
-rule3!(
-    rule3_private_update_int,
+message_roundtrip_test!(
+    private_update_int_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateInt,
     game_message_private_update_property_int::game_message_private_update_property_int(
         &mut obj(1),
@@ -2080,8 +2080,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_int,
+message_roundtrip_test!(
+    public_update_int_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateInt,
     game_message_public_update_property_int::game_message_public_update_property_int(
         &mut obj(0x5000_0014),
@@ -2096,8 +2096,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_int64,
+message_roundtrip_test!(
+    private_update_int64_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateInt64,
     game_message_private_update_property_int64::game_message_private_update_property_int64(
         &mut obj(1),
@@ -2109,8 +2109,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_int64,
+message_roundtrip_test!(
+    public_update_int64_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateInt64,
     game_message_public_update_property_int64::game_message_public_update_property_int64(
         &mut obj(2),
@@ -2122,8 +2122,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_bool,
+message_roundtrip_test!(
+    private_update_bool_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateBool,
     game_message_private_update_property_bool::game_message_private_update_property_bool(
         &mut obj(1),
@@ -2135,8 +2135,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_bool,
+message_roundtrip_test!(
+    public_update_bool_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateBool,
     game_message_public_update_property_bool::game_message_public_update_property_bool(
         &mut obj(3),
@@ -2148,8 +2148,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_float,
+message_roundtrip_test!(
+    private_update_float_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateFloat,
     game_message_private_update_property_float::game_message_private_update_property_float(
         &mut obj(1),
@@ -2161,8 +2161,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_float,
+message_roundtrip_test!(
+    public_update_float_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateFloat,
     game_message_public_update_property_float::game_message_public_update_property_float(
         &mut obj(4),
@@ -2174,8 +2174,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_string,
+message_roundtrip_test!(
+    private_update_string_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateString,
     game_message_private_update_property_string::game_message_private_update_property_string(
         &mut obj(1),
@@ -2187,9 +2187,9 @@ rule3!(
     }
 );
 
-rule3!(
+message_roundtrip_test!(
     // V234: guid then property, as the client reads it.
-    rule3_public_update_string,
+    public_update_string_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateString,
     game_message_public_update_property_string::game_message_public_update_property_string(
         &mut obj(0x5000_0015),
@@ -2204,8 +2204,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_data_id,
+message_roundtrip_test!(
+    private_update_data_id_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateDataId,
     game_message_private_update_data_id::game_message_private_update_data_id(
         &mut obj(1),
@@ -2217,8 +2217,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_data_id,
+message_roundtrip_test!(
+    public_update_data_id_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateDataId,
     game_message_public_update_data_id::game_message_public_update_data_id(
         &mut obj(5),
@@ -2230,8 +2230,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_instance_id,
+message_roundtrip_test!(
+    private_update_instance_id_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateInstanceId,
     game_message_private_update_instance_id::game_message_private_update_instance_id(
         &mut obj(1),
@@ -2243,8 +2243,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_instance_id,
+message_roundtrip_test!(
+    public_update_instance_id_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateInstanceId,
     game_message_public_update_instance_id::game_message_public_update_instance_id(
         &mut obj(6),
@@ -2259,8 +2259,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_position,
+message_roundtrip_test!(
+    private_update_position_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdatePosition,
     game_message_private_update_position::game_message_private_update_position(
         &mut obj(1),
@@ -2272,8 +2272,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_position,
+message_roundtrip_test!(
+    public_update_position_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdatePosition,
     game_message_public_update_position::game_message_public_update_position(
         &mut obj(7),
@@ -2285,8 +2285,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_skill,
+message_roundtrip_test!(
+    private_update_skill_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateSkill,
     game_message_private_update_skill::game_message_private_update_skill(
         &mut stat_obj(1),
@@ -2297,8 +2297,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_attribute,
+message_roundtrip_test!(
+    private_update_attribute_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateAttribute,
     game_message_private_update_attribute::game_message_private_update_attribute(
         &mut stat_obj(1),
@@ -2309,8 +2309,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_vital,
+message_roundtrip_test!(
+    private_update_vital_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateAttribute2nd,
     {
         let mut o = stat_obj(1);
@@ -2322,8 +2322,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_public_update_vital,
+message_roundtrip_test!(
+    public_update_vital_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesUpdateAttribute2nd,
     game_message_public_update_vital::game_message_public_update_vital(
         &mut obj(8),
@@ -2338,8 +2338,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_private_update_attribute2nd_level,
+message_roundtrip_test!(
+    private_update_attribute2nd_level_round_trips_through_the_client_protocol,
     dp::qualities::QualitiesPrivateUpdateAttribute2ndLevel,
     game_message_private_update_attribute2nd_level::game_message_private_update_attribute2nd_level(
         &mut obj(1),
@@ -2353,15 +2353,15 @@ rule3!(
 
 // -- events --
 
-rule3!(
-    rule3_popup_string,
+message_roundtrip_test!(
+    popup_string_round_trips_through_the_client_protocol,
     dp::comms::CommunicationPopUpString,
     game_event_popup_string::game_event_popup_string(&mut ses(), "Pop"),
     |_d| {}
 );
 
-rule3!(
-    rule3_item_server_says_contain_id,
+message_roundtrip_test!(
+    item_server_says_contain_id_round_trips_through_the_client_protocol,
     dp::objects::ItemServerSaysContainId,
     {
         let mut item = WorldObject {
@@ -2383,8 +2383,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_wield_item,
+message_roundtrip_test!(
+    wield_item_round_trips_through_the_client_protocol,
     dp::objects::ItemWearItem,
     game_event_wield_item::game_event_wield_item(&mut ses(), 0x8000_0042, EquipMask(0x0020_0000)),
     |d| {
@@ -2392,8 +2392,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_update_title,
+message_roundtrip_test!(
+    update_title_round_trips_through_the_client_protocol,
     dp::social::SocialAddOrSetCharacterTitle,
     game_event_update_title::game_event_update_title(&mut ses(), 12, true),
     |d| {
@@ -2401,8 +2401,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_inventory_server_save_failed,
+message_roundtrip_test!(
+    inventory_server_save_failed_round_trips_through_the_client_protocol,
     dp::objects::CharacterServerSaysAttemptFailed,
     game_event_inventory_server_save_failed::game_event_inventory_server_save_failed(
         &mut ses(),
@@ -2414,15 +2414,15 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_fellowship_quit,
+message_roundtrip_test!(
+    fellowship_quit_round_trips_through_the_client_protocol,
     dp::social::FellowshipQuitNotice,
     game_event_fellowship_quit::game_event_fellowship_quit(&mut ses(), 0x5000_0044),
     |_d| {}
 );
 
-rule3!(
-    rule3_fellowship_dismiss,
+message_roundtrip_test!(
+    fellowship_dismiss_round_trips_through_the_client_protocol,
     dp::social::FellowshipDismiss,
     game_event_fellowship_dismiss::game_event_fellowship_dismiss(&mut ses(), g(0x5000_0045)),
     |d| {
@@ -2430,8 +2430,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_book_page_data_response,
+message_roundtrip_test!(
+    book_page_data_response_round_trips_through_the_client_protocol,
     dp::trade::BookPageDataResponse,
     {
         let page = PropertiesBookPageData {
@@ -2455,8 +2455,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_book_data_response,
+message_roundtrip_test!(
+    book_data_response_round_trips_through_the_client_protocol,
     dp::trade::WritingBookOpen,
     {
         let page = PropertiesBookPageData {
@@ -2493,9 +2493,9 @@ rule3!(
     }
 );
 
-rule3!(
+message_roundtrip_test!(
     // V382: retail's layout, the player guid in the unnamed dword.
-    rule3_inscription_response,
+    inscription_response_round_trips_through_the_client_protocol,
     dp::items::ItemGetInscriptionResponse,
     {
         let mut w = world_with_player(Some(player_obj(0x5000_004A)), 1);
@@ -2514,8 +2514,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_channel_broadcast,
+message_roundtrip_test!(
+    channel_broadcast_round_trips_through_the_client_protocol,
     dp::comms::CommunicationChannelBroadcastRecv,
     game_event_channel_broadcast::game_event_channel_broadcast(
         &mut ses(),
@@ -2531,8 +2531,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_attack_done,
+message_roundtrip_test!(
+    attack_done_round_trips_through_the_client_protocol,
     dp::combat::CombatHandleAttackDoneEvent,
     game_event_attack_done::game_event_attack_done(&mut ses(), WeenieError(0x36)),
     |d| {
@@ -2540,9 +2540,9 @@ rule3!(
     }
 );
 
-rule3!(
+message_roundtrip_test!(
     // V235/V293: AttackConditions is one dword.
-    rule3_attacker_notification,
+    attacker_notification_round_trips_through_the_client_protocol,
     dp::combat::AttackerNotification,
     game_event_attacker_notification::game_event_attacker_notification(
         &mut ses(),
@@ -2561,9 +2561,9 @@ rule3!(
     }
 );
 
-rule3!(
+message_roundtrip_test!(
     // V235/V293: AttackConditions is one dword.
-    rule3_defender_notification,
+    defender_notification_round_trips_through_the_client_protocol,
     dp::combat::DefenderNotification,
     game_event_defender_notification::game_event_defender_notification(
         &mut ses(),
@@ -2580,8 +2580,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_evasion_attacker_notification,
+message_roundtrip_test!(
+    evasion_attacker_notification_round_trips_through_the_client_protocol,
     dp::combat::EvasionAttackerNotification,
     game_event_evasion_attacker_notification::game_event_evasion_attacker_notification(
         &mut ses(),
@@ -2592,8 +2592,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_evasion_defender_notification,
+message_roundtrip_test!(
+    evasion_defender_notification_round_trips_through_the_client_protocol,
     dp::combat::EvasionDefenderNotification,
     game_event_evasion_defender_notification::game_event_evasion_defender_notification(
         &mut ses(),
@@ -2602,8 +2602,8 @@ rule3!(
     |_d| {}
 );
 
-rule3!(
-    rule3_victim_notification,
+message_roundtrip_test!(
+    victim_notification_round_trips_through_the_client_protocol,
     dp::combat::VictimNotificationSelf,
     game_event_victim_notification::game_event_victim_notification(&mut ses(), "You died"),
     |d| {
@@ -2611,15 +2611,15 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_killer_notification,
+message_roundtrip_test!(
+    killer_notification_round_trips_through_the_client_protocol,
     dp::combat::VictimNotificationOther,
     game_event_killer_notification::game_event_killer_notification(&mut ses(), "You killed it"),
     |_d| {}
 );
 
-rule3!(
-    rule3_update_health,
+message_roundtrip_test!(
+    update_health_round_trips_through_the_client_protocol,
     dp::combat::CombatQueryHealthResponse,
     game_event_update_health::game_event_update_health(&mut ses(), 0x8000_004C, 0.5),
     |d| {
@@ -2627,8 +2627,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_query_age_response,
+message_roundtrip_test!(
+    query_age_response_round_trips_through_the_client_protocol,
     dp::admin::CharacterQueryAgeResponse,
     game_event_query_age_response::game_event_query_age_response(&mut ses(), "", "1d"),
     |d| {
@@ -2636,8 +2636,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_use_done,
+message_roundtrip_test!(
+    use_done_round_trips_through_the_client_protocol,
     dp::objects::ItemUseDone,
     game_event_use_done::game_event_use_done(&mut ses(), WeenieError(0)),
     |d| {
@@ -2645,8 +2645,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_fellowship_fellow_update_done,
+message_roundtrip_test!(
+    fellowship_fellow_update_done_round_trips_through_the_client_protocol,
     dp::social::FellowshipFellowUpdateDone,
     game_event_fellowship_fellow_update_done::game_event_fellowship_fellow_update_done(
         &mut ses(),
@@ -2655,15 +2655,15 @@ rule3!(
     |_d| {}
 );
 
-rule3!(
-    rule3_ping_response,
+message_roundtrip_test!(
+    ping_response_round_trips_through_the_client_protocol,
     dp::admin::CharacterReturnPing,
     game_event_ping_response::game_event_ping_response(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_register_trade,
+message_roundtrip_test!(
+    register_trade_round_trips_through_the_client_protocol,
     dp::trade::TradeRegisterTrade,
     game_event_register_trade::game_event_register_trade(
         &mut ses(),
@@ -2678,15 +2678,15 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_close_trade,
+message_roundtrip_test!(
+    close_trade_round_trips_through_the_client_protocol,
     dp::trade::TradeCloseTrade,
     game_event_close_trade::game_event_close_trade(&mut ses(), EndTradeReason(2)),
     |_d| {}
 );
 
-rule3!(
-    rule3_add_to_trade,
+message_roundtrip_test!(
+    add_to_trade_round_trips_through_the_client_protocol,
     dp::trade::TradeAddToTradeRecv,
     game_event_add_to_trade::game_event_add_to_trade(&mut ses(), 0x8000_004F, TradeSide(2)),
     |d| {
@@ -2697,29 +2697,29 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_accept_trade,
+message_roundtrip_test!(
+    accept_trade_round_trips_through_the_client_protocol,
     dp::trade::TradeAcceptTradeRecv,
     game_event_accept_trade::game_event_accept_trade(&mut ses(), g(0x5000_0050)),
     |_d| {}
 );
 
-rule3!(
-    rule3_decline_trade,
+message_roundtrip_test!(
+    decline_trade_round_trips_through_the_client_protocol,
     dp::trade::TradeDeclineTradeRecv,
     game_event_decline_trade::game_event_decline_trade(&mut ses(), g(0x5000_0051)),
     |_d| {}
 );
 
-rule3!(
-    rule3_reset_trade,
+message_roundtrip_test!(
+    reset_trade_round_trips_through_the_client_protocol,
     dp::trade::TradeResetTradeRecv,
     game_event_reset_trade::game_event_reset_trade(&mut ses(), g(0x5000_0052)),
     |_d| {}
 );
 
-rule3!(
-    rule3_trade_failure,
+message_roundtrip_test!(
+    trade_failure_round_trips_through_the_client_protocol,
     dp::trade::TradeTradeFailure,
     game_event_trade_failure::game_event_trade_failure(&mut ses(), 0x8000_0053, WeenieError(0x2A)),
     |d| {
@@ -2727,36 +2727,36 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_clear_trade_acceptance,
+message_roundtrip_test!(
+    clear_trade_acceptance_round_trips_through_the_client_protocol,
     dp::trade::TradeClearTradeAcceptance,
     game_event_clear_trade_acceptance::game_event_clear_trade_acceptance(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_house_status,
+message_roundtrip_test!(
+    house_status_round_trips_through_the_client_protocol,
     dp::trade::HouseHouseStatus,
     game_event_house_status::game_event_house_status(&mut ses(), WeenieError(4)),
     |_d| {}
 );
 
-rule3!(
-    rule3_house_update_rent_time,
+message_roundtrip_test!(
+    house_update_rent_time_round_trips_through_the_client_protocol,
     dp::trade::HouseUpdateRentTime,
     game_event_house_update_rent_time::game_event_house_update_rent_time(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_house_transaction,
+message_roundtrip_test!(
+    house_transaction_round_trips_through_the_client_protocol,
     dp::trade::HouseHouseTransaction,
     game_event_house_transaction::game_event_house_transaction(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_query_item_mana_response,
+message_roundtrip_test!(
+    query_item_mana_response_round_trips_through_the_client_protocol,
     dp::items::ItemQueryItemManaResponse,
     game_event_query_item_mana_response::game_event_query_item_mana_response(
         &mut ses(),
@@ -2772,8 +2772,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_confirmation_request,
+message_roundtrip_test!(
+    confirmation_request_round_trips_through_the_client_protocol,
     dp::comms::CharacterConfirmationRequest,
     game_event_confirmation_request::game_event_confirmation_request(
         &mut ses(),
@@ -2789,8 +2789,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_confirmation_done,
+message_roundtrip_test!(
+    confirmation_done_round_trips_through_the_client_protocol,
     dp::comms::CharacterConfirmationDone,
     game_event_confirmation_done::game_event_confirmation_done(&mut ses(), ConfirmationType(5), 9),
     |d| {
@@ -2798,8 +2798,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_allegiance_login_notification,
+message_roundtrip_test!(
+    allegiance_login_notification_round_trips_through_the_client_protocol,
     dp::social::AllegianceLoginNotification,
     game_event_allegiance_login_notification::game_event_allegiance_login_notification(
         &mut ses(),
@@ -2811,8 +2811,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_opponent_stalemate,
+message_roundtrip_test!(
+    opponent_stalemate_round_trips_through_the_client_protocol,
     dp::trade::GameOpponentStalemateState,
     game_event_opponent_stalemate::game_event_opponent_stalemate(
         &mut ses(),
@@ -2825,8 +2825,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_weenie_error,
+message_roundtrip_test!(
+    weenie_error_round_trips_through_the_client_protocol,
     dp::comms::CommunicationWeenieError,
     game_event_weenie_error::game_event_weenie_error(&mut ses(), WeenieError(0x1D)),
     |d| {
@@ -2834,8 +2834,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_weenie_error_with_string,
+message_roundtrip_test!(
+    weenie_error_with_string_round_trips_through_the_client_protocol,
     dp::comms::CommunicationWeenieErrorWithString,
     game_event_weenie_error_with_string::game_event_weenie_error_with_string(
         &mut ses(),
@@ -2847,8 +2847,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_set_turbine_chat_channels,
+message_roundtrip_test!(
+    set_turbine_chat_channels_round_trips_through_the_client_protocol,
     dp::comms::ChatRoomMembership,
     game_event_set_turbine_chat_channels::game_event_set_turbine_chat_channels(
         &mut ses(),
@@ -2869,8 +2869,8 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_tell,
+message_roundtrip_test!(
+    tell_round_trips_through_the_client_protocol,
     dp::comms::CommunicationHearDirectSpeech,
     game_event_tell::game_event_tell_from(
         &mut ses(),
@@ -2888,71 +2888,71 @@ rule3!(
     }
 );
 
-rule3!(
-    rule3_fellowship_disband,
+message_roundtrip_test!(
+    fellowship_disband_round_trips_through_the_client_protocol,
     dp::social::FellowshipDisband,
     game_event_fellowship_disband::game_event_fellowship_disband(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_magic_update_spell,
+message_roundtrip_test!(
+    magic_update_spell_round_trips_through_the_client_protocol,
     dp::qualities::MagicUpdateSpell,
     game_event_magic_update_spell::game_event_magic_update_spell(&mut ses(), 1234, 0),
     |_d| {}
 );
 
-rule3!(
-    rule3_magic_remove_spell,
+message_roundtrip_test!(
+    magic_remove_spell_round_trips_through_the_client_protocol,
     dp::qualities::MagicRemoveSpell,
     game_event_magic_remove_spell::game_event_magic_remove_spell(&mut ses(), 1234, 0),
     |_d| {}
 );
 
-rule3!(
-    rule3_magic_remove_enchantment,
+message_roundtrip_test!(
+    magic_remove_enchantment_round_trips_through_the_client_protocol,
     dp::qualities::MagicRemoveEnchantment,
     game_event_magic_remove_enchantment::game_event_magic_remove_enchantment(&mut ses(), 1234, 2),
     |_d| {}
 );
 
-rule3!(
-    rule3_magic_dispel_enchantment,
+message_roundtrip_test!(
+    magic_dispel_enchantment_round_trips_through_the_client_protocol,
     dp::qualities::MagicDispelEnchantment,
     game_event_magic_dispel_enchantment::game_event_magic_dispel_enchantment(&mut ses(), 1234, 2),
     |_d| {}
 );
 
-rule3!(
-    rule3_magic_purge_enchantments,
+message_roundtrip_test!(
+    magic_purge_enchantments_round_trips_through_the_client_protocol,
     dp::qualities::MagicPurgeEnchantments,
     game_event_magic_purge_enchantments::game_event_magic_purge_enchantments(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_magic_purge_bad_enchantments,
+message_roundtrip_test!(
+    magic_purge_bad_enchantments_round_trips_through_the_client_protocol,
     dp::qualities::MagicPurgeBadEnchantments,
     game_event_magic_purge_bad_enchantments::game_event_magic_purge_bad_enchantments(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_portal_storm,
+message_roundtrip_test!(
+    portal_storm_round_trips_through_the_client_protocol,
     dp::trade::MiscPortalStorm,
     game_event_portal_storm::game_event_portal_storm(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_portal_storm_subsided,
+message_roundtrip_test!(
+    portal_storm_subsided_round_trips_through_the_client_protocol,
     dp::trade::MiscPortalStormSubsided,
     game_event_portal_storm_subsided::game_event_portal_storm_subsided(&mut ses()),
     |_d| {}
 );
 
-rule3!(
-    rule3_transient_string,
+message_roundtrip_test!(
+    transient_string_round_trips_through_the_client_protocol,
     dp::comms::CommunicationTransientString,
     game_event_communication_transient_string::game_event_communication_transient_string(
         &mut ses(),

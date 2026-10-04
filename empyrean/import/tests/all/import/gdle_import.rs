@@ -53,7 +53,7 @@ fn build(sources: Vec<Source>) -> Result<Pack, String> {
 
 fn temp_file(name: &str, text: &str) -> PathBuf {
     let p = std::env::temp_dir().join(format!(
-        "serv-content-8b3-import-{}-{name}",
+        "empyrean-content-gdle-import-{}-{name}",
         std::process::id()
     ));
     std::fs::write(&p, text).unwrap();

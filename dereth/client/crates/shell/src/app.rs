@@ -51,8 +51,8 @@ impl<H: Host> App<H> {
     /// Run startup steps 8 through 12 in order, with absent subsystems named, on the device
     /// presentation.
     ///
-    /// Preferences (step 8) were loaded by [`Config::from_args_and_prefs_at`]; database
-    /// initialization (step 10) and UI initialization (step 12) run in the documented order,
+    /// Preferences were loaded by [`Config::from_args_and_prefs_at`]; database
+    /// initialization and UI initialization run in the documented order,
     /// because the database must precede the UI (the UI layouts are dat objects).
     ///
     /// # Errors
@@ -283,7 +283,7 @@ impl<H: Host> App<H> {
         }
     }
 
-    /// Step 11 for the gated [`App::new`] path: construct the graphics engine and apply the three
+    /// For the gated [`App::new`] path: construct the graphics engine and apply the three
     /// presentation preferences it needs before anything draws.
     #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
     fn device_presentation(
@@ -552,7 +552,7 @@ mod tests {
             sound: false,
             world: false,
             dat_dir: dereth_dat::testing::dat_dir(),
-            preferences_file: std::env::temp_dir().join("dere-p1-88-not-created/prefs.ini"),
+            preferences_file: std::env::temp_dir().join("dereth-uncreated-preferences/prefs.ini"),
             ..Config::default()
         };
         cfg.display.full_screen = false;

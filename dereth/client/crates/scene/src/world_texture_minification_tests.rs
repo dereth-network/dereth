@@ -1,4 +1,4 @@
-// A-F18: real DAT pixels through the production world surface resolver and draw consumer.
+// real DAT pixels through the production world surface resolver and draw consumer.
 // Geometry/camera are deliberately synthetic and stationary. This is not a matched retail
 // screenshot, and GPU autogen rounding is not claimed identical across drivers.
 
@@ -55,7 +55,7 @@ fn real_dat_world_upload_has_runtime_sublevels() {
     let resolved = cache.resolve(&store, &textures, &mut gpu, key).expect("production resolve");
     let slot = resolved.texture.expect("textured production surface");
     eprintln!(
-        "A-F18 DAT {id:?}, {}x{}, {:?}, runtime {:?}",
+        "DAT {id:?}, {}x{}, {:?}, runtime {:?}",
         data.width,
         data.height,
         data.format,
@@ -241,7 +241,7 @@ fn compressed_world_upload(format: dereth_primitives::TextureFormat) {
         .expect("normal production world bake");
     let slot = meshes[0].texture.expect("normal production decoded texture upload");
     eprintln!(
-        "A-F18 compressed DAT {id:?}: {}x{} {:?}, actual resource {:?}",
+        "compressed DAT {id:?}: {}x{} {:?}, actual resource {:?}",
         data.width,
         data.height,
         data.format,
@@ -280,7 +280,7 @@ fn compressed_world_upload(format: dereth_primitives::TextureFormat) {
     let old = draw(&mut gpu, &meshes[0]);
     let changed = rgb(&sampled).iter().zip(rgb(&old)).filter(|(a, b)| **a != *b).count();
     assert!(changed > 0, "real DAT must distinguish generated BC mips from old one-level upload");
-    eprintln!("A-F18 {format:?} world: {changed}/256 pixels differ from old one-level resource");
+    eprintln!("{format:?} world: {changed}/256 pixels differ from old one-level resource");
     gpu.release_texture(tail_slot);
     gpu.release_texture(base);
     assert!(cache.release_group_texture(&mut gpu, slot));
@@ -362,7 +362,7 @@ fn real_dat_world_consumer_samples_generated_mip_not_level_zero() {
     let changed = rgb(&sampled).iter().zip(rgb(&raw)).filter(|(a, b)| **a != *b).count();
     assert!(changed > 0, "real DAT station must distinguish minification from level-zero sampling");
     eprintln!(
-        "A-F18 {id:?}: {}x{} ->16x16, mip{mip_level}, {changed}/256 RGB pixels differ from no-mip control",
+        "{id:?}: {}x{} ->16x16, mip{mip_level}, {changed}/256 RGB pixels differ from no-mip control",
         data.width, data.height
     );
     gpu.release_texture(raw_slot);
@@ -405,7 +405,7 @@ fn texture_samplers_real_dat_world_draw_observes_preference_without_reupload() {
     assert_ne!(samples[0], samples[1], "real DAT fractional minification: Bilinear vs Trilinear");
     assert_ne!(samples[1], samples[2], "real DAT world Sharp bias");
     eprintln!(
-        "A-F18 world sampler DAT {id:?}: Bilinear/Trilinear {} pixels, Trilinear/Sharp {} pixels",
+        "world sampler DAT {id:?}: Bilinear/Trilinear {} pixels, Trilinear/Sharp {} pixels",
         rgb(&samples[0]).iter().zip(rgb(&samples[1])).filter(|(a, b)| **a != *b).count(),
         rgb(&samples[1]).iter().zip(rgb(&samples[2])).filter(|(a, b)| **a != *b).count()
     );
@@ -534,6 +534,6 @@ fn real_dat_palette_and_clipmap_pixels_survive_runtime_generation_and_cache_rele
     assert_eq!(gpu.capture_texture_level(a, 0).expect("independent base").bgra, clipped.levels[0]);
     assert!(cache.release_group_texture(&mut gpu, a));
     eprintln!(
-        "A-F18 clip-map {id:?}, alternate palette {palette_id:?}, {n} runtime levels; both level-zero copies unchanged"
+        "clip-map {id:?}, alternate palette {palette_id:?}, {n} runtime levels; both level-zero copies unchanged"
     );
 }

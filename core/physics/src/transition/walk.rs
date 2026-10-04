@@ -403,7 +403,7 @@ mod tests {
         assert!(!t.sphere_path.step_up, "the flag is cleared on the way out");
     }
 
-    /// Contract item 5.4, the narrow-ledge scenario: `check_walkables` halves the probe radius in
+    /// The narrow-ledge scenario: `check_walkables` halves the probe radius in
     /// place, so a sphere sitting near the edge of its walkable polygon eventually stops being
     /// held by it, and `check_walkable` falls through to the real re-probe.
     #[test]

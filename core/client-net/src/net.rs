@@ -234,7 +234,7 @@ pub struct ReferralQueueEntry {
 /// acknowledged and never answered with `0xF7DF Login_EnterGame_ServerReady`, so the client sits
 /// in `EnteringWorld` for ever.
 ///
-// UNVERIFIED: *which* client blob consumes id 0 and stamp 0. It is deduced from the captures,
+// *which* client blob consumes id 0 and stamp 0. It is deduced from the captures,
 // not observed; no protocol send caller is obviously the place, and settling it needs a
 // breakpoint in the retail client. The observable behaviour — the counters' value at the first
 // transmitted blob — is verified six times over and is what this models.
@@ -877,7 +877,7 @@ impl Net {
     ///
     /// So this is the client's **re-entry gate**: every entry into the world runs it twice before
     /// the request leaves, which is what makes a second entry from the same client session start
-    /// from the same state as the first. \[verified\]
+    /// from the same state as the first.
     ///
     /// # Why connection-removal re-entry cannot fire from here
     ///
@@ -886,7 +886,7 @@ impl Net {
     /// can: the current server was set equal to the login recipient above, and the loop skips
     /// the login recipient, so every id it passes differs from both. The ordering of those statements
     /// is what guarantees it, and reversing them would recurse. Asserted by the
-    /// `the_teardown_can_never_re_enter_log_off_server` test. \[verified\]
+    /// `the_teardown_can_never_re_enter_log_off_server` test.
     ///
     /// # What this build has no field for, named rather than invented
     ///

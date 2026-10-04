@@ -37,7 +37,7 @@ pub mod item_useable {
     /// in its refusal of an unwielded item whose least-limited source use includes it.
     /// It is the fourth bit tests, and its position
     /// in that ladder — remote `0x20`, viewed `0x10`, contained `0x08`, wielded `0x04` — is what
-    /// fixes the value. `\[verified\]`
+    /// fixes the value.
     pub const WIELDED: u32 = 0x0000_0004;
     /// `USEABLE_CONTAINED` — usable from a container.
     pub const CONTAINED: u32 = 0x0000_0008;
@@ -469,7 +469,7 @@ pub struct MirrorEffect {
 /// the client applies to `CurrentWieldedLocation`, `Container` and `Wielder`: skip when this object
 /// is the subject of the in-flight inventory request, or is owned by the player.
 ///
-/// The ids are `[external]` names for `\[verified\]` literals: the client references the numbers, not
+/// The ids name numeric literals: the client references the numbers, not
 /// the names.
 pub fn mirror_stat_update(
     w: &mut Weenie,

@@ -134,7 +134,7 @@ mod tests {
     }
 
     /// The shipped bug, stated directly. Oracle: the recovered row-selection calculation quoted
-    /// in this module's docs; contract 12.3.
+    /// in this module's docs.
     #[test]
     fn the_last_row_of_a_multi_row_entry_is_unreachable() {
         // The random draw is capped at RNMX = 0.99999988, so u never reaches 1.0.

@@ -195,8 +195,7 @@ impl MediaPlayback {
         let fields = self.entries[i].desc.fields.clone();
         match fields {
             // The movie step refuses until the element is initialised. The return value
-            // reports whether the movie has finished [inferred: the intro
-            // screen depends on the machine waiting].
+            // reports whether the movie has finished so the intro screen can wait.
             MediaFields::Movie {
                 file_name,
                 stretch_to_full_screen,
@@ -408,7 +407,7 @@ mod tests {
         assert_eq!(t[0], 0);
         assert_eq!(t[99], 1024);
         assert!(t.windows(2).all(|w| w[1] >= w[0]), "must be non-decreasing");
-        // Spot values from evaluating the recovered formula.
+        // Spot values from evaluating the formula.
         assert_eq!(t[1], 0);
         assert_eq!(t[2], 1);
         assert_eq!(t[49], 512, "the curve is symmetric about the midpoint");
@@ -436,7 +435,7 @@ mod tests {
     }
 
     /// Pinned behavior: it unregisters from message 3 first and only
-    /// re-registers when an entry blocks. Trap 3: a static element does zero work per frame.
+    /// re-registers when an entry blocks. A static element does zero work per frame.
     #[test]
     fn the_machine_only_holds_the_tick_registration_while_blocked() {
         let mut rng = Ran2::new(1);
@@ -512,7 +511,7 @@ mod tests {
     }
 
     /// Pinned behavior: the `return false` is outside the `if`, so
-    /// the entry never advances. A preserved shipped behaviour, per BUILDER_BRIEF §3 item 3.
+    /// the entry never advances.
     #[test]
     fn a_state_entry_blocks_forever() {
         let mut rng = Ran2::new(5);

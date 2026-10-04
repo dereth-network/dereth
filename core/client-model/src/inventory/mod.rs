@@ -97,7 +97,7 @@ impl World {
     ///
     /// Note the wield/split asymmetry: when the item is a stack and only part of it is being moved,
     /// the client sends `Request::StackableSplitToWield` (0x019B) and records **no** previous
-    /// request, so a split-wield does not block the next action. `\[verified\]`; it looks like an
+    /// request, so a split-wield does not block the next action. It looks like an
     /// oversight and a faithful rebuild must reproduce it.
     ///
     /// # Errors
@@ -1094,7 +1094,7 @@ impl World {
             split,
             now,
         );
-        // **Declared deviation, and the deliberate one.** Retail leaves the provisional row in
+        // Retail leaves the provisional row in
         // place here: it answers the drop handler's `false` by clearing only the object's
         // waiting state, so a drop refused *after* the insert
         // (a full pack, a locked inventory request, the hook rules) leaves an un-ghosted ghost

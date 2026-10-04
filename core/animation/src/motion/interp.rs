@@ -1128,7 +1128,7 @@ mod tests {
 
     /// ORACLE: the worked table in
     /// the recovered movement-manager behavior, "The run
-    /// rate", each row of which was evaluated from the expression. Contract 12.4.
+    /// rate", each row of which was evaluated from the expression.
     #[test]
     fn the_run_rate_table_reproduces_including_the_800_discontinuity() {
         let about = |got: f32, want: f32| {
@@ -1191,7 +1191,7 @@ mod tests {
         assert_eq!(get_run_rate(2.0, 800, 1.0), 4.5);
     }
 
-    /// `GetJumpHeight`'s worked table, and the 0.35 m floor applied **last** (contract 5.9).
+    /// The jump-height formula's worked table, and the 0.35 m floor applied **last**.
     #[test]
     fn the_jump_height_table_reproduces_and_the_floor_is_applied_last() {
         let about = |got: f32, want: f32| assert!((got - want).abs() < 1e-4, "{got} != {want}");
@@ -1231,7 +1231,7 @@ mod tests {
         );
     }
 
-    /// `adjust_motion`'s multipliers, in order. Contract 5.8.
+    /// `adjust_motion`'s multipliers, in order.
     #[test]
     fn adjust_motion_applies_its_multipliers_in_the_documented_order() {
         let mi = MotionInterp::new();

@@ -1195,7 +1195,7 @@ fn generate_wielded_treasure_follows_the_set_structure() {
 /// `Player.GetEncumbranceCapacity` against the shared rules' `burden::encumbrance_capacity`:
 /// they agree for Strength >= 1 and up to five augmentations (the most a player can buy).
 #[test]
-fn rule3_encumbrance_capacity_agrees_with_dere_rules_up_to_five_augs() {
+fn encumbrance_capacity_agrees_with_dereth_rules_up_to_five_augs() {
     let mut w = world();
     let player = spawn_player(&mut w, 1);
     for strength in 1..=500u32 {
@@ -1220,7 +1220,7 @@ fn rule3_encumbrance_capacity_agrees_with_dere_rules_up_to_five_augs() {
 /// V246: above five augmentations the bonus is capped at +150 per point
 /// (and a negative count gives none); ACE's `Player.GetEncumbranceCapacity` has no cap.
 #[test]
-fn rule3_encumbrance_capacity_above_five_augs() {
+fn encumbrance_capacity_above_five_augs_agrees_with_the_client() {
     let mut w = world();
     let player = spawn_player(&mut w, 100);
     obj_mut(&mut w, player).set_property(PropertyInt::AugmentationIncreasedCarryingCapacity, 6);
@@ -1233,7 +1233,7 @@ fn rule3_encumbrance_capacity_above_five_augs() {
 /// `GetFreeInventorySlots(includeSidePacks: false)` against `num_empty_item_slots` for a main pack
 /// of plain items: they agree for every capacity byte (V247, the signed reading).
 #[test]
-fn rule3_main_pack_free_slots_agree_with_dereth_client_model() {
+fn main_pack_free_slots_agree_with_dereth_client_model() {
     use dereth_primitives::ObjectId;
     use dereth_protocol::types::PublicWeenieDesc;
 
@@ -1296,7 +1296,7 @@ fn rule3_main_pack_free_slots_agree_with_dereth_client_model() {
 /// `CanMergeToInventory(item, target, 1)` against `is_merge_attempt_legal` on their shared domain
 /// (same wcid, both stackable): both allow exactly `StackSize < MaxStackSize`.
 #[test]
-fn rule3_merge_legality_agrees_with_dereth_client_model() {
+fn merge_legality_agrees_with_dereth_client_model() {
     use dereth_primitives::ObjectId;
     use dereth_protocol::types::PublicWeenieDesc;
 

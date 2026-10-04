@@ -183,7 +183,7 @@ fn decode_mp3(id: DataId, data: &[u8]) -> Result<(Vec<f32>, u32, u16), AudioErro
         .tracks()
         .first()
         .and_then(|t| t.codec_params.as_ref())
-        .and_then(dere_codec_params_audio)
+        .and_then(codec_params_audio)
         .ok_or_else(|| AudioError::Mp3(id, "no audio track".to_owned()))?
         .clone();
     let mut decoder =
@@ -210,7 +210,7 @@ fn decode_mp3(id: DataId, data: &[u8]) -> Result<(Vec<f32>, u32, u16), AudioErro
 }
 
 /// A local helper so the `symphonia_core::codecs::CodecParameters` import stays inside [`decode_mp3`].
-fn dere_codec_params_audio(
+fn codec_params_audio(
     p: &symphonia_core::codecs::CodecParameters,
 ) -> Option<&symphonia_core::codecs::audio::AudioCodecParameters> {
     p.audio()

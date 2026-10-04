@@ -15,7 +15,7 @@ use dereth_protocol::combat::{MagicCastTargetedSpell, MagicCastUntargetedSpell};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Spell-index flags. These are the **client's own** names, rather than names inferred from the server
-/// implementation. \[verified\]
+/// implementation.
 pub mod spell_index {
     pub const RESISTABLE: u32 = 0x0_0001;
     pub const PK_SENSITIVE: u32 = 0x0_0002;

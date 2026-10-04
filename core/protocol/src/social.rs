@@ -306,7 +306,7 @@ pub struct AllegianceData {
     pub level: u32,
     /// Online / officer / gagged / may-pass-up-XP flags.
     ///
-    // UNVERIFIED: only the may-pass-up-experience bit has a named setter in the client; the
+    // only the may-pass-up-experience bit has a named setter in the client; the
     // other bits are decoded as raw flags and exposed as the whole word.
     pub bitfield: u32,
     pub cp_tithed: u32,
@@ -1448,7 +1448,7 @@ impl Message for SocialSendClientContractTrackerTable {
 ///
 /// The client reads 36 bytes (the tracker and two flags) and never checks for more. The retail
 /// server sent **48**: twelve more bytes after the flags that vary from message to message and look
-/// like uninitialised memory `[verified against retail captures]`. The codec accepts that opaque
+/// like uninitialised memory. The codec accepts that opaque
 /// tail without interpreting or keeping it, and writes the 48-byte form with the tail as zeros
 /// (V294). A 36-byte body (ACE's) still reads.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

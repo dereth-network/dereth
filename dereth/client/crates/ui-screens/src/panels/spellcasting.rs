@@ -1464,8 +1464,6 @@ impl SpellcastingPanel {
     /// lands on it when a caster is wielded and wraps round when one is not. The first and last
     /// spell-selection notices confirm it independently — the first prefers the endowment and the
     /// last falls back to it — which is why the field is named for endowment presence here.
-    /// `\[verified\]` structurally in all four
-    /// handlers; the field *name* is `[inferred]` from those four agreeing.
     ///
     /// **A selection that is not in the list starts from index 0**, because the index starts at
     /// 0 and the loop only ever assigns on a match. That is how the first press with nothing

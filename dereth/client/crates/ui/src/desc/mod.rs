@@ -75,7 +75,7 @@ mod tests {
         }
     }
 
-    /// Oracle: §2.2 — a partial inherits the base's type and
+    /// a partial inherits the base's type and
     /// overlays its own deltas.
     #[test]
     fn a_partial_resolves_up_the_chain_and_overlays() {
@@ -121,7 +121,7 @@ mod tests {
         assert!(matches!(e, UiError::DescCycle { .. }), "got {e:?}");
     }
 
-    /// Oracle: the desc cache, §2.2 — "memoises resolved base descriptions per (layout, element)".
+    /// "memoises resolved base descriptions per (layout, element)".
     /// `ItemSlot` is referenced by hundreds of shipped elements, which is why it exists.
     #[test]
     fn the_desc_cache_answers_the_second_reference_to_the_same_base() {
@@ -145,9 +145,7 @@ mod tests {
         assert_eq!(lib.hits, 1, "a flushed cache resolves from scratch again");
     }
 
-    /// Oracle: `inq_full_desc` returns false when the element-desc lookup yields nothing. Trap: the track
-    /// spec §8 row 138 says a missing entry must be a loud error, "otherwise a wrong table looks
-    /// exactly like a layout parsing bug".
+    /// A missing base element reports an error rather than an empty description.
     #[test]
     fn a_missing_base_element_is_an_error_not_a_silent_empty_desc() {
         let types: PropertyTypes = BTreeMap::new();
@@ -162,7 +160,7 @@ mod tests {
     }
 
     /// Oracle: "returns NULL for the default state 0, in which case
-    /// the element uses the `ElementDesc`'s own `StateDesc` base" (§1.2).
+    /// the element uses the `ElementDesc`'s own `StateDesc` base".
     #[test]
     fn state_zero_is_the_elements_own_base_state() {
         let mut d = concrete(3, 10, 10);

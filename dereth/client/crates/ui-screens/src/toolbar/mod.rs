@@ -13,7 +13,7 @@ use crate::panels::catalogue::TOOLBAR_PANEL_BUTTONS;
 ///
 /// The retail handler walks its button array in order (an empty array answers nothing), skips a
 /// null button, stops at the first entry whose panel id matches, and sets that button to state 6
-/// when the panel is visible and state 1 when it is not. \[verified\]
+/// when the panel is visible and state 1 when it is not.
 ///
 /// The main chat window's panel-visibility notice uses the same literal states 6 and 1,
 /// [`crate::chat::mainchat::STATE_LAMP_LIT`] / [`crate::chat::mainchat::STATE_ENABLED`] — the two
@@ -299,7 +299,7 @@ pub mod target_mode {
 /// magic icon in peace mode; the hide-polarity tests hold it the right way. The handler below is
 /// correct either way, and the `hide` reading pins the first row of the table independently.
 ///
-/// **The pairing is `\[verified\]`.** Each of the four visibility calls passes `mode == N`, where
+/// Each of the four visibility calls passes `mode == N`, where
 /// `mode` is the `COMBAT_MODE` argument:
 ///
 /// ```text
@@ -351,7 +351,7 @@ pub mod inventory_drag_overlay {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered toolbar and panel behavior — the seven panel buttons in set-up order,
+    /// the seven panel buttons in set-up order,
     /// with the inventory button last.
     #[test]
     fn the_seven_panel_buttons_are_read_in_the_documented_order() {
@@ -364,7 +364,7 @@ mod tests {
     }
 
     /// Oracle: the toolbar panel's set combat mode notice's four child lookups, in the order
-    /// retail makes them, and the recovered combat-mode enum.
+    /// retail makes them, and the combat-mode enum.
     #[test]
     fn the_four_stance_buttons_are_the_four_combat_modes_in_id_order() {
         use combat_mode as cm;

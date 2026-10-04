@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn a_line_yields_its_four_fields_and_a_blank_line_yields_nothing() {
-        let dir = std::env::temp_dir().join("dere-net-client-session-capture-test");
+        let dir = std::env::temp_dir().join("dereth-net-client-session-capture-test");
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let path = dir.join("tiny.jsonl");
         std::fs::write(

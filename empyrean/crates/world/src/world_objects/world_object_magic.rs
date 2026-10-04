@@ -2197,7 +2197,7 @@ pub fn handle_cast_spell_fellow_portal_sending(
     let distance_to_target = world_object_get_distance(w, creature, target_player);
     let (init_level, ranks) =
         creature_get_creature_skill_school_init_and_ranks(w, creature, spell.school());
-    let magic_skill = init_level.wrapping_add(u32::from(ranks)); // synced with acclient DetermineSpellRange -> InqSkillLevel
+    let magic_skill = init_level.wrapping_add(u32::from(ranks)); // Range uses the initial skill plus trained ranks.
 
     let mut max_range = spell.base_range_constant() + f32_of(magic_skill) * spell.base_range_mod();
     #[allow(clippy::float_cmp)]

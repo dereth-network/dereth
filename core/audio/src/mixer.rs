@@ -245,7 +245,7 @@ mod tests {
 
     /// The whole point of the round robin: after a sound ends, the next start does **not** go to slot
     /// 0, it goes to the first free slot at or after the cursor. Oracle: the same scan, and
-    /// contract 10.3's "which sound gets dropped when the world is noisy".
+    /// the voice-dropping rule when the world is noisy.
     #[test]
     fn the_scan_starts_at_the_cursor_not_at_zero() {
         let mut p = VoicePool::default();
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(p.cursor(), 10);
     }
 
-    /// Contract 12.2: the 17th simultaneous sound is **dropped**, not stolen, regardless of how
+    /// The 17th simultaneous sound is **dropped**, not stolen, regardless of how
     /// important it is, because every shipped priority is 0.0 and the test is strictly less-than.
     /// A whole-image writer census found no sound-buffer metadata writer outside its constructor.
     #[test]
@@ -341,7 +341,7 @@ mod tests {
         assert!((l - g).abs() < 1e-6 && (r - g).abs() < 1e-6);
     }
 
-    /// Nothing loops: a voice runs off the end of its sample and frees its slot. Contract 10.4.
+    /// Nothing loops: a voice runs off the end of its sample and frees its slot.
     #[test]
     fn a_voice_stops_at_the_end_of_its_sample_and_never_wraps() {
         let mut p = VoicePool::default();

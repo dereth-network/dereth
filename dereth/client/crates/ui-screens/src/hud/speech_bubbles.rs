@@ -272,7 +272,7 @@ impl SpeechBubblePanel {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered HUD behavior — the one accepted chat type, the layout enum and element
+    /// the one accepted chat type, the layout enum and element
     /// id the bubbles are built from, and the self-removal message.
     #[test]
     fn the_bubble_channel_and_its_layout_are_the_documented_ones() {
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(MSG_BUBBLE_EXPIRED, dereth_ui::MessageId(0x1000_0003));
         assert_eq!(ATTR_MAX_CONCURRENT, 0x1000_0028);
         assert_eq!(DEFAULT_MAX_CONCURRENT, 1);
-        // The main chat window's default filter is exactly what excludes this type (`13` §11).
+        // The main chat window's default filter is exactly what excludes this type.
         let w = crate::chat::interface::ChatInterface::new(crate::chat::interface::window::MAIN);
         assert!(!w.type_is_active(BUBBLE_CHAT_TYPE));
     }
@@ -299,7 +299,7 @@ mod tests {
     }
 
     /// Oracle: — the duplicate suppression and the concurrency cap, which
-    /// §12 names as the two behaviours to reproduce.
+    /// the description names as the two behaviours to reproduce.
     #[test]
     fn identical_consecutive_text_replaces_rather_than_stacks() {
         let mut s = SpeechBubbles {

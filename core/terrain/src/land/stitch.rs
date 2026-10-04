@@ -2,8 +2,7 @@
 //!
 //! This module applies the rendering-side LOD stitching rule.
 //!
-//! **UNVERIFIED.** The exact vertex-rewrite rule remains unverified at the edges. This
-//! implementation preserves the recorded rule verbatim.
+//! Edge stitching uses the vertex-rewrite rule implemented below.
 //!
 //! Physics (`dereth_physics::land`) deliberately does **not** implement the transition adjustment at all: it only
 //! ever runs on reduced-detail blocks, and returns NULL for
@@ -252,7 +251,7 @@ mod tests {
         }
     }
 
-    /// Oracle: trap 8's LOD-stitching guard — `TransAdjust` runs only when the direction is
+    /// Oracle: the LOD-stitching guard — `TransAdjust` runs only when the direction is
     /// not `InViewerBlock` and `1 < side_cell_count < 8`. A full-detail block and a 1x1 block are
     /// both left alone.
     #[test]

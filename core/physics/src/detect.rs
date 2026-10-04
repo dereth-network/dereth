@@ -473,7 +473,7 @@ mod tests {
         )
     }
 
-    /// Contract item 5.7, all four values.
+    /// All four collision-result values.
     #[test]
     fn the_four_periods_are_the_documented_ones() {
         assert_eq!(globals::DETECTION_TICK, 1.0);
@@ -617,7 +617,7 @@ mod tests {
         assert_eq!(m.target_info.expect("set").status, TargetStatus::TimedOut);
     }
 
-    /// Contract item 5.6 seen from the outside: a blocked object reports zero `cached_velocity`,
+    /// A blocked object reports zero `cached_velocity`,
     /// so its watchers stop extrapolating.
     #[test]
     fn voyeur_extrapolation_uses_the_achieved_velocity() {

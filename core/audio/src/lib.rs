@@ -611,7 +611,7 @@ mod tests {
         (s, assets)
     }
 
-    /// Contract 12.1: the ambient volume is applied by the caller **and** again inside
+    /// The ambient volume is applied by the caller **and** again inside
     /// attenuation, so the effective factor is the square. Oracle: the ambient play path
     /// (`ambient_sound_volume * volume`) and the attenuation, which multiplies by the
     /// ambient volume again.
@@ -672,7 +672,7 @@ mod tests {
         assert!((v.gl - 1.0).abs() < 1e-6);
     }
 
-    /// Contract 12.7: `Sound.InterfaceSoundVolume` is inert and UI sounds follow the *effect* slider.
+    /// `Sound.InterfaceSoundVolume` is inert and UI sounds follow the *effect* slider.
     #[test]
     fn ui_sounds_follow_the_effect_slider_and_ignore_the_interface_one() {
         let p = Prefs {
@@ -775,7 +775,7 @@ mod tests {
         assert_eq!(s.pool().active(), 0);
     }
 
-    /// The two generators are separate streams. Oracle: contract 10.5 and the recovered random
+    /// The two generators are separate streams. Oracle: the random
     /// call sites — `ran2` for the row pick and ambient timing, the CRT LCG for the probability
     /// gates, drawn from within the same call.
     #[test]

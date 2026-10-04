@@ -474,7 +474,7 @@ fn a_character() -> CharacterInfo {
     }
 }
 
-/// **The burden lamp's panel, and the premise it corrects.** `11` §4: the burden lamp opens
+/// **The burden lamp's panel, and the premise it corrects.** the layout description: the burden lamp opens
 /// the character-info panel `0x10000183`, which is a whole character sheet — six sections, of which
 /// encumbrance is one.
 ///

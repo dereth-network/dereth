@@ -257,7 +257,7 @@ const ENGINE_RANGES: &[Row] = &[
     (0x3900_0000, 0x39FF_FFFF, DbType::MasterProperty),
     (0x4000_0000, 0x4000_0FFF, DbType::Font),
     (0x4000_1000, 0x40FF_FFFF, DbType::FontLocal),
-    // UNVERIFIED: the registered base of STRING_STATE is 0x40001000, which
+    // the registered base of STRING_STATE is 0x40001000, which
     // overlaps FONT_LOCAL entirely. Registration order (FONT_LOCAL first) makes it unreachable
     // below 0x41000000, and no `0x400010xx` file ships, so the resolution is untestable against
     // real data. Reproduced verbatim rather than "cleaned" into a disjoint table.
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(ENGINE_RANGES.len() + 6, 50);
     }
 
-    /// Contract 9.8: the four irregular cases the spec calls out by name.
+    /// The four irregular file-header cases.
     #[test]
     fn divine_type_is_not_the_top_byte() {
         // 0x0E00xxxx resolves per id, and has holes.
@@ -454,7 +454,7 @@ mod tests {
         }
     }
 
-    /// Contract 9.7: exactly three categorized types.
+    /// Exactly three categorized types.
     #[test]
     fn exactly_three_types_are_categorized() {
         let cats: Vec<DbType> = GAME_RANGES

@@ -585,8 +585,7 @@ mod tests {
         );
     }
 
-    /// The shipped `ID_DurationFormat` (`0x23000006`), read out of the dats by
-    /// `dereth/client/crates/ui-screens/tests/p1_15_probe.rs`, with the client's seven
+    /// The shipped `ID_DurationFormat` (`0x23000006`), with the client's seven
     /// values in its order: years, months, weeks, days, hours, minutes, seconds.
     fn duration_fragments() -> Vec<String> {
         [

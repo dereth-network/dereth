@@ -182,12 +182,12 @@ mod tests {
         }
     }
 
-    /// Oracle: alpha-list flushing and contract 11.7 — "There is no depth sort: the visible
+    /// Oracle: alpha-list flushing — "There is no depth sort: the visible
     /// order is exactly the order in which cells and parts were drawn."
     ///
     /// The scenario is deliberately reordering-detecting: entries are pushed in an order that is
     /// **not** sorted by depth, near-to-far or far-to-near, so any sorted structure produces a
-    /// different sequence and this test fails. That is trap 11's whole point.
+    /// different sequence and this test fails.
     #[test]
     fn the_alpha_list_flushes_in_insertion_order_and_a_sort_would_fail_this() {
         let mut lists = AlphaLists::new();

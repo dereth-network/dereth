@@ -534,10 +534,10 @@ fn the_store_holds_the_thirty_four_attached_preferences_and_no_others() {
     ] {
         assert!(
             !store::is_registered(absent),
-            "{absent} is not attached to the UI (§5.6)"
+            "{absent} is not attached to the UI"
         );
     }
-    // The types, spot-checked against §5.4's type column.
+    // Spot-check the registered preference types.
     assert!(store::is_registered_as(
         "Sound.SoundVolume",
         DataType::Float

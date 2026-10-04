@@ -364,7 +364,7 @@ pub struct AdminQueryPluginResponseRecv {
     pub author: String,
     pub email: String,
     pub webpage: String,
-    // UNVERIFIED: the fifth string's meaning is unknown. It is
+    // the fifth string's meaning is unknown. It is
     // decoded and named `unknown5`; a capture from an admin session would settle it.
     pub unknown5: String,
 }
@@ -737,7 +737,7 @@ impl Message for DddBeginDdd {
 /// The client reads: the `u64` dat-file id (type dword then id dword), the `QualifiedDataID`
 /// (`Type` then `ID`, 8-aligned), the iteration, the compressed flag, then a version dword, a size dword and the payload.
 ///
-// UNVERIFIED: the archive's object serialiser is the helper that
+// the archive's object serialiser is the helper that
 // serialises the compressed flag and its width was not identified; ACE writes a **one-byte** bool there
 // and the archive is not word-aligned, so a byte is consistent with both. Everything downstream of
 // this field shifts if it is really a dword. ACE's DDD patching is off by default, so no local test
@@ -865,7 +865,7 @@ mod tests {
     use super::*;
     use crate::{round_trip, write_body};
 
-    /// The H15 acceptance test and a row in
+    /// A row in
     /// `docs/CORRECTIONS.md`: all three `Admin_QueryPlugin*` messages
     /// carry payloads, and `0x02B3` unpacks five strings.
     #[test]

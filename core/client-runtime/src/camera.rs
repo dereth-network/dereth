@@ -173,7 +173,7 @@ pub mod target {
     pub const LOOK_AT_OBJECT: u32 = 2;
     /// After placing the eye, aim it back at the pivot point.
     pub const LOOK_AT_PIVOT: u32 = 4;
-    /// Declared and **never read** by camera updating. \[verified\]
+    /// Declared and **never read** by camera updating.
     pub const ALIGN_WITH_PIVOT: u32 = 8;
     /// Derive the look direction from the pivot's motion / contact plane.
     pub const ALIGN_WITH_PLANE: u32 = 16;

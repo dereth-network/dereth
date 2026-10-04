@@ -14,7 +14,8 @@ use empyrean_content::MemContent;
 use empyrean_server::world_pack::{self, WorldPackStatus};
 
 fn temp_path(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("serv-server-f16-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("empyrean-server-world-pack-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     dir.join(name)
 }

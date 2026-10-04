@@ -1006,6 +1006,7 @@ mod tests {
             ));
         });
     }
+    /// Behaviour: classic.paper-doll.drag-picks-equipped-item
     #[test]
     fn paperdoll_pick_prefers_armor_over_clothing_and_examines_on_right_click() {
         let world = World {
@@ -1034,6 +1035,26 @@ mod tests {
                     }
                 ]
             ));
+            assert!(matches!(
+                panel
+                    .event(
+                        ControlEvent::PreviewDrag {
+                            equipment_mask: 0x404
+                        },
+                        ctx
+                    )
+                    .as_slice(),
+                [PanelAction::BeginDrag(DragPayload::Object(ObjectId(11)))]
+            ));
+            assert!(
+                panel
+                    .event(ControlEvent::PreviewDrag { equipment_mask: 1 }, ctx)
+                    .is_empty(),
+                "bare body is not an inventory item"
+            );
+            assert!(panel
+                .event(ControlEvent::PreviewDrag { equipment_mask: 0 }, ctx)
+                .is_empty());
             let actions = panel.event(
                 ControlEvent::PreviewHit {
                     object_index: 0,

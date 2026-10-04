@@ -16,7 +16,7 @@ pub mod bitfield {
     /// blip-colour and blip-shape entry points all test the sign of the bitfield's low byte — so
     /// what is tested is bit 7 of the low byte. The public-description flags name
     /// bit 7 `UiHidden` ("hidden") and define **no** flag at bit 31 at all, so a bit-31 mask could
-    /// never fire on real traffic. `\[verified\]`
+    /// never fire on real traffic.
     ///
     /// It is *not* `RadarEnum::ShowNever`: that lives in `_radar_enum` and is tested separately, by
     /// `inq_showable_on_radar`.
@@ -28,13 +28,13 @@ pub mod bitfield {
     /// An older name for [`ATTACKABLE`], kept so nothing that reads it has to change.
     pub const CREATURE: u32 = 0x0000_0010;
     /// `ObjectDescriptionFlag::Player` — the client's is-player test is
-    /// `_bitfield >> 3 & 1`. `\[verified\]`
+    /// `_bitfield >> 3 & 1`.
     pub const PLAYER: u32 = 0x0000_0008;
     /// `ObjectDescriptionFlag::PlayerKiller` — the client's is-PK test is
-    /// `_bitfield >> 5 & 1`. `\[verified\]`
+    /// `_bitfield >> 5 & 1`.
     pub const PK: u32 = 0x0000_0020;
     /// `ObjectDescriptionFlag::PkLiteStatus` — the client's is-PK-lite test is
-    /// `_bitfield >> 0x19 & 1`. `\[verified\]`
+    /// `_bitfield >> 0x19 & 1`.
     pub const PK_LITE: u32 = 0x0200_0000;
     /// Cleared alongside `0x100000` to make an Admin blip.
     pub const NOT_ADMIN: u32 = 0x0000_0040;

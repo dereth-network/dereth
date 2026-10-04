@@ -106,6 +106,8 @@ pub enum Command {
         clip: Option<[i32; 4]>,
     },
     SpellIcon {
+        #[serde(default)]
+        transparent: bool,
         icon: u32,
         power: u32,
         bitfield: u32,

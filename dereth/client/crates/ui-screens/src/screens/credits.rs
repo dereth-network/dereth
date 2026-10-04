@@ -62,7 +62,7 @@ pub const PICTURE_STATE: u32 = 3;
 /// constant, so both rows of `dereth_client::ui::PREGAME_MODE_INPUT_MAPS` name the screen's own
 /// map.
 ///
-/// Retail registers map 9 at the focused-UI priority 3000. \[verified\] — the same registration the
+/// Retail registers map 9 at the focused-UI priority 3000. — the same registration the
 /// original character-management and intro screens make.
 pub const INPUT_MAP: u32 = 9;
 
@@ -97,7 +97,6 @@ pub const DIALOG_LAYOUT: LayoutEnum = LayoutEnum(2);
 ///
 /// **This is a different table and a different row from `CharacterManagementScreen`'s please-wait**,
 /// which uses enum `0x10000002` and `ID_CharacterManagement_PleaseWait`. Two screens, two prompts.
-/// Verified against the client's string data.
 pub const PLEASE_WAIT_STRING: &str = "ID_Wait_PleaseWait";
 
 /// The string table enum the please-wait dialog build names, and the `StringTable` it resolves to —
@@ -258,7 +257,7 @@ impl CreditsScreen {
     /// dialog, queues mode `0x1000000A`, and reports the action consumed. Its input event is
     /// **read nowhere** — there is no start-edge test and no action comparison — so every action
     /// in map 9 skips the credits, and
-    /// the release edge does it too. That is why this takes no action id. \[verified\]
+    /// the release edge does it too. That is why this takes no action id.
     ///
     /// Retail reaches it through the input manager's "send action to listeners", which calls the
     /// action callback of the *winning* input map. The original credits setup registers map 9 at
@@ -290,8 +289,8 @@ impl CreditsScreen {
     ///
     /// Two properties and no more: `0x8E` = 2 (`Wait`) and `0xC5`, the prompt.
     ///
-    /// **`0x8E = 2` is verified rather than inferred**, and two differences from the
-    /// character-management please-wait are load-bearing:
+    /// The property `0x8E` is 2. There are two differences from the
+    /// character-management please-wait dialog:
     ///
     /// * **it sets no `0xAC`.** The character-management build sets `0xAC` to `1`; this one never mentions the
     ///   property, so the credits' wait dialog is **not modal**. A `Wait` has no buttons either
@@ -694,7 +693,7 @@ impl Screen for CreditsScreen {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue's two-row root table and the shipped `credits` layout
+    /// Oracle: the screen catalogue's two-row root table and the shipped `credits` layout
     /// `0x21000003`, whose five roots are all four of these ids plus the picture template.
     #[test]
     fn the_two_credit_rolls_use_the_documented_element_pairs() {
@@ -713,8 +712,8 @@ mod tests {
         assert_eq!(PICTURE_STATE, 3);
     }
 
-    /// Oracle: the retail row format `ID_Credits%d` and the shipped credit tables. `dereth/client/tests/credits.rs` walks the real table; this pins the
-    /// two hashes the walk starts from so a change to `str_hash` cannot pass unnoticed.
+    /// Oracle: the retail row format `ID_Credits%d` and the shipped credit tables. This pins
+    /// the two starting hashes so a change to `str_hash` cannot pass unnoticed.
     #[test]
     fn the_credit_line_ids_are_the_hash_of_id_credits_n() {
         assert_eq!(STRING_ID_FORMAT, "ID_Credits%d");
@@ -728,7 +727,7 @@ mod tests {
         );
     }
 
-    /// Oracle: step 3's formula, **evaluated** (the brief's §5 rule).
+    /// The scrolling formula is evaluated at fixed points.
     ///
     /// With field 600, text 3000, 100 lines and speed 1.0:
     /// `(600 + 3000) / (((3000/100) + 600) / 1) = 3600 / 630 = 5.714…`
@@ -737,7 +736,7 @@ mod tests {
         let d = scroll_duration(600.0, 3000.0, 100, DEFAULT_SPEED);
         assert!((d - 3600.0 / 630.0).abs() < 1e-4, "{d}");
         // `speed` divides the *denominator*, so doubling it **doubles** the duration — which reads
-        // backwards for something called a speed, and is what the recovered expression says:
+        // backwards for something called a speed, and is what the expression says:
         // `(fieldHeight + textHeight) / (((textHeight / lineCount) + fieldHeight) / speed)`.
         let fast = scroll_duration(600.0, 3000.0, 100, 2.0);
         assert!((fast - d * 2.0).abs() < 1e-4, "{fast} vs {d}");
@@ -833,7 +832,7 @@ mod tests {
             )),
             "with no string table installed the token itself is the prompt"
         );
-        // The recovered token and table, as literals.
+        // The token and table, as literals.
         assert_eq!(PLEASE_WAIT_STRING, "ID_Wait_PleaseWait");
         assert_eq!(STRING_TABLE_ENUM, 0x1000_0001);
         assert_eq!(STRING_TABLE.0, 0x2300_0001);

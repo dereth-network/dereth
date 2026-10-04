@@ -697,8 +697,7 @@ mod appear_offline {
             dereth_ui_screens::panels::friends::APPEAR_OFFLINE_OPTION_BOX,
             [(ElementId(APPEAR_OFFLINE), PlayerOption::AppearOffline)]
         );
-        // `dereth_client::hud::option_ordinal` is the bridge to 39 and lives in the other crate;
-        // `o244_option_wire.rs` is what pins it. What this crate can pin is the name retail uses.
+        // This assertion covers the option name, not its runtime wire ordinal.
         assert_eq!(
             dereth_ui_screens::options::character::option_name(PlayerOption::AppearOffline),
             "AppearOffline"

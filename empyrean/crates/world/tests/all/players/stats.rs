@@ -403,7 +403,7 @@ fn xp_between_skill_levels_and_the_table_match_ace() {
 /// a negative count, ACE's recorded skills and max health stay as the record of ACE's output; the
 /// expected values are the gated ones, those of the same creature without the negative counts (ACE
 /// adds nothing for a count of 0, and every other case pins that path to ACE). The retail values
-/// themselves are checked against the client's inquiries by `rule3_player_stats_agree_with_dereth_client_model`.
+/// themselves are checked against the client's inquiries by `player_stats_agree_with_dereth_client_model`.
 fn gated_input(input: &Value) -> Option<Value> {
     if !input["player"].as_bool().expect("player") {
         return None;
@@ -1804,7 +1804,7 @@ fn reachable_augmentations(o: &WorldObject) -> bool {
 /// Every disagreement between the port (= ACE, by the vectors) and the client's retail inquiries
 /// (`dereth_rules`, asked of the same `WorldObject`) over the `creature_stats` creatures, as
 /// `(category, detail)`.
-fn rule3_stat_disagreements() -> Vec<(&'static str, String)> {
+fn client_stat_disagreements() -> Vec<(&'static str, String)> {
     use dereth_rules::attributes::{inq_attribute, inq_attribute_2nd};
     use dereth_rules::skills::inq_skill;
 
@@ -1913,7 +1913,7 @@ fn rule3_stat_disagreements() -> Vec<(&'static str, String)> {
 /// shared rules' own search now, pinned to ACE by `calc_rank_matches_ace`; this checks the XP to
 /// the next skill rank against the client's raise cost (`dereth_rules::advancement`).
 #[test]
-fn rule3_xp_ranks_and_skill_costs_agree_with_dereth_client_model() {
+fn xp_ranks_and_skill_costs_agree_with_dereth_client_model() {
     use dereth_rules::advancement::skill_cost_to_raise;
 
     let w = world();
@@ -1945,9 +1945,9 @@ fn rule3_xp_ranks_and_skill_costs_agree_with_dereth_client_model() {
 }
 
 #[test]
-fn rule3_creature_stats_agree_with_dereth_client_model() {
+fn creature_stats_agree_with_dereth_client_model() {
     // Everything a non-player creature shows agrees, except the retired skills (below).
-    let d: Vec<_> = rule3_stat_disagreements()
+    let d: Vec<_> = client_stat_disagreements()
         .into_iter()
         .filter(|(cat, detail)| detail.contains(" creature ") && !cat.starts_with("retired"))
         .collect();
@@ -1967,8 +1967,8 @@ fn rule3_creature_stats_agree_with_dereth_client_model() {
 /// player stats agree with dereth client model.
 /// V244, V245.
 #[test]
-fn rule3_player_stats_agree_with_dereth_client_model() {
-    let d: Vec<_> = rule3_stat_disagreements()
+fn player_stats_agree_with_dereth_client_model() {
+    let d: Vec<_> = client_stat_disagreements()
         .into_iter()
         .filter(|(cat, detail)| detail.contains(" player ") && !cat.starts_with("retired"))
         .collect();
@@ -1990,8 +1990,8 @@ fn rule3_player_stats_agree_with_dereth_client_model() {
 /// Run with `--ignored` to list the disagreements.
 #[test]
 #[ignore = "retired skills keep ACE's formulas; unreachable"]
-fn rule3_retired_skills_agree_with_dereth_client_model() {
-    let d = rule3_stat_disagreements();
+fn retired_skills_agree_with_dereth_client_model() {
+    let d = client_stat_disagreements();
     let mut by: BTreeMap<&str, (usize, String)> = BTreeMap::new();
     for (cat, detail) in &d {
         let e = by.entry(cat).or_insert((0, detail.clone()));

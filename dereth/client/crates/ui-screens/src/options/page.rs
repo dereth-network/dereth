@@ -810,7 +810,6 @@ impl PlayerOptionPage {
     /// Bind a slider, check box, or menu to its preference — the metadata half rather than the
     /// value read.
     ///
-    ///
     /// All three do the same thing: record the preference name, then — only if the registry
     /// answers for that name with a table, a label id and a tooltip id — set the label and the
     /// tooltip from that table, and then read the slider's range or the menu's enum choices.
@@ -1705,7 +1704,7 @@ mod tests {
     }
 
     /// Oracle: the child ids each option-row helper passes to recursive child lookup, read
-    /// from the recovered behavior. Literals on purpose, per the rule above; `0x10000224` is the
+    /// from the behavior. Literals on purpose, per the rule above; `0x10000224` is the
     /// one this crate had wrong.
     #[test]
     fn the_helper_child_ids_are_the_ones_the_client_looks_up() {
@@ -1754,7 +1753,7 @@ mod tests {
         assert_eq!(client(false), SLIDER_DISABLED_STATE.0);
     }
 
-    /// Oracle: the recovered preference registrations' "UI range" column, which is
+    /// Oracle: the preference registrations' "UI range" column, which is
     /// the client's UI preference initialisation's range arguments.
     ///
     /// Every slider on the page has a range here, and the three sound sliders' `(0.0, 1.0)` is the

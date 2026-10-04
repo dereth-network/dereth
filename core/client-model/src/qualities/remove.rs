@@ -421,7 +421,7 @@ mod tests {
     fn a_remove_deletes_the_key_rather_than_zeroing_it() {
         let mut q = Qualities::new();
         let mut s = PropertySequenceGate::new();
-        let k = StatKey::new(StatType::Int, 0x86); // PropertyInt::PlayerKillerStatus [external]
+        let k = StatKey::new(StatType::Int, 0x86); // PropertyInt::PlayerKillerStatus
         q.set(k, StatValue::Int(4));
         assert_eq!(q.get(k), Some(StatValue::Int(4)));
 

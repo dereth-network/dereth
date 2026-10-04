@@ -331,7 +331,7 @@ mod tests {
         assert!((d - 3.0).abs() < 1e-5, "{d}");
         // With narrow radii the same pair reports the diagonal, because the horizontal term is
         // the 3-D centre distance and so already contains the vertical separation. That is
-        // contract item 5.11 in one line.
+        // the full three-dimensional distance in one line.
         let d = cylinder_distance(0.5, 2.0, &at(0.0, 0.0), 0.5, 2.0, &at(0.0, 5.0));
         assert!((d - 5.0).abs() < 1e-5, "{d}");
         // fully overlapping: negative penetration
@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn cylinder_distance_horizontal_term_is_three_dimensional() {
         // Two positions separated only in Z: the "horizontal" term still sees that separation,
-        // which is exactly contract item 5.11 and what a 2-D implementation would get wrong.
+        // which a two-dimensional implementation would get wrong.
         let c = CellId(0x0001_0001);
         let a = Position::new(c, Frame::new(Vec3::ZERO, Quat::IDENTITY));
         let b = Position::new(c, Frame::new(Vec3::new(0.0, 0.0, 10.0), Quat::IDENTITY));

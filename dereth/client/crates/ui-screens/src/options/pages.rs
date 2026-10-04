@@ -276,7 +276,7 @@ const fn imc(map_id: u32, caption: &'static str) -> InputMapCaption {
 
 /// The input maps the keybinding panel groups its rows by, and their captions.
 ///
-/// Two details, both verified against retail:
+/// Two binding details:
 ///
 /// * the captions come from string table enum **7** (`0x23000005`), not `0x10000001`. Every one
 ///   of the nineteen input-map cases uses table enum `7`.
@@ -372,7 +372,7 @@ pub mod action_key_map {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered options behavior's seven-row control table — the type ids, the child
+    /// the type ids, the child
     /// each control reads and the attribute it writes.
     #[test]
     fn the_seven_option_controls_are_the_documented_types_and_children() {
@@ -403,7 +403,7 @@ mod tests {
         }
     }
 
-    /// Oracle: §4's six-section table and the client's window ids.
+    /// Chat options have six sections with the expected window ids.
     #[test]
     fn the_chat_options_page_edits_the_five_windows_filters_in_order() {
         assert_eq!(CHAT_OPTIONS_PAGE.len(), 6);
@@ -416,7 +416,7 @@ mod tests {
             .map(|s| s.window_id.unwrap())
             .collect();
         assert_eq!(ids, vec![8, 2, 3, 4, 5], "main, then floaty 1..4");
-        // Each section's default mask is the one `13` §4 gives that window.
+        // Each section's default mask is the one the layout description gives that window.
         for (s, want) in CHAT_OPTIONS_PAGE[1..].iter().zip([
             0xFBFF_FFFF_u64,
             0x0000_101C,

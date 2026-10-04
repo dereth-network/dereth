@@ -274,8 +274,7 @@ fn a_level_change_alone_rebuilds_and_re_filters_the_list() {
 /// here**: the spell bitfield reaches the screen only through
 /// the composited spell icon, whose `FellowshipSpell (0x2000)` bit selects
 /// row 4 of `0x10000007 UISpellOverlays` — a surface, on an element this dat-free file does not
-/// have. So the assertion here is the guard's, and the drawn half is
-/// `dereth/client/tests/o567_spellbook_icon_gate.rs`. Saying which half is which is the point;
+/// have. The assertion here measures the guard rather than the drawn surface;
 /// asserting `shown` again would look like a measurement and be a tautology, because the
 /// membership and the order do not move.
 ///

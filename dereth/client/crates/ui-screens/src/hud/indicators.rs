@@ -421,7 +421,7 @@ mod tests {
         }
     }
 
-    /// Oracle: the recovered HUD behavior's six-row lamp table — six consecutive element types,
+    /// six consecutive element types,
     /// and the logout button's own element id.
     #[test]
     fn the_six_lamps_are_six_consecutive_element_types_and_the_logout_button_has_its_own_id() {

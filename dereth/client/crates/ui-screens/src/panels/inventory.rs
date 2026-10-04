@@ -55,7 +55,7 @@ pub const LOAD_METER_SCALE: f64 = 0.333_333_333_333_333_3;
 /// attribute `0x69` to it (as `float`), and writes the text `"%d%%"` of `floor(load * 300.0)`.
 ///
 /// The format is `"%d%%"` — the number and a per-cent sign, which is exactly what the recorded
-/// retail backpack shows: *Burden* over *69%*. [verified against retail]
+/// retail backpack shows: *Burden* over *69%*.
 ///
 /// Two consequences of reproducing rather than tidying, both measured:
 ///
@@ -272,7 +272,7 @@ impl ClickMap {
 ///
 /// Left visible, these are armour-coverage slot icons laid out in a grid where the doll should
 /// be. The post-init binds each of these nine, registers its drag handler and its tooltip, and
-/// then hides each slot icon, repeating the same operation for all nine. \[verified\]
+/// then hides each slot icon, repeating the same operation for all nine.
 ///
 /// They are not decoration and they are not dead: the client's message-1
 /// arm on [`SLOT_CHECKBOX`] swaps them for the doll and back — see [`InventoryPanels::set_slot_view`].
@@ -308,7 +308,7 @@ pub const SIGIL_SLOTS: [ElementId; 3] = [
 /// The inventory panel's player desc received notice — `"Inventory of %s"`.
 ///
 /// The `%s` is the player object's singular name,
-/// i.e. the player's own weenie name. [verified against retail]
+/// i.e. the player's own weenie name.
 #[must_use]
 pub fn title_text(name: &str) -> String {
     format!("Inventory of {name}")
@@ -316,7 +316,7 @@ pub fn title_text(name: &str) -> String {
 
 /// The client writes this literal into the contents text before any
 /// container has been opened, and
-/// writes it again whenever the open container **is** the player. [verified against retail]
+/// writes it again whenever the open container **is** the player.
 pub const BACKPACK_CONTENTS: &str = "Contents of Backpack";
 
 /// The inventory panel's new parent container notice.
@@ -354,7 +354,7 @@ pub mod paper_doll {
     /// The paper doll's camera position —
     /// `(0.12, -2.4, 0.88)` looking at the origin.
     ///
-    /// Initialization sets the position and zeroes the target. \[verified\]
+    /// Initialization sets the position and zeroes the target.
     pub const CAMERA_POSITION: (f32, f32, f32) = (0.12, -2.4, 0.88);
 
     /// The second `Vector3` handed to the camera is `(0, 0, 0)`, the same target
@@ -365,10 +365,10 @@ pub mod paper_doll {
     ///
     /// The direction is `(0.3, **+1.9**, 0.65)`.
     /// Positive y, like the character preview's and unlike the portal space's.
-    /// \[verified\]
+    ///
     pub const LIGHT_DIRECTION: (f32, f32, f32) = (0.3, 1.9, 0.65);
 
-    /// The light's intensity. \[verified\]
+    /// The light's intensity.
     pub const LIGHT_INTENSITY: f32 = 2.0;
 
     /// The doll object's heading, set when the creature is redressed — the fixed three-quarter
@@ -1737,7 +1737,7 @@ mod tests {
     use super::*;
 
     /// Oracle: the client's element-id-to-location lookup and its two
-    /// `switch`es, cross-checked against the recovered toolbar and panel behavior's slot table and against
+    /// `switch`es, cross-checked against the toolbar and panel behavior's slot table and against
     /// `dereth_client_model::inventory::slots::loc`.
     #[test]
     fn the_paper_doll_slot_masks_are_the_ones_the_client_switches_on() {

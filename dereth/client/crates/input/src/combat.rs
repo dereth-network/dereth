@@ -14,7 +14,7 @@
 //!   register_input_map(that map, 1000, callback)
 //! ```
 //!
-//! \[verified\] Three things in it are easy to get wrong:
+//! Three things in it are easy to get wrong:
 //!
 //! * the **unregister** is driven by the *previous* mode and the **register** by the *new* one —
 //!   the combat-mode setter passes its new combat mode first and the old one second;

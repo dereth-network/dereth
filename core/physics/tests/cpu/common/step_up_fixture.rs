@@ -167,8 +167,7 @@ pub(crate) struct Walk {
     /// Where the body ended.
     pub(crate) end: Vec3,
     /// How far it travelled over the last second of the walk, i.e. thirty-one frames at the 30 Hz
-    /// these walks run at. Under a centimetre is the convention
-    /// `dereth/client/tests/collision_probe/mod.rs` uses for *at rest*.
+    /// these walks run at. Under a centimetre is treated as at rest.
     pub(crate) last_second: f32,
 }
 

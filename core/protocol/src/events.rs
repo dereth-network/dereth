@@ -170,7 +170,7 @@ mod tests {
     }
 
     /// An unwrapped UI-queue blob keeps its own opcode as the type dword — the wrapper reader must
-    /// not have consumed it. That is the H2 acceptance test seen from the dispatcher's side.
+    /// not have consumed it.
     #[test]
     fn an_unwrapped_blob_still_splits_correctly() {
         // 0xF7E1 Login_WorldInfo, which is on the UI queue but is not a game event.

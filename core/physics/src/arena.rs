@@ -1,6 +1,6 @@
 //! The physics-object arena and its handles.
 //!
-//! Track spec section 7.4 is the reason this exists. `check_walkable` and `transitional_insert`
+//! `check_walkable` and `transitional_insert`
 //! recurse into each other, an object's collision handler can start another transition that moves
 //! a *different* object, and the transition pool is global shared state ten levels deep.
 //! Consequently **no `&mut PhysicsObj` may be held across anything that can re-enter**: every

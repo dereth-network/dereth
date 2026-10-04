@@ -141,7 +141,7 @@ pub mod child {
     /// The ten are one **wedge each**, not ten layers of a pie: the shipped images are
     /// `0x060067CF`…`0x060067D8`, each a full 32×32 overlay, and the display function shows
     /// **exactly one** of them (see `ItemSlot::update_cooldown_display`).
-    /// [verified against the live `ItemSlot` tree built from `client_local_English.dat`]
+    ///
     pub const COOLDOWN: [u32; 10] = [
         0x1000_054F,
         0x1000_0550,
@@ -179,8 +179,7 @@ pub mod child {
 /// by the item's own `ITEM_TYPE`. `0x10000004` is `UIIconBackgrounds`
 /// (mapper `0x25000008`, 34 rows)
 /// and its fourteen distinct surfaces `0x060011CB`…`0x060011F4` plus `0x06005E23` are exactly
-/// the red / blue / teal / green / brown tiles in the recorded retail backpack frame. [verified by
-/// resolving all 34 rows out of `client_portal.dat` and decoding them]
+/// the red / blue / teal / green / brown tiles in the recorded retail backpack frame.
 ///
 /// **Why a composite and not layered elements.** A region carries one `GraphicRef`, so painting
 /// the tile on the `UiItemWidget` **root** — the only element drawn beneath the base icon — gives
@@ -417,8 +416,7 @@ pub mod attr {
     /// inheritance through `base_element`/`base_layout` makes different from the raw scan) gives
     /// **1 of 65** item lists `true`: the vendor's. So the backpack grid, both container strips,
     /// the paper doll, the spellbook and all eighteen quickbar tiles take the `false` arm, and a
-    /// duplicated id in any of them keeps two rings **in retail too**. [verified against the live
-    /// gameplay tree]
+    /// duplicated id in any of them keeps two rings **in retail too**.
     pub const SINGLE_SELECTION: u32 = 0x1000_0052;
     /// `UICore_ListBox_horizontal` — bit 0 of the list box's flags.
     pub const HORIZONTAL: u32 = 0x5C;
@@ -426,8 +424,7 @@ pub mod attr {
     ///
     /// The retail `MasterProperty` names are `UICore_ListBox_max_columns` (`0x5F`) and
     /// `UICore_ListBox_max_rows` (`0x60`) — not "rows/cols" — and the list-box layout pass reads
-    /// **only** `0x5F`, straight into the column count. [verified against
-    /// `client_local_English.dat`'s `MasterProperty 0x39000001`]
+    /// **only** `0x5F`, straight into the column count.
     pub const MAX_COLUMNS: u32 = 0x5F;
     /// `UICore_ListBox_max_rows`. Read by nothing in `ListBox`; carried for completeness.
     pub const MAX_ROWS: u32 = 0x60;
@@ -440,7 +437,7 @@ pub mod attr {
     /// shortcut-number write reads it off and sets the image of — and by nothing else in the
     /// shipped gameplay tree. In `classic_gameplay` the first nine entries are the distinct
     /// numerals `0x0600109E`…`0x060010A6` and entries 9…17 are nine copies of `0x060074D3`, which
-    /// is why bank 2 has no numbers of its own. [verified against the live element tree]
+    /// is why bank 2 has no numbers of its own.
     pub const SHORTCUT_OVERLAY_ARRAY: u32 = 0x1000_0042;
     /// `UI_ItemList_ShortcutOverlayArray_Ghosted` — the same eighteen in the greyed form
     /// (`0x06001ACC`…`0x06001AD4`, then `0x060074D2`), used while the toolbar is inactive.
@@ -453,8 +450,7 @@ pub mod attr {
     /// happen only when the array lookup succeeds — does nothing at all.
     /// An empty quickbar tile therefore gets its number from somewhere else entirely — its own
     /// `ItemSlot` root's `0x1000001C` frame; see
-    /// [`ShortcutBar`](crate::toolbar::shortcuts::ShortcutBar). [verified against the
-    /// live element tree]
+    /// [`ShortcutBar`](crate::toolbar::shortcuts::ShortcutBar).
     pub const SHORTCUT_OVERLAY_ARRAY_EMPTY: u32 = 0x1000_005E;
     /// `UI_ItemList_ShortcutOverlay` — the member id every entry of those three arrays carries.
     pub const SHORTCUT_OVERLAY: u32 = 0x1000_0044;
@@ -618,8 +614,7 @@ pub struct ItemSlot {
     /// strip) name in `UI_ItemList_ItemSlotID`. The default 32×32 root `0x1000033A` — the backpack
     /// grid, the paper doll and every quickbar tile — has **no** `0x10000450` at all, so
     /// [`Self::set_open_container_state`] is a no-op on those and that is retail's behaviour, not a
-    /// gap. [verified by resolving all 20 roots of layout `0x21000037`, and by scanning
-    /// all 101 shipped layouts: `0x10000450` occurs in `0x21000037` and nowhere else]
+    /// gap.
     pub open_container: Option<ElemHandle>,
     /// The ten cooldown wedges, in [`child::COOLDOWN`] order.
     pub cooldown: [Option<ElemHandle>; 10],
@@ -783,13 +778,13 @@ impl ItemSlot {
     /// is mouse-visible because **slot initialisation says so explicitly**, and
     /// with that line missing, hit testing returns the panel behind the
     /// slot and every press misses: the grid `0x100001C6` and all 102 of its `0x1000033A` slots
-    /// read `is_mouse_visible == false`. [verified on the live tree]
+    /// read `is_mouse_visible == false`.
     ///
     /// `0x36` is the other half: the drop **catcher** is the slot, not the list.
     /// The item-list element-message handler's `0x15` arm takes the source element, verifies that
     /// it is an item slot, and restores drag-accept state `0x1000003F`. Drop handling raises that message on
     /// the element that accepted the drop, so for the cast to ever succeed the accepting
-    /// element must be the slot. \[inferred\]
+    /// element must be the slot in this implementation.
     ///
     /// `drag_icon` is the element [`crate::env::create_child_element_by_enum`] just made; it is
     /// passed in rather than created here so this stays testable without an installed environment.
@@ -1068,7 +1063,7 @@ impl ItemSlot {
     /// no element; what puts the empty-slot frame back is the state, because `0x1000033B`'s state
     /// `0x1000001C` carries **one media step** and its `0x1000001D` carries none. Clearing the
     /// image here instead would leave an empty slot as a hole — the shipped `ItemSlot` layout has
-    /// no base image on the icon at all. [verified against the live element tree]
+    /// no base image on the icon at all.
     fn clear(&mut self, ui: &mut UiSystem) {
         self.item = None;
         // The client's clear writes four fields: the item id, the spell id and the container
@@ -1200,8 +1195,7 @@ impl ItemSlot {
     /// A missing quantity element returns immediately. A negative signed quantity hides it;
     /// otherwise the element receives the decimal quantity text and becomes visible.
     ///
-    /// The format is `"%d"` — the plain number, no separators and no brackets. [verified: the
-    /// retail formatter's only format string is `"%d"`.]
+    /// The format is `"%d"` — the plain number, no separators and no brackets.
     ///
     /// Returns true when the text element existed to write.
     pub fn update_quantity_display(&mut self, ui: &mut UiSystem) -> bool {
@@ -1290,10 +1284,7 @@ impl ItemSlot {
     /// the plural name and prefixes it with the signed count plus one space. The resulting text is
     /// assigned as the tooltip and the tooltip-present flag is set.
     ///
-    /// The format is `"%d %s"` — *count then name*, no brackets. \[verified: the only string the
-    /// function uses; corroborated by the examination panel's title write, which builds the
-    /// examine window's title as the stack size, a space and the name for exactly the same
-    /// `s >= 2` case\]
+    /// The format is `"%d %s"` — *count then name*, no brackets.
     ///
     /// `NAME_PLURAL` takes the plural name and falls back to the name when that buffer is empty
     /// in the object-name read, which is what `plural` being `None` means.
@@ -1464,7 +1455,6 @@ impl ItemSlot {
     /// the structure display, whose first line is the same test.
     /// It is invisible in retail because every `ItemSlot` root carries both children, and it is
     /// reproduced here so that a slot root without a structure bar behaves as the client would.
-    /// [verified against retail]
     ///
     /// `remaining` is the registry's remaining-time answer: `None` means the registry said *not on
     /// cooldown* (or there is no registry), which is the `on = false` arm.
@@ -1781,7 +1771,7 @@ pub struct ItemListWidget {
     /// and an absent `0x5F` therefore reads 0, which takes the `max(v, 1)` arm and means *one
     /// column*. It makes no difference here — every one of the forty-odd `ItemListWidget`s in
     /// the shipped gameplay tree carries `0x5F` explicitly, so the default is unreachable
-    /// [verified against the live element tree] — but a plain `ListBox` often
+    /// — but a plain `ListBox` often
     /// carries none, which is why [`crate::panels::listbox::ListBoxWidget`] defaults to 0.
     pub max_columns: i32,
     /// The live fixed list size; the container-list-size update rewrites it.
@@ -1873,7 +1863,7 @@ impl ItemListWidget {
                 let mut s = ItemSlot::bind(ui, h);
                 // The drag icon is created from the
                 // **same** `ItemSlot` layout under element id `0x10000345`. It carries
-                // `0x3A = true` and is 32×32 [verified against the live element tree],
+                // `0x3A = true` and is 32×32,
                 // which is what makes starting a drag on it at offset (16, 16) find a draggable
                 // element at once and centre it on the pointer.
                 //

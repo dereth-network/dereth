@@ -173,7 +173,7 @@ impl VertexFormat {
 ///
 /// The mesh path (mesh rendering through a vertex buffer) carries its own format word rather than
 /// one of the five fixed codes, so the decoder has to exist even though the *catalogue* is five
-/// entries. [verified in the source document].
+/// entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct VertexLayoutInfo {
     pub format: u32,

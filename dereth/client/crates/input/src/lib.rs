@@ -97,7 +97,7 @@ pub const MAP_BLOCK_KEYBOARD: InputMapId = InputMapId(1);
 /// **no start-up owner**: the client holds exactly three sites that register map 9 at 3000
 /// and all three are *constructors* -- the three character-selection screens -- so the map is live
 /// only while one of those
-/// screens is up. \[verified\]
+/// screens is up.
 ///
 /// It has a **second, data-driven** producer that carries no literal and therefore cannot appear
 /// in [`RETAIL_MAP_REGISTRATIONS`] at all: an element registers its own
@@ -669,17 +669,8 @@ impl InputManager {
                         || (fire::KEYSTONE_SUPPRESSED_ACTIONS.contains(&action)
                             && self.cursor_over_keystone);
                     if !suppressed {
-                        // The exact activation local in the client's condition remains unverified:
-                        // `if ((X & 0xA9) == 0 && extent == 0) extent = 1.0`, and which activation
-                        // `X` is has not been pinned: it is not the value that fills the event's own
-                        // activation. Taken as the *live*
-                        // activation it would bump a plain button release (`Up` = 0x02, which is
-                        // not in the down-ish mask) to extent 1.0, and `fire_action_event` would then
-                        // re-`activate_action_key` an action step 7 had just released -- a stop
-                        // immediately followed by a start on every key release, which is not what
-                        // the client does. So the bump is skipped for a button release, which
-                        // leaves the action-fire path's `extent == 0` arm to deactivate (a no-op the
-                        // second time) and yields exactly one stop.
+                        // Do not turn a button release into a new activation. Keeping its
+                        // zero extent lets the action-fire path deactivate it exactly once.
                         if !releasing && act & activation::DOWNISH_MASK == 0 && extent == 0.0 {
                             extent = 1.0;
                         }
@@ -1048,7 +1039,7 @@ impl InputManager {
 ///                                                   // one priority lower per generation
 /// ```
 ///
-/// \[verified\] Those three are the element stack's registration at 0, the activation
+/// Those three are the element stack's registration at 0, the activation
 /// alert's at 2000 and the focus change's at 3000, and **none of them can appear as a row here**. So a census that diffs
 /// the two tables and finds the remainder accounted for has *not* shown the registration set is
 /// complete — it has shown the literal-id half is. They are listed in
@@ -1189,7 +1180,7 @@ pub const DECLARED_UNBOUND_ACTIONS: &[u32] = &[
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered input pipeline §6's registration table, transcribed. The client's own map
+    /// The client's own map
     /// 0x10 at −1 must be last and the chat toggle at 3010 must beat the focused-UI priority.
     #[test]
     fn the_retail_registrations_order_as_documented() {

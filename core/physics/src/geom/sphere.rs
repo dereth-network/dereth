@@ -215,7 +215,7 @@ mod tests {
     // sphere_intersects_ray) and its cylinder-sphere code (collides_with_sphere,
     // normal_of_collision).
 
-    /// Contract item 5.5: overlap subtracts the epsilon, swept tests add it. This table walks
+    /// Overlap subtracts the epsilon, swept tests add it. This table walks
     /// both sides of the boundary in both directions.
     #[test]
     fn overlap_epsilon_boundary_is_r1_plus_r2_minus_epsilon() {

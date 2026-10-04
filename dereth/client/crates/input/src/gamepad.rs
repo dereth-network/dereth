@@ -103,7 +103,7 @@ pub const DIV_MOUSELOOK_OFFSET: u16 = 1;
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered input pipeline §8 — the callback skips exactly `DI8DEVTYPE_MOUSE` (0x12)
+    /// the callback skips exactly `DI8DEVTYPE_MOUSE` (0x12)
     /// and `DI8DEVTYPE_KEYBOARD` (0x13).
     #[test]
     fn the_filter_skips_only_the_mouse_and_the_keyboard() {
@@ -117,7 +117,7 @@ mod tests {
         assert!(is_suitable(0x0000_1215));
     }
 
-    /// Oracle: the recovered input pipeline §8 and the recovered binding behavior §2 — with the shipped
+    /// with the shipped
     /// keymap already loaded, keyboard is 0 and mouse is 1, so a gamepad lands at 2 and the
     /// virtual device after it.
     #[test]

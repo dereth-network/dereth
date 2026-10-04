@@ -255,8 +255,7 @@ fn vertices(va: &VertexArray, p: &RawPolygon) -> Vec<Vec3> {
 /// The decoded dat BSP into the physics BSP, resolving each leaf's polygon **ids** against the
 /// pool.
 ///
-/// This is the same conversion `core/physics/tests/retail_bsp.rs` writes for graphics-object records, which the
-/// track spec says belongs in the application. `'PORT'` is `0x504F5254`.
+/// This conversion also applies to graphics-object records. `'PORT'` is `0x504F5254`.
 fn convert_bsp(src: &RawBspTree, polygons: Vec<Polygon>, ids: &[i16]) -> BspTree {
     // ORDER-OK: keyed by the polygon id and only ever looked up.
     let mut by_id: HashMap<i16, u32> = HashMap::new();

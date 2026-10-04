@@ -7,8 +7,7 @@
 
 use crate::text::glyph::GlyphList;
 
-/// `CursorTravelMode`. The text action handler uses twelve values. Numeric values beyond
-/// those twelve were not recovered, so only the observed values are implemented.
+/// The twelve cursor travel modes supported by the text action handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorTravelMode {
     /// action 0x16
@@ -281,7 +280,7 @@ mod tests {
         assert!(!number_input_filter(b'a' as u16));
     }
 
-    /// Oracle: §3.4 — "Selection is the half-open range `[start, end)`".
+    /// "Selection is the half-open range `[start, end)`".
     #[test]
     fn a_backwards_drag_still_yields_an_ordered_range() {
         assert!(Selection { start: 3, end: 3 }.is_empty());

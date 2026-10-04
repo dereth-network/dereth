@@ -155,7 +155,7 @@ mod tests {
         }
     }
 
-    /// The H4 acceptance test: the interrogation exchange completes, and **the end message is
+    /// The interrogation exchange completes, and **the end message is
     /// `0xF7EA` in both directions**.
     ///
     /// Oracle: the cache's per-frame switch and its end-of-DDD handler, plus

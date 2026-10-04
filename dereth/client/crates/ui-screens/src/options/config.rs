@@ -262,7 +262,6 @@ pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
 /// | `0x100001FD` | the option page base's restore saved values |
 /// | `0x100001FE` | the option page base's restore of the defaults |
 ///
-/// [verified against retail]
 ///
 /// **Only Cancel and Defaults write anything.** Apply *snapshots*: it re-reads each option's
 /// current preference into its saved value so that a later Cancel has something to revert to
@@ -284,16 +283,14 @@ pub mod button {
 ///
 /// The three option pages carry the *same* Apply/Cancel/Defaults child ids, so a click is
 /// attributed to a page by walking up to one of these — exactly as the client attributes it by
-/// which page object's element-message handler ran. [verified against the shipped
-/// `classic_gameplay` tree: 1,870 elements, one `0x10000028`, its option box `0x10000200`, and
-/// three copies of `0x100001FC`..`0x100001FE` under three different pages.]
+/// which page object's element-message handler ran.
 pub const CONFIG_PAGE_ELEMENT: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_0213);
 /// The option box — the config panel's post-init binds `0x10000200`.
 pub const OPTION_BOX: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_0200);
 
 /// Restore the page defaults as **preference writes** for the Defaults button.
 ///
-/// The client chain, verified at each step, is:
+/// The preference-write chain is:
 /// restore the slider's default -> write its current value ->
 /// apply it -> modify the UI preference ->
 /// write the preference store -> write the typed variable,
@@ -362,7 +359,7 @@ mod tests {
         assert!(config_row("Display.SyncToRefresh").is_none());
     }
 
-    /// Oracle: two of the historical differences in §2 and the configuration-registration table,
+    /// Two distinct sources supply these defaults: the configuration-registration table
     /// plus the startup path's quality-3 call into the overall-graphics-quality update. Both values
     /// are asserted for all three preferences, so neither can quietly become the other. The
     /// resolution is restored to the size the client starts at.
@@ -401,11 +398,11 @@ mod tests {
         assert_eq!(full.ui_default, Bool(false));
     }
 
-    /// Oracle: §2's Camera and Input tables, which give the float defaults as both a decimal and
+    /// Camera and Input defaults are pinned as both a decimal and
     /// the IEEE-754 word retail holds. Checking the two against each other is what catches a
     /// transcription slip.
     #[test]
-    fn the_float_defaults_match_the_recovered_ieee_words() {
+    fn the_float_defaults_match_the_registered_ieee_words() {
         let f = |p: &str| match config_rows()
             .find(|r| r.preference == p)
             .unwrap()
@@ -423,7 +420,7 @@ mod tests {
         assert_eq!(f("Render.GraphicsPerformance"), 0.0);
     }
 
-    /// Oracle: §8's second rebuild note — only one control confirms its change:
+    /// only one control confirms its change:
     /// `Display.Resolution`.
     #[test]
     fn exactly_one_control_confirms_its_change() {
@@ -434,7 +431,7 @@ mod tests {
         assert_eq!(confirming, vec!["Display.Resolution"]);
     }
 
-    /// Oracle: §2's Sound table — three check+slider pairs, each defaulting to on with volume 1.0,
+    /// three check+slider pairs, each defaulting to on with volume 1.0,
     /// and the `*Disabled` inversion note.
     #[test]
     fn the_three_sound_pairs_default_to_on_at_full_volume() {
@@ -526,7 +523,7 @@ mod tests {
         assert_eq!(MOUSE_TURNING_KEY_MESSAGES.len(), 2);
     }
 
-    /// Oracle: §8's third rebuild note on the string tables.
+    /// The option headings use their expected string tables.
     #[test]
     fn option_labels_come_from_string_table_enum_three() {
         assert_eq!(OPTION_STRING_TABLE_ENUM, 0x1000_0003);

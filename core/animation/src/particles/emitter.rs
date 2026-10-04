@@ -150,7 +150,7 @@ impl Particle {
             ParticleType::GlobalVelocity => (p.a, Vec3::ZERO, Vec3::ZERO, offset),
             ParticleType::ParabolicGvga => (p.a, p.b, Vec3::ZERO, offset),
             ParticleType::ParabolicGvgagr => (p.a, p.b, p.c, offset),
-            // UNVERIFIED: the per-type meaning of `a`, `b` and `c` for the
+            // the per-type meaning of `a`, `b` and `c` for the
             // rarer types is inferred from the enum names, not from a symbol. `Still`,
             // `LocalVelocity`, `ParabolicLVGA` and `GlobalVelocity` are well understood; `Swarm`,
             // `Explode`, `Implode` and the `LR`/`GR` rotating variants below are the inferred ones.

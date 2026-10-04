@@ -216,7 +216,7 @@ mod tests {
         }
     }
 
-    /// Oracle: the recovered screen catalogue — "registers the eight screens … and **immediately
+    /// "registers the eight screens … and **immediately
     /// queues mode `0x10000003`**".
     #[test]
     fn the_flow_comes_out_of_registration_with_the_data_patch_screen_queued() {
@@ -231,8 +231,8 @@ mod tests {
         );
     }
 
-    /// Oracle: trap 16 / `10` §2 — "Modes `0x10000004`, `0x10000006` and `0x10000007` are not
-    /// registered. Queueing one leaves the current screen null."
+    /// Modes `0x10000004`, `0x10000006` and `0x10000007` are not
+    /// registered. Queueing one leaves the current screen null.
     #[test]
     fn queueing_an_unregistered_mode_leaves_the_screen_null() {
         let mut ui = UiSystem::new((800, 600));
@@ -252,7 +252,7 @@ mod tests {
         }
     }
 
-    /// Oracle: the track spec's public-API block, which names these eight constants.
+    /// The public API exposes these eight mode constants.
     #[test]
     fn the_exported_mode_constants_are_the_documented_ids() {
         assert_eq!(MODE_INTRO, UiMode(0x1000_0001));

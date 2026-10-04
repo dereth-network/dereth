@@ -67,14 +67,14 @@ pub mod bitfield {
     /// **Bit 4, and it does have a reader.** The combat-system attackability check ends
     /// by returning bit 4 of the public bitfield, which is the entire answer for an ordinary
     /// non-player, non-pet creature. The retail enum names public object-description bit 16 as
-    /// the attackable flag. \[verified\]
+    /// the attackable flag.
     pub const ATTACKABLE: u32 = 0x0000_0010;
     pub const PLAYER_KILLER: u32 = 0x0000_0020;
     pub const HIDDEN_ADMIN: u32 = 0x0000_0040;
     pub const UI_HIDDEN: u32 = 0x0000_0080;
     /// **Bit 9, and it has a reader too.** The place-in-3D path tests this one on the public
     /// bitfield to decide whether a dropped item is being **sold**. The retail enum names public
-    /// object-description bit 512 as the vendor flag. \[verified\]
+    /// object-description bit 512 as the vendor flag.
     pub const VENDOR: u32 = 0x0000_0200;
     pub const CORPSE: u32 = 0x0000_2000;
     /// `BF_HEALER = 65536` in the retail enum. The healing-kit and remaining-uses appraisal blocks

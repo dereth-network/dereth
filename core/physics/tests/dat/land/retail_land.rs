@@ -309,7 +309,7 @@ fn the_split_hash_is_seam_independent_on_retail_blocks() {
     assert_eq!(compared, 64);
 }
 
-/// The terrain word's water bits, and contract item 5.10's "deep sea is a hard stop": count how
+/// The terrain word's water bits, and the deep-sea collision stop: count how
 /// many landblocks are entirely water, because that is the population the land cell's
 /// environment-collision search refuses entry to.
 #[test]

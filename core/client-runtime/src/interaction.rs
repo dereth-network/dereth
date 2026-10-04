@@ -1472,7 +1472,7 @@ pub struct Interaction {
     /// "You cannot do that in mid air" if the object is absent. It then queries whether that
     /// object is on the ground and take the same refusal when it is not.
     /// Thus a null object and an airborne one take the **same** branch, and `None` here is read as
-    /// `false` at the one site that consumes it. `\[verified\]`
+    /// `false` at the one site that consumes it.
     ///
     /// Stored here for the same reason as [`Interaction::cursor`] and
     /// [`Interaction::game_viewport`]: [`Self::on_world_object_found`] has no scene
@@ -1831,7 +1831,6 @@ impl dereth_client_model::NoticeSink for Notices {
             //
             // The other half of the point is the compiler: with the wildcard gone, a new `Notice`
             // variant fails `E0004` here rather than being silently dropped, which is how
-            // `core/client-model/tests/corpus_replay.rs` catches the same class.
             // =================================================================================
 
             // The physics create-object notice. The renderer is driven by the *queue*, not
@@ -2639,7 +2638,7 @@ impl Interaction {
     /// `false`, and answering the attack sites from the mode-change value refuses swings retail
     /// allows.
     ///
-    /// # Declared deviation, and it is the null-physics-object arm alone
+    /// # Missing physics body
     ///
     /// The missing-body rejection is **not** composed here: `motions_pending` is passed as
     /// `Some(false)` rather than `None` when the frame has no body. Everything the readiness
@@ -5691,7 +5690,7 @@ feedback,channel: 0x1A, text},
             // (place in backpack `(item, false)`, and a refusal there ends it); and then
             // the shortcut removal `(item, true)` so that one object never occupies two slots.
             //
-            // **Declared deviation.** The first two eligibility tests combine an unresolved
+            // The first two eligibility tests combine an unresolved
             // per-object predicate with description bit 4 and item-type bit `0x10`. Those
             // tests are not implemented here, so this path is more permissive for a
             // creature or `0x10`-typed object. The third test, whether the object belongs
@@ -9041,8 +9040,7 @@ feedback,channel: 0x1A, text},
 /// The network dispatcher inventory arms, which are the *only*
 /// things that ever move an item or release the request lock. The client sends a
 /// move byte-exactly, ghosts the icon and takes an inventory lock with **no timeout**; these
-/// arms are the answer. **A passing corpus test is not a routing client** —
-/// `core/client-model/tests/corpus_replay.rs` has a message router the application does not.
+/// arms are the answer.
 ///
 /// | opcode | client arm |
 /// |---|---|
@@ -10950,7 +10948,7 @@ fn interaction_frame_tail(
             // `clear_selection_cursor` left the mouse-select found-polygon and
             // found-sphere flags false at the end of the previous frame, nothing swept this one,
             // and the mouse-selection object id is the polygon's only when found-polygon
-            // and otherwise the sphere's only when found-sphere — zero. `[verified]`
+            // and otherwise the sphere's only when found-sphere — zero.
             //
             // Dropping it silently would latch the drop search reason: the reason is cleared
             // **only** at the object-found notice's unconditional tail, so a scene-less

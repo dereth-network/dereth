@@ -18,10 +18,10 @@ fn payload(i: u32) -> Vec<u8> {
 
 #[test]
 fn one_open_container_serves_concurrent_readers_their_own_records() {
-    let dir = std::env::temp_dir().join("dere_dat_sp1_positional_reads");
+    let dir = std::env::temp_dir().join("dereth_dat_positional_reads");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a scratch directory");
-    let path = dir.join("sp1_positional.dat");
+    let path = dir.join("positional.dat");
 
     const RECORDS: u32 = 24;
     {

@@ -52,7 +52,7 @@ mod tests {
     use super::*;
     use preferences::{keys, UiPreferenceItem, UiPreferences, UI_STRING_TABLE};
 
-    /// Oracle: §3.2 — "`stringTableEnum` is always `0x10000003` (the UI string table);
+    /// "`stringTableEnum` is always `0x10000003` (the UI string table);
     /// `tokenName`/`tokenTooltip` are the string hash of the localisation ids".
     #[test]
     fn a_preference_item_carries_the_ui_string_table_and_hashed_tokens() {

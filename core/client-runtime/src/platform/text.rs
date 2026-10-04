@@ -153,7 +153,7 @@ mod tests {
     /// The sink writes what `Scroll::copy_final_to_log` used to write: 1252 bytes and CRLF.
     #[test]
     fn the_chat_log_writes_windows_1252_and_crlf() {
-        let dir = std::env::temp_dir().join(format!("dere-r33-sink-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dereth-text-sink-{}", std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
         }

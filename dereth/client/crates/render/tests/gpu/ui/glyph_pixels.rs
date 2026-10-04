@@ -402,7 +402,7 @@ fn the_ink_lands_where_the_pen_and_the_bearings_say_and_nowhere_else() {
 /// §7.8: a zero is worth nothing until the instrument has produced a non-zero on something known
 /// to be non-zero. §7.14: a difference is worth nothing until it has produced a zero on something
 /// known to be zero. The test above is the zero; this is the non-zero, at three displacements, and
-/// it is also what makes contract 11.1 **rule 4** load-bearing rather than decorative:
+/// it also exercises the glyph alpha composition:
 ///
 /// * displaced half a pixel, `LINEAR` blends two texels and the frame stops matching the source —
 ///   which is what "blurry" *is*, expressed as pixels;

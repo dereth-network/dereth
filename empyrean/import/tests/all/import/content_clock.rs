@@ -45,7 +45,7 @@ fn import(dir: &Path, name: &str, now: Option<&str>, epoch: Option<&str>) -> Vec
 
 #[test]
 fn the_importer_ignores_source_date_epoch_and_honours_now() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("serv-content-clock");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("empyrean-content-clock");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let plain = import(&dir, "plain.pack", None, None);

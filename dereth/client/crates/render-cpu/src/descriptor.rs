@@ -24,7 +24,7 @@
 //! else: t.texture_code = key; shared_table.add(key, t)
 //! ```
 //!
-//! and, [verified against retail], release removes the object from
+//! and release removes the object from
 //! the shared table by its texture code when that code is non-zero and from the uncached table
 //! otherwise. The count itself is the object's link count, decremented on release,
 //! which destroys the object when it reaches zero. [`TextureTable`] is that pair of tables and that
@@ -118,7 +118,7 @@ pub enum TextureSpace {
     /// The combined-texture cache's own key: `(palette DID, RenderSurface DID)`.
     World,
     /// The untextured arm of the client's surface binding, keyed on the packed
-    /// ARGB colour word. A declared deviation, and its own space because a
+    /// ARGB colour word. A separate cache space because a
     /// colour word is not a DataID and shares no arithmetic with one.
     SolidColor,
     /// A UI image and the `SurfaceOp` it is shown through.

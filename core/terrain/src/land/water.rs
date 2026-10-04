@@ -180,7 +180,7 @@ mod tests {
         }
     }
 
-    /// Oracle: trap 9 — water classification produces a result only at full detail.
+    /// Oracle: water classification produces a result only at full detail.
     #[test]
     fn lod_blocks_get_no_water_classification_at_all() {
         let terrain = [16u16 << 2; VERTEX_COUNT]; // every vertex is running water

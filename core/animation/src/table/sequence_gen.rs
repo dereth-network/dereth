@@ -390,7 +390,7 @@ impl MotionTable {
         while let Some(head) = state.modifiers.first().copied() {
             let mut n: u32 = 0;
             if !self.stop_sequence_motion(head.motion, 1.0, state, seq, &mut n, assets) {
-                // UNVERIFIED: the client loops on `state.modifier_head` until it is empty and
+                // the client loops on `state.modifier_head` until it is empty and
                 // relies on `StopSequenceMotion` removing the head every time. It can refuse — the
                 // modifier lookup misses — and what retail does then is not known; a
                 // literal transcription would spin. Dropping the refused head is the minimal

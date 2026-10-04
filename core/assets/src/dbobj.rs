@@ -66,7 +66,7 @@ mod tests {
         assert_eq!(c.position(), 4);
     }
 
-    /// Contract 9.7: getting this wrong shifts every texture header by four bytes.
+    /// Getting this wrong shifts every texture header by four bytes.
     #[test]
     fn a_categorized_header_is_two_dwords() {
         let mut buf = Vec::new();

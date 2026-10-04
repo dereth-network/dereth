@@ -151,7 +151,8 @@ fn a_record_must_decode_exactly() {
 
 #[test]
 fn a_pack_on_disk_is_mapped_and_written_atomically() {
-    let dir = std::env::temp_dir().join(format!("serv-content-pack-test-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("empyrean-content-pack-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("t.pack");
     empyrean_content::pack::write_atomically(&path, &sample()).unwrap();

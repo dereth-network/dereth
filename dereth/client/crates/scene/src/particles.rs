@@ -449,7 +449,7 @@ pub(crate) fn prepare(
             // as it grows, which is how a small particle is cut at short range and a large one is
             // not. This is the same divide used by viewer-distance selection.
             let (level, m) = get_degrade(info, cypt / p.scale.max(f32::MIN_POSITIVE), globals);
-            // Trap 5's second half: `gfxobj_id == 0` on the selected level means **draw nothing**,
+            // `gfxobj_id == 0` on the selected level means **draw nothing**,
             // and tests exactly that before it issues anything.
             // Every particle gfxobj in the retail dat ends in that all-`FLT_MAX` terminator, so it
             // is what stops a torch flame drawing past its band.
@@ -716,7 +716,7 @@ mod tests {
             &mut stats,
         );
         let keys: Vec<f32> = ready.iter().map(|r| r.cypt).collect();
-        assert_eq!(keys, vec![90.0, 50.0, 10.0], "descending CYpt");
+        assert_eq!(keys, vec![90.0, 50.0, 10.0], "descending viewer distance");
         assert_eq!(stats.drawn, 3);
         assert_eq!(stats.degraded_out, 0);
         assert_eq!(stats.missing_geometry, 0);

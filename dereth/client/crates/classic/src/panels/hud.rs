@@ -2128,11 +2128,14 @@ mod tests {
     }
     #[test]
     fn small_world_places_compact_radar_inside_world_viewport() {
-        let r = regions(640, 480);
+        let r = layout(640, 480, false, false);
         assert_eq!(r.world, rect(0, 28, 331, 352));
         assert_eq!(r.radar, rect(250, 51, 80, 80));
         assert_eq!(r.toolbar, rect(331, 390, 309, 90));
-        assert_eq!(regions(800, 600).radar, rect(588, 28, 120, 120));
+        assert_eq!(
+            layout(800, 600, false, false).radar,
+            rect(588, 28, 120, 120)
+        );
     }
     /// Behaviour: radar.shared-roles-and-projection-variants
     #[test]
@@ -2635,7 +2638,7 @@ mod tests {
     }
     #[test]
     fn stretched_sidebar_uses_full_height_and_floating_radar() {
-        let r = regions_stretched(800, 600, true);
+        let r = layout(800, 600, true, false);
         assert_eq!(r.right, rect(500, 28, 300, 482));
         assert_eq!(r.radar, rect(370, 29, 120, 120));
         assert_eq!(r.chat, rect(0, 499, 491, 101));

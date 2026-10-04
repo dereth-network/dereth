@@ -1,4 +1,4 @@
-// A-F18 synthetic device inputs. These test runtime policy/linear filtering/resource ownership,
+// synthetic device inputs. These test runtime policy/linear filtering/resource ownership,
 // not D3DX BOX or cross-driver rounding. Every level below is a blit at exact halves, so the
 // linear sample lands on texel centres and the expected bytes are exact on every driver. The separate client tests supply real DAT/world owners.
 

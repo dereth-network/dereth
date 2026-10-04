@@ -88,7 +88,7 @@ pub struct DegradeGlobals {
 impl Default for DegradeGlobals {
     /// The shipped initial values, with `deg_mul` **pinned** to
     /// [`crate::consts::PINNED_DEG_MUL`] rather than left to the feedback loop.
-    /// UNVERIFIED: which value 2013 hardware settled at was never measured, so every test
+    /// which value 2013 hardware settled at was never measured, so every test
     /// and every golden image must say what it pinned.
     fn default() -> Self {
         Self {
@@ -413,7 +413,7 @@ mod tests {
         );
     }
 
-    /// Oracle: trap 5 — `gfxobj_id == 0` means **draw nothing**, and the
+    /// Oracle: `gfxobj_id == 0` means **draw nothing**, and the
     /// all-`FLT_MAX` terminator must not be selected as geometry.
     #[test]
     fn the_terminator_level_draws_nothing() {
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(get_max_degrade_distance(&two), 20.0);
     }
 
-    /// Oracle: trap 5 and the draw-frame table — the five modes are
+    /// Oracle: the draw-frame table — the five modes are
     /// **billboarding** operations, not detail hints. Mode 1 must leave the frame alone; modes 2-5
     /// must all change it when the viewer is off-axis.
     #[test]

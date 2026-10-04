@@ -171,7 +171,7 @@ fn walk_cells(
 ///
 /// The arm sits in the *foreground* one of the element's **two** glyph passes, so a
 /// text element carrying an outline (the other arm) inverts once and
-/// not twice. \[verified\]
+/// not twice.
 ///
 /// A newline glyph draws nothing and is therefore never inverted, but it still occupies an index.
 #[must_use]

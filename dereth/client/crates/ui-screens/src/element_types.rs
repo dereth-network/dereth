@@ -133,7 +133,7 @@ pub const REGISTRATION_ORDER: [GameElementType; 84] = [
 /// `CombatPanelStack` reports this as its element type but is **never** registered, because
 /// **`FloatingCombatStack` (`0x10000054`) derives from it** and that subclass is what the layout
 /// instantiates, with `CombatPanelStack` as its base. So `<COMB>` (`0x100006B5`) *is* a live `CombatPanelStack` and no element in
-/// `classic_gameplay` carries this type. \[verified\]
+/// `classic_gameplay` carries this type.
 ///
 /// It is **not** a described child of `CombatWindow`: it is the other way round —
 /// `CombatWindow` (`0x1000005C`) is a *child* of the `CombatPanelStack` instance — and a
@@ -170,7 +170,7 @@ pub const COMBAT_PANEL_UNREGISTERED: ElementType = ElementType(0x1000_0055);
 /// [`dereth_ui::widgets::button::create`] from `register_engine_classes`, and so works either
 /// way; that asymmetry is the tell.
 ///
-/// # Verified against retail
+/// # Shared button behavior
 ///
 /// For `Button`, `VitaeIndicator`, `PortalStormIndicator`, `MiniGameIndicator`,
 /// `LinkStatusIndicator`, `EffectsIndicator`, and `BurdenIndicator` alike, the element's own
@@ -315,7 +315,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    /// Oracle: the recovered UI element model's two id tables and `02`'s registration list, which
+    /// Oracle: the UI element model's two id tables and `02`'s registration list, which
     /// are two independent transcriptions of the client's element registration.
     ///
     /// The invariant that ties them together: the registered set is exactly
@@ -335,11 +335,11 @@ mod tests {
         assert_eq!(
             got.len(),
             84,
-            "the enumeration in 02 §4 is 84 names, not the 88 the prose says"
+            "the game element enumeration contains 84 names"
         );
     }
 
-    /// Oracle: the recovered element-description behavior, the literal call order.
+    /// Oracle: the element-description behavior, the literal call order.
     #[test]
     fn the_registration_order_starts_and_ends_where_the_document_says() {
         assert_eq!(REGISTRATION_ORDER[0].class, "BurdenIndicator");
@@ -362,7 +362,7 @@ mod tests {
         );
     }
 
-    /// Oracle: `01` §5.2's closing note — `CombatPanelStack` is found by a recursive child search,
+    /// `CombatPanelStack` is found by a recursive child search,
     /// not through the factory table.
     #[test]
     fn the_combat_panel_type_is_never_registered() {

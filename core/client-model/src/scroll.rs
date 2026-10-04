@@ -146,7 +146,6 @@ pub const TIMESTAMP_FORMAT: &str = "%#H:%M:%S ";
 ///   display-timestamps option is off    -> no stamp   (bit 6 of the second option word)
 /// ```
 ///
-/// `[verified against retail]`.
 #[must_use]
 pub fn wants_timestamp(chat_type: u32, display_time_stamps: bool) -> bool {
     chat_type != LOCAL_ERROR_TYPE && display_time_stamps
@@ -464,7 +463,7 @@ mod tests {
     #[test]
     fn cloned_scrolls_share_one_append_handle_and_local_errors_stay_out() {
         let dir =
-            std::env::temp_dir().join(format!("dere-scroll-output-{}-clone", std::process::id()));
+            std::env::temp_dir().join(format!("dereth-scroll-output-{}-clone", std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
         }
@@ -498,8 +497,10 @@ mod tests {
     /// A failed replacement open still closed the previous handle.
     #[test]
     fn a_failed_replacement_open_still_closed_the_previous_handle() {
-        let dir =
-            std::env::temp_dir().join(format!("dere-scroll-output-{}-failed", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "dereth-scroll-output-{}-failed",
+            std::process::id()
+        ));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
         }

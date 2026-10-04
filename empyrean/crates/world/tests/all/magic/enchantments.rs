@@ -1416,7 +1416,7 @@ fn winners(w: &mut World, entries: &[Both], key: u32) -> (Vec<i32>, Vec<i32>) {
 /// spell data is), powers 10/50/50, two keys, and distinct start times. The cases outside this
 /// domain where the two disagree are the ignored tests below (documented differences).
 #[test]
-fn rule3_stacking_agrees_with_dereth_rules() {
+fn stacking_agrees_with_dereth_rules() {
     let mut rng = Lcg(54);
     let mut w = world();
     let keys = [
@@ -1474,7 +1474,7 @@ fn rule3_stacking_agrees_with_dereth_rules() {
 /// equal start time tie.
 /// V250.
 #[test]
-fn rule3_equal_start_time_tie() {
+fn equal_start_time_ties_choose_the_later_entry() {
     let str_ = u32::from(PropertyAttribute::Strength.0);
     let entries = [
         both(100, 1, 50, 0.0, ADD_ATTR, str_, 1.0),
@@ -1487,7 +1487,7 @@ fn rule3_equal_start_time_tie() {
 
 // V251.
 #[test]
-fn rule3_mixed_category() {
+fn mixed_categories_choose_the_same_winner_as_the_client() {
     let str_ = u32::from(PropertyAttribute::Strength.0);
     for (entries, survivor) in [
         (
@@ -1528,7 +1528,7 @@ fn rule3_mixed_category() {
 /// level8 aura tie break.
 /// V276.
 #[test]
-fn rule3_level8_aura_tie_break() {
+fn level_eight_aura_ties_follow_start_time() {
     let str_ = u32::from(PropertyAttribute::Strength.0);
     // Blood Drinker Self 8 (4395) at -10 against an equal-power newer spell: the newer wins.
     let entries = [
@@ -1552,7 +1552,7 @@ fn rule3_level8_aura_tie_break() {
 /// = 6330 and II = 6331, both set spells) resolve to the later entry on both sides, so a Boost I
 /// re-added after Boost II wins (ACE ranked set spells by id, so II always won).
 #[test]
-fn rule3_equal_power_cross_set_tie() {
+fn equal_power_cross_set_ties_choose_the_later_entry() {
     let str_ = u32::from(PropertyAttribute::Strength.0);
     let mut defs = defs();
     defs.push(d(6330, 40, 1, 1800.0, true, ADD_ATTR, str_, 1.0));

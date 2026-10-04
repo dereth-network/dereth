@@ -624,7 +624,7 @@ mod tests {
             (KeyCode::KeyW, 0x11, "DIK_W"),
             (KeyCode::Escape, 0x01, "DIK_ESCAPE"),
             (KeyCode::F12, 0x58, "DIK_F12"),
-            // Trap 9: right shift is folded onto `DIK_LSHIFT` by `keyboard_offset`.
+            // Right shift is folded onto `DIK_LSHIFT` by `keyboard_offset`.
             (KeyCode::ShiftRight, 0x2A, "DIK_LSHIFT (folded)"),
         ];
 

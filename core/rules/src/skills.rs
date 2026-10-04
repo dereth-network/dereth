@@ -52,7 +52,7 @@ pub mod skill {
 
 /// The five augmentation and luminance int properties the skill query reads.
 ///
-/// The ids match ACE's `PropertyInt` exactly `\[verified\]`.
+/// The ids match ACE's `PropertyInt` exactly.
 pub mod aug {
     pub const SKILLED_MELEE: u32 = 300;
     pub const SKILLED_MISSILE: u32 = 301;
@@ -276,7 +276,7 @@ mod tests {
         );
     }
 
-    /// Oracle: contract 12.4's three-row table — 799, 800 and 801. The 800 row is the shipped
+    /// Oracle: the three-row skill table — 799, 800 and 801. The 800 row is the shipped
     /// discontinuity: exactly 800 takes the flat 4.5, not the general expression.
     #[test]
     fn get_run_rate_is_non_monotonic_at_exactly_eight_hundred() {

@@ -874,7 +874,7 @@ mod tests {
         assert_eq!(pa.radius(), 0.0);
     }
 
-    /// Parts are placed from the animation frame alone — contract 6.5. Two parts with different
+    /// Parts are placed from the animation frame alone. Two parts with different
     /// animation offsets end up at the world frame composed with their own offsets, and the
     /// setup's `parent_index` changes nothing.
     #[test]

@@ -1162,7 +1162,7 @@ fn the_player_constructor_sums_its_coins() {
 /// sell cases (the first: rate 0.1, value 19, ACE 1, the client 2). The server uses retail rounding
 /// (V225, 2026-09-23; DIVERGENCES V225), so the window's price and the charge now always agree.
 #[test]
-fn rule3_vendor_prices_agree_with_dereth_rules() {
+fn vendor_prices_agree_with_dereth_rules() {
     use dereth_rules::vendor::{buy_price, sell_price};
     let rates = [
         0.0, 0.001, 0.1, 0.2, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2,

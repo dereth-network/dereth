@@ -24,7 +24,7 @@
 //!
 //! The language-info record is a **database object** fetched with
 //! enum value **1** in group **4**, type `0x30`, so the separator is a
-//! shipped datum and never a literal in a call site. \[verified\]
+//! shipped datum and never a literal in a call site.
 //!
 //! The **second** formatter is [`super::statmgmt::xp_to_string`], which does not go
 //! through language-info at all: it formats `"%I64d"` and hands the result to
@@ -35,10 +35,9 @@
 //!
 //! * the experience formatter's `NUMBERFMTA`: `NumDigits = 0`, `LeadingZero = 0`,
 //!   `Grouping = 3`, `lpDecimalSep = "."`, `lpThousandSep = ","`, `NegativeOrder = 1`.
-//!   \[verified\]
+//!
 //! * the shipped language-info record: grouping size 3, grouping separator `","` (U+002C),
-//!   decimal separator `"."`, negative-number format `"-%s"`, base 10. [verified against the
-//!   retail `client_local_English.dat`]
+//!   decimal separator `"."`, negative-number format `"-%s"`, base 10.
 //!
 //! Two readings that could have disagreed. **Neither is a hard-coded comma**: the value used at
 //! runtime is the dat's, and the `NUMBERFMTA` pair below is the fallback used only when no asset

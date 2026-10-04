@@ -199,7 +199,7 @@ mod tests {
         }
     }
 
-    /// Oracle: §8.1's constructor paragraph — twelve images in thirteen slots, index 0 unused.
+    /// twelve images in thirteen slots, index 0 unused.
     #[test]
     fn the_twelve_source_images_come_from_the_documented_enum_group() {
         assert_eq!(SOURCE_IMAGE_COUNT, 12);

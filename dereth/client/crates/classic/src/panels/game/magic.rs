@@ -5,24 +5,20 @@ use crate::int::{i32_from, u32_from};
 use dereth_client_contract::spellbook::{level_mask, school_mask};
 use dereth_client_contract::view::{ComponentRow, SpellEntry};
 
-const FILTERS: [(&str, u32, i32, i32); 11] = [
-    ("Creature", school_mask(4), 10, 277),
-    ("Life", school_mask(2), 10, 297),
-    ("Item", school_mask(3), 10, 317),
-    ("War", school_mask(1), 10, 337),
-    ("1", level_mask(1), 110, 277),
-    ("2", level_mask(2), 110, 297),
-    ("3", level_mask(3), 110, 317),
-    ("4", level_mask(4), 110, 337),
-    ("5", level_mask(5), 210, 297),
-    ("6", level_mask(6), 210, 317),
-    ("7", level_mask(7), 210, 337),
-];
-/// The filters of the schools and levels a world after the classic interface has: Void magic and
-/// the eighth level, on a row below the others.
-const LATER_FILTERS: [(&str, u32, i32, i32); 2] = [
-    ("Void", school_mask(5), 10, 357),
-    ("8", level_mask(8), 210, 357),
+const FILTERS: [(&str, u32, i32, i32); 13] = [
+    ("Creature", school_mask(4), 10, 273),
+    ("Item", school_mask(3), 84, 273),
+    ("Life", school_mask(2), 138, 273),
+    ("War", school_mask(1), 190, 273),
+    ("Void", school_mask(5), 242, 273),
+    ("I", level_mask(1), 10, 309),
+    ("II", level_mask(2), 80, 309),
+    ("III", level_mask(3), 150, 309),
+    ("IV", level_mask(4), 10, 326),
+    ("V", level_mask(5), 80, 326),
+    ("VI", level_mask(6), 150, 326),
+    ("VII", level_mask(7), 10, 343),
+    ("VIII", level_mask(8), 80, 343),
 ];
 
 pub fn visible_spell(s: &SpellEntry, mask: u32) -> bool {
@@ -104,6 +100,7 @@ fn row(
 }
 #[derive(Debug)]
 pub struct Spellbook {
+    height: Option<u32>,
     edits: std::collections::BTreeMap<u32, String>,
     components: bool,
     selected: Option<u32>,
@@ -114,6 +111,7 @@ pub struct Spellbook {
 impl Spellbook {
     pub fn new(components: bool) -> Self {
         Self {
+            height: None,
             components,
             edits: Default::default(),
             selected: None,
@@ -149,6 +147,9 @@ fn component_rows(game: &dyn GameView) -> Vec<(Option<&'static str>, Option<Comp
     result
 }
 impl Panel for Spellbook {
+    fn resize(&mut self, _width: u32, height: u32) {
+        self.height = Some(height.max(362));
+    }
     fn id(&self) -> &'static str {
         if self.components {
             "components"
@@ -157,7 +158,7 @@ impl Panel for Spellbook {
         }
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
-        let height = crate::panels::side_height();
+        let height = self.height.unwrap_or_else(crate::panels::side_height);
         let mut f = PanelFrame::new(300, height);
         // Stretched, the lists grow and the spellbook's filters keep to the bottom.
         let dy = height as i32 - 362;
@@ -257,11 +258,7 @@ impl Panel for Spellbook {
             );
         } else {
             let rows = spells(ctx.game);
-            // A world with the later schools and levels lists their filters on one more row,
-            // which the list gives up.
             let facts = ctx.game.era_ui();
-            let later = facts.void_magic || facts.spell_level_eight;
-            let dy = if later { dy - 20 } else { dy };
             let offset = self
                 .scroll
                 .clamp(0, (i32_from(rows.len()) * 32 - (224 + dy)).max(0));
@@ -302,9 +299,9 @@ impl Panel for Spellbook {
             image(
                 &mut f,
                 0x06002722,
-                rect(0, 249 + dy, 300, if later { 133 } else { 113 }),
+                rect(0, 249 + dy, 300, 113),
                 None,
-                !later,
+                true,
                 false,
             );
             text(
@@ -319,7 +316,7 @@ impl Panel for Spellbook {
             );
             text(
                 &mut f,
-                rect(110, 257 + dy, 90, 20),
+                rect(10, 292 + dy, 90, 17),
                 "Levels",
                 "16-7",
                 CREAM,
@@ -329,19 +326,14 @@ impl Panel for Spellbook {
             );
             f.button(
                 "delete",
-                rect(210, 257 + dy, 80, 36),
+                rect(202, 309 + dy, 88, 30),
                 "Delete",
                 self.selected.is_some_and(|id| ctx.game.is_spell_known(id)),
             );
-            let later_rows: &[_] = if later { &LATER_FILTERS } else { &[] };
-            for (label, bit, x, y) in FILTERS
-                .iter()
-                .chain(later_rows)
-                .filter(|r| facts.spell_filter(r.1))
-            {
+            for (label, bit, x, y) in FILTERS.iter().filter(|r| facts.spell_filter(r.1)) {
                 f.check(
                     format!("filter:{bit}"),
-                    rect(*x, y + dy, 90, 20),
+                    rect(*x, y + dy, if *bit == school_mask(4) { 74 } else { 52 }, 17),
                     *label,
                     ctx.game.spell_filters() & bit != 0,
                     true,
@@ -385,9 +377,7 @@ impl Panel for Spellbook {
             }
             ControlEvent::Check { id, checked } if id.starts_with("filter:") => {
                 if let Ok(bit) = id[7..].parse::<u32>() {
-                    if ctx.game.era_ui().spell_filter(bit)
-                        && FILTERS.iter().chain(&LATER_FILTERS).any(|r| r.1 == bit)
-                    {
+                    if ctx.game.era_ui().spell_filter(bit) && FILTERS.iter().any(|r| r.1 == bit) {
                         let mask = if checked {
                             ctx.game.spell_filters() | bit
                         } else {
@@ -710,4 +700,70 @@ pub(super) fn effect_timer(remaining: f64, permanent: bool) -> String {
     let centiminutes = dereth_primitives::num::to_i64_f64(remaining * (1. / 60.) * 100.);
     let seconds = dereth_primitives::num::to_i64_f64((centiminutes % 100) as f64 * 0.01 * 60.);
     format!("{}:{:02}", centiminutes / 100, seconds)
+}
+
+#[cfg(test)]
+mod filter_layout_tests {
+    //! Behaviour: none (spellbook control placement; shared era facts own availability).
+    use super::*;
+    #[derive(Debug)]
+    struct World(dereth_client_contract::EraView);
+    impl GameView for World {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            Some(&self.0)
+        }
+    }
+    /// Behaviour: classic.spellbook.filters-fit-supported-world
+    #[test]
+    fn schools_share_one_row_and_all_available_levels_fit_below_without_overlap() {
+        for old in [false, true] {
+            let mut era = dereth_client_contract::EraView::default();
+            if old {
+                era.era = dereth_primitives::era::EraId::Infiltration;
+            }
+            era.era_announced = true;
+            let game = World(era);
+            let ctx = Context {
+                game: &game,
+                pregame: &Default::default(),
+                keyboard: &Default::default(),
+                settings: &Default::default(),
+                classic: &Default::default(),
+                map_teleport_allowed: false,
+            };
+            for height in [362, 618] {
+                let mut panel = Spellbook::new(false);
+                panel.resize(300, height);
+                let frame = panel.frame(&ctx);
+                let filters: Vec<_> = frame
+                    .controls
+                    .iter()
+                    .filter(|c| c.id.starts_with("filter:"))
+                    .collect();
+                assert_eq!(filters.len(), if old { 11 } else { 13 });
+                for (i, control) in filters.iter().enumerate() {
+                    assert!(control.rect.x >= 0 && control.rect.x + control.rect.w <= 300);
+                    assert!(control.rect.y + control.rect.h <= height as i32);
+                    for other in filters.iter().skip(i + 1) {
+                        let (a, b) = (control.rect, other.rect);
+                        assert!(
+                            a.x + a.w <= b.x
+                                || b.x + b.w <= a.x
+                                || a.y + a.h <= b.y
+                                || b.y + b.h <= a.y
+                        );
+                    }
+                }
+                let school_y: Vec<_> = filters
+                    .iter()
+                    .filter(|c| c.id[7..].parse::<u32>().unwrap() & 0x200f != 0)
+                    .map(|c| c.rect.y)
+                    .collect();
+                assert!(school_y.iter().all(|y| *y == school_y[0]));
+                let delete = frame.controls.iter().find(|c| c.id == "delete").unwrap();
+                assert!(filters.iter().all(|c| c.rect.x + c.rect.w <= delete.rect.x
+                    || c.rect.y + c.rect.h <= delete.rect.y));
+            }
+        }
+    }
 }

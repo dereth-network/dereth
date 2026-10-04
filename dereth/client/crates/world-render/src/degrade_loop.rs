@@ -8,7 +8,7 @@
 //! static/dynamic light counts and the two share distances at once. A modern machine drifts to
 //! `deg_mul = +1` where a 2013 machine did not.
 //!
-//! UNVERIFIED: which value the loop settled at on 2013 hardware was never measured.
+//! which value the loop settled at on 2013 hardware was never measured.
 //! [`DegradeGovernor::pinned`] is what every test and every golden image must use, and
 //! [`crate::consts::PINNED_DEG_MUL`] is the value it pins to.
 //!
@@ -175,7 +175,7 @@ impl Default for DegradeGovernor {
 
 impl DegradeGovernor {
     /// A governor that never moves. **Every test and every golden image uses this**, and says what
-    /// it pinned to. UNVERIFIED.
+    /// it pinned to.
     ///
     /// Pinned at the startup bias of zero it is the client with automatic degrades off, whose
     /// setter never runs: its outputs are [`DegradeLevel::startup`]. Pinned anywhere else it is a
@@ -321,7 +321,7 @@ impl DegradeGovernor {
 mod tests {
     use super::*;
 
-    /// Oracle: trap 10 and the D-track acceptance criterion 5 — "`DegradeGovernor` can be pinned to
+    /// Oracle: "`DegradeGovernor` can be pinned to
     /// a constant and the whole suite runs with it pinned." A pinned governor must be inert whatever
     /// the frame rate, so no measurement becomes a function of the test machine's speed.
     #[test]
@@ -369,7 +369,7 @@ mod tests {
     }
 
     /// Oracle: the feedback formula clamps `cand = clamp(deg_mul + delta, -1.0, +1.0)`, so the bias can never
-    /// leave `[-1, +1]` however long the loop runs. Trap 10 notes a modern machine drifts to `+1`.
+    /// leave `[-1, +1]` however long the loop runs. A fast machine drifts to `+1`.
     #[test]
     fn the_bias_saturates_at_plus_and_minus_one() {
         let mut g = DegradeGovernor::automatic(FramerateTargets::default());

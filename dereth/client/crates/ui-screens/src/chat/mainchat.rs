@@ -178,7 +178,7 @@ fn label_value(ui: &UiSystem, token: &str, value: &str) -> String {
 /// is not a focus row) and then these thirteen, each tagged with its focus id. The tags, in the
 /// order the rows are added, are
 /// 5, 2, 4, 1, 6, 3, 7, 8, 9, 10, 11, 12, 13 — monarch, selected, patron, all, vassals, fellows,
-/// allegiance, then the six Turbine channels. \[verified\]
+/// allegiance, then the six Turbine channels.
 ///
 /// `dereth_client_model::chat::TALK_FOCUS_MENU_ORDER` is the same order for the first twelve; this one adds
 /// Olthoi, which the client offers and gates on.
@@ -204,7 +204,7 @@ pub const STATE_DISABLED: dereth_ui::StateId = dereth_ui::StateId(0x0D);
 ///   the panel-visibility notice, visible                     -> 6
 ///   ...not visible                                           -> 1
 /// ```
-/// \[verified\]
+///
 pub const STATE_ENABLED: dereth_ui::StateId = dereth_ui::StateId(1);
 
 /// The state the selection handler puts the row a player just picked into — its last line,
@@ -499,9 +499,9 @@ impl MainChatPanel {
     /// `0xD`; disabling the current focus then selects focus 1.
     ///
     /// **The Olthoi set here is `{1, 2, 13}`** — and the talk-focus button reset's is `{1, 13}`.
-    /// Both are verified against retail and they genuinely differ: this function leaves the "Tell to
+    /// The two paths differ: this function leaves the "Tell to
     /// &lt;selected&gt;" row alone for an Olthoi character and the reset disables it. Do not unify
-    /// the two sets. \[verified\]
+    /// the two sets.
     ///
     /// Returns whether it fell back to focus 1, which is the player-visible half.
     pub fn enable_selection(&mut self, ui: &mut UiSystem, focus: u32, enable: bool) -> bool {
@@ -562,7 +562,7 @@ impl MainChatPanel {
     /// focus selects disabled state `0x0D`. Other characters use the ordinary
     /// talk-focus-enabled predicate.
     ///
-    /// So an Olthoi character cannot "Tell to &lt;selected&gt;" from the menu. \[verified\]
+    /// So an Olthoi character cannot "Tell to &lt;selected&gt;" from the menu.
     #[must_use]
     pub fn is_talk_focus_enabled(&self, focus: u32) -> bool {
         self.enabled.get(focus as usize).copied().unwrap_or(false)
@@ -736,7 +736,6 @@ impl MainChatPanel {
     ///
     /// A visible talk-focus menu sets state 6; a hidden menu sets state 1.
     ///
-    /// \[verified\]
     pub fn on_set_panel_visibility(
         ui: &mut UiSystem,
         root: ElemHandle,
@@ -783,7 +782,7 @@ impl MainChatPanel {
     /// the squelch row alone.
     ///
     /// The **squelch** caption is `ID_Chat_SquelchSelected` in *both* arms, even the one where the
-    /// name is empty — that is what the client does, not a transcription slip. \[verified\]
+    /// name is empty — that is what the client does, not a transcription slip.
     ///
     /// `target` is `None` for "no selection or no name", which is the client's empty-string test.
     /// The object system is on the far side of this crate's seam, so the name, the talkable flag
@@ -864,7 +863,7 @@ impl MainChatPanel {
     /// Both attribute reads are hard returns: a window whose description carries
     /// neither `0x3C` nor `0x3E` has an inert maximize button.
     ///
-    /// # Three details that are easy to get wrong, verified against retail
+    /// # Three selection rules
     ///
     /// A plausible misreading makes this button **move** the whole window up by exactly 300 px —
     /// top border client y 503 → 203, "Send" centre y 587 → 287 — with its height unchanged.
@@ -974,7 +973,7 @@ pub mod attr {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered chat behavior's thirteen-row talk-focus table — ids 1…13 in menu order,
+    /// ids 1…13 in menu order,
     /// with `0x0B`, `0x0C`, `0x0D` written in hex there exactly as here.
     #[test]
     fn the_talk_focus_menu_is_thirteen_rows_numbered_one_to_thirteen() {
@@ -994,7 +993,7 @@ mod tests {
         assert_eq!(ATTR_TALK_FOCUS, 0x1000_000B);
     }
 
-    /// Oracle: §6.4's last paragraph — the player-id window the action handler tests before starting a
+    /// the player-id window the action handler tests before starting a
     /// tell to the selection.
     #[test]
     fn the_player_object_id_window_is_exclusive_at_both_ends() {
@@ -1005,7 +1004,7 @@ mod tests {
         assert!(!selection_is_a_player(0x8000_0000));
     }
 
-    /// Oracle: §6.1 and §6.4's action tables.
+    /// Chat actions select their corresponding target groups.
     #[test]
     fn the_chat_input_actions_are_the_documented_ids() {
         assert_eq!(action::TOGGLE_ENTRY, 0x1000_0024);

@@ -318,13 +318,8 @@ impl ControlNames {
 
     /// The name of a control, by semantic.
     ///
-    /// The name choice for duplicate offsets remains unverified. The original **linearly scans the
-    /// hash table** for the first entry whose
-    /// value equals the offset, so when an offset has several names (16 keyboard offsets do —
-    /// `DIK_BACK`/`DIK_BACKSPACE`, `DIK_NEXT`/`DIK_PGDN`, …) the winner is decided by hash-bucket
-    /// order, which depends on the string hash and the table's growth history and was not
-    /// recovered. This returns the **first registered** name, which is the primary spelling in
-    /// every case in the client's key-semantic load order, and is what the shipped keymaps use.
+    /// Duplicate offsets use the first registered name, the primary spelling in the
+    /// semantic table. This implementation does not reproduce hash-bucket alias ordering.
     #[must_use]
     pub fn name_by_semantic(device: DeviceType, offset: u16) -> Option<&'static str> {
         Self::table_for(device)
@@ -338,7 +333,7 @@ impl ControlNames {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered keymap format §2.1's worked example —
+    /// A keymap entry round-trips its device, control and modifiers.
     /// `0x002A0000` is keyboard, button, `DIK_LSHIFT` (0x2A).
     #[test]
     fn packs_the_worked_example() {
@@ -369,7 +364,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the recovered input pipeline §1.2 — the operator== rule, event against binding.
+    /// the operator== rule, event against binding.
     #[test]
     fn matching_is_asymmetric() {
         let ctrl = ControlCode::new(0, SubControlIndex::None, 0xCB); // DIK_LEFT
@@ -390,7 +385,7 @@ mod tests {
         assert!(!bare.matches(&with_ctrl));
     }
 
-    /// Oracle: the recovered input pipeline §12 — higher activation wins outright, so MouseDblClick
+    /// higher activation wins outright, so MouseDblClick
     /// (0x60) beats Click (0x03) and Analog (0x80) would beat MouseDblClick.
     #[test]
     fn higher_activation_wins_outright() {

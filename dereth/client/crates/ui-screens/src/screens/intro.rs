@@ -296,7 +296,7 @@ impl Screen for IntroScreen {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue's trigger table and the layout-enum map (enum
+    /// Oracle: the screen catalogue's trigger table and the layout-enum map (enum
     /// `0x10000002` → `0x21000001` `intro`, whose only root element is `0x10000419`).
     #[test]
     fn the_screen_names_the_documented_layout_root_and_triggers() {
@@ -330,7 +330,7 @@ mod tests {
         assert!(s.finished);
     }
 
-    /// Oracle: §4's trigger table — `OnAction` splits on `0x27`, and Esc queues *then* advances.
+    /// `OnAction` splits on `0x27`, and Esc queues *then* advances.
     #[test]
     fn skipping_queues_character_management_by_every_documented_route() {
         let mut ui = UiSystem::new((800, 600));
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!(s.character(&mut ui, b'a'.into()), None);
     }
 
-    /// Oracle: §4's trigger table — element message `0x10000001` skips, `0x1000000D` advances.
+    /// element message `0x10000001` skips, `0x1000000D` advances.
     #[test]
     fn the_two_element_messages_do_what_the_table_says() {
         let mut ui = UiSystem::new((800, 600));

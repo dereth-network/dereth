@@ -43,7 +43,7 @@ pub enum SoundFeatures {
 /// * `interface_volume` (`Sound.InterfaceSoundVolume`) has exactly one reference in the
 ///   whole client — its registration at start-up. The Options page shows the slider and the INI carries
 ///   the key; moving it does nothing, because interface sounds are scaled by `effect_volume`.
-///  
+///
 /// * `interface_enabled` is read, but `Sound.InterfaceSoundVolume` is what the *slider* changes, so
 ///   the pair behaves as "an on/off switch and an inert slider".
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -97,7 +97,7 @@ pub const SOUND_KEYS: [&str; 8] = [
 ];
 
 /// The span the Options page's volume sliders cover: the client's Sound table registers `0.0 …
-/// 1.0` for all three volumes. [verified — the registered range, not a guess at one]
+/// 1.0` for all three volumes.
 ///
 /// It is the **slider's** span and not a validator. The client pushes
 /// whatever the INI holds straight into the variable through its global-variable setter, and
@@ -238,7 +238,7 @@ impl Prefs {
     /// first are concatenated **without** the separators. Keys absent from the file keep the
     /// registered default, because registration only overwrites when a shadow value exists.
     ///
-    /// UNVERIFIED: the client writes booleans through the `KW_TRUE`/`KW_FALSE` globals and
+    /// the client writes booleans through the `KW_TRUE`/`KW_FALSE` globals and
     /// `KW_TRUE` is the literal `"True"`, but which arm the client takes for booleans is not
     /// settled. Both that spelling and the numeric one are accepted on load, which is right under
     /// either answer; see `dereth-client`'s `config.rs`, which resolves it the same way.
@@ -277,7 +277,7 @@ impl Prefs {
     /// The `[Sound]` section as the client would write it: the name split at
     /// its last `.`, and the eight keys in registration order.
     ///
-    /// UNVERIFIED: the exact spelling of a `Bool` and the float precision are
+    /// the exact spelling of a `Bool` and the float precision are
     /// inferred from `KW_TRUE`/`KW_FALSE` rather than traced; [`Self::from_ini`] accepts both forms,
     /// so a round trip through this writer is stable regardless of which answer is right.
     #[must_use]
@@ -357,7 +357,7 @@ mod tests {
     use super::*;
 
     /// Oracle: the eight recovered Sound preference rows, their defaults, and the inverted
-    /// `SoundDisabled` polarity; contract 10.7.
+    /// `SoundDisabled` polarity.
     #[test]
     fn sound_disabled_true_leaves_sound_on() {
         let p = Prefs::from_ini("[Sound]\nSoundDisabled=True\nAmbientSoundDisabled=True\n");
@@ -427,7 +427,7 @@ mod tests {
     }
 
     /// `Sound.InterfaceSoundVolume` survives a round trip and changes nothing about the mix.
-    /// Oracle: contract 12.7 and the recovered category-volume table's first quirk.
+    /// Oracle: the category-volume table's first quirk.
     #[test]
     fn the_interface_volume_is_preserved_and_inert() {
         let p = Prefs {
@@ -604,7 +604,7 @@ mod tests {
     }
 
     /// `Sound.SoundDisabled` keeps its inverted sense through the by-name path too: writing `true`
-    /// leaves sound **on**. Oracle: §5.4's polarity trap, contract 10.7.
+    /// leaves sound **on**. Oracle: §5.4's polarity trap.
     #[test]
     fn the_by_name_path_does_not_invert_the_disabled_polarity() {
         let mut p = Prefs {

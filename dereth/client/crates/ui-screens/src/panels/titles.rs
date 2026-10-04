@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(ROW_TEXT, 0x1000_0537);
         assert_eq!(ATTR_TITLE_ID, 0x1000_008E);
         assert_eq!(ROW_TEMPLATE, 0);
-        // `panels::rows` recovered the same attribute from `12` §3.2 independently; the two must
+        // `panels::rows` recovered the same attribute from the layout description independently; the two must
         // not drift apart.
         assert_eq!(
             crate::panels::rows::row_attribute("TitlesPanel"),

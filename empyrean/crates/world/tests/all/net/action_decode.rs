@@ -401,7 +401,7 @@ fn through<M: proto::Message + Debug>(w: &mut empyrean_world::World, m: M) {
 /// server's dispatch: the handler read the record that was sent (the player is not in the world
 /// here, so each stops at its first use of the player, caught).
 #[test]
-fn every_converted_action_decodes_what_dere_proto_encoded() {
+fn every_converted_action_decodes_what_dereth_protocol_encoded() {
     use proto::{admin::*, comms::*, social::*, trade::*};
     let w = &mut world_with(SessionState::WorldConnected, true);
     let t = || "caf\u{e9} \u{2019}n\u{2019}".to_owned();

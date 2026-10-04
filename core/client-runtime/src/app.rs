@@ -179,7 +179,7 @@ pub fn with_stored_options(mut cfg: crate::scene::SceneConfig) -> crate::scene::
 /// in order, so the caller can see what happened and a station can assert it without a browser
 /// window or a modal dialog appearing on the desktop.
 ///
-/// # Two declared deviations, both forced by `#![forbid(unsafe_code)]`
+/// # Host URL and error handling
 ///
 /// `ShellExecuteA` and `MessageBoxA` are `unsafe fn`s in the `windows` crate and this crate
 /// forbids `unsafe_code`, exactly as `GetTimeZoneInformation` is out of reach in
@@ -779,7 +779,7 @@ pub struct App<S: Shell> {
     /// of these three: the `ViewCombatTarget` option (acting only when the new value differs
     /// from the current tracking flag), the selection-changed notice and the combat-mode
     /// change. This build has no
-    /// notice bus that reaches a UI element — the same declared deviation
+    /// notice bus that reaches a UI element — the same deferred delivery
     /// `dereth_client_model::combat`'s `set_combat_mode` header records for the combat-mode notice — so
     /// the three edges are detected here instead of being delivered. An edge detector over exactly
     /// these three words reproduces exactly those three call sites and no fourth: it is deliberately
@@ -2634,7 +2634,7 @@ impl<S: Shell> App<S> {
     /// relative to the process working directory, which is retail's behaviour and is reproduced
     /// rather than special-cased.
     ///
-    /// **The one declared deviation: the extension.** Retail writes a JPEG. This workspace has
+    /// Screenshots are encoded as PNG. This workspace has
     /// **no JPEG encoder** — `zune-jpeg`
     /// in `dereth-render` is a decoder, and adding one would change `Cargo.lock`, which `--locked`
     /// forbids — so the file is a PNG through the existing `Gpu::capture_png` read-back and is
@@ -2963,7 +2963,7 @@ impl<S: Shell> App<S> {
         // The screenshot action initializes a path and, **only on success**, formats
         // `L"Screenshot saved to file '%hs'"` into channel `0x1A`.
         //
-        // Two declared deviations follow from this build lacking retail's device-level screenshot
+        // The capture path lacks device-level screenshot
         // operation: retail's device picks the filename, while this build uses the system preferences
         // directory; retail captures inside the action, while this build captures the buffer already
         // on the device when the request is drained — the frame before this one.
@@ -7676,7 +7676,7 @@ pub fn body_motion_in(
 ///
 /// Those are exactly the animation interpreter's pending movement fields, which transcribe the same
 /// constructor defaults, so this is `Some(x) if x != default` field by field and nothing else.
-/// \[verified\]
+///
 ///
 /// **What the corpus exercises.** Across the 1,187 recorded `0xF61C` bodies the flags word takes
 /// nine distinct values, all of them below `0x800`: `current_holdkey` appears in 1,182 (always

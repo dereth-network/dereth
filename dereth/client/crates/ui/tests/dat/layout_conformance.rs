@@ -113,11 +113,7 @@ const ENGINE_TYPE_HISTOGRAM: [(u32, usize); 19] = [
 fn all_101_layouts_parse_and_match_the_independent_reader() {
     let e = env().expect("the test environment: retail dats and a WARP device");
     let layouts = parse_all(&e);
-    assert_eq!(
-        layouts.len(),
-        101,
-        "the shipped count from 36-ui-layouts.md §5"
-    );
+    assert_eq!(layouts.len(), 101, "the shipped layout count");
 
     let mut elements = 0_usize;
     let mut roots = 0_usize;
@@ -532,7 +528,7 @@ fn the_dialog_kinds_name_roots_of_the_dialog_layout() {
 
 /// The gate's "plus one round-trip assertion". No retail data is needed and none exists: the client
 /// writes `UserPreferences.ini` and `UI-*.txt` at run time and neither is in the install, so the
-/// round trip is asserted over files in the recovered formats rather than over a played
+/// round trip is asserted over files in the formats rather than over a played
 /// character's. Reported.
 #[test]
 fn the_persistence_files_round_trip_byte_identically() {

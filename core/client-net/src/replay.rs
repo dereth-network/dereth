@@ -592,7 +592,7 @@ mod tests {
         p.add_optional_header(PacketFlags::CONNECT_REQUEST, cr.to_bytes().to_vec())
             .expect("connect request");
         let bytes = p.serialize(None).expect("serialize");
-        let dir = std::env::temp_dir().join(format!("dere-net-replay-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dereth-net-replay-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let line = format!(
             "{{\"t\": 0.0, \"dir\": \"s2c\", \"pair\": 0, \"len\": {}, \"data\": \"{}\"}}\n",

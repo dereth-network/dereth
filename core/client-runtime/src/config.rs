@@ -836,7 +836,7 @@ fn is_switch(tok: &str) -> bool {
 }
 
 /// Strip **exactly one** leading command character, which is why `--rodat` is looked up as the long
-/// name `-rodat` and fails. [verified against retail's argument parser]
+/// name `-rodat` and fails.
 fn strip_one(tok: &str) -> &str {
     let mut it = tok.chars();
     if it.next().is_some_and(|c| CMD_CHARS.contains(&c)) {
@@ -1769,7 +1769,7 @@ impl Preferences {
             // Each line is split on '=': 1 part -> value "";
             // 2 parts -> key/value; more than 2 parts -> the value is the remaining parts
             // concatenated **without** the `=` separators, so a value containing `=` is corrupted
-            // on load. [verified]
+            // on load.
             let mut parts = line.split('=');
             let Some(key) = parts.next() else { continue };
             let value: String = parts.collect();
@@ -1811,7 +1811,7 @@ impl Preferences {
 
     /// A preference registered with the boolean data type.
     ///
-    /// UNVERIFIED: typed-variable inquiry writes
+    /// typed-variable inquiry writes
     /// booleans through the `KW_TRUE` / `KW_FALSE` globals, and `KW_TRUE` is the literal `"True"`
     /// but the switch that selects the boolean arm has not been traced, so the written form is
     /// inferred. Both that spelling and
@@ -2183,7 +2183,7 @@ mod tests {
     // "-rodat -- the handler is read_only_dat_files = (value is the empty string). Bare -rodat
     // turns read-only dats **on**; -rodat <anything> (the launcher passes `off`) turns them
     // **off**. The text of the value is never examined, so `-rodat on` also *disables* read-only
-    // mode." [verified]
+    // mode."
     #[test]
     fn rodat_is_backwards_and_stays_backwards() {
         assert!(parse(&["-rodat"]).unwrap().read_only_dat_files);
@@ -2363,7 +2363,7 @@ Renderer=glide
     }
 
     // "Exactly one leading command character is stripped, so --rodat is looked up as the long name
-    // -rodat and fails." [verified against retail's argument parser]
+    // -rodat and fails."
     #[test]
     fn exactly_one_command_character_is_stripped() {
         let e = parse(&["--rodat"]).expect_err("--rodat is not a name");
@@ -2503,7 +2503,7 @@ Renderer=glide
 
     // Oracle: the preference parser's multi-separator rule:
     // "more than 2 parts -> the value is the remaining parts concatenated **without** the `=`
-    // separators, so a value containing `=` is corrupted on load." [verified]
+    // separators, so a value containing `=` is corrupted on load."
     #[test]
     fn a_value_containing_an_equals_sign_is_corrupted_on_load() {
         let p = Preferences::parse("[Net]\nBindInterface=a=b=c\nComputeUniquePort=True\nBare\n");

@@ -33,11 +33,8 @@ pub use dereth_client_contract::pregame::DddEvent;
 /// The connect-status text's two code states, from the shipped `patch` layout (`0x21000000`, element
 /// `0x10000420`): `0x1000003B` is "Connecting..." and `0x1000003C` is "Connected!".
 ///
-/// The connect-level routine ends in an unresolved indirect call on the connect-status text,
-/// consistent with selecting one of its states. The *data* is not ambiguous — the element carries
-/// exactly these three states and no other code touches it — but which level selects which
-/// remains inferred from the strings. The third state, `1`, is "Connect progress", the
-/// design-time label.
+/// This implementation selects the status state from the connection level. State `1`
+/// is the design-time label, "Connect progress".
 pub const CONNECT_TEXT_CONNECTING: dereth_ui::StateId = dereth_ui::StateId(0x1000_003B);
 /// See [`CONNECT_TEXT_CONNECTING`].
 pub const CONNECT_TEXT_CONNECTED: dereth_ui::StateId = dereth_ui::StateId(0x1000_003C);
@@ -287,8 +284,7 @@ impl Screen for DataPatchScreen {
                 t.set_text(&text);
             }
         }
-        // Setting the connect level's second act: refresh the connect-status text. See
-        // [`CONNECT_TEXT_CONNECTING`] for what is verified here and what is inferred.
+        // Refresh the connect-status text from the connection level.
         if let Some(h) = connect_text {
             let want = if connected {
                 CONNECT_TEXT_CONNECTED
@@ -321,7 +317,7 @@ impl Screen for DataPatchScreen {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue's child table and the shipped layout-enum map
+    /// Oracle: the screen catalogue's child table and the shipped layout-enum map
     /// (enum `0x10000001` → `0x21000000` `patch`).
     #[test]
     fn the_screen_names_the_documented_layout_root_and_children() {
@@ -341,7 +337,7 @@ mod tests {
         assert_eq!(QUIT_BUTTON, ElementId(0x1000_041C));
     }
 
-    /// Oracle: §3's DDD-event paragraph — the five events, their string ids, the accumulation
+    /// the five events, their string ids, the accumulation
     /// and the clamp.
     #[test]
     fn the_ddd_events_map_to_the_documented_strings_and_drive_the_patch_meter() {
@@ -382,7 +378,7 @@ mod tests {
         assert_eq!(s.patch_level, 1.0);
     }
 
-    /// Oracle: §3's per-frame-step paragraph — the three-part condition that queues the intro.
+    /// the three-part condition that queues the intro.
     #[test]
     fn use_time_queues_the_intro_only_when_both_meters_are_full_and_the_set_arrived() {
         let mut ui = UiSystem::new((800, 600));
@@ -424,7 +420,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §3's per-frame step — "every 60 s it re-queries the drive's free space **while the
+    /// "every 60 s it re-queries the drive's free space **while the
     /// expected byte count is non-zero**".
     #[test]
     fn the_disk_space_check_is_every_sixty_seconds_and_only_while_patching() {
@@ -443,8 +439,8 @@ mod tests {
         assert_eq!(DISKSPACE_CHECK_SECONDS, 60.0);
     }
 
-    /// Oracle: §3's child table last row — the Quit button queues the epilogue, which is the
-    /// client's only clean exit path (§10).
+    /// the Quit button queues the epilogue, which is the
+    /// client's only clean exit path.
     #[test]
     fn the_quit_button_queues_the_epilogue() {
         let mut ui = UiSystem::new((800, 600));

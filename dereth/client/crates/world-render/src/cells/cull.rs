@@ -481,8 +481,8 @@ mod tests {
         assert_eq!(block_check(&[], 0.0, 10.0), Bounding::EntirelyInside);
     }
 
-    /// Oracle: the landscape cell check's two short-circuits, one of which is trap-9
-    /// adjacent: a reduced-detail block is never cell-culled at all.
+    /// A reduced-detail block is never cell-culled, and a wholly visible block
+    /// bypasses the individual cell tests.
     #[test]
     fn landcell_check_short_circuits_for_lod_blocks_and_whole_blocks() {
         for scc in [1u8, 2, 4] {

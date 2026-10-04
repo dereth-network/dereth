@@ -48,7 +48,7 @@ fn a_position_goes_to_the_wire_and_back_bit_for_bit() {
 }
 
 #[test]
-fn a_position_written_by_dere_proto_is_what_serialize_writes() {
+fn a_position_written_by_dereth_protocol_is_what_serialize_writes() {
     let p = position();
     let mut ace = Vec::new();
     p.serialize(&mut ace, true, true);

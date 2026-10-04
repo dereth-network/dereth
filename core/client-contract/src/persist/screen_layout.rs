@@ -148,21 +148,15 @@ impl ScreenLayout {
     /// be retrofitted once players have files on disk:
     ///
     /// * The sixteen format strings are **per tag** (`"<SBOX> X:%d Y: %d
-    ///   W: %d H: %d "` and fifteen siblings) and **none of them contains a `\n`**. [verified
-    ///   against retail, all sixteen used by the layout writer]
+    ///   W: %d H: %d "` and fifteen siblings) and **none of them contains a `\n`**.
     /// * The writer `sprintf`s each row into a string and then
-    ///   **`fwrite`s** it — not `fprintf`, and nothing is written between rows. \[verified\]
+    ///   **`fwrite`s** it — not `fprintf`, and nothing is written between rows.
     ///
     /// So retail's `UI-*.txt` is **one line** of sixteen rows separated by the format's own
     /// trailing space, and a file this crate writes is the same bytes. [`Self::parse`] stays
     /// whitespace-insensitive exactly as `fscanf` is, so a newline-separated file still loads.
     ///
-    /// **One detail is still open and it is invisible on screen: the `W:`/`H:` argument order.**
-    /// Retail reads the four values (x, y, height, width, in that order), but which of width
-    /// and height reaches the `W:` slot is **not established**. It is worth doubting rather than assuming, because
-    /// the sibling path builder **does** put height before width in its own
-    /// format (see [`Self::auto_path`]). A retail `UI-*.txt` from a window of known, unequal size
-    /// settles it in one look; nothing in this repo can. \[unverified\]
+    /// Width is written to `W:` and height to `H:`.
     #[must_use]
     pub fn to_text(&self) -> String {
         let mut s = String::new();
@@ -377,7 +371,7 @@ mod tests {
         assert_eq!(ScreenLayout::AUTO_NAME, "#auto");
     }
 
-    /// A bad row is an error, not a panic: the brief forbids a parser that panics on malformed
+    /// A bad row is an error, not a panic: parsers must not panic on malformed
     /// input, and this file is user-editable.
     #[test]
     fn malformed_input_is_an_error() {

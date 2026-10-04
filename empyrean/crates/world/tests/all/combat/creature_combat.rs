@@ -1356,7 +1356,7 @@ fn client_elemental_mod_pk_modifier(m: f64) -> f64 {
 /// caster elemental pvp modifier agrees with the client.
 /// V381.
 #[test]
-fn rule3_caster_elemental_pvp_modifier_agrees_with_the_client() {
+fn caster_elemental_pvp_modifier_agrees_with_the_client() {
     let mut w = world(MemContent::new());
     let mut wielder = WorldObject::allocate(Class::Creature);
     wielder.guid = ObjectGuid::new(0x8000_4000);

@@ -128,7 +128,7 @@ pub fn dispatch(action: u32, stack_box_has_focus: bool) -> Option<ShortcutAction
 /// **Those nine distinct images are the nine numbered tiles**, and the only thing needed to draw
 /// them is setting UI-item state `0x1000001C`. What this type is, is the array itself: the
 /// eighteen lists, what goes in them, and the numeral overlay that goes *on top of an occupied*
-/// slot. [verified against the live element tree built from `client_local_English.dat`]
+/// slot.
 ///
 /// Bank 2 shares one image because bank 2 is not on screen: the toolbar window `<TBAR>` is 100
 /// pixels tall, the strip inside it starts at y = 5, bank 1 sits at y = 58…89 and bank 2 at
@@ -665,8 +665,8 @@ mod tests {
         assert_eq!(n, 18);
     }
 
-    /// Oracle: §2.1's five-row action table, at every range boundary. The four ranges are separate
-    /// and must not be collapsed (§7).
+    /// Exercise shortcut actions at every range boundary. The four ranges are separate
+    /// and must not be collapsed.
     #[test]
     fn the_four_action_ranges_map_to_the_documented_slots_and_never_overlap() {
         use ShortcutAction::{CreateToSelected, Use};
@@ -751,7 +751,7 @@ mod tests {
         assert_eq!(seen, (0..18).collect::<Vec<u32>>());
     }
 
-    /// Oracle: §2.1 — "**only while the stack-size entry box does not have focus**".
+    /// "**only while the stack-size entry box does not have focus**".
     #[test]
     fn a_focused_stack_box_swallows_every_shortcut_action() {
         assert!(dispatch(0x1000_0042, false).is_some());

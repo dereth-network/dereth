@@ -54,7 +54,7 @@ fn shortsort<T>(v: &mut [T], lo: isize, hi: isize, comp: &dyn Fn(&T, &T) -> i32)
 /// A port of `msvcr70.dll`'s `qsort`: median-of-three quicksort, an explicit stack, and
 /// `shortsort` below [`CUTOFF`].
 ///
-/// UNVERIFIED: this is the *published* VC7 `qsort.c`, not checked against
+/// this is the *published* VC7 `qsort.c`, not checked against
 /// the shipped `msvcr70.dll`. The 166 shipped scripts with more than eight entries and a duplicate start
 /// time, whose order depends on the partition choices, are the ones that would expose a difference;
 /// a consumer excludes exactly those (`tests/dat/qsort_parity.rs`) rather than distrust the corpus.

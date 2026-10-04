@@ -714,7 +714,7 @@ fn the_two_faces_present_the_same_surface_across_the_whole_panel() {
         }
     }
     println!(
-        "A-F33: {} lateral samples on each of two approach angles; worst front/back difference \
+        "{} lateral samples on each of two approach angles; worst front/back difference \
          {worst:.4} m at {:.0} deg, lateral {:+.3}, against a {WALK_STEP:.2} m walk step",
         PROFILE_SAMPLES * 2,
         worst_at.0,
@@ -752,7 +752,7 @@ fn an_open_and_close_cycle_leaves_both_contact_surfaces_unchanged() {
     let seq_back = leg(&mut w, &s, 13, &back, lateral);
 
     println!(
-        "A-F33 sequence: cold front {:.4} / back {:.4}; after the cycle front {:.4} / back {:.4}; \
+        "sequence: cold front {:.4} / back {:.4}; after the cycle front {:.4} / back {:.4}; \
          while open the body travelled {:.3} m and passed {:.4} m beyond the face",
         cold_front.closest,
         cold_back.closest,
@@ -801,15 +801,14 @@ fn the_head_on_collapse_is_symmetric_and_is_the_narrowest_region_left() {
     let f = profile_at(&s, 1.0, lateral, 0.0);
     let b = profile_at(&s, -1.0, lateral, 0.0);
     println!(
-        "A-F33 head-on: front {:.4} m (travelled {:.3} m), back {:.4} m (travelled {:.3} m)",
+        "head-on: front {:.4} m (travelled {:.3} m), back {:.4} m (travelled {:.3} m)",
         f.closest, f.travel, b.closest, b.travel
     );
     for (name, a) in [("front", &f), ("back", &b)] {
         assert!(
             a.closest > 0.0,
             "the head-on {name} arm ended {:.4} m inside the panel after travelling {:.3} m. A \
-             refused transition must not translate the body: see \
-             `core/physics/tests/o932_failed_transition.rs` and ",
+             refused transition must not translate the body",
             -a.closest,
             a.travel
         );
@@ -839,7 +838,7 @@ fn the_head_on_collapse_is_symmetric_and_is_the_narrowest_region_left() {
             ob.closest
         );
         println!(
-            "A-F33: at {deg:.0} degrees off the normal the same door stops the body at \
+            "at {deg:.0} degrees off the normal the same door stops the body at \
              {:.4} m / {:.4} m",
             of.closest, ob.closest
         );
@@ -1103,7 +1102,7 @@ fn a_shallow_slide_jams_in_a_band_of_angles_and_the_band_differs_by_face() {
         i += 5;
     }
     println!(
-        "A-F33 slide: {jammed_angles} of 15 half-degree steps in 33.0..=40.0 jam on at least one \
+        "slide: {jammed_angles} of 15 half-degree steps in 33.0..=40.0 jam on at least one \
          face; the faces disagree at {:?}",
         disagreements
     );
@@ -1117,7 +1116,7 @@ fn a_shallow_slide_jams_in_a_band_of_angles_and_the_band_differs_by_face() {
         !disagreements.is_empty(),
         "the jam band is now identical on both faces. It used to disagree at 36.0, 37.0 (front \
          slides, back jams) and 38.5, 39.0 (back slides, front jams) -- that face-dependence is \
-         what makes this A-F33 rather than a symmetric quirk"
+         shows this is not a symmetric quirk"
     );
 }
 
@@ -1515,8 +1514,7 @@ fn a_head_on_walk_at_this_door_is_stopped_as_an_oblique_one_is() {
         assert!(
             r.closest > 0.0,
             "the head-on {name} approach ended {:.3} m inside the mesh. A refused transition must \
-             not translate the body -- and \
-             `core/physics/tests/o932_failed_transition.rs`",
+             not translate the body",
             -r.closest
         );
     }

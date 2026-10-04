@@ -19,8 +19,6 @@ pub type CoreApp = dereth_client_shell::app::CoreApp<crate::Desktop>;
 /// The windowed platform: the window and its event loop, the system clock and pacer, and the OS
 /// error box.
 ///
-/// Step 12 of: `InitUI -> (windowed, title, 800, 600, visible, "")`.
-///
 /// # Errors
 /// [`StartupError::Device`] when the event loop or the window cannot be created.
 pub fn open_platform(

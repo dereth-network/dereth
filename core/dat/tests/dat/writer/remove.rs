@@ -31,7 +31,7 @@ struct Scratch {
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("p4_1b2_{name}"));
+        let dir = std::env::temp_dir().join(format!("dereth_dat_remove_{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a scratch directory");
         Self {

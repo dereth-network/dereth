@@ -725,7 +725,7 @@ mod tests {
 
     #[test]
     fn adjust_sphere_to_plane_rejects_below_minus_one_half() {
-        // Contract item 5.4: this floor is -0.5, where the step-down paths use -0.1.
+        // This floor is -0.5, where the step-down paths use -0.1.
         let p = unit_square();
         let mut c = Vec3::new(0.5, 0.5, 0.5);
         // A movement so slow that reaching the plane consumes five times the available interp:

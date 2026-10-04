@@ -306,7 +306,7 @@ mod tests {
         Win32Message::new(msg::WM_KEYUP, 0, (scan << 16 | 0xC000_0001) as isize, time)
     }
 
-    /// ORACLE: the recovered input pipeline §3, §3.1 and §5 — a recorded key-down/key-up pair through the
+    /// a recorded key-down/key-up pair through the
     /// whole of stages 1 to 4, and the auto-repeat filter in the middle of it.
     #[test]
     fn a_message_stream_produces_the_documented_control_events() {
@@ -335,7 +335,7 @@ mod tests {
         assert!(!m.is_action_in_progress(movement_action::MOVE_FORWARD));
     }
 
-    /// ORACLE: the recovered binding behavior §2 and trap 9 — `DIK_RSHIFT` (0x36) is rewritten to
+    /// `DIK_RSHIFT` (0x36) is rewritten to
     /// `DIK_LSHIFT` (0x2A) before the map sees it, so right shift sets the Shift meta bit too.
     #[test]
     fn right_shift_is_left_shift() {
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(m.meta_key_mode, 0);
     }
 
-    /// ORACLE: the recovered input pipeline §3.2 and §3.3 — a button down/up pair moves the capture
+    /// a button down/up pair moves the capture
     /// counter, and one `WM_MOUSEWHEEL` is exactly one click whatever the delta.
     #[test]
     fn mouse_buttons_capture_and_the_wheel_clicks_once() {
@@ -372,7 +372,7 @@ mod tests {
         assert!(e[0].start && !e[1].start);
     }
 
-    /// ORACLE: the recovered input pipeline §3 — `WM_MOUSEMOVE` stores the position in client
+    /// `WM_MOUSEMOVE` stores the position in client
     /// coordinates and does **not** dispatch, and the coordinates are signed.
     #[test]
     fn mouse_move_stores_a_signed_client_position() {
@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(e[0].action, ActionId(7));
     }
 
-    /// ORACLE: the recovered input pipeline §3 — focus loss releases every held control, so no action
+    /// focus loss releases every held control, so no action
     /// survives an Alt+Tab.
     #[test]
     fn losing_focus_releases_every_held_action() {
@@ -480,7 +480,7 @@ mod tests {
         assert!(!m.has_focus);
     }
 
-    /// ORACLE: the recovered input pipeline §2, trap 14 and trap 15 — a `WM_SYSKEY*` still reaches the
+    /// a `WM_SYSKEY*` still reaches the
     /// input manager (so a keymap can bind Alt), the screensaver is swallowed before it, and the
     /// standby query is answered rather than forwarded.
     #[test]
@@ -494,7 +494,7 @@ mod tests {
         assert!(!m.on_window_event(&standby, &no_lead));
     }
 
-    /// ORACLE: the recovered input pipeline §4 step 4 — a second press inside the double-click time and
+    /// a second press inside the double-click time and
     /// inside the double-click rectangle carries `NearbyDown`, so a `MouseDblClick` binding wins
     /// over the `Click` one on the same button.
     #[test]

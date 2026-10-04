@@ -44,7 +44,7 @@ pub struct PanelSpec {
     /// panel's own layout: they are row and popup templates, instantiated when a row is created
     /// rather than when the panel is. A recursive child lookup from the panel root therefore
     /// returns null, which is why they are separated here.
-    /// [verified against `client_local_English.dat`]
+    ///
     pub templates: &'static [ChildBinding],
     /// The element message ids the class's element-message handler switches on.
     pub element_messages: &'static [u32],
@@ -1004,7 +1004,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    /// Oracle: the recovered UI element model — every panel type in the catalogue must be a type the
+    /// every panel type in the catalogue must be a type the
     /// client actually registers, and no type may appear twice.
     #[test]
     fn every_catalogued_panel_is_a_registered_game_element_type() {
@@ -1025,7 +1025,7 @@ mod tests {
         assert!(!registered.contains(&COMBAT_PANEL_SPEC.ty.0));
     }
 
-    /// Oracle: the recovered toolbar and panel behavior: sixteen page containers and seven buttons,
+    /// Oracle: the toolbar and panel behavior: sixteen page containers and seven buttons,
     /// all distinct, and the inventory button is the last of the seven.
     #[test]
     fn the_panel_stack_and_toolbar_button_tables_are_the_documented_ones() {
@@ -1046,7 +1046,7 @@ mod tests {
         assert_eq!(TOOLBAR_COMBAT_BUTTONS.len(), 4);
     }
 
-    /// Oracle: `12` §3.1's paper-doll table — "24 slot elements plus the rendered figure".
+    /// "24 slot elements plus the rendered figure".
     #[test]
     fn the_paper_doll_binds_twenty_four_slots() {
         let slots = PAPER_DOLL
@@ -1080,7 +1080,7 @@ mod tests {
     /// ids that are **not** post-init bindings but row and popup templates on a sibling root of
     /// the same layout. The acceptance gate proved it: every one of these resolves nowhere under
     /// its panel's root, and every one of them is a root (or a root's child) elsewhere in the same
-    /// layout. See the track report.
+    /// layout.
     #[test]
     fn the_eight_panels_with_row_templates_keep_them_out_of_their_post_init_tables() {
         let with_templates: Vec<&str> = PANELS

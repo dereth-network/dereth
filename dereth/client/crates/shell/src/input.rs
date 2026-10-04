@@ -262,8 +262,7 @@ pub struct InputShell {
 /// [`dereth_input::MAP_BLOCK_KEYBOARD`]) and then the two maps that carry the text actions
 /// `0x16`…`0x28`. See `InputShell::set_focused_text_maps`.
 ///
-/// **`0x0A` is first and unconditional, and it is the whole of the mouse wheel.** Checked against
-/// retail rather than inferred:
+/// **`0x0A` is first and unconditional, and it carries the mouse wheel:**
 ///
 /// ```text
 /// Text element: register the scrollable base maps first, including `0x0A`.
@@ -1347,8 +1346,7 @@ impl InputShell {
     /// Save the keymap during cleanup when its filename is nonempty and it was loaded.
     /// The destination joins the settings directory and that filename.
     ///
-    /// **Verified against the cleanup path.** An earlier reading incorrectly made the save depend on the
-    /// *preference* `Input.KeymapFile` being set. It does not: keymap initialization assigns
+    /// Saving does not require the preference `Input.KeymapFile` to be set. Initialization assigns
     /// the keymap-file path either from the preference or, when the preference is empty, from
     /// the running executable's file name with the extension changed to `keymap` — so
     /// the path is **never** empty after successful keymap initialization, and a retail client
@@ -1458,7 +1456,7 @@ impl InputShell {
     ///
     /// Deactivation makes one map-unregistration call that takes both away — see
     /// [`dereth_input::dispatch::InputMapStack::unregister`], which removes **all** priorities of a
-    /// `{map, callback}` pair so this round-trips. \[verified\]
+    /// `{map, callback}` pair so this round-trips.
     ///
     /// `maps` is `(map, priority)` in registration order, from
     /// `dereth_ui::UiSystem::input_maps_for_registration`; an empty slice is the deactivation.
@@ -1493,9 +1491,6 @@ impl InputShell {
     /// Credits, character management and intro each register map 9 at priority 3000, and intro
     /// registers map 3 at 3000 too.
     ///
-    /// [verified against retail — these are **all** the registrations at that priority, and the
-    /// same check for map `0x0A` finds exactly the two scrollable-element registrations described
-    /// here.]
     ///
     /// Map **9** is `DialogBoxes`, and the shipped merged keymap gives it exactly two controls —
     /// `DIK_ESCAPE` → `EscapeKey` and `DIK_RETURN` → `AcceptInput`. Without this registration
@@ -1991,7 +1986,8 @@ mod tests {
 
     #[test]
     fn keymap_preference_merge_preserves_valid_neighbors_and_refuses_invalid_bytes() {
-        let dir = std::env::temp_dir().join(format!("dere-p1-43-prefs-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("dereth-keymap-preferences-{}", std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("stale disposable directory clears");
         }
@@ -2029,7 +2025,8 @@ mod tests {
         ignore = "reads the retail dats: --features retail-dats"
     )]
     fn save_keymap_as_classifies_existing_and_read_only_targets_before_writing() {
-        let dir = std::env::temp_dir().join(format!("dere-p1-43-save-as-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("dereth-keymap-save-as-{}", std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("stale disposable directory clears");
         }

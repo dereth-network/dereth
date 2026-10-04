@@ -168,7 +168,7 @@ impl World {
 /// the point the accepted arms jump to. An out-of-range selection type therefore
 /// rejects nothing and every visible object is a candidate. That is why this enum has no
 /// `Undef`: it is not a value any of the sixteen actions passes, and modelling it would invite
-/// the reading that it filters. `\[verified\]`
+/// the reading that it filters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum SelectionType {
@@ -192,7 +192,7 @@ pub enum SelectionType {
 /// tab to and which are not creatures, so both arms treat them as always selectable: the compass
 /// arm lets them past the showable-on-radar test and the item arm lets them past the `RADAR_ENUM`
 /// test.
-/// `\[verified\]`
+///
 pub const COMPASS_ALWAYS: u32 =
     0x0000_4000 /* BF_LIFESTONE */ | 0x0004_0000 /* BF_PORTAL */ | 0x0800_0000 /* BF_BINDSTONE */;
 
@@ -208,7 +208,7 @@ pub const REPORT_COLLISIONS_AS_ENVIRONMENT_PS: u32 = 0x0020_0000;
 /// can produce (the radar radius caps candidates at 75.0 m and the z weight cannot lift a 75 m
 /// pair past 73728), so it is an infinity for this ordering and nothing more. Both ends of the
 /// scan use it: the *reference* takes it when there is nothing selected and the search is
-/// outward, and the *best-so-far* takes it when the search is inward. `\[verified\]`
+/// outward, and the *best-so-far* takes it when the search is inward.
 pub const SELECT_NEXT_SENTINEL: f64 = 73728.0;
 
 /// The 2-D distance — `sqrt(x² + y²)`, and **no z**.
@@ -249,7 +249,7 @@ pub fn get_2d_distance(x: f32, y: f32) -> f64 {
 /// level, which is what makes it usable on a dungeon stair. Note the asymmetry with
 /// `within_radar_range` and with the range gate inside the selection cycle, **neither** of
 /// which looks at z at all: z decides the *order* of the candidates and never their
-/// *eligibility*. `\[verified\]`
+/// *eligibility*.
 #[must_use]
 pub fn weighted_z_distance(z: f32) -> f64 {
     let z = f64::from(z);
@@ -283,7 +283,7 @@ pub fn weighted_z_distance(z: f32) -> f64 {
 /// `a<b`, `a==b` and "ordered-equal" tests separately, which is how an **unordered** result
 /// (either operand NaN) is refused: the first two fall through and the third takes the branch
 /// to `FALSE`. Rust's `>` and `==` are false on NaN, so the expression below
-/// agrees on every input including that one. `\[verified\]`
+/// agrees on every input including that one.
 #[must_use]
 pub fn farther(a: (f64, ObjectId), b: (f64, ObjectId)) -> bool {
     a.0 > b.0 || (a.0 == b.0 && a.1 .0 > b.1 .0)

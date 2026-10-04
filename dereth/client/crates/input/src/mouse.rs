@@ -174,7 +174,7 @@ impl MouseState {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered input pipeline §3.2 and §7, trap 12 — the counter spans buttons *and*
+    /// the counter spans buttons *and*
     /// mouse-look, and reaches zero exactly once.
     #[test]
     fn capture_is_reference_counted_across_buttons_and_mouse_look() {
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(m.capture_count(), 0);
     }
 
-    /// Oracle: the recovered input pipeline §7 step 3, trap 13 — the idle tick fires only in mouse-look
+    /// the idle tick fires only in mouse-look
     /// and only once 0.2 s has passed since the last input event.
     #[test]
     fn the_idle_retick_needs_mouse_look_and_two_tenths() {
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(m.frame(LocalTime(1.21)), MouseFrameAction::LookIdle);
     }
 
-    /// Oracle: the recovered input pipeline §7 — a move outside mouse-look reports absolute client
+    /// a move outside mouse-look reports absolute client
     /// coordinates; inside it reports the delta and then recentres.
     #[test]
     fn move_versus_look() {
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(m.pos, (400, 300));
     }
 
-    /// Oracle: the recovered binding behavior §7's `MouseLookBehavior` table.
+    /// Mouse-look behavior settings select held and toggled modes.
     #[test]
     fn mouse_look_exit_honours_the_behaviour() {
         let mut m = MouseState {

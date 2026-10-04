@@ -274,6 +274,9 @@ pub enum ControlEvent {
         id: String,
         pressed: bool,
     },
+    PreviewDrag {
+        equipment_mask: u32,
+    },
     PreviewHit {
         object_index: u32,
         part_index: u32,

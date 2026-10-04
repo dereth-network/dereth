@@ -69,7 +69,7 @@ fn main() -> std::process::ExitCode {
 
 /// `WinMain` steps 9 to 12: parse, initialize the client, run it, and clean up.
 fn run() -> Result<(), String> {
-    // Step 9: parse the command line, make the settings folder and install the log.
+    // parse the command line, make the settings folder and install the log.
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     let replay = input_replay::Replay::load(&mut argv)?;
     let cfg = dereth_desktop::start::<Dereth>(&argv)?;
@@ -102,7 +102,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     let host = cfg.host.clone();
     let account = cfg.account.clone();
 
-    // Step 10: initialize the client application and its presentation.
+    // initialize the client application and its presentation.
     let mut app = dereth_client::app::App::new(cfg).map_err(fatal)?;
     tracing::info!(
         "{} device, {}x{}",
@@ -246,7 +246,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     // button because a run without the UI has no buttons to press.
     app.play_startup_sound();
 
-    // Step 11: run the client frame loop.
+    // run the client frame loop.
     let frames = if let Some(mut replay) = replay {
         app.state = dereth_client::app::AppState::Running;
         let mut frame = 1;
@@ -480,7 +480,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
         tracing::info!("wrote {}", path.display());
     }
 
-    // Step 12: clean up the client, in the documented order; the log is printed rather
+    // clean up the client, in the documented order; the log is printed rather
     // than dropped so a windowed run says what it tore down and in what order.
     let log = app.shutdown();
     for (step, outcome) in &log.0 {

@@ -23,7 +23,7 @@ use empyrean_entity::enums::{
 const AFTER_IMPACT: i32 = 0x0012_0034;
 
 fn temp_dir(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("serv-content-{name}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("empyrean-content-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d

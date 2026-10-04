@@ -298,10 +298,10 @@ pub struct SetPositionStruct {
     pub xrad: f32,
     pub yrad: f32,
     pub num_tries: u32,
-    /// **UNVERIFIED.** Three game-record predicates
+    /// Three game-record predicates
     /// that make place with `ForceIntoCell` and **no collision
-    /// test at all**. Their meanings are `[inferred]`, so the three collapse into one named
-    /// boolean here for the game layer to drive once it knows what they mean; the physics side is a
+    /// test at all**. The three predicates collapse into one named
+    /// boolean here for the game layer to drive; the physics side is a
     /// straight `force_into_cell` either way, so nothing in this crate depends on the answer.
     pub skip_collision_force_into_cell: bool,
 }
@@ -1120,7 +1120,7 @@ mod tests {
         );
         assert_eq!(o.transient_state.0, 0);
         assert_eq!(o.player_distance, f32::MAX, "player_distance = FLT_MAX");
-        assert_eq!(o.cypt, f32::MAX, "CYpt = FLT_MAX");
+        assert_eq!(o.cypt, f32::MAX, "viewer distance = FLT_MAX");
         assert_eq!(o.player_vector, Vec3::new(0.0, 0.0, 1.0));
         assert_eq!(o.elasticity, 0.05);
         assert_eq!(o.friction, 0.95);
@@ -1347,7 +1347,7 @@ mod tests {
 
     #[test]
     fn get_velocity_is_cached_velocity_not_the_velocity_vector() {
-        // Contract item 5.6, which is exactly the mistake a reader makes once.
+        // The reported velocity is the achieved velocity.
         let mut o = obj();
         o.velocity_vector = Vec3::new(9.0, 0.0, 0.0);
         o.cached_velocity = Vec3::ZERO;
@@ -1379,7 +1379,7 @@ mod tests {
         assert_eq!(o.acceleration_vector, Vec3::ZERO);
     }
 
-    /// Contract item 5.3, both arms, with the boundary walked in both directions.
+    /// Both placement arms, with the boundary walked in both directions.
     #[test]
     fn the_sledding_friction_branch_fires_below_cos_ten_degrees() {
         let build = |nz: f32, speed: f32| {

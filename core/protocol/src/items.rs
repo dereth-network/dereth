@@ -401,7 +401,7 @@ impl Message for ItemQueryItemManaResponse {
 
 /// `0x00C3 Item_GetInscriptionResponse` — parsed and discarded by the client.
 ///
-// UNVERIFIED: the arm skips **4 bytes twice** before the three strings — the
+// the arm skips **4 bytes twice** before the three strings — the
 // first is the object id, the second's meaning is unknown — and then destroys the strings
 // immediately. Reproduce the skips exactly and discard, as the client does; do not "fix" it into a
 // useful message.

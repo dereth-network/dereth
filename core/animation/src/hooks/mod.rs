@@ -136,7 +136,7 @@ impl HookKind {
     ///
     /// The hook serializer asks each hook for it. The base is abstract, and each concrete hook
     /// returns its own constant.
-    /// `\[verified\]`
+    ///
     #[must_use]
     pub const fn hook_type(self) -> u32 {
         match self {
@@ -232,7 +232,7 @@ mod tests {
         assert!(!never.fires(1) && !never.fires(-1));
     }
 
-    /// `add_to_list` appends at the tail. Contract 7.10.
+    /// `add_to_list` appends at the tail.
     #[test]
     fn add_to_list_appends_at_the_tail() {
         let mut l = Vec::new();

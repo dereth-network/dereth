@@ -106,7 +106,7 @@ pub const OPTION_CHECKBOXES: [(ElementId, PlayerOption); 3] = [
 ];
 
 /// Combat-specific captions, not `ID_PlayerOption_*` captions from Character Options.
-/// Bound by the combat panel's post-init and verified against the three pushed string tokens.
+/// Bound by the combat panel's post-init using three string tokens.
 /// All three use string table enum 0x10000003.
 pub const OPTION_CAPTIONS: [&str; 3] = [
     "ID_CombatPanelOption_AutoRepeatAttack",

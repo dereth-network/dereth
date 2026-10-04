@@ -521,7 +521,7 @@ impl crate::world::World {
             // The use request is the close: ACE's `Container.ActOnUse` closes a container that is
             // already open by this viewer, and the server's answer (`0x0052
             // Item_StopViewingObjectContents`) is what clears the open-container state —
-            // which the client does **not** clear here either. `[external]` for the server half.
+            // which the client does **not** clear here either.
             //
             // The panel's own two acts — hiding and emptying its lists — reach this build as
             // `Notice::SetGroundObject(0)`, which is the notice a ground panel closes on.

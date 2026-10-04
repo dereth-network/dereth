@@ -300,7 +300,7 @@ mod tests {
 
     const ALUVIAN_MALE_SETUP: DataId = DataId(0x0200_0001);
 
-    // Oracle: the retail dats, read through the setup decoder. Contract 9.11 -- `step_up_height` is read
+    // Oracle: the retail dats, read through the setup decoder. `step_up_height` is read
     // **before** `step_down_height`, and the Aluvian male's are 0.6 and 1.5, not the other way
     // round. A transposed pair is invisible on flat ground and wrong on every step.
     #[test]

@@ -276,9 +276,9 @@ mod tests {
         assert_eq!(hashes.len(), 68, "two tokens hash to the same string id");
     }
 
-    /// Oracle: the recovered preference registrations' *default* column and
+    /// Oracle: the preference registrations' *default* column and
     /// `super::super::config::DEFAULT_DISAGREEMENTS`, independently cross-checked against the
-    /// recovered options behavior.
+    /// options behavior.
     ///
     /// The historical three disagreements plus texture filtering (registered 0 at startup,
     /// 1 on *Restore Defaults*):
@@ -300,7 +300,7 @@ mod tests {
         let mut named: Vec<&str> = DEFAULT_DISAGREEMENTS.iter().map(|d| d.preference).collect();
         named.sort_unstable();
         assert_eq!(differing, named, "the disagreements this table produces");
-        // …and the values themselves, from §5.4, as literals.
+        // The registered values are pinned as literals.
         assert_eq!(
             find("Display.Resolution").unwrap().registered_default,
             Int(0x0400_0300)
@@ -319,7 +319,7 @@ mod tests {
             assert_eq!(
                 find(d.preference).unwrap().registered_default,
                 d.registered,
-                "{} — §5.4 and §2 must agree on the registered value",
+                "{} must have the registered default value",
                 d.preference
             );
         }

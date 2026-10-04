@@ -81,7 +81,7 @@ pub const fn should_draw_mesh_subset(
 }
 
 #[cfg(test)]
-mod astra_surface_guard {
+mod surface_guard {
     use super::should_draw_mesh_subset;
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
         }
     }
 
-    /// Oracle: part drawing's four early returns, and trap 5's
+    /// Oracle: part drawing's four early returns, and its
     /// "`gfxobj_id == 0` means **draw nothing**".
     #[test]
     fn the_draw_guards_match_the_transcribed_early_returns() {

@@ -123,7 +123,7 @@ mod tests {
         r.expect_exhausted().unwrap();
     }
 
-    /// The H2 acceptance test: `read` returns `None` and does **not** consume when the magic is
+    /// `read` returns `None` and does **not** consume when the magic is
     /// absent, because the caller then treats the whole payload as an unordered event body.
     #[test]
     fn worder_hdr_read_does_not_consume_when_the_magic_is_absent() {

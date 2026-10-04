@@ -1674,7 +1674,7 @@ impl World {
     /// It is load-bearing for: clicking the main-pack
     /// slot re-points the grid at the **player**, and without this arm the notice would be
     /// refused and would stay pointed at the side pack the player had
-    /// just navigated away from. \[verified\]
+    /// just navigated away from.
     #[must_use]
     pub fn is_owned_by_object(&self, item: ObjectId, owner: ObjectId) -> bool {
         // A zero owner owns nothing.
@@ -1997,7 +1997,7 @@ impl World {
     /// `amount <= max_stack_size` with **no exemption for a zero maximum** — an object whose desc
     /// carried no maximum stack size reads 0 and accepts nothing but 0 — and the **sequence is
     /// consumed either way**, so a rejected amount still advances the stamper and the function
-    /// still answers `true`. `\[verified\]`
+    /// still answers `true`.
     ///
     /// The accepted update writes stack size, raises an attribute change, writes value, clears
     /// `waiting` whenever it was nonzero, conditionally raises another change for a valid object,

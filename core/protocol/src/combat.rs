@@ -8,7 +8,7 @@
 //! * `percent` is a **`f64`**, not an `f32`. The client advances exactly 0x18 (attacker) or 0x1C
 //!   (defender) bytes past the name string, and ACE writes a `double`. Reading it as a float shifts
 //!   every following field.
-//! * `attackConditions` is **4 bytes** where ACE writes 8. `[verified against retail]`: the UI
+//! * `attackConditions` is **4 bytes** where ACE writes 8. The UI
 //!   queue's blob dispatcher reads it as a single 32-bit value and sign-extends it,
 //!   in both the `0x01B1` and the `0x01B2` arm — and advances the cursor by **four**, to `0x18` /
 //!   `0x1C` past the string. The sign extension is there because the client's in-memory `AttackConditions` is 64-bit while the wire field is 32-bit,
@@ -16,9 +16,8 @@
 //!   ever compares the cursor against the end of the blob, so the servers' extra four bytes are
 //!   trailing slack the retail client never reads. ACE's `Writer.Write((ulong)attackConditions)`
 //!   and GDLE's `Write<uint64_t>` (attacker) / `Write<uint32_t>` then
-//!   `Write<uint32_t>(0) // probably uint32_t align` for the defender are
-//!   `[external]` and agree on the bytes. **The retail server wrote them too** `[verified against
-//!   retail captures]`: every one of 41,767 retail `0x01B1`/`0x01B2` bodies in the January 2017
+//!   `Write<uint32_t>(0) // probably uint32_t align` for the defender
+//!   agree on the bytes. **The retail server wrote them too**: every one of 41,767 retail `0x01B1`/`0x01B2` bodies in the January 2017
 //!   captures carries the eight-byte field, and its high dword is zero in all 41,767 (the low dword
 //!   varies: attacker 0/2/4/6, defender 0/1/4/5). So the codec reads the client's four bytes and
 //!   then, when four more remain, the server's high dword ([`AttackerNotification::attack_conditions_high`]);

@@ -526,7 +526,7 @@ impl ChatState {
     ///
     /// The trailing panel-update notice is what makes the player *see* an empty
     /// list on the next character. This build has no squelch panel and no notice bus that reaches a
-    /// UI element, the declared deviation `recv_set_squelch_db` above already records; nothing is
+    /// UI element, the deferred delivery `recv_set_squelch_db` above describes; nothing is
     /// lost by not raising it, because every reader goes through [`Self::is_squelched`].
     pub fn clear_squelch_db(&mut self) {
         self.squelch = SquelchDb::default();
@@ -681,7 +681,7 @@ impl ChatState {
 /// The narrow-string whitespace set — **five** characters, `" \n\r\t\x0C"`.
 ///
 /// Observed rather than guessed: every communication-system trim uses the same set, the bytes
-/// `20 0A 0D 09 0C 00`. \[verified\]
+/// `20 0A 0D 09 0C 00`.
 ///
 /// The **form feed** is the part worth stating. `crate::cmd::interp::on_chat_command` trims
 /// `[' ', '\t', '\r', '\n']`, four characters, so a line whose leading character is a `\x0C` is
@@ -740,7 +740,7 @@ pub enum TellOutcome {
 /// puts **`Alba`** on the wire, not `+Alba`, because the client removes the marker before it
 /// ever looks for the comma. A rebuild that skipped this line would send a name the server
 /// cannot resolve — silence again — and one that applied it to the *message* would eat a
-/// leading `+` a player typed. \[verified\]
+/// leading `+` a player typed.
 #[must_use]
 pub fn join_args_as_name(joined: &str) -> &str {
     joined.trim_matches(WHITESPACE).trim_start_matches('+')
@@ -899,7 +899,7 @@ pub fn do_emote(joined_args: &str) -> EmoteOutcome {
 ///    *case-insensitively*, and any embedded newline.
 /// 2. It is **not** on the tell path, or on any speech path. Its only two callers in the whole
 ///    binary are the direct Turbine-chat sender and the room-send callback. Ordinary tell, reply,
-///    retell, and public-chat handlers call neither this gate nor the spam gate. \[verified\]
+///    retell, and public-chat handlers call neither this gate nor the spam gate.
 ///
 /// Wired only on the world's Turbine-chat send path; ordinary speech and tells do not pass this
 /// gate.

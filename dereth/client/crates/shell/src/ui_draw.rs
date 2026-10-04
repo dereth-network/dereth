@@ -1007,8 +1007,7 @@ impl dereth_ui::text::FontProvider for DatFontProvider {
 pub use dereth_ui::text::DatStringResolver;
 
 // String-table escape decoding is [`dereth_ui::text::unescape`], applied by the `StringResolver`
-// contract itself, so every crate that resolves string-table rows runs the same pass -- see
-// `dereth/client/crates/ui/src/text/escape.rs` for the byte-level reading of the unescaping step.
+// contract itself, so every crate that resolves string-table rows runs the same pass.
 //
 // The client runs it in the internal string lookup, straight after the row is read. The
 // higher-level string getter -- what text append, attribute handling, and the margin-aware size

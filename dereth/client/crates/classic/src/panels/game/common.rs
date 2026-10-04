@@ -179,6 +179,7 @@ pub fn spell_icon(
 ) {
     if let Some(icon) = icon {
         f.screen.commands.push(crate::Command::SpellIcon {
+            transparent: false,
             icon: icon.0,
             power,
             bitfield,

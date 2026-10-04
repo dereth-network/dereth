@@ -121,7 +121,7 @@ pub use dereth_client_contract::radar::radar_enum;
 ///
 /// The client calls it before it will build a [`RadarEntry`]'s radar-info record
 /// at all, so a rejected object never enters the radar's info list and can never be drawn, hovered or
-/// tooltipped. `\[verified\]`
+/// tooltipped.
 ///
 /// **Measured.** In the recorded training-dungeon session at its most populated
 /// instant, 285 objects carry a `PublicWeenieDesc`; 179 of them were sent with no
@@ -365,7 +365,7 @@ pub fn draw_objects(
 /// *after* [`draw_objects`] rather than as part of it, because the player is not in the radar's
 /// info list at all (building an entry starts by rejecting the local player). The
 /// sequence is: the centre pixel, then the client's four orthogonal neighbours, then
-/// four more at ±2 — nine single-pixel fills, all in the radar's bright green. `\[verified\]`
+/// four more at ±2 — nine single-pixel fills, all in the radar's bright green.
 #[must_use]
 pub fn center_marker_pixels() -> Vec<(i32, i32)> {
     vec![
@@ -503,12 +503,8 @@ pub fn object_under_mouse(blips: &[Blip], mouse: (i32, i32)) -> Option<usize> {
 
 /// The four compass tokens, and the quarter-turn each is offset by.
 ///
-///  places N with `sin(h + π)` / `cos(h + π)`; "the same for S, E
-/// and W with their own magnitudes and the corresponding quarter-turn offsets".
-///
-/// The quarter turns are **\[inferred\]** from the compass being a compass: only the N branch is
-/// read directly. They are the only assignment that puts S opposite N and E to N's right for a
-/// heading-up display, which is what a live retail run shows.
+/// North uses `sin(h + π)` / `cos(h + π)`. The other quarter-turn offsets put
+/// South opposite North and East to North's right in the heading-up display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compass {
     North,
@@ -616,7 +612,7 @@ pub mod child {
 /// that is never told a state has no picture at all and leaves the upper-left of the ring blank.
 /// The radar's initialisation and its lock toggle both end by setting the lock button's state to
 /// one of these; writing them as a `MEDIA_STATE` enum **attribute** instead changes no media and
-/// draws nothing even after the player toggles the lock. `\[verified\]` against the layout.
+/// draws nothing even after the player toggles the lock. against the layout.
 pub mod lock_state {
     /// Locked — the closed padlock, image `0x060074B7`.
     pub const LOCKED: u32 = 0x1000_0063;
@@ -708,7 +704,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §1.3's blip-colour rule, walked branch by branch in its own order.
+    /// Blip colors follow the rule's branch order.
     #[test]
     fn get_blip_color_follows_the_documented_decision_order() {
         // No object at all.
@@ -804,7 +800,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §1.4's blip-shape rule and the value table, including the
+    /// Blip shapes follow the value table, including the
     /// "fellowship shape minus is-leader" arithmetic.
     #[test]
     fn get_blip_shape_follows_the_documented_decision_order_and_values() {
@@ -868,7 +864,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §1.5's primitive table — the exact pixel offsets of all eight shapes, and the
+    /// the exact pixel offsets of all eight shapes, and the
     /// "every blip is at most 3×3" consequence.
     #[test]
     fn the_eight_blip_shapes_cover_the_documented_pixels() {
@@ -920,7 +916,7 @@ mod tests {
         }
     }
 
-    /// Oracle: §1.5's selection-bracket row — "four 5-pixel brackets at ±3", i.e. a 7×7 open square.
+    /// "four 5-pixel brackets at ±3", i.e. a 7×7 open square.
     #[test]
     fn the_selected_marker_is_a_seven_by_seven_open_square_of_twenty_pixels() {
         let p = selected_pixels();
@@ -931,7 +927,7 @@ mod tests {
         assert!(!p.contains(&(0, 0)));
     }
 
-    /// Oracle: §1.6 — 75 outdoors, 25 indoors, refreshed at most every 25 ms.
+    /// 75 outdoors, 25 indoors, refreshed at most every 25 ms.
     #[test]
     fn the_range_is_seventy_five_outdoors_and_twenty_five_indoors() {
         assert_eq!(radar_range(true), 75.0);
@@ -939,7 +935,7 @@ mod tests {
         assert_eq!(UPDATE_INTERVAL_SECONDS, 0.025);
     }
 
-    /// Oracle: §1.5's object-drawing rule — the `(range − 1)²` cull, the axis signs, the
+    /// the `(range − 1)²` cull, the axis signs, the
     /// bounding-box reject and the 5.0/0.65 dimming.
     #[test]
     fn draw_objects_culls_at_range_minus_one_squared_and_projects_with_y_up() {
@@ -986,7 +982,7 @@ mod tests {
         assert!(draw_objects(&[nowhere, hidden], None, geom, 75.0, None, false).is_empty());
     }
 
-    /// Oracle: §1.5's blip drawer — "returns immediately when the radar-blank flag is
+    /// "returns immediately when the radar-blank flag is
     /// set", and "multiplies **r, g, b** by `dim` (alpha untouched)".
     #[test]
     fn radar_blank_draws_nothing_and_dim_scales_only_rgb() {
@@ -1021,7 +1017,7 @@ mod tests {
         assert!((bl - 0.0).abs() < 1e-6);
     }
 
-    /// Oracle: §1.5 — "Mouse-over radius is `sqrt(36) = 6` pixels (`dist² < 0x25`); the closest
+    /// "Mouse-over radius is `sqrt(36) = 6` pixels (`dist² < 0x25`); the closest
     /// object within it wins."
     #[test]
     fn the_mouse_over_test_is_strictly_inside_six_pixels_and_the_closest_wins() {
@@ -1050,7 +1046,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §1.7 — the tokens orbit the centre at their recorded magnitude and stay on the
+    /// the tokens orbit the centre at their recorded magnitude and stay on the
     /// circle, and each token's magnitude is the distance from the centre to the token's midpoint.
     #[test]
     fn the_compass_letters_orbit_the_centre_and_sit_at_the_cardinal_points() {
@@ -1083,7 +1079,7 @@ mod tests {
         assert_eq!(Compass::West.attribute(), 0x1000_0034);
     }
 
-    /// Oracle: §1.9 — the two fixed children and the two lock media states.
+    /// the two fixed children and the two lock media states.
     #[test]
     fn the_lock_button_and_its_two_media_states_are_the_documented_ids() {
         assert_eq!(child::LOCK_BUTTON, dereth_ui::ElementId(0x1000_0619));

@@ -74,7 +74,7 @@ pub const WINDOW: ElementId = ElementId(0x1000_05F7);
 /// Message `1` is [`dereth_ui::msg::element::id::BUTTON_CLICKED`], which is what a
 /// `Button` raises on release — and the shipped `classic_gameplay` gives `0x100005F3`
 /// element type **1**, a 13x13 box at (284, 8)-(297, 21), the X in the frame's top-right corner.
-/// Read out of the live tree, not assumed. \[verified\]
+/// Read out of the live tree, not assumed.
 ///
 /// The hide is on the **window**, not on the button's parent chain: it is the floating
 /// examination window itself.
@@ -145,22 +145,22 @@ pub const CREATURE_STAT_LIST: ElementId = ElementId(0x1000_0149);
 pub mod portrait {
     use dereth_primitives::Vec3;
 
-    /// The light's direction, `(0.3, 1.9, 0.65)`, set by initialization. The same direction the paper doll uses. \[verified\]
+    /// The light's direction, `(0.3, 1.9, 0.65)`, set by initialization. The same direction the paper doll uses.
     pub const LIGHT_DIRECTION: (f32, f32, f32) = (0.3, 1.9, 0.65);
 
     /// The light's intensity, `2.0`.
-    /// \[verified\]
+    ///
     pub const LIGHT_INTENSITY: f32 = 2.0;
 
-    /// The light's type: `1`, which is `DISTANT_LIGHT`. \[verified\]
+    /// The light's type: `1`, which is `DISTANT_LIGHT`.
     pub const LIGHT_TYPE: u32 = 1;
 
     /// The heading the portrait clone is set to, `191.3679` degrees.
     /// The same three-quarter pose the paper doll takes, and the reason the creature is not seen
-    /// edge-on. \[verified\]
+    /// edge-on.
     pub const HEADING_DEGREES: f32 = 191.3679;
 
-    /// The camera-fit factor, `1.2071068`. \[verified\]
+    /// The camera-fit factor, `1.2071068`.
     ///
     /// It is `cot(22.5 deg) / 2`, and the viewport's field of view is
     /// `0.7853982` radians (45 degrees). So [`camera_position`] is the textbook "back off

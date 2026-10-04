@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(RETAIL_PALETTE_ENTRIES, 256 * 8);
     }
 
-    /// Contract 9.11: a `0x08` file has no id prefix, so the first dword is the surface type.
+    /// A `0x08` file has no id prefix, so the first dword is the surface type.
     #[test]
     fn a_surface_starts_with_its_type_not_an_id() {
         let mut buf = Vec::new();

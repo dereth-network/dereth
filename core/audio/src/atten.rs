@@ -54,7 +54,7 @@ pub const PAN_LIMIT: i32 = 15;
 ///    quadratic. ([`crate::trigger`] owns the caller half.)
 /// 4. [`Category::Interface`] multiplies by `effect_volume`, because the interface volume
 ///    has exactly one reference in the whole client, its own preference registration.
-///   
+///
 ///
 /// Retail computes `ln(a) · INV_LOG_OF_2 · 6.0206`, rounds that to `f64` *before* `ceil`, then
 /// truncates to an integer; this follows the same steps rather than approximating them.
@@ -157,10 +157,8 @@ mod tests {
         }
     }
 
-    /// The whole-metre sweep the track spec's acceptance gate names. The spec printed the sequence as
-    /// `0,0,0,0,0,-6,-10,-12`; the formula gives `0,0,0,0,0,-3,-5,-8,-10,-12` for d = 1..10 and the
-    /// spec is corrected in place. Oracle: the formula evaluated, and
-    /// section 5.2's table, which agrees at every distance it lists.
+    /// The whole-metre attenuation sweep gives `0,0,0,0,0,-3,-5,-8,-10,-12` for d = 1..10.
+    /// The expected values evaluate the attenuation formula independently.
     #[test]
     fn the_whole_metre_sweep_is_flat_to_5_then_12_db_per_doubling() {
         let p = Prefs::default();
@@ -195,7 +193,7 @@ mod tests {
     }
 
     /// The rounding direction is the shipped bug: `ceil` before truncation means the gain is
-    /// rounded **up**, towards louder. Oracle: contract 10.1, and the client's `ceil` immediately
+    /// rounded **up**, towards louder. Oracle: the client's `ceil` immediately
     /// before its float-to-int conversion.
     #[test]
     fn the_gain_is_rounded_up_never_down() {
@@ -259,7 +257,7 @@ mod tests {
         );
     }
 
-    /// Contract 10.2's "everything inside 5 m is centred", and the Mono override.
+    /// Everything inside 5 m is centred, and the Mono override.
     #[test]
     fn inside_five_metres_and_in_mono_the_pan_is_zero() {
         assert_eq!(pan(270.0, 0.0, 4.999, SoundFeatures::Stereo), 0);

@@ -1091,8 +1091,8 @@ mod imp {
         }
 
         // Oracle: the retail dat files. The surface is 0x0600378B, a 256x256 DXT1 landscape
-        // texture; the assertion is that it covers the whole back buffer, which is contract 11.1's
-        // four pixel rules measured rather than restated.
+        // texture; the assertion is that it covers the whole back buffer, exercising the four
+        // pixel rules together.
         #[test]
         #[cfg_attr(
             not(feature = "retail-dats"),

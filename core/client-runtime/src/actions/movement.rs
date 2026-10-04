@@ -169,7 +169,7 @@ pub struct CommandLists {
     /// `apply_current_movement` re-issues the heads. That is the whole of "the character starts
     /// running again after transitioning to combat stance".
     ///
-    /// **Declared deviation.** Retail initialises it
+    /// Retail initialises it
     /// to **1** when a new player is created, and every loss of keyboard focus re-loses it.
     /// This build starts it **false**, because it does not model that creation path.
     ///
@@ -1199,7 +1199,7 @@ mod tests {
             _ => None,
         };
 
-        // The owner's key. `WalkBackwards` is `0x45000006`: motion **and** substate, so
+        // `WalkBackwards` is `0x45000006`: motion **and** substate, so
         // `WhichList` puts it on the substate list and the add step's `if (list == &SubstateList)`
         // is taken. Retail's Backward press is a *new forward movement* in the interpreter's own
         // vocabulary, which is why it aborts the automatic attack.

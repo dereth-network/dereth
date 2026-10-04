@@ -175,7 +175,7 @@ mod tests {
     use super::*;
 
     /// Oracle: the client's block order starts at the viewer's block and the landscape draw walks
-    /// the list backwards, so the emitted order is outermost ring first and the viewer's block last. Contract 11.7.
+    /// the list backwards, so the emitted order is outermost ring first and the viewer's block last.
     #[test]
     fn blocks_draw_outermost_ring_first_and_the_viewer_block_last() {
         for mid_width in [3u32, 7, 11] {
@@ -215,7 +215,7 @@ mod tests {
         }
     }
 
-    /// Oracle: trap 4 — `draw_array` is filled backwards from the
+    /// Oracle: `draw_array` is filled backwards from the
     /// closest cell, so index 0 is the **farthest** and ascending iteration is far to near. This is
     /// the assertion that fails if someone "fixes" the fill direction.
     #[test]

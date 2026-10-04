@@ -166,7 +166,7 @@ fn a_walking_object_crosses_a_landblock_boundary_and_its_cell_id_follows() {
     );
 }
 
-/// Contract item 5.1. The `floor_z` constant is `cos(48.381 degrees)`, so a 45-degree ramp is
+/// The `floor_z` constant is `cos(48.381 degrees)`, so a 45-degree ramp is
 /// walkable and a 60-degree one is not — and the classification is what decides whether the
 /// object gets `ON_WALKABLE_TS`.
 #[test]
@@ -217,7 +217,7 @@ fn an_object_resting_on_a_walkable_ramp_reports_on_walkable() {
     );
 }
 
-/// Contract item 5.6: `get_velocity()` is `cached_velocity`, the **achieved** velocity, and it is
+/// `get_velocity()` is `cached_velocity`, the **achieved** velocity, and it is
 /// zero whenever the object was blocked.
 #[test]
 fn cached_velocity_is_the_achieved_velocity_not_the_requested_one() {
@@ -330,7 +330,7 @@ fn a_static_obstacle_is_detected_and_reported_as_an_environment_collision() {
     );
     assert!(
         saw_blocked_substep,
-        "a blocked sub-step must report zero achieved velocity (contract item 5.6)"
+        "a blocked sub-step must report zero achieved velocity"
     );
 }
 

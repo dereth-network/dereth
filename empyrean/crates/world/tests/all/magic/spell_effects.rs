@@ -1611,7 +1611,7 @@ fn portal_recall_without_a_link_sends_the_weenie_error() {
 /// `SpellFormula.Power` / `.Level` of a one-component formula against the client's
 /// `scarab_power_level` and `spell_level_by_rough_heuristic`, for every component id 0..=300.
 #[test]
-fn rule3_scarab_power_and_level_agree_with_dereth_client_model() {
+fn scarab_power_and_level_agree_with_dereth_client_model() {
     for c in 0..=300u32 {
         let f = SpellFormula {
             components: vec![c],
@@ -1631,7 +1631,7 @@ fn rule3_scarab_power_and_level_agree_with_dereth_client_model() {
 /// foci formula agrees with dereth client model.
 /// V380.
 #[test]
-fn rule3_foci_formula_agrees_with_dereth_client_model() {
+fn foci_formula_agrees_with_dereth_client_model() {
     let mut bad = Vec::new();
     for f in foci_sweep() {
         let ours = SpellFormula {
@@ -1655,7 +1655,7 @@ fn rule3_foci_formula_agrees_with_dereth_client_model() {
 
 /// The formulas where both rules must agree: a single scarab first, then non-scarab components.
 #[test]
-fn rule3_foci_formula_agrees_with_dere_game_for_single_scarab_formulas() {
+fn foci_formula_agrees_with_dereth_client_model_for_single_scarab_formulas() {
     for &s in &[1u32, 2, 3, 4, 5, 6, 110, 112, 192, 193] {
         let f = vec![s, 10, 20, 30, 40];
         let ours = SpellFormula {
@@ -1878,7 +1878,7 @@ mod real_content {
 
     /// foci formula on retail dats.
     #[test]
-    fn rule3_foci_formula_on_retail_dats() {
+    fn foci_formula_matches_single_scarab_spells_on_retail_dats() {
         let w = real_world();
         let (mut agree, mut differ, mut single_scarab_differ) = (0, 0, Vec::new());
         for (&id, base) in &w.dats.portal_dat().spell_table().spells {
@@ -1904,7 +1904,7 @@ mod real_content {
                 }
             }
         }
-        eprintln!("rule3 foci on retail: {agree} agree, {differ} differ");
+        eprintln!("foci formula on retail: {agree} agree, {differ} differ");
         assert!(agree > 0);
         assert!(
             single_scarab_differ.is_empty(),

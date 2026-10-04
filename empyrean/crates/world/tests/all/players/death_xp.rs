@@ -1611,7 +1611,7 @@ fn a_players_stance_mod_follows_its_current_movement_data() {
 /// same function there; the ACE port keeps its `double` result because the vectors pin it. (A
 /// negative DeathLevel, which no death records, would differ: the client takes the level unsigned.)
 #[test]
-fn rule3_vitae_cp_pool_threshold_agrees_with_dereth_rules() {
+fn vitae_cp_pool_threshold_agrees_with_dereth_rules() {
     let mut bad = Vec::new();
     for step in 0..=60u8 {
         let vitae = 1.0f32 - f32::from(step) * 0.01;

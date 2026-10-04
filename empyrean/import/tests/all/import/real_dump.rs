@@ -26,7 +26,8 @@ struct Built {
 fn built() -> &'static Built {
     static CELL: OnceLock<Built> = OnceLock::new();
     CELL.get_or_init(|| {
-        let dir = std::env::temp_dir().join(format!("serv-content-real-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("empyrean-content-real-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let pack = dir.join("world.pack");
         let t0 = std::time::Instant::now();

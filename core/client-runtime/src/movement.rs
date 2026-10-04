@@ -394,7 +394,7 @@ pub fn apply_player_movement<S: AsObjectSim>(
 /// resolving them is `MotionCommand::from_index`'s job. **Retail does not check the index**:
 /// `command_ids[index]` is a bare array read at six sites (one here plus five in
 /// interpreted-state unpacking), so an index of 412 or more reads past the table. This
-/// build drops such a buffer's word instead, which is a declared deviation and cannot fire
+/// build drops such a buffer's word instead, which cannot fire
 /// against anything the corpus contains: over the seven captures the s2c `0xF74C` stream
 /// performs **5,286** index resolutions and the largest index in any of them is **339**.
 ///

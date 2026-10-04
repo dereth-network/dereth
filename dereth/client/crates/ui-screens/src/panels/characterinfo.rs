@@ -1,7 +1,6 @@
 //! `CharacterInfoPanel` — the panel the **burden** lamp opens.
 //!
-//! Recovered HUD, toolbar, and panel behavior establish the element
-//! type `0x1000001A`, instance `0x10000183`, one child: the info text `0x1000011D`, a
+//! The panel has element type `0x1000001A`, instance `0x10000183`, one child: the info text `0x1000011D`, a
 //! `TextElement` [measured on the shipped layout].
 //!
 //! **It is not a burden panel.** The burden lamp opens the character info panel, which is where
@@ -114,10 +113,10 @@
 //!
 //! # The strings, all from table enum `0x10000001` (`0x23000001`)
 //!
-//! Read out of the shipped dats [verified against the shipped string table]; each is stored as the
+//! Read out of the shipped dats; each is stored as the
 //! literal pieces around its variables, so a line is `pieces[0] + v0 + pieces[1] + v1 + …`.
 //!
-//! **One reading is measured, not inferred.** `ID_CharacterInfo_Resists` has **four**
+//! `ID_CharacterInfo_Resists` has **four**
 //! literal pieces — *"Natural Resistances: "*, *"\nDrain Resistances: "*, *"\nRegeneration Bonus:
 //! "*, *"\n"* — i.e. three variable slots, and the endurance section supplies exactly **two**
 //! string variables, so one variable has to fill two slots. The row's own variable list reads

@@ -18,7 +18,7 @@
 //! Non-compressed sources get **one** level here and rely on `D3DUSAGE_AUTOGENMIPMAP` for the
 //! video-memory copy. The client's one-level system-memory policy does
 //! NOT forbid runtime mips for expanded indexed world textures. The D3D12 image-texture upload generates
-//! that separate chain on the device; it does not use the unverified CPU BOX rounding below.
+//! that separate chain on the device; it does not use the CPU BOX rounding below.
 
 use dereth_primitives::{TextureData, TextureFormat};
 
@@ -32,7 +32,7 @@ pub const MAX_MIP_LEVELS: u32 = 4;
 
 /// The per-channel tolerance the mip parity harness allows against a 2003-era D3DX 9.0 build.
 ///
-/// UNVERIFIED: the exact per-format rounding constants in D3DX's
+/// the exact per-format rounding constants in D3DX's
 /// `BltBox2D_*` were not transcribed, so whether the reference rounds half up, half to even, or
 /// through a float multiply-add is not settled. The value here is deliberately a *named constant*
 /// rather than a hand-tuned number: do **not** hand-tune it until a reference fixture exists.
@@ -167,7 +167,7 @@ pub const fn mirror(coord: i64, extent: u32) -> u32 {
 /// One box-filter halving step over BGRA8 with mirror edge handling.
 ///
 /// The 2×2 average is `(a + b + c + d + 2) / 4`, i.e. the mean rounded half up. See
-/// [`MAX_MIP_CHANNEL_DELTA`] for why that specific rounding is marked unverified.
+/// [`MAX_MIP_CHANNEL_DELTA`] for the allowed difference from device-generated pixels.
 ///
 /// # Errors
 /// Returns [`RenderError::ShortSourceData`] when `src` is smaller than `width * height * 4`.
@@ -325,7 +325,7 @@ mod tests {
     //   levels = 1
     //   if (max(w,h) > 1) { levels = 1 + floor(log2(max(w,h))); if (levels > 4) levels = 4 }
     //   if (!(compressed)) levels = 1
-    // Contract 11.10 and spec trap 6.
+    // Compressed sources retain their authored mip chain.
     #[test]
     fn the_level_count_is_capped_at_four_and_only_for_compressed_sources() {
         // Compressed sources: 1 + floor(log2(max)), capped at 4.
@@ -344,7 +344,7 @@ mod tests {
         // A non-power-of-two extent uses floor(log2()): 1 + floor(log2(5)) = 3.
         assert_eq!(level_count(5, 3, true), 3);
 
-        // Non-compressed sources get exactly one level, whatever their size. This is trap 6: adding
+        // Non-compressed sources get exactly one level, whatever their size. Adding
         // mips to the 16-bit indexed world textures is a deviation, not an improvement.
         for (w, h) in [(1u32, 1u32), (8, 8), (256, 256), (1024, 1024)] {
             assert_eq!(level_count(w, h, false), 1, "{w}x{h}");
@@ -423,9 +423,8 @@ mod tests {
         assert_eq!(out[0], 50);
     }
 
-    // Oracle: the rounding half of the same filter. Documented here as the *claim* that D3DX rounds
-    // the mean half up; UNVERIFIED under open question #187, which is why MAX_MIP_CHANNEL_DELTA
-    // exists and is named rather than inlined.
+    // The CPU filter rounds the mean half up. MAX_MIP_CHANNEL_DELTA bounds the allowed
+    // difference from device-generated pixels.
     #[test]
     fn the_mean_is_rounded_half_up() {
         // Four texels summing to 2 -> mean 0.5 -> 1 under round-half-up, 0 under truncation.
@@ -444,7 +443,7 @@ mod tests {
     }
 
     // Oracle: the policy above, applied end to end. A non-compressed source gets one level, which
-    // is the whole of trap 6.
+    // is the compressed-source level policy.
     #[test]
     fn a_non_compressed_source_gets_exactly_one_level() {
         let t = TextureData {

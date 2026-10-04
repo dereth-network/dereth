@@ -1,7 +1,7 @@
 //! `LongHash<T>` and its by-value twin — the fixed-size intrusive table whose iteration order is
 //! observable.
 //!
-//! Contract item 7.3. Hash `((k >> 8) ^ k) & mask`, a **fixed** per-instance table size, insertion
+//! Hash `((k >> 8) ^ k) & mask`, a **fixed** per-instance table size, insertion
 //! at the **front** of the bucket chain, iteration ascending by bucket then along the chain. A
 //! `HashMap` that rehashes changes the order the moment it grows, and the order decides which of
 //! two simultaneous collisions is reported first.
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn the_order_is_not_sorted_and_not_insertion_order() {
-        // This is the property that makes contract 7.3 worth writing down: a HashMap or a Vec
+        // The iteration order is observable: a HashMap or a Vec
         // would give a different answer, and the difference is observable.
         let mut t: LongHash<u32> = LongHash::object_table();
         let keys: Vec<u32> = (0..64_u32).map(|i| 0x8000_0000 + i * 0x101).collect();

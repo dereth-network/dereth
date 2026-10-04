@@ -1239,7 +1239,7 @@ fn room_response(blob: &[u8]) -> u32 {
 }
 
 #[test]
-fn turbine_blob_matches_dere_protos_request_encoding() {
+fn turbine_blob_matches_dereth_protocols_request_encoding() {
     assert_eq!(general(7, "hello"), turbine_blob(3, 2, 7, 2, "hello", A, 2));
 }
 

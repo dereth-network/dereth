@@ -1210,7 +1210,7 @@ impl UiSystem {
     ///
     /// The colour-picker test is the element's type-cast query for type `0x10`: the colour picker
     /// answers itself for that id and null otherwise, and the base answers null for every id.
-    /// `0x10` is [`factory::ty::COLOR_PICKER`]. \[verified\]
+    /// `0x10` is [`factory::ty::COLOR_PICKER`].
     #[must_use]
     pub fn current_ui_object_mode(&self, h: ElemHandle) -> props::UiObjectMode {
         let mut cur = h;
@@ -1253,7 +1253,7 @@ impl UiSystem {
     /// shipped mode-0 sites, and the reason those roots own no UI surface. The re-read is not a
     /// belt-and-braces duplicate of `on_set_attribute`'s write: the two run in either order
     /// depending on whether the element is a root, and this one is what makes them agree.
-    /// \[verified\]
+    ///
     pub fn set_should_own_object(&mut self, h: ElemHandle, should: bool) {
         let authored = self
             .node(h)
@@ -2247,7 +2247,7 @@ impl UiSystem {
     /// The four messages the base handles itself,
     /// and only when the message's source element is itself.
     ///
-    /// The state ids are inferred; see [`element::state`].
+    /// The state ids are defined in [`element::state`].
     fn base_listen_to_element_message(
         &mut self,
         at: ElemHandle,
@@ -2281,13 +2281,10 @@ impl UiSystem {
                 self.set_state(at, element::state::NORMAL);
             }
         } else if m.id == id::VISIBILITY_TOGGLE {
-            // **`1` is toggle, `2` is show, `3` is hide** — verified
-            // against retail's own element message handler: it reads enum
-            // `0x58`; 1 sets visibility to the inverse of the current visible flag, 2 shows, 3
-            // hides.
+            // Enum `0x58` uses 1 to invert current visibility, 2 to show and 3 to hide.
             //
             // The toggle reads the region's current visible flag. A value that is not 1, 2 or 3
-            // falls out and does nothing. [verified]
+            // falls out and does nothing.
             //
             // **Why it matters, measured rather than argued.** All **41** element descriptions in
             // the 101 shipped layouts that carry `0x57` also carry `0x58`, and every one of the 41

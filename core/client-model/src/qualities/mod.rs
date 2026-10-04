@@ -5,7 +5,7 @@
 //!
 //! **The client ships no property-id → name table.** The stat-id enum map compiles to nothing but
 //! empty static-initialiser thunks and none of the 40 shipped `ENUM_MAPPER` dat files carries stat
-//! names. Everything here is keyed by the bare number; the names in comments are `[external]`, from
+//! names. Everything here is keyed by the bare number; the names in comments come from
 //! ACE. Never make a code path depend on one.
 
 mod read;

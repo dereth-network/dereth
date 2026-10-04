@@ -71,7 +71,7 @@ pub struct RequestLock {
     /// Not even the plugin API reads it: every access to either half is a store, and nothing
     /// reads it by any route. There is no reader to rebuild for. Kept so
     /// that the three variables are three variables, and so that nothing is tempted to time out on
-    /// it. `\[verified\]`
+    /// it.
     pub at: ServerTime,
 }
 
@@ -99,7 +99,7 @@ impl RequestLock {
     ///   look up the requested world object by id
     /// ```
     ///
-    /// `\[verified\]` — both the lock side and the arm end to end are covered by tests.
+    /// Both the lock side and the arm end to end are covered by tests.
     ///
     /// The test is a zero test on the **id**, so a lock recorded against `ObjectId(0)` is not
     /// a lock for this purpose; [`RequestLock::clear`] stores `None`, which is the same state.

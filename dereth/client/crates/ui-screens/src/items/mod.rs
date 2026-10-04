@@ -169,7 +169,7 @@ pub const LIST_ITEM_ACTIVATED: MessageId = MessageId(0x43);
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered toolbar and panel behavior's attribute and notice lists for
+    /// Oracle: the toolbar and panel behavior's attribute and notice lists for
     /// `ItemListWidget`.
     #[test]
     fn the_item_list_reads_the_documented_attributes_and_notices() {
@@ -184,8 +184,8 @@ mod tests {
         assert_eq!(ui_item::BURDEN_METER_ATTR, crate::bind::attr::METER_LEVEL);
     }
 
-    /// Oracle: trap 2 and the recovered inventory behavior — "an inventory move
-    /// ghosts the icon (waiting state 1) and waits for `Item_ServerSaysMoveItem`".
+    /// An inventory move
+    /// ghosts the icon (waiting state 1) and waits for `Item_ServerSaysMoveItem`.
     ///
     /// The assertion is what the list did **not** do: the item is still in its old slot.
     #[test]
@@ -231,9 +231,9 @@ mod tests {
         assert!(!a.slots[1].waiting);
     }
 
-    /// Oracle: trap 3 / [contract 12.12] — "The inventory request lock has no timeout … a lost
+    /// The inventory request lock has no timeout: a lost
     /// server reply wedges the inventory UI until an unrelated server move-item notice arrives. Do
-    /// not add a spinner-with-timeout; reproduce the wedge."
+    /// not add a spinner-with-timeout.
     #[test]
     fn a_second_move_is_refused_and_the_wedge_only_clears_on_a_server_reply() {
         let mut lock = RequestLock::default();
@@ -259,7 +259,7 @@ mod tests {
         assert!(a.request_move(&mut lock, 1, DropTarget::World).is_ok());
     }
 
-    /// Oracle: §4 — a drag from an empty slot has nothing to move.
+    /// a drag from an empty slot has nothing to move.
     #[test]
     fn an_empty_slot_has_nothing_to_drag_and_does_not_take_the_lock() {
         let mut lock = RequestLock::default();

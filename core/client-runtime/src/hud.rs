@@ -166,7 +166,7 @@ pub const CHARACTER_NAME: u32 = 1;
 /// the character-info read-out cannot be told apart, but the appraisal path makes the same
 /// call and assigns int quality `0x71` to gender and `0xBC` to heritage just before
 /// asking for the gender/heritage display text from gender, heritage and creature type. The
-/// property table agrees (rows 113 and 188). \[verified\]
+/// property table agrees (rows 113 and 188).
 pub const GENDER: u32 = 0x71;
 
 /// `PropertyInt` **188 `HeritageGroup`** — the same function's int quality `0xBC`.
@@ -179,54 +179,26 @@ pub const AVAILABLE_LUMINANCE: u32 = 6;
 /// whose being zero closes the whole luminance arm.
 pub const MAXIMUM_LUMINANCE: u32 = 7;
 
-/// The gender display lookup reads this `EnumMapper` as table enum `0x10000001`.
-///
-/// The enum is resolved to a `DataID` by a two-level mapping-table walk. This build has no cached
-/// resolver for that lookup, so the resolved id is what crosses the seam —
-/// the same shortcut `panels::statmgmt::STRING_TABLE` and `screens::chargen::ERROR_STRING_TABLE`
-/// take. [verified by decoding every `0x22xxxxxx` in the retail dats: `0x2200000A` is
-/// the only one whose rows are `{0 Invalid, 1 Male, 2 Female}`]
+/// The gender display lookup reads this mapper as table enum `0x10000001`.
+/// Its rows are `Invalid`, `Male`, and `Female`.
 pub const GENDER_ENUM_MAPPER: DataId = DataId(0x2200_000A);
 
-/// The heritage-group display lookup reads this `EnumMapper` as table enum `0x10000002`.
-/// [verified the same way: `0x2200000B`'s fourteen rows are `Invalid, Aluvian, Gharundim, Sho,
-/// Viamontian, Shadowbound, Gearknight, Tumerok, Lugian, Empyrean, Penumbraen, Undead, Olthoi,
-/// OlthoiAcid`]
+/// The heritage-group display lookup reads this mapper as table enum `0x10000002`.
 pub const HERITAGE_ENUM_MAPPER: DataId = DataId(0x2200_000B);
 
-/// The `EnumMapper` selected by table enum `0x10000005`, used for the identify panel's
-/// creature-type line.
-///
-/// [verified by decoding every `0x22xxxxxx` in the retail dats: `0x2200000E` is the
-/// only mapper whose rows are the `CreatureType` names, 102 of them, and its row 13 is `Golem` —
-/// which is what a retail screenshot shows for the Sparring Golem.]
+/// The creature-type mapper selected by table enum `0x10000005` for appraisal.
 pub const CREATURE_TYPE_ENUM_MAPPER: DataId = DataId(0x2200_000E);
 
-/// The character-title lookup reads this `EnumMapper` as table enum `0x10000006` — 873 rows of
-/// `ID_CharacterTitle_*` **tokens**, not display strings.
-/// [verified: `0x22000041` is the only mapper carrying them]
+/// The character-title mapper selected by table enum `0x10000006`.
+/// Its rows contain tokens to hash into the title string table.
 pub const TITLE_ENUM_MAPPER: DataId = DataId(0x2200_0041);
 
-/// The `StringTable` those tokens are then hashed into, table enum `0x10000007`.
-///
-/// The title lookup hashes the token (`dereth_primitives::num::hash::str_hash`) and
-/// resolves the string with `(hash, 0x10000007)`. [verified by hashing
-/// `ID_CharacterTitle_Adventurer` with `dereth_primitives::num::hash::str_hash` and probing all fifteen
-/// `0x23xxxxxx` tables in the retail dats: only `0x2300000E` answers it, with `"Adventurer"`, and
-/// it has exactly the mapper's 873 rows]
+/// The title string table selected by table enum `0x10000007`.
 pub const TITLE_STRING_TABLE: DataId = DataId(0x2300_000E);
 
-/// The `DualDidMapper` that supplies the `MaterialType` display names read by salvage reports.
+/// The material-name mapper used by salvage reports.
 /// Names replace underscores with spaces before display.
-///
-/// **`dereth_assets::tables::did_by_enum(assets, 1, 0x10000001)` is NOT this path, and answering it
-/// that way is a trap.** `DB_TYPE 0x28` is `DualDidMapper`; the two-level walk with group 1 and
-/// value `0x10000001` resolves to `0x2200000A`, which is the **gender** mapper
-/// ([`GENDER_ENUM_MAPPER`]) -- the enum-to-DID lookup does not see the database type at all,
-/// only the object fetch does. [verified by decoding
-/// every `0x22xxxxxx`, `0x25xxxxxx` and `0x27xxxxxx` mapper in the retail dats -- 67 mappers -- and
-/// finding exactly one carrying `Iron`, `Copper` and `Gold`: `0x27000000`, 78 rows, row 1 `Ceramic`
-/// (which is ACE's `MaterialType.Ceramic = 1`) and row 0x10 `Black_Opal`.]
+/// This is a dual mapper; the group-1 enum lookup instead selects the gender mapper.
 pub const MATERIAL_TYPE_NAMES: DataId = DataId(0x2700_0000);
 
 /// Resolves one material name without imposing either caller's miss behavior. A missing mapper or
@@ -1224,7 +1196,7 @@ pub struct Hud {
     /// **The no-drop-kick clamp is not reproduced**: the connection-status query caps its answer at
     /// 15.0 s while that flag is set, and nothing in this rebuild models the no-drop kick. It is
     /// only observable between 15 s and 40 s of silence, where the lamp would show "poor" instead
-    /// of "lost". `// UNVERIFIED:`
+    /// of "lost".
     pub link_status: Option<f64>,
 
     // ---- the paper doll ------------------------------------------------------------------------
@@ -1366,7 +1338,7 @@ pub struct Hud {
     /// `None` until the first garbled line, then seeded from [`crate::audio::ran2_seed`] — which
     /// is `(long)time(NULL)`, the same value seeds the random generator.
     ///
-    /// **A declared deviation, and a small one.** Retail has **one** random generator for the whole
+    /// Retail has **one** random generator for the whole
     /// process, shared with ambient-sound timing and character generation, so the exact phrase a
     /// garbled line draws depends on every other draw the session has made. This build has no
     /// such singleton (`dereth_primitives::num::rng` exists precisely so the two generators are never merged),
@@ -2546,18 +2518,10 @@ impl Hud {
     // `last_teller_name` are transcribed from the last-teller id and name setters. Everything
     // below is the producer.
     //
-    // **Not done here:** the `@tell` and `@reply` *verbs*
-    // reach `CommandOutcome::Handled` and are dropped without a packet, a message or an
-    // error — so an expanded `@tell <name>, hi` composes correctly and then evaporates on Enter.
-    // Those are the direct-talk, reply, and retell commands and their
-    // talk-direct-by-name (`0x005D`) and talk-direct
-    // (`0x0032`) messages, and they belong in `dereth/client/src/interaction.rs` and
-    // `dereth_client_model::Request`.
-
     /// The clickable-player id range. The `Communication_HearDirectSpeech` handler and the
     /// ranged-talk handler both spell it `0x50000000 < id && id < 0x70000000`, so
     /// it is **exclusive at both ends** and this constant pair is written that way rather than as
-    /// a tidier inclusive range. \[verified\]
+    /// a tidier inclusive range.
     ///
     /// **This is the whole misdirection guard.** Of the **126** `0x02BD` tells in the capture
     /// corpus, **126** are from ids outside it — `Sparring Golem` at `0x8000_0DE9`,
@@ -2583,7 +2547,7 @@ impl Hud {
     /// The name is the one the `^`/`&` meta-language trim has already run over — the client
     /// searches the **sender name** for `^` (Olthoi) then `&`, and passes the trailing-trimmed
     /// buffer to the last-teller-name setter. Reproduced because a marker left on would compose
-    /// `@tell Bob^,`; `[inferred]`, since the exact string handling is not directly observable,
+    /// `@tell Bob^,`; the exact string handling is not directly observable,
     /// and **unexercised by the corpus**: none of the 126 names carries either marker.
     fn note_last_teller(
         &mut self,
@@ -5176,7 +5140,7 @@ pub mod bool_property {
 /// remembering the sender name. The accompanying flag chooses Olthoi or human replacement text
 /// for a listener who cannot understand the speaker.
 ///
-/// `[inferred]` — the exact parameter shape is not directly observable, so it is inferred from how
+/// The exact parameter shape is not directly observable, so it is inferred from how
 /// the name and id are used. It is reproduced
 /// because a marker left on the name composes `@tell Bob^,`, a tell to a character that does not
 /// exist. **No name in the 126-tell corpus carries either marker**, so this line is not exercised
@@ -5952,8 +5916,7 @@ impl GameView for HudView<'_> {
     /// `0x0013` at all (`login-account-booted` and `ddd-interrogation-only` are login-only), **1**
     /// of those 5 carries an `EnchantmentRegistry`, and **0** carry a vitae — with 31 enchantment
     /// messages in the `0x02Cx` range in the corpus, none of which installs one.
-    /// So the lit branch is asserted against retail's vitae rule and is
-    /// `[verified against retail]` rather than `[verified against traffic]`.
+    /// The lit branch is asserted against the vitae rule separately from these captures.
     fn vitae(&self) -> Option<f32> {
         Some(self.player_desc()?.enchantments.vitae_value())
     }
@@ -6578,7 +6541,7 @@ impl GameView for HudView<'_> {
     /// **Three heritages are hard-coded literals and do not come from the mapper.**
     /// The heritage display-name lookup answers `2` with `"Gharu'ndim"`, `5` with
     /// `"Umbraen"` and `0xD` with `"Olthoi"` before it ever reaches the mapper, whose
-    /// own rows for those three are `Gharundim`, `Shadowbound` and `OlthoiAcid`. \[verified\]
+    /// own rows for those three are `Gharundim`, `Shadowbound` and `OlthoiAcid`.
     fn gender_heritage_display(&self) -> Option<String> {
         let q = self.player_desc()?;
         let gender = u32::try_from(q.inq_int(GENDER)).unwrap_or(0);
@@ -6707,7 +6670,7 @@ impl GameView for HudView<'_> {
     ///
     /// **Throne of Destiny is assumed present.** There is no account-entitlement counterpart here;
     /// every retail account after 2005 has it, and the two behaviors it gates
-    /// are only reachable above 2³² total experience or at exactly level 126. `// UNVERIFIED:`
+    /// are only reachable above 2³² total experience or at exactly level 126.
     /// stated rather than silently defaulted.
     fn experience_header(&self) -> Option<dereth_client_contract::statmgmt::XpHeader> {
         let q = self.player_desc()?;
@@ -8231,7 +8194,7 @@ impl GameView for HudView<'_> {
     /// The snapshot remains useful for inspecting retail state and polling height/the notch;
     /// neither display polls its level. `deliver_power_bar_notices` delivers the ordered
     /// Begin/SetLevel/Finish journal, so a hide/restart cannot erase an intermediate zero.
-    /// **Declared deviation: deferred until the UI frame**, because `App::ui_use_time` runs
+    /// **Deferred until the UI frame**, because `App::ui_use_time` runs
     /// before `App::interaction_use_time`.
     ///
     /// One further deviation is load-bearing here and is stated rather than relied on silently:

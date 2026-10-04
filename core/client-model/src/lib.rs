@@ -420,7 +420,7 @@ pub enum Request {
     /// Broadcast a line to a channel — 0x0147.
     ///
     /// The chat-command handler's cases 3–6, whose channel constants are literals:
-    /// 3 → `0x800`, 4 → `0x2000`, 5 → `0x4000`, 6 → `0x1000`. \[verified\]
+    /// 3 → `0x800`, 4 → `0x2000`, 5 → `0x4000`, 6 → `0x1000`.
     ChannelBroadcast(dereth_protocol::comms::CommunicationChannelBroadcast),
     /// `Combat_ChangeCombatMode` — 0x0053.
     ChangeCombatMode(dereth_protocol::combat::CombatChangeCombatMode),

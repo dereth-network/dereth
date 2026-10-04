@@ -36,7 +36,7 @@ struct Scratch {
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("p4_1a_{name}"));
+        let dir = std::env::temp_dir().join(format!("dereth_dat_insert_{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a scratch directory");
         Self {
@@ -177,7 +177,7 @@ fn the_writer_refuses_to_open_an_owner_dat() {
 #[test]
 fn a_created_container_opens_with_the_ordinary_reader() {
     let s = Scratch::new("created");
-    let dat = s.path("p4_1a_minimal.dat");
+    let dat = s.path("dereth_dat_insert_minimal.dat");
 
     {
         let mut w = DatWriter::create(&dat, 0x400, 1, 0, 64 * 1024).expect("create");
@@ -297,7 +297,7 @@ fn replacing_a_record_with_a_longer_and_a_shorter_one_round_trips() {
 #[test]
 fn a_freed_chain_goes_to_the_tail_and_is_reused_last() {
     let s = Scratch::new("free_list_order");
-    let dat = s.path("p4_1a_reuse.dat");
+    let dat = s.path("dereth_dat_insert_reuse.dat");
     let id = DataId(0x4300_0001);
 
     let mut w = DatWriter::create(&dat, 0x400, 1, 0, 0x400 + 100 * 0x400).expect("create");
@@ -376,7 +376,7 @@ fn a_freed_chain_goes_to_the_tail_and_is_reused_last() {
 #[test]
 fn the_file_grows_by_a_megabyte_when_check_room_says_so() {
     let s = Scratch::new("expand");
-    let dat = s.path("p4_1a_expand.dat");
+    let dat = s.path("dereth_dat_insert_expand.dat");
     // 40 blocks is below the room check's 0x33 reserve, so the very first save has to expand.
     let mut w = DatWriter::create(&dat, 0x400, 1, 0, 0x400 + 40 * 0x400).expect("create");
     let size_before = w.header().file_size;
@@ -511,7 +511,7 @@ fn the_header_changes_only_in_the_dwords_native_changes() {
 #[test]
 fn the_root_splits_on_the_sixty_second_entry_thirty_one_thirty() {
     let s = Scratch::new("btree_split");
-    let dat = s.path("p4_1a_split.dat");
+    let dat = s.path("dereth_dat_insert_split.dat");
     let mut w = DatWriter::create(&dat, 0x400, 1, 0, 0x400 + 4096 * 0x400).expect("create");
 
     let ids: Vec<DataId> = (0..61).map(|k| DataId(0x5000_0000 + k * 0x10)).collect();
@@ -597,7 +597,7 @@ fn the_root_splits_on_the_sixty_second_entry_thirty_one_thirty() {
 #[test]
 fn a_thousand_entries_keep_the_tree_sound_at_every_depth() {
     let s = Scratch::new("btree_deep");
-    let dat = s.path("p4_1a_deep.dat");
+    let dat = s.path("dereth_dat_insert_deep.dat");
     let mut w = DatWriter::create(&dat, 0x400, 1, 0, 0x400 + 8192 * 0x400).expect("create");
 
     // A shuffle with no dependencies: a multiplicative step coprime with the modulus.
@@ -692,7 +692,7 @@ fn adding_an_iteration_rewrites_0xffff0001_as_one_run() {
 #[test]
 fn an_older_iteration_is_refused_and_the_stored_record_is_untouched() {
     let s = Scratch::new("older_iteration");
-    let dat = s.path("p4_1a_iter.dat");
+    let dat = s.path("dereth_dat_insert_iter.dat");
     let id = DataId(0x4700_0001);
     let new = payload(0x60, 300);
     let older = payload(0x61, 300);
@@ -733,7 +733,7 @@ fn an_older_iteration_is_refused_and_the_stored_record_is_untouched() {
 #[test]
 fn a_record_native_would_refuse_or_mis_store_is_refused_here_too() {
     let s = Scratch::new("refusals");
-    let dat = s.path("p4_1a_refuse.dat");
+    let dat = s.path("dereth_dat_insert_refuse.dat");
     let mut w = DatWriter::create(&dat, 0x400, 1, 0, 0x400 + 100 * 0x400).expect("create");
 
     let err = w
@@ -960,7 +960,7 @@ fn a_pending_transaction_record_stops_the_writer_rather_than_being_ignored() {
 #[test]
 fn a_cell_sized_container_splits_correctly_with_seven_block_nodes() {
     let s = Scratch::new("cell_blocks");
-    let dat = s.path("p4_1a_cell.dat");
+    let dat = s.path("dereth_dat_insert_cell.dat");
     let mut w = DatWriter::create(&dat, 0x100, 2, 1, 0x400 + 4000 * 0x100).expect("create");
     assert_eq!(w.header().block_size, 0x100);
     // 0x6B4 bytes at 252 payload bytes per block is seven blocks, taken off the head at 0x400.

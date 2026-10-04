@@ -230,8 +230,7 @@ pub enum CallbackLoseFocusResult {
 
 /// The element states the base transitions between.
 ///
-/// **Inferred**: the layout tool's state enum has not been recovered, and
-/// these meanings come only from the transitions the base performs.
+/// The names describe the transitions performed by this implementation.
 pub mod state {
     use crate::StateId;
     /// 0 — normal.
@@ -344,7 +343,7 @@ pub trait Element: std::fmt::Debug {
     ///
     /// `child` is the element that **raised** the action, not the immediate child of this one:
     /// the base child-action handler passes the same `(child, event)` pair straight on to its
-    /// parent, so it travels the whole chain unchanged. [verified against retail]
+    /// parent, so it travels the whole chain unchanged.
     fn on_child_action(
         &mut self,
         _ctx: &mut ElemCtx<'_>,

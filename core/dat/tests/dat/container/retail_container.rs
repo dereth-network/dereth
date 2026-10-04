@@ -291,7 +291,7 @@ fn every_typed_id_matches_its_source_directory() {
 /// A `DatFile` that is not a dat must fail cleanly, not panic.
 #[test]
 fn a_non_dat_file_fails_with_bad_magic() {
-    let dir = std::env::temp_dir().join("dere_dat_bad_magic_test");
+    let dir = std::env::temp_dir().join("dereth_dat_bad_magic_test");
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join("not_a_dat.bin");
     std::fs::write(&p, vec![0u8; 0x400]).unwrap();

@@ -1955,7 +1955,7 @@ impl Decode for DualDidMapper {
 mod tests {
     use super::*;
 
-    /// Contract 9.14: the nibble swap, and nothing but the nibble swap.
+    /// The nibble swap, and nothing but the nibble swap.
     ///
     /// Oracle: an independent reader of the shipped dats, which de-obfuscates the same strings.
     #[test]

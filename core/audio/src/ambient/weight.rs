@@ -155,8 +155,7 @@ mod tests {
     }
 
     /// The 53.13/36.87 split. `ay/ax > 2` is `atan(2) = 63.43` degrees from the x axis, so the
-    /// north sector spans 90 +/- 26.57 = 53.13 degrees wide. Oracle: section 4.5's note and
-    /// contract 10.5.
+    /// north sector spans 90 +/- 26.57 = 53.13 degrees wide.
     #[test]
     fn the_direction_sectors_are_53_and_37_degrees_not_45() {
         let at = |deg: f32| {

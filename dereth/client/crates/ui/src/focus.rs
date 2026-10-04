@@ -718,7 +718,6 @@ impl UiSystem {
     /// focus descendant is not one of them. Its only
     /// writers are take-focus and relinquish-focus, both of which write it on the **root element
     /// alone** and store the focused element **itself**, not the intermediate child on the path.
-    /// \[verified\]
     ///
     /// The difference is exactly what [`Self::activate`]'s tail reads, so an ancestor walk would
     /// hand a window's activation the wrong element — its own immediate child rather than
@@ -744,16 +743,15 @@ impl UiSystem {
     /// only when the root is active, and always records this element as the root's focus
     /// descendant.
     ///
-    /// \[verified\] Two things follow, and this build implements one of them.
+    /// Two things follow, and this build implements one of them.
     ///
     /// * **Implemented: the record is on the root and it is `this`.** A window remembers which
     ///   descendant wanted the caret whether or not it got it, which is what makes
     ///   [`Self::activate`]'s "set the focus element to the focus descendant" tail meaningful.
     /// * **Not implemented, deliberately: the is-active gate on the root.** Retail moves the
     ///   manager's focus only when the window is already active, and returns `false` when it is
-    ///   not. Activate-on-show runs on actual visibility edges, but the activation of roots that
-    ///   are visible from construction is not verified. The gate remains a **declared deviation**
-    ///   until the initial programmatic take-focus callers (char-gen and chat entry) are verified.
+    ///   not. This implementation also allows programmatic focus on roots visible from construction,
+    ///   including character creation and chat entry. Activate-on-show still runs on visibility edges.
     pub fn take_focus(&mut self, h: ElemHandle) {
         let Some(root) = self.root_of(h) else { return };
         if let Some(n) = self.node_mut(h) {
@@ -783,7 +781,7 @@ impl UiSystem {
     /// The first two statements are the ones that outlive the call:
     /// clearing the root's focus descendant and clearing the wants-focus flag (`0x400000`), both
     /// **unconditional** — they run even when this element is not the one the manager is holding,
-    /// which is how a window forgets a wish that was never granted. \[verified\]
+    /// which is how a window forgets a wish that was never granted.
     pub fn relinquish_focus(&mut self, h: ElemHandle) {
         let Some(root) = self.root_of(h) else { return };
         if let Some(n) = self.node_mut(root) {
@@ -824,7 +822,7 @@ impl UiSystem {
     /// brings it to the front. On the inactive-to-active edge it also broadcasts `0x29` and
     /// restores the root's remembered focus descendant.
     ///
-    /// \[verified\] Three parts are easy to miss:
+    /// Three parts are easy to miss:
     ///
     /// * **the root-element gate.** Activating anything that is not a root element **forwards
     ///   to its root**, so activating a button activates the window it lives in. Bit 21 is
@@ -914,7 +912,7 @@ impl UiSystem {
     /// alert. Only an active-to-inactive edge broadcasts `0x2A`; a remembered focus descendant
     /// then causes the manager focus to be cleared.
     ///
-    /// \[verified\] The `0x2A` is not unconditional: otherwise an element that was never active
+    /// The `0x2A` is not unconditional: otherwise an element that was never active
     /// would raise a deactivation. And the tail's focus clear is guarded by
     /// **the focus descendant**, not by the manager's focus — a window with no remembered descendant
     /// does not clear the manager's focus on its way out, which is the asymmetry with `activate`.
@@ -959,7 +957,7 @@ impl UiSystem {
     /// early without an input manager, asks the parent to register at one lower priority, and
     /// then registers this element's nonzero input map at the requested priority.
     ///
-    /// \[verified\] So: **the parent's maps go in first, one priority lower, and each generation
+    /// So: **the parent's maps go in first, one priority lower, and each generation
     /// drops another one** — a root element activated at the unfocused-UI priority (2000) puts its
     /// parent's map at 1999 and its grandparent's at 1998 — and then the element's own map goes
     /// in at
@@ -1148,7 +1146,7 @@ impl UiSystem {
     /// one [`crate::Element::on_child_action`] until one consumes the event.
     ///
     /// `child` never changes as the walk climbs: the base forwards the original
-    /// `(child, event)` arguments to its parent unchanged. \[verified\]
+    /// `(child, event)` arguments to its parent unchanged.
     ///
     /// That detail is load-bearing rather than pedantic. The chat interface's eight
     /// arms all sit behind "the child is the chat entry", and the entry is bound with
@@ -1465,7 +1463,7 @@ impl UiSystem {
 }
 
 #[cfg(test)]
-mod p1_5_text_tag_release_tests {
+mod text_tag_release_tests {
     use crate::focus::action;
     use crate::text::TextElement;
     use crate::{Delivery, ListenerId, NoticeId, UiSystem};
@@ -1510,7 +1508,7 @@ mod p1_5_text_tag_release_tests {
 }
 
 #[cfg(test)]
-mod o109_child_action_tests {
+mod child_action_tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 

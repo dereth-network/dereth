@@ -138,7 +138,7 @@ fn escape_raises_the_confirm_exit_dialog_on_character_select() {
     let root = ui2
         .get_element(ElementId(0x1000_039A))
         .expect("the char-management root");
-    // The quit button — §7's control table. `0x100003A2` is *Enter Game*, not this.
+    // The quit button. `0x100003A2` is *Enter Game*, not this.
     let exit = ui2
         .get_child_recursive(root, ElementId(0x1000_03A4))
         .expect("the EXIT button 0x100003A4");
@@ -213,7 +213,7 @@ fn the_credits_wait_dialog_is_a_real_element_carrying_the_prompt_from_the_dats()
         "the dat answered, not the fallback"
     );
     assert!(!prompt.is_empty());
-    eprintln!("o219: ID_Wait_PleaseWait -> {prompt:?}");
+    eprintln!("ID_Wait_PleaseWait -> {prompt:?}");
 
     let delivered = broadcast_action(&mut ui, &mut s, 0x27);
     assert_eq!(

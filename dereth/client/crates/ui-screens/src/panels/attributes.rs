@@ -138,7 +138,7 @@ impl AttributeRow {
     ///
     /// That is what the cost-to-raise and cost-to-raise-10 reads and
     /// [`UiRequest::TrainAttribute2nd`] are all handed, so a vital raise names the **odd** id
-    /// on the wire. [verified against a recorded `0x0044`]
+    /// on the wire.
     #[must_use]
     pub const fn wire_stat(&self) -> u32 {
         if self.secondary {
@@ -293,7 +293,7 @@ impl AttributesPanel {
     /// the current half is displayed and never compared. Both are [`super::skills::value_font`]'s
     /// `raw` against `enchanted - vitae`, and the operands are exactly the ones
     /// [`AttributeAdvancement`] already carries for the selection footer, which is why the two
-    /// agree by construction. \[verified\]
+    /// agree by construction.
     ///
     /// Returns true on a frame that actually rewrote a value or a colour.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
@@ -442,7 +442,7 @@ impl AttributesPanel {
     /// `InfoRegion` interface `0x1000003A` and that object reports its own index. And the toggle
     /// is on the *index* against `-1`, so pressing the selected row a second time clears the
     /// selection and puts the default footer back, exactly as on the skills page.
-    /// \[verified\]
+    ///
     pub fn set_selection(
         &mut self,
         ui: &mut UiSystem,
@@ -519,7 +519,7 @@ impl AttributesPanel {
     ///
     /// **The default footer of the *attributes* page really does show skill credits.** Only the
     /// title id differs; the two value lines
-    /// are the same two quality reads in the same order. \[verified\]
+    /// are the same two quality reads in the same order.
     fn display_default_footer(&self, ui: &mut UiSystem, view: &dyn GameView) -> FooterContent {
         let Some(footer) = self.footer else {
             return FooterContent::default();
@@ -548,8 +548,6 @@ impl AttributesPanel {
     /// differ, `" (%s%d)"` (prefix, enchanted − raw) is appended in font 0 with colour 1 and prefix
     /// `"+"` when raw < enchanted, or colour 2 and an empty prefix when enchanted < raw.
     ///
-    /// [verified against retail; the three wide literals are `L"%s: %d"`,
-    /// `L"+"` and `L" (%s%d)"`.]
     ///
     /// Line one is the experience to raise one level, or `ID_StatManagement_Header_
     /// XPToLevelMeterInfinity` when that is 0; line two is unassigned experience; and **both**
@@ -585,10 +583,6 @@ impl AttributesPanel {
     /// colour 3, then the same buff/debuff append as the attribute footer with `raw - v` as its
     /// raw side.
     ///
-    /// [verified against retail: the wide literals are `L"%s: %d/%d"`
-    /// and `L" (%d)"`. The `wire_stat() + 1` means
-    /// the *current* half, because the row's stat is the **max** id --
-    /// see [`AttributeRow::wire_stat`].]
     fn display_selection_footer_vital(
         &self,
         ui: &mut UiSystem,
@@ -800,7 +794,7 @@ mod tests {
             SECONDARY_ROWS.map(|(_, n, _)| n),
             ["Health", "Stamina", "Mana"]
         );
-        // The three secondaries name the same stat pairs the vitals bar reads (`11` §3), which is
+        // The three secondaries name the same stat pairs the vitals bar reads, which is
         // what lets this panel reuse `GameView::vital` instead of a second accessor.
         for (stat, _, v) in SECONDARY_ROWS {
             assert_eq!(v.stats().0, stat, "{v:?}'s current stat id");

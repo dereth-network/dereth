@@ -69,7 +69,7 @@ fn parse_consumes_every_payload_exactly() {
         assert_eq!(map.devices[0].device_type, DeviceType::Keyboard);
         assert_eq!(map.devices[1].device_type, DeviceType::Mouse);
     }
-    // the recovered binding behavior §2: nine meta keys in keymap 0x14000000, seven in DefaultMap,
+    // Nine meta keys in keymap 0x14000000, seven in DefaultMap,
     // and DIK_RSHIFT (0x36) is absent from both because generate_keyboard_event folds it onto 0x2A.
     assert_eq!(gm.meta_keys.len(), 9);
     assert_eq!(dm.meta_keys.len(), 7);

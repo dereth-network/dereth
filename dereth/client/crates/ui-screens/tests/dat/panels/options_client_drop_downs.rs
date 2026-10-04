@@ -508,7 +508,7 @@ fn a_real_press_opens_the_drop_down_and_a_real_press_on_a_row_applies_it() {
 /// all 30 controls, so the control setup returns before it ever reaches the enum-choices
 /// query — no labels and no entries. The **popups** still exist, because the popup is made
 /// while the menu is initialised and has nothing to do with the registry: that is what
-/// separates "no registry" from "no asset environment", and it is the third state §7.8 asks for.
+/// separates "no registry" from "no asset environment".
 #[test]
 fn with_no_preference_registry_no_drop_down_has_an_entry() {
     let mut ui = ui_system(false);

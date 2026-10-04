@@ -310,7 +310,7 @@ mod tests {
         }
     }
 
-    /// Oracle: the recovered toolbar and panel behavior for the panel's set-visibility notice,
+    /// Oracle: the toolbar and panel behavior for the panel's set-visibility notice,
     /// steps 2 and 3 — the exact restore behaviour, including the transient-overlay rule via
     /// attribute `0x10000049`.
     #[test]

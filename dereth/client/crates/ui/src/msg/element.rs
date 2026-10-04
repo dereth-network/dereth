@@ -109,7 +109,6 @@ pub mod id {
     /// handles message 7 by reading **`p2` as the chosen item** and asking it for
     /// attribute `0x1000000B` — which is only meaningful on a row, never on an open/close.
     ///
-    /// \[verified\]
     pub const MENU_CHOSEN: MessageId = MessageId(0x07);
     /// 0x08 — menu opened. See [`MENU_CHOSEN`] for why this is 8 and not 7.
     pub const MENU_OPENED: MessageId = MessageId(0x08);

@@ -42,7 +42,7 @@ use crate::view::{GameView, UiRequest, Vital};
 ///
 /// Retail creates the root from element `0x10000495` without naming the layout enum. That enum
 /// is **`0x10000006`** (`classic_gameplay` → layout `0x21000005`), the only shipped layout whose
-/// root element is `0x10000495`, as verified against the shipped layout index and enum map. Note
+/// root element is `0x10000495`, as listed in the shipped layout index and enum map. Note
 /// that this enum is *not* one of the three unregistered **mode**
 /// ids that share its numbering; layout enums and mode ids are different spaces.
 const LAYOUT: LayoutEnum = LayoutEnum(0x1000_0006);
@@ -143,10 +143,7 @@ pub const NOTICES: [NoticeId; 2] = [NoticeId::EndCharacterSession, NoticeId::Log
 /// One row of [`GamePlayScreen::HUD_START_VISIBILITY`]: an element, the state the HUD comes up in,
 /// and the sentence that justifies it.
 ///
-/// The `why` string is not decoration. Some rows are a rule read from the client and some are a
-/// live observation whose mechanism is not known, and a reader has to be able to tell which without
-/// leaving the table — so the acceptance test asserts that every `UNVERIFIED` row names its open
-/// question.
+/// The `why` string records the visibility rule or observation associated with each row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StartVisibility {
     pub element: ElementId,
@@ -1129,8 +1126,7 @@ impl GamePlayScreen {
     /// nothing is current yet. **Not one of those twenty-three pages carries `0x3B`
     /// (`UICore_Element_hide`) at all**, so they come up visible whichever way that attribute is
     /// read and a rebuild that skips the loops draws the inventory panel, the options panel, the
-    /// admin panel and twenty more on top of each other over the world. [verified: these loops are
-    /// the client's own code, not a compensation for the polarity]
+    /// admin panel and twenty more on top of each other over the world.
     pub fn post_init(&mut self, ui: &mut UiSystem) {
         let Some(root) = self.root() else { return };
 
@@ -2610,8 +2606,8 @@ impl GamePlayScreen {
     /// (`CombatWindow` is element type `0x1000000C`, `SpellcastingPanel` `0x10000015`) — and the
     /// choice is *unobservable* here, because the two arms are mutually exclusive: `CombatWindow`
     /// shows only in melee/missile and `SpellcastingPanel` only in magic, so at most one of the two
-    /// `set_visible(true)` calls ever happens for a given mode. `// UNVERIFIED:` the registration
-    /// order itself; the mutual exclusion is `\[verified\]` against both retail handlers.
+    /// `set_visible(true)` calls ever happens for a given mode. The ordering here is therefore
+    /// an implementation choice; the mode gates make the two visible states mutually exclusive.
     ///
     /// Returns how many elements were written, so the caller can count that it ran at all.
     pub fn on_set_combat_mode(
@@ -2851,9 +2847,8 @@ impl GamePlayScreen {
     /// The HUD's start state: which of the eighteen children of `0x10000495` are up before any
     /// notice has fired.
     ///
-    /// Six windows are visible when the game phase begins, and that is a **verified live
-    /// observation** made before any of this was read out of the layout. The retail client
-    /// at 800×600 against this same ACE server shows the viewport, the indicator strip top-left,
+    /// Six windows are visible when the game phase begins. At 800×600 the client shows
+    /// the viewport, the indicator strip top-left,
     /// the stacked vitals top-centre, the radar top-right, the main chat window bottom-left and the
     /// toolbar bottom-right, and nothing else.
     ///
@@ -3342,7 +3337,7 @@ impl GamePlayScreen {
                     // *old* height. `is_at_vertical_end` is false from the first line afterwards and
                     // the main chat window shows the welcome and nothing else for the rest of the
                     // session, while `MessageLogPanel`'s `0x1A` strip, which has no scroll, keeps
-                    // working. `p1_55_chat_log.rs` is the measurement.
+                    // working.
                     if w.element == window::MAIN_CHAT {
                         let chat_win = self.chat_windows.first().copied().unwrap_or_default();
                         chat_win.resize_to(ui, h, cw, ch);
@@ -6361,17 +6356,17 @@ pub fn era_lacks_page(features: dereth_primitives::EraFeatures, element: Element
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue plus the shipped layout index — layout
+    /// layout
     /// `0x21000005` (`classic_gameplay`, enum `0x10000006`) is the only shipped layout whose root
     /// element is `0x10000495`, which pins the otherwise omitted enum.
     #[test]
-    fn the_screen_names_the_recovered_layout_enum_and_root() {
+    fn the_screen_names_the_shipped_layout_enum_and_root() {
         assert_eq!(LAYOUT, LayoutEnum(0x1000_0006));
         assert_eq!(ROOT, ElementId(0x1000_0495));
         assert_eq!(CAMERA_SCALE, 1.1);
     }
 
-    /// Oracle: §9's element-message table — the id test that decides which visibility changes are
+    /// the id test that decides which visibility changes are
     /// reported to the server.
     #[test]
     fn only_the_four_floaty_chat_windows_report_their_visibility() {
@@ -6563,7 +6558,7 @@ mod tests {
         assert!(ui.requests.take().is_empty(), "and no refusal line");
     }
 
-    /// Oracle: §9's element-message table — a floaty chat window's visibility change becomes a
+    /// a floaty chat window's visibility change becomes a
     /// set-panel-visibility notice carrying the *element id* as the panel id.
     #[test]
     fn a_floaty_chat_visibility_change_is_reported_with_its_element_id() {
@@ -6731,7 +6726,7 @@ mod tests {
 
     /// Oracle: the floaty vitals panel's update from the player module (`SetVisible(!sideBySide)`)
     /// and the floaty side vitals panel's update from the player module (`SetVisible(sideBySide)`),
-    /// and the recovered HUD behavior for the placement blob: **visibility is read unconditionally,
+    /// and the HUD behavior for the placement blob: **visibility is read unconditionally,
     /// position and size only when the layout did not come from file**.
     #[test]
     fn the_player_module_decides_visibility_always_and_position_only_without_a_layout_file() {
@@ -6814,7 +6809,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the recovered HUD behavior's table and `hud::floaty::READS_PLACEMENT_VISIBILITY`,
+    /// Oracle: the HUD behavior's table and `hud::floaty::READS_PLACEMENT_VISIBILITY`,
     /// which was read from all ten floating-window player-state update bodies: exactly five
     /// mention `0x1000008A`.
     #[test]
@@ -6848,8 +6843,8 @@ mod tests {
         }
     }
 
-    /// Oracle: the recovered chat behavior — "`windowId != 0` targets one window;
-    /// `windowId == 0` broadcasts subject to the per-window 64-bit filter", and §4's default
+    /// "`windowId != 0` targets one window;
+    /// `windowId == 0` broadcasts subject to the per-window 64-bit filter", and the description's default
     /// filters, which are what make the main window reject the over-head-bubble type `0x1A`.
     #[test]
     fn a_broadcast_line_reaches_the_windows_whose_filter_accepts_its_type() {
@@ -6870,7 +6865,7 @@ mod tests {
         // A system line broadcasts and the main window takes it.
         let sys = ChatMessage {
             feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
-            // `LogTextType` 5 = System (the recovered chat and social behavior).
+            // `LogTextType` 5 = System (the chat and social behavior).
             ty: 5,
             body: "Welcome to Asheron's Call".into(),
             prefix: None,

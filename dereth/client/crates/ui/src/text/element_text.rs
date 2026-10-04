@@ -1432,10 +1432,7 @@ impl TextElement {
     /// height. For a page, `step` becomes `view - step` when `step <= view - step`. The answer is
     /// negated when `negative`.
     ///
-    /// `// UNVERIFIED:` the `page` line. Its operand is taken to be `view - step`, which is the
-    /// only value that makes the test `step <= view - step` mean anything and the only one that
-    /// makes a track click a **page** rather than a line. It is pinned by shape, the same way as
-    /// the widget-position conversion's unrecovered operand.
+    /// This implementation uses `view - step` for page scrolling.
     #[must_use]
     pub fn inq_scroll_delta(
         &self,
@@ -2013,7 +2010,7 @@ impl Element for TextElement {
                     0
                 };
             }
-            // The font reset, verified against retail: the font from 0x1A, the font colour from
+            // The font reset uses the font from 0x1A, the font colour from
             // 0x1B and the tag font colour from 0x1D, each at index 0; then, when the global
             // "change text in the font reset" flag is set, the text is re-set from its tagged form.
             //
@@ -2429,7 +2426,7 @@ mod tests {
         assert_eq!(t.glyphs.inq_text(false), "a\nb");
     }
 
-    /// Oracle: §3.3 — the input filter gates insertion; §3.2 step 6 says the message fires anyway,
+    /// the input filter gates insertion; the description step 6 says the message fires anyway,
     /// which the manager-level test in `crate::tests` covers.
     #[test]
     fn the_filter_rejects_without_stopping_the_handler() {

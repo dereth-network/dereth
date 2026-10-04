@@ -78,7 +78,7 @@ pub const ROW_ATTRIBUTES: [RowAttribute; 7] = [
     ),
     // Rows carry the squelch key in attribute `0x1000008F`.
     ra("SquelchPanel", ty::SQUELCH, 0x1000_008F, "the squelch key"),
-    // The recovered screen catalogue supplies the final attribute: the character-list row's instance id.
+    // The screen catalogue supplies the final attribute: the character-list row's instance id.
     ra(
         "CharacterManagementScreen",
         ElementType(0),
@@ -104,8 +104,8 @@ pub const FELLOWSHIP_VITAL_ELEMENTS: std::ops::RangeInclusive<u32> = 0x1000_0283
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered toolbar and panel behavior's per-panel "Rows carry …" sentences, and
-    /// the recovered screen catalogue's character-list row.
+    /// Oracle: the toolbar and panel behavior's per-panel "Rows carry …" sentences, and
+    /// the screen catalogue's character-list row.
     #[test]
     fn every_row_attribute_is_the_one_its_panel_document_names() {
         assert_eq!(row_attribute("TitlesPanel"), Some(0x1000_008E));
@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(a.len(), n);
     }
 
-    /// Oracle: `12` §3.4 — the six panels named there are all registered game element types, which
+    /// the six panels named there are all registered game element types, which
     /// is the cheap check that a behavior label has not drifted.
     #[test]
     fn every_named_panel_is_a_registered_type_or_a_screen() {

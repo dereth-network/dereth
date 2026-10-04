@@ -689,7 +689,7 @@ impl MotionDriver {
                 part_index,
                 part_id,
             } => {
-                // UNVERIFIED: the retail replace-object hook's execute step
+                // the retail replace-object hook's execute step
                 // has no body (it is a pure-virtual stub), so whether the hook is dead in this
                 // build is unknown. ACE's name implies a body-part swap, which would
                 // swap a body part's gfxobj mid-animation. The hook is unpacked and stored, and
@@ -1311,8 +1311,7 @@ mod tests {
         }
     }
 
-    /// ORACLE: the recovered animation-playback behavior section 5 and the
-    /// track spec section 3.4 — `advance` returns the raw animation offset, **unscaled** and
+    /// `advance` returns the raw animation offset, **unscaled** and
     /// **not zeroed**, because both of those depend on physics state the caller owns.
     #[test]
     fn advance_returns_the_raw_offset_without_scaling_or_zeroing_it() {
@@ -1371,7 +1370,7 @@ mod tests {
         assert!(d.has_collision_geometry());
     }
 
-    /// Contract 6.4, in one test: a **script** hook executes inline in `update_scripts`, while an
+    /// A **script** hook executes inline in `update_scripts`, while an
     /// **animation** hook from the same frame waits for `process_hooks`.
     #[test]
     fn script_hooks_are_inline_and_animation_hooks_are_deferred() {

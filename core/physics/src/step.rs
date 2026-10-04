@@ -771,7 +771,7 @@ impl PhysicsWorld {
                     break;
                 }
             }
-            // TRAP 1: this test is INSIDE the branch. Hoisting it out changes how far every
+            // This test is INSIDE the branch. Hoisting it out changes how far every
             // falling object travels.
             if elapsed <= globals::MIN_QUANTUM {
                 done = true;
@@ -781,7 +781,7 @@ impl PhysicsWorld {
             self.sim_time += elapsed;
             self.update_object_internal(h, elapsed, now);
         }
-        // TRAP 2: update_time takes the SIMULATED clock, not `now`.
+        // update_time takes the SIMULATED clock, not `now`.
         if let Some(o) = self.objects.get_mut(h) {
             o.update_time = self.sim_time;
         }
@@ -2458,7 +2458,7 @@ mod tests {
     use dereth_primitives::LandblockId;
 
     // Oracle: the recovered physics update behavior sections on the manager and per-object time
-    // stepping, which describe both retail bodies, plus track spec section 7.1.
+    // stepping, which describe both retail bodies.
 
     fn world() -> PhysicsWorld {
         let mut land = StaticLandSource::linear();
@@ -2620,7 +2620,7 @@ mod tests {
         assert_eq!(w.last_physics_time(), 0.0);
     }
 
-    /// Track spec section 7.1, the whole ladder. Each delta is driven in isolation from a fresh
+    /// The complete step ladder. Each delta is driven in isolation from a fresh
     /// world so that the sub-step count and the resulting `update_time` can be read directly.
     #[test]
     fn the_substep_ladder_matches_the_tabulated_sequence() {

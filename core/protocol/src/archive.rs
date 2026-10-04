@@ -1083,8 +1083,7 @@ mod tests {
         assert_eq!(r.remaining(), 0);
     }
 
-    /// The `Archive` string form has no padding at all — swapping the two is the classic failure
-    /// (contract 9.2).
+    /// The `Archive` string form has no padding at all — swapping the two is the classic failure.
     #[test]
     fn astring_has_no_padding() {
         let mut w = Writer::new();

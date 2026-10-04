@@ -305,7 +305,7 @@ impl PixelFormatDesc {
     }
 }
 
-/// The client's "is this a D3D format" test, "verified".
+/// The client's "is this a D3D format" test.
 ///
 /// Returns **false** for exactly four formats — `P8`, `INDEX16`, `CUSTOM_LSCAPE_R8G8B8`,
 /// `CUSTOM_LSCAPE_ALPHA` — and true for everything else. The four false cases need CPU decoding.

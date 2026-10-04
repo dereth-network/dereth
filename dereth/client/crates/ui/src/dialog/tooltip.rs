@@ -27,7 +27,7 @@ pub struct TooltipState {
     pub delay: f32,
     /// The auto-dismiss.
     ///
-    /// **Verified.** The three tooltip settings are
+    /// The three tooltip settings are
     /// set together in the element manager's constructor: it enables tooltips, sets the delay to
     /// `0.25`, and sets the duration to `10.0`, in that order.
     ///

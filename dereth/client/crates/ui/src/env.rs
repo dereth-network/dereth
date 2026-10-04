@@ -25,7 +25,7 @@ use crate::framework::{LayoutEnum, LayoutEnumResolver};
 use crate::{ElemHandle, ElementId, UiError, UiSystem};
 use dereth_primitives::AssetSource;
 
-/// `DBCache`'s stand-in for [`Env::did_by_enum`]: `(group, value)` to the answer, `None` included.
+/// Memo for [`Env::did_by_enum`]: `(group, value)` to the answer, `None` included.
 // ORDER-OK: a memo keyed by (group, value) and only ever looked up.
 type EnumDidMemo = std::collections::HashMap<(u32, u32), Option<dereth_primitives::DataId>>;
 
@@ -37,7 +37,7 @@ type EnumDidMemo = std::collections::HashMap<(u32, u32), Option<dereth_primitive
 pub struct Env {
     assets: Rc<dyn AssetSource>,
     resolver: Rc<dyn LayoutEnumResolver>,
-    /// `DBCache`'s stand-in for [`Self::did_by_enum`]. See its doc comment.
+    /// Cached enum-to-data-id lookups, including missing results.
     // ORDER-OK: a memo keyed by (group, value) and only ever looked up.
     enum_dids: Rc<RefCell<EnumDidMemo>>,
 }
@@ -208,7 +208,7 @@ pub(crate) fn no_env() -> UiError {
 mod tests {
     use super::*;
 
-    /// Oracle: track spec §8 — "a missing entry is `UiError::UnresolvedLayoutEnum`, which is loud on
+    /// "a missing entry is `UiError::UnresolvedLayoutEnum`, which is loud on
     /// purpose". The same applies one level up: with no environment at all, a screen must fail
     /// rather than silently build nothing.
     #[test]

@@ -71,7 +71,7 @@ use dereth_protocol::types::ContentProfile;
 /// These are bits the curated list in [`crate::weenie::bitfield`] deliberately leaves unnamed
 /// because the general object accessors do not read them. They are named here at their use
 /// sites. The names are ACE's `ObjectDescriptionFlag`
-/// `[external]`; the masks and the branch each one selects are `\[verified\]`.
+/// enumeration.
 pub mod use_bitfield {
     /// Bit 23. Result classification groups it with a non-zero item capacity or
     /// container capacity: an object that needs a pack slot is not something a double-click
@@ -463,7 +463,7 @@ impl World {
     ///
     /// This requires a component-pack classification lookup that the crate does not perform,
     /// so this is **always false** and a spell-component pouch lying on the ground takes the
-    /// container path (opened) instead of the pickup path. Structure `\[verified\]`; the table is not
+    /// container path (opened) instead of the pickup path. The table is not
     /// loaded.
     #[must_use]
     pub fn is_component_pack(&self, _item: ObjectId) -> bool {

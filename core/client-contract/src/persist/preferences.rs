@@ -289,8 +289,7 @@ pub mod keys {
 
 /// The type supplied when attaching a preference.
 ///
-/// > 2 = enum, 3 = float, 4 = bool [verified from the call sites; 1 and 5 are presumably int and
-/// > string].
+/// The supported tags are 2 = enum, 3 = float, and 4 = bool.
 ///
 /// 1 and 5 are unused in this build and their assignment is inferred. Only 2/3/4 are implemented,
 /// which is every shipped call site; 1 and 5 are named here and rejected by
@@ -478,7 +477,7 @@ mod tests {
         assert_eq!(keys::CHAT_FONT_SIZE, "UI.ChatFontSize");
     }
 
-    /// Oracle: §3.2 — "`dataType`: 2 = enum, 3 = float, 4 = bool [verified from the call sites]",
+    /// Oracle: §3.2 — "`dataType`: 2 = enum, 3 = float, 4 = bool",
     /// No shipped call site registers a preference of type 1 or 5, so those are refused.
     #[test]
     fn only_the_three_shipped_data_types_are_accepted() {

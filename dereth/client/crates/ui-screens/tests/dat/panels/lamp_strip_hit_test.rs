@@ -34,7 +34,7 @@ const BUTTON_INPUT_ACTION: u32 = 0x12;
 const INPUT_ACTION: u32 = 0x57;
 
 // ---------------------------------------------------------------------------------------------
-// Harness — `o279_probe.rs`'s, unchanged.
+// Layout-backed screen fixture.
 // ---------------------------------------------------------------------------------------------
 
 fn gameplay_tree() -> (UiSystem, ElemHandle) {

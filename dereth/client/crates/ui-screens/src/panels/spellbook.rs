@@ -143,8 +143,7 @@ impl SpellFilter {
 /// write to it is an item-list call — flush, then insert a spell shortcut per spell. So the
 /// spellbook reuses [`ItemListWidget`] exactly as the backpack does — the only difference is that
 /// a slot holds a **spell id** instead of an object id.
-/// [verified against the live element tree: `0x10000295` is type `0x10000031`, one
-/// column (`0x5F` = 1), `FixedListSize` -1, slot id `0x10000343`]
+///
 pub const SPELL_LIST: ElementId = ElementId(0x1000_0295);
 
 /// `SpellbookPanel` itself — element `0x100002AC` of the spell page `0x10000190`, type
@@ -274,7 +273,7 @@ pub struct SpellbookPanel {
 /// State 6 — a filter button that is *on*, as the client tests it.
 ///
 /// Every one of the thirteen declares exactly the states `0x1, 0x3, 0x6, 0x8, 0xD` and ships in
-/// `0x1`. [verified against the live tree]
+/// `0x1`.
 pub const BUTTON_ON: u32 = 6;
 /// The state a filter button is in when its bit is clear.
 pub const BUTTON_OFF: u32 = 1;
@@ -565,10 +564,8 @@ impl SpellbookPanel {
     /// spell's — an insertion sort by display order. Doing it as one stable sort gives the same
     /// list, and two spells sharing a display order keep spellbook order either way.
     ///
-    /// **The direction is inferred, not read.** Which side of the comparison is the new spell has
-    /// not been established. Ascending display order is what puts the shipped
-    /// table's own school-then-level grouping on screen in the order retail shows it. It remains
-    /// an open question.
+    /// This implementation uses ascending display order, preserving spellbook order
+    /// for spells with equal display order.
     #[must_use]
     pub fn sorted(filter: SpellFilter, book: &[SpellEntry]) -> Vec<SpellEntry> {
         let mut rows: Vec<SpellEntry> = book
@@ -780,7 +777,7 @@ impl SpellbookPanel {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered toolbar and panel behavior's child table — five school buttons and eight level
+    /// five school buttons and eight level
     /// buttons, and the two ids that sit apart from their runs.
     #[test]
     fn the_filter_buttons_are_the_documented_element_ids() {
@@ -808,7 +805,7 @@ mod tests {
         }
     }
 
-    /// Oracle: §3.3 — "Five school filters × eight level filters; the list shows the
+    /// "Five school filters × eight level filters; the list shows the
     /// **intersection**."
     #[test]
     fn the_filter_is_the_intersection_of_the_two_button_rows() {

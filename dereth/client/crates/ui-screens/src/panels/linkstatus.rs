@@ -29,7 +29,7 @@
 //! # The five lines, and which of them are live
 //!
 //! The update composes one `StringInfo` per line into the main text, in this order — the tokens and
-//! their literal pieces read out of the shipped dats [verified against the shipped string table]:
+//! their literal pieces read out of the shipped dats:
 //!
 //! | line | token | source | live? |
 //! |---|---|---|---|

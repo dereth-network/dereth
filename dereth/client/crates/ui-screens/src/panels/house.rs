@@ -1,6 +1,6 @@
 //! `HousePanel` — the **House tab** of the toolbar's map page.
 //!
-//! The recovered housing, toolbar, and panel behavior gives element type `0x10000025`; the panel
+//! The housing, toolbar, and panel behavior gives element type `0x10000025`; the panel
 //! instance is `0x100001F7`, the second sub-panel of
 //! `<MAPS>` `0x1000018C` — `MapPanel` `0x100001F6` is the first and is the tab that opens by
 //! default. Both are pages of that element's own `Panel` tab table, so the House tab is

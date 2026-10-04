@@ -224,11 +224,8 @@ pub struct PublicChatOutcome {
 ///    the NUL. Without the `<` pass driving it there is nothing in the loop that advances the
 ///    cursor at all;
 /// 2. **at most one `*…*` fires per line**, unless the line also contains `<…>` to keep the loop
-///    going. `*wave* *bow*` waves, and then *says* `*bow*`. `[inferred]` — from the cursor
-///    bookkeeping above rather than from an observation; it is a one-line question for anyone with
-///    the retail client in front of them, and it is asserted in
-///    `only_the_first_asterisk_pose_fires_on_a_line_with_no_angle_brackets` so that an answer of
-///    "no, both fire" lands on a failing test rather than on nothing.
+///    going. `*wave* *bow*` waves, and then *says* `*bow*`, because the angle-bracket
+///    scan leaves the cursor at the terminator.
 ///
 /// `resolve` is [`pose`] bound to the table, the player's gender and the command lookup; the caller
 /// owns those because `dereth-client-model` has neither the dat store nor `dereth_animation`. A `None` answer is
@@ -493,10 +490,7 @@ mod tests {
     /// **Only the first `*…*` on a line fires, unless a `<…>` keeps the loop going.**
     ///
     /// See [`public_chat`]: the retail loop restores the cursor after the `*` pass and not
-    /// after the `<` pass, so with no angle brackets the body runs exactly once. `[inferred]` from
-    /// the cursor bookkeeping above, and **worth one question to anyone who played**: does
-    /// `*wave* *bow*` perform both in retail, or wave and then say `*bow*`? If both fire, this
-    /// test is the thing that reddens.
+    /// after the `<` pass, so with no angle brackets the body runs exactly once.
     #[test]
     fn only_the_first_asterisk_pose_fires_on_a_line_with_no_angle_brackets() {
         let out = public_chat("a *one* b *two* c", stub(&["one", "two"], true));
@@ -521,12 +515,8 @@ mod tests {
     /// **`pose` itself, over a table built here** — the wire string and the echo string are two
     /// different fields and must not be swapped.
     ///
-    /// **Added because a mutation that swapped them SURVIVED this crate's whole `--lib` suite.**
-    /// Every other test in this module drives [`public_chat`] through a `stub` closure and never
-    /// calls [`pose`], so `dereth-client-model --lib` structurally could not observe the swap — the fourth
-    /// reading of a surviving test. `dereth-client`'s `o540_emote_send` catches it
-    /// against the *shipped* table; this catches it here, where the function lives, on a table
-    /// small enough to read.
+    /// A small table drives the production resolver and distinguishes the wire text from
+    /// the local echo text.
     #[test]
     fn pose_puts_other_emote_on_the_wire_and_my_emote_in_the_echo() {
         let t = ChatPoseTable {

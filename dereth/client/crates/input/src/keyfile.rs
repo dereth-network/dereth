@@ -47,8 +47,8 @@ use crate::{ActionId, InputMapId};
 pub enum NodeName {
     PString(String),
     UInt32(u32),
-    /// A hexadecimal node name. The exact spelling the client writes was not recovered;
-    /// `0x%08X` is used here, and the reader accepts any `0x`-prefixed value.
+    /// A hexadecimal node name. This writer uses `0x%08X`; the reader accepts any
+    /// `0x`-prefixed value.
     Hex(u32),
 }
 

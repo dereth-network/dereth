@@ -50,9 +50,9 @@ mod tests {
         assert!(w.type_is_active(m.ty));
     }
 
-    /// An unrecovered code is dropped rather than invented.
+    /// An unknown code is dropped rather than invented.
     #[test]
-    fn an_unrecovered_code_is_dropped_rather_than_invented() {
+    fn an_unknown_code_is_dropped_rather_than_invented() {
         assert!(handle_failure_event(0x0000, "x").is_none());
         assert!(
             handle_failure_event(0x0016, "x").is_none(),

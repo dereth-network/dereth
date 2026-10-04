@@ -586,7 +586,7 @@ fn content_folders_swap_only_their_own_level() {
 fn a_sql_file_type_is_read_past_blank_lines() {
     // V364 (a fix): ACE's reader never ended on a blank first line
     use empyrean_command::handlers::developer_content_commands::{get_sql_file_type, FileType};
-    let dir = std::env::temp_dir().join(format!("rr113-sqltype-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("empyrean-sql-file-type-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = |name: &str, text: &str| {
         let p = dir.join(name);

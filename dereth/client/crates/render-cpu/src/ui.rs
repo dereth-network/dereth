@@ -106,7 +106,7 @@ pub mod pixel_rules {
     /// stage at `TEXFILTER_LINEAR` and
     /// `TEXADDRESS_WRAP`, and both the surface's material generation and the font material override it — which is
     /// what makes POINT a decision rather than an accident. (Filter modes: `NONE` 0, `POINT` 1,
-    /// `LINEAR` 2. Address modes: `WRAP` 1, `CLAMP` 3.) \[verified\]
+    /// `LINEAR` 2. Address modes: `WRAP` 1, `CLAMP` 3.)
     ///
     /// And it is not a preference either:
     /// the client's rectangle builder builds the source and destination rectangles entirely in
@@ -123,7 +123,7 @@ pub mod pixel_rules {
     /// intermediate coverage where the source bitmap has none, at an alpha cut-off of 8. That pair
     /// is identical at all six framebuffer/pen combinations, so it is a property of the sampler and
     /// not of a placement. A whole pixel moves 303 px under **both**, which is what stops the POINT
-    /// zeros being the instrument failing to look. \[verified\]
+    /// zeros being the instrument failing to look.
     pub const UI_GLYPH_SAMPLER: u32 = 3;
 
     /// The shared index buffer: 6 **16-bit** indices, created once at UI startup and used by every
@@ -217,7 +217,7 @@ pub mod pixel_rules {
     /// every shipped element on every path, display-mode change included. A capture of a
     /// resolution change was therefore **not** filed. What a future layout
     /// authoring mode 1 or 2 would do is a different question, and the census test's assertion is
-    /// what makes it fail loudly rather than silently. \[verified\]
+    /// what makes it fail loudly rather than silently.
     ///
     /// This matters because it is easy to hand this function the *picture's* size instead, which
     /// is a different number: a 10 × 5 border strip inside a 792 × 5 element is not a scaled
@@ -296,8 +296,8 @@ pub mod pixel_rules {
     pub const TEXADDRESS_CLAMP: u32 = 3;
 
     /// repeating: the comparison is against a constant `0x3951B717` = **2.0e-4**, on each axis.
-    /// \[verified\]
-    /// `0x3951B717` = **2.0e-4**. \[verified\]
+    ///
+    /// `0x3951B717` = **2.0e-4**.
     pub const ADDRESS_MODE_EPSILON: f32 = 2.0e-4;
 
     /// Set the texture address mode **per axis**. The client stores the chosen
@@ -319,7 +319,7 @@ pub mod pixel_rules {
     /// physical_height`. The comparison is a strict *greater than*: when the difference is equal
     /// to or less than the epsilon `CLAMP` stands; only an axis whose repeat count differs from 1
     /// by more than the epsilon gets `WRAP`. Reading the comparison the other way up inverts the
-    /// whole result. \[verified\]
+    /// whole result.
     ///
     /// **Retail never reaches the tiling branch.** `tile` is written in exactly one place --
     /// the second argument when the surface is set, which the element computes as
@@ -380,7 +380,7 @@ pub mod pixel_rules {
     /// `start_u = (tiling_offset.x - box.x0 + dst.x0) mod graphic_width`. Either way source and
     /// destination have the same extent: the copy width is
     /// `min(source width, destination width)` and the height likewise, so **the UI region blit never
-    /// scales a picture** — it crops it, or it repeats it. \[verified\]
+    /// scales a picture** — it crops it, or it repeats it.
     ///
     /// This rebuild has no CPU surface to repeat into, so the repeat is expressed as
     /// texture-space UVs that run past 1 under a `WRAP` sampler. That is what makes the address
@@ -521,7 +521,7 @@ pub mod pixel_rules {
     /// authors `0xCD = 2`, so `tile` is always false and both axes are `TEXADDRESS_CLAMP`);
     /// this rebuild has no CPU surface to repeat into and expresses the repeat as UVs under a
     /// wrapping sampler, so the predicate it must bind from is **`Draw`'s**, not the material's.
-    /// Said here rather than left as a silent divergence. \[verified\]
+    /// Said here rather than left as a silent divergence.
     #[must_use]
     pub fn graphic_draw_axis(image_extent: u32, start: i32, extent: u32) -> (u32, bool) {
         if image_extent == 0 {
@@ -669,7 +669,7 @@ pub fn update_transform(
 /// `_42`, and `_43`, which is Direct3D's **row-vector** convention: `v' = v * M`. The z-rotation
 /// step writes `_11 = cos`, `_12 = sin`, `_21 = -sin`,
 /// `_22 = cos`, so `x' = x cos - y sin`, `y' = x sin + y cos` — a **counter-clockwise** turn by
-/// `+z` degrees. \[verified\]
+/// `+z` degrees.
 ///
 /// **Only `z` is modelled.** The source quad lies in the client's X–Z plane, so the x and y arms
 /// interact with the y/z swap the transform update bakes
@@ -1082,7 +1082,7 @@ mod tests {
     }
 
     // Oracle: the UI surface's vertex buffer -- "fu = (physical_width - 1) /
-    // (texture_width - 1)". Spec trap 12: the -1s exist *because* the texture is
+    // (texture_width - 1)". The -1s exist *because* the texture is
     // power-of-two with the content in the top-left corner.
     #[test]
     fn the_uv_rule_has_its_minus_ones_on_both_sides() {
@@ -1175,7 +1175,7 @@ mod tests {
         );
     }
 
-    // Oracle: contract 11.4's inclusive box convention -- "every size in the layout dat is
+    // Oracle: the inclusive box convention -- "every size in the layout dat is
     // x1 - x0 + 1" -- which is why the transform update anchors on `y + height - 1` rather than
     // `y + height`. Asserted by showing the bottom row of the coverage is y + h - 1.
     #[test]

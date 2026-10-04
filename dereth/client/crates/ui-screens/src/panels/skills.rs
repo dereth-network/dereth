@@ -56,8 +56,7 @@ use crate::view::{GameView, SkillAdvancement, SkillEntry, UiRequest};
 /// sibling sub-panel of the same page and it carries the *same* stat-management child ids,
 /// `0x1000023D` included — both sub-panels inherit the shared stat-management layout.
 /// A recursive lookup of `0x1000023D` from the page or from the screen root finds the attribute
-/// page's list box first and fills that instead. [verified against the live element
-/// tree: `0x1000023D` appears twice under `0x1000018E`, once under each sub-panel]
+/// page's list box first and fills that instead.
 pub const PANEL: ElementId = ElementId(0x1000_022C);
 
 /// The list box — the one list every group and every row lives in.
@@ -68,8 +67,7 @@ pub const LIST_BOX: ElementId = ElementId(0x1000_023D);
 ///
 /// Template **0** is the skill row itself: the sorted insert always passes 0.
 /// The shipped `0x1000023D` carries five entries, all in layout `0x21000045`
-/// (`0x10000248`…`0x1000024C`), which is exactly one row template and four headers. [verified
-/// against the live element tree]
+/// (`0x10000248`…`0x1000024C`), which is exactly one row template and four headers.
 pub const HEADER_TEMPLATES: [usize; 4] = [1, 2, 3, 4];
 /// The template-list index of a skill row.
 pub const ROW_TEMPLATE: usize = 0;
@@ -480,8 +478,7 @@ impl SkillsPanel {
     /// | line two | `..._ExperienceLabel` / `..._ExperienceValue` | int64 property `2` |
     ///
     /// Both `*Value` rows resolve to the **empty** string with two variants — the row is one bare
-    /// substitution with no literal around it, so the value cell is just the number. [verified
-    /// against string table `0x23000001`]
+    /// substitution with no literal around it, so the value cell is just the number.
     fn display_default_footer(&self, ui: &mut UiSystem, view: &dyn GameView) -> FooterContent {
         let Some(footer) = self.footer else {
             return FooterContent::default();

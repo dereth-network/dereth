@@ -59,7 +59,7 @@ pub const NEW_TEXT_BELOW: ElementId = ElementId(0x1000_048C);
 ///
 /// `0x0D` is the same "disabled" state the main-chat talk-focus rows use
 /// ([`super::mainchat::STATE_DISABLED`]), and `1` is its "available" partner — so the arrow is
-/// *disabled*, not hidden, when there is nothing below. \[verified\]
+/// *disabled*, not hidden, when there is nothing below.
 pub const NEW_TEXT_BELOW_ON: dereth_ui::StateId = super::mainchat::STATE_ENABLED;
 /// See [`NEW_TEXT_BELOW_ON`].
 pub const NEW_TEXT_BELOW_OFF: dereth_ui::StateId = super::mainchat::STATE_DISABLED;
@@ -604,7 +604,7 @@ pub use dereth_client_contract::chat::window::ReplyTargets;
 
 /// `StringInfo(ID_AssistedTell, table 6)` with `PREFIX` = `ID_CmdPrefix`, rendered.
 ///
-/// The two string ids are `\[verified\]` — they are the literal arguments of the two
+/// The two string ids are the literal arguments of the two
 /// string-table lookups at the start of reply-key handling. The **text** those
 /// ids resolve to is not compiled into the client; it is a row of string table enum 6 in the dat,
 /// so this constant is the fallback a host uses when it has no string table, and
@@ -612,7 +612,7 @@ pub use dereth_client_contract::chat::window::ReplyTargets;
 ///
 /// `ID_CmdPrefix` is the client's own command prefix. Command normalization rewrites a
 /// leading `/` to `@` before it does anything else, so the prefix a composed command must carry is
-/// `@`. \[verified — a leading `/` is overwritten with `@`\]
+/// `@`.
 pub const ASSISTED_TELL_FALLBACK: &str = "@tell ";
 
 /// The client's stored format string is `L"@tell %s, "`:
@@ -796,7 +796,7 @@ impl ChatWindow {
     ///
     /// **The three actions are not in the order the names suggest.** `0x10000020` is the
     /// *monarch*, `0x10000021` the *patron* and `0x10000022` the last teller — read off what the
-    /// client does per action, not off the constant names. \[verified\]
+    /// client does per action, not off the constant names.
     pub fn handle_reply_key(
         &self,
         ui: &mut UiSystem,

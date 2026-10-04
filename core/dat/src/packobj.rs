@@ -86,7 +86,7 @@ mod tests {
         c.expect_end().unwrap();
     }
 
-    /// Contract 9.6 again, from the other side: the `PackObj` header and the `Archive` header read
+    /// The `PackObj` header and the `Archive` header read
     /// entirely different numbers out of the same bytes.
     #[test]
     fn the_packobj_header_is_not_an_archive_header() {

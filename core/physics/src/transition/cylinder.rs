@@ -528,7 +528,7 @@ mod tests {
         t
     }
 
-    /// The overlap sum the dispatcher builds, contract item 5.5.
+    /// The overlap sum the dispatcher builds.
     fn sum(cyl: &CylSphere, r: f32) -> f32 {
         (cyl.radius - EPSILON) + r
     }

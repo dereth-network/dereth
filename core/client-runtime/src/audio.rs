@@ -717,7 +717,7 @@ pub struct WorldAudioStats {
 /// the scan could not run while a block inside the 3×3 was
 /// absent and about to appear.
 ///
-/// # The declared deviation from the reference client
+/// # Asynchronous neighbourhood loading
 ///
 /// In this rebuild landblocks arrive **asynchronously** — `WorldScene::stream` meshes them over
 /// several frames after login — so the neighbourhood can change with retail's key held perfectly
@@ -947,7 +947,7 @@ impl WorldAudio {
         Self::default()
     }
 
-    /// The position-change scan gate, plus its declared deviation.
+    /// The position-change scan gate includes newly resident cells.
     ///
     /// Answers whether the 3×3 ambient rescan has to run, and latches the key it ran for. Split
     /// out of [`Self::use_time`] because it is the whole of the decision and because a
@@ -1046,7 +1046,7 @@ impl WorldAudio {
         // 4. The rescan, on a real change only.
         //    The neighbourhood is built every frame rather than only inside the gate, because it
         //    is now part of the question the gate asks. See [`ScanKey`] for what the key is a
-        //    superset of and for the declared deviation.
+        //    superset of, including newly resident cells.
         let l = audio.listener();
         let cells = world.terrain_neighbourhood();
         let pos = [

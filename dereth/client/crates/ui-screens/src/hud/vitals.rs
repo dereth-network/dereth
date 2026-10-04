@@ -133,7 +133,7 @@ pub fn apply_side_by_side_option(
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered HUD behavior's bar table — the current/max `Attribute2ndType` pairs and
+    /// the current/max `Attribute2ndType` pairs and
     /// the `cur/max` fill.
     #[test]
     fn each_bars_level_is_the_documented_ratio_of_its_two_stats() {

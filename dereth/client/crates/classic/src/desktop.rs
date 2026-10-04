@@ -689,12 +689,14 @@ impl Desktop {
         let regions =
             crate::panels::hud::regions_stretched(self.size.0, self.size.1, self.stretched);
         for w in &mut self.windows {
-            if !bottom_window(&w.key) || w.frame.screen.width == width {
+            if !bottom_window(&w.key) {
                 continue;
             }
-            w.panel.resize(width, regions.right.h as u32);
-            w.frame = w.panel.frame(context);
-            w.controls.sync(&w.frame);
+            if w.frame.screen.width != width {
+                w.panel.resize(width, regions.right.h as u32);
+                w.frame = w.panel.frame(context);
+                w.controls.sync(&w.frame);
+            }
             w.x = 0;
             w.y = regions.bottom.y - w.frame.screen.height as i32;
         }
@@ -964,6 +966,7 @@ impl Desktop {
     }
     fn refresh(&mut self, context: &Context<'_>) {
         self.release_inactive(context);
+        self.fit_bottom_windows(context);
         for w in &mut self.windows {
             w.frame = w.panel.frame(context);
             w.controls.sync(&w.frame);
@@ -1488,6 +1491,92 @@ mod tests {
             vec![]
         }
     }
+    /// Behaviour: classic.chat-resize.moves-attached-panels
+    #[test]
+    fn dragging_the_chat_divider_moves_attached_windows_without_reopening_them() {
+        context_test(|c| {
+            crate::panels::hud::set_chat_expanded(false);
+            for name in [
+                "vendor",
+                "trade",
+                "salvage",
+                "maintenance",
+                "external-container",
+                "combat",
+                "spell-favorites",
+            ] {
+                let mut desktop = Desktop::new(crate::panels::factory, (800, 600));
+                desktop.open("hud", c);
+                let token = desktop.open(name, c).unwrap();
+                let before = desktop.windows.iter().find(|w| w.token == token).unwrap();
+                let (width, height, y) = (
+                    before.frame.screen.width,
+                    before.frame.screen.height,
+                    before.y,
+                );
+                let chat = crate::panels::hud::regions(800, 600).bottom;
+                desktop.input(
+                    Input::PointerDown {
+                        x: 50,
+                        y: chat.y + 3,
+                    },
+                    c,
+                );
+                desktop.input(
+                    Input::PointerMove {
+                        x: 50,
+                        y: chat.y - 25,
+                    },
+                    c,
+                );
+                desktop.input(
+                    Input::PointerUp {
+                        x: 50,
+                        y: chat.y - 25,
+                    },
+                    c,
+                );
+                assert!(crate::panels::hud::chat_expanded(), "{name}");
+                let after = desktop.windows.iter().find(|w| w.token == token).unwrap();
+                assert_eq!(
+                    (after.frame.screen.width, after.frame.screen.height),
+                    (width, height)
+                );
+                assert!(after.y < y, "{name}");
+                assert_eq!(
+                    after.y + height as i32,
+                    crate::panels::hud::regions(800, 600).bottom.y
+                );
+                let chat = crate::panels::hud::regions(800, 600).bottom;
+                desktop.input(
+                    Input::PointerDown {
+                        x: 50,
+                        y: chat.y + 3,
+                    },
+                    c,
+                );
+                desktop.input(
+                    Input::PointerMove {
+                        x: 50,
+                        y: chat.y + 30,
+                    },
+                    c,
+                );
+                desktop.input(
+                    Input::PointerUp {
+                        x: 50,
+                        y: chat.y + 30,
+                    },
+                    c,
+                );
+                assert!(!crate::panels::hud::chat_expanded());
+                assert_eq!(
+                    desktop.windows.iter().find(|w| w.token == token).unwrap().y,
+                    y
+                );
+            }
+        });
+    }
     #[test]
     fn switching_side_panels_retains_state_and_restores_the_existing_instance() {
         context_test(|c| {
@@ -1723,6 +1812,8 @@ mod tests {
     struct World;
     impl GameView for World {}
     fn context_test(f: impl FnOnce(&Context<'_>)) {
+        static CHAT_GEOMETRY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _geometry = CHAT_GEOMETRY.lock().unwrap_or_else(|e| e.into_inner());
         let game = World;
         let pregame = PregameView::default();
         let keyboard = KeyboardState::default();

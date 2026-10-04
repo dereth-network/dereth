@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     /// The whole point of this module. Oracle: the client's own placement arithmetic, quoted in
-    /// the module docs, and contract 10.5.
+    /// the module docs.
     ///
     /// Two `Ran2`s seeded identically: one drives `get_sound_pos`, the other is drawn by hand in the
     /// documented order. If the implementation drew in any other order the two would diverge.

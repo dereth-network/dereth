@@ -85,7 +85,10 @@ fn base_sql() -> PathBuf {
 }
 
 fn tmp(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("serv-testkit-8b2-{}-{name}", std::process::id()));
+    let d = std::env::temp_dir().join(format!(
+        "empyrean-testkit-content-commands-{}-{name}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("content")).unwrap();
     d

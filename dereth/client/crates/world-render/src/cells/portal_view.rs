@@ -923,7 +923,6 @@ mod tests {
 
     /// Oracle: the traversal ordering rule — `cell_draw_list`
     /// ends up nearest-first and `draw_cells` walks it backwards, so cells draw **far to near**.
-    /// Contract 11.7.
     #[test]
     fn the_traversal_visits_nearest_first_and_draws_far_to_near() {
         let cells = corridor();
@@ -971,7 +970,7 @@ mod tests {
 
     /// Oracle: the recovered indoor order is outdoors-through-portals → **Z clear** → portal depth
     /// stamps → environment
-    /// cells far→near → objects → alpha list. Contract 11.7.
+    /// cells far→near → objects → alpha list.
     ///
     /// "The Z-clear + portal depth stamp is visible behaviour, not an optimisation: without it the
     /// outdoors seen through a doorway z-fights with the interior." So this asserts both steps are

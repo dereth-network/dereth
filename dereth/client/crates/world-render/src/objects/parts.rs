@@ -454,8 +454,8 @@ mod tests {
         );
     }
 
-    /// Oracle: the viewer-distance update -- `CYpt = |v|` and
-    /// `viewer_heading = (CYpt <= 0.0002) ? (0,0,1) : v / CYpt`. The degenerate branch is what stops
+    /// Oracle: the viewer-distance update -- `distance = |v|` and
+    /// `viewer_heading = (distance <= 0.0002) ? (0,0,1) : v / distance`. The degenerate branch is what stops
     /// a part sitting exactly on the camera from producing a NaN billboard.
     #[test]
     fn viewer_distance_and_its_degenerate_branch() {
@@ -480,7 +480,7 @@ mod tests {
     }
 
     /// Oracle: the player is always full detail, and the degrade
-    /// distance argument is `CYpt / gfxobj_scale.z`, not `CYpt`.
+    /// distance argument is `distance / gfxobj_scale.z`, not viewer distance.
     #[test]
     fn the_player_never_degrades_and_scale_stretches_the_bands() {
         use dereth_assets::motion::{GfxObjDegradeInfo, GfxObjInfo};
@@ -548,7 +548,7 @@ mod tests {
     }
 
     /// Oracle: cell preparation sorts the shadow-part list
-    /// **descending by the part's `CYpt`** — farthest first ... i.e. **back to front** within a cell —
+    /// **descending by the part's viewer distance** — farthest first ... i.e. **back to front** within a cell —
     /// the same direction as the cell and block orders. It is an insertion sort, so equal
     /// distances keep registration order.
     #[test]

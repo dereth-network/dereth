@@ -16,9 +16,8 @@ pub enum ControlType {
 /// The control's activation: the raw device value becomes an activation bit and an
 /// extent.
 ///
-/// The absolute-axis × 0.0625 and POV × 1/3600 scalings are the client's own, but
-/// no shipped binding uses a joystick axis, so the *feel* remains unverified. The arithmetic here
-/// is exactly what the client computes.
+/// Absolute axes scale by 0.0625 and POV values by 1/3600. No shipped binding uses
+/// a joystick axis, so these conversions do not establish interactive joystick feel.
 #[must_use]
 pub fn di_data_to_activation_type(ty: ControlType, data: i32) -> (u32, f32) {
     match ty {
@@ -106,7 +105,7 @@ pub struct ButtonHistory {
     entries: Vec<(ControlCode, ButtonHistoryEntry)>,
 }
 
-/// `fire_input_event` step 4 purges history entries older than this.
+/// Activation-history entries older than this are purged.
 pub const HISTORY_PURGE_MS: u32 = 5000;
 
 impl ButtonHistory {
@@ -164,7 +163,7 @@ pub struct MapWalkResult {
     pub callback: crate::CallbackId,
 }
 
-/// `fire_input_event` step 6 — the priority walk, **with both barriers**.
+/// Input-map priority walk, including both barriers.
 ///
 /// * map id **2** (`MAP_BLOCK_ALL`) breaks the walk for everything;
 /// * map id **1** (`MAP_BLOCK_KEYBOARD`) breaks it for a control on the **keyboard** device and is
@@ -219,13 +218,13 @@ where
     best
 }
 
-/// The four actions `fire_input_event` step 8 suppresses when the cursor is over the Keystone HTML
+/// The four actions suppressed when the cursor is over the HTML
 /// help overlay: left click, right click, left double-click and right double-click, so the help
 /// browser gets its own clicks.
 pub const KEYSTONE_SUPPRESSED_ACTIONS: [ActionId; 4] =
     [ActionId(7), ActionId(8), ActionId(10), ActionId(11)];
 
-/// Step 8's four special action ids. 0 and 1 do nothing; 2 and 3 accumulate
+/// Four special action ids. 0 and 1 do nothing; 2 and 3 accumulate
 /// the non-mouse pointer movement, i.e. a joystick driving the pointer.
 pub const ACTION_POINTER_X: ActionId = ActionId(2);
 pub const ACTION_POINTER_Y: ActionId = ActionId(3);
@@ -241,7 +240,7 @@ mod tests {
         ControlCode::new(0, SubControlIndex::None, offset)
     }
 
-    /// Oracle: the recovered input pipeline §4 step 3.
+    /// Records activation history for matching controls.
     #[test]
     fn button_data_becomes_down_or_up() {
         assert_eq!(
@@ -257,7 +256,7 @@ mod tests {
         assert!((e - 1.0).abs() < 1e-6);
     }
 
-    /// Oracle: the recovered input pipeline §4 step 4 — entries older than 5000 ms are purged, and the
+    /// entries older than 5000 ms are purged, and the
     /// arithmetic is on wrapping `DWORD`s.
     #[test]
     fn history_purges_at_five_seconds_and_survives_wrap() {
@@ -295,7 +294,7 @@ mod tests {
         );
     }
 
-    /// Oracle: trap 1 and the recovered input pipeline §4 step 6 — map 1 stops keyboard controls and
+    /// map 1 stops keyboard controls and
     /// lets mouse controls through; map 2 stops everything.
     #[test]
     fn the_two_barriers_do_what_the_trap_says() {

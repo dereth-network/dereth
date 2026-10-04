@@ -1,4 +1,4 @@
-//! `LandDefs` — cell-id encoding, global land-cell coordinates and the landblock offset.
+//! Cell-id encoding, global land-cell coordinates and the landblock offset.
 //!
 //! The cell id encoding, reproduced function by function against retail behaviour.
 //!

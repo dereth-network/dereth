@@ -25,8 +25,8 @@ pub enum EdgeMode {
     AnchorEnd = 2,
     /// 3 — centred, with the integer halving `(x1 - x0 + 1) / 2`.
     Centre = 3,
-    /// 4 — proportional. **UNVERIFIED**: only the float-to-int truncation is
-    /// established, not the multiply that feeds it.
+    /// 4 — proportional: this implementation scales offsets by the reference-size ratio
+    /// and truncates the resulting float to an integer.
     Proportional = 4,
 }
 
@@ -55,11 +55,8 @@ pub struct Edges {
 
 /// Scale one edge coordinate proportionally.
 ///
-/// **UNVERIFIED.** For mode 4 the state description's size-and-position
-/// update is known only to end in a float-to-int truncation; its operands are not established.
-/// This implements `trunc(old * newExtent / oldExtent)` and is marked as unverified until they
-/// are. `dereth_primitives::num::to_i32_f64` is the truncation the original
-/// performs, so at least that half is right.
+/// This implementation scales the offset from the near edge by the extent ratio,
+/// then truncates the floating-point result to an integer.
 fn proportional(edge: i32, near: i32, old_extent: i32, new_extent: i32) -> i32 {
     if old_extent == 0 {
         return edge;
@@ -95,28 +92,24 @@ pub fn update_size_and_position(rect: Box2D, old_ref: Box2D, new_ref: Box2D, e: 
     let nx0 = match e.left {
         EdgeMode::AnchorEnd => x0 + dw,
         EdgeMode::Centre => new_w / 2 - own_w / 2,
-        // UNVERIFIED: see `proportional`.
         EdgeMode::Proportional => proportional(x0, old_ref.x0, old_ref.x1 - old_ref.x0 + 1, new_w),
         EdgeMode::Fixed | EdgeMode::AnchorStart => x0,
     };
     let nx1 = match e.right {
         EdgeMode::AnchorStart => x1 + dw,
         EdgeMode::Centre => new_w / 2 - 1 + own_w / 2,
-        // UNVERIFIED: see `proportional`.
         EdgeMode::Proportional => proportional(x1, old_ref.x0, old_ref.x1 - old_ref.x0 + 1, new_w),
         EdgeMode::Fixed | EdgeMode::AnchorEnd => x1,
     };
     let ny0 = match e.top {
         EdgeMode::AnchorEnd => y0 + dh,
         EdgeMode::Centre => new_h / 2 - own_h / 2,
-        // UNVERIFIED: see `proportional`.
         EdgeMode::Proportional => proportional(y0, old_ref.y0, old_ref.y1 - old_ref.y0 + 1, new_h),
         EdgeMode::Fixed | EdgeMode::AnchorStart => y0,
     };
     let ny1 = match e.bottom {
         EdgeMode::AnchorStart => y1 + dh,
         EdgeMode::Centre => new_h / 2 - 1 + own_h / 2,
-        // UNVERIFIED: see `proportional`.
         EdgeMode::Proportional => proportional(y1, old_ref.y0, old_ref.y1 - old_ref.y0 + 1, new_h),
         EdgeMode::Fixed | EdgeMode::AnchorEnd => y1,
     };
@@ -472,7 +465,7 @@ mod tests {
     }
 
     /// Oracle: the `== 3` branches, `x0 = new_w/2 - w/2` and `x1 = new_w/2 - 1 + w/2`, with the
-    /// integer halving `(x1 - x0 + 1) / 2` — contract 11.4 and trap 6 of the track spec.
+    /// integer halving `(x1 - x0 + 1) / 2`.
     ///
     /// The odd-width case is the one that catches an off-by-one: a 101-wide box centred in 1920
     /// lands at 960-50=910 .. 960-1+50=1009, i.e. it stays 100 wide, one *less* than it was. That

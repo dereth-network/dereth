@@ -492,7 +492,7 @@ impl ListBoxWidget {
     /// `index / cols`; by default the column is `index / rows` and the row `index % rows`.
     ///
     /// The quotient and the remainder swap with the horizontal bit, and the divisor swaps with
-    /// them: horizontal divides by the column count, column-major by the row count. \[verified\]
+    /// them: horizontal divides by the column count, column-major by the row count.
     #[must_use]
     pub fn cell_of(&self, index: usize) -> Option<(i32, i32)> {
         if self.rows <= 0 || self.cols <= 0 || index >= self.items.len() {
@@ -520,7 +520,7 @@ impl ListBoxWidget {
     /// offending axis — every scrolling arm sets the offset from the same `x` and `y`,
     /// and only the two "after the viewport" arms adjust one of them first. The scrollable element then clamps into
     /// `0 ..= content - view` unless attribute `0x73` says otherwise, which is what stops the last
-    /// row scrolling off the bottom. \[verified\]
+    /// row scrolling off the bottom.
     ///
     /// It drives the element's own scrollable state, which is where the client keeps it; a private
     /// offset would leave the bar unaware that the viewport moved and place the rows twice against

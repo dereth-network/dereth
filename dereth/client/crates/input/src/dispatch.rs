@@ -22,7 +22,6 @@ pub mod priority {
     /// | the UI system, four sites | map **`0x1000000B`** `TargetedUsage`, while target mode is armed |
     ///
     /// Nothing registers at a literal 2990: the typing barrier is computed as `3000 - 10`.
-    /// \[verified\]
     ///
     /// The second and third are wired (`App::apply_world_camera_action`, and the target-mode arm);
     /// the first goes through `UiShell::active_input_maps`.
@@ -41,7 +40,7 @@ pub mod priority {
     /// ```
     ///
     /// (The base class, which runs first and unconditionally, registers map `0x0A` at the same
-    /// priority.) \[verified\]
+    /// priority.)
     ///
     /// **It changes the walk order**, which is the whole reason this constant is worth having.
     /// Registration prepends an equal-priority newcomer, so registering
@@ -107,7 +106,7 @@ impl InputMapStack {
     /// ```
     ///
     /// so the new node is linked **before** the node the walk stopped on. So the loop stops at the first
-    /// node whose priority is `<=` the newcomer's, and the newcomer goes ahead of it. \[verified\]
+    /// node whose priority is `<=` the newcomer's, and the newcomer goes ahead of it.
     pub fn register(&mut self, map: InputMapId, priority: i32, callback: CallbackId) {
         self.register_scoped(map, priority, callback, None);
     }
@@ -150,7 +149,7 @@ impl InputMapStack {
     ///                  and keep walking the whole list      ; no priority compare
     /// ```
     ///
-    /// \[verified\] It only became observable when one element could hold the same map at two
+    /// It only became observable when one element could hold the same map at two
     /// priorities, which is exactly what an element with an activation alert does: it registers
     /// its maps at priority 0 and again at 2000, both with
     /// the element as the callback. Registration rejects only an exact
@@ -249,7 +248,7 @@ impl TextMode {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered input pipeline §6 — descending by priority, duplicates rejected, and the
+    /// descending by priority, duplicates rejected, and the
     /// client's map 0x10 at −1 is always last.
     #[test]
     fn the_stack_is_descending_and_rejects_duplicates() {
@@ -301,8 +300,7 @@ mod tests {
     /// Oracle: registering an input map looks the triple up first, comparing map, callback
     /// **and** priority, so only an exact triple is a duplicate; and unregistering an input map
     /// compares only map and callback
-    /// and **continues after a removal**. \[verified\]
-    /// and **continues after a removal** (` eb e2`). \[verified\]
+    /// and **continues after a removal**.
     ///
     /// This is not hypothetical: window activation registers the activated window's
     /// maps at the lowest priority (0) and registers the
@@ -346,7 +344,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the recovered input pipeline §6 — `unregister_callback` removes every entry a callback owns.
+    /// `unregister_callback` removes every entry a callback owns.
     #[test]
     fn unregister_callback_removes_all_of_one_owners_maps() {
         let mut s = InputMapStack::default();
@@ -360,7 +358,7 @@ mod tests {
         assert_eq!(s.entries()[0].map, InputMapId(5));
     }
 
-    /// Oracle: trap 6 and the recovered input pipeline §9 — the key that opened a text field is not typed
+    /// The key that opened a text field is not typed
     /// into it, and the latch eats exactly one character.
     #[test]
     fn ignore_next_char_eats_exactly_the_activation_character() {
@@ -380,7 +378,7 @@ mod tests {
         assert!(t.take_character(true));
     }
 
-    /// Oracle: the recovered input pipeline §9 — text mode alone is not enough; the window must have
+    /// text mode alone is not enough; the window must have
     /// focus, and characters never reach the handler list outside text mode.
     #[test]
     fn characters_need_text_mode_and_focus() {
@@ -391,7 +389,7 @@ mod tests {
         assert!(t.take_character(true));
     }
 
-    /// Oracle: the recovered input pipeline §9 — a text field focused by a *mouse* click sets no latch,
+    /// A text field focused by a *mouse* click sets no latch,
     /// because no action was dispatched in response to a key down.
     #[test]
     fn a_mouse_click_focusing_a_field_sets_no_latch() {

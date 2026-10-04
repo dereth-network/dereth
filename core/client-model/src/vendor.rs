@@ -742,8 +742,8 @@ impl crate::world::World {
 
     /// Close the vendor window and clear its sale marks.
     ///
-    /// There is **no** close-vendor message on the wire — the client just stops talking to it
-    /// (`\[verified\]`). The sell list's marks come off here, which is
+    /// There is **no** close-vendor message on the wire — the client just stops talking to it.
+    /// The sell list's marks come off here, which is
     /// [`Self::flush_sell_list_sell_state`].
     ///
     /// Returns true when a vendor was actually open.
@@ -895,9 +895,6 @@ impl crate::world::World {
     /// if (vendor trade currency == INVALID_DID)  ok = total_value >= price
     /// else                                       ok = trade_num - last_sale >= price
     /// ```
-    ///
-    /// The *branch structure* is unambiguous and is what is transcribed. `\[verified\]`
-    /// structurally, the operands `[inferred]` from the two arms' contents.
     #[must_use]
     fn can_afford(&self, price: i32) -> bool {
         match self.shop.trade_currency() {
@@ -1516,7 +1513,7 @@ impl crate::world::World {
     /// every child appends in contained-items order. That is why this build's `Vec` push is the
     /// whole of the position arithmetic.
     ///
-    /// **One declared deviation:** retail's `remove_existing`
+    /// The removal policy differs: retail's `remove_existing`
     /// deletes a row the list already holds and re-appends it, *moving* it to the end. This build
     /// leaves it where it is, which matters only when a container is dropped over a basket that
     /// already names one of its contents.

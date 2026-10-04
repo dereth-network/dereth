@@ -490,7 +490,7 @@ pub fn rotated_offset(rot: Rotation, w: u32, h: u32, col: u32, row: u32) -> usiz
 /// With a null texture the client fills every pixel with the bytes `00 FF 00 00` — an opaque-less
 /// green debug colour — and that is reproduced, because a missing terrain texture is visible.
 ///
-/// UNVERIFIED: the retail resampling uses integer replication or skipping
+/// the retail resampling uses integer replication or skipping
 /// (a step of `size/alpha_width` or `alpha_width/size`) rather than filtering, but the exact index arithmetic
 /// inside the inner loop remains unconfirmed. This implementation preserves that nearest-neighbour
 /// behavior.
@@ -1281,7 +1281,7 @@ mod tests {
         assert_eq!(cache.surfaces_freed, 0, "and nothing was freed by it");
     }
 
-    /// Oracle: contract 11.9 and trap 2's recovered blend. Every assertion here is
+    /// Oracle: the channel blend. Every assertion here is
     /// the formula evaluated by hand, not by this function.
     #[test]
     fn integer_blend_matches_the_transcribed_formula() {
@@ -1310,7 +1310,7 @@ mod tests {
         assert_eq!(d, [149, 149, 149, 1]);
     }
 
-    /// Oracle: trap 2 — "it differs from `lerp(src, dst, a/255)` by up to one unit per channel
+    /// Oracle: "it differs from `lerp(src, dst, a/255)` by up to one unit per channel
     /// across the entire landscape". If a float lerp ever agreed everywhere, the integer rule would
     /// not matter; this test proves it does, and fails loudly if someone swaps the implementation.
     #[test]

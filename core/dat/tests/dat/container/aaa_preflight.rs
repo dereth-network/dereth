@@ -4,8 +4,7 @@
 
 use dereth_dat::{RetailDat, RetailDatStore};
 
-/// The four files the tier-1 gates' retail-data check names (`xtask`'s `RETAIL_DATS`; the retired
-/// `dere_fixtures::RETAIL_DATS` before it). `client_highres.dat` is in the list even though
+/// The four files in the retail-data locator. `client_highres.dat` is in the list even though
 /// [`RetailDatStore::open_dir`] treats it as optional, because that check requires all four — so an install missing it
 /// answers *"no retail data"* to every tier-1 gate while the store itself opens happily. A partial
 /// install produces a confusing half-skip rather than a clean one; that is the gates' own
@@ -47,7 +46,7 @@ fn the_four_retail_dats_resolve_or_nothing_else_in_this_workspace_means_anything
     // that certainly holds no dats, and the calibration goes through the same `shortfall_in` and
     // the same locator the tests use, not through a second copy of the logic.
     // ---------------------------------------------------------------------------------------
-    let empty = std::env::temp_dir().join("dereth-o665-preflight-negative-control");
+    let empty = std::env::temp_dir().join("dereth-dat-preflight-negative-control");
     std::fs::create_dir_all(&empty).expect("a temp directory for the negative control");
     let control = RetailDatStore::shortfall_in(&empty)
         .expect("a directory with no dats in it must report a shortfall");

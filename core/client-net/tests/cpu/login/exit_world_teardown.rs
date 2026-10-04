@@ -22,7 +22,7 @@ fn addr(port: u16) -> SocketAddr {
 /// *unset* marker, and a deployment that registered its login server on recipient 0 would
 /// re-point the logon recipient at every connection that followed. Against a single-process shard
 /// there is never a second connection, which is why every recorded ACE session gets away with it;
-/// a split deployment cannot, and this file is the split-deployment case. \[verified\]
+/// a split deployment cannot, and this file is the split-deployment case.
 const LOGON: u16 = 1;
 /// The world server the referral adds.
 const WORLD: u16 = 3;

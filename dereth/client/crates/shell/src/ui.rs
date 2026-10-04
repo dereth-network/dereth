@@ -190,7 +190,7 @@ pub const INTRO_INPUT_MAPS: [u32; 2] = dereth_ui_screens::screens::intro::INPUT_
 /// walk sees **3 before 9** — which is what it must be, because map 3's `DIMOFS_BUTTON0` and
 /// map 9's `DIK_RETURN` are different devices and the order between them is never load-bearing,
 /// while map 3 at 3000 must stay in front of the element manager's copy at `priority::LOWEST` for
-/// `UiShell::mode_on_action` to see a click as the intro's. \[verified\]
+/// `UiShell::mode_on_action` to see a click as the intro's.
 ///
 /// **What each screen does with the two controls map 9 carries**, read out of the three action
 /// handlers rather than assumed — and it is *not* uniform, which is why every assertion about this
@@ -207,7 +207,7 @@ pub const INTRO_INPUT_MAPS: [u32; 2] = dereth_ui_screens::screens::intro::INPUT_
 /// (its implementation has construction, destruction, element/global-message handlers, layout
 /// updates, and data assignment, but no action-handler override), and no dialog subclass compares an input
 /// action against `0x25` anywhere in the original. A dialog is answered by **element message
-/// 1 from a button child**, which is `DialogKind::answer_children`. \[verified\]
+/// 1 from a button child**, which is `DialogKind::answer_children`.
 pub const PREGAME_MODE_INPUT_MAPS: &[(UiMode, &[u32])] = &[
     (mode::INTRO, &INTRO_INPUT_MAPS),
     (
@@ -1514,7 +1514,6 @@ impl UiShell {
     /// second). Only **character management** tests the action, so Enter there returns `false` and
     /// falls through to the registered handler list exactly as it does in retail. And the **credits**
     /// consume everything map 9 carries, because the body never looks at the event at all.
-    /// \[verified\]
     ///
     /// # Why not global message 1
     ///

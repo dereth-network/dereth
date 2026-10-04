@@ -1842,7 +1842,7 @@ mod imp {
         pub solid_texel_key_hits: u32,
         /// [`BakeCache::solid_texels_uploaded`]: distinct **colour words** this
         /// session has taken a 1x1 texture for. Retail costs one texture for all of them; this
-        /// build's memo costs one each, which is a declared deviation and is a *leak* rather than
+        /// build's memo costs one each, which is a *leak* rather than
         /// a deviation only if this count is unbounded. It is not: the colour word is a pure
         /// function of two fields of a surface record, so the ceiling is a shipped population.
         pub solid_texels_uploaded: u32,
@@ -3806,7 +3806,7 @@ mod imp {
         pub(crate) texture_key_hits: u32,
         /// The same, for surface setup's solid-colour texel.
         pub(crate) solid_texel_key_hits: u32,
-        /// **The counter the declared deviation owes.** Distinct colour words this
+        /// **The constant-colour cache counter.** Distinct colour words this
         /// cache has taken a 1x1 texture for; a hit on
         /// [`Self::solid_texel_key_hits`] does not increment it.
         ///
@@ -4192,7 +4192,7 @@ mod imp {
         /// 400, `DB_TYPE_GFXOBJ` 200), trimming
         /// the **oldest** by timestamp when the free count *exceeds* the cap
         /// only when the free count is strictly greater than the cap. **That retention is
-        /// deliberately not transcribed here**, a declared deviation: retail's caps are per
+        /// handled separately here**: retail's caps are per
         /// *dat record*, and this memo's unit
         /// is a resolved surface *group*, which has no counterpart on that side and therefore no
         /// cap to copy. Retaining nothing is the strict end of the same edge.
@@ -10605,7 +10605,7 @@ mod imp {
         ///
         /// # Returns
         /// The exact building-interior cells this landscape pass reached.
-        fn draw_lscape(
+        fn draw_landscape(
             &self,
             ws: &WorldState,
             gpu: &mut Gpu,
@@ -10978,7 +10978,7 @@ mod imp {
 
         /// Draw one frame of the world in normal render mode.
         ///
-        /// The outdoor pass itself is `Self::draw_lscape`, because retail's normal-mode render
+        /// The outdoor pass itself is `Self::draw_landscape`, because retail's normal-mode render
         /// reaches it on its **outdoors** branch alone and the indoor
         /// branch reaches it only through [`Self::draw_inside`].
         ///
@@ -11051,7 +11051,7 @@ mod imp {
             // cell rendering's `outside_view`, which [`Self::draw_inside`] issues
             // as its first step.
             if outside || !self.cfg.outside_view_gate {
-                let _ = self.draw_lscape(ws, gpu, &per_frame, &sky_per_frame, outside)?;
+                let _ = self.draw_landscape(ws, gpu, &per_frame, &sky_per_frame, outside)?;
             }
 
             // --- the objects, in two phases ------------------------------------------------
@@ -12270,8 +12270,7 @@ mod imp {
         ///
         /// **`OutdoorsThroughPortals` can be issued unclipped.** The clip is
         /// formed from screen-space polygons, which need the projection matrix; unclipped draws a
-        /// superset of what retail draws through the opening and is a declared deviation rather
-        /// than the client's behaviour. The Z clear makes that
+        /// superset of the geometry visible through the opening. The Z clear makes that
         /// superset *invisible* wherever the interior covers it, which is most of it.
         ///
         /// **The outdoor pass is issued from here, not unconditionally.** Running it on every
@@ -12380,7 +12379,7 @@ mod imp {
             self.frame_outside_view_count
                 .set(Some(view.outside_view_count));
             // Extended rather than assigned: with `SceneConfig::outside_view_gate` off an indoor
-            // frame runs `draw_lscape` — and therefore `draw_building_interiors`' own publication —
+            // frame runs `draw_landscape` — and therefore `draw_building_interiors`' own publication —
             // *before* this line, and a `clone_from` would drop it.
             {
                 let mut published = self.frame_cell_views.borrow_mut();
@@ -12428,7 +12427,7 @@ mod imp {
                     // where retail draws **nothing**.
                     IndoorStep::OutdoorsThroughPortals => {
                         let building_cells =
-                            self.draw_lscape(ws, gpu, per_frame, sky_per_frame, false)?;
+                            self.draw_landscape(ws, gpu, per_frame, sky_per_frame, false)?;
                         // Landscape drawing is not only the terrain: it
                         // walks `block_draw_list` and calls the device's block-draw operation on
                         // each in-view landblock, and a landblock draws
@@ -12447,7 +12446,7 @@ mod imp {
                     }
                     // Flush the alpha list with depth 0.0 and increment
                     // the frame stamp, the two lines between landscape drawing and the Z clear.
-                    // The queue is real: `draw_lscape` fills it and does not drain it, so this
+                    // The queue is real: `draw_landscape` fills it and does not drain it, so this
                     // step is the alpha
                     // flush — the landscape's translucency drawn after the outdoor objects
                     // `after_outdoors` has just put on the screen and before the depth clear below
@@ -14160,7 +14159,7 @@ mod imp {
     /// for a whole `ParticleManager`: `f32::max` over its emitters, floored at
     /// the native no-record default of 100.0.
     ///
-    /// **This is a known, declared deviation.** The client asks per *emitter*: particle
+    /// **The shared particle-distance policy differs.** The client asks per *emitter*: particle
     /// preparation's first act is the should-draw-particles test on the emitter's physics object
     /// and `degrade_distance`, where
     /// `degrade_distance` is what emitter setup stored for that emitter
@@ -14726,7 +14725,7 @@ mod imp {
             // then binds **one** device-wide solid-colour texture whose texel it has just
             // rewritten — so retail costs a single texture for every untextured surface in the
             // world. This build bakes the slot into the batch and cannot rewrite a texel per
-            // draw, so the declared deviation is one 1x1 texture per **distinct colour word**
+            // draw, so the extra cost is one 1x1 texture per **distinct colour word**
             // instead of retail's one: pixel-identical, and strictly fewer than one per
             // surface group.
             //
@@ -15780,13 +15779,13 @@ mod imp {
     pub use dereth_render::device::hlsl_matrix;
 
     #[cfg(test)]
-    mod astra_texture_minification {
+    mod texture_minification {
         use super::*;
         include!("world_texture_minification_tests.rs");
     }
 
     #[cfg(test)]
-    mod astra_building_shell {
+    mod building_shell_visibility {
         use super::*;
         use crate::world::DEFAULT_LANDBLOCK;
         include!("world_building_shell_visibility_tests.rs");
@@ -15828,7 +15827,7 @@ mod imp {
         // D3DCompile is called without D3DCOMPILE_PACK_MATRIX_ROW_MAJOR. What the shader computes
         // has to agree with what glam computes, and with `to_cols_array` it does not.
         #[test]
-        fn the_shader_reads_the_matrix_layout_that_dere_render_uploads() {
+        fn the_shader_reads_the_matrix_layout_that_dereth_render_uploads() {
             let m = glam::Mat4::from_cols_array(&[
                 1.0, 2.0, 3.0, 4.0, //
                 5.0, 6.0, 7.0, 8.0, //

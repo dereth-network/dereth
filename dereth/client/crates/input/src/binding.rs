@@ -37,7 +37,7 @@
 use crate::spec::{activation, ControlChord};
 use crate::{ActionId, DeviceType, InputManager, InputMapId, MAP_BLOCK_KEYBOARD};
 
-/// `DIK_ESCAPE` — the keyboard offset the key-hit handler treats as "cancel". \[verified\]
+/// `DIK_ESCAPE` — the keyboard offset the key-hit handler treats as "cancel".
 pub const DIK_ESCAPE: u16 = 0x01;
 /// `DIMOFS_X`, the mouse pointer's X axis. Never bindable from the page.
 pub const DIMOFS_X: u16 = 0x00;
@@ -69,7 +69,7 @@ pub const DO_NOTHING: ActionId = ActionId(1);
 /// `Analog` (0x80).
 ///
 /// `(activation & 0x81) == 0` is the function's own first test, so a binding is
-/// captured on the **release** — which is what makes the modifier state complete. \[verified\]
+/// captured on the **release** — which is what makes the modifier state complete.
 pub const CAPTURE_IGNORED_MASK: u32 = activation::DOWN | activation::ANALOG;
 
 /// One `(input map, control, action)` a proposed binding would displace.

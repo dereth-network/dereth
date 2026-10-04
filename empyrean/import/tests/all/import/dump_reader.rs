@@ -319,7 +319,7 @@ fn an_unknown_column_is_reported_and_refused_unless_allowed() {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("serv-content-{name}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("empyrean-content-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d

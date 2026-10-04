@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 mod payments;
 pub use payments::{PaymentEffect, PaymentLists};
 
-/// `HouseType`. `[external â€” ACE names]`; the client only ever tests `type == 4`.
+/// `HouseType`: the client only ever tests `type == 4`.
 pub mod house_type {
     pub const UNDEF: u32 = 0;
     pub const COTTAGE: u32 = 1;

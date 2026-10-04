@@ -171,8 +171,7 @@ mod tests {
     }
 
     // Oracle: a synthetic scene of 100 batches records in submission order with the expected
-    // keys. The backend does not sort, cull or reorder in `draw()`, and contract items 11.7/11.8
-    // make submission order the observable.
+    // keys. The backend does not sort, cull or reorder in `draw()`, so submission order is observable.
     #[test]
     fn a_hundred_batches_record_in_submission_order() {
         let mut b = RecordingBackend::new();

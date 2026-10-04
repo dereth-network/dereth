@@ -53,7 +53,7 @@ pub struct ChatInterface {
     pub active_opacity: f32,
     /// The last value pushed through the window's material-opacity setter.
     /// It tracks the effective fade value separately from both endpoint settings.
-    /// It is where the three setters write. [verified against retail]
+    /// It is where the three setters write.
     pub current_opacity: f32,
     /// Whether the window is registered for global message 3 — i.e. whether a fade is in flight.
     ///
@@ -491,7 +491,7 @@ impl ChatInterface {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered chat behavior's default-mask table, whose main-window row states that the
+    /// Oracle: the chat behavior's default-mask table, whose main-window row states that the
     /// window's default excludes exactly the over-head bubble bit.
     #[test]
     fn the_five_default_filters_are_the_documented_masks() {
@@ -505,7 +505,7 @@ mod tests {
         assert_eq!(default_filter(window::MAIN), 0xFFFF_FFFF & !(1u64 << 26));
     }
 
-    /// Oracle: §4's "Types accepted" column, which names the types each floaty default admits.
+    /// Each floating window's default filter admits its specified text types.
     #[test]
     fn each_floaty_default_admits_exactly_the_documented_types() {
         let types = |id: u32| -> Vec<u8> {
@@ -530,7 +530,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the client's mask table, and §8's
+    /// The client's mask table and
     /// "one of them (`Society`) uses bit 32; a 32-bit implementation silently drops it".
     #[test]
     fn the_filter_group_masks_are_the_documented_ones_and_society_needs_sixty_four_bits() {
@@ -559,7 +559,7 @@ mod tests {
             by("Society") > u64::from(u32::MAX),
             "bit 32 is above a 32-bit mask"
         );
-        // The Allegience group and floaty 2's default are the same mask; §4 lists both.
+        // The Allegience group and floaty 2's default are the same mask.
         assert_eq!(by("Allegience"), default_filter(window::FLOATY_2));
         assert_eq!(by("Fellowship"), default_filter(window::FLOATY_3));
     }
@@ -601,7 +601,7 @@ mod tests {
         assert_eq!(total, 64);
     }
 
-    /// Oracle: the client's opening test, quoted in §2.
+    /// The client's opening guard.
     #[test]
     fn routing_follows_the_window_id_then_the_filter() {
         let w = ChatInterface::new(window::FLOATY_3); // accepts only type 19
@@ -643,7 +643,7 @@ mod tests {
         );
     }
 
-    /// Oracle: §2's pseudocode — the newline separator, the grey prefix and the body colour.
+    /// the newline separator, the grey prefix and the body colour.
     #[test]
     fn an_accepted_message_appends_a_grey_prefix_and_a_typed_body() {
         let mut w = ChatInterface::new(window::MAIN);
@@ -686,7 +686,7 @@ mod tests {
         );
     }
 
-    /// Oracle:, §2.1 — cut on a line boundary when one is within
+    /// cut on a line boundary when one is within
     /// `total/10` of the raw cut point, otherwise mid-line.
     #[test]
     fn the_truncation_prefers_a_line_boundary_within_a_tenth_of_the_log() {
@@ -706,7 +706,7 @@ mod tests {
         assert_eq!(w.glyph_count(), 75);
     }
 
-    /// Oracle: §2.1 — the truncation fires only once the log exceeds 10000 glyphs, and keeps 7500.
+    /// the truncation fires only once the log exceeds 10000 glyphs, and keeps 7500.
     #[test]
     fn the_truncation_thresholds_are_ten_thousand_and_seven_thousand_five_hundred() {
         assert_eq!(scrollback::MAX_GLYPHS, 10_000);

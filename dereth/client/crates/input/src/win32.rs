@@ -274,7 +274,7 @@ impl DbcsPairing {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered input pipeline §3.1 — the auto-repeat filter, the NumLock inversion and the
+    /// the auto-repeat filter, the NumLock inversion and the
     /// RSHIFT fold.
     #[test]
     fn keyboard_offsets_match_the_documented_normalisation() {
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(keyboard_offset(0x0145_0001), Some(0x45));
     }
 
-    /// Oracle: the recovered input pipeline §3.2 — `ofs = button + 0xC`, order L, R, M, X1, X2.
+    /// `ofs = button + 0xC`, order L, R, M, X1, X2.
     #[test]
     fn mouse_buttons_are_dimofs_button0_upwards() {
         assert_eq!(mouse_button(msg::WM_LBUTTONDOWN, 0), Some((0x0C, false)));
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(mouse_button(msg::WM_XBUTTONUP, 2 << 16), Some((0x10, true)));
     }
 
-    /// Oracle: trap 14 and the recovered input pipeline §2 — Alt alone never opens the system menu,
+    /// Alt alone never opens the system menu,
     /// because the system-keys-enabled flag is false for the whole run.
     #[test]
     fn alt_alone_never_opens_the_system_menu() {
@@ -319,7 +319,7 @@ mod tests {
         );
     }
 
-    /// Oracle: trap 15 and the recovered input pipeline §2 — the client refuses standby and swallows the
+    /// the client refuses standby and swallows the
     /// screensaver.
     #[test]
     fn the_client_refuses_standby() {
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(wnd_proc_disposition(&m), WndProcDisposition::Swallowed);
     }
 
-    /// Oracle: the recovered input pipeline §2 — every mouse *down* calls `SetFocus(hwnd)` first; an up
+    /// every mouse *down* calls `SetFocus(hwnd)` first; an up
     /// does not.
     #[test]
     fn a_mouse_down_takes_focus_first() {
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(wnd_proc_disposition(&up), WndProcDisposition::Forward);
     }
 
-    /// Oracle: the recovered input pipeline §9 — the DBCS lead byte is stashed and the pair delivered.
+    /// the DBCS lead byte is stashed and the pair delivered.
     #[test]
     fn dbcs_pairs_a_lead_byte() {
         let mut p = DbcsPairing::default();

@@ -1,9 +1,7 @@
 //! Manager-level tests: the pieces whose behaviour only exists once a tree, a listener table and a
 //! frame loop are all present.
 //!
-//! Every test names its oracle. The oracles here are the recovered client behavior; tests that
-//! need retail *data* live
-//! in `tests/layout_conformance.rs`, which is the track's acceptance gate.
+//! Tests that need shipped layout data live in `tests/dat/layout_conformance.rs`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -451,7 +449,7 @@ fn init_registers_the_documented_engine_classes() {
 
 /// Pinned behavior: element id 8, type 3, and the display size with
 /// incorporation bits 8 and 0x10, all four edges mode 1, and an **800 × 600 fallback** when there
-/// is no device yet (contract 11.13).
+/// is no device yet.
 #[test]
 fn the_hollow_root_is_the_documented_prototype() {
     let ui = UiSystem::new((1024, 768));
@@ -635,7 +633,7 @@ fn pass_to_children_recurses_the_state_change() {
 // element messages
 // ---------------------------------------------------------------------------------------------
 
-/// Pinned behavior: the serial-number filter. §6 says, "Without
+/// Pinned behavior: the serial-number filter. the description says, "Without
 /// it, a listener registered both on a child and on its parent receives the same message twice, and
 /// several panels (notably the toolbar and item-list elements) would double-handle clicks."
 ///
@@ -1577,7 +1575,7 @@ fn a_button_whose_layout_ships_it_disabled_is_enabled_by_its_own_set_state() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Astra — nested child SetState calls must complete before the parent's next call.
+// Nested child SetState calls must complete before the parent's next call.
 // ---------------------------------------------------------------------------------------------
 
 /// The group box's attribute setter sets the old child's state to 1

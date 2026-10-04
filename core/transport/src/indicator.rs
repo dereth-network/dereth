@@ -174,7 +174,7 @@ impl Indicator {
             if existing.saved_net_blob_id == blob_id {
                 // Same blob, another fragment.
             } else if !existing.saved_net_blob_id.lhs_newer_ordering_stamp(blob_id) {
-                // UNVERIFIED: the supersession test is inverted in the
+                // the supersession test is inverted in the
                 // shipped client and this branch is the bug, transcribed.
                 //
                 // The fragment accept reads:

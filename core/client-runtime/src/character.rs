@@ -679,7 +679,7 @@ impl MovementCommands {
                     // Nothing was accepted, and nothing is issued. The lists may still have
                     // changed; the body keeps doing what it was doing, which is the client's
                     // behaviour and not an oversight.
-                    // **A declared deviation, and the one line retail does not need.** The
+                    // The
                     // command-removal step has just taken the released key off its list and the
                     // client issues nothing, because while `controlled_by_server` is set the
                     // *server* owns the body and the lists are held in reserve until

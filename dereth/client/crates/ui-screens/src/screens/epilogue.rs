@@ -116,7 +116,7 @@ impl Screen for EpilogueScreen {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered screen catalogue, and the layout-enum map (enum `0x10000037` →
+    /// Oracle: the screen catalogue, and the layout-enum map (enum `0x10000037` →
     /// `0x21000036` `epilogue`, whose one and only element is the root `0x10000399`).
     #[test]
     fn both_documented_paths_end_the_main_loop_and_neither_does_it_twice() {

@@ -27,15 +27,10 @@
 //!
 //! [measured on the shipped layout]
 //!
-//! # Two corrections to `panels::catalogue`, both verified against retail
+//! # Panel messages
 //!
-//! 1. **The panel registers FOUR notices, not three:** open the salvage panel, add a salvage
-//!    item, **remove a salvage item** and the item list's begin-drag. An earlier reading of the
-//!    panel listed the open, add and begin-drag notices and dropped remove-item, which is the one
-//!    that takes a row back *out* of the window.
-//! 2. **It switches on three element messages, not one:**
-//!    `0x1C`, `1`, and `0x15`. The catalogue carried only
-//!    `&[1]`.
+//! The panel handles opening, adding an item, removing an item and beginning a drag.
+//! Its element-message cases are `0x1C`, `1` and `0x15`.
 //!
 //! # Five more readings of retail's behaviour
 //!

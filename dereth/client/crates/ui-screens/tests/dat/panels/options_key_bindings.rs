@@ -490,9 +490,8 @@ fn a_key_bound_elsewhere_raises_the_overwrite_dialog_and_binds_only_on_ok() {
 /// must drop the head. This is the branch [`dereth_input::InputManager::set_binding`] deliberately
 /// does **not** carry — it is the page's, because how many buttons a row has is layout.
 ///
-/// See the module docs on `options::keybinding` for what is verified here and what is `[inferred]`:
-/// retail visibly unbinds the head and rebinds it to `DoNothing`, but its removal from the
-/// current list is not directly observed.
+/// This tests the current-list policy of `options::keybinding`, including removal of
+/// the recycled head, rather than only checking the underlying map binding.
 ///
 /// Falsified by: removing the `self.current.len() >= self.key_buttons.len()` branch; recycling the
 /// tail instead of the head; leaving the head in `current`.
@@ -1101,7 +1100,7 @@ mod defaults {
     const MOVEMENT: InputMapId = InputMapId(4);
     const MOVE_FORWARD: ActionId = ActionId(0x29);
     const DIK_W: u16 = 0x11;
-    /// The one letter-or-function key no shipped binding uses (`o196_rebinding.rs`).
+    /// The one letter-or-function key no shipped binding uses.
     const DIK_F7: u16 = 0x41;
 
     // ---------------------------------------------------------------------------------------------

@@ -22,7 +22,7 @@ use super::table::{CommandEntry, HELP_GROUPS, INITIALIZE_COMMANDS, TURBINE_CHAT_
 /// Allegiance / Fellowship / Patron / Vassals, which would mis-name three of the four and
 /// send an allegiance line to the fellowship. `dereth_client_model::chat::TalkFocus` carries the
 /// same names; this is the second copy, and the two are cross-checked by
-/// [`TalkFocus::menu_label`]'s test. \[verified\]
+/// [`TalkFocus::menu_label`]'s test.
 ///
 /// The channel bits are unchanged and do **not** follow the menu's naming: focus 3 (Fellows) is
 /// `0x800` and focus 4 (Patron) is `0x2000`. That is what retail does.
@@ -68,7 +68,7 @@ impl TalkFocus {
     /// The string id gives this focus's own menu row in the chat menu,
     /// immediately before tagging it with attribute `0x1000000B` = the focus id. This is the
     /// oracle that names 3…6, and it is carried here so the naming can be tested
-    /// rather than argued about. \[verified\]
+    /// rather than argued about.
     #[must_use]
     pub const fn menu_label(self) -> &'static str {
         match self {
@@ -142,7 +142,7 @@ pub const NOT_A_VALID_COMMAND: &str = "That is not a valid command.";
 
 /// Split into words with the delimiter set `" \t"`.
 ///
-/// Trap 10: split on space **and** tab, empty tokens dropped, and there is **no quoting, no
+/// Split on space **and** tab, empty tokens dropped, and there is **no quoting, no
 /// escaping and no `--` terminator**. A double quote is just another character. Handlers that need
 /// free text re-join with the join below.
 #[must_use]
@@ -361,7 +361,7 @@ mod tests {
         );
     }
 
-    /// Oracle: trap 10 and the recovered command-interpreter behavior §3 — the trailing-comma trim on the verb.
+    /// Oracle: command interpretation — the trailing-comma trim on the verb.
     #[test]
     fn the_verb_loses_a_trailing_comma() {
         let mut c = CommandInterp::new();
@@ -378,7 +378,7 @@ mod tests {
         ));
     }
 
-    /// Oracle: trap 10 — split on space **and** tab, empty tokens dropped, no quoting.
+    /// Oracle: split on space **and** tab, empty tokens dropped, no quoting.
     #[test]
     fn tokenisation_has_no_quoting_and_drops_empty_tokens() {
         assert_eq!(find_all_words("@tell\tbob\thi"), vec!["@tell", "bob", "hi"]);
@@ -414,7 +414,7 @@ mod tests {
         );
     }
 
-    /// Oracle: trap 11 — abbreviations are separate entries, not prefix matching.
+    /// Oracle: abbreviations are separate entries, not prefix matching.
     #[test]
     fn abbreviations_are_not_prefixes() {
         let mut c = CommandInterp::new();

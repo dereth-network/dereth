@@ -227,7 +227,7 @@ pub const GARBLE_ROLL: (i32, i32) = (1, 10);
 /// | 9 | `casts about looking for victims.` |
 /// | 10 | `prepares to hunt enemies of the queen.` |
 ///
-/// \[verified\]
+///
 pub const OLTHOI_TEXT: [&str; 10] = [
     "glares menacingly.",
     "clicks its pincers together in anticipation of destruction.",
@@ -261,7 +261,7 @@ pub const OLTHOI_TEXT: [&str; 10] = [
 /// an **Olthoi listener** is shown when a human speaks; the Olthoi phrases are what everybody
 /// else is shown when an Olthoi speaks. Getting the two the wrong way round is invisible in a
 /// screenshot and is the reason [`random_text`] keys on the *speaker* flag rather than on the
-/// listener. \[verified\]
+/// listener.
 pub const HUMAN_TEXT: [&str; 10] = [
     "cowers in fear.",
     "calls out for help and prepares to fight you.",
@@ -315,7 +315,7 @@ pub fn random_text(roll: i32, speaker_is_olthoi: bool) -> &'static str {
 /// race update — and **12 and 13 are exactly the two heritages that race update gives
 /// their own `UIASSET` animation enum to** (`0x10000011` and `0x10000013`), because they are the
 /// two with no humanoid idle. Two functions, two different jobs, the same pair of ids: that is
-/// the second reading, and it is why this is `\[verified\]` rather than named from a wiki.
+/// the second reading.
 ///
 /// A description that carries no `HeritageGroup` reads `0` through
 /// [`dereth_client_model::qualities::Qualities::inq_int`], which is the int-quality lookup's own
@@ -425,7 +425,7 @@ pub fn hear_emote_line(name: &str, text: &str) -> String {
 /// flags, in the same order, appears in speech, direct-speech and emote handling.
 ///
 /// The three arms differ only in what they compose afterwards. One name for one decision, because
-/// three arms sharing a producer is exactly where two get wired and one is forgotten. \[verified\]
+/// three arms sharing a producer is exactly where two get wired and one is forgotten.
 ///
 /// The decision is: if the ampersand flag equals the player's Olthoi state, the line is
 /// understood; if the caret flag is set it is understood; otherwise it is garbled — and the

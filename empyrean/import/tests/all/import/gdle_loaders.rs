@@ -485,7 +485,10 @@ fn finish(what: &str, failures: &[String], checked: usize) {
 
 /// A fresh folder with the case's files: `[path, text]` or `[path, text, creation ticks]`.
 fn case_folder(tag: &str, files: &Value) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("serv-content-8b3-{}-{tag}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "empyrean-content-gdle-{}-{tag}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     for f in files.as_array().unwrap() {

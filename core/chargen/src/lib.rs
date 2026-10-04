@@ -1574,7 +1574,7 @@ impl CharGenState {
     /// sending an invalid template. Headgear keeps its -1: that value is "no hat" and is the one
     /// ACE reads as `HeadgearStyle == uint.MaxValue`.
     ///
-    /// UNVERIFIED: which option the retail client lands on is a draw from
+    /// which option the retail client lands on is a draw from
     /// the client's own random-int, so index 0 is not what retail shows — it is a legal, reproducible
     /// choice, and every one of these fields is a *player* choice the appearance page can change.
     pub fn default_appearance(&mut self, cg: &CharGen) {

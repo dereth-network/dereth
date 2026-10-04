@@ -244,7 +244,6 @@ impl DialogContext {
     /// | entering world | 2 | `Wait` |
     /// | confirm exit | 1 | `Confirmation` |
     ///
-    /// [verified against retail]
     ///
     /// It is also the value the dialog-close handler's switch demultiplexes on: its cases are
     /// **1**, **5**, **2** and **3**, one per distinct kind above, and case **4** (`TextInput`) is
@@ -318,7 +317,7 @@ pub const TEXT_INPUT_CANCEL: ElementId = ElementId(0x2F);
 /// text `0x2C`, and a recursive child lookup for `0x2C` finds the descendant because the walk starts
 /// below the receiver. Dumped from `client_local_English.dat` layout `0x2100003C`; the box carries
 /// property **0x16** (`editable`) and is a `TextElement` (type `0xC`) through base
-/// `0x10000372`. \[verified\]
+/// `0x10000372`.
 pub const TEXT_INPUT_FIELD: ElementId = ElementId(0x2C);
 /// The message dialog's single button, element `0x26`.
 pub const MESSAGE_BUTTON: ElementId = ElementId(0x26);
@@ -1011,7 +1010,7 @@ impl CharacterManagementScreen {
     /// is prepended — so whichever of 7 and 9 wins, the callback is the text element. Its `0x27`
     /// arm then returns **true** unconditionally (flag bit `0x1000` decides only whether a further
     /// handler is called), so the event is consumed and no input handler runs. Retail's screen does
-    /// **not** see that Escape either. \[verified\]
+    /// **not** see that Escape either.
     pub fn on_action(&mut self, ui: &mut UiSystem, action: u32) -> bool {
         // The engine-layer "cancel" action, `0x27`. Taken from the one place it is already
         // transcribed rather than written a second time; the literal is pinned in this file's own
@@ -1644,7 +1643,7 @@ mod tests {
         }
     }
 
-    /// Oracle: the recovered screen catalogue's control table and the layout-enum map (enum
+    /// Oracle: the screen catalogue's control table and the layout-enum map (enum
     /// `0x10000005` → `0x21000004` `charactermanagement`, roots `0x1000039A` and `0x100003A5`).
     #[test]
     fn the_screen_names_the_documented_layout_root_and_controls() {
@@ -1669,7 +1668,7 @@ mod tests {
         assert_eq!(INPUT_MAP, 9);
     }
 
-    /// Oracle:, §7's paragraph — the three rules, each exercised in both
+    /// the three rules, each exercised in both
     /// directions.
     #[test]
     fn update_buttons_follows_the_three_documented_rules() {
@@ -1747,7 +1746,7 @@ mod tests {
         assert_eq!(row_height(320, 0, 0), 320);
     }
 
-    /// Oracle: §7 — the list is filled from the framework's persistent character set, and
+    /// the list is filled from the framework's persistent character set, and
     /// ENTER (or a row double-click) enters the world with the selected character.
     ///
     /// This runs with no environment installed, so no row elements exist; what it asserts is the
@@ -1840,12 +1839,11 @@ mod tests {
         assert_eq!(s.selected_id, ObjectId(2));
     }
 
-    /// Oracle: §7's control table — Create goes to char-gen, Credits to the credits screen, and
+    /// Create goes to char-gen, Credits to the credits screen, and
     /// Quit/Delete/Restore open dialogs rather than acting directly.
     ///
     /// With no environment installed the dialog builds record their context and build nothing,
-    /// which is what this asserts. That the element is then really built, drawn and answerable is
-    /// `dereth/client/tests/o52_dialogs.rs`'s job — see
+    /// which is what this asserts. This does not exercise the environment-backed element path in
     /// [`CharacterManagementScreen::make_dialog`].
     #[test]
     fn the_buttons_queue_the_documented_modes_and_open_the_documented_dialogs() {
@@ -1920,9 +1918,7 @@ mod tests {
     /// *only* writer of `open_dialog` that anything ever read — the shape
     /// the stated testability rule calls *"a test fixture standing in for the missing producer"*. The
     /// producer is now [`CharacterManagementScreen::make_delete_character_confirmation_dialog`],
-    /// and the whole path — a real click, a real `WM_CHAR` per character, a real click on `0x2E` —
-    /// is driven end to end in `dereth/client/tests/o52_dialogs.rs`, which is where "the client sets
-    /// this" is actually asserted. What is left here is the **model** half: the comparison rule.
+    /// but this test exercises only the comparison rule, not the physical click and character path.
     #[test]
     fn deleting_a_character_needs_the_localised_phrase_typed_back() {
         let mut ui = UiSystem::new((800, 600));
@@ -2006,7 +2002,7 @@ mod tests {
         assert_eq!(STRING_TABLE.0, 0x2300_0002);
     }
 
-    /// Oracle: §7's sentence on the character-generation verification-response notice.
+    /// Oracle: the description's sentence on the character-generation verification-response notice.
     #[test]
     fn the_three_chargen_verification_strings_are_the_documented_ids() {
         assert_eq!(CHARGEN_VERIFICATION_STRINGS.len(), 3);

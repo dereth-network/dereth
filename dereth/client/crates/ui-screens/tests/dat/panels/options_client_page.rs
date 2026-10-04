@@ -141,7 +141,7 @@ fn every_child_id_in_the_control_table_is_the_one_the_shipped_layout_carries() {
 /// `classic_gameplay` tree, and the slider option's own template index: 6 when wide, 3 when not.
 ///
 /// The load-bearing half is the last two assertions: template **6** is the row that carries
-/// `0x1000021E`/`0x1000021F`, and template **3** is not. `14` §1.4 and this crate both had
+/// `0x1000021E`/`0x1000021F`, and template **3** is not. the layout description and this crate both had
 /// `wide ? 3 : 6`, so a wide slider would have been built from the caption-less template and the
 /// two end captions on every slider row of the page would have been silently dropped.
 #[test]
@@ -503,8 +503,7 @@ fn closing_the_page_reverts_an_uncommitted_change() {
 /// **What is asserted about the bar is the state that was *asked for*, not `n.state`.** The shipped
 /// `0x1000021C` template declares **no states at all**, and
 /// the tree records **state 0** for a state the description does not carry — so the bar reads 0
-/// either way, in this build and in retail. Measured, not assumed: see
-/// `o213_probe.rs::probe_slider_states`. Asserting `n.state == 0x0D` would be asserting something
+/// either way. Asserting `n.state == 0x0D` would be asserting something
 /// the client does not do.
 #[test]
 fn unticking_a_sound_check_box_greys_its_paired_slider() {
@@ -902,7 +901,7 @@ mod sound_defaults {
         assert_eq!(
             delta(0x1000_0034),
             0,
-            "action-key-map options: the keyboard-settings panel is bound but its rows need the input bindings from o236"
+            "action-key-map options: the keyboard-settings panel is bound but its rows need input bindings"
         );
         assert_eq!(
             delta(0x1000_0043),

@@ -2,7 +2,7 @@
 //!
 //! JPEG decoding preserves the legacy library's baseline and progressive behavior.
 //!
-//! The client's JPEG loader, "verified", reads the header, **fails unless**
+//! The client's JPEG loader, reads the header, **fails unless**
 //! `props.JPGChannels == 3`**, records the format as `PFID_R8G8B8`, and then decodes with
 //! `DIBChannels = 3`, `DIBColor = IJL_BGR (2)`, `JPGColor = IJL_YCBCR (3)`. So the decoded pixels
 //! land as **24-bit BGR**, which is exactly `PFID_R8G8B8`'s little-endian byte order
@@ -17,7 +17,7 @@
 //!
 //! # Fidelity
 //!
-//! UNVERIFIED: IJL folds CPUID into its function-table selection, so the
+//! IJL folds CPUID into its function-table selection, so the
 //! *reference* decode of this corpus is CPU-dependent (which IDCT and colour converter ran). The
 //! comparison tolerance is therefore a named constant, [`MAX_CHANNEL_DELTA`], and any fixture must
 //! record the capture CPU in a sidecar. The mean-delta rule below is the part that is *not*
@@ -35,7 +35,7 @@ use crate::RenderError;
 ///
 /// The rule is "max per-channel Δ ≤ 1 **and mean Δ = 0** per channel". The `1` is
 /// rounding slack for the IDCT; the mean is not slack at all.
-/// UNVERIFIED: which IJL function table produced the reference.
+/// which IJL function table produced the reference.
 pub const MAX_CHANNEL_DELTA: u8 = 1;
 
 /// A decoded raw-JPEG surface: 24-bit BGR, tightly packed, top row first.
@@ -256,7 +256,7 @@ pub(crate) mod tests {
     }
 
     // Oracle: the JPEG standard's SOF markers classify the corpus as 73 baseline plus 6
-    // progressive"). Spec trap 2 makes identifying the progressive records the point of the test:
+    // progressive"). Identifying the progressive records exercises that rejection:
     // "A baseline-only decoder passes 73 images and silently fails 6."
     #[test]
     fn the_sof_marker_distinguishes_baseline_from_progressive() {
@@ -269,7 +269,7 @@ pub(crate) mod tests {
         assert_eq!(is_progressive(&bytes(RED_8X8_BASELINE)[..8]), None);
     }
 
-    // Oracle: spec trap 2 -- "Both zune-jpeg and jpeg-decoder handle progressive; *verify with the
+    // Oracle: "Both zune-jpeg and jpeg-decoder handle progressive; *verify with the
     // corpus test rather than assuming*." The retail corpus is not checked in (fixtures/C is
     // empty), so this verifies the decoder against a progressive stream of known content, which is
     // the half of the claim that is about the decoder rather than about the corpus.
@@ -309,7 +309,7 @@ pub(crate) mod tests {
         assert!(r < 60 && g < 60, "got r={r} g={g}");
     }
 
-    // Oracle: the client's JPEG loader, "verified" -- "if (props.JPGChannels
+    // Oracle: the client's JPEG loader -- "if (props.JPGChannels
     // != 3) fail // only 3-channel JPEG is accepted". A greyscale JPEG must be rejected, not
     // silently expanded, because the client rejects it.
     #[test]
@@ -321,7 +321,7 @@ pub(crate) mod tests {
         }
     }
 
-    // Oracle: the brief -- "Parsers return Result; they do not panic on malformed input, because
+    // Oracle: "Parsers return Result; they do not panic on malformed input, because
     // they will meet malformed input." All 79 real records go through this path.
     #[test]
     fn malformed_input_is_an_error_not_a_panic() {

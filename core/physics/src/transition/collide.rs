@@ -317,7 +317,7 @@ pub fn sphere_intersects_sphere(
         if t.sphere_path.num_sphere < 2 {
             return TransitionState::Ok;
         }
-        // UNVERIFIED: the second-sphere operand order here follows ACE.
+        // the second-sphere operand order here follows ACE.
         return if second_hits() {
             TransitionState::Collided
         } else {
@@ -639,7 +639,7 @@ pub fn env_find_env_collisions(
 
 /// The BSP tree's collision search.
 ///
-/// **UNVERIFIED:** the two-sphere branch operand order is not yet known; the flow below follows
+/// the two-sphere branch operand order is not yet known; the flow below follows
 /// ACE's `BSPTree.find_collisions`. Every constant (the `0.0871557` landing allowance), branch
 /// predicate and callee in it *is* verified against the client.
 pub fn bsp_find_collisions(
@@ -661,7 +661,7 @@ pub fn bsp_find_collisions(
         if tree.sphere_intersects_solid(&local, clear_cell) {
             return TransitionState::Collided;
         }
-        // UNVERIFIED: the second-sphere operand order here follows ACE.
+        // the second-sphere operand order here follows ACE.
         if t.sphere_path.num_sphere > 1
             && tree.sphere_intersects_solid(&t.sphere_path.localspace_sphere[1], clear_cell)
         {
@@ -744,7 +744,7 @@ pub fn bsp_find_collisions(
             return step_sphere_up_from_normal(ctx, t, to_world(n, t));
         }
         let poly0 = hit_poly;
-        // UNVERIFIED: the second-sphere operand order here follows ACE.
+        // the second-sphere operand order here follows ACE.
         if t.sphere_path.num_sphere > 1 {
             let s2 = t.sphere_path.localspace_sphere[1];
             let mut poly1 = None;
@@ -805,7 +805,7 @@ pub fn bsp_find_collisions(
         t.sphere_path.walkable_allowance = LANDING_Z;
         return TransitionState::Adjusted;
     }
-    // UNVERIFIED: the second-sphere operand order here follows ACE.
+    // the second-sphere operand order here follows ACE.
     if t.sphere_path.num_sphere > 1 {
         let s2 = t.sphere_path.localspace_sphere[1];
         // the second sphere reuses the **same** polygon slot, and the gate is again
@@ -1689,7 +1689,7 @@ mod tests {
         assert!(t.collision_info.collided_with_environment);
     }
 
-    /// Contract item 5.10: deep sea is a hard `COLLIDED_TS` for anything that is not a viewer or a
+    /// Deep sea is a hard `COLLIDED_TS` for anything that is not a viewer or a
     /// missile — **not** "swim".
     #[test]
     fn an_entirely_water_landblock_is_a_hard_stop() {

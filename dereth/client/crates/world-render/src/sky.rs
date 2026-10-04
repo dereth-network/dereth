@@ -34,7 +34,7 @@ pub struct CelestialPosition {
     /// This field is not zero for every shipped sky object. Over the region's 20 day groups it
     /// takes 0 (×120), 2 (×20),
     /// 4 (×8), 5 (×8) and 13 (×76), so [`draws_in_pass_0`] and [`SkyPass::After`] are live code.
-    /// The bit *names* are still `[inferred]`.
+    /// The bit names describe the roles used by the sky renderer.
     ///
     /// Only the eight **"Rainy"** groups carry a weather layer. The three "Cloudy" ones use `{0, 2}`
     /// like every "Sunny" and "Clear" group, and their overcast is the ordinary cloud deck. Bit 3
@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(get_time_of_day(&[], 0.5), None);
     }
 
-    /// Oracle: sky lighting and trap 6 — the sun vector's **length is
+    /// Oracle: sky lighting — the sun vector's **length is
     /// `dir_bright`**. This is the assertion that fails if someone normalises it.
     #[test]
     fn the_sun_vector_length_is_dir_bright() {

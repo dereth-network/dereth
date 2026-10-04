@@ -148,7 +148,10 @@ fn item(
 
 /// A unique temp file for one SQLite shard (removed by the test).
 fn temp_db(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("u411-{tag}-{}.db", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "empyrean-save-reload-{tag}-{}.db",
+        std::process::id()
+    ))
 }
 
 /// A server on `backend` with the character seeded (with its possessions) before start-up, and a

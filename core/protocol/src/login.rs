@@ -78,7 +78,7 @@ impl LoginCharacterSet {
     /// Its one caller is the char-gen verification response's
     /// `CG_VERIFICATION_RESPONSE_OK` arm, whose return value decides whether
     /// the character-set notice is raised — so the bool is load-bearing and is
-    /// returned here for the same reason. `\[verified\]`
+    /// returned here for the same reason.
     pub fn add_identity(&mut self, id: &CharacterIdentity) -> bool {
         if self.characters.iter().any(|c| c.gid == id.gid) {
             return false;

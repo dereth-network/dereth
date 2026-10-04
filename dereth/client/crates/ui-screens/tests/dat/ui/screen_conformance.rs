@@ -199,7 +199,7 @@ fn all_sixteen_windows_are_present_under_the_gameplay_root() {
         );
     }
     // The sixteen page containers and the seven toolbar buttons are the panel-visibility mechanism
-    // (trap 11); both sides must exist for the indirection to have anything to indirect through.
+    // and both sides must exist for the indirection to have anything to indirect through.
     let pages = PANEL_PAGES
         .iter()
         .filter(|p| ui.get_child_recursive(root, ElementId(**p)).is_some())
@@ -290,7 +290,7 @@ fn toggling_the_ui_lock_swaps_all_eight_chrome_children_on_every_floaty_window()
         }
     }
 
-    // The radar locks differently (`15` §1.9): the drag button hides and the lock button changes
+    // The radar locks differently: the drag button hides and the lock button changes
     // media state, and neither of those elements belongs to a chrome block.
     let drag = ui
         .get_child_recursive(root, dereth_ui_screens::mapradar::radar::child::DRAG_BUTTON)
@@ -429,7 +429,7 @@ fn the_screen_layout_file_round_trips_byte_identically_through_the_live_window_s
     let expected: String = original
         .windows
         .iter()
-        // `ROW_FORMAT` = "%s X:%d Y: %d W: %d H: %d " — note the irregular spacing, which §5 says
+        // `ROW_FORMAT` = "%s X:%d Y: %d W: %d H: %d " — note the irregular spacing, which the description says
         // to keep "if you want existing players' layouts to load", and the trailing space that is
         // the only thing separating one row from the next.
         .map(|(tag, w)| format!("{tag} X:{} Y: {} W: {} H: {} ", w.x, w.y, w.w, w.h))
@@ -462,7 +462,7 @@ fn the_screen_layout_file_round_trips_byte_identically_through_the_live_window_s
     let parsed = ScreenLayout::parse(&first).expect("the file we just wrote must parse");
     assert_eq!(parsed, original);
 
-    // Re-apply through the screen's own loader, which is resize-then-move (`11` §1.1).
+    // Re-apply through the screen's own loader, which is resize-then-move.
     let mut screen = dereth_ui_screens::screens::gameplay::GamePlayScreen::create_screen();
     screen
         .create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))

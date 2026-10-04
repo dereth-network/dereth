@@ -91,7 +91,7 @@ pub fn compute_game_viewport(
 /// The client's convention, spelled out rather than delegated so the arithmetic is visible:
 /// `yScale = cot(fovY/2)`, `xScale = yScale / aspect`, `m33 = zf/(zf−zn)`, `m43 = −zn·zf/(zf−zn)`.
 ///
-/// UNVERIFIED: `D3DXMatrixPerspectiveFovLH` computes the
+/// `D3DXMatrixPerspectiveFovLH` computes the
 /// cotangent as the quotient `cos(fovY/2) / sin(fovY/2)` at the client's 53-bit precision and
 /// then stores to `float`. Whether an `f64` `cos`/`sin` quotient reproduces that bit-for-bit over
 /// the client's FOV range can only be settled side by side against the 2003-era D3DX. The `f64`
@@ -261,7 +261,7 @@ mod tests {
 
     // At the 4:3 default (viewport aspect ratio 1.3333), the 90-degree preference becomes a
     // vertical FOV of
-    // 90 / 1.2333 = 72.97 degrees; at Wide (16:9, 1.7778) it becomes 53.6 degrees." Contract 11.5.
+    // 90 / 1.2333 = 72.97 degrees; at Wide (16:9, 1.7778) it becomes 53.6 degrees."
     #[test]
     fn the_documented_field_of_view_values_are_reproduced() {
         let pref = DEFAULT_FOV_DEGREES * DEG_TO_RAD;

@@ -184,7 +184,7 @@ pub const READS_PLACEMENT_VISIBILITY: [&str; 5] = [
 ///
 /// Every one of the ten floating windows fetches all sixteen children by explicit id in its own
 /// post-init, in exactly this order, and the ids are interleaved rather than contiguous by role.
-/// See [`ChromeBlock`] for the mapping. \[verified\]
+/// See [`ChromeBlock`] for the mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ChromePiece {
     Top,
@@ -260,14 +260,10 @@ impl ChromePiece {
 ///
 /// So the low eight are the `_Locked` set and the high eight the unlocked set, and within each
 /// half the ids run **corner, border, corner, border …** rather than by [`ChromePiece::ALL`]
-/// order. That is exactly the interleave [`SMART_BOX_CHROME`] already carried as **verified** —
-/// two readings that could have disagreed and did not.
-///
-/// The polarity itself was never wrong. The lock/unlock pass:
+/// order, matching the interleave in [`SMART_BOX_CHROME`].
 ///
 /// With UI locking enabled, hide all eight plain pieces and show the eight locked
 /// variants. With locking disabled, show the plain pieces and hide the locked variants.
-/// \[verified\]
 ///
 /// The shipped layout agrees from a third direction: at every one of the ten blocks, `first+0` …
 /// `first+7` are all `Field` (type 3) and `first+8` … `first+15` are all
@@ -354,7 +350,7 @@ pub const FLOATY_CHROME: [ChromeBlock; 10] = [
 
 /// The client's eight explicit border ids, in [`ChromePiece::ALL`] order.
 ///
-/// This is the **verified** ordering that [`ChromePiece`] copies:
+/// [`ChromePiece`] uses this ordering:
 /// top `0x100006CB`, left `0x100006CD`, bottom `0x100006CF`, right `0x100006D1`, then the four
 /// corners `0x100006CA`, `0x100006CC`, `0x100006CE`, `0x100006D0`.
 pub const SMART_BOX_CHROME: [ElementId; 8] = [
@@ -467,8 +463,8 @@ pub fn swap_chrome(ui: &mut UiSystem, root: ElemHandle, block: &ChromeBlock, loc
 mod tests {
     use super::*;
 
-    /// Oracle: the sixteen-row table in the recovered HUD behavior, cross-checked against the
-    /// independent transcription in the recovered UI-persistence behavior
+    /// Oracle: the sixteen-row table in the HUD behavior, cross-checked against the
+    /// independent transcription in the UI-persistence behavior
     /// (`dereth_ui::persist::screen_layout::WINDOWS`).
     #[test]
     fn the_window_table_agrees_with_track_js_transcription_row_for_row() {
@@ -487,9 +483,9 @@ mod tests {
         assert_eq!(chat, FLOATY_CHAT_WINDOWS.to_vec());
     }
 
-    /// Oracle: the ten-row chrome table in the recovered HUD behavior. Nine of the ten blocks are
+    /// Oracle: the ten-row chrome table in the HUD behavior. Nine of the ten blocks are
     /// contiguous with the next; the two gaps in the table (`0x10000692`→`0x100006A5` and
-    /// `0x100006B4`→`0x100006D6`) are real and are what the ids in §1 sit in.
+    /// `0x100006B4`→`0x100006D6`) are real and are what the ids in the description sit in.
     #[test]
     fn every_chrome_block_is_sixteen_contiguous_ids_and_they_never_overlap() {
         let mut seen: Vec<u32> = Vec::new();
@@ -541,8 +537,8 @@ mod tests {
         assert_eq!(FLOATY_CHROME[9].all()[15].0, 0x1000_06E5);
     }
 
-    /// Oracle: the recovered HUD behavior — each floating window swaps its eight normal border/corner
-    /// children for the eight `_Locked` ones", driven by global message `0x0D` (§1.3).
+    /// each floating window swaps its eight normal border/corner
+    /// children for the eight `_Locked` ones", driven by global message `0x0D`.
     #[test]
     fn toggling_the_lock_swaps_all_eight_chrome_children_on_a_floaty_window() {
         let mut ui = UiSystem::new((800, 600));
@@ -571,7 +567,7 @@ mod tests {
         assert!(!w.locked);
         w.update_locked_status(&mut ui, true);
         assert!(w.locked);
-        // `<SBOX>` and `<RADA>` are not floaty wrappers; they lock differently (§1.3).
+        // `<SBOX>` and `<RADA>` are not floaty wrappers; they lock differently.
         assert!(FloatyWrapper::for_window(&by_class("WorldView").unwrap()).is_none());
         assert!(FloatyWrapper::for_window(&by_class("Radar").unwrap()).is_none());
     }
@@ -611,7 +607,7 @@ mod tests {
 
     /// The world view's ids reproduce the floaty interleave.
     #[test]
-    fn the_world_views_verified_ids_reproduce_the_floaty_interleave() {
+    fn the_world_view_ids_reproduce_the_floaty_interleave() {
         for (i, p) in ChromePiece::ALL.iter().enumerate() {
             assert_eq!(
                 ElementId(0x1000_06CA + ChromeBlock::slot(*p)),
@@ -621,10 +617,9 @@ mod tests {
         }
     }
 
-    /// Oracle: the recovered HUD behavior's post-init table — the one place the
-    /// top/left/bottom/right/TL/TR/BL/BR order is verified rather than inferred.
+    /// Chrome pieces use top/left/bottom/right/TL/TR/BL/BR order.
     #[test]
-    fn the_world_view_chrome_is_the_verified_ordering() {
+    fn the_world_view_chrome_uses_edge_then_corner_order() {
         assert_eq!(
             SMART_BOX_CHROME[ChromePiece::Top as usize],
             ElementId(0x1000_06CB)

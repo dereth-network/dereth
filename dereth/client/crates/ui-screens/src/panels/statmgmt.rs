@@ -1,10 +1,6 @@
 //! The stat-management **footer** — the only place a player can spend experience.
 //!
-//! Sources: the stat-management panel's element-message handler, its eight footer
-//! getters (the footer title label through the footer's ten-raise button), the skill panel's
-//! selection change, its selection update and its three footer displays (default, untrained
-//! and trained), its two cost-to-raise reads and its two raise paths, and the attribute
-//! panel's selection update.
+//! The footer handles skill and attribute selection, cost displays and experience spending.
 //!
 //! # The footer is three stacked containers, and the panel's own state picks one
 //!
@@ -15,41 +11,28 @@
 //!
 //! So the *selection* is expressed as a **state on the sub-panel element**, and the three
 //! containers all sit at the same rectangle `(0, 282, 299, 336)` on top of one another; the state
-//! cascades to them and each one's own state description decides whether it draws. That is
-//! [verified against the live `classic_gameplay` tree]: `0x10000240`, `0x10000241` and
+//! cascades to them and each one's own state description decides whether it draws. The elements `0x10000240`, `0x10000241` and
 //! `0x10000247` are three siblings of `SkillsPanel` with identical boxes, and each declares exactly
 //! the three states `0x10000011`, `0x10000012`, `0x10000013`.
 //!
-//! **The live tree is also what settles the selection update's missing arm.** Read literally,
-//! the selection update asks for the skill's advancement class and then **throws the answer
-//! away**, always setting state `0x10000012` and drawing the untrained footer. The trained footer
-//! display therefore has no visible caller. The layout says which arm is missing without
-//! having to guess: the trained footer is the **only** footer display that writes a
-//! meter (attribute `0x69` on the footer meter), and `0x10000247` is the **only** one of
-//! the three containers that contains a meter — a `Meter` (type 7) at `(5, 20, 244, 36)`.
-//! The meter getter returns that child only when the state is `0x10000013`. So the dropped block
-//! is "trained or better -> state `0x10000013` and the trained footer", and the
-//! surviving one is the untrained arm. [verified: the meter exists in exactly one container
-//! and exactly one function writes one]
+//! Trained skills select state `0x10000013`, whose container `0x10000247` has the progress
+//! meter (attribute `0x69`). Untrained skills use the footer without a meter.
 //!
 //! # Two magic numbers that are *not* magic
 //!
 //! * **A row's selected state is `6` and its unselected state is `1`.** The selection update's loop
 //!   sets state `6` for the selected row and state `1` for the rest. The live row template `0x10000248` declares exactly the two
-//!   states `0x1` and `0x6` and nothing else, which is the cross-check. \[verified\]
+//!   states `0x1` and `0x6` and nothing else, which is the cross-check.
 //! * **A button's disabled state is `0x0D` and its enabled state is `1`.** Both footer buttons
 //!   (`0x10000246`, `0x100005EB`) declare exactly `0x1` and `0xD`, and they ship **in `0xD`** —
-//!   the raise buttons are disabled until something selects a skill. This is the same `0x0D` the
-//!   folded returns false for. \[verified\]
+//!   the raise buttons are disabled until something selects a skill.
 
 use dereth_primitives::DataId;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
 /// `StringInfo`'s table enum `0x10000001`, resolved.
 ///
-/// Every footer label is a `StringInfo` in this table. The enum resolves to `0x23000001`
-/// [verified by resolving all eleven `ID_StatManagement_Footer_*` ids against the
-/// retail dats: `0x23000000` will not load and `0x23000001` answers every one of them].
+/// Every footer label is a `StringInfo` in this table. The enum resolves to `0x23000001`.
 pub const STRING_TABLE: DataId = DataId(0x2300_0001);
 
 /// The state values the selection update writes onto the sub-panel.
@@ -599,15 +582,15 @@ pub struct HeaderContent {
 /// The wide literal the experience update writes into the luminance label.
 ///
 /// It is not a `StringInfo`: retail writes the wide literal `L"Luminance:"` directly, so it
-/// does not come from the string table. [verified against retail]
+/// does not come from the string table.
 pub const LUMINANCE_LABEL: &str = "Luminance:";
 
 /// The narrow format string receives the **available** luminance first and the **maximum** second.
-/// [verified against retail -- see [`Footer::update_header`]]
+///
 pub const LUMINANCE_FORMAT: &str = "%s / %s";
 
 /// The minimum level (integer property `0x19`). Below it both fields are cleared.
-/// [verified against retail]
+///
 pub const LUMINANCE_MIN_LEVEL: i32 = 200;
 
 /// The experience system's xp to string.
@@ -616,7 +599,7 @@ pub const LUMINANCE_MIN_LEVEL: i32 = 200;
 /// `NUMBERFMTA { NumDigits: 0, LeadingZero: 0, Grouping: 3, lpDecimalSep: ".",
 /// lpThousandSep: ",", NegativeOrder: 1 }` -- so the locale cannot change the separators and the
 /// answer is plain three-digit grouping with commas. `NegativeOrder 1` is "minus sign, then the
-/// number", which is what a leading `-` gives. \[verified\]
+/// number", which is what a leading `-` gives.
 #[must_use]
 pub fn xp_to_string(v: i64) -> String {
     dereth_client_contract::panels::numfmt::exact_number(v)
@@ -636,7 +619,7 @@ impl Footer {
     /// are `PropertyInt` **`0xBC` `HeritageGroup`** and **`0x71` `Gender`**, not `0x71
     /// HeritageGroup` -- the char examine panel's creature info update reads property `0x71` as
     /// the gender and `0xBC` as the heritage group immediately before making the identical
-    /// gender/heritage display call. \[verified\]
+    /// gender/heritage display call.
     ///
     /// Returns what was written, so a test can read the numbers back.
     ///
@@ -651,7 +634,6 @@ impl Footer {
     /// format available luminance (64-bit property 6) and maximum luminance separately with
     /// the XP formatter, and join them as `"%s / %s"`, available first.
     ///
-    /// [verified against retail]
     pub fn update_header(&self, ui: &mut UiSystem, h: &HeaderInputs) -> HeaderContent {
         let xp = h.xp;
         let x = xp.unwrap_or_default();

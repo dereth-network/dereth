@@ -1241,8 +1241,7 @@ mod tests {
 
         /// The client's ownership half. **True for every id here**, which is
         /// the fixture saying "the player is carrying it": these stations are about the
-        /// already-in-list half, and the ownership half's own station is
-        /// `dereth/client/tests/p1_60d_trade_drag_hints.rs`, where a real world answers it.
+        /// already-in-list half, not inventory ownership.
         fn trade_drag_item_acceptable(&self, _item: ObjectId) -> bool {
             true
         }
@@ -1445,8 +1444,7 @@ mod tests {
         assert_eq!(outbox.len(), 0);
         // The item list drag over handler's two accept states.
         // `V` answers `trade_drag_item_acceptable` for every id, so what is under test here is
-        // the already-in-list half alone -- the ownership half has its own station in
-        // `p1_60d_trade_drag_hints`.
+        // the already-in-list half alone, not inventory ownership.
         let carried = V::new(TradeView::default());
         assert_eq!(p.drag_accept_state(a, &carried), DRAG_REFUSE);
         assert_eq!(

@@ -1,4 +1,4 @@
-//! The sky — the game clock, and `GameSky` over `dereth_world_render::sky`.
+//! The sky — the game clock, and the sky objects over `dereth_world_render::sky`.
 //!
 //! **This module wires; it does not implement.** Everything that decides what the sky *is*
 //! belongs to `dereth_world_render::sky` and is called from here by name:
@@ -62,7 +62,7 @@ mod imp {
     /// This also explains bit 3: it means *do not drop this weather object to the floor*.
     const WEATHER_FLOOR_Z: f32 = -120.0;
 
-    /// `GameSky` — the sky objects and the two cells they live in.
+    /// The sky objects and the two cells they live in.
     ///
     /// The two env cells are not modelled as cells: they exist in the client so that the sky
     /// participates in the ordinary cell draw and so that the per-frame position update can move both at once,

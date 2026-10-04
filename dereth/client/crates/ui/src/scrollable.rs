@@ -411,48 +411,9 @@ impl Scrollable {
     /// binding of `DIMOFS_Z[+]`/`[-]` to actions 5/6 in input map `0x0A`, the client UI shell's `on_action`'s
     /// `MOUSE_ACTIONS` range, [`crate::UiSystem::mouse_down`], and the scrollbar's arrow arithmetic.
     ///
-    /// # The third hop is `\[unverified\]` **in retail**, and saying so is the point
-    ///
-    /// Everything above and below this paragraph is established retail behaviour. The one link
-    /// that is **not** established is how a retail wheel detent reaches the element manager's
-    /// action handler at all, and the evidence is against the
-    /// obvious reading rather than for it:
-    ///
-    /// * The element's mouse-down is reached **only** from the element manager's
-    ///   action handler, and the mouse-down is
-    ///   the only producer of element message `0x1C`. So the arm below can only ever be reached
-    ///   through the manager. \[verified\]
-    /// * The original element manager is the callback for input maps **3** (`MouseCommands`) and `0x0D`
-    ///   only, and `MouseCommands` binds the three buttons and their double-clicks — **not** the
-    ///   wheel. The shipped merged keymap binds `DIMOFS_WHEEL` in exactly one section,
-    ///   `ScrollableControls` = map `0x0A`. [verified against the retail keymap `0x14000000`]
-    /// * Map `0x0A`'s callback in retail is **the element**, not the manager:
-    ///   the input-map registration takes `(mapID, callback, priority)`, and the scrollbar's own
-    ///   registration passes `this`. It is driven from the manager's focus change (the
-    ///   set-focus-element), which registers the **gaining** element's input maps at priority
-    ///   `3000` (the focused-UI priority) and unregisters the losing element's. \[verified\]
-    /// * A scrollable's own action handler is the element's default (or the text element's,
-    ///   which switches on `0x16`..`0x28` only); both end
-    ///   by bubbling through to the root and returning
-    ///   false. The input dispatch then falls to the
-    ///   input-handler list, whose UI member is the manager's key handler —
-    ///   which raises a key-press event, **not** a mouse-down event. \[verified\]
-    ///
-    /// So the arm matches retail and is correct; the retail *producer* for it was not
-    /// found, and the natural candidate is ruled out. The code and test agree, but the chain
-    /// diagram above is an
-    /// explanation that is not closed. It is kept because the arm is the client's; it is
-    /// labelled because an unlabelled guess here would be indistinguishable from a reading.
-    ///
-    /// **On this side it does not matter**, which is why the behaviour is still correct here:
-    /// The client UI shell's `on_action` transcribes the element manager's `4 < a < 0x10` guard and
-    /// hands *every* action in that range to [`crate::UiSystem::mouse_down`], with no per-element
-    /// callback dispatch to route it elsewhere first. What is missing here is one map
-    /// registration, which the wheel tests cover.
-    /// **The scrollbar's own mouse-press handler is a red herring.** It admits `5` and `6` past
-    /// its outer guard and then gates its entire
-    /// body on `action == 7`, so the two wheel actions fall through it doing nothing. That is a
-    /// dead branch in the shipped client, not the missing consumer.
+    /// The shell routes wheel actions through `UiSystem::mouse_down`; this handler reflects
+    /// them through the scrollable's vertical bar. This routing describes this implementation.
+    /// A scrollbar's own mouse-press handler handles action 7, not wheel actions 5 and 6.
     ///
     /// Three guards, all kept:
     ///

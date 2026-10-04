@@ -941,7 +941,7 @@ mod tests {
         assert!((rgb[2] - s * 0.25).abs() < 1e-6);
     }
 
-    /// Oracle: trap 6 — the attenuation is 1/d beyond 1 unit but 1/d³ inside
+    /// Oracle: the attenuation is 1/d beyond 1 unit but 1/d³ inside
     /// 1 unit because of the `d2 > 1` branch. Crossing `d == 1` must change which denominator is
     /// used, and the test computes both forms independently.
     #[test]
@@ -1010,7 +1010,7 @@ mod tests {
         );
     }
 
-    /// Oracle: light-pool insertion and contract 11.8 — the pools are sorted by squared
+    /// Oracle: light-pool insertion — the pools are sorted by squared
     /// distance **from the player**, ascending, and a full pool drops a light that is farther than
     /// everything it already holds.
     #[test]
@@ -1045,7 +1045,7 @@ mod tests {
         assert_eq!(pool_caps(1.0), (60, 9));
     }
 
-    /// Oracle: object-light minimization and contract 11.8 — dynamics first,
+    /// Oracle: object-light minimization — dynamics first,
     /// then statics, up to eight slots total.
     #[test]
     fn the_eight_light_cap_keeps_dynamics_first() {

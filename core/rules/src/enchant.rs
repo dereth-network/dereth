@@ -1343,7 +1343,7 @@ mod tests {
         );
     }
 
-    /// Oracle: track spec trap 3 / contract 8.17. The client stores `current_time + offset`, so
+    /// Oracle: The client stores `current_time + offset`, so
     /// a packet processed 0.4 s late permanently loses 0.4 s of the enchantment.
     #[test]
     fn remaining_is_anchored_to_processing_time_not_send_time() {

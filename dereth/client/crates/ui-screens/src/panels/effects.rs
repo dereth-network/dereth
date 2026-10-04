@@ -111,8 +111,7 @@ pub mod row_state {
 }
 
 /// The two strings the selection display puts on the info text when there is nothing to
-/// describe. Table enum `0x10000001`, which resolves to `0x23000001`
-/// [verified: both rows are there and nowhere else].
+/// describe. Table enum `0x10000001`, which resolves to `0x23000001`.
 pub mod string {
     /// *"NO SPELLS"* — no rows at all.
     pub const NO_SPELLS: &str = "ID_Effects_Info_NoSpells";

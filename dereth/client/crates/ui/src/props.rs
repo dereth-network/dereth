@@ -197,9 +197,8 @@ pub fn state_diff(old: &PropertyCollection, new: &PropertyCollection) -> Vec<Att
 /// Attribute ids handled by the base, plus the three ids the
 /// base class consumes elsewhere.
 ///
-/// Ids not in this table are **not** errors: only the ids the two recovered attribute handlers use
-/// are known, and the documented instruction is to pass anything else through to the property bag
-/// unchanged.
+/// Ids not in this table are not errors. Attributes not consumed by these handlers pass
+/// through to the property bag unchanged.
 pub mod attr {
     /// bool — a button is **disabled**. A button writes it when
     /// the state it is given is `0x0D`, and refuses to raise the click while
@@ -291,7 +290,7 @@ pub mod attr {
     pub const MIN_HEIGHT: u32 = 0x3E;
     /// int — **minimum width**, read in the element's [`crate::UiSystem::resize_to`].
     ///
-    /// **The four clamps `0x3C`–`0x3F`, which are easy to get backwards** \[verified\]. Three
+    /// **The four clamps `0x3C`–`0x3F`, which are easy to get backwards**. Three
     /// functions read all four and agree exactly on
     /// which is which — the element's resize, the panel's resize
     /// (the same body, one class down) and the element's mouse resize:
@@ -455,7 +454,6 @@ pub mod attr {
     /// 0xD1 — **select the whole box when a click first focuses it**, the only read of this id in
     /// the retail client: the text element's mouse-down reads it as a bool and, if the element did
     /// not already have focus and the bool is set, selects all and returns.
-    /// The layout tool's name for it was not recovered.
     pub const TEXT_SELECT_ALL_ON_FOCUS: u32 = 0xD1;
 
     // ---- Dialog ----------------------------------------------------------------------------
@@ -471,7 +469,7 @@ pub mod attr {
     /// then inserts the new dialog at the **head**,
     /// and finally creates it — the ordering the documentation calls "jump the queue".
     ///
-    /// Without a reader of this key the jump arm exists and cannot be reached. \[verified\]
+    /// Without a reader of this key the jump arm exists and cannot be reached.
     pub const DIALOG_REPLACE: u32 = 0x8D;
     /// Input — dialog kind, 1..=7.
     pub const DIALOG_KIND: u32 = 0x8E;
@@ -486,21 +484,21 @@ pub mod attr {
     /// subclasses each write a different id. See [`crate::dialog::DialogKind::answer_property`].
     pub const DIALOG_ANSWER: u32 = 0x92;
     /// Input — caption of the message dialog's single button (child `0x26`).
-    /// Read by its `set_data` under hash key `0x95`. \[verified\]
+    /// Read by its `set_data` under hash key `0x95`.
     pub const DIALOG_MESSAGE_BUTTON: u32 = 0x95;
     /// Input — caption of the text-input dialog's single button (child `0x2A`).
-    /// Read by its `set_data` under hash key `0x97`. \[verified\]
+    /// Read by its `set_data` under hash key `0x97`.
     pub const DIALOG_TEXT_INPUT_BUTTON: u32 = 0x97;
     /// **out** — the string the text-input dialog harvested out of its box (child `0x2B`).
     /// Written by its message handler, and by its cancel, which writes an empty one.
-    /// \[verified\]
+    ///
     pub const DIALOG_TEXT_INPUT_ANSWER: u32 = 0x98;
     /// Input — caption of the confirmation text-input dialog's *Done* button (child `0x2E`).
     /// Read by its `set_data` under hash key `0x9A`.
-    /// \[verified\]
+    ///
     pub const DIALOG_TEXT_INPUT_ACCEPT_CAPTION: u32 = 0x9A;
     /// Input — caption of its *Cancel* button (child `0x2F`), hash key `0x9B`.
-    /// \[verified\]
+    ///
     pub const DIALOG_TEXT_INPUT_CANCEL_CAPTION: u32 = 0x9B;
     /// **out** — the string the confirmation text-input dialog harvested out of its box (child `0x2C`).
     ///
@@ -508,7 +506,7 @@ pub mod attr {
     /// its cancel writes an **empty** one.
     /// That difference is the whole of *the player typed nothing* versus *the player cancelled*,
     /// and the character-management screen's close-dialog notice reads exactly
-    /// this key before its case-insensitive compare. \[verified\]
+    /// this key before its case-insensitive compare.
     pub const DIALOG_TEXT_INPUT_ANSWER_TEXT: u32 = 0x9C;
     /// Input — **the rows of a menu dialog's drop-down**, an `Array` of `StringInfo`.
     ///
@@ -518,38 +516,37 @@ pub mod attr {
     /// for each entry asks the menu for its item count and inserts a text item —
     /// one row per array element.
     ///
-    /// Without these rows a `Menu` dialog's answer can never become non-`-1`. \[verified\]
+    /// Without these rows a `Menu` dialog's answer can never become non-`-1`.
     pub const DIALOG_MENU_ITEMS: u32 = 0xA0;
     /// Input — caption of the menu dialog's single button (child `0x1E`).
-    /// Read by its `set_data` under hash key `0xA2`. \[verified\]
+    /// Read by its `set_data` under hash key `0xA2`.
     pub const DIALOG_MENU_BUTTON: u32 = 0xA2;
     /// **in and out** — the menu dialog's selected index.
     ///
     /// Out: the menu dialog's message handler writes the selected menu index under it, and
     /// its cancel writes a literal **-1**.
-    /// \[verified\]
     ///
     /// In: `set_data`'s own `0xA4` arm reads it as an integer and runs
     /// selects item `n` of the dialog's menu — **the initial
     /// selection and the answer are the same key**, which is how a caller pre-selects a row and
-    /// reads the player's choice back out of one collection. \[verified\]
+    /// reads the player's choice back out of one collection.
     pub const DIALOG_MENU_ANSWER: u32 = 0xA4;
     /// Input — caption of the confirmation menu dialog's accept button (child `0x22`).
     /// Read by its `set_data` under hash key `0xA8`.
-    /// \[verified\]
+    ///
     pub const DIALOG_CONFIRM_MENU_ACCEPT_CAPTION: u32 = 0xA8;
     /// Input — caption of its cancel button (child `0x23`), hash key `0xA9`.
-    /// \[verified\]
+    ///
     pub const DIALOG_CONFIRM_MENU_CANCEL_CAPTION: u32 = 0xA9;
     /// Input — **the rows of a confirmation menu dialog's drop-down**, as
     /// [`DIALOG_MENU_ITEMS`] is for a menu dialog,
-    /// hash key `0xA6`, read only when the dialog has a menu. \[verified\]
+    /// hash key `0xA6`, read only when the dialog has a menu.
     pub const DIALOG_CONFIRM_MENU_ITEMS: u32 = 0xA6;
     /// **in and out** — the confirmation menu dialog's selected index, or **-1** when it was
     /// cancelled: the accept arm alone asks the menu for its selected index, the answer having
     /// been primed with `-1`, and its cancel writes
     /// the literal -1. `set_data` reads the same key as the **initial**
-    /// selection, exactly as [`DIALOG_MENU_ANSWER`] does. \[verified\]
+    /// selection, exactly as [`DIALOG_MENU_ANSWER`] does.
     pub const DIALOG_CONFIRM_MENU_ANSWER: u32 = 0xAB;
 
     /// Input — modal: block clicks behind the dialog.
@@ -565,12 +562,11 @@ pub mod attr {
     /// immediately. Every other value falls through and is used verbatim as the key into
     /// the current-dialog and dialog-queue tables.
     ///
-    ///
     /// The two readings agree on the values that occur — `1` shows at once, anything else
     /// queues — and disagree on everything else: a `0xC3` of **3** is a *third queue*, not "do
     /// not jump". None of the character-management screen's five dialog builders sets it, which
     /// is why all five share queue **2** and why an error message raised while the delete warning
-    /// is up **queues behind it** in retail. \[verified\]
+    /// is up **queues behind it** in retail.
     pub const DIALOG_QUEUE_ID: u32 = 0xC3;
 
     /// Input — countdown text template (child element 0x3E).
@@ -597,7 +593,6 @@ pub mod attr {
 /// that size with the graphic's size when both dimensions are powers of two, creates the surface,
 /// and enables tiling. A non-power-of-two graphic falls back to mode 3.
 ///
-/// \[verified\]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum UiObjectMode {
     /// **0 — the element owns no render object at all.** The should-own-object setter writes flag
@@ -697,7 +692,7 @@ impl UiObjectMode {
     /// sampler: a resize would move the virtual size and leave the physical one, and
     /// the surface transform update compares exactly those two. Mode 0 owns no
     /// object, so it has no physical size to diverge; mode 3 moves both.
-    /// \[verified\]
+    ///
     #[must_use]
     pub const fn resizes_its_surface(self) -> bool {
         matches!(self, Self::ElementSize)
@@ -728,7 +723,7 @@ mod tests {
         assert_eq!(m.get_int(4), Some(40));
     }
 
-    /// Oracle: as described in §5.1 — changed, added, and
+    /// changed, added, and
     /// "disappeared, with a value-less `BaseProperty`".
     #[test]
     fn set_state_diff_reports_changed_added_and_disappeared() {

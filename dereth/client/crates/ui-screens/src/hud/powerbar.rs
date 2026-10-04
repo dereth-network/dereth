@@ -113,7 +113,7 @@ impl PowerBar {
     /// level attribute `0x69` to zero and show the power bar.
     ///
     /// Returns whether the notice did anything, which is the observable half of the `PBM_COMBAT`
-    /// hole. [verified against retail]
+    /// hole.
     pub fn begin(
         &mut self,
         ui: &mut UiSystem,
@@ -407,7 +407,7 @@ mod tests {
         assert_eq!(FLOATY_POWERBAR_TYPE.0, 0x1000_0053);
     }
 
-    /// Oracle: §6's `PowerBarMode` enumeration.
+    /// Oracle: the description's `PowerBarMode` enumeration.
     #[test]
     fn the_five_power_bar_modes_have_the_documented_values() {
         assert_eq!(PowerBarMode::Undef as i32, 0);
@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(PowerBarMode::Ddd as i32, 4);
     }
 
-    /// Oracle: §6's fourth notice row — "the same widget is the attack power bar, the jump charge
+    /// "the same widget is the attack power bar, the jump charge
     /// bar and the in-game patch bar".
     #[test]
     fn the_patch_status_notice_repurposes_the_same_widget() {
@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(DDD_UNKNOWN_FILE, "???");
     }
 
-    /// Oracle: §6's second table — the combat cluster's three element/attribute pairs and the
+    /// the combat cluster's three element/attribute pairs and the
     /// three attack-height media states.
     #[test]
     fn the_combat_cluster_maps_its_notices_to_the_documented_elements() {

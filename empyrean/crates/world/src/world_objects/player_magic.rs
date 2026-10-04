@@ -857,7 +857,7 @@ pub fn verify_spell_range(
     let distance_to = location.distance_2d(&target_location);
 
     if caster_item.is_none() {
-        // use init + ranks, same as acclient DetermineSpellRange -> InqSkillLevel
+        // Range uses the initial skill plus trained ranks.
         // this is much lower than base, and omits things like attribute formula + base augs + enlightenment
         let player_skill = get_creature_skill_school(w, this, spell.school())
             .expect("ACE: GetCreatureSkill(school) is null (NullReferenceException)");

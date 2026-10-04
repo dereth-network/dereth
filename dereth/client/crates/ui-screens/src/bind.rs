@@ -255,7 +255,7 @@ pub mod attr {
     ///
     /// `panels::panel_stack::size_clamps` reads these four names, so reversing them makes every
     /// panel's minimum its maximum and its width clamp its height clamp. See
-    /// [`dereth_ui::props::attr::MIN_WIDTH`], which carries the same block. \[verified\]
+    /// [`dereth_ui::props::attr::MIN_WIDTH`], which carries the same block.
     pub const MAX_HEIGHT: u32 = 0x3C;
     /// See [`MAX_HEIGHT`].
     pub const MAX_WIDTH: u32 = 0x3D;
@@ -269,8 +269,8 @@ pub mod attr {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered HUD behavior's closing paragraph, which names all four meter attributes
-    /// in one sentence, and the recovered toolbar and panel behavior, which names the panel-id attribute.
+    /// Oracle: the HUD behavior's closing paragraph, which names all four meter attributes
+    /// in one sentence, and the toolbar and panel behavior, which names the panel-id attribute.
     #[test]
     fn the_named_attributes_are_the_documented_numbers() {
         assert_eq!(attr::PATCH_METER_LEVEL, 0x66);

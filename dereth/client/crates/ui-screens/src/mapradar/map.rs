@@ -277,7 +277,7 @@ pub fn place_marker_on_map(area: MarkerArea, ew: f32, ns: f32, size: (i32, i32))
     (x, y)
 }
 
-/// The house marker's coordinate transform, **verified against retail**: it is `− 1024`, not
+/// The house marker's coordinate transform: it is `− 1024`, not
 /// `− 0x20`.
 ///
 /// ```text
@@ -331,8 +331,7 @@ pub fn date_time_text(strings: Option<(&str, &str)>) -> String {
     format!("{DATE_PREFIX}{date}\n{TIME_PREFIX}{time}")
 }
 
-/// Which of the map update's three blocks actually gates on the player being outside — **two of
-/// three**, verified rather than taken on trust.
+/// Two of the three map-update blocks require the player to be outside.
 ///
 /// ```text
 ///   no date/time text               -> skip the date (no outside test)
@@ -365,7 +364,7 @@ mod tests {
         assert_eq!(map_notes[26], n(235, 220, 7, 6, "MacNiall's Freehold"));
         assert_eq!(map_notes[27], n(223, 203, 7, 6, "Mayoi"));
         assert_eq!(map_notes[52], n(123, 112, 7, 6, "Zaikhal"));
-        // The dumped table is in name order, which is how the two-column layout in §2.1 splits
+        // The table uses name order, and the two-column layout splits
         // 0..26 into the left column and 27..52 into the right.
         let names: Vec<&str> = map_notes.iter().map(|m| m.name).collect();
         let mut sorted = names.clone();
@@ -496,7 +495,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the client's recovered `sprintf` operands and its two guards.
+    /// Oracle: the date/time field ordering and its two guards.
     #[test]
     fn the_date_is_season_day_year_yearspec_and_the_time_is_the_named_time_of_day() {
         let (date, time) = date_time_strings("Morningthaw", 14, 10, "P.Y.", "Late Morning");
@@ -532,7 +531,7 @@ mod tests {
         assert_eq!(OUTDOORS_GATES[2], "player marker: outdoors only");
     }
 
-    /// Oracle: §2.3's throttle and its two fixed prefixes, and §2.4's "there is no dungeon map".
+    /// Map updates use a throttle and two fixed prefixes; interiors have no map.
     #[test]
     fn the_map_updates_every_five_seconds_and_has_no_indoor_mode() {
         assert_eq!(UPDATE_INTERVAL_SECONDS, 5.0);

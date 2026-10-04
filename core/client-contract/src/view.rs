@@ -136,9 +136,9 @@ pub struct SkillEntry {
     /// scope at all, and the secondary-attribute row does the same with the vitae modifier
     /// subtracted. The skill row does call the base-level query as well, and which values its
     /// comparison uses is **not established** — but the sibling function is unambiguous and the
-    /// capture shows what the other reading produces. [inferred, cross-checked against the capture]
+    /// capture shows what the other reading produces.
     ///
-    /// `\[verified\]`, and it is also the number that gets *displayed*. The skill row reads
+    /// The skill row reads
     /// the skill lookup with `raw=1` and with `raw=0` separately, and the
     /// comparison is the raw one against the enchanted one **less the vitae modifier**. The
     /// **string** the row prints is the *enchanted* value, not [`Self::level`]. See
@@ -1209,7 +1209,7 @@ pub enum UiRequest {
     /// `n` is the menu id, which is also the value switches on:
     /// 1 = public chat, 2 = a direct tell to the last speakable target, and 3..6 =
     /// a channel broadcast with channel `0x800`, `0x2000`, `0x4000`, `0x1000` respectively.
-    /// 7..13 are the Turbine chat rooms. [verified against retail's chat-command talk-focus switch]
+    /// 7..13 are the Turbine chat rooms.
     ///
     /// It is a **local** setting, not a message: nothing goes to the shard when the menu changes,
     /// only when the next line is typed.
@@ -4809,7 +4809,7 @@ mod tests {
     }
 
     /// Oracle: the panel id is itself an element id, so a request
-    /// carries the raw id and never a "which panel is this" enum. Trap 11.
+    /// carries the raw id and never a "which panel is this" enum.
     #[test]
     fn a_panel_visibility_request_carries_the_raw_panel_id() {
         let r = UiRequest::SetPanelVisibility {

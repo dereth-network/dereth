@@ -601,7 +601,7 @@ impl FlowQueue {
     ///
     /// # A retail quirk that is deliberately *not* reproduced
     ///
-    // UNVERIFIED: how often the retail client actually emits `RejectRetransmit`.
+    // how often the retail client actually emits `RejectRetransmit`.
     /// The original compiles into a 116-entry buffer of ids whose first entry is the count. It
     /// opens with
     ///

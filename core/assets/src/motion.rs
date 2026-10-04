@@ -433,7 +433,7 @@ mod tests {
         assert_eq!(t.script_table[&7][0].script_id, DataId(0x3300_0001));
     }
 
-    /// Contract 9.12, as bytes: three header bytes, one pad, and the mask in the third.
+    /// As bytes: three header bytes, one pad, and the mask in the third.
     ///
     /// Oracle: an independent reader of the shipped dats, which decodes all 436 motion tables with zero
     /// trailing bytes.

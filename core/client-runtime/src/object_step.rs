@@ -969,7 +969,7 @@ pub fn advance_object_ladder<S: AsObjectSim>(
                     break;
                 }
             }
-            // TRAP 1: the test is inside the branch, exactly as in physics' `update_object`.
+            // The test is inside the branch, exactly as in physics' `update_object`.
             if elapsed <= MIN_QUANTUM {
                 done = true;
             }
@@ -978,7 +978,7 @@ pub fn advance_object_ladder<S: AsObjectSim>(
             sim += elapsed;
             step_animation(&mut o.driver.borrow_mut(), elapsed, now);
         }
-        // TRAP 2: the simulated clock, not `now`.
+        // The simulated clock, not `now`.
         quanta.push((*oid, sim - o.update_time));
         o.update_time = sim;
         let fx = o.driver.borrow_mut().take_effects();

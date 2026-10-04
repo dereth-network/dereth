@@ -586,7 +586,7 @@ mod tests {
         }
     }
 
-    /// Oracle: the height-table setter's short-circuit, which is contract 3.3 and trap 3. Entry
+    /// Oracle: the height-table setter's short-circuit. Entry
     /// *k* out of range leaves *k*..255 at their previous values.
     #[test]
     fn height_table_validation_short_circuits_rather_than_rejecting() {

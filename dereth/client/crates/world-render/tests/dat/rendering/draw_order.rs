@@ -211,7 +211,7 @@ fn the_sky_passes_land_in_their_contract_slots() {
     assert!(sky1 < alpha, "and the alpha list is flushed last of all");
 }
 
-/// Oracle: contract 11.7's indoor half, driven by a **real dungeon** from the retail cell dat: the
+/// Oracle: indoor rendering, driven by a **real dungeon** from the retail cell dat: the
 /// sequence is outdoors-through-portals → Z clear → portal depth stamps → env cells far→near →
 /// alpha list, and the Z clear plus the depth stamp are asserted as *present*.
 ///
@@ -297,7 +297,7 @@ fn a_retail_dungeon_takes_the_indoor_path_with_its_z_clear() {
             IndoorStep::Objects,
             IndoorStep::FlushAlphaList,
         ],
-        "contract 11.7's indoor sequence, entry cell {entry}"
+        "indoor draw sequence, entry cell {entry}"
     );
     // The traversal reached more than the entry cell, and the cell draw draws them far to near.
     let far_to_near = view.draw_order();

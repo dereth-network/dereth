@@ -1,6 +1,5 @@
 // Exercise the production building-to-mesh path and its subset guard.
 // Real DAT materials and placements, with explicitly synthetic stationary draw geometry/camera.
-// This is not reproduction/identification of the owner's unknown white-plane screenshot.
 
 fn retail_store() -> RetailDatStore {
     dereth_dat::testing::open_store().expect("required installed retail DATs")

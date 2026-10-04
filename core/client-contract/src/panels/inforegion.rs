@@ -82,7 +82,7 @@ pub fn format_duration(seconds_remaining: i64) -> String {
 /// add-a-half ends the secondary-attribute row's version and all three of the enchantment
 /// registry's skill, attribute and secondary-attribute enchant calls. It is invisible on every
 /// recorded character because with no vitae and no multiplicative enchantment the value is
-/// already an integer and `trunc(n + 0.5)` is `n`. [verified against the client's instructions]
+/// already an integer and `trunc(n + 0.5)` is `n`.
 ///
 /// **One deliberate difference from the secondary-attribute row's version**, which is this
 /// function's only other caller shape: that one adds `4294967296.0f` to the float when the raw
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(format_duration(3599), "59:59");
         assert_eq!(format_duration(3600), "1:00:00");
         assert_eq!(format_duration(3661), "1:01:01");
-        // A duration already past zero — which trap 4's rebasing makes reachable — shows 0:00
+        // A duration already past zero — which rebasing makes reachable — shows 0:00
         // rather than a negative.
         assert_eq!(format_duration(-5), "0:00");
     }

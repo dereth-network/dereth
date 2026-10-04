@@ -390,7 +390,7 @@ mod tests {
         c.expect_end().unwrap();
     }
 
-    /// Contract 9.2: the `Archive` string form has no padding at all.
+    /// The `Archive` string form has no padding at all.
     #[test]
     fn archive_string_has_no_padding() {
         let buf = [3u8, b'a', b'b', b'c', 0xEE];
@@ -400,7 +400,7 @@ mod tests {
         assert_eq!(c.remaining(), 1);
     }
 
-    /// Contract 9.1: `align_ptr` is `(-pos) & 3` and is the *only* padding a dat decoder applies.
+    /// `align_ptr` is `(-pos) & 3` and is the *only* padding a dat decoder applies.
     #[test]
     fn align_ptr_matches_the_documented_formula() {
         for pos in 0..64usize {

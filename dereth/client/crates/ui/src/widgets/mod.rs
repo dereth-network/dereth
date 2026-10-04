@@ -174,23 +174,9 @@ impl UiSystem {
     /// move_to(left, top)
     /// ```
     ///
-    /// **The two parent clamps are `[inferred]`, and only the assignment is.** The comparison,
-    /// both calls and the branch are certain; the store is not.
-    /// There is exactly one value the call can be producing and one variable it can be
-    /// producing it for. The clamp's *existence* and its direction are `\[verified\]`.
-    ///
-    /// **`resize_to` runs before `move_to`, which is the client's order — and swapping them changes
-    /// nothing measurable in this build.** That is a correction to what this comment said when it
-    /// was written: it claimed the order was load-bearing because `resize_to` re-anchors the
-    /// children against the new size while the origin is still the old one. A mutation that
-    /// swapped the two lines **survived every test in the crate**, and the reason is structural
-    /// rather than a weak test: [`Self::update_for_parent_size_change`] recomputes each child from
-    /// its **design** rectangle against the parent's final box, not incrementally, so both orders
-    /// converge. In retail the order does matter for a different reason — resizing
-    /// rebuilds the surface and forces a redraw, which a D3D12 rebuild that redraws every frame
-    /// does not have. Kept in the client's order because it is the client's; the claim that it is
-    /// *observable* here is withdrawn. The code is
-    /// right, the tests are right, and the explanation was wrong.
+    /// Parent bounds clamp the right and bottom edges before resize and move.
+    /// `resize_to` runs before `move_to`. Child anchors are recomputed from their design
+    /// rectangles against the final parent box, rather than adjusted incrementally.
     pub fn mouse_resize_element(&mut self, h: ElemHandle, x: i32, y: i32) {
         let Some(n) = self.node(h) else { return };
         let border = n.current_border;
@@ -216,7 +202,7 @@ impl UiSystem {
         let (mut right, mut bottom) = (nx + nw, ny + nh);
         if let Some(p) = self.parent(h).and_then(|p| self.node(p)) {
             let (pw, ph) = (p.region.box_.width(), p.region.box_.height());
-            // INFERRED: the unrecovered store; see the doc comment.
+            // Keep the resized edges within the parent.
             if pw < right {
                 right = pw;
             }
@@ -353,7 +339,7 @@ pub mod button {
 
     /// The seven states the button's state update chooses between.
     ///
-    /// **These are verified, and they are not the generic four in [`crate::element::state`].**
+    /// These differ from the four base states in [`crate::element::state`].
     ///
     /// ```text
     /// update_state:
@@ -1276,9 +1262,7 @@ pub mod panel {
     /// `0x2E` is the trigger: the panel's attribute handler is one line, which runs
     /// `setup_tab_page_hash` when the property is `0x2E`, and initialisation step 4
     /// re-dispatches every property in the description, so a panel builds its tab table the
-    /// moment its tree comes up. [verified against `client_local_English.dat`: the six
-    /// tabbed pages of `classic_gameplay` each carry `0x2E`, and every entry resolves to a tab and
-    /// a page that are both children of the panel]
+    /// moment its tree comes up.
     pub mod attr {
         /// `UICore_Panel_pages` -- an `Array` of [`PAGE_DATA`] structs.
         pub const PAGES: u32 = 0x2E;
@@ -1390,10 +1374,8 @@ pub mod panel {
             // which is what all six panels' tabs are. Context-menu lookup can therefore never
             // return one and no click can reach `open_tab`.
             //
-            // The tab-page setup's own tail is the only candidate: for each entry it finds the
-            // tab recursively and makes one call on it with the argument `1`. Reading that call
-            // as "make the tab mouse-visible" is what makes the panel
-            // behave the way the retail client does. `// UNVERIFIED:` the argument's meaning.
+            // This implementation makes each tab mouse-visible after finding it recursively,
+            // so the tab-page container can route clicks to its pages.
             for tab in self.tab_to_page.keys().copied().collect::<Vec<_>>() {
                 let me = ctx.me;
                 if let Some(h) = ctx.ui.get_child_recursive(me, tab) {
@@ -2945,7 +2927,7 @@ pub mod menu {
     /// and registers the menu for its element messages.
     ///
     /// The visibility write is `false`, and the two bool attributes `0x33` and `0x34` are both
-    /// written `true`. \[verified\]
+    /// written `true`.
     ///
     /// **The popup is a root element, not a child of the menu.** That is what lets a drop-down
     /// draw over the window below it, and it is why the menu has to *register* for the popup's
@@ -3012,7 +2994,7 @@ pub mod menu {
     /// The list's own insert is the two lines that make a row usable:
     /// make the row mouse-visible, and then
     /// the list box's insert. Without the first the row is drawn and cannot
-    /// be clicked. \[verified\]
+    /// be clicked.
     ///
     /// The caption is taken as an already-resolved string rather than as a `StringInfo`, because
     /// every caller in this build resolves through the host's string service before it gets here
@@ -3227,7 +3209,6 @@ pub mod menu {
     /// popup only follows the list on an axis where the list is pinned at **both** ends and
     /// therefore cannot stretch on its own. The measured scrollable width and height supply the
     /// replacement dimensions.
-    /// \[verified\]
     ///
     /// It is reached from element message `0x32`, the client's own row-change broadcast, so adding
     /// rows resizes the popup
@@ -3828,10 +3809,8 @@ pub mod meter {
         ///
         /// Returns `None` — no narrowing — for a frame meter (which has no child image at all),
         /// for any child that is not id 2, and for a `move_fill` meter, whose child-update
-        /// arm moves the child instead. **`move_fill` is not implemented**: the exact arithmetic
-        /// of that arm is not known, no shipped layout
-        /// sets the attribute, and a guessed formula would be worse than an honest gap.
-        /// `// UNVERIFIED:` the `move_fill` arithmetic.
+        /// arm moves the child instead. `move_fill` remains unsupported; no shipped layout
+        /// sets the attribute.
         #[must_use]
         pub fn child_clip(&self, child: crate::ElementId, box_: Box2D) -> Option<Box2D> {
             if self.frame_meter || self.move_fill || child != CHILD_IMAGE || !box_.is_valid() {
@@ -4183,8 +4162,7 @@ pub mod scrollbar {
         ///
         /// Both truncated operands are the inverses of the two branches above: `pos·n` for centred stops (whose bands are `[k/n, (k+1)/n)`,
         /// so truncation is exact) and `pos·(n−1)` rounded for the others, which is the only
-        /// mapping that returns every stop-to-position of `k` to `k`. `// UNVERIFIED:` the
-        /// rounding.
+        /// mapping used here to return every stop-to-position of `k` to `k`.
         #[must_use]
         pub fn position_to_stop(ui: &UiSystem, me: ElemHandle, pos: f32) -> i32 {
             let Some(n) = Self::int_attr(ui, me, attr::STOP_COUNT).filter(|n| *n != 0) else {

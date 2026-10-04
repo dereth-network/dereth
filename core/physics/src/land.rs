@@ -11,7 +11,7 @@
 //! Landblock-mesh lookup returns NULL for them and forces
 //! `NOT_WATER`. [`LandblockCollision::build`] refuses them for the same reason.
 //!
-//! **UNVERIFIED:** the LOD seam vertex
+//! the LOD seam vertex
 //! rewrite between a reduced-detail block and its full-detail neighbours is **not implemented**.
 //! The rule was never read out of the client, and it only ever runs on reduced-detail blocks,
 //! which physics never sees: landblock-mesh lookup returns NULL for them and

@@ -120,5 +120,5 @@ pub const ALPHA_FLUSH_MIN_Z: f32 = 0.75;
 /// The pinned adaptive-degrade multiplier. The feedback loop nudges a global `deg_mul` in
 /// `[-1, +1]` from measured frame rate; a modern machine drifts to `+1` where a 2013 machine did
 /// not. Every test pins it here so no measurement becomes a function of the test machine's speed.
-/// UNVERIFIED: the value 2013 hardware settled at was never measured.
+/// the value 2013 hardware settled at was never measured.
 pub const PINNED_DEG_MUL: f32 = 0.0;

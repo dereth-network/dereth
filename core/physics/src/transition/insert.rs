@@ -723,7 +723,7 @@ mod tests {
         t
     }
 
-    /// Contract item 5.4: the budgets are 3 / 5 / 1 exactly.
+    /// The budgets are 3 / 5 / 1 exactly.
     #[test]
     fn the_attempt_budgets_are_three_five_one() {
         assert_eq!(ATTEMPT_BUDGETS, (3, 5, 1));

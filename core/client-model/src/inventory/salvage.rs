@@ -36,7 +36,7 @@ pub use list::{SalvageEffect, SalvageList};
 /// The tinkering system's material-type validity test.
 ///
 /// Accepts 1, 2, 4–8, 10–0x37, 0x39–0x40, 0x42–0x47, 0x49–0x4D — i.e. everything in ACE's
-/// `MaterialType` except 3, 9, 0x38, 0x41 and 0x48. `\[verified\]` from the switch table.
+/// `MaterialType` except 3, 9, 0x38, 0x41 and 0x48.
 #[must_use]
 pub fn is_valid_material_type(m: u32) -> bool {
     matches!(m, 1 | 2 | 4..=8 | 10..=0x37 | 0x39..=0x40 | 0x42..=0x47 | 0x49..=0x4D)

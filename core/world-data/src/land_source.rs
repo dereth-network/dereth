@@ -650,7 +650,7 @@ mod tests {
 
     // Oracle: the retail cell dat, through `LandblockCollision::build`, whose own tests cover
     // all 65,025 landblocks. What this adds is that the *wiring* addresses the right record
-    // -- `blockId | 0xFFFF`, with (x, y) in the order LandDefs indexes by (contract 9.10). A
+    // -- `blockId | 0xFFFF`, with (x, y) in cell-id order. A
     // transposed index still produces a self-consistent world, so the check is that the seams
     // agree with the neighbours the id arithmetic picks out.
     #[test]

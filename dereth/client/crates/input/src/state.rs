@@ -273,7 +273,7 @@ pub struct ActionDispatch {
 mod tests {
     use super::*;
 
-    /// Oracle: the recovered input pipeline §5 — the largest-absolute rule, sign preserved.
+    /// the largest-absolute rule, sign preserved.
     #[test]
     fn extent_is_the_largest_absolute() {
         let mut s = ActionState::new(ActionId(1), ToggleType::Hold, None, LocalTime(0.0));
@@ -283,7 +283,7 @@ mod tests {
         assert!((s.extent() - -0.9).abs() < 1e-6);
     }
 
-    /// Oracle: the recovered input pipeline §5 and trap 5 — a stalled frame delivers several repeats at
+    /// a stalled frame delivers several repeats at
     /// once, with `repeat_delta` carrying the difference.
     #[test]
     fn repeat_is_catch_up() {
@@ -322,7 +322,7 @@ mod tests {
         );
     }
 
-    /// Oracle: the recovered input pipeline §5 — toggle 5 re-fires every frame with delta 1.
+    /// toggle 5 re-fires every frame with delta 1.
     #[test]
     fn toggle_five_refires_every_frame() {
         let mut states = ActionStates::default();
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(states.sweep(LocalTime(0.003))[0].repeat_delta, 1);
     }
 
-    /// Oracle: the recovered input pipeline §5's table of the key-repeat speed.
+    /// Keyboard repeat delay and speed settings determine the repeat interval.
     #[test]
     fn repeat_constants_match_the_documented_formulae() {
         let fast = RepeatTiming::from_system_parameters(0, 31);

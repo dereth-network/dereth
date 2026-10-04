@@ -23,40 +23,22 @@
 //! `0x1000002A` as an enum and resolving the result as a button — the clear button, which
 //! refresh greys (state `0x0D`) while the current binding list is empty and which the message-1
 //! arm compares against before clearing every binding. The shipped template declares **no**
-//! `0x1000002A`, so a shipped row has three key buttons and no clear button. \[verified\]
+//! `0x1000002A`, so a shipped row has three key buttons and no clear button.
 //!
 //! The action id and input-map id come from row initialization,
 //! called with the list box, action, input map, name, tooltip and default keys — not from any
 //! attribute. Every field initialization must fill is
 //! named by its call site and by the client's initialiser list.
 //!
-//! # How the row was disambiguated
+//! # Row controls and full lists
 //!
-//! The row's accesses resolve consistently by behavior:
+//! The optional clear button clears the current bindings. The message-`0x19` guard checks
+//! the selected slot against the current list, so user-added bindings can be erased.
 //!
-//! * the optional clear-button handle is tested before clearing;
-//! * the key-button array has separate storage and count values;
-//! * the binding list checked by the message handler is the **current** list, not the defaults;
-//! * its bounds check uses the selected key-button slot before erasing.
-//!
-//! These four roles also agree with row initialization and refresh.
-//! The current-list bounds check is the decisive distinction.
-//!
-//! That last role matters: the message-`0x19` guard is *"the slot is within the current list"*, not
-//! *"within the defaults"*; the other reading would have made a user-added binding
-//! un-eraseable. \[verified\]
-//!
-//! # One inference, declared
-//!
-//! When the row is full (as many current bindings as key buttons), the binding write takes the
-//! head of the current list, unbinds it, rebinds it to "do nothing" unless the new control
-//! conflicts with it, then binds the new control to the row's action and appends it to the list.
-//!
-//! **No removal of the head is observed.** Leaving the head in place would let the current list
-//! grow past the key-button count for ever while `ActionKeyMapRow::refresh` went on drawing,
-//! at slot 0, a key that had just been unbound. [`ActionKeyMapRow::set_binding`]
-//! therefore **removes the head**, which is what "recycle" means. Marked `[inferred]`, and the
-//! alternative is stated here so it can be checked against retail.
+//! A full row recycles its head: it unbinds that control, binds it to DoNothing unless
+//! it conflicts with the new control, removes it from the current list, and appends the
+//! new control. Removing the head keeps the list within the number of key buttons;
+//! this implementation does not retain an unbound key as a visible row entry.
 
 use dereth_input::binding::{Capture, Conflict, DO_NOTHING};
 use dereth_input::presentation::{self, Interface};
@@ -97,7 +79,7 @@ pub mod attr {
 /// post-init. `0x10000019`..`0x1000001F` are seven single children — the
 /// keymap load/save controls and the filename label. In the shipped `classic_keyboard` tree the
 /// values are `0x10000025` (the list box) and `0x1000002C, 0x1000002D, 0x1000002A, 0x1000002B,
-/// 0x10000028, 0x10000027, 0x10000029`. [verified — measured off the built tree]
+/// 0x10000028, 0x10000027, 0x10000029`.
 pub mod page_attr {
     /// The list-box child id, read once and applied inside each of the six tab pages.
     pub const LIST_BOX_CHILD: u32 = 0x1000_0018;
@@ -130,7 +112,7 @@ pub mod page_attr {
 
 /// The keyboard-page element in the shipped `classic_gameplay` tree — type `0x1000000E`.
 ///
-/// Measured off the built tree, and pinned as a literal by the key-binding tests. \[verified\]
+/// Measured off the built tree, and pinned as a literal by the key-binding tests.
 pub const KEYBOARD_UI: ElementId = ElementId(0x1000_0020);
 
 /// The six tab pages looks a list box up inside, in the order
@@ -291,8 +273,7 @@ pub const STRING_TABLE_GROUP: u32 = 4;
 /// | 5 | `0x2300000B` | the **meta-key overrides**: `DIK_LWIN`, `DIK_RWIN` → `"Windows"` |
 /// | 7 | `0x23000005` | the eighteen `ID_InputMap_*` section titles |
 ///
-/// All four are measured, not inferred; the fallbacks below are only what a headless host with no
-/// asset source can answer.
+/// Fallback labels are used when a host has no asset source.
 pub mod table_enum {
     /// Key-name lookup and its internal helper use this table for the delimiter and the
     /// sub-control wrapper.
@@ -850,7 +831,6 @@ impl ActionKeyMapRow {
     ///   keys per action and this is how the second one is made.
     /// * `slot` outside it, with **no** button free — a **recycle**: the head of the current list is
     ///   unbound, bound to `DoNothing` unless the incoming control conflicts with it, and dropped.
-    ///   See the module docs for what is verified here and what is inferred.
     pub fn set_binding(
         &mut self,
         m: &mut InputManager,

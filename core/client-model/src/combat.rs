@@ -119,7 +119,7 @@ pub mod combat_use {
     pub const TWO_HANDED: u8 = 5;
 }
 
-/// `AttackConditions` — the bit mask on the notification messages. `[external, ACE names]`,
+/// `AttackConditions` — the bit mask on the notification messages. ACE names are used here,
 /// confirmed by the client's own decode.
 pub mod attack_conditions {
     /// The target's Critical Protection augmentation cancelled the critical.
@@ -162,7 +162,7 @@ pub const MOTION_READY: u32 = 0x4100_0003;
 /// | `0x8000013B` | 315 | `AtlatlCombat` |
 /// | `0x8000013C` | 316 | `ThrownShieldCombat` |
 ///
-/// `\[verified\]`, with the last two from the final retail client. The 2013 client tested
+/// The last two occur in the final retail client. The 2013 client tested
 /// `0x80000138` / `0x80000139` there: its command table
 /// numbered those two stances three lower, before three commands were inserted at `0x10F`-`0x111`.
 /// The data files and the server both use the final numbering, and a missile mode whose stance
@@ -386,7 +386,7 @@ impl CombatState {
 ///
 /// So the gauge has **seven notches** — `0`, `1/6`, … `1` — the `+ 0.5/6` before the truncation
 /// is a round-half-up onto the nearest notch, and the clamp is applied to the *scaled* value, so
-/// stepping below 0 or above 1 saturates rather than wrapping. [verified against retail]
+/// stepping below 0 or above 1 saturates rather than wrapping.
 pub const POWER_NOTCHES: i32 = 6;
 
 impl CombatState {
@@ -529,7 +529,7 @@ impl World {
     /// `is_creature` is not used for the type test on purpose: the client writes
     /// `type & 0x10` inline here. The helper uses the same mask, but keeping
     /// the mask visible is what makes the line comparable with the retail behaviour above.
-    /// \[verified\]
+    ///
     #[must_use]
     pub fn object_is_attackable(&self, id: ObjectId) -> bool {
         use crate::weenie::{bitfield, item_type};
@@ -595,7 +595,7 @@ impl World {
     /// The original melee arm reads integer quality `0x2F` and defaults it to `0x19` on failure,
     /// and fetches the body's interpreted motion state. **Neither result is used
     /// again**, so neither is transcribed.
-    /// `\[verified\]`
+    ///
     #[must_use]
     pub fn player_in_ready_position(&self, lenient: bool, motions_pending: Option<bool>) -> bool {
         // A missing player body is never ready.
@@ -610,7 +610,7 @@ impl World {
     ///
     /// Split out because `dereth-client`'s frame slot reads its body out of a `WorldScene`, which
     /// cannot be built without a `Gpu`, so the null arm is not composable at one of the three
-    /// attack call sites. See the declared deviation at that site. Everything below the null
+    /// attack call sites. See the missing-body policy at that site. Everything below the null
     /// check is the same code for both callers.
     #[must_use]
     pub fn ready_position_mode_arm(&self, lenient: bool, motions_pending: bool) -> bool {
@@ -805,16 +805,16 @@ impl World {
     ///
     /// - the cursor update — [`crate::World`] has no cursor; `dereth-client`'s `cursor.rs` runs
     ///   once per frame from `App::frame`, so the
-    ///   cursor follows the mode one frame later than retail. Declared deviation, not a gap.
+    ///   cursor follows the mode one frame later than retail.
     /// - target tracking — absent, and so is any writer of
     ///   [`CombatState::tracking_target`]; it needs a target-tracking update and the
     ///   `ViewCombatTarget` option side effect, neither of which exists yet.
     /// - `AdvancedCombatUI` — here, below.
     /// - the set-combat-mode notice — this build has no notice bus that
     ///   reaches a UI element, so its four subscribers are driven from one edge on
-    ///   `GameView::combat_mode()` in `dereth_ui_screens::screens::gameplay`. Declared deviation.
+    ///   `GameView::combat_mode()` in `dereth_ui_screens::screens::gameplay`.
     /// - the input-map registration — polled once per frame by the client's interaction layer.
-    ///   Declared deviation.
+    ///
     /// - the selection fixup — here, [`Self::combat_mode_fixup_target`].
     /// - automatic target selection — the geometry-dependent tail is
     ///   [`Self::combat_mode_auto_target`], connected by the application's three mode-change paths.
@@ -863,7 +863,7 @@ impl World {
         // `end_attack_request`'s cap on it.
         //
         // The option reader returns **bit 12 of the first option word**,
-        // which is `PLAYER_OPTIONS[12] = ("AdvancedCombatUI", One, 0x1000)` here. [verified]
+        // which is `PLAYER_OPTIONS[12] = ("AdvancedCombatUI", One, 0x1000)` here.
         // It is re-read on **every** mode change, including the `send_to_server == false` one, so a
         // player who flips the option mid-session gets the new value at the next mode change and
         // not before — which is the client's own behaviour and is why the read is here rather
@@ -968,7 +968,7 @@ impl World {
     /// while casting is the selection cycle's compass-item arm, which the three
     /// `Selection*CompassItem` actions reach in any mode. Both are asserted.
     ///
-    /// **Declared deviation: this is a separate call, one statement later.** Retail runs it inside
+    /// **This is a separate call, one statement later.** Retail runs it inside
     /// the mode change itself; here the geometry seam [`crate::selection::SelectionPhysics`] lives in
     /// `dereth-client`, so `set_combat_mode` cannot reach it without carrying the lookup through
     /// nine parameters and fifteen call sites. `dereth_client::interaction::Interaction`'s
@@ -1001,7 +1001,7 @@ impl World {
         // Behavior: the character option. The whole reader is
         // `return (options >> 0xd) & 1`, i.e. **bit 13 of the first option word**, which is
         // `PLAYER_OPTIONS[13] = ("AutoTarget", ...)` here — the same shape as
-        // `AdvancedCombatUI`'s bit 12, read the same way. [verified]
+        // `AdvancedCombatUI`'s bit 12, read the same way.
         if !self.player_system.options.auto_target() {
             return false;
         }
@@ -1084,7 +1084,7 @@ impl World {
     ///   selected. A selected non-attackable object therefore blocks the defender path and does
     ///   **not** block the mode-change path. Kept as two functions for that reason.
     ///
-    /// **Declared deviation: this is called one step later than retail calls it, and from a
+    /// **This is called one step later, and from a
     /// different file.** Retail runs the whole tail inside the two handlers reached while
     /// draining the network-message queue.
     /// `auto_target` needs [`crate::selection::SelectionPhysics`], which lives in `dereth-client`, so
@@ -1162,7 +1162,7 @@ impl World {
     /// — and once fifteen seconds have passed since the last hit, an unselect is answered by
     /// selecting the next (closest compass) item instead of by re-selecting the attacker.
     ///
-    /// **Declared deviation, the same one [`Self::defender_notification_auto_target`] carries.**
+    /// **This shares the delivery order of [`Self::defender_notification_auto_target`].**
     /// Retail dispatches selection-change subscribers synchronously when the selected id actually
     /// changes; `auto_target` needs
     /// `crate::selection::SelectionPhysics`, which lives in `dereth-client`, so
@@ -1244,7 +1244,7 @@ impl World {
     /// The not-ready arm and the `attempt_start_building_attack` restart are the rest
     /// of the same read. Returns `execute_attack`'s refusal text when it ran and refused, for the
     /// caller to put on the scroll, exactly as `combat_use_time` returns `set_combat_mode`'s.
-    /// [verified against retail]
+    ///
     pub fn combat_power_bar_use_time(
         &mut self,
         req: &mut dyn RequestSink,
@@ -2657,7 +2657,7 @@ mod tests {
         );
     }
 
-    /// Oracle: contract 12.13 — `"Critical hit!  "` has **two** trailing spaces in the attacker
+    /// Oracle: `"Critical hit!  "` has **two** trailing spaces in the attacker
     /// message and one in the defender message.
     #[test]
     fn the_critical_hit_prefix_has_two_spaces_for_the_attacker_and_one_for_the_defender() {
@@ -3346,10 +3346,8 @@ mod tests {
 
     /// **A single click starts the charge, and the swing happens frames later, on arrival.**
     ///
-    /// The owner's refutation of the held-control reading, asserted the way he described it:
-    /// press and release inside one frame, then *nothing* for as long as the bar takes, then one
-    /// attack at the requested level. A test that only looked at the release edge — which is what
-    /// this build had — cannot tell that from a control that never fires at all.
+    /// Press and release inside one frame, then wait for the bar to reach the requested level.
+    /// The attack must fire without another input edge.
     ///
     /// The gauge is left at its default of **0.5**, so the arrival is at the
     /// halfway point of a 1.000 s charge and the frame it lands on is a fact about the clock

@@ -108,7 +108,7 @@ pub struct DrawConstants {
     pub vertex_colour: u32,
     /// The mesh buffer's UV-delta scroll, as bits so the type stays `Eq` for use in a cache key.
     ///
-    /// UNVERIFIED: the delta is turned into a `D3DTS_TEXTURE0` translation each
+    /// the delta is turned into a `D3DTS_TEXTURE0` translation each
     /// time the UV animation runs with no visible multiplication by frame time, which
     /// implies a frame-rate-dependent scroll speed. Transcribed as the client does it: the caller
     /// hands over the accumulated offset and the renderer translates by it.
@@ -147,8 +147,7 @@ impl DrawConstants {
 
 /// The packed clear colour, exactly as the client builds it.
 ///
-/// **The alpha byte is the hard-coded constant `0x66`; the supplied alpha is never read** [verified
-/// against retail]. Each component is `c * 255.0` truncated toward zero, with no clamping. For the frame clear (colour black) the value passed to D3D is
+/// **The alpha byte is the hard-coded constant `0x66`; the supplied alpha is never read**. Each component is `c * 255.0` truncated toward zero, with no clamping. For the frame clear (colour black) the value passed to D3D is
 /// therefore `0x66000000`, not `0xFF000000`.
 ///
 /// This is invisible because `COLORWRITEENABLE = 7` masks the alpha channel, so the back buffer's
@@ -200,7 +199,7 @@ mod tests {
 
     // The packed clear colour is 0x66000000 | (R<<16) | (G<<8) | B. For the frame clear
     // (the frame start, colour black) the value passed to D3D is therefore 0x66000000, not
-    // 0xFF000000" [verified against retail].
+    // 0xFF000000".
     #[test]
     fn the_clear_colour_packs_alpha_as_the_hard_coded_0x66() {
         assert_eq!(pack_clear_colour(0.0, 0.0, 0.0), 0x6600_0000);

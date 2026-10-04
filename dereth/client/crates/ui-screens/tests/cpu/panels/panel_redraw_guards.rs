@@ -91,9 +91,7 @@ fn shop_with(icon: Option<DataId>, price: i32) -> Shop {
 /// picture resolves under an unchanged id **is** a snapshot change. That is the mechanism, and it
 /// is the one the inventory did not have: its icon came from a closure the guard never saw.
 ///
-/// Both directions are asserted. Read with
-/// `dereth/client/tests/o487_panel_refresh_gates.rs::vendor_redraws_when_a_stock_rows_icon_resolves_under_an_unchanged_id`,
-/// which adds that the slot's own icon element was rewritten.
+/// Both directions are asserted; this does not inspect the slot icon element itself.
 #[test]
 fn the_vendor_guard_sees_an_icon_resolve_under_an_unchanged_stock_id() {
     let mut ui = ui();
@@ -354,9 +352,7 @@ fn the_skills_guard_sees_the_enchanted_value_it_draws() {
     //
     // It **isolates** the field rather than modelling a character: a live -5 modifier means
     // the non-raw skill value already carries the penalty, so in the world `effective` would have
-    // moved with it. The reachable frame (raw 100, enchanted 95, modifier -5) is asserted with its
-    // drawn number and colour in `dereth/client/tests/o487_panel_refresh_gates.rs`, which has the
-    // elements this file deliberately does not.
+    // moved with it. This file measures the refresh guard rather than drawn elements.
     let vitae = skill(72, 72, -5);
     assert_eq!(
         vitae

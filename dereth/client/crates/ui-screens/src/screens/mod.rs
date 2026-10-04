@@ -64,7 +64,7 @@ const CHARGEN: &[LayoutEnum] = &[LayoutEnum(0x1000_0039)];
 ///
 /// The gameplay screen names only its root element, `0x10000495`, not the layout enum it builds
 /// from. That enum is `0x10000006` (`classic_gameplay` → layout `0x21000005`), the only shipped
-/// layout whose root element is `0x10000495`, as verified against the shipped layout index and
+/// layout whose root element is `0x10000495`, as listed in the shipped layout index and
 /// enum map.
 pub const SCREENS: [ScreenSpec; 8] = [
     ss(
@@ -154,7 +154,7 @@ mod tests {
         }
     }
 
-    /// Oracle: §3–§10's per-screen "Root element:" lines, and §6's two-root credits screen.
+    /// Each screen uses its specified root, including both credits roots.
     #[test]
     fn every_screen_names_one_root_per_layout_enum() {
         for s in SCREENS {

@@ -129,7 +129,7 @@ impl DialogKind {
     /// The order matters and is not cosmetic: *accept* and *cancel* run different arms in every
     /// two-button subclass — `0x2E` harvests the box's text into `0x9C` while `0x2F` writes an
     /// empty one, and `0x22` reads the menu selection while `0x23` leaves it at `-1`. Transposing
-    /// a row would delete a character on *Cancel*. \[verified\]
+    /// a row would delete a character on *Cancel*.
     #[must_use]
     pub const fn answer_children(self) -> (Option<ElementId>, Option<ElementId>) {
         match self {
@@ -176,7 +176,6 @@ impl DialogKind {
     /// | `TextInput` | 0x98 | the typed string, empty on cancel |
     /// | `Message`, `Wait` | — | neither writes anything; they only close the dialog |
     ///
-    /// [verified — each subclass writes the property before closing or cancelling]
     #[must_use]
     pub const fn answer_property(self) -> Option<u32> {
         use crate::props::attr;
@@ -204,7 +203,7 @@ impl DialogKind {
     /// answer's holder is not missing from the *data*. Until the menu has rows,
     /// [`crate::UiSystem::menu_selected_index`] on a dialog raised
     /// from the shipped layout answers **-1** — which is the selected-index query's own
-    /// answer for a menu with no list box, not a stand-in for one. \[verified\]
+    /// answer for a menu with no list box, not a stand-in for one.
     #[must_use]
     pub const fn menu_child(self) -> Option<ElementId> {
         Some(match self {
@@ -218,7 +217,7 @@ impl DialogKind {
 
     ///
     /// The confirmation-text-input dialog's handler looks up descendant `0x2C` as a text element
-    /// (type `0xC`) and the text-input dialog does the same with `0x2B`. A `None` here is a kind with no text to harvest. \[verified\]
+    /// (type `0xC`) and the text-input dialog does the same with `0x2B`. A `None` here is a kind with no text to harvest.
     #[must_use]
     pub const fn text_child(self) -> Option<ElementId> {
         Some(match self {
@@ -243,7 +242,7 @@ impl DialogKind {
     /// | `Wait` | — | — | its `set_data` reads only `0x9E` and it has no buttons |
     ///
     /// Without this every dialog's buttons would carry whatever caption the shipped layout gave
-    /// them. [verified — the property lookup before each child lookup]
+    /// them.
     #[must_use]
     pub const fn caption_properties(self) -> (Option<u32>, Option<u32>) {
         use crate::props::attr;
@@ -282,7 +281,7 @@ pub enum AnswerRole {
 ///
 /// **`BUTTON1`/`BUTTON2` belong to the confirmation dialog and to nothing else**, though they are
 /// easy to read as though every dialog used them: no subclass but the confirmation dialog ever
-/// sends either. Each subclass's own ids are below and each was verified against retail; the table
+/// sends either. Each subclass's own ids are below; the table
 /// that
 /// selects between them is [`DialogKind::answer_children`].
 pub mod child {
@@ -295,7 +294,7 @@ pub mod child {
     pub const BUTTON2: ElementId = ElementId(0x19);
 
     /// The menu dialog's single button — its own message handler compares the source id against
-    /// `0x1E`. \[verified\]
+    /// `0x1E`.
     pub const MENU_BUTTON: ElementId = ElementId(0x1E);
     /// **The drop-down from which a menu dialog reads its answer.**
     ///
@@ -304,7 +303,7 @@ pub mod child {
     /// shipped `Dialog` layout `0x2100003C` agrees: root `0x1B`'s panel `0x3D` holds a button
     /// strip whose two children are `0x1D` (150 × 18, base element `0x1000035B` in layout
     /// `0x21000043`, which **is** a type-6 `Menu`) and `0x1E`, the button above.
-    /// \[verified\]
+    ///
     pub const MENU_MENU: ElementId = ElementId(0x1D);
 
     /// **The drop-down from which a confirmation-menu dialog reads its answer.**
@@ -312,22 +311,22 @@ pub mod child {
     /// The confirmation-menu dialog's `set_data` fetches the child `0x21`
     /// and casts it to type 6. In layout `0x2100003C`, root
     /// `0x1F`'s strip holds `0x21` (150 × 18, base `0x1000035B`, a `Menu`), `0x22` and
-    /// `0x23` — the menu and its two buttons. \[verified\]
+    /// `0x23` — the menu and its two buttons.
     pub const CONFIRM_MENU_MENU: ElementId = ElementId(0x21);
     /// The confirmation-menu dialog's accept button — its handler compares against `0x22`.
-    /// It is also the arm that reads the menu's selected index. \[verified\]
+    /// It is also the arm that reads the menu's selected index.
     pub const CONFIRM_MENU_ACCEPT: ElementId = ElementId(0x22);
 
-    /// Its cancel button — the same handler, comparing against `0x23`. \[verified\]
+    /// Its cancel button — the same handler, comparing against `0x23`.
     pub const CONFIRM_MENU_CANCEL: ElementId = ElementId(0x23);
     /// The message dialog's single button — its handler compares against `0x26`.
-    /// \[verified\]
+    ///
     pub const MESSAGE_BUTTON: ElementId = ElementId(0x26);
     /// The text-input dialog's single button — its handler compares against `0x2A`.
-    /// \[verified\]
+    ///
     pub const TEXT_INPUT_BUTTON: ElementId = ElementId(0x2A);
     /// The box the text-input dialog harvests — its handler fetches the child `0x2B`.
-    /// \[verified\]
+    ///
     pub const TEXT_INPUT_BOX: ElementId = ElementId(0x2B);
     /// The box the confirmation-text-input dialog harvests — its handler fetches the child
     /// `0x2C`.
@@ -336,14 +335,14 @@ pub mod child {
     /// `DialogKind::root_element_id`), which is not a mistake: `get_child_recursive` starts
     /// *below*
     /// the receiver, so the walk finds the descendant and never the receiver itself.
-    /// \[verified\]
+    ///
     pub const CONFIRM_TEXT_INPUT_BOX: ElementId = ElementId(0x2C);
     /// The confirmation-text-input dialog's *Done* — its handler compares against `0x2E`.
     /// This is the arm that harvests the box into property `0x9C`.
-    /// \[verified\]
+    ///
     pub const CONFIRM_TEXT_INPUT_ACCEPT: ElementId = ElementId(0x2E);
     /// Its *Cancel* — the same handler's other arm, which cancels the dialog, and so
-    /// writes an **empty** `0x9C`. \[verified\]
+    /// writes an **empty** `0x9C`.
     pub const CONFIRM_TEXT_INPUT_CANCEL: ElementId = ElementId(0x2F);
 
     /// The "N more messages waiting" banner.

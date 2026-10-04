@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(at, listing.len(), "nothing after the twelfth group");
     }
 
-    /// Oracle: the per-command arm and its two refusal branches. The owner's own check -- `@help house`.
+    /// Per-command help and its two refusal branches, using `@help house`.
     #[test]
     fn per_command_help_and_the_unknown_command_case() {
         let c = CommandInterp::new();

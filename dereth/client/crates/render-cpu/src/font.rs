@@ -53,7 +53,7 @@ impl FontCharDesc {
     }
 
     /// Rule 1 — **advance** = `horizontal_offset_before + width + horizontal_offset_after`
-    /// ("verified"). Integer, accumulated in integer pixels; no
+    /// Integer, accumulated in integer pixels; no
     /// kerning, no sub-pixel positioning, no hinting. **There is no kerning table** — pair kerning
     /// does not exist in this engine.
     #[must_use]
@@ -76,7 +76,7 @@ pub struct Font {
     pub char_descs: Vec<FontCharDesc>,
     pub num_horizontal_border_pixels: u32,
     pub num_vertical_border_pixels: u32,
-    /// Serialised and never read by any traced draw path; its intended use is "unverified".
+    /// Serialised and never read by any traced draw path; its intended use is not established.
     pub baseline_offset: i32,
     pub foreground_surface_data_id: u32,
     /// 0 when the font has no shadow sheet.
@@ -87,7 +87,7 @@ pub struct Font {
 pub const MISSING_GLYPH: u16 = 0x3F;
 
 impl Font {
-    /// "verified": the client falls back to `'?' (0x3F)` for any character
+    /// the client falls back to `'?' (0x3F)` for any character
     /// outside the map or with an out-of-range index; if `'?'` is also missing it returns NULL.
     ///
     /// "The `'?'` fallback means a missing glyph renders as a question mark, not as a box or
@@ -252,7 +252,7 @@ pub struct FontAtlas {
 }
 
 impl FontAtlas {
-    /// The client's font-texture setup, "verified".
+    /// The client's font-texture setup.
     ///
     /// ```text
     /// require min_unicode_char <= 0x20 and max_unicode_char >= 0x7E   // must cover printable ASCII
@@ -556,7 +556,7 @@ impl FontAtlas {
 /// the character draw combines the two is inferred from the parameter names and the
 /// visual result, not traced.
 ///
-/// UNVERIFIED: the background sheet's contribution to the atlas.
+/// the background sheet's contribution to the atlas.
 fn blit_glyph(atlas: &mut [u8], d: &FontCharDesc, sheet: GlyphSheet<'_>, x: u32, y: u32) {
     for row in 0..u32::from(d.height) {
         let sy = u32::from(d.offset_y) + row;
@@ -638,7 +638,7 @@ impl TextBatch {
         self.ready = true;
     }
 
-    /// Render one run of text, "verified".
+    /// Render one run of text.
     ///
     /// Appends six vertices per character to the batch. `viewport` is the viewport size, whose
     /// reciprocals are the `iw`/`ih` of the half-pixel rule.

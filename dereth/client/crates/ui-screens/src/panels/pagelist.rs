@@ -1,6 +1,6 @@
 //! `PageListPanel` — the **Page List tab**, the other half of the journal mechanism.
 //!
-//! The recovered toolbar and panel behavior gives element type `0x10000049`; the instance is
+//! The toolbar and panel behavior gives element type `0x10000049`; the instance is
 //! `0x10000564`, the third sub-panel of `<QUES>` `0x10000559`, and its tab is the text element
 //! `0x10000561`.
 //!

@@ -871,7 +871,7 @@ fn item_xp_disagreements(styles: &[ItemXpStyle]) -> Vec<String> {
 }
 
 #[test]
-fn rule3_item_xp_fixed_and_scales_with_level_agree_with_dereth_rules() {
+fn item_xp_fixed_and_scales_with_level_agree_with_dereth_rules() {
     let bad = item_xp_disagreements(&[ItemXpStyle::Fixed, ItemXpStyle::ScalesWithLevel]);
     assert!(
         bad.is_empty(),
@@ -888,7 +888,7 @@ fn rule3_item_xp_fixed_and_scales_with_level_agree_with_dereth_rules() {
 #[test]
 /// item xp fixed plus base and undef agree with dereth rules.
 /// V379.
-fn rule3_item_xp_fixed_plus_base_and_undef_agree_with_dereth_rules() {
+fn item_xp_fixed_plus_base_and_undef_agree_with_dereth_rules() {
     let bad = item_xp_disagreements(&[ItemXpStyle::FixedPlusBase, ItemXpStyle::Undef]);
     assert!(
         bad.is_empty(),
@@ -903,7 +903,7 @@ fn rule3_item_xp_fixed_plus_base_and_undef_agree_with_dereth_rules() {
 }
 
 #[test]
-fn rule3_allegiance_titles_agree_with_dereth_client_model() {
+fn allegiance_titles_agree_with_dereth_client_model() {
     let mut bad = Vec::new();
     for h in -1..=14i32 {
         for g in -1..=3i32 {

@@ -99,7 +99,7 @@ pub const ROW_EXPERIENCE: ElementId = ElementId(0x1000_0269);
 ///
 /// The vassal-data update shows this marker when the member is **not** logged in and hides it
 /// when the member is online. That is the opposite polarity to
-/// the `" *"` suffix `allegiance_info_block` puts on an online one. \[verified\]
+/// the `" *"` suffix `allegiance_info_block` puts on an online one.
 pub const ROW_LOGGED_OUT: ElementId = ElementId(0x1000_04AA);
 
 /// The row attribute `0x10000001`, where the vassal id is stored for row selection and the kick
@@ -1222,8 +1222,7 @@ mod tests {
         let mut ui = UiSystem::new((800, 600));
         let mut p = AllegiancePanel::default();
         // No tree, so no elements are written; the *model* half still runs, which is what the
-        // walk order is asserted on. The element half is asserted in `dereth-client`'s
-        // `o201_allegiance.rs`, against a real shipped layout.
+        // walk order is asserted on; this test does not exercise element writes.
         assert!(p.update(&mut ui, &view));
         assert_eq!(p.rebuilds, 1);
         assert!(

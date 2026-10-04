@@ -1118,15 +1118,13 @@ impl ControlHost {
     pub fn draw(&self, frame: &PanelFrame) -> Screen {
         let mut out = frame.clone();
         if let Some((r, accept)) = self.canvas_feedback {
-            let color = if accept { 0xff00ff00 } else { 0xffff0000 };
-            for edge in [
-                rect(r.x, r.y, r.w, 1),
-                rect(r.x, r.y + r.h - 1, r.w, 1),
-                rect(r.x, r.y, 1, r.h),
-                rect(r.x + r.w - 1, r.y, 1, r.h),
-            ] {
-                out.fill(edge, color);
-            }
+            out.image_native(
+                if accept { "060011F9" } else { "060011F8" },
+                r.x + (r.w - 32) / 2,
+                r.y + (r.h - 32) / 2,
+                r,
+                true,
+            );
         }
         if let Some(r) = self.slot_hint {
             out.image_native(SLOT_HINT, r.x, r.y, r, true);
@@ -1628,6 +1626,7 @@ fn skin_text(out: &mut PanelFrame, r: Rect, text: &str, font: &str, color: u32) 
 mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
+    /// Behaviour: classic.paper-doll.centered-drop-feedback
     #[test]
     fn equipment_canvas_hint_keeps_unchanged_state_and_clears_on_leave() {
         #[derive(Debug)]
@@ -1658,7 +1657,15 @@ mod tests {
             assert_eq!(host.canvas_feedback, expected);
             host.update_item_drop_preview(&View(None), Some(ObjectId(3)), Some((10, 10)), true, 0);
             assert_eq!(host.canvas_feedback, expected);
-            assert_eq!(host.draw(&frame).commands.iter().filter(|c| matches!(c, Command::Fill { color, .. } if *color == if accept { 0xff00ff00 } else { 0xffff0000 })).count(), 4);
+            let drawing = host.draw(&frame);
+            assert_eq!(drawing.commands.iter().filter(|c| matches!(c, Command::Image { did, x: 24, y: 74, .. } if did == if accept { "060011F9" } else { "060011F8" })).count(), 1);
+            assert!(!drawing.commands.iter().any(|c| matches!(
+                c,
+                Command::Fill {
+                    color: 0xff00ff00 | 0xffff0000,
+                    ..
+                }
+            )));
             host.update_item_drop_preview(&View(None), Some(ObjectId(3)), None, true, 0);
             assert_eq!(host.canvas_feedback, None);
         }

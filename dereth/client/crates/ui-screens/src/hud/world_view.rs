@@ -167,7 +167,7 @@ mod tests {
         assert_eq!(FPS_STRING_TABLE, DataId(0x2300_0001));
     }
 
-    /// Oracle: §2's teleport-object paragraph — the enum, the light and the camera.
+    /// the enum, the light and the camera.
     #[test]
     fn the_teleport_object_uses_the_documented_light_and_camera() {
         assert_eq!(teleport::OBJECT_ENUM, 0x1000_0001);
@@ -177,8 +177,7 @@ mod tests {
     }
 
     /// Oracle: the smart box's resize and move — the rectangle the world camera is
-    /// given is the element's absolute screen box, and boxes are **inclusive**
-    /// (contract 11.4/11.13).
+    /// given is the element's absolute screen box, and boxes are **inclusive**.
     #[test]
     fn the_client_rect_is_the_elements_absolute_inclusive_screen_box() {
         let mut ui = UiSystem::new((800, 600));

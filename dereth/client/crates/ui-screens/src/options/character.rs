@@ -25,7 +25,7 @@
 //!
 //! So **0 of 50 rows caption themselves from the preference registry, and 50 of 50 caption
 //! themselves from a token derived from the option's name** — the same string table, a different
-//! producer. \[verified\]
+//! producer.
 //!
 //! # Where the value comes from, and why no option word is ever rebuilt here
 //!
@@ -67,7 +67,7 @@ use crate::view::{GameView, PlayerOption, UiRequest};
 /// `0x10000027` under the panel stack, distinct from the Client Options page at `0x10000213`. The three
 /// option pages carry the same Apply/Cancel/Defaults child ids, so a click is attributed to a page
 /// by which page element it sits under — exactly as `super::config::CONFIG_PAGE_ELEMENT`'s note
-/// says. \[verified\]
+/// says.
 pub const CHARACTER_PAGE_ELEMENT: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_0211);
 
 /// Find the Character Options page under `root`.
@@ -83,7 +83,7 @@ pub const CHARACTER_PAGE_ELEMENT: dereth_ui::ElementId = dereth_ui::ElementId(0x
 /// The client cannot hit this because the element manager hands post-initialization its own
 /// element. The equivalent guard here is the runtime type check the client would perform, so
 /// the type is checked as well as the id. Keyboard-page initialization scopes its own lookup
-/// to that page for the mirror-image reason. \[verified\]
+/// to that page for the mirror-image reason.
 #[must_use]
 pub fn find_page(ui: &UiSystem, root: ElemHandle) -> Option<ElemHandle> {
     ui.element_list().iter().copied().find(|h| {
