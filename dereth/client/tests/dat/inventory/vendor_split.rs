@@ -51,6 +51,9 @@ fn the_rendered_split_quantity_reaches_the_live_and_frozen_buy_basket() {
     let frozen = GameSnapshot::from_view(&hud.view(&objects));
     assert_eq!((frozen.split_size(), frozen.max_split_size()), (40, 100));
     let mut panel = VendorPanel::default();
+    panel.post_init(&mut ui, gameplay.root().unwrap());
+    panel.update(&mut ui, &frozen);
+    ui.requests.clear();
     panel.handle_button_click(
         &mut ui.requests,
         BTN_ADD_TO_LIST,
@@ -107,4 +110,68 @@ fn changed_stack_receipts_reseed_before_the_app_projects_the_toolbar() {
     let shown = gameplay_screen(&mut app).1.splitter;
     assert_eq!((shown.split_size, shown.max_split_size), (80, 80));
     assert_eq!(app.objects_mut().world.split.split_size, 80);
+}
+
+/// Behaviour: vendor.baskets.transactions-retain-rows-until-clear-or-close
+#[test]
+fn selling_one_item_removes_the_drawn_sale_marker_without_removing_its_cart_row() {
+    let (mut ui, mut screen) = shipped_gameplay();
+    let hud = dereth_client::hud::Hud::new();
+    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut interaction = dereth_client::interaction::Interaction::new();
+    let player = ObjectId(1);
+    let item = ObjectId(2);
+    let world = &mut objects.world;
+    world.player = Some(player);
+    world.tables.weenies.insert(player, Weenie::new(player));
+    let mut object = Weenie::new(item);
+    object.pwd.name = "Apple".into();
+    object.pwd.obj_type = 0x200;
+    object.pwd.value = Some(100);
+    object.pwd.container_id = Some(player);
+    object.pwd.icon_id = 0x06001036;
+    world.tables.weenies.insert(item, object);
+    world.shop.vendor_id = Some(ObjectId(9));
+    world.shop.profile.item_types = 0x200;
+    world.shop.profile.min_value = -1;
+    world.shop.profile.max_value = -1;
+    world.shop.profile.buy_price = 1.0;
+    interaction.queue(vec![], vec![UiRequest::VendorAddToSell { item }]);
+    interaction.run_ui_requests(&mut objects.world, false, ServerTime(0.0));
+    let mut panel = VendorPanel::default();
+    panel.post_init(&mut ui, as_gameplay(&mut screen).root().unwrap());
+    panel.update(&mut ui, &hud.view(&objects));
+    let slot = &panel.sell.as_ref().unwrap().slots[0];
+    assert!(slot.sell_state);
+    assert!(
+        ui.node(slot.sell_state_elem.unwrap())
+            .unwrap()
+            .region
+            .flags
+            .visible
+    );
+    assert!(slot.selected);
+    interaction.queue(vec![], vec![UiRequest::VendorSellSingle { item }]);
+    interaction.run_ui_requests(&mut objects.world, false, ServerTime(1.0));
+    assert_eq!(interaction.stats.vendor_sells, 1);
+    assert_eq!(objects.world.weenie(item).unwrap().sell_state, 0);
+    objects.world.tables.weenies.remove(item);
+    panel.update(&mut ui, &hud.view(&objects));
+    let slot = &panel.sell.as_ref().unwrap().slots[0];
+    assert_eq!(slot.item, Some(item));
+    assert!(!slot.sell_state);
+    assert!(
+        !ui.node(slot.sell_state_elem.unwrap())
+            .unwrap()
+            .region
+            .flags
+            .visible
+    );
+    assert!(slot.selected);
+    assert_eq!(
+        panel
+            .rows(dereth_ui_screens::panels::vendor::Tab::Selling)
+            .len(),
+        1
+    );
 }

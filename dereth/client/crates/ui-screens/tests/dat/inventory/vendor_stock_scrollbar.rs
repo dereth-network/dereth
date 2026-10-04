@@ -390,3 +390,66 @@ fn holding_the_bars_arrow_scrolls_the_stock_list_one_slot_at_a_time() {
     }
     assert_eq!(offset(&ui), held, "release stops the repeat");
 }
+
+/// Behaviour: vendor.slots.resize-padding-does-not-extend-scroll
+#[test]
+fn resizing_refills_blank_slots_but_only_filled_slots_extend_scroll() {
+    let (mut ui, s, mut panel, mut view) = open_shop(1);
+    view.0.buy_list = shop(3).0.stock;
+    view.0.sell_list = view.0.buy_list.clone();
+    panel.update(&mut ui, &view);
+    for (list_id, which, bar_id) in [
+        (STOCK_LIST, vendor::Tab::Items, STOCK_SCROLLBAR),
+        (vendor::BUY_LIST, vendor::Tab::Buying, BUY_SCROLLBAR),
+        (vendor::SELL_LIST, vendor::Tab::Selling, SELL_SCROLLBAR),
+    ] {
+        let list = find(&ui, &s, list_id);
+        for width in [192, 640, 96] {
+            ui.resize_to(list, width, 32);
+            assert!(panel.update(&mut ui, &view));
+            let widget = match which {
+                vendor::Tab::Items => panel.stock.as_ref(),
+                vendor::Tab::Buying => panel.buy.as_ref(),
+                vendor::Tab::Selling => panel.sell.as_ref(),
+            }
+            .unwrap();
+            assert!(
+                widget.slots.len() >= usize::try_from(width / 32).unwrap(),
+                "resized visible cells are filled"
+            );
+            assert!(widget
+                .slots
+                .iter()
+                .skip(panel.rows(which).len())
+                .all(|slot| slot.item.is_none()));
+            let b = find(&ui, &s, bar_id);
+            assert!(
+                !ui.node(b).unwrap().region.flags.visible,
+                "blank padding does not scroll"
+            );
+            assert_eq!(
+                list_box(&ui, list).scroll_item_count,
+                Some(panel.rows(which).len())
+            );
+        }
+    }
+    let many = shop(40);
+    panel.update(&mut ui, &many);
+    let list = find(&ui, &s, STOCK_LIST);
+    assert!(
+        ui.node(find(&ui, &s, STOCK_SCROLLBAR))
+            .unwrap()
+            .region
+            .flags
+            .visible
+    );
+    assert_eq!(list_box(&ui, list).scroll_item_count, Some(40));
+    panel.update(&mut ui, &view);
+    assert!(
+        !ui.node(find(&ui, &s, STOCK_SCROLLBAR))
+            .unwrap()
+            .region
+            .flags
+            .visible
+    );
+}

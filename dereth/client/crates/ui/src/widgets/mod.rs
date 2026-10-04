@@ -1708,6 +1708,8 @@ pub mod listbox {
         /// ItemList's active rows exclude its hidden slot cache. Other legacy binders still
         /// discover their rows from children until they publish the item list explicitly.
         pub items_are_authoritative: bool,
+        /// Optional occupied prefix used for scroll extent while padded cells remain drawable.
+        pub scroll_item_count: Option<usize>,
         /// The selected item.
         pub selected: Option<usize>,
         pub cols: u32,
@@ -2299,7 +2301,12 @@ pub mod listbox {
                 );
             }
             let (mut w, mut h) = (0, 0);
-            for ((_, ox, oy), (_, cw, ch)) in self.origins.iter().zip(self.fingerprint.iter()) {
+            for ((_, ox, oy), (_, cw, ch)) in self
+                .origins
+                .iter()
+                .zip(self.fingerprint.iter())
+                .take(self.scroll_item_count.unwrap_or(usize::MAX))
+            {
                 w = w.max(ox + cw);
                 h = h.max(oy + ch);
             }

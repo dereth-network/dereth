@@ -3774,6 +3774,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "vendor.baskets.transactions-retain-rows-until-clear-or-close",
+        says: "Buying and selling retain cart rows through the same vendor updating stock, including items no longer present. Sale marks clear on submission; explicit clearing, closing, another vendor and character logout discard their cart state.",
+        since: THIS_CLIENT,
+        divergence: "CD-028",
+        evidence: Evidence::Private("AC-EVID-UI-VENDOR-RETAIN"),
+        station: "dereth-testkit::cpu::inventory::scenario_vendor_transactions_keep_baskets_through_refresh",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "vendor.busy.a-purchase-leaves-the-player-able-to-act",
         says: "Buying from a shop and letting the shard answer leaves the player able to move \
                things about again: the next drag reaches the shard and the one-thing-at-a-time \
@@ -3856,6 +3865,24 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-F47-CLOSE"),
         station: "dereth-testkit::dat::inventory::scenario_closing_with_a_basket_asks_first",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "vendor.controls.selection-follows-basket-membership",
+        says: "The selected basket item stays highlighted. Item and Clear Item require that selection to be in the basket; All and Clear List require at least one row. A stock refresh does not replace the basket selection.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-VENDOR-SELECTION"),
+        station: "dereth-ui-screens::dat::inventory::vendor_selling_page::basket_selection_controls_the_real_buttons_and_survives_stock_refresh",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "vendor.drag.classic-opens-selling-before-drop",
+        says: "Dragging an owned item over the vendor window opens Selling before release, and dropping it onto the basket adds the item once.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-VENDOR-DRAG"),
+        station: "dereth-classic-ui::lib::desktop::vendor_tests::dragging_over_the_vendor_opens_selling_before_the_item_is_dropped",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "vendor.filter.a-shop-with-no-category-chosen-shows-nothing",
@@ -4117,8 +4144,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "vendor.sell.selling-the-whole-list-sends-one-message-and-clears-the-marks",
         says: "Selling everything in the sell list sends one sale carrying every row of it rather \
-               than one sale a row, and afterwards the list is empty and none of those items is \
-               marked for sale any more.",
+               than one sale a row, and afterwards none of those items is marked for sale any more.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O231-SELL"),
         station: "dereth-testkit::cpu::inventory::scenario_selling_the_whole_list_sends_one_message",
@@ -4272,6 +4298,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O231"),
         station: "dereth-testkit::cpu::inventory::scenario_the_shards_message_opens_the_shop",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "vendor.slots.resize-padding-does-not-extend-scroll",
+        says: "Resizing a vendor list fills the visible area with blank slots. Only filled rows extend its scrollbar, so blank padding cannot be scrolled into view.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-VENDOR-SLOTS"),
+        station: "dereth-ui-screens::dat::inventory::vendor_stock_scrollbar::resizing_refills_blank_slots_but_only_filled_slots_extend_scroll",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "vendor.stock.a-stack-tells-you-how-many-there-are-and-what-they-are-called",

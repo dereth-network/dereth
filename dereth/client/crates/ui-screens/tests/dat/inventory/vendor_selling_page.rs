@@ -315,7 +315,8 @@ fn clicking_the_selling_pages_four_buttons_reaches_the_production_requests() {
         let mut p = VendorPanel::default();
         p.post_init(&mut ui, root);
         assert!(p.bound(), "the vendor panel binds against the shipped tree");
-        let view = shop();
+        let mut view = shop();
+        view.0.sell_list.push(view.0.stock[0].clone());
         p.open_vendor_type_filters(&mut ui, &view.0);
         p.update(&mut ui, &view);
 
@@ -341,5 +342,107 @@ fn clicking_the_selling_pages_four_buttons_reaches_the_production_requests() {
             id.0
         );
         ui.requests.clear();
+    }
+}
+
+/// Behaviour: vendor.controls.selection-follows-basket-membership
+#[test]
+fn basket_selection_controls_the_real_buttons_and_survives_stock_refresh() {
+    #[derive(Debug)]
+    struct View {
+        shop: ShopView,
+        selected: Option<ObjectId>,
+    }
+    impl GameView for View {
+        fn shop(&self) -> ShopView {
+            self.shop.clone()
+        }
+        fn selected_object(&self) -> Option<ObjectId> {
+            self.selected
+        }
+    }
+    let (mut ui, s) = gameplay();
+    let mut panel = VendorPanel::default();
+    panel.post_init(&mut ui, s.root().unwrap());
+    let mut view = View {
+        shop: shop().0,
+        selected: Some(ObjectId(0x8000_0100)),
+    };
+    panel.update(&mut ui, &view);
+    ui.drain_outbox();
+    ui.requests.clear();
+    view.shop.buy_list.push(view.shop.stock[0].clone());
+    view.shop.sell_list.push(view.shop.stock[0].clone());
+    for (selected, enabled) in [
+        (view.selected, true),
+        (Some(ObjectId(99)), false),
+        (None, false),
+    ] {
+        view.selected = selected;
+        panel.update(&mut ui, &view);
+        for id in [
+            vendor::BTN_BUY_ITEM,
+            vendor::BTN_BUY_CLEAR_ITEM,
+            vendor::BTN_SELL_ITEM,
+            vendor::BTN_SELL_CLEAR_ITEM,
+        ] {
+            assert_eq!(
+                ui.node(find(&ui, &s, id)).unwrap().state.0,
+                if enabled { 1 } else { 0x0d }
+            );
+            ui.requests.clear();
+            panel.handle_button_click(&mut ui.requests, id, selected, 1);
+            assert_eq!(!ui.requests.take().is_empty(), enabled);
+        }
+        for id in [
+            vendor::BTN_BUY_ALL,
+            vendor::BTN_BUY_CLEAR_LIST,
+            vendor::BTN_SELL_ALL,
+            vendor::BTN_SELL_CLEAR_LIST,
+        ] {
+            assert_eq!(ui.node(find(&ui, &s, id)).unwrap().state.0, 1);
+        }
+        for list in [panel.buy.as_ref().unwrap(), panel.sell.as_ref().unwrap()] {
+            assert_eq!(list.slots[0].selected, enabled);
+            let ring = list.slots[0].selected_ring.unwrap();
+            assert_eq!(ui.node(ring).unwrap().region.flags.visible, enabled);
+        }
+    }
+    view.selected = Some(view.shop.buy_list[0].item);
+    view.shop.stock.clear();
+    view.shop.type_filters.clear();
+    ui.drain_outbox();
+    ui.requests.clear();
+    panel.update(&mut ui, &view);
+    for d in ui.drain_outbox() {
+        if let Delivery::Element { msg, .. } = d {
+            panel.on_element_message(&mut ui, &msg, &view);
+        }
+    }
+    assert!(
+        !ui.requests
+            .take()
+            .iter()
+            .any(|r| matches!(r, UiRequest::Select(_))),
+        "same vendor refresh must not replace basket selection"
+    );
+    assert!(panel.buy.as_ref().unwrap().slots[0].selected);
+    view.shop.buy_list.clear();
+    view.shop.sell_list.clear();
+    panel.update(&mut ui, &view);
+    for id in [
+        vendor::BTN_BUY_ITEM,
+        vendor::BTN_BUY_CLEAR_ITEM,
+        vendor::BTN_SELL_ITEM,
+        vendor::BTN_SELL_CLEAR_ITEM,
+        vendor::BTN_BUY_ALL,
+        vendor::BTN_BUY_CLEAR_LIST,
+        vendor::BTN_SELL_ALL,
+        vendor::BTN_SELL_CLEAR_LIST,
+    ] {
+        assert_eq!(ui.node(find(&ui, &s, id)).unwrap().state.0, 0x0d);
+        ui.requests.clear();
+        panel.handle_button_click(&mut ui.requests, id, view.selected, 1);
+        assert!(ui.requests.take().is_empty());
     }
 }

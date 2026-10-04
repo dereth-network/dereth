@@ -316,6 +316,7 @@ pub struct VendorPanel {
     /// [`ShopView`] — the panel already takes it as an argument at [`Self::handle_button_click`] —
     /// so it is remembered here.
     last_selected: Option<dereth_primitives::ObjectId>,
+    last_geometry: Vec<(i32, i32, bool)>,
     /// How many times [`Self::update`] rebuilt the panel. **Three states, not two**: this
     /// separates "rebuilt and the shop was closed" from "never ran", which is the difference
     /// between a shop with no stock and an unwired panel.
@@ -516,6 +517,7 @@ impl VendorPanel {
     /// hidden, because a player who walks away from a vendor must stop seeing its stock.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
         let s = view.shop();
+        let geometry_changed = self.refresh_list_geometry(ui);
         // **The ids the three lists will hold, in the order they will hold them.**
         //
         // Computed once and used three times: for the guard's memory, for the `info` closure the
@@ -547,7 +549,7 @@ impl VendorPanel {
         // is a superset of what the quantity pass below reads.
         let selected = view.selected_object();
         if self.last.as_ref() == Some(&s) && !tiles_changed && self.last_selected == selected {
-            return false;
+            return geometry_changed;
         }
         // One read of the seam per tile, used by the `info` closure and stored as the next pass's
         // memory — so the value the guard compared and the value the screen draws are one read.
@@ -555,38 +557,17 @@ impl VendorPanel {
             .iter()
             .map(|id| TileInfo::read(view, *id))
             .collect();
-        // **The stock list is filled LAST, by the items-list update, because its contents are a
-        // function of the filter strip that has not been rebuilt yet.**
-        //
-        // In the client the order is not a choice: the vendor open flushes the stock list, rebuilds
-        // the menu, and ends by selecting a menu row with **broadcast on** — and that broadcast is
-        // message `7`, which turns into the items-list update with mask 0 and select-first on. So
-        // retail's stock list is filled *only* as a consequence of the strip choosing a row, and
-        // the vendor open itself leaves it empty. That is why the two calls below are in this order
-        // and why [`Self::open_vendor_type_filters`] does not fill the list itself. **The two
-        // edges, computed once.** `self.last` is still the *previous* snapshot here; it is written
-        // at the end of this function.
-        //
-        // **`opening` is this build's stand-in for the open-vendor notice, and it is keyed on the
-        // strip's own inputs.** It is deliberately not *closed-to-open*: a player walking from one
-        // grocer to the next overwrites the vendor id without it ever passing through 0. And it is
-        // deliberately not *the vendor id alone*: a `0x0062` from the **same** vendor — a stock
-        // refresh after a purchase — is a full vendor open in the client.
-        //
-        // So the key is the set of fields the two vendor-open bodies below actually read: `open`,
-        // `vendor` and `type_filters` for [`Self::open_vendor_type_filters`], and `stock` for
-        // [`Self::update_items_list`]. **What it is a superset of is therefore "a `0x0062`
-        // arrived"** — every one of them changes at least one of those, and nothing else in
-        // `ShopView` can: the money, the two baskets, the tiles and `last_selected` all sit
-        // outside it. That sentence is the thing that can go stale when `ShopView` grows, so it is
-        // written here rather than left implied.
-        //
-        // **Residual gap:** a `0x0062` that re-sends a **byte-identical** stock and strip is a
-        // no-op here and would still move retail's selection back to row 0.
-        let reopened = self.last.as_ref().is_none_or(|l| {
-            l.vendor != s.vendor || l.type_filters != s.type_filters || l.stock != s.stock
-        });
-        let opening = s.open && reopened;
+        // A same-vendor stock refresh retains the basket selection. Rebuild its filter
+        // rows silently; a new vendor still selects the first stock item.
+        let opening = s.open
+            && self
+                .last
+                .as_ref()
+                .is_none_or(|last| !last.open || last.vendor != s.vendor);
+        let filters_changed = self
+            .last
+            .as_ref()
+            .is_none_or(|last| last.type_filters != s.type_filters);
         let closing = !s.open && self.last.as_ref().is_some_and(|l| l.open);
         // A selection/decoration-only repaint is not an items-list update in retail, and it never
         // scrolls. Preserve the existing viewport when this host's broader repaint pass reprojects
@@ -596,60 +577,9 @@ impl VendorPanel {
             .flatten();
         self.fill(ui, Tab::Buying, &s.buy_list);
         self.fill(ui, Tab::Selling, &s.sell_list);
-        // The client's tab strip, rebuilt only on the vendor-open edge and never on an ordinary
-        // repaint.
-        //
-        // Building the strip is not just drawing it. The function's last statement selects a menu
-        // row with broadcast on, and that broadcast is message `7` — which `GamePlayScreen`
-        // forwards as `MENU_CHOSEN` to [`Self::on_element_message`]'s message-7 arm, running the
-        // items-list update with mask 0 and select-first on, whose tail writes the selected
-        // object. So rebuilding the strip on every repaint would raise a **selection write**
-        // through the real message pump, even with no vendor open.
-        //
-        // In the client the whole function runs only inside the vendor open, under the vendor
-        // panel's open, under the open-vendor notice — a `0x0062`. So it runs here on the same
-        // edge, plus the close, which has to empty the strip a player walked away from; the close
-        // passes `broadcast = false` for the reason at that line.
-        if opening || closing {
-            self.open_vendor_type_filters(ui, &s);
+        if opening || closing || filters_changed {
+            self.rebuild_type_filters(ui, &s, opening);
         }
-        // …and then the consequence of its broadcast selection: the items-list update with mask 0,
-        // which is what makes the mask come off the strip rather than out of a literal.
-        //
-        // **Select-first is the vendor-open edge, and it is NOT `true` on every rebuild.** The
-        // items-list update's tail selects the first kept row when select-first is
-        // set, so a `true` here **writes the player's selection**, and writes `0`, the client's own
-        // clear, whenever the mask kept nothing. In the client select-first is `true` at exactly
-        // **one** of the update's three call sites: the message-7 arm of the vendor panel's
-        // element-message handler. The other two pass `false` — the component-list fill (mask
-        // `0x1000`) and the `0x2C` arm (mask 0).
-        //
-        // **A repaint cannot reach that one site.** The only broadcasts of message `7` from
-        // `0x100000BF` are a player's click on the filter strip and the trailing broadcast
-        // selection that closes the vendor items page's open-vendor — and that runs only under the
-        // vendor panel's own open-vendor, whose one caller is its open-vendor notice, i.e. a
-        // `0x0062`.
-        //
-        // This build's rebuild gate is far wider than a `0x0062`: it opens on the tiles, on the
-        // baskets, and — through `last_selected` — on `view.selected_object()` itself. So a
-        // literal `true` here would make **every selection change clear the selection**, on a
-        // screen with no vendor open at all (`s.open == false`, mask `0`, nothing kept, hence a
-        // selection write of 0). The flag is therefore the open
-        // edge, which is this build's stand-in for the open-vendor notice; the player's own
-        // re-filter keeps its `true` in [`Self::on_element_message`], which is where retail puts
-        // it. `self.last` is still the *previous* snapshot here — it is written at the end of this
-        // function — so this reads the previous snapshot, as the tab choice below does.
-        //
-        // **The edge is a change of VENDOR, not merely closed-to-open.** The open-vendor notice
-        // fires per `0x0062`, and a player who walks from one grocer to the next can produce a view
-        // whose `open` never went false in between — the vendor id is simply overwritten.
-        // `ShopView::vendor` is that id, so comparing it catches both the first open and the
-        // switch, and `!l.open && s.open` would have missed the second.
-        //
-        // **Declared gap:** a *second* `0x0062` from the **same** vendor — a stock refresh after a
-        // purchase — is a real vendor open in the client and is invisible here, because nothing in
-        // `ShopView` distinguishes it from any other change to the stock. Retail would move the
-        // selection to the first row again; this build will not.
         if !opening
             && self
                 .last
@@ -740,6 +670,23 @@ impl VendorPanel {
             decorated += w.decorate(ui, &info);
         }
         self.slots_decorated = decorated;
+        for w in [self.stock.as_mut(), self.buy.as_mut(), self.sell.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            let first = w
+                .slots
+                .iter()
+                .position(|slot| slot.item.is_some() && slot.item == selected);
+            for (index, slot) in w.slots.iter_mut().enumerate() {
+                if slot.item.is_some_and(|item| info(item).is_none()) {
+                    slot.set_sell_state(ui, false);
+                }
+                slot.set_selectable_state(true);
+                slot.set_selected_state(ui, first == Some(index));
+            }
+        }
+        self.update_basket_controls(ui, &s, selected);
         // **The four money writers, called separately and in the client's own order.** The vendor
         // buy panel's update adopts the basket as its contents, updates the buy UI, then the
         // transaction value, then the total value, and the vendor sell page's update is the same
@@ -833,6 +780,71 @@ impl VendorPanel {
         decorated
     }
 
+    fn update_basket_controls(
+        &self,
+        ui: &mut UiSystem,
+        shop: &ShopView,
+        selected: Option<dereth_primitives::ObjectId>,
+    ) {
+        let Some(root) = self.tabs else { return };
+        for (sell, item, all, clear, clear_all) in [
+            (
+                false,
+                BTN_BUY_ITEM,
+                BTN_BUY_ALL,
+                BTN_BUY_CLEAR_ITEM,
+                BTN_BUY_CLEAR_LIST,
+            ),
+            (
+                true,
+                BTN_SELL_ITEM,
+                BTN_SELL_ALL,
+                BTN_SELL_CLEAR_ITEM,
+                BTN_SELL_CLEAR_LIST,
+            ),
+        ] {
+            let controls = dereth_client_contract::vendor::basket_controls(shop, sell, selected);
+            for (id, enabled) in [
+                (item, controls.item),
+                (all, controls.all),
+                (clear, controls.item),
+                (clear_all, controls.all),
+            ] {
+                if let Some(h) = ui.get_child_recursive(root, id) {
+                    ui.set_state(h, dereth_ui::StateId(if enabled { 1 } else { 0x0d }));
+                }
+            }
+        }
+    }
+
+    fn refresh_list_geometry(&mut self, ui: &mut UiSystem) -> bool {
+        let geometry: Vec<_> = [self.stock.as_ref(), self.buy.as_ref(), self.sell.as_ref()]
+            .into_iter()
+            .flatten()
+            .map(|w| {
+                ui.node(w.handle).map_or((0, 0, false), |n| {
+                    (
+                        n.region.box_.width(),
+                        n.region.box_.height(),
+                        n.region.flags.visible,
+                    )
+                })
+            })
+            .collect();
+        if geometry == self.last_geometry {
+            return false;
+        }
+        self.last_geometry = geometry;
+        for w in [self.stock.as_mut(), self.buy.as_mut(), self.sell.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            w.update_empty_slots(ui);
+            w.update_layout(ui);
+        }
+        true
+    }
+
     /// The update's fill for one of the three lists.
     fn fill(&mut self, ui: &mut UiSystem, which: Tab, rows: &[ShopRow]) {
         let w = match which {
@@ -852,6 +864,14 @@ impl VendorPanel {
         // A vendor's list is unbounded: `UI_ItemList_FixedListSize` is `-1` on all three
         // (`0x0000005F` = `Integer(-1)` in the shipped layout), which is the empty-slot update's
         // unbounded arm.
+        if let Some(list) = ui.node_mut(w.handle).and_then(|n| {
+            n.behaviour
+                .as_mut()?
+                .as_any_mut()?
+                .downcast_mut::<dereth_ui::widgets::listbox::ListBox>()
+        }) {
+            list.scroll_item_count = Some(ids.len());
+        }
         w.set_contents(ui, None, Some(-1), &ids, &|id| {
             icons.get(&id).copied().flatten()
         });
@@ -1131,6 +1151,15 @@ impl VendorPanel {
     ///
     /// Returns how many rows were made, which is the filter count.
     pub fn open_vendor_type_filters(&mut self, ui: &mut UiSystem, s: &ShopView) -> usize {
+        self.rebuild_type_filters(ui, s, s.open)
+    }
+
+    fn rebuild_type_filters(
+        &mut self,
+        ui: &mut UiSystem,
+        s: &ShopView,
+        select_first: bool,
+    ) -> usize {
         self.num_type_filters = 0;
         let prev_x = self.stock.as_ref().map_or(0, |w| w.scroll(ui).0);
         self.pending_open_scroll_x = None;
@@ -1201,10 +1230,10 @@ impl VendorPanel {
         // by walking away from a shop. The client never gets there: this function runs only inside
         // the vendor open, which a close does not call at all. This build has to empty the strip on
         // the close, so it does that silently.
-        dereth_ui::widgets::menu::set_selected_item(ui, menu, item, s.open);
+        dereth_ui::widgets::menu::set_selected_item(ui, menu, item, select_first);
         // Initialization can itself select a row. Keep the restore through every callback emitted
         // during this vendor open, not merely the first one delivered by UiFlow.
-        self.pending_open_scroll_x = s.open.then_some((prev_x, ui.element_message_serial()));
+        self.pending_open_scroll_x = select_first.then_some((prev_x, ui.element_message_serial()));
         self.num_type_filters
     }
 
@@ -1655,6 +1684,25 @@ impl VendorPanel {
         selected: Option<dereth_primitives::ObjectId>,
         split: i32,
     ) -> bool {
+        let shop = self.last.clone().unwrap_or_default();
+        let buy = dereth_client_contract::vendor::basket_controls(&shop, false, selected);
+        let sell = dereth_client_contract::vendor::basket_controls(&shop, true, selected);
+        let enabled = match id {
+            BTN_BUY_ITEM | BTN_BUY_CLEAR_ITEM => buy.item,
+            BTN_BUY_ALL | BTN_BUY_CLEAR_LIST => buy.all,
+            BTN_SELL_ITEM | BTN_SELL_CLEAR_ITEM => sell.item,
+            BTN_SELL_ALL | BTN_SELL_CLEAR_LIST => sell.all,
+            BTN_BUY | BTN_ADD_TO_LIST => {
+                shop.open
+                    && selected.is_some_and(|id| {
+                        self.rows[Tab::Items as usize].iter().any(|r| r.item == id)
+                    })
+            }
+            _ => true,
+        };
+        if !enabled {
+            return true;
+        }
         let mut emit = |r: UiRequest| {
             requests_out.emit(r);
             true
@@ -1780,6 +1828,24 @@ mod tests {
         assert_eq!(Tab::default(), Tab::Items);
     }
 
+    fn populated_panel() -> VendorPanel {
+        let row = ShopRow {
+            item: dereth_primitives::ObjectId(0x8000_0A6E),
+            ..Default::default()
+        };
+        VendorPanel {
+            last: Some(ShopView {
+                open: true,
+                stock: vec![row.clone()],
+                buy_list: vec![row.clone()],
+                sell_list: vec![row.clone()],
+                ..Default::default()
+            }),
+            rows: [vec![row], Vec::new(), Vec::new()],
+            ..Default::default()
+        }
+    }
+
     /// The eleven cases route to the six requests the button handler distinguishes, and the two
     /// that **send on their own** are separate from the two that fill a basket.
     #[test]
@@ -1787,7 +1853,7 @@ mod tests {
         let mut outbox = crate::requests::Outbox::owned();
         use dereth_primitives::ObjectId;
         let item = ObjectId(0x8000_0A6E);
-        let mut p = VendorPanel::default();
+        let mut p = populated_panel();
         let one = |outbox: &mut crate::requests::Outbox, p: &mut VendorPanel, id, split| {
             outbox.clear();
             assert!(p.handle_button_click(outbox, id, Some(item), split));
@@ -1800,7 +1866,7 @@ mod tests {
         assert_eq!(
             one(&mut outbox, &mut p, BTN_BUY_ITEM, 1),
             vec![UiRequest::VendorBuySingle { item, split: 1 }],
-            "0x100000C9 buys the single item too; it differs only in the list edit that follows"
+            "0x100000C9 buys the selected basket item"
         );
         assert_eq!(
             one(&mut outbox, &mut p, BTN_ADD_TO_LIST, 7),
@@ -1864,7 +1930,7 @@ mod tests {
     #[test]
     fn a_button_with_no_selection_sends_nothing_and_is_still_a_button() {
         let mut outbox = crate::requests::Outbox::owned();
-        let mut p = VendorPanel::default();
+        let mut p = populated_panel();
         outbox.clear();
         for id in [BTN_BUY, BTN_BUY_ITEM, BTN_ADD_TO_LIST, BTN_SELL_ITEM] {
             assert!(

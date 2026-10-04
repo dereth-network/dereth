@@ -72,3 +72,23 @@ impl ShopView {
             .map_or(0, |(_, mask)| *mask)
     }
 }
+
+/// The selected-row and whole-basket controls share the same membership decision.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BasketControls {
+    pub item: bool,
+    pub all: bool,
+}
+
+#[must_use]
+pub fn basket_controls(shop: &ShopView, sell: bool, selected: Option<ObjectId>) -> BasketControls {
+    let rows = if sell {
+        &shop.sell_list
+    } else {
+        &shop.buy_list
+    };
+    BasketControls {
+        item: shop.open && selected.is_some_and(|id| rows.iter().any(|r| r.item == id)),
+        all: shop.open && !rows.is_empty(),
+    }
+}

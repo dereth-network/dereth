@@ -4750,6 +4750,7 @@ feedback,channel: 0x1A, text},
                 }
                 UiRequest::VendorAddToBuyList { item, split } => {
                     if game.add_to_buy_list(item, split) {
+                        game.set_selected_object(Some(item), false, &mut out);
                         self.stats.vendor_basket_rows += 1;
                     }
                 }
@@ -4781,16 +4782,19 @@ feedback,channel: 0x1A, text},
                         self.stats.requests_refused += 1;
                     }
                 }
-                UiRequest::VendorClearList { sell, item } => match (sell, item) {
-                    (true, Some(id)) => {
-                        game.remove_from_sell_list(id);
+                UiRequest::VendorClearList { sell, item } => {
+                    match (sell, item) {
+                        (true, Some(id)) => {
+                            game.remove_from_sell_list(id);
+                        }
+                        (true, None) => {
+                            game.flush_sell_list_sell_state();
+                        }
+                        (false, Some(id)) => game.shop.buy_list.retain(|(i, _)| *i != id),
+                        (false, None) => game.shop.buy_list.clear(),
                     }
-                    (true, None) => {
-                        game.flush_sell_list_sell_state();
-                    }
-                    (false, Some(id)) => game.shop.buy_list.retain(|(i, _)| *i != id),
-                    (false, None) => game.shop.buy_list.clear(),
-                },
+                    game.prune_vendor_basket_descriptions();
+                }
                 // Vendor-close case `0x100000D6` raises the native confirmation dialog when a
                 // basket is not empty; the close arm below handles that path.
                 // The vendor sell-drop handler's tail.
@@ -8948,7 +8952,9 @@ feedback,channel: 0x1A, text},
                         self.pending_trade_for_dummies.push(item);
                     }
                     // The vendor's sell list listens to the same notice for its own split.
-                    game.vendor_split_item_attributes_changed(item, kind);
+                    let mut selection = Notices::default();
+                    game.vendor_split_item_attributes_changed(item, kind, &mut selection);
+                    self.absorb(game, selection, RecordingRequests::default());
                 }
                 TradeSplitNotice::AttemptFailed => game.clear_pending_trade_split(),
             }

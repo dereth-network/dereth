@@ -1101,6 +1101,34 @@ impl Desktop {
             | Input::Wheel { x, y, .. } => Some((x, y)),
             _ => None,
         };
+        if let Some((x, y)) = pointer {
+            if matches!(self.drag_payload, Some(DragPayload::Object(_))) {
+                let vendor = self
+                    .windows
+                    .iter()
+                    .rev()
+                    .find(|w| {
+                        visible.contains(&w.token)
+                            && rect(
+                                w.x,
+                                w.y,
+                                w.frame.screen.width as i32,
+                                w.frame.screen.height as i32,
+                            )
+                            .contains(x, y)
+                    })
+                    .filter(|w| w.key == "vendor")
+                    .map(|w| w.token);
+                if let Some(token) = vendor {
+                    self.dispatch(
+                        token,
+                        ControlEvent::Action("vendor-drag-over".into()),
+                        context,
+                    );
+                    self.refresh(context);
+                }
+            }
+        }
         if let Input::PointerUp { x, y } = input {
             if let Some(payload) = self.drag_payload.take() {
                 let drop = self.windows.iter().rev().find_map(|w| {
@@ -1119,7 +1147,7 @@ impl Desktop {
                                     }
                                 }
                             }
-                            if matches!(w.key.as_str(), "trade" | "maintenance") {
+                            if matches!(w.key.as_str(), "trade" | "maintenance" | "vendor") {
                                 if let ControlEvent::Drop {
                                     id,
                                     payload: DragPayload::Object(object),
@@ -1861,3 +1889,7 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "desktop/vendor_tests.rs"]
+mod vendor_tests;

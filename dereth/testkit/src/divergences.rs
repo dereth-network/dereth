@@ -225,6 +225,12 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "Disabling the current chat destination falls back to Say even while its window or menu row is absent.",
         why: "Rebuilding or switching the interface cannot leave an unavailable destination selected.",
     },
+    Divergence {
+        id: "CD-028",
+        title: "Vendor carts remain after transactions",
+        change: "Buying or selling leaves the cart rows visible through stock updates; clearing a cart, closing the vendor or visiting another vendor removes them.",
+        why: "Players can review and reuse their cart without rebuilding it after every transaction.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

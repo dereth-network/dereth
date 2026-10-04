@@ -26,6 +26,11 @@ use dereth_testkit::{Given, HeadlessClient, Inbound, Player, ScenarioView};
 /// scenario asserts**, and the function.
 pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
     (
+        "vendor_transactions_keep_baskets_through_refresh",
+        &["vendor.baskets.transactions-retain-rows-until-clear-or-close"],
+        vendor_transactions_keep_baskets_through_refresh,
+    ),
+    (
         "a_confirmed_use_prints_the_same_line",
         &["use.confirmation.prints-the-same-line-and-the-material-name"],
         a_confirmed_use_prints_the_same_line,
@@ -2395,8 +2400,7 @@ pub fn selling_the_whole_list_sends_one_message() {
                 && m.items.iter().any(|i| i.iid == MY_RING)
     );
     let marks_gone = w.weenie(MY_KEY).expect("carried").sell_state == 0
-        && w.weenie(MY_RING).expect("carried").sell_state == 0
-        && w.shop.sell_list.is_empty();
+        && w.weenie(MY_RING).expect("carried").sell_state == 0;
 
     c.assert_behaviour(
         "vendor.sell.selling-the-whole-list-sends-one-message-and-clears-the-marks",
@@ -4361,4 +4365,100 @@ fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarg
         mask,
         side: side as u32,
     }
+}
+
+/// A purchase and a sale retain their carts through the shard's stock refresh.
+pub fn vendor_transactions_keep_baskets_through_refresh() {
+    let mut c = at_a_shop(&[(OIL, "Oil of Rendering", 100)]);
+    add_carried(c.world_mut(), PLAYER, MY_KEY, item_type::MISC, 100);
+    add_carried(c.world_mut(), PLAYER, MY_RING, item_type::MISC, 200);
+    c.when(Player::Ui(vec![
+        UiRequest::VendorAddToBuyList {
+            item: OIL,
+            split: 1,
+        },
+        UiRequest::VendorAddToSell { item: MY_KEY },
+        UiRequest::VendorAddToSell { item: MY_RING },
+    ]));
+    assert_eq!(c.view().world().selected, Some(MY_RING));
+    c.when(Player::ui(UiRequest::VendorBuyAll));
+    assert!(matches!(c.outbound().last(), Some(Request::VendorBuy(m))
+        if m.items.len() == 1 && m.items[0].iid == OIL && m.items[0].amount == 1));
+    assert_eq!(c.view().world().shop.buy_list, [(OIL, 1)]);
+    c.when(Inbound::message(&a_shop(MERCHANT, &[])));
+    assert_eq!(c.view().world().shop.buy_list, [(OIL, 1)]);
+    c.when(Player::ui(UiRequest::VendorSellSingle { item: MY_KEY }));
+    assert!(matches!(c.outbound().last(), Some(Request::VendorSell(m))
+        if m.items.len() == 1 && m.items[0].iid == MY_KEY));
+    assert_eq!(c.view().world().weenie(MY_KEY).unwrap().sell_state, 0);
+    assert_eq!(c.view().world().weenie(MY_RING).unwrap().sell_state, 1);
+    c.world_mut().tables.weenies.remove(MY_KEY);
+    c.when(Inbound::message(&a_shop(MERCHANT, &[])));
+    assert_eq!(c.view().world().shop.sell_list, [(MY_KEY, 1), (MY_RING, 1)]);
+    let shown = dereth_client_runtime::vendor_view::shop(c.view().world());
+    assert_eq!(shown.buy_list[0].name, "Oil of Rendering");
+    assert_eq!(
+        shown.sell_list.iter().map(|r| r.item).collect::<Vec<_>>(),
+        [MY_KEY, MY_RING]
+    );
+    c.when(Player::ui(UiRequest::VendorSellAll));
+    assert!(matches!(c.outbound().last(), Some(Request::VendorSell(m)) if m.items.len() == 2));
+    assert_eq!(c.view().world().weenie(MY_RING).unwrap().sell_state, 0);
+    c.when(Inbound::message(&a_shop(MERCHANT, &[])));
+    assert_eq!(c.view().world().shop.sell_list.len(), 2);
+    c.when(Player::ui(UiRequest::VendorClearList {
+        sell: true,
+        item: Some(MY_KEY),
+    }));
+    assert_eq!(c.view().world().shop.sell_list, [(MY_RING, 1)]);
+    assert!(!c
+        .view()
+        .world()
+        .shop
+        .basket_descriptions
+        .contains_key(&MY_KEY));
+    assert!(c.view().world().shop.basket_descriptions.contains_key(&OIL));
+    c.when(Player::ui(UiRequest::VendorClearList {
+        sell: false,
+        item: None,
+    }));
+    assert!(c.view().world().shop.buy_list.is_empty());
+    assert!(!c.view().world().shop.basket_descriptions.contains_key(&OIL));
+    c.when(Inbound::message(&a_shop(MERCHANT_TOO, &[])));
+    assert!(c.view().world().shop.sell_list.is_empty());
+    assert!(c.view().world().shop.basket_descriptions.is_empty());
+    c.when(Player::ui(UiRequest::VendorAddToSell { item: MY_RING }));
+    c.when(Player::ui(UiRequest::VendorClose));
+    {
+        let (interaction, world) = c.interaction_and_world_mut();
+        interaction.confirm_vendor_close(world);
+    }
+    let closed = c.view().world().shop.vendor_id.is_none()
+        && c.view().world().shop.basket_descriptions.is_empty();
+    c.when(Inbound::message(&a_shop(
+        MERCHANT,
+        &[(OIL, "Oil of Rendering", 100)],
+    )));
+    c.when(Player::ui(UiRequest::VendorAddToBuyList {
+        item: OIL,
+        split: 1,
+    }));
+    c.when(Inbound::Event(Box::new(
+        dereth_client_net::client_session::SessionEvent::WorldReset,
+    )));
+    c.assert_behaviour(
+        "vendor.baskets.transactions-retain-rows-until-clear-or-close",
+        move |v| {
+            closed
+                && v.world().shop.vendor_id.is_none()
+                && v.world().shop.sell_list.is_empty()
+                && v.world().shop.basket_descriptions.is_empty()
+                && v.world().shop.buy_list.is_empty()
+        },
+    );
+}
+
+#[test]
+fn scenario_vendor_transactions_keep_baskets_through_refresh() {
+    scenario("vendor_transactions_keep_baskets_through_refresh");
 }

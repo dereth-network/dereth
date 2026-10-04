@@ -49,17 +49,20 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
         .buy_list
         .iter()
         .filter_map(|(id, n)| {
-            let p = s.stock_item(*id)?;
+            let pwd = s
+                .stock_item(*id)
+                .map(|p| &p.pwd)
+                .or_else(|| s.basket_descriptions.get(id))?;
             Some(ShopRow {
                 item: *id,
-                name: p.pwd.name.clone(),
-                icon: (p.pwd.icon_id != 0).then_some(dereth_primitives::DataId(p.pwd.icon_id)),
+                name: pwd.name.clone(),
+                icon: (pwd.icon_id != 0).then_some(dereth_primitives::DataId(pwd.icon_id)),
                 amount: *n,
-                obj_type: inq_type(w, *id, p.pwd.obj_type),
-                max_stack_size: max_stack_size(w, *id, &p.pwd),
+                obj_type: inq_type(w, *id, pwd.obj_type),
+                max_stack_size: max_stack_size(w, *id, pwd),
                 contained_items: num_contained_items(w, *id),
                 contained_containers: num_contained_containers(w, *id),
-                price: s.profile.vendor_sell_price(&p.pwd, *n),
+                price: s.profile.vendor_sell_price(pwd, *n),
                 refusal: None,
             })
         })
@@ -68,24 +71,18 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
         .sell_list
         .iter()
         .filter_map(|(id, _)| {
-            let o = w.weenie(*id)?;
+            let pwd = w.vendor_basket_description(*id)?;
             Some(ShopRow {
                 item: *id,
-                name: o.pwd.name.clone(),
-                icon: (o.pwd.icon_id != 0).then_some(dereth_primitives::DataId(o.pwd.icon_id)),
+                name: pwd.name.clone(),
+                icon: (pwd.icon_id != 0).then_some(dereth_primitives::DataId(pwd.icon_id)),
                 // The single-item sell writes the literal 1 into every sell row.
                 amount: 1,
-                // A sell-basket row **is** an object the client holds — the `filter_map` above is
-                // the client's object lookup by `iid` — so there is no profile to fall back to and this is
-                // the object's own type query, unconditionally.
-                obj_type: o.pwd.obj_type,
-                // Same reason: the object is in hand, so these are its own fields and its own
-                // inventory state. Only item-list updating reads the last two; they are filled
-                // on all three lists so that a row is a row.
-                max_stack_size: u32::from(o.pwd.max_stack_size.unwrap_or(0)),
+                obj_type: pwd.obj_type,
+                max_stack_size: u32::from(pwd.max_stack_size.unwrap_or(0)),
                 contained_items: num_contained_items(w, *id),
                 contained_containers: num_contained_containers(w, *id),
-                price: s.profile.vendor_buy_price(&o.pwd),
+                price: s.profile.vendor_buy_price(pwd),
                 // The row a player can see a refusal on. `refusal_message` is the four-string
                 // table; the containment test runs first and may supply its own refusal.
                 refusal: w.drag_item_acceptable(*id),
@@ -106,16 +103,20 @@ pub fn shop(w: &dereth_client_model::World) -> ShopView {
         // both total-value displays render and neither computes. See [`ShopView`]'s own table.
         buy_transaction: w.transaction_value(),
         sell_transaction: w.sell_value(),
-        // Both `filter_map`s require a successful object lookup and put the accumulator
-        // inside: a basket row naming an object the client does not hold contributes nothing at
-        // all. Same predicate, same order, as the two `ShopRow` lists above.
-        buy_items: basket_items(
-            s.buy_list
-                .iter()
-                .filter_map(|(id, n)| s.stock_item(*id).map(|_| *n)),
-        ),
+        // Count the same live-or-retained descriptions used by the rendered rows.
+        buy_items: basket_items(s.buy_list.iter().filter_map(|(id, n)| {
+            s.stock_item(*id)
+                .map(|p| &p.pwd)
+                .or_else(|| s.basket_descriptions.get(id))
+                .map(|_| *n)
+        })),
         sell_items: basket_items(s.sell_list.iter().filter_map(|(id, _)| {
-            Some(i32::from(w.weenie(*id)?.pwd.stack_size.unwrap_or(1).max(1)))
+            Some(i32::from(
+                w.vendor_basket_description(*id)?
+                    .stack_size
+                    .unwrap_or(1)
+                    .max(1),
+            ))
         })),
         total_value: s.total_value,
         type_filters: type_filters(w),
@@ -266,5 +267,42 @@ mod tests {
         assert_eq!(shop(&world).buy_items, 15);
         world.shop.buy_list.push((ObjectId(3), 50));
         assert_eq!(shop(&world).buy_items, 15);
+    }
+    /// Behaviour: vendor.controls.selection-follows-basket-membership
+    #[test]
+    fn a_split_replacement_reseeds_selection_and_notifies_its_listeners() {
+        use dereth_client_model::{
+            vendor::PendingSellSplit, weenie::Weenie, Notice, RecordingSink,
+        };
+        let mut world = World::new();
+        let original = ObjectId(10);
+        let replacement = ObjectId(11);
+        let mut old = Weenie::new(original);
+        old.pwd.stack_size = Some(10);
+        old.pwd.max_stack_size = Some(100);
+        world.tables.weenies.insert(original, old);
+        let mut new = Weenie::new(replacement);
+        new.pwd.wcid = 7;
+        new.pwd.stack_size = Some(3);
+        new.pwd.max_stack_size = Some(100);
+        world.tables.weenies.insert(replacement, new);
+        world.set_selected_object(Some(original), false, &mut RecordingSink::default());
+        world.shop.sell_list.push((original, 1));
+        world.shop.pending_sell_split = Some(PendingSellSplit {
+            placeholder: original,
+            wcid: 7,
+            stack_size: 3,
+        });
+        let mut notices = RecordingSink::default();
+        assert!(world.vendor_split_item_attributes_changed(replacement, 1, &mut notices));
+        assert_eq!(world.shop.sell_list, [(replacement, 1)]);
+        assert_eq!(world.selected, Some(replacement));
+        assert_eq!((world.split.split_size, world.split.max_split_size), (3, 3));
+        assert!(!world.weenie(original).unwrap().selected);
+        assert!(world.weenie(replacement).unwrap().selected);
+        assert!(notices.0.contains(&Notice::SelectionChanged {
+            previous: Some(original),
+            current: Some(replacement)
+        }));
     }
 }

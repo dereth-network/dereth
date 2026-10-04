@@ -17,7 +17,6 @@ fn padded(mut entries: Vec<ItemEntry>, strip_width: i32, selling: bool) -> Vec<I
 #[derive(Debug, Default)]
 pub struct Vendor {
     tab: usize,
-    selected: Option<ObjectId>,
     last_shop: Option<dereth_client_contract::view::ShopView>,
     opened: Option<ObjectId>,
     offset: i32,
@@ -97,7 +96,7 @@ impl Panel for Vendor {
                 strip_width,
                 self.tab == 2,
             ),
-            self.selected,
+            c.game.selected_object(),
             self.offset,
             false,
             None,
@@ -117,7 +116,10 @@ impl Panel for Vendor {
                 true,
             )
             .list_skin = Some(crate::panels::ListSkin::VENDOR);
-            if let Some(r) = rows.iter().find(|r| Some(r.item) == self.selected) {
+            if let Some(r) = rows
+                .iter()
+                .find(|r| Some(r.item) == c.game.selected_object())
+            {
                 let split = u32::try_from(c.game.split_size()).unwrap_or(1).max(1);
                 centered(
                     &mut f,
@@ -149,13 +151,18 @@ impl Panel for Vendor {
                     id,
                     rect(width - 58, y, 54, if id == "add" { 32 } else { 22 }),
                     txt,
-                    s.open && rows.iter().any(|r| Some(r.item) == self.selected),
+                    s.open
+                        && rows
+                            .iter()
+                            .any(|r| Some(r.item) == c.game.selected_object()),
                 );
                 b.images = Some(art.map(|n| format!("{n:08X}")));
                 b.font = if id == "add" { "14-5" } else { "15-5" }.into();
             }
         } else {
             let sell = self.tab == 2;
+            let controls =
+                dereth_client_contract::vendor::basket_controls(&s, sell, c.game.selected_object());
             let (count, total) = if sell {
                 (s.sell_items, s.sell_transaction)
             } else {
@@ -191,7 +198,16 @@ impl Panel for Vendor {
                     [0x060012BA, 0x060012B9, 0x060012B8],
                 ),
             ] {
-                let b = f.button(id, rect(5, y, 65, 14), txt, s.open && !rows.is_empty());
+                let b = f.button(
+                    id,
+                    rect(5, y, 65, 14),
+                    txt,
+                    if id == "clear-item" {
+                        controls.item
+                    } else {
+                        controls.all
+                    },
+                );
                 b.images = Some(art.map(|n| format!("{n:08X}")));
                 b.font = "14-5".into();
             }
@@ -204,7 +220,11 @@ impl Panel for Vendor {
                         if sell { "Sell" } else { "Buy" },
                         if id == "one" { "Item" } else { "All" }
                     ),
-                    s.open && !rows.is_empty(),
+                    if id == "one" {
+                        controls.item
+                    } else {
+                        controls.all
+                    },
                 );
                 b.images = Some(
                     if sell {
@@ -230,13 +250,6 @@ impl Panel for Vendor {
                 if self.opened != s.vendor {
                     self.opened = s.vendor;
                     self.tab = if s.sell_mode { 2 } else { 0 };
-                    self.selected = None;
-                }
-                if self
-                    .selected
-                    .is_some_and(|id| !self.rows(c).iter().any(|r| r.item == id))
-                {
-                    self.selected = None;
                 }
                 if self.last_shop.as_ref() == Some(&s) {
                     return vec![];
@@ -257,18 +270,17 @@ impl Panel for Vendor {
                 self.offset = 0;
                 let first =
                     dereth_client_contract::vendor::stock(&changed, changed.filter_mask()).first;
-                self.selected = (first.0 != 0).then_some(first);
                 vec![
                     PanelAction::Game(UiRequest::VendorFilter(index)),
                     PanelAction::Game(UiRequest::Select(first)),
                 ]
             }
-            ControlEvent::Select { id, index } if id == "items" => {
-                self.selected = self.rows(c).get(index).map(|r| r.item);
-                self.selected
-                    .map(|i| request(UiRequest::Select(i)))
-                    .unwrap_or_default()
-            }
+            ControlEvent::Select { id, index } if id == "items" => self
+                .rows(c)
+                .get(index)
+                .map(|r| r.item)
+                .map(|i| request(UiRequest::Select(i)))
+                .unwrap_or_default(),
             ControlEvent::DoubleClick { id, index } if id == "items" && self.tab == 0 => self
                 .rows(c)
                 .get(index)
@@ -295,17 +307,40 @@ impl Panel for Vendor {
                     ]
                 })
                 .unwrap_or_default(),
+            ControlEvent::Action(id) if id == "vendor-drag-over" => {
+                self.tab = 2;
+                self.offset = 0;
+                vec![]
+            }
+            ControlEvent::DropStack {
+                id,
+                object,
+                amount,
+                max_amount,
+                ..
+            } if id == "items" && c.game.vendor_drag_item_accepted(object) => {
+                self.tab = 2;
+                request(if amount < max_amount {
+                    UiRequest::VendorSplitToSell {
+                        item: object,
+                        split: amount,
+                        max: max_amount,
+                    }
+                } else {
+                    UiRequest::VendorAddToSell { item: object }
+                })
+            }
             ControlEvent::Drop {
                 id,
                 payload: DragPayload::Object(item),
                 ..
-            } if id == "items" && self.tab == 2 && c.game.vendor_drag_item_accepted(item) => {
+            } if id == "items" && c.game.vendor_drag_item_accepted(item) => {
+                self.tab = 2;
                 request(UiRequest::VendorAddToSell { item })
             }
             ControlEvent::Activate(id) => match id.as_str() {
                 "tab0" | "tab1" | "tab2" => {
                     self.tab = id.as_bytes()[3] as usize - b'0' as usize;
-                    self.selected = None;
                     self.offset = 0;
                     vec![]
                 }
@@ -313,8 +348,9 @@ impl Panel for Vendor {
                     PanelAction::Game(UiRequest::VendorClose),
                     PanelAction::Close,
                 ],
-                "buy" | "one" => self
-                    .selected
+                "buy" | "one" => c
+                    .game
+                    .selected_object()
                     .filter(|id| self.rows(c).iter().any(|r| r.item == *id))
                     .map(|item| {
                         request(if self.tab == 2 {
@@ -327,8 +363,9 @@ impl Panel for Vendor {
                         })
                     })
                     .unwrap_or_default(),
-                "add" => self
-                    .selected
+                "add" => c
+                    .game
+                    .selected_object()
                     .filter(|id| self.rows(c).iter().any(|r| r.item == *id))
                     .map(|item| {
                         request(UiRequest::VendorAddToBuyList {
@@ -337,15 +374,24 @@ impl Panel for Vendor {
                         })
                     })
                     .unwrap_or_default(),
-                "all" => {
+                "all"
+                    if dereth_client_contract::vendor::basket_controls(
+                        &s,
+                        self.tab == 2,
+                        c.game.selected_object(),
+                    )
+                    .all =>
+                {
                     if self.tab == 2 {
                         vec![PanelAction::Host(HostAction::VendorSellAll)]
                     } else {
                         request(UiRequest::VendorBuyAll)
                     }
                 }
-                "clear-item" => self
-                    .selected
+                "clear-item" => c
+                    .game
+                    .selected_object()
+                    .filter(|id| self.rows(c).iter().any(|r| r.item == *id))
                     .map(|item| {
                         request(UiRequest::VendorClearList {
                             sell: self.tab == 2,
@@ -353,10 +399,19 @@ impl Panel for Vendor {
                         })
                     })
                     .unwrap_or_default(),
-                "clear-list" => request(UiRequest::VendorClearList {
-                    sell: self.tab == 2,
-                    item: None,
-                }),
+                "clear-list"
+                    if dereth_client_contract::vendor::basket_controls(
+                        &s,
+                        self.tab == 2,
+                        c.game.selected_object(),
+                    )
+                    .all =>
+                {
+                    request(UiRequest::VendorClearList {
+                        sell: self.tab == 2,
+                        item: None,
+                    })
+                }
                 _ => vec![],
             },
             _ => vec![],
@@ -395,6 +450,9 @@ mod shared_stock_tests {
     #[derive(Debug)]
     struct Shop(ShopView);
     impl GameView for Shop {
+        fn selected_object(&self) -> Option<ObjectId> {
+            Some(ObjectId(1))
+        }
         fn shop(&self) -> ShopView {
             self.0.clone()
         }
@@ -479,7 +537,7 @@ mod shared_stock_tests {
         with(&game, |c| {
             let projection = dereth_client_contract::vendor::stock(&game.0, 0x20);
             assert_eq!(projection.first, ObjectId(1));
-            panel.selected = Some(ObjectId(1));
+
             assert!(
                 panel
                     .event(ControlEvent::Activate("add".into()), c)
@@ -487,5 +545,103 @@ mod shared_stock_tests {
                 "an exhausted row cannot be added from stale selection"
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod basket_tests {
+    use super::*;
+    use dereth_client_contract::view::ShopView;
+    #[derive(Debug, Default)]
+    struct View {
+        shop: ShopView,
+        selected: Option<ObjectId>,
+    }
+    impl GameView for View {
+        fn shop(&self) -> ShopView {
+            self.shop.clone()
+        }
+        fn selected_object(&self) -> Option<ObjectId> {
+            self.selected
+        }
+    }
+    fn with<T>(v: &View, f: impl FnOnce(&Context<'_>) -> T) -> T {
+        f(&Context {
+            game: v,
+            pregame: &PregameView::default(),
+            keyboard: &KeyboardState::default(),
+            settings: &ClassicSettings::default(),
+            classic: &ClassicState::default(),
+            map_teleport_allowed: false,
+        })
+    }
+    /// Behaviour: vendor.controls.selection-follows-basket-membership
+    #[test]
+    fn classic_basket_buttons_and_highlight_follow_the_shared_selection() {
+        let mut view = View {
+            shop: ShopView {
+                open: true,
+                vendor: Some(ObjectId(9)),
+                buy_list: vec![ShopRow {
+                    item: ObjectId(1),
+                    ..Default::default()
+                }],
+                sell_list: vec![ShopRow {
+                    item: ObjectId(2),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            selected: Some(ObjectId(1)),
+        };
+        let mut panel = Vendor::default();
+        for (tab, id) in [(1, ObjectId(1)), (2, ObjectId(2))] {
+            panel.tab = tab;
+            for (selection, item_enabled, all_enabled) in [
+                (Some(id), true, true),
+                (Some(ObjectId(77)), false, true),
+                (None, false, true),
+            ] {
+                view.selected = selection;
+                with(&view, |c| {
+                    let frame = panel.frame(c);
+                    for key in ["one", "clear-item"] {
+                        assert_eq!(
+                            frame.controls.iter().find(|b| b.id == key).unwrap().enabled,
+                            item_enabled
+                        );
+                    }
+                    for key in ["all", "clear-list"] {
+                        assert_eq!(
+                            frame.controls.iter().find(|b| b.id == key).unwrap().enabled,
+                            all_enabled
+                        );
+                    }
+                    assert_eq!(
+                        !panel
+                            .event(ControlEvent::Activate("one".into()), c)
+                            .is_empty(),
+                        item_enabled
+                    );
+                    if item_enabled {
+                        assert!(frame.controls.iter().any(|b| matches!(&b.kind,ControlKind::ItemStrip { selected:Some(i),.. } if *i==id)));
+                    }
+                });
+            }
+        }
+        view.shop.buy_list.clear();
+        view.shop.sell_list.clear();
+        for tab in [1, 2] {
+            panel.tab = tab;
+            with(&view, |c| {
+                let f = panel.frame(c);
+                for key in ["one", "all", "clear-item", "clear-list"] {
+                    assert!(!f.controls.iter().find(|b| b.id == key).unwrap().enabled);
+                    assert!(panel
+                        .event(ControlEvent::Activate(key.into()), c)
+                        .is_empty());
+                }
+            });
+        }
     }
 }

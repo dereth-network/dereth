@@ -170,6 +170,8 @@ pub struct Shop {
     pub buy_list: Vec<(ObjectId, i32)>,
     /// Sell basket.
     pub sell_list: Vec<(ObjectId, i32)>,
+    /// Descriptions retained with basket rows after stock or owned objects disappear.
+    pub basket_descriptions: std::collections::BTreeMap<ObjectId, PublicWeenieDesc>,
     /// the vendor a pending open was aimed at.
     pub attempt_open_vendor: Option<ObjectId>,
     /// the item dragged onto that vendor.
@@ -573,27 +575,50 @@ impl crate::world::World {
         self.set_ground_object(req, out, None, true, now);
         let sell_mode = self.shop.attempt_open_vendor == Some(m.merchant_id);
         let sale_object = self.shop.attempt_sale_object;
+        let same_vendor = self.shop.vendor_id == Some(m.merchant_id);
+        if !same_vendor {
+            self.flush_sell_list_sell_state();
+        }
+        let buy_list = if same_vendor {
+            std::mem::take(&mut self.shop.buy_list)
+        } else {
+            Vec::new()
+        };
+        let sell_list = if same_vendor {
+            std::mem::take(&mut self.shop.sell_list)
+        } else {
+            Vec::new()
+        };
+        let basket_descriptions = if same_vendor {
+            std::mem::take(&mut self.shop.basket_descriptions)
+        } else {
+            Default::default()
+        };
+        let pending_sell_split = same_vendor
+            .then_some(self.shop.pending_sell_split)
+            .flatten();
         let stock: Vec<ItemProfile> = m.items.iter().filter_map(ItemProfile::from_wire).collect();
         let taken = stock.len();
         self.shop = Shop {
             vendor_id: Some(m.merchant_id),
-            mode: if sell_mode {
+            mode: if same_vendor {
+                self.shop.mode
+            } else if sell_mode {
                 ShopMode::Sell
             } else {
                 ShopMode::Buy
             },
             profile: VendorProfile::from_wire(&m.profile),
             stock,
-            // Both baskets start empty whenever `0x0062` rebuilds the vendor panel.
-            buy_list: Vec::new(),
-            sell_list: Vec::new(),
+            buy_list,
+            sell_list,
+            basket_descriptions,
             // "Both deferred fields are then cleared."
             attempt_open_vendor: None,
             attempt_sale_object: None,
             total_value: self.shop.total_value,
             last_sale: 0,
-            // The rows a pending split would land in are gone with the old sell list.
-            pending_sell_split: None,
+            pending_sell_split,
         };
         // **The client's purse refresh.**
         // The purse has to be filled *before* the panel is told the window opened, because the
@@ -1037,6 +1062,7 @@ impl crate::world::World {
             return false;
         };
         let count = Self::buy_count(&pwd, split);
+        self.shop.basket_descriptions.insert(item, pwd);
         self.shop.buy_list.push((item, count));
         true
     }
@@ -1051,7 +1077,7 @@ impl crate::world::World {
     /// record the basket's contents; (containers, items) = inq_list_slot_count(basket)
     /// if (player.containers_free < containers || player.items_free < items)
     ///                                              print "You must empty some slots..."; return
-    /// send the buy shop event (vendor, buy_list, trade currency); empty buy_list
+    /// send the buy shop event (vendor, buy_list, trade currency); retain buy_list
     /// ```
     ///
     /// Note the polarity difference from [`Self::buy_single_item`]: here it is a `<` on the *free*
@@ -1090,7 +1116,6 @@ impl crate::world::World {
             .expect("the basket is non-empty and a vendor is open");
         req.send(crate::Request::VendorBuy(m));
         self.record_shop_request(vendor, now);
-        self.shop.buy_list.clear();
         Ok(true)
     }
 
@@ -1114,10 +1139,18 @@ impl crate::world::World {
             .sell_list
             .iter()
             .filter_map(|(id, _)| {
-                self.weenie(*id)
-                    .map(|w| self.shop.profile.vendor_buy_price(&w.pwd))
+                self.vendor_basket_description(*id)
+                    .map(|pwd| self.shop.profile.vendor_buy_price(pwd))
             })
             .sum()
+    }
+
+    /// The latest live description, or the description saved with a retained basket row.
+    #[must_use]
+    pub fn vendor_basket_description(&self, id: ObjectId) -> Option<&PublicWeenieDesc> {
+        self.weenie(id)
+            .map(|w| &w.pwd)
+            .or_else(|| self.shop.basket_descriptions.get(&id))
     }
 
     /// The `PublicWeenieDesc` a price is computed from: the shop's stock row first, then the
@@ -1127,7 +1160,8 @@ impl crate::world::World {
         if let Some(p) = self.shop.stock_item(id) {
             return Some((p.pwd.clone(), true));
         }
-        self.weenie(id).map(|w| (w.pwd.clone(), false))
+        self.vendor_basket_description(id)
+            .map(|pwd| (pwd.clone(), false))
     }
 
     #[allow(clippy::cast_possible_wrap)]
@@ -1281,6 +1315,9 @@ impl crate::world::World {
             },
         ));
         self.record_shop_request(vendor, now);
+        if let Some(w) = self.weenie_mut(item) {
+            w.sell_state = 0;
+        }
         Ok(true)
     }
 
@@ -1292,7 +1329,7 @@ impl crate::world::World {
     ///     last_sale = 0
     ///     send_sell(vendor_id, sell_list)
     ///     record a shop-event request on vendor_id; increment the busy count
-    ///     clear each row's sell state; empty sell_list
+    ///     clear each row's sell state; retain sell_list
     /// }
     /// refresh_sell_list()
     /// ```
@@ -1312,7 +1349,7 @@ impl crate::world::World {
         self.shop.last_sale = 0;
         req.send(crate::Request::VendorSell(m));
         self.record_shop_request(vendor, now);
-        self.flush_sell_list_sell_state();
+        self.clear_sell_marks();
         true
     }
 
@@ -1392,7 +1429,12 @@ impl crate::world::World {
     /// stack as one, is exactly the split size answers it. The new object then takes the
     /// placeholder's row -- marked for sale when it holds nothing -- and the placeholder leaves the
     /// list with its mark taken off. The wait ends with the match. Returns whether it matched.
-    pub fn vendor_split_item_attributes_changed(&mut self, item: ObjectId, kind: u32) -> bool {
+    pub fn vendor_split_item_attributes_changed(
+        &mut self,
+        item: ObjectId,
+        kind: u32,
+        out: &mut dyn crate::NoticeSink,
+    ) -> bool {
         let Some(pending) = self.shop.pending_sell_split else {
             return false;
         };
@@ -1407,6 +1449,7 @@ impl crate::world::World {
         {
             return false;
         }
+        let description = w.pwd.clone();
         self.shop.pending_sell_split = None;
         let empty = self
             .inventory(item)
@@ -1418,7 +1461,11 @@ impl crate::world::World {
             .position(|(id, _)| *id == pending.placeholder)
         {
             if empty {
+                self.shop.basket_descriptions.insert(item, description);
                 self.shop.sell_list.insert(at, (item, 1));
+                if self.selected == Some(pending.placeholder) {
+                    self.set_selected_object(Some(item), false, out);
+                }
                 if let Some(w) = self.weenie_mut(item) {
                     w.sell_state = 1;
                 }
@@ -1499,7 +1546,9 @@ impl crate::world::World {
             && !self.shop.sell_list.iter().any(|(id, _)| *id == item)
         {
             // The amount on a sell row is 1; see [`Self::sell_single_item`].
+            self.shop.basket_descriptions.insert(item, w.pwd.clone());
             self.shop.sell_list.push((item, 1));
+            self.set_selected_object(Some(item), false, out);
             if let Some(w) = self.weenie_mut(item) {
                 w.sell_state = 1;
             }
@@ -1529,15 +1578,34 @@ impl crate::world::World {
         if let Some(w) = self.weenie_mut(item) {
             w.sell_state = 0;
         }
+        self.prune_vendor_basket_descriptions();
         true
     }
 
     /// Behavior: every row of the sell list goes back
     /// to `sell_state = 0`. Returns how many marks were taken off.
     ///
-    /// The client's loop clears the state and leaves the list; every caller flushes the list
-    /// immediately afterwards, and both do so here.
+    /// Explicitly clearing or closing also discards the rows.
     pub fn flush_sell_list_sell_state(&mut self) -> usize {
+        let n = self.clear_sell_marks();
+        self.shop.sell_list.clear();
+        self.prune_vendor_basket_descriptions();
+        n
+    }
+
+    /// Forget descriptions no remaining cart row refers to.
+    pub fn prune_vendor_basket_descriptions(&mut self) {
+        let shop = &mut self.shop;
+        shop.basket_descriptions.retain(|id, _| {
+            shop.buy_list
+                .iter()
+                .chain(&shop.sell_list)
+                .any(|(row, _)| row == id)
+        });
+    }
+
+    /// Submitting a sale clears its pending marks without discarding the basket.
+    fn clear_sell_marks(&mut self) -> usize {
         let ids: Vec<ObjectId> = self.shop.sell_list.iter().map(|(id, _)| *id).collect();
         let mut n = 0;
         for id in ids {
@@ -1548,7 +1616,6 @@ impl crate::world::World {
                 }
             }
         }
-        self.shop.sell_list.clear();
         n
     }
 
@@ -1680,6 +1747,7 @@ impl crate::world::World {
             let Some(pwd) = self.shop.stock_item(iid).map(|p| p.pwd.clone()) else {
                 continue;
             };
+            self.shop.basket_descriptions.insert(iid, pwd.clone());
             self.shop.buy_list.push((iid, want));
             running += self.shop.profile.vendor_sell_price(&pwd, want);
             r.added += 1;
