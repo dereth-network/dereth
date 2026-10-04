@@ -232,7 +232,7 @@ fn typed_render_preserves_the_native_parser_and_reaches_projection_and_landscape
         app.interaction().last_sent.is_empty(),
         "render options are local preferences"
     );
-    assert!(app.interaction().outbox().is_empty());
+    assert!(app.interaction().pending_requests().is_empty());
 
     app.shutdown();
     let saved =
@@ -376,7 +376,7 @@ fn typed_day_toggles_persisted_noon_lighting_from_a_real_night_scene() {
         app.interaction().stats.chat_commands_unimplemented,
         unimplemented
     );
-    assert!(app.interaction().outbox().is_empty());
+    assert!(app.interaction().pending_requests().is_empty());
     app.shutdown();
 }
 

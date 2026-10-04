@@ -1013,8 +1013,7 @@ impl WorldState {
     /// with nothing consuming its token -- neither `Self::place_local_body` nor
     /// `Self::advance_objects` runs here -- which is precisely the shape
     /// `Self::place_local_body` guards against: the body's parts left expressed in the block
-    /// the frame is leaving. `Self::place_local_body_now`
-    /// exists because the only way to get a token is to choose a block, and it says which.
+    /// the frame is leaving. Choosing a viewer block is what supplies the placement token.
     ///
     /// And the value is superseded before it is drawn in any case. `App::frame` runs
     /// `player_teleport_use_time` and `load_pending_scene` inside its `WorldViewStep` step
@@ -1029,21 +1028,6 @@ impl WorldState {
     pub fn follow_character_now(&mut self) {
         self.follow_character();
         self.update_viewer_cell();
-    }
-
-    /// The body's parts placed where the frame loop would place them, for a caller that is
-    /// driving a `WorldScene` without `Self::update`.
-    ///
-    /// The token comes from re-asserting the window's **current** viewer block,
-    /// which is what `Self::recenter` would have chosen on a frame that did not cross a
-    /// boundary. That is why this is here rather than a `pub` `Self::place_local_body` —
-    /// the only way to get a token is to choose a block, and this says which block it chose.
-    pub fn place_local_body_now(&mut self) {
-        let Some(block) = self.streamer.window.viewer_block() else {
-            return;
-        };
-        let space = self.choose_viewer_block(block);
-        self.place_local_body(space);
     }
 
     /// Place the chase camera behind and above the body.

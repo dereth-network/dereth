@@ -5195,7 +5195,7 @@ impl DropHost {
             "the premise: the pick is armed"
         );
         assert!(
-            self.inter.outbox().is_empty(),
+            self.inter.pending_requests().is_empty(),
             "the premise: nothing is built before the answer"
         );
 
@@ -5203,7 +5203,7 @@ impl DropHost {
         self.inter.note_player_physics(body);
         self.inter
             .on_world_object_found(found, &mut self.objects.world, ServerTime(self.clock));
-        self.inter.outbox().to_vec()
+        self.inter.pending_requests().to_vec()
     }
 
     fn lines(&self) -> Vec<(u32, String)> {
@@ -5527,7 +5527,7 @@ fn try_to_act(c: &mut HeadlessClient, item: ObjectId) -> Vec<Request> {
 fn on_the_wire(r: &Request) -> Vec<u8> {
     let mut s = Session::new(MockTransport::new());
     assert!(
-        interaction::send_request(&mut s, r),
+        dereth_client_runtime::requests::send_request(&mut s, r),
         "the sender has an arm for {r:?}"
     );
     s.transport.sent.last().expect("one blob").payload.clone()
@@ -20354,7 +20354,7 @@ mod pickup {
                 slot: 0,
             });
         let mut s = Session::new(MockTransport::new());
-        let routed = dereth_client::interaction::send_request(&mut s, &req);
+        let routed = dereth_client_runtime::requests::send_request(&mut s, &req);
         let sent = s.transport.sent.last().expect("one blob").clone();
         let dword = |n: usize| {
             u32::from_le_bytes([

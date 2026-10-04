@@ -36,6 +36,9 @@ pub mod shutdown;
 /// A rate limit for the console's state lines.
 pub mod report_gate;
 
+/// Measurements accumulated by the HUD and interaction owners.
+pub mod stats;
+
 /// An `AnimAssets` over the retail portal dat: where the animation runtime meets the assets.
 /// Lives in `dereth-world-data`; re-exported at its old path.
 pub use dereth_world_data::anim_assets;

@@ -2812,7 +2812,7 @@ pub fn the_shards_own_word_opens_the_window_and_the_client_sends_nothing() {
         w.combat.pending_combat_mode = CombatMode::Magic;
     }
     let shut = !window::the_window_is_up(&mut c).0;
-    let sent_before = c.view().interaction().outbox().len();
+    let sent_before = c.view().interaction().pending_requests().len();
 
     c.when(window::the_shard_says(
         None,
@@ -2824,7 +2824,7 @@ pub fn the_shards_own_word_opens_the_window_and_the_client_sends_nothing() {
         c.view().world().combat.combat_mode,
         c.view().world().combat.pending_combat_mode,
         c.view().world().combat.advanced_combat_mode,
-        c.view().interaction().outbox().len(),
+        c.view().interaction().pending_requests().len(),
     );
     let keys = window::combat_keys(&mut c);
     c.world_mut().combat.pending_combat_mode = CombatMode::Undef;
@@ -2998,7 +2998,7 @@ pub fn the_recorded_combat_mode_changes_reach_the_window_the_buttons_and_the_key
             } else {
                 0
             };
-            let sent_before = c.view().interaction().outbox().len();
+            let sent_before = c.view().interaction().pending_requests().len();
             c.when(dereth_testkit::Inbound::event(
                 dereth_client_net::client_session::SessionEvent::UiEvent {
                     opcode: blob.sub_type,
@@ -3010,7 +3010,7 @@ pub fn the_recorded_combat_mode_changes_reach_the_window_the_buttons_and_the_key
             window::settle(&mut c);
             every_reading_holds &= c.view().world().combat.combat_mode.raw() == mode
                 && window::combat_keys(&mut c) == mode
-                && c.view().interaction().outbox().len() == sent_before
+                && c.view().interaction().pending_requests().len() == sent_before
                 && window::cluster_pages(&mut c) == (mode == 2 || mode == 4, mode == 8)
                 && window::lit_mode_buttons(&mut c) == vec![mode];
             seen += 1;

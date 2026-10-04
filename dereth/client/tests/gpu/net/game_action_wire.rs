@@ -11,7 +11,6 @@ use crate::combat::game_view_clicks::{seed_player, weenie};
 
 use std::collections::BTreeMap;
 
-use dereth_client::interaction::{self};
 use dereth_client_model::{RecordingRequests, Request};
 use dereth_client_net::client_session::testing::{
     session_names, shared_session, Corpus, MockTransport,
@@ -158,7 +157,7 @@ fn mock_session() -> Session<MockTransport> {
 /// Oracle: every capture in `fixtures/packet-captures`, the retail client's own `0xF7B1` blobs.
 ///
 /// For every game action the recorded client sent whose opcode this file covers, the request is
-/// decoded and pushed straight back out through [`interaction::send_request`] — the one place a
+/// decoded and pushed straight back out through [`dereth_client_runtime::requests::send_request`] — the one place a
 /// [`Request`] becomes bytes — and the result is compared with the recording **byte for byte**.
 ///
 /// The one substituted field is the `OrderedActionHeader` stamp at bytes 4..8: it comes from the session's own
@@ -183,7 +182,7 @@ fn every_retail_game_action_is_reproduced_byte_for_byte() {
         let mut s = mock_session();
         let stamp = s.next_action_stamp();
         assert!(
-            interaction::send_request(&mut s, &req),
+            dereth_client_runtime::requests::send_request(&mut s, &req),
             "{:#06X} from {} would not send: {req:?}",
             a.sub,
             a.session
@@ -301,7 +300,7 @@ fn an_attack_is_two_messages_and_the_documented_bytes() {
     // ...and both reach the wire as game actions with consecutive stamps and no hole.
     let mut s = mock_session();
     for r in &req.0 {
-        assert!(interaction::send_request(&mut s, r));
+        assert!(dereth_client_runtime::requests::send_request(&mut s, r));
     }
     assert_eq!(s.transport.sent.len(), 2);
     for (i, b) in s.transport.sent.iter().enumerate() {
@@ -336,14 +335,18 @@ fn a_failed_send_leaves_no_hole_in_the_action_sequence() {
     let use_it = Request::UseEvent(dereth_protocol::items::InventoryUseEvent {
         object: ObjectId(9),
     });
-    assert!(interaction::send_request(&mut s, &use_it));
+    assert!(dereth_client_runtime::requests::send_request(
+        &mut s, &use_it
+    ));
     assert_eq!(s.next_action_stamp(), 2, "the first action took stamp 1");
 
     // The transport reports the send did not go out.
     s.report_send_failed();
     assert_eq!(s.next_action_stamp(), 1, "the stamp is available again");
 
-    assert!(interaction::send_request(&mut s, &use_it));
+    assert!(dereth_client_runtime::requests::send_request(
+        &mut s, &use_it
+    ));
     let payloads: Vec<u32> = s
         .transport
         .sent

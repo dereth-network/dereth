@@ -40,13 +40,13 @@ use crate::common::chat::{
 };
 
 use dereth_client::app::App;
-use dereth_client::interaction::send_request;
 use dereth_client_model::chat_cmd as cmd;
 use dereth_client_model::Request;
 use dereth_client_net::client_session::{
     testing::{Corpus, Direction, MockTransport},
     Session, SessionEvent,
 };
+use dereth_client_runtime::requests::send_request;
 use dereth_primitives::{LocalTime, NetQueue, ObjectId};
 use dereth_ui::{framework::mode, ElemHandle, ElementId};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
@@ -1309,7 +1309,7 @@ fn typed_lockui_toggles_the_padlock_and_sends_the_authoritative_option() {
             assert_ne!(picture(&app), open_picture, "the closed picture differs");
         }
         assert!(
-            app.interaction().outbox().is_empty(),
+            app.interaction().pending_requests().is_empty(),
             "the one immediate option change was flushed and no duplicate remains"
         );
     }
@@ -1329,7 +1329,7 @@ fn typed_lockui_toggles_the_padlock_and_sends_the_authoritative_option() {
         app.interaction().stats.chat_commands_unimplemented,
         before_unimplemented
     );
-    assert!(app.interaction().outbox().is_empty());
+    assert!(app.interaction().pending_requests().is_empty());
     app.shutdown();
 }
 

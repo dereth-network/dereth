@@ -2503,7 +2503,7 @@ impl<S: Shell> App<S> {
     ///
     /// A UI calls it from inside its own input dispatch, at the point its listener raised the
     /// request, so the game sees the request before the UI's next listener runs. Follow it with
-    /// [`Self::deliver_selection_notices`], or call [`Self::request_now`] for both.
+    /// [`Self::deliver_selection_notices`] before the next listener runs.
     pub fn run_request(
         &mut self,
         request: dereth_client_contract::UiRequest,
@@ -2569,19 +2569,6 @@ impl<S: Shell> App<S> {
         let body = self.world.as_ref().and_then(|w| w.character.as_ref());
         self.interaction
             .dispatch_ui_selection_notices(body, &mut self.objects, now);
-    }
-
-    /// [`Self::run_request`] and then [`Self::deliver_selection_notices`]: everything one request
-    /// does, for a UI that handles none of its own.
-    pub fn request_now(
-        &mut self,
-        request: dereth_client_contract::UiRequest,
-        now: dereth_primitives::LocalTime,
-        chat_focus: &mut dyn FnMut(&mut dereth_client_model::chat::ChatState),
-    ) -> Vec<dereth_client_contract::UiRequest> {
-        let unowned = self.run_request(request, now, chat_focus);
-        self.deliver_selection_notices(now);
-        unowned
     }
 
     /// One pass of the dialog service ([`crate::dialogs::DialogService::service`]), with
@@ -3649,7 +3636,7 @@ impl<S: Shell> App<S> {
             }
             for r in req.0 {
                 if let Some(link) = self.link.as_mut() {
-                    let _ = crate::interaction::send_request(&mut link.net.session, &r);
+                    let _ = crate::requests::send_request(&mut link.net.session, &r);
                 }
             }
         }
@@ -6763,7 +6750,7 @@ impl<S: Shell> App<S> {
     /// the `Escape` and selection-change callers; without this caller on this edge, a player
     /// could not break a sticky repeated melee by walking backwards.
     ///
-    /// The request goes out through [`crate::interaction::send_request`], the one place a
+    /// The request goes out through [`crate::requests::send_request`], the one place a
     /// [`dereth_client_model::Request`] becomes bytes, so the `0x01B7` carries an `OrderedActionHeader` stamp from the
     /// same global counter as every other game action and leaves in this input frame — ahead of
     /// `interaction_use_time`'s own flush, exactly as retail's leaves inside
@@ -6779,7 +6766,7 @@ impl<S: Shell> App<S> {
         for r in req.0 {
             self.events.push(FrameEvent::NewForwardAttackCancelSent);
             if let Some(link) = self.link.as_mut() {
-                let _ = crate::interaction::send_request(&mut link.net.session, &r);
+                let _ = crate::requests::send_request(&mut link.net.session, &r);
             }
         }
     }

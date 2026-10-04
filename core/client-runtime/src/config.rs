@@ -77,12 +77,10 @@ impl Default for DisplayPrefs {
     }
 }
 
-/// Presentation defaults, overwritten when the device loads display preferences.
+/// Display-preference values preserved by the compatibility projection.
+/// The active renderer reads its preferences independently of this record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Presentation {
-    pub width: u32,
-    pub height: u32,
-    pub full_screen: bool,
+pub struct PresentationFlags {
     pub fs_refresh_rate: u32,
     pub fs_bits_per_pixel: u32,
     pub fs_triple_buffering: bool,
@@ -90,13 +88,9 @@ pub struct Presentation {
     pub antialiasing: bool,
 }
 
-impl Default for Presentation {
-    /// The render-device presentation constructor uses this value.
+impl Default for PresentationFlags {
     fn default() -> Self {
         Self {
-            width: 800,
-            height: 600,
-            full_screen: false,
             fs_refresh_rate: 0,
             fs_bits_per_pixel: 32,
             fs_triple_buffering: false,
@@ -106,9 +100,72 @@ impl Default for Presentation {
     }
 }
 
+/// Presentation defaults, overwritten when the device loads display preferences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Presentation {
+    pub width: u32,
+    pub height: u32,
+    pub full_screen: bool,
+
+    /// Compatibility projection retained independently of the effective window size.
+    pub compatibility: PresentationFlags,
+}
+
+impl Default for Presentation {
+    /// The render-device presentation constructor uses this value.
+    fn default() -> Self {
+        Self {
+            compatibility: PresentationFlags::default(),
+            width: 800,
+            height: 600,
+            full_screen: false,
+        }
+    }
+}
+
+/// Command-line compatibility values retained with their parsed defaults and values.
+/// Startup services do not consume these flags; their switch syntax remains accepted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetailFlags {
+    /// `-language`.
+    pub language: String,
+    /// `-rodat`. **Bare `-rodat` turns read-only dats on; `-rodat <anything>` turns them off.**
+    /// Default 1 (read-only).
+    pub read_only_dat_files: bool,
+    /// `-usemem`.
+    pub use_memory_manager: bool,
+    /// `-z` / `-zoneticket`. The accepted ticket value.
+    pub zone_ticket: String,
+    /// Records whether the `-glsticket` request flag was supplied.
+    pub use_gls: bool,
+    /// `-migrationurl`.
+    pub migration_url: String,
+    /// `-debug`, `strtoul(value, 0, 0)`. The mask *replaces* the whole flag word.
+    pub debug_flags: u32,
+}
+
+impl Default for RetailFlags {
+    fn default() -> Self {
+        Self {
+            language: String::new(),
+            read_only_dat_files: true,
+            use_memory_manager: false,
+            zone_ticket: String::new(),
+            use_gls: false,
+            migration_url: String::from(
+                "http://acbm.turbinegames.com/IISAcBillingMigration/IISAcBillingMigration.dll?ac1",
+            ),
+            debug_flags: 0xFFFF_F1F7,
+        }
+    }
+}
+
 /// Everything the application needs to start.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Parsed compatibility values that do not drive this client's startup services.
+    pub retail: RetailFlags,
+
     // ---- the retail switch set ----
     /// `-a` / `-account`. Lower-cased in place with `_strlwr` by the handler.
     pub account: String,
@@ -124,8 +181,6 @@ pub struct Config {
     pub port: u32,
     /// `-q` / `-outport`. Range-checked 1..=65535 by the handler; 0 means "not given".
     pub client_port: u32,
-    /// `-language`.
-    pub language: String,
     /// `-prefs` (or `--prefs`), or the default preferences path selected at startup. Empty for a
     /// `--headless` run that named no file: see [`Self::preferences_named`].
     pub preferences_file: PathBuf,
@@ -142,27 +197,14 @@ pub struct Config {
     /// choice to the default (Vulkan). A rebuild-only
     /// selector: retail had one renderer and no such switch.
     pub renderer: Option<dereth_client_contract::RendererChoice>,
-    /// `-rodat`. **Bare `-rodat` turns read-only dats on; `-rodat <anything>` turns them off.**
-    /// Default 1 (read-only).
-    pub read_only_dat_files: bool,
-    /// `-usemem`.
-    pub use_memory_manager: bool,
     /// `-u` / `-user`. Stored and never read; vestigial in this build.
     pub start_char: String,
     /// `-r` / `-create`. As `start_char`.
     pub create_char: String,
-    /// `-z` / `-zoneticket`. As `start_char`.
-    pub zone_ticket: String,
     /// `-glsticketdirect`, or the value `-glsticket` read out of the registry.
     pub gls_ticket: String,
-    /// `-glsticket` was given, so the ticket comes from `HKCU\Software\Turbine\ac1\GLSTicket`.
-    pub use_gls: bool,
-    /// `-migrationurl`.
-    pub migration_url: String,
     /// `-v` / `-vgpassword`. Also the password the `-v` login path sends.
     pub vg_password: String,
-    /// `-debug`, `strtoul(value, 0, 0)`. The mask *replaces* the whole flag word.
-    pub debug_flags: u32,
 
     // ---- the device ----
     /// The windowed-mode request, whose constructed default is 1. There is no switch for it in
@@ -410,27 +452,19 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            retail: RetailFlags::default(),
             account: String::new(),
             account_as_typed: String::new(),
             host: String::new(),
             port: 7304,
             client_port: 0,
-            language: String::new(),
             preferences_file: PathBuf::new(),
             preferences_named: false,
             renderer: None,
-            read_only_dat_files: true,
-            use_memory_manager: false,
             start_char: String::new(),
             create_char: String::new(),
-            zone_ticket: String::new(),
             gls_ticket: String::new(),
-            use_gls: false,
-            migration_url: String::from(
-                "http://acbm.turbinegames.com/IISAcBillingMigration/IISAcBillingMigration.dll?ac1",
-            ),
             vg_password: String::new(),
-            debug_flags: 0xFFFF_F1F7,
             landblock: crate::landblock::DEFAULT_LANDBLOCK,
             start_cell: None,
             cell_statics: true,
@@ -1310,11 +1344,11 @@ impl Config {
             }
             "debug" => {
                 // strtoul(value, 0, 0): 0x... hex and leading-zero octal are accepted.
-                self.debug_flags = strtoul_base0(v)
+                self.retail.debug_flags = strtoul_base0(v)
                     .ok_or_else(|| ConfigError::new(format!("bad -debug value {v:?}")))?;
             }
             "host" => self.host = v.to_string(),
-            "language" => self.language = v.to_string(),
+            "language" => self.retail.language = v.to_string(),
             "outport" => {
                 self.client_port = strtol(v);
                 // "the handler range-checks 1 <= client_port <= 65535 and fails parsing with
@@ -1334,19 +1368,19 @@ impl Config {
             // "the handler is read_only_dat_files = (value is the empty string). Bare -rodat turns
             // read-only dats on; -rodat <anything> turns them off. The text of the value is never
             // examined, so `-rodat on` also disables read-only mode."
-            "rodat" => self.read_only_dat_files = v.is_empty(),
-            "usemem" => self.use_memory_manager = true,
+            "rodat" => self.retail.read_only_dat_files = v.is_empty(),
+            "usemem" => self.retail.use_memory_manager = true,
             "user" => self.start_char = v.to_string(),
             "create" => self.create_char = v.to_string(),
-            "zoneticket" => self.zone_ticket = v.to_string(),
+            "zoneticket" => self.retail.zone_ticket = v.to_string(),
             "glsticketdirect" => self.gls_ticket = v.to_string(),
             // The registry read (`HKCU\Software\Turbine\ac1\GLSTicket`, read then deleted) belongs
             // to the login path; the switch itself only records that GLS authentication was asked
             // for.
-            "glsticket" => self.use_gls = true,
+            "glsticket" => self.retail.use_gls = true,
             "migrationurl" => {
                 if !v.is_empty() {
-                    self.migration_url = v.to_string();
+                    self.retail.migration_url = v.to_string();
                 }
             }
             "vgpassword" => self.vg_password = v.to_string(),
@@ -1621,11 +1655,13 @@ impl Config {
             width: w,
             height: h,
             full_screen: self.display.full_screen,
-            fs_refresh_rate: self.display.refresh_rate,
-            fs_triple_buffering: self.display.triple_buffering,
-            fs_sync_to_display_refresh: self.display.sync_to_refresh,
-            antialiasing: self.display.antialiasing,
-            ..Presentation::default()
+            compatibility: PresentationFlags {
+                fs_refresh_rate: self.display.refresh_rate,
+                fs_triple_buffering: self.display.triple_buffering,
+                fs_sync_to_display_refresh: self.display.sync_to_refresh,
+                antialiasing: self.display.antialiasing,
+                ..PresentationFlags::default()
+            },
         };
         if let Some((fw, fh)) = forced {
             p.width = fw;
@@ -2147,11 +2183,11 @@ mod tests {
         assert_eq!(c.host, "127.0.0.1");
         assert_eq!(c.port, 19000);
         assert_eq!(c.client_port, 9000);
-        assert_eq!(c.language, "English");
-        assert!(c.use_memory_manager);
+        assert_eq!(c.retail.language, "English");
+        assert!(c.retail.use_memory_manager);
         assert_eq!(c.start_char, "Aren");
         assert_eq!(c.create_char, "Aldis");
-        assert_eq!(c.zone_ticket, "tkt");
+        assert_eq!(c.retail.zone_ticket, "tkt");
         assert_eq!(c.vg_password, "pw");
     }
 
@@ -2160,7 +2196,7 @@ mod tests {
         let c = parse(&[]).expect("an empty command line is legal at this layer");
         assert_eq!(c.port, 7304, "the client default port is 0x1C88");
         assert_eq!(c.client_port, 0);
-        assert!(c.read_only_dat_files, "read-only dats default on");
+        assert!(c.retail.read_only_dat_files, "read-only dats default on");
         assert!(c.windowed, "windowed defaults on");
         assert_eq!(
             (c.width, c.height),
@@ -2182,13 +2218,18 @@ mod tests {
     // mode."
     #[test]
     fn rodat_is_backwards_and_stays_backwards() {
-        assert!(parse(&["-rodat"]).unwrap().read_only_dat_files);
-        assert!(!parse(&["-rodat", "off"]).unwrap().read_only_dat_files);
-        assert!(!parse(&["-rodat", "on"]).unwrap().read_only_dat_files);
+        assert!(parse(&["-rodat"]).unwrap().retail.read_only_dat_files);
+        assert!(
+            !parse(&["-rodat", "off"])
+                .unwrap()
+                .retail
+                .read_only_dat_files
+        );
+        assert!(!parse(&["-rodat", "on"]).unwrap().retail.read_only_dat_files);
         // Value optional: a following switch is re-processed rather than consumed.
         let c = parse(&["-rodat", "-usemem"]).unwrap();
-        assert!(c.read_only_dat_files);
-        assert!(c.use_memory_manager);
+        assert!(c.retail.read_only_dat_files);
+        assert!(c.retail.use_memory_manager);
     }
 
     /// The renderer is selected by the switch over the preference over the default.
@@ -2391,7 +2432,7 @@ Renderer=glide
         let c = parse(&["-h", "-usemem"]).unwrap();
         assert_eq!(c.host, "-usemem");
         assert!(
-            !c.use_memory_manager,
+            !c.retail.use_memory_manager,
             "the switch was eaten as -host's value"
         );
         let e = parse(&["-h"]).expect_err("no value at all");
@@ -2410,9 +2451,9 @@ Renderer=glide
     // "-debug -- strtoul(value, 0, 0) (so 0x... hex and leading-zero octal are accepted)"
     #[test]
     fn debug_takes_a_strtoul_base_zero_mask() {
-        assert_eq!(parse(&["-debug", "0x1F"]).unwrap().debug_flags, 0x1F);
-        assert_eq!(parse(&["-debug", "31"]).unwrap().debug_flags, 31);
-        assert_eq!(parse(&["-debug", "037"]).unwrap().debug_flags, 0o37);
+        assert_eq!(parse(&["-debug", "0x1F"]).unwrap().retail.debug_flags, 0x1F);
+        assert_eq!(parse(&["-debug", "31"]).unwrap().retail.debug_flags, 31);
+        assert_eq!(parse(&["-debug", "037"]).unwrap().retail.debug_flags, 0o37);
     }
 
     #[test]
@@ -2540,9 +2581,9 @@ Renderer=glide
             .expect("1280x1024 is >= 800x600");
         assert_eq!((pres.width, pres.height), (1280, 1024));
         assert!(!pres.full_screen);
-        assert!(pres.fs_sync_to_display_refresh);
+        assert!(pres.compatibility.fs_sync_to_display_refresh);
         assert_eq!(
-            pres.fs_bits_per_pixel, 32,
+            pres.compatibility.fs_bits_per_pixel, 32,
             "the default-constructed presentation's value"
         );
 

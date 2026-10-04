@@ -1,7 +1,5 @@
 //! The one outbound seam: a [`dereth_client_model::Request`] becomes bytes on a
-//! [`dereth_client_net::client_session::Session`]. It lives here rather than in
-//! `dereth_client::interaction` because `objects.rs` needs it too;
-//! `dereth_client::interaction::send_request` is a `pub use` of this function.
+//! [`dereth_client_net::client_session::Session`].
 
 use dereth_client_model::Request;
 

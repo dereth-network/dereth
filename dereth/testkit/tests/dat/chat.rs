@@ -833,7 +833,7 @@ pub fn the_general_channel_carries_a_typed_line_to_its_room() {
 
     // The bytes, through the production sender over a mock transport. **Nothing is sent.**
     let mut session = Session::new(MockTransport::new());
-    let put_on_the_wire = dereth_client::interaction::send_request(
+    let put_on_the_wire = dereth_client_runtime::requests::send_request(
         &mut session,
         &dereth_client_model::Request::TurbineChat(sent[0].clone()),
     );
@@ -1051,7 +1051,7 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
         dereth_protocol::cp1252::encode(&talk.message).expect("the line spells") == native;
 
     let mut session = Session::new(MockTransport::new());
-    assert!(dereth_client::interaction::send_request(
+    assert!(dereth_client_runtime::requests::send_request(
         &mut session,
         &ordinary
     ));
@@ -1096,7 +1096,7 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
         unreachable!("matched above")
     };
     let same_spelling = message.text == room_text;
-    assert!(dereth_client::interaction::send_request(
+    assert!(dereth_client_runtime::requests::send_request(
         &mut session,
         &room
     ));
@@ -1585,7 +1585,7 @@ pub fn typing_an_emote_sends_it_and_leaves_the_next_line_free() {
                 .requests_undeliverable
                 == undeliverable + 1;
             let bytes = one
-                && dereth_client::interaction::send_request(&mut session, &requests[0])
+                && dereth_client_runtime::requests::send_request(&mut session, &requests[0])
                 && session.transport.sent.last().expect("one datagram").payload
                     == emote_bytes(if index == 0 { 1 } else { 2 });
             one && counted && bytes
@@ -2455,7 +2455,7 @@ pub fn every_channel_word_sends_its_own_channel() {
     let sent = broadcast_line(&mut c, &mut hand, "@f hello fellows");
     let first = sent.len() == 1 && sent[0].channel == 0x800 && sent[0].message == "hello fellows";
     let mut session = Session::new(MockTransport::new());
-    let on_the_wire = dereth_client::interaction::send_request(
+    let on_the_wire = dereth_client_runtime::requests::send_request(
         &mut session,
         &dereth_client_model::Request::ChannelBroadcast(sent[0].clone()),
     );
@@ -5865,7 +5865,7 @@ pub fn a_run_between_stars_is_performed_and_the_rest_spoken() {
     let mut session = Session::new(MockTransport::new());
     let mut bytes = true;
     for (i, r) in sent.iter().enumerate() {
-        bytes &= dereth_client::interaction::send_request(&mut session, r);
+        bytes &= dereth_client_runtime::requests::send_request(&mut session, r);
         let packet = session
             .transport
             .sent

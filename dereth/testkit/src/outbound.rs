@@ -65,7 +65,7 @@ pub fn opcodes(requests: &[Request]) -> Vec<u32> {
     let mut out = Vec::new();
     for r in requests {
         let mut s: Session<MockTransport> = Session::new(MockTransport::new());
-        if dereth_client::interaction::send_request(&mut s, r) {
+        if dereth_client_runtime::requests::send_request(&mut s, r) {
             out.extend(
                 s.transport
                     .sent
@@ -240,7 +240,7 @@ mod tests {
             id: ObjectId(0x8000_09DE),
         });
         let mut s: Session<MockTransport> = Session::new(MockTransport::new());
-        assert!(dereth_client::interaction::send_request(&mut s, &r));
+        assert!(dereth_client_runtime::requests::send_request(&mut s, &r));
         let direct = s.transport.sent_opcodes();
         assert_eq!(
             opcodes(std::slice::from_ref(&r)),

@@ -49,7 +49,7 @@ use std::sync::Arc;
 
 use dereth_animation::data::AnimAssets;
 use dereth_animation::motion::interp::MotionCtx;
-use dereth_animation::motion::{flags, MotionEffect, MoveToRequest};
+use dereth_animation::motion::{MotionEffect, MoveToRequest};
 use dereth_animation::{MotionCommand, MotionDriver, MovementParameters};
 use dereth_assets::{Decode, Region, Setup};
 use dereth_dat::{DbType, RetailDatStore};
@@ -3039,14 +3039,6 @@ impl Character {
             }
         }
     }
-}
-
-/// `MovementParameters` with `modify_raw_state` and `modify_interpreted_state` set, which is the
-/// default and is what makes a held key persist across motion-interpreter ticks.
-#[must_use]
-pub fn keyboard_params() -> MovementParameters {
-    debug_assert!(MovementParameters::default().has(flags::MODIFY_INTERPRETED_STATE));
-    MovementParameters::default()
 }
 
 /// The player's own run rate, answered from the client's player description and handed to the motion

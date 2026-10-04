@@ -5035,7 +5035,7 @@ pub fn two_confirmations_send_the_abandon_and_only_the_shard_empties_the_pane() 
         let mut session = dereth_client_net::client_session::Session::new(
             dereth_client_net::client_session::testing::MockTransport::new(),
         );
-        let framed = dereth_client::interaction::send_request(&mut session, &wire[0]);
+        let framed = dereth_client_runtime::requests::send_request(&mut session, &wire[0]);
         let packet = session.transport.sent.last().expect("one datagram").clone();
         let mut want = 0xF7B1_u32.to_le_bytes().to_vec();
         want.extend_from_slice(&1_u32.to_le_bytes());
@@ -9669,7 +9669,7 @@ pub fn the_display_button_puts_the_set_title_request_on_the_wire() {
         let mut session = dereth_client_net::client_session::Session::new(
             dereth_client_net::client_session::testing::MockTransport::new(),
         );
-        let ok = dereth_client::interaction::send_request(
+        let ok = dereth_client_runtime::requests::send_request(
             &mut session,
             &dereth_client_model::Request::SetDisplayCharacterTitle(m),
         );
@@ -10292,7 +10292,7 @@ pub fn every_house_sub_command_that_sends_puts_its_own_message_on_the_wire() {
         every_line_holds &= asked.len() == 1 && asked[0] == *want;
 
         // And what that request becomes on a datagram, through the client's own sender.
-        every_line_holds &= dereth_client::interaction::send_request(&mut session, want);
+        every_line_holds &= dereth_client_runtime::requests::send_request(&mut session, want);
         let packet = session
             .transport
             .sent
@@ -12957,7 +12957,7 @@ pub fn the_abandon_button_gives_up_the_picked_contract_and_nothing_local_moves()
         let mut session = dereth_client_net::client_session::Session::new(
             dereth_client_net::client_session::testing::MockTransport::new(),
         );
-        let ok = dereth_client::interaction::send_request(
+        let ok = dereth_client_runtime::requests::send_request(
             &mut session,
             &dereth_client_model::Request::SocialAbandonContract(m),
         );
@@ -13834,7 +13834,7 @@ fn pinp_encoded(r: &dereth_client_model::Request) -> (bool, Vec<u8>) {
     let mut session = dereth_client_net::client_session::Session::new(
         dereth_client_net::client_session::testing::MockTransport::new(),
     );
-    let framed = dereth_client::interaction::send_request(&mut session, r);
+    let framed = dereth_client_runtime::requests::send_request(&mut session, r);
     let payload = session
         .transport
         .sent

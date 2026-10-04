@@ -74,7 +74,7 @@ struct OnWire {
 fn on_the_wire(requests: &RecordingRequests) -> Vec<OnWire> {
     let mut s = Session::new(MockTransport::new());
     for r in &requests.0 {
-        dereth_client::interaction::send_request(&mut s, r);
+        dereth_client_runtime::requests::send_request(&mut s, r);
     }
     s.transport
         .sent

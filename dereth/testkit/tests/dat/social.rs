@@ -1853,7 +1853,7 @@ pub fn every_typed_allegiance_command_sends_its_own_message() {
 
         // The wire: one send, one stamp, and the body composed above rather than by the writer
         // being asserted over. **Nothing leaves this process**; the transport is a mock.
-        let sent = dereth_client::interaction::send_request(&mut session, want);
+        let sent = dereth_client_runtime::requests::send_request(&mut session, want);
         let packet = session
             .transport
             .sent

@@ -126,7 +126,7 @@ fn a_saved_sync_preference_reaches_the_presentation_record() {
         .load_display_preferences(None, true)
         .expect("a legal presentation");
     assert!(p.full_screen);
-    assert!(p.fs_sync_to_display_refresh);
+    assert!(p.compatibility.fs_sync_to_display_refresh);
 }
 
 /// Behaviour: presentation.sync-to-refresh.reaches-the-swap-chain-present-interval

@@ -25,7 +25,6 @@
 //! datagram leaves the process), driven by a pointer press on the chat entry and one character
 //! message per character; the emote station logs in off `long-solo-play`'s recorded player create.
 
-use dereth_client::interaction::send_request;
 use dereth_client::{
     app::App,
     config::Config,
@@ -33,6 +32,7 @@ use dereth_client::{
 };
 use dereth_client_model::Request;
 use dereth_client_net::client_session::{testing::MockTransport, Session};
+use dereth_client_runtime::requests::send_request;
 use dereth_primitives::NetQueue;
 use dereth_ui::{framework::mode, ElementId};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;

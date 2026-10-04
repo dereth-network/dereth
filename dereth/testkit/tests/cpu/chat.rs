@@ -2369,7 +2369,7 @@ pub fn every_spelling_of_the_emote_command_sends_the_same_thing() {
         let mut session = dereth_client_net::client_session::Session::new(
             dereth_client_net::client_session::testing::MockTransport::new(),
         );
-        let sent = dereth_client::interaction::send_request(&mut session, &requests[0]);
+        let sent = dereth_client_runtime::requests::send_request(&mut session, &requests[0]);
         let packet = &session.transport.sent[0];
         let bytes = session.transport.sent.len() == 1
             && (packet.queue, packet.ordered) == (dereth_primitives::NetQueue::Weenie, true)
@@ -2414,7 +2414,7 @@ pub fn an_empty_emote_is_silent_and_costs_no_place_in_the_order() {
     for line in ["ordinary", "@e waves"] {
         let requests = command(&mut c, line);
         sent &= requests.len() == 1
-            && dereth_client::interaction::send_request(&mut session, &requests[0]);
+            && dereth_client_runtime::requests::send_request(&mut session, &requests[0]);
     }
     let in_order = session.transport.sent.len() == 2
         && session.transport.sent[0].payload[4..12] == [1, 0, 0, 0, 0x15, 0, 0, 0]
@@ -2430,11 +2430,11 @@ pub fn an_empty_emote_is_silent_and_costs_no_place_in_the_order() {
         dereth_client_model::Request::Emote(dereth_protocol::comms::CommunicationEmote {
             message: "\u{1f642}".to_owned(),
         });
-    let refused = !dereth_client::interaction::send_request(&mut fresh, &unspellable)
+    let refused = !dereth_client_runtime::requests::send_request(&mut fresh, &unspellable)
         && fresh.transport.sent.is_empty()
         && fresh.next_action_stamp() == 1;
     // The next one, which it can spell, takes that place.
-    let after = dereth_client::interaction::send_request(
+    let after = dereth_client_runtime::requests::send_request(
         &mut fresh,
         &dereth_client_model::Request::Emote(dereth_protocol::comms::CommunicationEmote {
             message: "waves".to_owned(),
@@ -3362,7 +3362,7 @@ fn on_the_wire(r: &Request) -> (u32, Vec<u8>) {
     );
     let stamp = s.next_action_stamp();
     assert!(
-        dereth_client::interaction::send_request(&mut s, r),
+        dereth_client_runtime::requests::send_request(&mut s, r),
         "{r:?} would not send"
     );
     let sent = s.transport.sent.last().expect("one blob").clone();

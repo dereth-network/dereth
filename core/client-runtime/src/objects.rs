@@ -707,14 +707,6 @@ impl ObjectStream {
         self.command_numbering
     }
 
-    /// Set the wire's command numbering, for a stream whose store does not say it.
-    pub fn set_command_numbering(
-        &mut self,
-        numbering: dereth_world_data::command_numbering::CommandNumbering,
-    ) {
-        self.command_numbering = numbering;
-    }
-
     fn resolve_physics_setup(&mut self, setup: u32) {
         if self.world.physics_setup_facts(setup).is_some() {
             return;

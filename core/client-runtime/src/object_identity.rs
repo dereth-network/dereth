@@ -1098,15 +1098,8 @@ impl ObjectIdentity {
         self.same.is_empty()
     }
 
-    /// The cache file for this pair of files under `dir`, named by both files' hashes. `None`
-    /// when a file cannot be read whole.
-    #[must_use]
-    pub fn cache_file(dir: &Path, world: &DatFile, other: &DatFile) -> Option<PathBuf> {
-        Self::cache_file_with(dir, world, other, None)
-    }
-
-    /// [`Self::cache_file`], with both eras' cell files joining the name when `cells` (the
-    /// world's, the other era's) are compared too. Every file is hashed whole.
+    /// The cache file under `dir`, named by the hashes of both files and, when compared,
+    /// both eras' `cells`. Every file is hashed whole; `None` means a read failed.
     #[must_use]
     pub fn cache_file_with(
         dir: &Path,

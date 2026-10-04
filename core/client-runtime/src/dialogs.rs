@@ -136,12 +136,6 @@ pub struct DialogService {
 }
 
 impl DialogService {
-    /// The questions open now, in the order they were asked.
-    #[must_use]
-    pub fn open_count(&self) -> usize {
-        self.open.len()
-    }
-
     /// Drop every open question without answering it: the front end has nowhere to show them.
     /// The mini-game's resign question is withdrawn from the game, so a new one can be asked.
     pub fn drop_all(&mut self, world: &mut dereth_client_model::World) {

@@ -748,7 +748,7 @@ fn the_corpus_carries_the_train_and_raise_round_trip() {
 /// skill behaviour; short-play-with-training contains raise-ten then raise-one requests for the same attribute, giving traffic
 /// evidence for both increments.
 ///
-/// This station sends the attribute pair through interaction::send_request directly. Attribute
+/// This station sends the attribute pair through dereth_client_runtime::requests::send_request directly. Attribute
 /// UI emitters and routing exist, but this branch tests only the sender seam.
 /// Skill cases traverse the UiRequest route. Recorded spending is compared with one or ten
 /// levels, not used to infer which button gesture occurred.
@@ -918,7 +918,7 @@ fn every_captured_request_asks_for_the_amount_this_client_would_have_asked_for()
                         )
                     };
                     assert!(
-                        dereth_client::interaction::send_request(&mut net.session, &req),
+                        dereth_client_runtime::requests::send_request(&mut net.session, &req),
                         "{what}: the sender arm accepted it"
                     );
                     net.tick(LocalTime(1.0));

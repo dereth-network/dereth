@@ -4512,7 +4512,8 @@ const HELP_ME: [u8; 28] = [
 
 /// The whole window, from the warning page to the datagram.
 pub fn the_urgent_assistance_report_goes_out_on_the_help_channel() {
-    use dereth_client::interaction::{send_request, Interaction};
+    use dereth_client::interaction::Interaction;
+    use dereth_client_runtime::requests::send_request;
 
     let (mut ui, mut s, mut panels) = a_shipped_tree();
     let panel = panels

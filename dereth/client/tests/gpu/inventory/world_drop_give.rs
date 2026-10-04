@@ -359,9 +359,9 @@ impl Host {
             "and park the drop search reason until the notice answers"
         );
         assert!(
-            self.inter.outbox().is_empty(),
+            self.inter.pending_requests().is_empty(),
             "nothing is built until the pick answers: {:?}",
-            self.inter.outbox()
+            self.inter.pending_requests()
         );
     }
 
