@@ -97,6 +97,36 @@ impl Client {
             .manager
             .key_hit_handler_registered()
     }
+    fn install_classic(&mut self) {
+        struct Fonts;
+        impl dereth_classic_dat::fonts::FontSource for Fonts {
+            fn rasterize(
+                &self,
+                _: &dereth_classic_dat::fonts::FontSpec,
+            ) -> Result<dereth_classic_dat::fonts::FontAtlas, String> {
+                Ok(Default::default())
+            }
+        }
+        let portal = std::path::PathBuf::from(
+            std::env::var_os("DERETH_CLASSIC_PORTAL").expect("classic portal"),
+        );
+        let art = std::sync::Arc::new(
+            dereth_classic_ui::art::ClassicArt::new(
+                dereth_classic_dat::ClassicPortal::open(&portal).unwrap(),
+                &Fonts,
+            )
+            .unwrap(),
+        );
+        self.shell.classic.ui = Some(dereth_classic_ui::runtime::ClassicUi::new(
+            art,
+            dereth_classic_ui::art::ClassicPaths {
+                portal_dir: portal.parent().map(ToOwned::to_owned),
+                state: std::env::temp_dir().join("dereth-feedback-no-writes"),
+            },
+            dereth_classic_ui::panels::factory,
+            (800, 600),
+        ));
+    }
     fn finish(self) {
         let Self { app, mut shell, .. } = self;
         app.shutdown(&mut shell);
@@ -268,35 +298,8 @@ fn active_face_switches_drop_old_pending_transients_without_replaying_chat_histo
         store,
     };
     use dereth_client_contract::{panels::HudPanels, PrefValue};
-    struct Fonts;
-    impl dereth_classic_dat::fonts::FontSource for Fonts {
-        fn rasterize(
-            &self,
-            _: &dereth_classic_dat::fonts::FontSpec,
-        ) -> Result<dereth_classic_dat::fonts::FontAtlas, String> {
-            Ok(Default::default())
-        }
-    }
     let mut c = Client::new();
-    let portal = std::path::PathBuf::from(
-        std::env::var_os("DERETH_CLASSIC_PORTAL").expect("classic portal"),
-    );
-    let art = std::sync::Arc::new(
-        dereth_classic_ui::art::ClassicArt::new(
-            dereth_classic_dat::ClassicPortal::open(&portal).unwrap(),
-            &Fonts,
-        )
-        .unwrap(),
-    );
-    c.shell.classic.ui = Some(dereth_classic_ui::runtime::ClassicUi::new(
-        art,
-        dereth_classic_ui::art::ClassicPaths {
-            portal_dir: portal.parent().map(ToOwned::to_owned),
-            state: std::env::temp_dir().join("dereth-feedback-no-writes"),
-        },
-        dereth_classic_ui::panels::factory,
-        (800, 600),
-    ));
+    c.install_classic();
     c.app
         .ui_context()
         .add_feedback_line("before Classic switch", 0x1a, Feedback::WARNING);
@@ -383,4 +386,102 @@ fn typed_lines_reach_the_bound_modern_bubble_and_keep_replacement_and_expiry() {
         .unwrap()
         .items
         .is_empty());
+}
+
+/// Behaviour: chat.classic.global-room-callbacks-reach-the-active-chat-window
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn classic_global_room_callbacks_reach_chat_once_and_stop_outside_gameplay() {
+    use dereth_client_contract::options::{
+        interface::{Interface, INTERFACE},
+        store,
+    };
+    use dereth_client_contract::PrefValue;
+    use dereth_client_net::client_session::SessionEvent;
+    let mut c = Client::new();
+    c.install_classic();
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    let refresh = |c: &mut Client, in_world| {
+        c.app.host_state.in_world = in_world;
+        c.shell.classic.ui.as_mut().unwrap().ui_frame(
+            &mut c.app.ui_context(),
+            dereth_primitives::LocalTime(1.0),
+            Default::default(),
+        );
+    };
+    let deliver = |c: &mut Client, room, text| {
+        c.app.apply_hud_events(
+            &mut c.shell,
+            &[SessionEvent::TurbineChat(global_room_event(room, text))],
+        );
+    };
+    c.app.objects.world.chat.startup_turbine_chat();
+    c.app
+        .objects
+        .world
+        .chat
+        .recv_chat_room_tracker(dereth_protocol::comms::ChatRoomMembership {
+            general_room: 123,
+            trade_room: 124,
+            ..Default::default()
+        });
+    refresh(&mut c, false);
+    deliver(&mut c, 123, "before gameplay");
+    assert!(c.app.hud.pending_chat.is_empty());
+    refresh(&mut c, true);
+    for (room, name, text) in [
+        (123, "General", "general echo"),
+        (124, "Trade", "trade echo"),
+    ] {
+        deliver(&mut c, room, text);
+        refresh(&mut c, true);
+        refresh(&mut c, true);
+        let lines = &c.shell.classic.ui.as_ref().unwrap().classic.chat;
+        let matches: Vec<_> = lines.iter().filter(|(_, s)| s.contains(text)).collect();
+        assert_eq!(matches.len(), 1, "one callback is drawn once");
+        assert!(matches[0].1.contains(name));
+    }
+    deliver(&mut c, 123, "pending at logoff");
+    c.app
+        .apply_hud_events(&mut c.shell, &[SessionEvent::LoggedOff]);
+    assert!(c.app.hud.pending_chat.is_empty());
+    refresh(&mut c, false);
+    deliver(&mut c, 123, "after logoff");
+    refresh(&mut c, true);
+    let lines = &c.shell.classic.ui.as_ref().unwrap().classic.chat;
+    assert!(!lines.iter().any(|(_, s)| s.contains("before gameplay")
+        || s.contains("pending at logoff")
+        || s.contains("after logoff")));
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+    c.finish();
+}
+
+fn global_room_event(room: u32, text: &str) -> Vec<u8> {
+    let mut body = dereth_protocol::Writer::new();
+    body.u32(room);
+    for text in ["Speaker", text] {
+        let units: Vec<_> = text.encode_utf16().collect();
+        body.compressed_u32(u32::try_from(units.len()).unwrap());
+        for unit in units {
+            body.u16(unit);
+        }
+    }
+    body.u32(12);
+    body.u32(0x5000_0017);
+    body.u32(0);
+    body.u32(2);
+    let body = body.into_inner();
+    let mut packet = dereth_protocol::Writer::new();
+    packet.u32(u32::try_from(body.len()).unwrap() + 32);
+    for word in [1, 1, 1, 0, 0, 0, 0] {
+        packet.u32(word);
+    }
+    packet.u32(u32::try_from(body.len()).unwrap());
+    let mut packet = packet.into_inner();
+    packet.extend(body);
+    packet
 }

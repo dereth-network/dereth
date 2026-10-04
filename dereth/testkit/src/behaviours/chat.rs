@@ -117,6 +117,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "chat.classic.global-room-callbacks-reach-the-active-chat-window",
+        says: "General and Trade room callbacks reach the active Classic chat window once; callbacks outside gameplay and pending lines at logoff do not enter the next character's chat.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-GLOBAL-CHAT"),
+        station: "dereth-client-shell::lib::front_end::message_tests::classic_global_room_callbacks_reach_chat_once_and_stop_outside_gameplay",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chat.commands.a-command-the-client-handles-is-never-spoken-to-the-shard",
         says: "A line that is a command the client handles itself is never said out loud, whichever \
                channel the talk-to menu is on -- saying a command on a channel everybody reads would \

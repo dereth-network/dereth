@@ -948,7 +948,7 @@ impl<H: Host> FrontEnd<H> for dereth_classic_ui::runtime::ClassicUi {
         let _ = tooltip;
     }
     fn chat_generation(&self) -> Option<u64> {
-        None
+        self.in_gameplay().then_some(0)
     }
 
     fn in_gameplay(&self) -> bool {
