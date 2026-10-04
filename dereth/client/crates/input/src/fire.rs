@@ -151,6 +151,8 @@ pub struct InputMapEntry {
     pub map: InputMapId,
     pub priority: i32,
     pub callback: crate::CallbackId,
+    /// Restrict an interface-specific registration to one action without changing its saved map.
+    pub action_filter: Option<ActionId>,
 }
 
 /// The result of the map walk.
@@ -197,7 +199,8 @@ where
         let Some(map) = lookup(entry.map) else {
             continue;
         };
-        let Some((action, binding)) = map.find_best_match(event) else {
+        let Some((action, binding)) = map.find_best_match_for_action(event, entry.action_filter)
+        else {
             continue;
         };
         let better = match &best {
@@ -317,16 +320,19 @@ mod tests {
                 map: MAP_BLOCK_KEYBOARD,
                 priority: 3000,
                 callback: cb,
+                action_filter: None,
             },
             InputMapEntry {
                 map: InputMapId(4),
                 priority: 1000,
                 callback: cb,
+                action_filter: None,
             },
             InputMapEntry {
                 map: InputMapId(3),
                 priority: 0,
                 callback: cb,
+                action_filter: None,
             },
         ];
         let ev = ControlChord::new(k, 0, activation::DOWN | activation::LIVE);
@@ -346,11 +352,13 @@ mod tests {
                 map: MAP_BLOCK_ALL,
                 priority: 3000,
                 callback: cb,
+                action_filter: None,
             },
             InputMapEntry {
                 map: InputMapId(3),
                 priority: 0,
                 callback: cb,
+                action_filter: None,
             },
         ];
         assert!(walk_input_maps(&stack, &ev, false, lookup).is_none());

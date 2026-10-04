@@ -91,9 +91,18 @@ impl InputMap {
     /// Walks the whole list of equal controls and keeps the one the better-match comparison prefers.
     #[must_use]
     pub fn find_best_match(&self, event: &ControlChord) -> Option<(ActionId, ControlChord)> {
+        self.find_best_match_for_action(event, None)
+    }
+
+    /// Match a scoped action registration against the original, complete binding list.
+    pub fn find_best_match_for_action(
+        &self,
+        event: &ControlChord,
+        action_filter: Option<ActionId>,
+    ) -> Option<(ActionId, ControlChord)> {
         let mut best: Option<(ActionId, ControlChord)> = None;
         for (binding, action) in &self.bindings {
-            if !event.matches(binding) {
+            if action_filter.is_some_and(|wanted| wanted != *action) || !event.matches(binding) {
                 continue;
             }
             match &best {

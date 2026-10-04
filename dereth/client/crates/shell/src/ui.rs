@@ -823,6 +823,45 @@ impl UiShell {
         self.frame_inner(now, host, input, &mut Some(dispatch))
     }
 
+    /// Dispatch one normalized host message without advancing the screen or repeat clock.
+    pub fn message_with_dispatch(
+        &mut self,
+        now: LocalTime,
+        input: &mut dyn UiInput,
+        dispatch: &mut DispatchHook<'_>,
+    ) {
+        self.sync_text_mode(input, false);
+        let position = input.mouse_pos();
+        self.ui.mouse_move(now, position.0, position.1);
+        let mut dispatch = Some(dispatch);
+        self.route_input(now, input, &mut dispatch, false);
+        self.deliver_characters(input);
+        let key_scope = self.key_down_dispatch;
+        if key_scope {
+            input.begin_action_dispatch(true);
+        }
+        self.deliver_pending(&mut dispatch);
+        self.sync_text_mode(input, false);
+        if key_scope {
+            input.end_action_dispatch();
+        }
+    }
+
+    /// Mirror focus after a synchronous host-owned editor or dialog operation.
+    pub fn sync_input_scope(&mut self, input: &mut dyn UiInput) {
+        self.sync_text_mode(input, false);
+    }
+
+    /// Re-register this interface's scopes after its inactive period.
+    pub fn resume_input(&mut self, input: &mut dyn UiInput) {
+        self.mode_maps.clear();
+        self.focused_maps.clear();
+        self.active_maps.clear();
+        self.session_maps = None;
+        self.text_mode = false;
+        self.sync_text_mode(input, false);
+    }
+
     fn frame_inner(
         &mut self,
         now: LocalTime,
@@ -859,7 +898,7 @@ impl UiShell {
         // input; the client dispatches each event from inside the input-event dispatcher, so the element
         // messages a click raises exist **before** the deliveries below drain. Putting the
         // dispatch anywhere later makes every screen answer a click one frame after it happened.
-        self.route_input(now, input, dispatch);
+        self.route_input(now, input, dispatch, true);
         // Character updating runs the input-handler
         // list for every character that survived its three gates, and the only handler that wants
         // one is the focused text element's character handler — registered by
@@ -1039,6 +1078,7 @@ impl UiShell {
         now: LocalTime,
         input: &mut dyn UiInput,
         dispatch: &mut Option<&mut DispatchHook<'_>>,
+        global_loop: bool,
     ) {
         // Reset per frame; set below by any event the input-event dispatcher produced
         // inside a `WM_KEYDOWN`. [`Self::frame`] reads it to re-enter the same key-down scope for
@@ -1073,8 +1113,10 @@ impl UiShell {
         //     object-found notice restores the reason, so
         //     it passes on every in-game frame. Nothing on that path touches the network: the
         //     object search writes four globals and either sets or clears the selection cursor.
-        if let Some(hook) = dispatch.as_deref_mut() {
-            hook(self, UiDispatch::Hover(input.mouse_pos()));
+        if global_loop {
+            if let Some(hook) = dispatch.as_deref_mut() {
+                hook(self, UiDispatch::Hover(input.mouse_pos()));
+            }
         }
         if dispatch.is_some() {
             self.deliver_pending(dispatch);

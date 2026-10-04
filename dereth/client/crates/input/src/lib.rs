@@ -44,6 +44,7 @@ pub mod host;
 pub mod keyfile;
 pub mod keymap;
 pub mod keys;
+pub mod labels;
 mod message;
 pub mod mouse;
 pub mod names;

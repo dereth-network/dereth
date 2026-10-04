@@ -391,6 +391,26 @@ impl ClassicUi {
                 .set_dialog_labels("resolution", "OK".into(), None);
         }
     }
+    /// Complete an earlier pointer focus change before the next keyboard message is mapped.
+    pub fn prepare_host_input<S: Host>(
+        &mut self,
+        cx: &mut Cx<'_, S>,
+        event: &dereth_input::host::HostEvent,
+    ) {
+        if matches!(event, dereth_input::host::HostEvent::KeyboardInput { .. })
+            && self
+                .inputs
+                .iter()
+                .any(|input| matches!(input, Input::PointerDown { .. } | Input::PointerUp { .. }))
+        {
+            self.process_inputs(
+                cx,
+                dereth_primitives::LocalTime(cx.now()),
+                cx.pregame().in_world,
+            );
+        }
+    }
+
     /// The window's device events this frame, as the classic interface takes them: keys through
     /// its key map and its text fields, the pointer and buttons to its windows and the world.
     /// Lifecycle events are the shell's; a lost focus releases what was held.
@@ -403,17 +423,7 @@ impl ClassicUi {
         use dereth_input::host::HostEvent;
         use dereth_input::keys::MouseButton;
         for event in events {
-            if matches!(event, HostEvent::KeyboardInput { .. })
-                && self.inputs.iter().any(|input| {
-                    matches!(input, Input::PointerDown { .. } | Input::PointerUp { .. })
-                })
-            {
-                self.process_inputs(
-                    cx,
-                    dereth_primitives::LocalTime(cx.now()),
-                    cx.pregame().in_world,
-                );
-            }
+            self.prepare_host_input(cx, event);
             let first_input = self.inputs.len();
             let input = match event {
                 HostEvent::Focused(on) => {
@@ -578,20 +588,6 @@ impl ClassicUi {
         let modifiers = (u8::from(self.shift) * crate::keystore::SHIFT)
             | (u8::from(self.ctrl) * crate::keystore::CTRL)
             | (u8::from(self.alt) * crate::keystore::ALT);
-        // The repeat-message key brings the last line back while the chat entry has the caret.
-        if !help
-            && pressed
-            && self.bindings.as_ref().is_some_and(|b| {
-                b.bound_to(
-                    vk,
-                    modifiers & !own_modifier(vk),
-                    dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE,
-                )
-            })
-            && self.chat_recall()
-        {
-            return None;
-        }
         // The copy key copies selected text before the key map sees it, so a selection in the
         // chat log is copied rather than the character strafing.
         if !help && self.ctrl && pressed && vk == 0x43 {
@@ -608,6 +604,9 @@ impl ClassicUi {
             return None;
         }
         if !pressed {
+            return None;
+        }
+        if cx.pregame().in_world && !self.desktop.editing() && !self.desktop.modal_open() && !help {
             return None;
         }
         if self.ctrl && !help {
@@ -658,15 +657,6 @@ impl ClassicUi {
                 shift: self.shift,
             });
         }
-        if vk == 0x20 {
-            if self.desktop.focused_control() == Some("chat:input") {
-                self.inputs.push(Input::Key {
-                    key: Key::Space,
-                    shift: self.shift,
-                });
-            }
-            return Some(Input::Text(" ".into()));
-        }
         match text.filter(|t| !t.is_empty() && !t.chars().any(char::is_control)) {
             Some(text) => Some(Input::Text(text.to_owned())),
             None if help && !matches!(vk, 0x10 | 0x11 | 0xA0..=0xA3) => Some(Input::Key {
@@ -691,14 +681,7 @@ impl ClassicUi {
                 .is_some_and(|id| id == "chat:input" || id == "input")
         {
             // Escape leaves the chat entry, and so does the key that enters and leaves it.
-            let toggle = self.bindings.as_ref().is_some_and(|b| {
-                b.bound_to(
-                    vk,
-                    modifiers,
-                    dereth_client_contract::actions::chat_entry::TOGGLE_CHAT_ENTRY.0,
-                )
-            });
-            if vk == 0x1B || toggle {
+            if vk == 0x1B {
                 self.desktop.focus_control("");
                 return true;
             }
@@ -712,16 +695,10 @@ impl ClassicUi {
                 return true;
             }
         }
-        let allow = cx.pregame().in_world
-            && !self.desktop.editing()
-            && !self
-                .desktop
-                .focused_panel()
-                .is_some_and(|id| id.starts_with("help-"));
         let Some(bindings) = &mut self.bindings else {
             return false;
         };
-        match bindings.key(vk, pressed, repeat, modifiers, allow) {
+        match bindings.key(vk, pressed, repeat, modifiers) {
             Ok(outcome) => {
                 let consumed = outcome.consumed || !outcome.actions.is_empty();
                 self.key_outcome(cx, outcome);
@@ -734,6 +711,71 @@ impl ClassicUi {
             }
         }
     }
+    /// Focus and capture are projected into the shared input stack before each device message.
+    pub fn input_scope(&self, key: Option<u16>) -> (bool, bool, bool) {
+        let capture = self
+            .bindings
+            .as_ref()
+            .is_some_and(|b| key.map_or_else(|| b.is_capturing(), |key| b.captures_key(key)));
+        (self.desktop.editing(), self.desktop.modal_open(), capture)
+    }
+
+    /// A widget owns this keyboard event before gameplay sees it; releases still reach input.
+    pub fn keyboard_barrier(&self, key: Option<u16>) -> bool {
+        self.desktop
+            .focused_panel()
+            .is_some_and(|id| id.starts_with("help-"))
+            || (self.ctrl && key == Some(0x43) && self.desktop.selected_text().is_some())
+    }
+    pub fn chat_focused(&self) -> bool {
+        self.desktop.focused_control() == Some("chat:input")
+    }
+
+    /// A mapped action from the shared input manager, delivered before the next host message.
+    pub fn mapped_action<S: Host>(&mut self, cx: &mut Cx<'_, S>, event: dereth_input::InputEvent) {
+        // Text editing is a widget operation; the shared maps supply its typing barrier.
+        if matches!(event.input_map.0, 1 | 7 | 8 | 9 | 10) {
+            return;
+        }
+        if event.action == dereth_client_contract::actions::chat_entry::TOGGLE_CHAT_ENTRY
+            && event.start
+            && self.desktop.focused_control() == Some("chat:input")
+        {
+            self.desktop.focus_control("");
+            return;
+        }
+        if event.action.0 == dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE
+            && event.start
+            && self.chat_recall()
+        {
+            return;
+        }
+        if dereth_input::presentation::find(event.input_map, event.action).is_some_and(|row| {
+            row.not_used(dereth_input::presentation::Interface::Classic)
+                .is_some()
+        }) {
+            return;
+        }
+        let first = self.inputs.len();
+        self.action_from_key(cx, event.to_action());
+        self.finish_chat_keyboard(cx, first);
+    }
+
+    /// Characters already accepted by the shared text-mode and ignore-next-character gates.
+    pub fn mapped_characters<S: Host>(&mut self, cx: &mut Cx<'_, S>, chars: Vec<char>) {
+        for ch in chars.into_iter().filter(|ch| !ch.is_control()) {
+            let first = self.inputs.len();
+            if ch == ' ' && self.desktop.focused_control() == Some("chat:input") {
+                self.inputs.push(Input::Key {
+                    key: crate::widgets::Key::Space,
+                    shift: self.shift,
+                });
+            }
+            self.inputs.push(Input::Text(ch.to_string()));
+            self.finish_chat_keyboard(cx, first);
+        }
+    }
+
     /// The right mouse button pressed or released at (`x`, `y`); returns what the interface sees.
     ///
     /// With right-click mouse look on, holding the button over the world looks around as the
@@ -801,6 +843,17 @@ impl ClassicUi {
             self.key_outcome(cx, result);
         }
     }
+    /// Release transient device state before this front end is suspended.
+    pub fn suspend<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
+        self.keyboard_focus_lost(cx);
+        cx.mouse_look_button(false);
+        cx.accept_actions(std::mem::take(&mut self.actions));
+        self.inputs.clear();
+        self.ui_actions.clear();
+        self.desktop.dismiss_dialog("resolution");
+        self.resolution_prompt = None;
+    }
+
     /// The classic key map as it now is.
     pub fn set_classic_keys(&mut self, keys: crate::keystore::ClassicKeys) {
         if let Some(bindings) = &mut self.bindings {
@@ -1489,13 +1542,6 @@ impl ClassicUi {
                 .map(|notice| ("spell-favorites".into(), ControlEvent::Magic(notice))),
         );
     }
-    pub fn control_notice(&mut self, notice: dereth_client_runtime::shell::ControlNotice) {
-        if let dereth_client_runtime::shell::ControlNotice::CombatMode(mode) = notice {
-            if let Some(bindings) = &mut self.bindings {
-                bindings.set_combat_mode(mode);
-            }
-        }
-    }
     pub fn close_examine_panel(&mut self) {
         self.close_panels.push("examine".into());
     }
@@ -1608,7 +1654,12 @@ impl ClassicUi {
         });
     }
     pub fn hand_on_actions(&mut self, actions: &mut dereth_client_runtime::actions::ActionQueue) {
-        actions.submit(std::mem::take(&mut self.actions));
+        actions.submit(self.take_runtime_actions());
+    }
+
+    /// Actions declined by this interface, in dispatch order.
+    pub fn take_runtime_actions(&mut self) -> Vec<dereth_client_contract::actions::Action> {
+        std::mem::take(&mut self.actions)
     }
     /// The 3D previews this frame shows, and where.
     #[must_use]
@@ -2641,16 +2692,6 @@ fn is_interface_action(id: u32) -> bool {
                 | own::TOGGLE_TRADE_PANEL
                 | own::TOGGLE_SPELL_RESEARCH_PANEL
         )
-}
-
-/// The modifier a modifier key is itself, so a press of it is not counted as held with it.
-fn own_modifier(vk: u16) -> u8 {
-    match vk {
-        0x10 | 0xA0 | 0xA1 => crate::keystore::SHIFT,
-        0x11 | 0xA2 | 0xA3 => crate::keystore::CTRL,
-        0x12 | 0xA4 | 0xA5 => crate::keystore::ALT,
-        _ => 0,
-    }
 }
 
 /// The world view's field-of-view preference, in degrees, that gives the classic interface's

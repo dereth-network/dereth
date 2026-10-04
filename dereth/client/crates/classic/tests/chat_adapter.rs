@@ -8,6 +8,8 @@ use dereth_client_runtime::{
 use dereth_input::{
     host::HostEvent,
     keys::{Key, MouseButton},
+    pump::DeviceMessages,
+    CallbackId, InputManager, InputMapId,
 };
 use std::sync::Arc;
 
@@ -40,6 +42,10 @@ impl ClassicHudSlot for TestHud {
 pub(super) struct TestShell {
     ui: ClassicUi,
     events: Vec<HostEvent>,
+    input: InputManager,
+    devices: DeviceMessages,
+    mapped: Vec<dereth_input::InputEvent>,
+    captured: Vec<dereth_input::ControlChord>,
     open_edit: bool,
     world_inputs: bool,
     arm_target: bool,
@@ -47,6 +53,123 @@ pub(super) struct TestShell {
     in_world: bool,
     nearby: Option<dereth_primitives::ObjectId>,
 }
+impl TestShell {
+    fn sync_input(&mut self, key: Option<u16>, capture: bool) {
+        let (editing, modal, own_capture) = self.ui.input_scope(None);
+        self.input.maps.unregister_callback(CallbackId(2));
+        if editing {
+            for (map, priority) in [(10, 3000), (1, 2990), (7, 3000), (8, 3000)] {
+                self.input
+                    .register_input_map(InputMapId(map), priority, CallbackId(2));
+            }
+        } else if self.ui.keyboard_barrier(key) {
+            self.input
+                .register_input_map(InputMapId(1), 2990, CallbackId(2));
+        }
+        if self.ui.chat_focused() && !self.ui.keyboard_barrier(key) {
+            self.input.maps.register_scoped(
+                dereth_input::dereth::INPUT_MAP,
+                3001,
+                CallbackId(2),
+                Some(dereth_input::ActionId(
+                    dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE,
+                )),
+            );
+        }
+        if modal {
+            self.input
+                .register_input_map(InputMapId(9), 3000, CallbackId(2));
+        }
+        if self.input.text.text_mode != editing {
+            self.input.set_text_mode(editing);
+        }
+        self.input.set_key_hit_handler(capture || own_capture);
+    }
+
+    // Drive the interface boundary with normalized messages and the manager's real action state.
+    // The desktop receives editing keys; accepted characters follow their mapped key action.
+    fn deliver(&mut self, cx: &mut Cx<'_, Self>, event: HostEvent) {
+        self.ui.prepare_host_input(cx, &event);
+        let key = match &event {
+            HostEvent::KeyboardInput { key, .. } => u16::try_from(key.virtual_key).ok(),
+            _ => None,
+        };
+        let capturing = self.ui.input_scope(key).2;
+        self.sync_input(key, capturing);
+        let widget = match &event {
+            HostEvent::KeyboardInput { key, pressed, .. } => HostEvent::KeyboardInput {
+                key: *key,
+                pressed: *pressed,
+                text: None,
+            },
+            _ => event.clone(),
+        };
+        let mut widget_key_pending = matches!(event, HostEvent::KeyboardInput { .. });
+        if !widget_key_pending {
+            self.ui
+                .window_input(cx, std::slice::from_ref(&widget), &mut EmptyClipboard);
+        }
+        for message in self.devices.map_device_event(&event, 0) {
+            self.input.on_window_event(&message, &|_| false);
+            self.captured.extend(self.input.take_key_hits());
+            let events = self.input.take_events();
+            let consumed = events
+                .iter()
+                .any(|e| !matches!(e.input_map.0, 1 | 7 | 8 | 9 | 10));
+            self.mapped.extend_from_slice(&events);
+            for event in events {
+                self.input.begin_action_dispatch(event.from_key_down);
+                self.ui.mapped_action(cx, event);
+                let editing = self.ui.input_scope(None).0;
+                if self.input.text.text_mode != editing {
+                    self.input.set_text_mode(editing);
+                }
+                self.input.end_action_dispatch();
+            }
+            self.ui.mapped_characters(cx, self.input.take_characters());
+            if widget_key_pending {
+                widget_key_pending = false;
+                if !consumed || capturing {
+                    self.ui
+                        .window_input(cx, std::slice::from_ref(&widget), &mut EmptyClipboard);
+                }
+                self.sync_input(key, capturing);
+            }
+        }
+        self.sync_input(None, false);
+    }
+}
+
+fn input_manager(store: &dyn dereth_primitives::AssetSource) -> InputManager {
+    let read = |group, id| {
+        store
+            .read(dereth_client_runtime::assets::enum_did(store, group, id).unwrap())
+            .unwrap()
+    };
+    let action = read(8, 1);
+    let engine = read(10, 1);
+    let game = read(10, 0x1000_0001);
+    let mut input = InputManager::on_startup(&action, &engine).unwrap();
+    input.init_keymap(None, &game, &engine).unwrap();
+    let shipped = input.shipped_maps.as_ref().unwrap();
+    input.keymap = crate::default_keys::default_map(
+        &input.keymap,
+        &input.action_map,
+        &[&shipped.0, &shipped.1],
+    );
+    for (map, priority) in [
+        (4, 1000),
+        (0x1000_0007, 1000),
+        (0x1000_0009, 1000),
+        (0x1000_000a, 1000),
+        (0x1000_000d, 3010),
+        (0x2000_0000, 0),
+    ] {
+        input.register_input_map(InputMapId(map), priority, CallbackId(1));
+    }
+    input
+}
+
 struct EmptyClipboard;
 impl Clipboard for EmptyClipboard {
     fn get(&mut self) -> Option<String> {
@@ -117,8 +240,10 @@ impl Shell for TestShell {
                 &mut |_, _| false,
             );
         }
-        self.ui
-            .window_input(cx, &std::mem::take(&mut self.events), &mut EmptyClipboard);
+        self.ui.finish_chat_keyboard(cx, self.ui.inputs.len());
+        for event in std::mem::take(&mut self.events) {
+            self.deliver(cx, event);
+        }
         if self.world_inputs {
             self.ui
                 .process_inputs(cx, dereth_primitives::LocalTime(cx.now()), true);
@@ -188,6 +313,7 @@ pub(super) fn fixture() -> (App<TestShell>, TestShell) {
         },
         (800, 600),
     );
+    let input = input_manager(&*store);
     let config = Config {
         headless: true,
         frames: None,
@@ -209,6 +335,10 @@ pub(super) fn fixture() -> (App<TestShell>, TestShell) {
         TestShell {
             ui,
             events: Vec::new(),
+            input,
+            devices: DeviceMessages::default(),
+            mapped: Vec::new(),
+            captured: Vec::new(),
             open_edit: false,
             world_inputs: false,
             arm_target: false,
@@ -220,7 +350,17 @@ pub(super) fn fixture() -> (App<TestShell>, TestShell) {
 }
 fn key(vk: usize, text: Option<&str>) -> HostEvent {
     HostEvent::KeyboardInput {
-        key: Key::new(vk, 0),
+        key: Key::new(vk, {
+            let scan = u16::try_from(vk)
+                .ok()
+                .and_then(crate::default_keys::scan_code)
+                .unwrap_or(0);
+            if scan & 0x80 != 0 {
+                0xe000 | (scan & 0x7f)
+            } else {
+                scan
+            }
+        }),
         pressed: true,
         text: text.map(str::to_owned),
     }
@@ -239,7 +379,22 @@ fn click(x: f64, y: f64) -> Vec<HostEvent> {
     ]
 }
 pub(super) fn batch(app: &mut App<TestShell>, shell: &mut TestShell, events: Vec<HostEvent>) {
-    shell.events = events;
+    shell.events = events
+        .into_iter()
+        .flat_map(|event| {
+            let release = match &event {
+                HostEvent::KeyboardInput {
+                    key, pressed: true, ..
+                } => Some(HostEvent::KeyboardInput {
+                    key: *key,
+                    pressed: false,
+                    text: None,
+                }),
+                _ => None,
+            };
+            std::iter::once(event).chain(release)
+        })
+        .collect();
     assert!(app.frame(shell));
     assert!(shell.events.is_empty());
 }
@@ -373,6 +528,137 @@ fn queued_world_escape_and_paper_doll_releases_keep_their_interception() {
         .callbacks
         .iter()
         .any(|(_, event)| matches!(event, ControlEvent::PreviewHit { .. })));
+    app.shutdown(&mut shell);
+}
+
+fn release(vk: usize) -> HostEvent {
+    let HostEvent::KeyboardInput { key, .. } = key(vk, None) else {
+        unreachable!()
+    };
+    HostEvent::KeyboardInput {
+        key,
+        pressed: false,
+        text: None,
+    }
+}
+
+fn raw_batch(app: &mut App<TestShell>, shell: &mut TestShell, events: Vec<HostEvent>) {
+    shell.events = events;
+    assert!(app.frame(shell));
+    assert!(shell.events.is_empty());
+}
+
+/// Behaviour: chat.entry-adapters
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "requires retail DATs")]
+fn mapped_chat_toggle_recall_and_capture_keep_physical_messages_in_order() {
+    use dereth_client_contract::actions::{dereth as own, movement};
+    let (mut app, mut shell) = fixture();
+    // A held world key must stop even after a later key gives the chat bar focus.
+    raw_batch(
+        &mut app,
+        &mut shell,
+        vec![
+            key(0x57, None),
+            key(0x0d, Some("\r")),
+            release(0x0d),
+            release(0x57),
+            key(0x48, Some("H")),
+            release(0x48),
+            key(0x0d, Some("\r")),
+            release(0x0d),
+        ],
+    );
+    assert_eq!(app.objects().world.chat.entries[&8].history(), ["H"]);
+    assert_eq!(app.interaction().stats.chat_lines_sent, 1);
+    assert!(!shell.ui.chat_focused(), "submission does not reopen chat");
+    let edges: Vec<_> = shell
+        .mapped
+        .iter()
+        .filter(|e| e.action == movement::MOVE_FORWARD)
+        .map(|e| e.start)
+        .collect();
+    assert_eq!(edges, [true, false]);
+
+    // Ctrl-R remains reachable through the focused text barrier; its release is not another recall.
+    raw_batch(
+        &mut app,
+        &mut shell,
+        vec![
+            key(0x0d, Some("\r")),
+            release(0x0d),
+            key(0xa2, None),
+            key(0x52, Some("\u{12}")),
+            release(0x52),
+            release(0xa2),
+        ],
+    );
+    assert_eq!(app.objects().world.chat.entries[&8].text, "H");
+    assert_eq!(
+        shell
+            .mapped
+            .iter()
+            .filter(|e| e.action.0 == own::REPEAT_LAST_MESSAGE && e.start)
+            .count(),
+        1
+    );
+    shell.mapped.clear();
+    batch(
+        &mut app,
+        &mut shell,
+        vec![key(0x09, Some("\t")), key(0x57, None)],
+    );
+    assert!(
+        !shell.ui.chat_focused(),
+        "Tab closes rather than cycling away and reopening"
+    );
+    assert_eq!(app.objects().world.chat.entries[&8].text, "H");
+    assert_eq!(
+        shell
+            .mapped
+            .iter()
+            .filter(|e| e.action == movement::MOVE_FORWARD)
+            .map(|e| e.start)
+            .collect::<Vec<_>>(),
+        [true, false]
+    );
+
+    // The editor takes a new key exclusively, but cannot swallow a previously held key's end.
+    shell.ui.bindings = Some(crate::keybindings::KeyBindings::new(&Default::default()));
+    raw_batch(&mut app, &mut shell, vec![key(0x57, None)]);
+    shell
+        .ui
+        .bindings
+        .as_mut()
+        .unwrap()
+        .handle(&HostAction::CaptureBinding {
+            action: movement::MOVE_FORWARD.0,
+            map: 4,
+            slot: 0,
+        })
+        .unwrap();
+    shell.mapped.clear();
+    raw_batch(
+        &mut app,
+        &mut shell,
+        vec![release(0x57), key(0x56, None), release(0x56)],
+    );
+    assert_eq!(
+        shell
+            .mapped
+            .iter()
+            .filter(|e| e.action == movement::MOVE_FORWARD)
+            .map(|e| e.start)
+            .collect::<Vec<_>>(),
+        [false]
+    );
+    assert!(shell
+        .captured
+        .iter()
+        .any(|hit| hit.control.offset() == 0x2f));
+    assert!(shell.ui.take_key_store_requests().iter().any(|request| matches!(request,
+        crate::keystore::KeyStoreRequest::Bind { scan: 0x2f, action, .. } if *action == movement::MOVE_FORWARD.0
+    )));
     app.shutdown(&mut shell);
 }
 

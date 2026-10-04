@@ -109,12 +109,26 @@ impl InputMapStack {
     /// so the new node is linked **before** the node the walk stopped on. So the loop stops at the first
     /// node whose priority is `<=` the newcomer's, and the newcomer goes ahead of it. \[verified\]
     pub fn register(&mut self, map: InputMapId, priority: i32, callback: CallbackId) {
+        self.register_scoped(map, priority, callback, None);
+    }
+
+    /// Register a single interface action above a text barrier, retaining the original map.
+    pub fn register_scoped(
+        &mut self,
+        map: InputMapId,
+        priority: i32,
+        callback: CallbackId,
+        action_filter: Option<crate::ActionId>,
+    ) {
         let candidate = InputMapEntry {
             map,
             priority,
             callback,
+            action_filter,
         };
-        if self.entries.contains(&candidate) {
+        if self.entries.iter().any(|entry| {
+            entry.map == map && entry.priority == priority && entry.callback == callback
+        }) {
             return;
         }
         let at = self

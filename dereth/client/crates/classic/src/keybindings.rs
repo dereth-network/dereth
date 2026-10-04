@@ -8,16 +8,15 @@
 //! nothing is ever left unsaved; the schemes the page lists are "Default", this interface's
 //! defaults, and this interface's own saved key maps.
 //!
-//! The keys themselves are dispatched here: a key fires the action it is bound to in an input map
-//! that is live, the stance's combat map only in that stance, as the retail client registers
-//! them, and the first of several in the retail client's walk order.
+//! Dispatch belongs to the shared input manager; this module owns the editor projection and capture dialogs.
 use crate::int::u32_from;
 use crate::keystore::{ClassicKeys, KeyStoreRequest, Scheme};
 use crate::panels::{HostAction, KeyBinding, KeyboardState};
 use dereth_client_contract::actions::{Action, ActionId};
-use dereth_input::presentation::{self, map, Interface};
+#[cfg(test)]
+use dereth_input::presentation::map;
+use dereth_input::presentation::{self, Interface};
 use dereth_input::InputMapId;
-use std::collections::BTreeMap;
 
 /// One key of the map as this page and the dispatch read it: a classic key code with its
 /// modifiers, bound to an action in an input map.
@@ -75,8 +74,6 @@ pub struct KeyBindings {
     capture: Option<Capture>,
     capture_revision: u64,
     swallowed: Vec<u16>,
-    held: BTreeMap<u16, Vec<ActionId>>,
-    combat_mode: u32,
     pub warning: Option<String>,
 }
 
@@ -92,8 +89,6 @@ impl KeyBindings {
             capture: None,
             capture_revision: 0,
             swallowed: Vec::new(),
-            held: BTreeMap::new(),
-            combat_mode: 1,
             warning: None,
         };
         k.set_keys(keys);
@@ -162,22 +157,6 @@ impl KeyBindings {
             .any(|b| b.key == vk && b.chord == modifiers && b.action == action)
     }
 
-    /// The chord a key press is looked up under: the modifiers held, when some binding of the key
-    /// is held with exactly those; else none, so a modifier held for its own sake (Shift to run)
-    /// does not take a plain key away.
-    fn chord_for(&self, vk: u16, modifiers: u8) -> u8 {
-        if modifiers != 0
-            && self
-                .bindings
-                .iter()
-                .any(|b| b.key == vk && b.chord == modifiers && live(b.map, self.combat_mode))
-        {
-            modifiers
-        } else {
-            0
-        }
-    }
-
     fn conflicting_maps(&self, home: u32) -> Vec<u32> {
         let mut maps = self
             .keys
@@ -190,10 +169,6 @@ impl KeyBindings {
             maps.push(home);
         }
         maps
-    }
-
-    fn is_hold(&self, b: &Binding) -> bool {
-        self.keys.holds.contains(&(b.map, b.action))
     }
 
     /// The keys of one row, in the map's order.
@@ -251,9 +226,8 @@ impl KeyBindings {
     pub fn is_capturing(&self) -> bool {
         self.capture.is_some()
     }
-    /// 1 peace, 2 melee, 4 missile, 8 magic, matching the live character state.
-    pub fn set_combat_mode(&mut self, mode: u32) {
-        self.combat_mode = mode;
+    pub fn captures_key(&self, vk: u16) -> bool {
+        self.capture.is_some() || self.swallowed.contains(&vk)
     }
 
     /// The name of the key map in use, or the defaults' row: neither is overwritten or deleted.
@@ -384,15 +358,13 @@ impl KeyBindings {
     }
 
     /// One key transition. `vk` is the classic key code, never a scan code or Unicode scalar;
-    /// `modifiers` are the Shift, Ctrl and Alt held. The host passes `allow_actions` false while
-    /// a text box takes the keys.
+    /// `modifiers` are the Shift, Ctrl and Alt held. Only binding capture consumes transitions here.
     pub fn key(
         &mut self,
         vk: u16,
         pressed: bool,
         repeat: bool,
         modifiers: u8,
-        allow_actions: bool,
     ) -> Result<KeyOutcome, String> {
         if let Some(index) = self.swallowed.iter().position(|k| *k == vk) {
             if !pressed {
@@ -406,46 +378,7 @@ impl KeyBindings {
         if self.capture.is_some() {
             return self.capture_key(vk, pressed, repeat, modifiers);
         }
-        let mut result = KeyOutcome::default();
-        if !pressed {
-            if let Some(actions) = self.held.remove(&vk) {
-                for action in actions {
-                    if !self.held.values().any(|v| v.contains(&action)) {
-                        result.actions.push(Action::end(action));
-                    }
-                }
-            }
-            return Ok(result);
-        }
-        if !allow_actions || vk > 255 {
-            return Ok(result);
-        }
-        let chord = self.chord_for(vk, modifiers);
-        let Some(b) = self
-            .bindings
-            .iter()
-            .filter(|b| b.key == vk && b.chord == chord && live(b.map, self.combat_mode))
-            // A row this interface does nothing with keeps its keys on the page and fires
-            // nothing.
-            .filter(|b| {
-                presentation::find(InputMapId(b.map), ActionId(b.action))
-                    .is_some_and(|r| r.not_used(Interface::Classic).is_none())
-            })
-            .min_by_key(|b| rank(b.map))
-            .copied()
-        else {
-            return Ok(result);
-        };
-        let id = ActionId(b.action);
-        if repeat {
-            result.actions.push(Action::repeat(id, 1));
-        } else {
-            result.actions.push(Action::begin(id));
-            if self.is_hold(&b) {
-                self.held.entry(vk).or_default().push(id);
-            }
-        }
-        Ok(result)
+        Ok(KeyOutcome::default())
     }
 
     fn capture_key(
@@ -577,55 +510,12 @@ impl KeyBindings {
         Ok(CaptureResult::Finished)
     }
 
-    /// Release every held action on focus loss.
+    /// End capture and forget its pending release when focus is lost.
     pub fn focus_lost(&mut self) -> KeyOutcome {
-        let mut actions: Vec<_> = self.held.values().flatten().copied().collect();
-        actions.sort();
-        actions.dedup();
-        self.held.clear();
+        self.end_capture();
         self.swallowed.clear();
-        KeyOutcome {
-            actions: actions.into_iter().map(Action::end).collect(),
-            ..KeyOutcome::default()
-        }
+        KeyOutcome::default()
     }
-}
-
-/// Whether the input map `m` is live in the combat mode `mode` (1 peace, 2 melee, 4 missile,
-/// 8 magic): a stance's combat map only in that stance, the alternate camera map never (this
-/// interface has no alternate camera mode), every other map always.
-fn live(m: u32, mode: u32) -> bool {
-    match m {
-        map::MELEE => mode == 2,
-        map::MISSILE => mode == 4,
-        map::MAGIC => mode == 8,
-        map::CAMERA_ALTERNATE => false,
-        _ => true,
-    }
-}
-
-/// Where an input map comes in the retail client's walk of them, first first: the chat entry's
-/// toggle above everything, then the stance's map, registered last, then the rest of the game's.
-fn rank(m: u32) -> usize {
-    [
-        map::TOGGLE_CHAT_ENTRY,
-        map::MELEE,
-        map::MISSILE,
-        map::MAGIC,
-        map::CHAT,
-        map::QUICKSLOTS,
-        map::UI,
-        map::ITEM_SELECTION,
-        map::CHARACTER_OPTIONS,
-        map::COMBAT,
-        map::EMOTES,
-        map::MOVEMENT,
-        map::CAMERA,
-        map::OWN,
-    ]
-    .iter()
-    .position(|x| *x == m)
-    .unwrap_or(usize::MAX)
 }
 
 fn is_modifier(vk: u16) -> bool {
@@ -667,21 +557,72 @@ fn validate_name(name: &str) -> Result<(), String> {
 /// A key's name with its modifiers: `Ctrl+W`.
 #[must_use]
 pub fn chord_name(vk: u16, chord: u8) -> String {
-    let mut out = String::new();
-    for (bit, name) in [
-        (crate::keystore::SHIFT, "Shift+"),
-        (crate::keystore::CTRL, "Ctrl+"),
-        (crate::keystore::ALT, "Alt+"),
-    ] {
-        if chord & bit != 0 {
-            out.push_str(name);
-        }
+    use dereth_input::{ControlChord, ControlCode, MasterInputMap, SubControlIndex};
+    let Some(scan) = crate::keystore::scan_code(vk) else {
+        return classic_name(vk);
+    };
+    let control = |scan| ControlCode::new(0, SubControlIndex::None, scan);
+    let map = MasterInputMap {
+        meta_keys: vec![
+            (control(0x2A), 0x8000_0000),
+            (control(0x1D), 0x4000_0000),
+            (control(0x38), 0x2000_0000),
+        ],
+        ..MasterInputMap::default()
+    };
+    dereth_input::labels::binding_label(
+        &map,
+        ControlChord::new(
+            control(scan),
+            crate::keystore::meta_of_modifiers(chord),
+            dereth_input::spec::activation::CLICK,
+        ),
+        &ClassicLabels,
+    )
+}
+
+struct ClassicLabels;
+impl dereth_input::labels::LabelProvider for ClassicLabels {
+    fn resolve_token(&self, _: u32, _: &str) -> Option<String> {
+        None
     }
-    out.push_str(&key_name(vk));
-    out
+    fn format_subcontrol(&self, _: &str, _: &str) -> Option<String> {
+        None
+    }
+    fn delimiter(&self) -> &str {
+        "+"
+    }
+    fn modifier_order(&self) -> &[u32] {
+        &[0x8000_0000, 0x4000_0000, 0x2000_0000]
+    }
+    fn override_name(
+        &self,
+        device: dereth_input::DeviceType,
+        control: dereth_input::ControlCode,
+        meta: bool,
+    ) -> Option<String> {
+        if device != dereth_input::DeviceType::Keyboard {
+            return None;
+        }
+        let vk = crate::default_keys::virtual_key(control.offset())?;
+        Some(if meta {
+            match vk {
+                0xA0 | 0xA1 => "Shift".into(),
+                0xA2 | 0xA3 => "Ctrl".into(),
+                0xA4 | 0xA5 => "Alt".into(),
+                _ => classic_name(vk),
+            }
+        } else {
+            classic_name(vk)
+        })
+    }
 }
 
 pub fn key_name(vk: u16) -> String {
+    chord_name(vk, 0)
+}
+
+fn classic_name(vk: u16) -> String {
     match vk {
         0x41..=0x5A | 0x30..=0x39 => char::from_u32(u32::from(vk)).unwrap_or('?').to_string(),
         0x70..=0x87 => format!("F{}", vk - 0x6F),
@@ -781,7 +722,7 @@ mod tests {
     fn bind(k: &mut KeyBindings, action: u32, map: u32, slot: usize, vk: u16, m: u8) -> KeyOutcome {
         k.handle(&HostAction::CaptureBinding { action, map, slot })
             .unwrap();
-        k.key(vk, true, false, m, true).unwrap()
+        k.key(vk, true, false, m).unwrap()
     }
 
     #[test]
@@ -791,7 +732,7 @@ mod tests {
             bind(&mut k, FORWARD, map::MOVEMENT, 0, 0x45, 0).capture,
             CaptureResult::Finished
         );
-        assert!(k.key(0x45, false, false, 0, true).unwrap().consumed);
+        assert!(k.key(0x45, false, false, 0).unwrap().consumed);
         assert_eq!(
             k.requests,
             [KeyStoreRequest::Bind {
@@ -802,15 +743,8 @@ mod tests {
                 replaced: Some((W, 0)),
             }]
         );
-        assert_eq!(
-            k.key(0x45, true, false, 0, true).unwrap().actions,
-            [Action::begin(ActionId(FORWARD))]
-        );
-        assert!(k
-            .key(0x57, true, false, 0, true)
-            .unwrap()
-            .actions
-            .is_empty());
+        assert!(k.bound_to(0x45, 0, FORWARD));
+        assert!(k.key(0x57, true, false, 0).unwrap().actions.is_empty());
     }
 
     /// Behaviour: keys.classic.the-page-captures-a-key-with-its-modifiers
@@ -825,15 +759,15 @@ mod tests {
         .unwrap();
         // Ctrl held, then W: Ctrl+W, which nothing else has, though W walks forward.
         assert_eq!(
-            k.key(0xA2, true, false, CTRL, true).unwrap().capture,
+            k.key(0xA2, true, false, CTRL).unwrap().capture,
             CaptureResult::Waiting
         );
         assert_eq!(
-            k.key(0x57, true, false, CTRL, true).unwrap().capture,
+            k.key(0x57, true, false, CTRL).unwrap().capture,
             CaptureResult::Finished
         );
-        k.key(0x57, false, false, CTRL, true).unwrap();
-        k.key(0xA2, false, false, 0, true).unwrap();
+        k.key(0x57, false, false, CTRL).unwrap();
+        k.key(0xA2, false, false, 0).unwrap();
         assert_eq!(
             k.snapshot()
                 .bindings
@@ -850,75 +784,12 @@ mod tests {
             slot: 0,
         })
         .unwrap();
-        k.key(0xA0, true, false, SHIFT, true).unwrap();
+        k.key(0xA0, true, false, SHIFT).unwrap();
         assert_eq!(
-            k.key(0xA0, false, false, 0, true).unwrap().capture,
+            k.key(0xA0, false, false, 0).unwrap().capture,
             CaptureResult::Finished
         );
         assert!(k.bound_to(0xA0, 0, AUTORUN));
-    }
-
-    #[test]
-    fn a_key_bound_with_a_modifier_fires_held_with_it_and_plain_keys_still_work_with_one_held() {
-        let mut keys = keys();
-        keys.bindings.push(ClassicBinding {
-            scan: W,
-            modifiers: CTRL,
-            action: BACK,
-            map: map::MOVEMENT,
-        });
-        let mut k = KeyBindings::new(&keys);
-        assert_eq!(
-            k.key(0x57, true, false, CTRL, true).unwrap().actions,
-            [Action::begin(ActionId(BACK))]
-        );
-        k.key(0x57, false, false, CTRL, true).unwrap();
-        assert_eq!(
-            k.key(0x57, true, false, SHIFT, true).unwrap().actions,
-            [Action::begin(ActionId(FORWARD))],
-            "W with Shift held (to run) still walks forward"
-        );
-    }
-
-    #[test]
-    fn a_combat_key_fires_its_stance_action_only_in_that_stance() {
-        let mut k = KeyBindings::new(&keys());
-        assert!(k
-            .key(0x2E, true, false, 0, true)
-            .unwrap()
-            .actions
-            .is_empty());
-        k.key(0x2E, false, false, 0, true).unwrap();
-        for (mode, name) in [
-            (2, "CombatLowAttack"),
-            (4, "CombatAimLow"),
-            (8, "CombatPrevSpell"),
-        ] {
-            k.set_combat_mode(mode);
-            assert_eq!(
-                k.key(0x2E, true, false, 0, true).unwrap().actions,
-                [Action::begin(ActionId(action(name)))]
-            );
-            k.key(0x2E, false, false, 0, true).unwrap();
-        }
-    }
-
-    #[test]
-    fn a_held_action_ends_with_its_key_and_a_one_shot_does_not() {
-        let mut k = KeyBindings::new(&keys());
-        k.key(0x57, true, false, 0, true).unwrap();
-        assert_eq!(
-            k.key(0x57, false, false, 0, true).unwrap().actions,
-            [Action::end(ActionId(FORWARD))]
-        );
-        k.key(0x51, true, false, 0, true).unwrap();
-        assert!(k
-            .key(0x51, false, false, 0, true)
-            .unwrap()
-            .actions
-            .is_empty());
-        k.key(0x57, true, false, 0, true).unwrap();
-        assert_eq!(k.focus_lost().actions, [Action::end(ActionId(FORWARD))]);
     }
 
     #[test]
@@ -939,11 +810,7 @@ mod tests {
                 map: map::MOVEMENT,
             }]
         );
-        assert!(k
-            .key(0x57, true, false, 0, true)
-            .unwrap()
-            .actions
-            .is_empty());
+        assert!(k.key(0x57, true, false, 0).unwrap().actions.is_empty());
     }
 
     #[test]
@@ -954,10 +821,10 @@ mod tests {
             CaptureResult::Conflict("Walk Backwards".into())
         );
         assert_eq!(k.confirm_capture(false).unwrap(), CaptureResult::Waiting);
-        k.key(0x58, false, false, 0, true).unwrap();
+        k.key(0x58, false, false, 0).unwrap();
         assert!(k.requests.is_empty());
         assert!(matches!(
-            k.key(0x58, true, false, 0, true).unwrap().capture,
+            k.key(0x58, true, false, 0).unwrap().capture,
             CaptureResult::Conflict(_)
         ));
         k.confirm_capture(true).unwrap();
@@ -972,7 +839,7 @@ mod tests {
                 bind(&mut k, FORWARD, map::MOVEMENT, 2, vk, 0).capture,
                 CaptureResult::Finished
             );
-            k.key(vk, false, false, 0, true).unwrap();
+            k.key(vk, false, false, 0).unwrap();
         }
         k.handle(&HostAction::CaptureBinding {
             action: FORWARD,
@@ -981,7 +848,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            k.key(0x1B, true, false, 0, true).unwrap().capture,
+            k.key(0x1B, true, false, 0).unwrap().capture,
             CaptureResult::Cancelled
         );
         assert!(!k.is_capturing());

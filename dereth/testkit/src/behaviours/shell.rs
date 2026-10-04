@@ -1107,6 +1107,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "input.dispatch.declined-runtime-actions-are-offered-once",
+        says: "Subsequent host messages cannot offer an already-declined action to the interface again; runtime receives it once in its original order.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-INPUT-MESSAGE-OWNERSHIP"),
+        station: "dereth-client-shell::lib::front_end::message_tests::declined_runtime_actions_are_not_offered_again_to_ui_on_following_messages",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "intro.click.a-click-advances-one-picture-and-letting-go-is-not-another",
         says: "A click on the opening sequence moves it on by one picture rather than doing \
                nothing and rather than skipping to the end, and letting the button go is not a \
@@ -1187,6 +1196,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "keymap.lifecycle.interface-switch-and-session-end-release-runtime-movement",
+        says: "Interface changes and character-session teardown deliver held movement releases before retiring their input callback scopes.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-KEYMAP-SCOPE-RELEASE"),
+        station: "dereth-client-shell::lib::input::tests::interface_switch_and_session_end_release_runtime_movement",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "keymap.modified-digits.a-number-with-the-modifier-uses-a-quick-slot-and-not-the-chat-window",
         says: "Holding the modifier and pressing one of the first four numbers uses that quick \
                slot rather than opening the matching floating chat window: the shipped key map \
@@ -1218,6 +1236,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O196-SAVE"),
         station: "dereth-testkit::dat::shell::scenario_a_rebind_is_written_beside_the_preferences",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "keymap.storage.saved-maps-remain-specific-to-their-interface",
+        says: "Loading, saving and restoring key maps addresses the intended interface even while the other interface is active; saved clears survive returning and reloading.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-KEYMAP-FACE-STORAGE"),
+        station: "dereth-client-shell::lib::input::tests::stored_maps_remain_face_specific_while_classic_is_active",
         tier: Tier::Dat,
     },
     behaviour! {

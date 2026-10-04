@@ -123,8 +123,8 @@ pub struct InputShell {
     /// combat subsystem. See [`InputShell::set_character_session_input_maps`].
     ///
     /// Its own id rather than [`Self::client`] because ending the session drops the whole
-    /// callback, and `unregister_callback` is what also releases the callback's held actions: a
-    /// movement key held through a log-off must not stay held on the character screen.
+    /// callback. Held actions are released and handed on first, before unregistration discards
+    /// their state: a movement key held through log-off must not stay held on the character screen.
     session_callback: CallbackId,
     /// Whether the character-session maps are registered. See
     /// [`InputShell::set_character_session_input_maps`].
@@ -141,6 +141,7 @@ pub struct InputShell {
     pub stats: InputStats,
     /// The events the last frame produced, drained by the application.
     events: Vec<InputEvent>,
+    runtime_pending: Vec<dereth_client_contract::actions::Action>,
     /// Actions synthesised by a host or a test since the last frame, spliced into
     /// [`Self::events`] by [`Self::use_time`] *after* the frame's expiry sweep.
     ///
@@ -165,6 +166,12 @@ pub struct InputShell {
     keymap_path: Option<PathBuf>,
     /// The classic interface's key map, once it is wanted.
     classic: Option<ClassicKeymap>,
+    modern: dereth_input::MasterInputMap,
+    classic_active: bool,
+    focused_maps: Vec<(u32, i32)>,
+    mode_maps: Vec<u32>,
+    retiring_session: bool,
+    retiring_actions: Vec<dereth_client_contract::actions::Action>,
     /// The characters the input manager accepted this frame, kept for the text element's
     /// character handler.
     ///
@@ -585,10 +592,10 @@ impl ClassicKeymap {
 /// # Errors
 /// [`dereth_input::InputError::Io`] if the file cannot be written.
 fn write_keymap(
-    manager: &InputManager,
+    map: &dereth_input::MasterInputMap,
     path: &std::path::Path,
 ) -> Result<(), dereth_input::InputError> {
-    dereth_client_runtime::platform::files::write(path, manager.keymap.to_keymap_text())?;
+    dereth_client_runtime::platform::files::write(path, map.to_keymap_text())?;
     Ok(())
 }
 
@@ -616,6 +623,95 @@ pub fn save_keymap_preference(
 }
 
 impl InputShell {
+    /// Deliver the old scope's releases to runtime before callback unregistration drops state.
+    pub fn finish_session_retirement(
+        &mut self,
+        receive: impl FnOnce(Vec<dereth_client_contract::actions::Action>),
+    ) {
+        if !self.retiring_session {
+            return;
+        }
+        let mut released = std::mem::take(&mut self.runtime_pending);
+        released.extend(self.take_events().iter().map(InputEvent::to_action));
+        released.append(&mut self.retiring_actions);
+        receive(released);
+        self.set_target_input_map(false);
+        self.manager.unregister_callback(self.session_callback);
+        self.manager.unregister_callback(self.combat_callback);
+        self.combat_input_mode = dereth_input::combat::mode::NONCOMBAT;
+        self.retiring_session = false;
+        if self.character_session_input_maps {
+            self.character_session_input_maps = false;
+            self.set_character_session_input_maps(true);
+        }
+    }
+
+    fn modern_map(&self) -> &dereth_input::MasterInputMap {
+        if self.classic_active {
+            &self.modern
+        } else {
+            &self.manager.keymap
+        }
+    }
+
+    fn modern_map_mut(&mut self) -> &mut dereth_input::MasterInputMap {
+        if self.classic_active {
+            &mut self.modern
+        } else {
+            &mut self.manager.keymap
+        }
+    }
+
+    /// Release while the old callback scope still exists. The caller must deliver these
+    /// actions before retiring that scope or replacing the active map.
+    pub fn release_actions(&mut self) -> Vec<dereth_client_contract::actions::Action> {
+        self.manager.release_pressed_keys();
+        self.manager.meta_key_mode = 0;
+        self.manager.set_key_hit_handler(false);
+        self.manager.take_key_hits();
+        self.events.extend(self.manager.take_events());
+        let mut actions = std::mem::take(&mut self.runtime_pending);
+        actions.extend(self.take_events().iter().map(InputEvent::to_action));
+        actions
+    }
+
+    /// Select a complete saved map after the outgoing actions have been delivered.
+    pub fn activate_classic(&mut self, classic: bool) {
+        if classic == self.classic_active {
+            return;
+        }
+        let next = if classic {
+            self.modern = self.manager.keymap.clone();
+            self.classic_keymap().map.clone()
+        } else {
+            self.classic.as_mut().expect("active classic map").map = self.manager.keymap.clone();
+            self.modern.clone()
+        };
+        self.set_focused_input_maps(&[]);
+        self.set_active_input_maps(&[]);
+        self.set_mode_input_maps(&[]);
+        self.manager.set_text_mode(false);
+        self.manager.keymap = next;
+        self.classic_active = classic;
+    }
+
+    /// A bindable chat recall command remains available while this interface owns text focus.
+    pub fn classic_recall_scope(&mut self, active: bool) {
+        let map = dereth_input::dereth::INPUT_MAP;
+        if active {
+            self.manager.maps.register_scoped(
+                map,
+                3001,
+                self.text_callback,
+                Some(ActionId(
+                    dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE,
+                )),
+            );
+        } else {
+            self.manager.unregister_input_map(map, self.text_callback);
+        }
+    }
+
     /// Input-manager startup precedes gameplay-client keymap initialization.
     ///
     /// Both dat objects are resolved through [`dereth_client_runtime::assets::enum_did`], never written down:
@@ -686,6 +782,7 @@ impl InputShell {
         // The current pre-game screen's own callback. See [`Self::set_mode_input_maps`].
         let mode_callback = manager.new_callback();
         let target_callback = manager.new_callback();
+        let modern = manager.keymap.clone();
         Ok(Self {
             manager,
             client,
@@ -700,11 +797,18 @@ impl InputShell {
             combat_input_mode: dereth_input::combat::mode::NONCOMBAT,
             stats: InputStats::default(),
             events: Vec::new(),
+            runtime_pending: Vec::new(),
             injected: Vec::new(),
             mouse_frame: dereth_input::mouse::MouseFrameAction::None,
             mouse_left_window: false,
             keymap_path: user_keymap.cloned(),
             classic: None,
+            modern,
+            classic_active: false,
+            focused_maps: Vec::new(),
+            mode_maps: Vec::new(),
+            retiring_session: false,
+            retiring_actions: Vec::new(),
             characters: Vec::new(),
         })
     }
@@ -833,8 +937,7 @@ impl InputShell {
             &[&maps.0, &maps.1],
             Some(&self.manager.action_map),
         );
-        self.manager.keymap.clear();
-        self.manager.keymap.merge(&merged, true);
+        *self.modern_map_mut() = merged;
         self.manager.shipped_maps = Some(maps);
         self.keymap_path = Some(path);
         Ok(true)
@@ -858,7 +961,7 @@ impl InputShell {
     #[must_use]
     pub fn classic_defaults(&self) -> dereth_input::MasterInputMap {
         dereth_classic_ui::default_keys::default_map(
-            &self.manager.keymap,
+            self.modern_map(),
             &self.manager.action_map,
             &self.shipped_maps(),
         )
@@ -888,6 +991,9 @@ impl InputShell {
                 defaults,
                 path,
             });
+        }
+        if self.classic_active {
+            self.classic.as_mut().expect("active map").map = self.manager.keymap.clone();
         }
         self.classic.as_mut().expect("just made")
     }
@@ -1052,6 +1158,11 @@ impl InputShell {
                 }
             }
         };
+        if self.classic_active {
+            if let Some(classic) = &self.classic {
+                self.manager.keymap = classic.map.clone();
+            }
+        }
         if let Err(e) = result {
             tracing::warn!("the classic key map: {e}");
         }
@@ -1091,7 +1202,16 @@ impl InputShell {
 
     /// Back to the shipped defaults: the player's own keys are dropped.
     pub fn restore_shipped_keys(&mut self) -> bool {
-        self.manager.reload_defaults()
+        let Some((game, base)) = self.manager.shipped_maps.as_deref() else {
+            return false;
+        };
+        let restored = dereth_input::scheme::over_defaults(
+            None,
+            &[game, base],
+            Some(&self.manager.action_map),
+        );
+        *self.modern_map_mut() = restored;
+        true
     }
 
     /// Delete the key map file `name` (a basename, `.keymap` added when absent) beside the one in
@@ -1153,7 +1273,7 @@ impl InputShell {
                 return Ok(Some(SaveKeymapAs::NeedsOverwrite));
             }
         }
-        if let Err(error) = write_keymap(&self.manager, &path) {
+        if let Err(error) = write_keymap(self.modern_map(), &path) {
             if matches!(&error, dereth_input::InputError::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied)
             {
                 return Ok(Some(SaveKeymapAs::ReadOnly));
@@ -1231,7 +1351,7 @@ impl InputShell {
         let Some(path) = self.keymap_path.as_ref() else {
             return Ok(false);
         };
-        write_keymap(&self.manager, path)?;
+        write_keymap(self.modern_map(), path)?;
         Ok(true)
     }
 
@@ -1293,8 +1413,8 @@ impl InputShell {
     ///
     /// An empty slice is the focus change's lose arm. A non-empty one is the
     /// lose arm **and then** the gain arm, in that order, because the callback is dropped whole:
-    /// `unregister_callback` is what also releases the callback's held `ActionState`s,
-    /// and the hang described below is why that matters.
+    /// `unregister_callback` discards the callback's held states so a retired widget cannot
+    /// keep repeating an editing command.
     /// **It takes `&[(u32, i32)]` rather than `&[u32]`** because text registration
     /// chains through the scrollable base to the base element's registration. This registers
     /// the element's own input map at the
@@ -1302,6 +1422,10 @@ impl InputShell {
     /// cannot express that, because the same map id at two depths goes in at two priorities.
     /// [`FOCUSED_TEXT_MAP_REGISTRATIONS`] is the constant for the four that are uniform.
     pub fn set_focused_input_maps(&mut self, maps: &[(u32, i32)]) {
+        if self.focused_maps == maps {
+            return;
+        }
+        self.focused_maps = maps.to_vec();
         self.manager.unregister_callback(self.text_callback);
         for (map, prio) in maps {
             self.manager
@@ -1371,6 +1495,10 @@ impl InputShell {
     ///
     /// An empty slice is the destructor.
     pub fn set_mode_input_maps(&mut self, maps: &[u32]) {
+        if self.mode_maps == maps {
+            return;
+        }
+        self.mode_maps = maps.to_vec();
         self.manager.unregister_callback(self.mode_callback);
         for map in maps {
             self.manager.register_input_map(
@@ -1478,8 +1606,8 @@ impl InputShell {
     /// at or above `priority::GAMEPLAY`, and an equal-priority newcomer goes in front of the camera
     /// map that stayed.
     ///
-    /// Ending it drops the session's callbacks whole, which also releases any action they held,
-    /// takes the live combat-mode map with them, and leaves target mode. Until the next session
+    /// Ending it queues releases before the session's callbacks are retired by
+    /// [`Self::finish_session_retirement`], taking the combat and target maps with them. Until the next session
     /// begins, combat-mode and target-mode changes register nothing.
     ///
     /// The production caller is `dereth_client::ui::UiShell`, which mirrors "the gameplay screen
@@ -1490,6 +1618,9 @@ impl InputShell {
         }
         if live {
             self.character_session_input_maps = true;
+            if self.retiring_session {
+                return true;
+            }
             self.combat_input_mode = dereth_input::combat::mode::NONCOMBAT;
             for (owner, map, prio) in BASE_MAP_REGISTRATIONS {
                 if WHOLE_RUN_INPUT_MAPS.contains(map) {
@@ -1503,10 +1634,10 @@ impl InputShell {
                 self.manager.register_input_map(InputMapId(*map), *prio, cb);
             }
         } else {
-            self.set_target_input_map(false);
-            self.manager.unregister_callback(self.session_callback);
-            self.manager.unregister_callback(self.combat_callback);
-            self.combat_input_mode = dereth_input::combat::mode::NONCOMBAT;
+            self.manager.release_pressed_keys();
+            self.retiring_actions
+                .extend(self.manager.take_events().iter().map(InputEvent::to_action));
+            self.retiring_session = true;
             self.character_session_input_maps = false;
         }
         true
@@ -1571,6 +1702,22 @@ impl InputShell {
             self.stats.messages_handled += 1;
         }
         handled
+    }
+
+    /// Make a normalized message available to the active interface immediately.
+    pub fn collect_message(&mut self) {
+        let (events, chars) = self.drain_message();
+        self.events.extend(events);
+        self.characters.extend(chars);
+    }
+
+    /// Drain one normalized message before the next one changes focus or text mode.
+    pub fn drain_message(&mut self) -> (Vec<InputEvent>, Vec<char>) {
+        let events = self.manager.take_events();
+        let chars = self.manager.take_characters();
+        self.stats.actions_fired += events.len() as u64;
+        self.stats.characters += chars.len() as u64;
+        (events, chars)
     }
 
     /// Input-manager simulation — step 6 of the UI-element update: the gamepad
@@ -1737,8 +1884,24 @@ impl InputShell {
     /// Hand this frame's input events on to the runtime as actions: what the UI declined, for the
     /// movement, camera and interaction stages. The queue here is empty afterwards.
     pub fn hand_on(&mut self, actions: &mut ActionQueue) {
+        self.finish_session_retirement(|released| actions.submit(released));
+        actions.submit(std::mem::take(&mut self.runtime_pending));
         let events = self.take_events();
         actions.submit(events.iter().map(InputEvent::to_action));
+    }
+
+    /// Keep UI-declined host actions separate from the next message's UI candidates.
+    pub fn defer_runtime_actions(
+        &mut self,
+        actions: impl IntoIterator<Item = dereth_client_contract::actions::Action>,
+    ) {
+        self.runtime_pending.extend(actions);
+    }
+
+    /// Finish one message's first-refusal walk without re-offering it on another message.
+    pub fn defer_declined_actions(&mut self) {
+        let events = self.take_events();
+        self.defer_runtime_actions(events.iter().map(InputEvent::to_action));
     }
 
     /// Follow a change in the game state the registrations depend on.
@@ -1755,6 +1918,7 @@ impl InputShell {
             }
             ControlNotice::TargetMode(active) => self.set_target_input_map(active),
             ControlNotice::AlternateCamera(on) => {
+                let on = on && !self.classic_active;
                 let map = dereth_input::ALTERNATE_CAMERA_MAP;
                 if on {
                     self.manager.register_input_map(
@@ -1964,6 +2128,7 @@ mod tests {
             !shell.set_character_session_input_maps(false),
             "an edge, not a level"
         );
+        shell.finish_session_retirement(|_| {});
         let maps: Vec<u32> = shell
             .manager
             .maps
@@ -1993,6 +2158,208 @@ mod tests {
             in_melee,
             "the session's maps come back walked exactly as the constructor and the mode swap left them"
         );
+    }
+
+    /// Behaviour: keymap.lifecycle.interface-switch-and-session-end-release-runtime-movement
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn interface_switch_and_session_end_release_runtime_movement() {
+        use dereth_client_runtime::character::{CharacterInput, MovementCommands};
+        let mut shell = InputShell::new(&store(), None).expect("input tables");
+        let mut pump = crate::pump::Pump::new();
+        let mut movement = MovementCommands::default();
+        let mut state = CharacterInput::default();
+        let apply = |events: Vec<dereth_client_contract::actions::Action>,
+                     movement: &mut MovementCommands,
+                     state: &mut CharacterInput| {
+            for event in events {
+                movement.on_action(
+                    dereth_client_runtime::actions::movement::on_action(
+                        &event,
+                        dereth_client_runtime::actions::emote::command_for_action,
+                    ),
+                    state,
+                );
+            }
+        };
+        for (index, next_classic) in [(0_u32, true), (1, false)] {
+            shell.on_message(pump.key_message_for_key(Key::KEY_W, true, 1000 + index * 100));
+            shell.collect_message();
+            apply(
+                shell
+                    .take_events()
+                    .iter()
+                    .map(InputEvent::to_action)
+                    .collect(),
+                &mut movement,
+                &mut state,
+            );
+            assert!(
+                state.forward,
+                "the physical press reached the runtime consumer"
+            );
+            apply(shell.release_actions(), &mut movement, &mut state);
+            assert!(
+                !state.forward,
+                "the outgoing scope stops movement before replacement"
+            );
+            shell.activate_classic(next_classic);
+            shell.on_message(pump.key_message_for_key(Key::KEY_W, false, 1050 + index * 100));
+        }
+        shell.on_message(pump.key_message_for_key(Key::KEY_W, true, 1500));
+        shell.collect_message();
+        apply(
+            shell
+                .take_events()
+                .iter()
+                .map(InputEvent::to_action)
+                .collect(),
+            &mut movement,
+            &mut state,
+        );
+        assert!(state.forward);
+        assert!(shell.set_character_session_input_maps(false));
+        shell.finish_session_retirement(|events| {
+            apply(events, &mut movement, &mut state);
+            assert!(
+                !state.forward,
+                "runtime receives the release before callback retirement"
+            );
+        });
+        assert!(!shell
+            .manager
+            .maps
+            .entries()
+            .iter()
+            .any(|entry| entry.callback == shell.session_callback));
+        assert!(
+            shell.release_actions().is_empty(),
+            "no second delivery after retirement"
+        );
+        assert!(shell.set_character_session_input_maps(true));
+        shell.on_message(pump.key_message_for_key(Key::KEY_W, false, 1600));
+        shell.on_message(pump.key_message_for_key(Key::KEY_W, true, 1700));
+        shell.collect_message();
+        shell.defer_declined_actions();
+        assert!(shell.set_character_session_input_maps(false));
+        assert!(
+            shell.set_character_session_input_maps(true),
+            "a new session can precede the retirement drain"
+        );
+        let mut delivered = Vec::new();
+        shell.finish_session_retirement(|events| delivered = events);
+        let phases: Vec<_> = delivered
+            .iter()
+            .filter(|event| event.id == action::MOVE_FORWARD)
+            .map(|event| event.phase)
+            .collect();
+        assert_eq!(
+            phases,
+            [
+                dereth_client_contract::actions::ActionPhase::Begin,
+                dereth_client_contract::actions::ActionPhase::End
+            ]
+        );
+        apply(delivered, &mut movement, &mut state);
+        assert!(
+            !state.forward,
+            "a press and teardown in one batch retain their order"
+        );
+        assert!(
+            shell
+                .manager
+                .maps
+                .entries()
+                .iter()
+                .any(|entry| entry.callback == shell.session_callback),
+            "the new session survives the old retirement"
+        );
+    }
+
+    /// Behaviour: keymap.storage.saved-maps-remain-specific-to-their-interface
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn stored_maps_remain_face_specific_while_classic_is_active() {
+        use dereth_classic_ui::keystore::KeyStoreRequest;
+        let dir = std::env::temp_dir().join(format!("dereth-face-maps-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("disposable directory");
+        let path = dir.join("current-modern.keymap");
+        let mut shell = InputShell::new(&store(), Some(&path)).expect("input tables");
+        shell.activate_classic(true);
+        shell.classic_request(KeyStoreRequest::Clear {
+            scan: 0x11,
+            modifiers: 0,
+            action: action::MOVE_FORWARD.0,
+            map: 4,
+        });
+        shell.classic_request(KeyStoreRequest::Bind {
+            scan: 0x2f,
+            modifiers: 0,
+            action: action::MOVE_FORWARD.0,
+            map: 4,
+            replaced: None,
+        });
+        let classic = shell.manager.keymap.to_keymap_text();
+        let mut chosen = shell.modern_map().clone();
+        let key = dereth_input::scheme::keyboard_key(&chosen, 0x11, 0).expect("W control");
+        dereth_input::scheme::clear(&mut chosen, InputMapId(4), key, action::MOVE_FORWARD);
+        let file = dir.join("chosen-modern.keymap");
+        std::fs::write(&file, chosen.to_keymap_text()).expect("chosen map");
+        assert!(shell
+            .load_keymap_file("chosen-modern.keymap")
+            .expect("load Modern while Classic active"));
+        assert_eq!(
+            shell.manager.keymap.to_keymap_text(),
+            classic,
+            "Modern load cannot replace Classic's live map"
+        );
+        let modern = shell.modern_map().to_keymap_text();
+        assert_ne!(modern, classic);
+        shell.save_keymap().expect("shutdown save addresses Modern");
+        assert_eq!(std::fs::read_to_string(&file).expect("saved map"), modern);
+        assert_eq!(
+            shell.save_keymap_as("copy", false).expect("save as"),
+            Some(SaveKeymapAs::Saved)
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("copy-modern.keymap")).expect("named map"),
+            modern
+        );
+        shell.activate_classic(false);
+        assert_eq!(shell.manager.keymap.to_keymap_text(), modern);
+        shell.activate_classic(true);
+        assert_eq!(shell.manager.keymap.to_keymap_text(), classic);
+        let mut reloaded = InputShell::new(&store(), Some(&file)).expect("reload both saved faces");
+        reloaded.activate_classic(true);
+        assert_eq!(
+            reloaded.manager.keymap.to_keymap_text(),
+            classic,
+            "saved clear and replacement survive defaults merge"
+        );
+        reloaded.activate_classic(false);
+        // Startup takes its document identity from the default map, while loading a named
+        // scheme uses a user-document header. Compare the complete bindings and devices.
+        reloaded.manager.keymap.name = shell.modern_map().name.clone();
+        reloaded.manager.keymap.guid = shell.modern_map().guid;
+        assert_eq!(reloaded.manager.keymap.to_keymap_text(), modern);
+        for file in [
+            "current-modern.keymap",
+            CLASSIC_KEYMAP_FILE,
+            "chosen-modern.keymap",
+            "copy-modern.keymap",
+        ] {
+            let path = dir.join(file);
+            if path.exists() {
+                std::fs::remove_file(path).expect("remove disposable map");
+            }
+        }
+        std::fs::remove_dir(dir).expect("remove disposable directory");
     }
 
     fn store() -> dereth_dat::RetailDatStore {

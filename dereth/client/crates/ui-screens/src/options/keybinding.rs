@@ -244,14 +244,7 @@ pub mod token {
     /// The client's six rows, indexed by
     /// [`dereth_input::spec::SubControlIndex`], all out of enum **3**. Index 0 (`None`) has no row —
     /// the function returns `false` for it.
-    pub const SUB_CONTROL: [&str; 6] = [
-        "ID_sci_PositiveAxis",
-        "ID_sci_NegativeAxis",
-        "ID_sci_POVUp",
-        "ID_sci_POVRight",
-        "ID_sci_POVDown",
-        "ID_sci_POVLeft",
-    ];
+    pub const SUB_CONTROL: [&str; 6] = dereth_input::labels::SUB_CONTROL_TOKENS;
 }
 
 /// The **variable names** the client files its values under, which is the only handle a row has on
@@ -393,38 +386,7 @@ pub fn binding_label(
     qc: &ControlChord,
     delimiter: &str,
 ) -> String {
-    let device = m
-        .keymap
-        .device_type_of(qc.control)
-        .unwrap_or(DeviceType::Keyboard);
-    let key = control_name(ui, device, qc.control, false);
-    // An unnamed control is the empty string and leaves the cell
-    // blank rather than drawing a modifier list with no key.
-    if key.is_empty() {
-        return String::new();
-    }
-    let mut parts: Vec<String> = Vec::new();
-    let mut bit = 1u32;
-    loop {
-        if qc.meta_mode & bit != 0 {
-            if let Some(cs) = m.keymap.key_from_meta_mode(bit) {
-                let d = m.keymap.device_type_of(cs).unwrap_or(DeviceType::Keyboard);
-                let n = control_name(ui, d, cs, true);
-                if !n.is_empty() {
-                    parts.push(n);
-                }
-            }
-        }
-        let Some(next) = bit.checked_mul(2) else {
-            break;
-        };
-        if next == 0 {
-            break;
-        }
-        bit = next;
-    }
-    parts.push(key);
-    parts.join(delimiter)
+    dereth_input::labels::binding_label(&m.keymap, *qc, &Labels { ui, delimiter })
 }
 
 /// **One** control's display name.
@@ -449,62 +411,44 @@ pub fn control_name(
     cs: dereth_input::spec::ControlCode,
     meta: bool,
 ) -> String {
-    use dereth_input::spec::ControlNames;
-
-    let enum_value = if meta {
-        table_enum::META_KEY_NAME
-    } else {
-        table_enum::KEY_NAME
-    };
-    let name = ControlNames::name_by_semantic(device, cs.offset())
-        .and_then(|dik| resolve_token(ui, enum_value, dik))
-        .or_else(|| {
-            dereth_input::objname::device_object_name(device, cs.offset()).map(str::to_owned)
-        })
-        .unwrap_or_default();
-    if name.is_empty() {
-        return name;
-    }
-    // Add the sub-control decoration. `SubControlIndex::None` has no row, so that branch leaves
-    // the bare key name alone.
-    let Some(tok) = sub_control_token(cs.sub_control()) else {
-        return name;
-    };
-    let Some(sub) = resolve_token(ui, table_enum::KEY_DESC, tok) else {
-        return name;
-    };
-    // The shipped row is `["", " ", ""]` — the literal pieces around `KEY` and `SUBCONTROL`, in
-    // that order. The values go through the string read's meta-language arm rather than being
-    // interleaved here. For this row the interleave and the render agree on the characters; the
-    // render adds excess-space trimming, so a key name that arrives with a doubled space draws
-    // one.
-    let Some(out) = ui.resolve_string_named(
-        string_table(ui, table_enum::KEY_DESC),
-        dereth_primitives::num::hash::str_hash(token::KEY_NAME_WITH_SUB_CONTROL.as_bytes()),
-        &[(var::KEY, name.as_str()), (var::SUB_CONTROL, sub.as_str())],
-    ) else {
-        return name;
-    };
-    if out.is_empty() {
-        name
-    } else {
-        out
-    }
+    dereth_input::labels::control_name(
+        device,
+        cs,
+        meta,
+        &Labels {
+            ui,
+            delimiter: DEFAULT_KEY_DESC_DELIMITER,
+        },
+    )
 }
 
 /// The client's sub-control-to-token mapping, index by index.
 #[must_use]
 pub fn sub_control_token(sub: dereth_input::spec::SubControlIndex) -> Option<&'static str> {
-    use dereth_input::spec::SubControlIndex as S;
-    Some(match sub {
-        S::PositiveAxis => token::SUB_CONTROL[0],
-        S::NegativeAxis => token::SUB_CONTROL[1],
-        S::PovUp => token::SUB_CONTROL[2],
-        S::PovRight => token::SUB_CONTROL[3],
-        S::PovDown => token::SUB_CONTROL[4],
-        S::PovLeft => token::SUB_CONTROL[5],
-        S::None | S::Other(_) => return None,
-    })
+    dereth_input::labels::sub_control_token(sub)
+}
+
+struct Labels<'a> {
+    ui: &'a UiSystem,
+    delimiter: &'a str,
+}
+
+impl dereth_input::labels::LabelProvider for Labels<'_> {
+    fn resolve_token(&self, table: u32, token: &str) -> Option<String> {
+        resolve_token(self.ui, table, token)
+    }
+
+    fn format_subcontrol(&self, key: &str, subcontrol: &str) -> Option<String> {
+        self.ui.resolve_string_named(
+            string_table(self.ui, table_enum::KEY_DESC),
+            dereth_primitives::num::hash::str_hash(token::KEY_NAME_WITH_SUB_CONTROL.as_bytes()),
+            &[(var::KEY, key), (var::SUB_CONTROL, subcontrol)],
+        )
+    }
+
+    fn delimiter(&self) -> &str {
+        self.delimiter
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

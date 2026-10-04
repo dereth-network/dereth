@@ -376,38 +376,23 @@ fn dispatch_ui_owner_requests<H: Host>(
 /// The executable's front end: everything the frame hands the UI, and the state the UI keeps
 /// across frames.
 pub struct ClientShell<H: Host> {
+    pub(crate) modern: ModernFrontEnd,
+    pub(crate) shared: FrontEndServices<H>,
+    pub(crate) classic: crate::classic_face::ClassicFace,
+}
+
+/// Widget state, dialogs and preview caches owned by the modern interface.
+#[derive(Debug)]
+pub(crate) struct ModernFrontEnd {
     /// How far `--enter-world` has driven the pre-game screens. See `App::drive_pregame_screens`.
     pregame: PregameDrive,
     /// How far `--cast` has driven the world screen. See `Ui::drive_world_script`.
     world_drive: WorldDrive,
     /// How far `--say` and `--use` have got. See `Ui::drive_say`.
     say_drive: SayDrive,
-    /// The client UI cursor half: the current cursor id, the built
-    /// `HCURSOR`s, and the window they are installed on. See [`crate::cursor`].
-    pub(crate) cursor: crate::cursor::CursorSystem,
-    /// The clipboard bridge: the Win32 hop `dereth-ui` cannot make, and the
-    /// sequence number that keeps the per-frame refresh from taking the desktop clipboard lock.
-    clipboard: crate::clipboard::ClipboardBridge,
-    /// The host's clipboard, which the bridge mirrors.
-    host_clipboard: H::Clipboard,
 
     /// the current cursor id plus the cursor image. `None` without `--ui`.
     pub(crate) ui: Option<crate::ui::UiShell>,
-    /// The device input: the input manager and the registrations the client's systems make.
-    /// Present whenever the input tables loaded, with or without `--ui`.
-    pub(crate) input: Option<crate::input::InputShell>,
-    /// The device half of the message mapping: the Alt state and the pointer position the button
-    /// messages carry.
-    devices: crate::pump::DeviceMessages,
-    /// The window's queue of events, routed at the event-loop step.
-    window_events: crate::platform::window::WindowEvents,
-    /// What every `release_ui_textures` has done so far. `unknown` is a double release and is
-    /// asserted zero.
-    pub(crate) ui_release: crate::gpu::UiReleaseReport,
-    /// This frame's 2D blit list, built at step 7 and drawn inside `PresentFrame`.
-    pub(crate) ui_draw_list: Vec<dereth_ui::UiDrawCmd>,
-    /// The classic interface, shown in this one's place while it is the one chosen.
-    pub(crate) classic: crate::classic_face::ClassicFace,
     targeted_dialogs: crate::target_confirmation::TargetedDialogs,
     resolution_dialog: dereth_ui::dialog::resolution::ResolutionDialog,
     /// How many times the gameplay screen has been constructed, so the HUD's
@@ -472,11 +457,36 @@ pub struct ClientShell<H: Host> {
     paper_doll_selection_seen: Option<dereth_primitives::ObjectId>,
 }
 
+/// Host services shared by the currently active interface.
+pub(crate) struct FrontEndServices<H: Host> {
+    /// The client UI cursor half: the current cursor id, the built
+    /// `HCURSOR`s, and the window they are installed on. See [`crate::cursor`].
+    pub(crate) cursor: crate::cursor::CursorSystem,
+    /// The clipboard bridge: the Win32 hop `dereth-ui` cannot make, and the
+    /// sequence number that keeps the per-frame refresh from taking the desktop clipboard lock.
+    clipboard: crate::clipboard::ClipboardBridge,
+    /// The host's clipboard, which the bridge mirrors.
+    host_clipboard: H::Clipboard,
+    /// The device input: the input manager and the registrations the client's systems make.
+    /// Present whenever the input tables loaded, with or without `--ui`.
+    pub(crate) input: Option<crate::input::InputShell>,
+    /// The device half of the message mapping: the Alt state and the pointer position the button
+    /// messages carry.
+    devices: crate::pump::DeviceMessages,
+    /// The window's queue of events, routed at the event-loop step.
+    window_events: crate::platform::window::WindowEvents,
+    /// What every `release_ui_textures` has done so far. `unknown` is a double release and is
+    /// asserted zero.
+    pub(crate) ui_release: crate::gpu::UiReleaseReport,
+    /// This frame's 2D blit list, built at step 7 and drawn inside `PresentFrame`.
+    pub(crate) ui_draw_list: Vec<dereth_ui::UiDrawCmd>,
+}
+
 impl<H: Host> std::fmt::Debug for ClientShell<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClientShell")
-            .field("ui", &self.ui.is_some())
-            .field("gameplay_serial", &self.gameplay_serial)
+            .field("ui", &self.modern.ui.is_some())
+            .field("gameplay_serial", &self.modern.gameplay_serial)
             .finish_non_exhaustive()
     }
 }
@@ -491,7 +501,7 @@ impl<H: Host> ClientShell<H> {
     /// Queue a host event as the window would, to be routed with the next frame's: the way an
     /// in-process driver gives the client real input.
     pub fn queue_window_event(&self, event: crate::platform::window::HostEvent) {
-        self.window_events.borrow_mut().push(event);
+        self.shared.window_events.borrow_mut().push(event);
     }
 
     /// A front end that routes the events the window queues on `window_events`.
@@ -501,36 +511,494 @@ impl<H: Host> ClientShell<H> {
         window_events: crate::platform::window::WindowEvents,
     ) -> Self {
         Self {
-            input: None,
-            devices: crate::pump::DeviceMessages::default(),
-            window_events,
-            pregame: PregameDrive::default(),
-            world_drive: WorldDrive::default(),
-            say_drive: SayDrive::default(),
-            cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
-            clipboard: crate::clipboard::ClipboardBridge::default(),
-            host_clipboard: H::clipboard(),
-            ui: None,
-            ui_release: crate::gpu::UiReleaseReport::default(),
-            ui_draw_list: Vec::new(),
-            targeted_dialogs: crate::target_confirmation::TargetedDialogs::default(),
-            resolution_dialog: dereth_ui::dialog::resolution::ResolutionDialog::default(),
-            gameplay_serial: 0,
-            key_bindings_built: None,
-            key_binding_stats: KeyBindingStats::default(),
-            preview_last_time: 0.0,
-            paper_doll_last_time: 0.0,
-            examine_3d_last_time: 0.0,
-            in_creation: false,
+            modern: ModernFrontEnd {
+                pregame: PregameDrive::default(),
+                world_drive: WorldDrive::default(),
+                say_drive: SayDrive::default(),
+                ui: None,
+                targeted_dialogs: crate::target_confirmation::TargetedDialogs::default(),
+                resolution_dialog: dereth_ui::dialog::resolution::ResolutionDialog::default(),
+                gameplay_serial: 0,
+                key_bindings_built: None,
+                key_binding_stats: KeyBindingStats::default(),
+                preview_last_time: 0.0,
+                paper_doll_last_time: 0.0,
+                examine_3d_last_time: 0.0,
+                in_creation: false,
+                examine_3d_built: None,
+                preview_chargen: None,
+                chargen_pal_sets: crate::preview::PaletteSetCache::default(),
+                chargen_dress: crate::preview::ChargenDressStats::default(),
+                paper_doll_built: None,
+                paper_doll_lighting: crate::preview::PaperDollSelectionLighting::default(),
+                paper_doll_selection_seen: None,
+            },
+            shared: FrontEndServices {
+                input: None,
+                devices: crate::pump::DeviceMessages::default(),
+                window_events,
+                cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
+                clipboard: crate::clipboard::ClipboardBridge::default(),
+                host_clipboard: H::clipboard(),
+                ui_release: crate::gpu::UiReleaseReport::default(),
+                ui_draw_list: Vec::new(),
+            },
             classic: crate::classic_face::ClassicFace::default(),
-            examine_3d_built: None,
-            preview_chargen: None,
-            chargen_pal_sets: crate::preview::PaletteSetCache::default(),
-            chargen_dress: crate::preview::ChargenDressStats::default(),
-            paper_doll_built: None,
-            paper_doll_lighting: crate::preview::PaperDollSelectionLighting::default(),
-            paper_doll_selection_seen: None,
         }
+    }
+}
+
+/// An interface owns its widgets and transient presentation state. Runtime and host
+/// services are borrowed for a call and never contain the owning shell.
+trait FrontEnd<H: Host> {
+    fn game_viewport(&self) -> Option<dereth_primitives::Viewport>;
+    fn pointer_over_game_view(&self, cursor: (i32, i32)) -> bool;
+    fn examine_panel_open(&mut self) -> bool;
+    fn close_examine_panel(&mut self);
+    fn service_dialogs(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime);
+    fn before_ui_input(&mut self, player_airborne: bool);
+    fn talk_focus_notice(
+        &mut self,
+        talk_focus: dereth_client_model::chat::TalkFocus,
+        notice: dereth_client_model::chat::TalkFocusNotice,
+    ) -> bool;
+    fn deliver_power_bar_notices(
+        &mut self,
+        hud: &mut crate::hud::Hud,
+        notices: Vec<dereth_client_model::combat::PowerBarNotice>,
+    );
+    fn object_panel_notice(
+        &mut self,
+        hud: &mut crate::hud::Hud,
+        world: &dereth_client_model::World,
+        notice: &dereth_client_model::Notice,
+    ) -> Vec<dereth_client_contract::UiRequest>;
+    fn emit_magic_notices(&mut self, notices: Vec<dereth_client_contract::view::MagicNotice>);
+    fn open_vendor_buying(&mut self, hud: &mut crate::hud::Hud);
+    fn run_ui_layout_commands(
+        &mut self,
+        prefs: &std::path::Path,
+        character: &str,
+        world: &str,
+        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+    );
+    fn split_stack(
+        &mut self,
+        view: &crate::hud::HudView<'_>,
+        selected: dereth_primitives::ObjectId,
+    );
+    fn dispatch_input_action(&mut self, action: u32) -> Option<bool>;
+    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip);
+    fn chat_generation(&self) -> Option<u64>;
+
+    fn in_gameplay(&self) -> bool;
+    fn hides_world(&self) -> bool;
+    fn requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox>;
+    fn frame(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        services: &mut FrontEndServices<H>,
+        now: dereth_primitives::LocalTime,
+        notices: UiNotices,
+    ) -> bool;
+    fn before_portal(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>);
+    fn after_portal(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>);
+    fn compose(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>);
+    fn draw(
+        &mut self,
+        present: &mut dyn ClientPresentation,
+        services: &FrontEndServices<H>,
+    ) -> Result<(), dereth_client_runtime::present::PresentError>;
+    fn resize(&mut self, display: (i32, i32));
+    fn suspend(&mut self, cx: &mut Cx<'_, H>);
+}
+
+impl<H: Host> FrontEnd<H> for ModernFrontEnd {
+    fn game_viewport(&self) -> Option<dereth_primitives::Viewport> {
+        let shell = self.ui.as_ref()?;
+        let root = *shell.flow.current()?.roots().first()?;
+        let h = shell
+            .ui
+            .get_child_recursive(root, dereth_ui_screens::hud::world_view::SMART_BOX)?;
+        let b = dereth_ui_screens::hud::world_view::client_rect(&shell.ui, h);
+        if !b.is_valid() {
+            return None;
+        }
+        #[allow(clippy::cast_sign_loss)]
+        // LINT-OK: `is_valid` proves the box is non-empty; `max(0)` covers an element laid out off
+        // the top-left edge, matching the UI box clamp used during layout.
+        Some(dereth_primitives::Viewport {
+            x: b.x0.max(0) as u32,
+            y: b.y0.max(0) as u32,
+            width: (b.x1 - b.x0.max(0) + 1).max(0) as u32,
+            height: (b.y1 - b.y0.max(0) + 1).max(0) as u32,
+        })
+    }
+    fn pointer_over_game_view(&self, cursor: (i32, i32)) -> bool {
+        let Some(shell) = self.ui.as_ref() else {
+            return true;
+        };
+        let (x, y) = cursor;
+        pointer_over_game_view_at(shell, shell.ui.hit_test_screen(x, y))
+    }
+    fn examine_panel_open(&mut self) -> bool {
+        let Some(shell) = self.ui.as_mut() else {
+            return false;
+        };
+        let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) else {
+            return false;
+        };
+        use dereth_ui_screens::screens::gameplay_host::GameCall;
+        matches!(
+            crate::hud_drive::game_call(&mut shell.ui, screen, GameCall::ExaminationOpen(false)),
+            GameCall::ExaminationOpen(true)
+        )
+    }
+    fn close_examine_panel(&mut self) {
+        let Some(shell) = self.ui.as_mut() else {
+            return;
+        };
+        let ui = &mut shell.ui;
+        let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) else {
+            return;
+        };
+        crate::hud_drive::game_call(
+            ui,
+            screen,
+            dereth_ui_screens::screens::gameplay_host::GameCall::CloseExamination(false),
+        );
+    }
+    fn service_dialogs(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
+        self.targeted_dialogs
+            .service_with(cx, self.ui.as_mut(), now);
+    }
+    fn before_ui_input(&mut self, player_airborne: bool) {
+        if let Some(shell) = self.ui.as_mut() {
+            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                crate::hud_drive::game_call(
+                    &mut shell.ui,
+                    screen,
+                    dereth_ui_screens::screens::gameplay_host::GameCall::PlayerAirborne(
+                        player_airborne,
+                    ),
+                );
+            }
+        }
+    }
+    fn talk_focus_notice(
+        &mut self,
+        talk_focus: dereth_client_model::chat::TalkFocus,
+        notice: dereth_client_model::chat::TalkFocusNotice,
+    ) -> bool {
+        self.ui.as_mut().is_some_and(|shell| {
+            crate::hud_drive::game_screen(&mut shell.flow).is_some_and(|screen| {
+                crate::hud::talk_focus_notice(&mut shell.ui, screen, talk_focus, notice)
+            })
+        })
+    }
+    fn deliver_power_bar_notices(
+        &mut self,
+        hud: &mut crate::hud::Hud,
+        notices: Vec<dereth_client_model::combat::PowerBarNotice>,
+    ) {
+        let Some(shell) = self.ui.as_mut() else {
+            return;
+        };
+        let Some(screen) = shell.flow.current() else {
+            return;
+        };
+        if !screen.is_game() {
+            return;
+        }
+        let writes = u64::from(crate::hud::deliver_power_bar_notices(
+            &mut shell.ui,
+            &mut hud.panels,
+            notices,
+        ));
+        hud.stats.power_bar_writes += writes;
+        hud.stats.panels_written += writes;
+    }
+    fn object_panel_notice(
+        &mut self,
+        hud: &mut crate::hud::Hud,
+        world: &dereth_client_model::World,
+        notice: &dereth_client_model::Notice,
+    ) -> Vec<dereth_client_contract::UiRequest> {
+        dispatch_object_panel_notice(self.ui.as_mut(), hud, world, notice)
+    }
+    fn emit_magic_notices(&mut self, notices: Vec<dereth_client_contract::view::MagicNotice>) {
+        if let Some(shell) = self.ui.as_mut() {
+            for n in notices {
+                shell.ui.notice_inbox.emit(n);
+            }
+        }
+    }
+    fn open_vendor_buying(&mut self, hud: &mut crate::hud::Hud) {
+        if let Some(shell) = self.ui.as_mut() {
+            hud.panels.vendor.open_buying(&mut shell.ui);
+        }
+    }
+    fn run_ui_layout_commands(
+        &mut self,
+        prefs: &std::path::Path,
+        character: &str,
+        world: &str,
+        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+    ) {
+        if let Some(shell) = self.ui.as_mut() {
+            for command in layout_commands {
+                let result = match command {
+                    crate::interaction::UiLayoutCommand::Save(name) => shell
+                        .screen_layout_path(&name, prefs, character, world)
+                        .map(|path| shell.save_ui_layout(&path)),
+                    crate::interaction::UiLayoutCommand::Load(name) => shell
+                        .screen_layout_path(&name, prefs, character, world)
+                        .map(|path| shell.load_ui_layout(&path)),
+                    crate::interaction::UiLayoutCommand::SetLockUi(locked) => {
+                        // Both `/lockui` and the radar request already ran the lock-UI setter, then
+                        // OnChanged(51) in Interaction. Complete native's following global-0D
+                        // visible cascade without constructing a second option write.
+                        shell.apply_lock_ui(locked);
+                        None
+                    }
+                };
+                if let Some(Err(e)) = result {
+                    tracing::warn!("screen layout command failed: {e}");
+                }
+            }
+        }
+    }
+    fn split_stack(
+        &mut self,
+        view: &crate::hud::HudView<'_>,
+        selected: dereth_primitives::ObjectId,
+    ) {
+        if let Some(shell) = self.ui.as_mut() {
+            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                crate::hud_drive::game_call_with_view(
+                    &mut shell.ui,
+                    screen,
+                    view,
+                    dereth_ui_screens::screens::gameplay_host::GameCall::SplitStack(selected),
+                );
+            }
+        }
+    }
+    fn dispatch_input_action(&mut self, action: u32) -> Option<bool> {
+        self.ui
+            .as_mut()
+            .map(|shell| shell.ui.dispatch_input_action(action))
+    }
+    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
+        if let Some(shell) = self.ui.as_mut() {
+            apply_world_tooltip(shell, tooltip);
+        }
+    }
+    fn chat_generation(&self) -> Option<u64> {
+        self.ui
+            .as_ref()
+            .and_then(|shell| shell.flow.current())
+            .and_then(|s| s.is_game().then_some(self.gameplay_serial))
+    }
+
+    fn in_gameplay(&self) -> bool {
+        self.ui
+            .as_ref()
+            .is_some_and(|s| s.flow.current_mode() == Some(dereth_ui::framework::mode::GAME_PLAY))
+    }
+    fn hides_world(&self) -> bool {
+        self.ui.as_ref().and_then(|s| s.flow.current_mode())
+            == Some(dereth_ui::framework::mode::CREDITS)
+    }
+    fn requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox> {
+        self.ui.as_mut().map(|s| &mut s.ui.requests)
+    }
+    fn frame(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        services: &mut FrontEndServices<H>,
+        now: dereth_primitives::LocalTime,
+        notices: UiNotices,
+    ) -> bool {
+        Ui {
+            cx,
+            front: self,
+            shared: services,
+        }
+        .ui_frame(now, notices)
+    }
+    fn before_portal(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>) {
+        let mut ui = Ui {
+            cx,
+            front: self,
+            shared: services,
+        };
+        ui.own_actions();
+        ui.preview_use_time();
+    }
+    fn after_portal(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>) {
+        let mut ui = Ui {
+            cx,
+            front: self,
+            shared: services,
+        };
+        ui.paper_doll_use_time();
+        ui.examine_3d_use_time();
+    }
+    fn compose(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>) {
+        Ui {
+            cx,
+            front: self,
+            shared: services,
+        }
+        .compose_ui_draw_list();
+    }
+    fn draw(
+        &mut self,
+        present: &mut dyn ClientPresentation,
+        services: &FrontEndServices<H>,
+    ) -> Result<(), dereth_client_runtime::present::PresentError> {
+        present.draw_ui(&services.ui_draw_list)
+    }
+    fn resize(&mut self, display: (i32, i32)) {
+        if let Some(ui) = &mut self.ui {
+            ui.set_display(display);
+        }
+    }
+    fn suspend(&mut self, _cx: &mut Cx<'_, H>) {
+        if let Some(ui) = &mut self.ui {
+            self.resolution_dialog.project(&mut ui.ui, None);
+        }
+    }
+}
+
+impl<H: Host> FrontEnd<H> for dereth_classic_ui::runtime::ClassicUi {
+    fn game_viewport(&self) -> Option<dereth_primitives::Viewport> {
+        self.game_viewport()
+    }
+    fn pointer_over_game_view(&self, cursor: (i32, i32)) -> bool {
+        self.pointer_over_game_view(cursor)
+    }
+    fn examine_panel_open(&mut self) -> bool {
+        dereth_classic_ui::runtime::ClassicUi::examine_panel_open(self)
+    }
+    fn close_examine_panel(&mut self) {
+        self.close_examine_panel();
+    }
+    fn service_dialogs(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
+        self.service_dialogs(cx, now);
+    }
+    fn before_ui_input(&mut self, player_airborne: bool) {
+        let _ = player_airborne;
+    }
+    fn talk_focus_notice(
+        &mut self,
+        talk_focus: dereth_client_model::chat::TalkFocus,
+        notice: dereth_client_model::chat::TalkFocusNotice,
+    ) -> bool {
+        self.talk_focus_notice(talk_focus, notice)
+    }
+    fn deliver_power_bar_notices(
+        &mut self,
+        hud: &mut crate::hud::Hud,
+        notices: Vec<dereth_client_model::combat::PowerBarNotice>,
+    ) {
+        let _ = hud;
+
+        self.deliver_power_bar_notices(notices);
+    }
+    fn object_panel_notice(
+        &mut self,
+        hud: &mut crate::hud::Hud,
+        world: &dereth_client_model::World,
+        notice: &dereth_client_model::Notice,
+    ) -> Vec<dereth_client_contract::UiRequest> {
+        let _ = hud;
+
+        self.object_panel_notice(world, notice)
+    }
+    fn emit_magic_notices(&mut self, notices: Vec<dereth_client_contract::view::MagicNotice>) {
+        self.emit_magic_notices(notices);
+    }
+    fn open_vendor_buying(&mut self, hud: &mut crate::hud::Hud) {
+        let _ = hud;
+
+        self.open_vendor_buying();
+    }
+    fn run_ui_layout_commands(
+        &mut self,
+        prefs: &std::path::Path,
+        character: &str,
+        world: &str,
+        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+    ) {
+        let _ = (prefs, character, world, layout_commands);
+    }
+    fn split_stack(
+        &mut self,
+        view: &crate::hud::HudView<'_>,
+        selected: dereth_primitives::ObjectId,
+    ) {
+        let _ = (view, selected);
+    }
+    fn dispatch_input_action(&mut self, action: u32) -> Option<bool> {
+        self.dispatch_input_action(action)
+    }
+    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
+        let _ = tooltip;
+    }
+    fn chat_generation(&self) -> Option<u64> {
+        None
+    }
+
+    fn in_gameplay(&self) -> bool {
+        self.in_gameplay()
+    }
+    fn hides_world(&self) -> bool {
+        self.hides_world()
+    }
+    fn requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox> {
+        Some(&mut self.outbox)
+    }
+    fn frame(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        services: &mut FrontEndServices<H>,
+        now: dereth_primitives::LocalTime,
+        notices: UiNotices,
+    ) -> bool {
+        self.ui_frame(cx, now, notices);
+        let requests = self.take_key_store_requests();
+        if !requests.is_empty() {
+            if let Some(input) = services.input.as_mut() {
+                for request in requests {
+                    input.classic_request(request);
+                }
+            }
+            self.set_classic_keys(classic_keys(services.input.as_mut()));
+        }
+        false
+    }
+    fn before_portal(&mut self, _cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {}
+    fn after_portal(&mut self, _cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {}
+    fn compose(&mut self, cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {
+        self.compose_ui(cx);
+        for error in self.errors.drain(..).chain(self.desktop.errors.drain(..)) {
+            tracing::warn!("classic interface: {error}");
+        }
+    }
+    fn draw(
+        &mut self,
+        present: &mut dyn ClientPresentation,
+        _services: &FrontEndServices<H>,
+    ) -> Result<(), dereth_client_runtime::present::PresentError> {
+        self.draw_ui(present)
+    }
+    fn resize(&mut self, display: (i32, i32)) {
+        self.set_display(display);
+    }
+    fn suspend(&mut self, cx: &mut Cx<'_, H>) {
+        self.suspend(cx);
     }
 }
 
@@ -543,12 +1011,60 @@ type Cx<'a, H> = dereth_client_runtime::ui_context::UiContext<'a, ClientShell<H>
 /// The UI's steps, with the step's context and the front end both in hand.
 struct Ui<'a, 'c, H: Host> {
     cx: &'a mut Cx<'c, H>,
-    shell: &'a mut ClientShell<H>,
+    front: &'a mut ModernFrontEnd,
+    shared: &'a mut FrontEndServices<H>,
 }
 
 impl<H: Host> Ui<'_, '_, H> {
+    fn input_message(&mut self) {
+        let (Some(shell), Some(input)) = (self.front.ui.as_mut(), self.shared.input.as_mut())
+        else {
+            return;
+        };
+        input.collect_message();
+        let now = dereth_primitives::LocalTime(self.cx.now());
+        let cx = &mut *self.cx;
+        let targeted = &mut self.front.targeted_dialogs;
+        let serial = self.front.gameplay_serial;
+        if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+            use dereth_ui_screens::screens::gameplay_host::GameCall;
+            crate::hud_drive::game_call(
+                &mut shell.ui,
+                screen,
+                GameCall::AutoTargetWorld(cx.hud().auto_target_world(cx.model())),
+            );
+            crate::hud_drive::game_call(
+                &mut shell.ui,
+                screen,
+                GameCall::ChatState(cx.hud().chat_focus_view(cx.model())),
+            );
+        }
+        let mut unowned = Vec::new();
+        shell.message_with_dispatch(now, input, &mut |shell, point| {
+            if let crate::ui::UiDispatch::Mouse(event) = point {
+                cx.pointer(event);
+                return;
+            }
+            unowned.extend(dispatch_ui_owner_requests(shell, cx, targeted, serial, now));
+        });
+        input.finish_session_retirement(|released| {
+            for action in released {
+                cx.inject_action(action);
+            }
+        });
+        cx.queue(Vec::new(), unowned);
+        self.drive_key_bindings();
+        self.own_actions();
+        if let Some(input) = self.shared.input.as_mut() {
+            if let Some(ui) = self.front.ui.as_mut() {
+                ui.sync_input_scope(input);
+            }
+            input.defer_declined_actions();
+        }
+    }
+
     /// The UI's own step of frame step 7.
-    fn ui_frame(&mut self, now: dereth_primitives::LocalTime, notices: UiNotices) {
+    fn ui_frame(&mut self, now: dereth_primitives::LocalTime, notices: UiNotices) -> bool {
         let UiNotices {
             power_bar: power_bar_notices,
             external_container: external_container_notices,
@@ -558,7 +1074,7 @@ impl<H: Host> Ui<'_, '_, H> {
             trade_for_dummies,
         } = notices;
         let shell = self
-            .shell
+            .front
             .ui
             .as_mut()
             .expect("the UI's own step runs only with a UI");
@@ -579,7 +1095,7 @@ impl<H: Host> Ui<'_, '_, H> {
                 .journal
                 .on_visibility_changed(&mut shell.ui, false);
         }
-        let targeted_dialogs = &mut self.shell.targeted_dialogs;
+        let targeted_dialogs = &mut self.front.targeted_dialogs;
         // The FPS meter reads the process render globals during the
         // UI tick. This scene owns their reconstructed values; sample before the world update
         // later in the frame, matching native's UI-before- ordering.
@@ -594,11 +1110,11 @@ impl<H: Host> Ui<'_, '_, H> {
                 ),
             )
         });
-        let serial = self.shell.gameplay_serial;
+        let serial = self.front.gameplay_serial;
         // Object search is gated on the input-device manager: without one, the client does not
         // search at all. A headless App with no `input_manager` runs `NullInputPump`, which
         // reproduces that condition.
-        let cidm = self.shell.input.is_some();
+        let cidm = self.shared.input.is_some();
         let mut early_unowned = Vec::new();
         // The motion facts and the pending selection notices were delivered by the runtime just
         // before this step (`App::ui_use_time`), ahead of the input below.
@@ -672,7 +1188,7 @@ impl<H: Host> Ui<'_, '_, H> {
                 now,
             ));
         };
-        let mut requests = match self.shell.input.as_mut() {
+        let mut requests = match self.shared.input.as_mut() {
             Some(input) => shell.frame_with_dispatch(now, &host, input, &mut dispatch),
             None => {
                 shell.frame_with_dispatch(now, &host, &mut dereth_ui::NullInputPump, &mut dispatch)
@@ -737,8 +1253,8 @@ impl<H: Host> Ui<'_, '_, H> {
         let screen_changed = shell.flow.switches != switches_before;
         // The wizard is the one game phase a UI enters by asking: tell the runtime on each edge.
         let in_creation = shell.flow.current_mode() == Some(dereth_ui::framework::mode::CHAR_GEN);
-        if in_creation != self.shell.in_creation {
-            self.shell.in_creation = in_creation;
+        if in_creation != self.front.in_creation {
+            self.front.in_creation = in_creation;
             requests.push(dereth_client_contract::UiRequest::CharacterCreation(
                 in_creation,
             ));
@@ -838,7 +1354,7 @@ impl<H: Host> Ui<'_, '_, H> {
         // and all of them **before** the blit list is taken, or the frame would draw last frame's
         // HUD over this frame's world.
         if screen_changed {
-            self.shell.gameplay_serial += 1;
+            self.front.gameplay_serial += 1;
         }
         self.cx.sync_hud();
         // The map panel's first update block, whose source is the same
@@ -848,9 +1364,9 @@ impl<H: Host> Ui<'_, '_, H> {
         let game_date_time = self.cx.scene().and_then(|s| s.game_date_time());
         self.cx.hud_mut().game_date_time = game_date_time;
         {
-            let serial = self.shell.gameplay_serial;
+            let serial = self.front.gameplay_serial;
             let (hud, objects) = self.cx.hud_and_objects();
-            let shell = self.shell.ui.as_mut().expect("checked above");
+            let shell = self.front.ui.as_mut().expect("checked above");
             if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                 if !screen_changed {
                     hud.pending_external_container
@@ -900,13 +1416,13 @@ impl<H: Host> Ui<'_, '_, H> {
         // than in `UiShell` because the writer is `InputShell::save_keymap`, the same one shutdown
         // uses; the shell only latches the request.
         if self
-            .shell
+            .front
             .ui
             .as_mut()
             .is_some_and(crate::ui::UiShell::take_save_keymap)
         {
             match self
-                .shell
+                .shared
                 .input
                 .as_ref()
                 .map(crate::input::InputShell::save_keymap)
@@ -922,7 +1438,7 @@ impl<H: Host> Ui<'_, '_, H> {
         // retail. Do not defer them to next frame or make their cache change trigger a re-seed.
         self.cx.consume_placement_requests(
             &mut self
-                .shell
+                .front
                 .ui
                 .as_mut()
                 .map(|s| s.ui.requests.take_placement_updates())
@@ -935,9 +1451,9 @@ impl<H: Host> Ui<'_, '_, H> {
         // OpenVendor first emits an actual Menu message; its external handler then produces
         // Select. Draining only direct requests would leave that broadcast one frame late.
         let cx = &mut *self.cx;
-        let targeted_dialogs = &mut self.shell.targeted_dialogs;
-        let serial = self.shell.gameplay_serial;
-        self.shell
+        let targeted_dialogs = &mut self.front.targeted_dialogs;
+        let serial = self.front.gameplay_serial;
+        self.front
             .ui
             .as_mut()
             .expect("checked above")
@@ -950,7 +1466,7 @@ impl<H: Host> Ui<'_, '_, H> {
                     now,
                 ));
             });
-        let shell = self.shell.ui.as_mut().expect("checked above");
+        let shell = self.front.ui.as_mut().expect("checked above");
         // The movie's current frame, uploaded outside the frame bracket with the rest
         // of the UI textures and released the moment the next one replaces it.
         let movie_frame = shell.take_movie_frame();
@@ -974,14 +1490,13 @@ impl<H: Host> Ui<'_, '_, H> {
         // reusable by the very next upload instead of waiting on this frame's fence.
         if screen_changed {
             let r = self.cx.present_mut().release_ui_textures();
-            self.shell.ui_release.freed += r.freed;
-            self.shell.ui_release.still_linked += r.still_linked;
-            self.shell.ui_release.unknown += r.unknown;
+            self.shared.ui_release.freed += r.freed;
+            self.shared.ui_release.still_linked += r.still_linked;
+            self.shared.ui_release.unknown += r.unknown;
             // Gameplay-screen construction and teardown, which are the only two
             // screen-lifetime calls to display-resolution forcing. It runs here for the
             // same reason as the texture release above: the flow has just destroyed
             // the outgoing screen and built the incoming one, so this *is* the ctor/dtor edge.
-            self.cx.follow_screen_change(self.shell);
         }
         if let Some(frame) = movie_frame {
             self.cx
@@ -1003,28 +1518,8 @@ impl<H: Host> Ui<'_, '_, H> {
         // The 3D character preview's update, then the preview pass's own device work -- both
         // **outside** the frame bracket, for the same reason `prepare_ui` is: adding preview objects uploads
         // textures and `Gpu::upload_texture` runs a command list of its own.
-        self.own_actions();
-        self.preview_use_time();
-        // What the pointer and the screens asked for, acted on later in the frame where interaction runs.
         self.cx.queue(mouse_events, ui_requests);
-        // The teleport overlay is one of the UI elements
-        // the shell ticks, so it belongs to this step rather than the world-object step.
-        self.cx.teleport_use_time(self.shell);
-        // The portal-space view advances from inside its
-        // own UI tick, so this is the same step and runs **after** the state machine: the tunnel
-        // state it reads is this frame's. The frame counter it hands back is read by the *next*
-        // tick's tunnel-continue arm, a lag of one frame at 60 Hz against a window 200 ms
-        // wide. Still outside `begin_frame`/`end_frame`: adding preview objects uploads textures.
-        self.cx.portal_space_use_time(self.shell);
-        // The paper-doll panel is a UI element too, and its space is built by the same
-        // viewport-element machinery -- so it belongs in this step for the same reason and
-        // outside the frame bracket for the same reason.
-        self.paper_doll_use_time();
-        // The identify portrait is a third viewport element and
-        // belongs in the same step for the same two reasons: its space is queued per frame from
-        // the element's own draw, and adding a preview object uploads textures so it must stay outside
-        // `begin_frame`/`end_frame`.
-        self.examine_3d_use_time();
+        screen_changed
     }
 
     /// This client's own actions that the retail interface answers itself, taken out of what the
@@ -1039,7 +1534,7 @@ impl<H: Host> Ui<'_, '_, H> {
     /// | right-click mouse look, stretched interface | flips the classic interface's own setting and says so: this interface has no such mode |
     fn own_actions(&mut self) {
         use dereth_client_contract::actions::dereth as own;
-        let Some(input) = self.shell.input.as_mut() else {
+        let Some(input) = self.shared.input.as_mut() else {
             return;
         };
         let (mine, rest): (Vec<_>, Vec<_>) = input.take_events().into_iter().partition(|e| {
@@ -1055,7 +1550,7 @@ impl<H: Host> Ui<'_, '_, H> {
             }
             match id {
                 own::TOGGLE_TRADE_PANEL | own::TOGGLE_SPELL_RESEARCH_PANEL => {
-                    if let Some(shell) = self.shell.ui.as_mut() {
+                    if let Some(shell) = self.front.ui.as_mut() {
                         if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                             crate::hud_drive::game_call(
                                 &mut shell.ui,
@@ -1192,11 +1687,11 @@ impl<H: Host> Ui<'_, '_, H> {
                 dereth_ui::framework::mode::REGISTRATION_ORDER.len(),
                 shell.flow.queued_mode()
             );
-            self.shell.ui = Some(shell);
+            self.front.ui = Some(shell);
             // The UI comes up on a pre-game screen, where no character session exists yet, so the
             // session's maps go now rather than on the UI's first frame: a key pressed before that
             // frame must not reach them either.
-            if let Some(input) = self.shell.input.as_mut() {
+            if let Some(input) = self.shared.input.as_mut() {
                 input.set_character_session_input_maps(false);
             }
         }
@@ -1225,8 +1720,8 @@ impl<H: Host> Ui<'_, '_, H> {
         let creating = !self.cx.config().create_char.is_empty();
         let create_char = self.cx.config().create_char.clone();
         let script = self.cx.entry_script();
-        let mut pregame = self.shell.pregame;
-        let Some(shell) = self.shell.ui.as_mut() else {
+        let mut pregame = self.front.pregame;
+        let Some(shell) = self.front.ui.as_mut() else {
             return;
         };
         match shell.flow.current_mode() {
@@ -1245,7 +1740,7 @@ impl<H: Host> Ui<'_, '_, H> {
                     if let Some(h) = shell.ui.get_child_recursive(root, ElementId(0x1000_03A0)) {
                         tracing::info!("pressing Create Character");
                         shell.ui.broadcast_element_message(h, BUTTON_CLICKED, 7, 0);
-                        self.shell.pregame = PregameDrive::OpeningWizard;
+                        self.front.pregame = PregameDrive::OpeningWizard;
                     }
                     return;
                 }
@@ -1354,7 +1849,7 @@ impl<H: Host> Ui<'_, '_, H> {
             }
             _ => {}
         }
-        self.shell.pregame = pregame;
+        self.front.pregame = pregame;
     }
 
     /// `--say`, submitted from the world screen: five seconds after arriving, then one line every
@@ -1365,7 +1860,7 @@ impl<H: Host> Ui<'_, '_, H> {
     fn drive_say(&mut self, now: f64) {
         use dereth_ui::framework::mode;
 
-        let drive = self.shell.say_drive;
+        let drive = self.front.say_drive;
         let say_left = self.cx.config().say.len().saturating_sub(drive.said);
         let use_left = self
             .cx
@@ -1377,14 +1872,14 @@ impl<H: Host> Ui<'_, '_, H> {
             return;
         }
         let in_world = self.cx.pregame().in_world;
-        let Some(shell) = self.shell.ui.as_mut() else {
+        let Some(shell) = self.front.ui.as_mut() else {
             return;
         };
         if !in_world || shell.flow.current_mode() != Some(mode::GAME_PLAY) {
             return;
         }
         let Some(last) = drive.last else {
-            self.shell.say_drive.last = Some(now + 3.0);
+            self.front.say_drive.last = Some(now + 3.0);
             return;
         };
         if say_left == 0 {
@@ -1397,7 +1892,7 @@ impl<H: Host> Ui<'_, '_, H> {
                 if now - last < 6.0 {
                     return;
                 }
-                self.shell.say_drive.used += 1;
+                self.front.say_drive.used += 1;
                 tracing::info!("using {id:?}");
                 shell
                     .ui
@@ -1407,7 +1902,7 @@ impl<H: Host> Ui<'_, '_, H> {
                 if now - last < 6.0 {
                     return;
                 }
-                self.shell.say_drive.used += 1;
+                self.front.say_drive.used += 1;
                 tracing::info!("logging out, as the confirmed logout button does");
                 shell
                     .ui
@@ -1417,8 +1912,8 @@ impl<H: Host> Ui<'_, '_, H> {
                 if now - last < 1.0 {
                     return;
                 }
-                self.shell.say_drive.selected = false;
-                self.shell.say_drive.used += 1;
+                self.front.say_drive.selected = false;
+                self.front.say_drive.used += 1;
                 let world = self.cx.model();
                 if let Some(id) = world.selected {
                     let name = world
@@ -1433,24 +1928,24 @@ impl<H: Host> Ui<'_, '_, H> {
             } else if now - last >= 6.0 {
                 tracing::info!("selecting the closest compass item");
                 self.cx.inject_action(scripted_key(0x1000_002F));
-                self.shell.say_drive.selected = true;
+                self.front.say_drive.selected = true;
             } else {
                 return;
             }
-            self.shell.say_drive.last = Some(now);
+            self.front.say_drive.last = Some(now);
             return;
         }
         if now - last < 2.0 {
             return;
         }
         let text = self.cx.config().say[drive.said].clone();
-        self.shell.say_drive.said += 1;
+        self.front.say_drive.said += 1;
         tracing::info!("saying {text:?} ({} more to say)", say_left - 1);
         shell
             .ui
             .requests
             .emit(dereth_ui_screens::view::UiRequest::ChatLine { text, window: 0 });
-        self.shell.say_drive.last = Some(now);
+        self.front.say_drive.last = Some(now);
     }
 
     /// `--cast`, pressed into the world screen: the backpack button, the carried caster used
@@ -1472,14 +1967,14 @@ impl<H: Host> Ui<'_, '_, H> {
             return;
         };
         let in_world = self.cx.pregame().in_world;
-        let drive = self.shell.world_drive;
-        let Some(shell) = self.shell.ui.as_mut() else {
+        let drive = self.front.world_drive;
+        let Some(shell) = self.front.ui.as_mut() else {
             return;
         };
         if !in_world || shell.flow.current_mode() != Some(mode::GAME_PLAY) {
             return;
         }
-        self.shell.world_drive = match drive {
+        self.front.world_drive = match drive {
             WorldDrive::Idle => WorldDrive::Arrived(now),
             WorldDrive::Arrived(t) if now - t >= 5.0 => {
                 let root = match shell.flow.current() {
@@ -1590,11 +2085,12 @@ impl<H: Host> Ui<'_, '_, H> {
     fn drive_key_bindings(&mut self) {
         use crate::hud_drive::game_call;
         use dereth_ui_screens::screens::gameplay_host::{GameCall, KeyBindingsCall as K};
-        let serial = self.shell.gameplay_serial;
+        let serial = self.front.gameplay_serial;
         let preferences_file = self.cx.config().preferences_file.clone();
-        let built = &mut self.shell.key_bindings_built;
-        let stats = &mut self.shell.key_binding_stats;
-        let (Some(shell), Some(input)) = (self.shell.ui.as_mut(), self.shell.input.as_mut()) else {
+        let built = &mut self.front.key_bindings_built;
+        let stats = &mut self.front.key_binding_stats;
+        let (Some(shell), Some(input)) = (self.front.ui.as_mut(), self.shared.input.as_mut())
+        else {
             return;
         };
         let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) else {
@@ -1825,7 +2321,7 @@ impl<H: Host> Ui<'_, '_, H> {
     fn draw_world_target(&mut self) {
         use dereth_ui_screens::hud::target::{self, VividTargetIndicator};
         use dereth_ui_screens::screens::gameplay_host::GameCall;
-        let Some(shell) = self.shell.ui.as_mut() else {
+        let Some(shell) = self.front.ui.as_mut() else {
             return;
         };
         let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) else {
@@ -1883,13 +2379,13 @@ impl<H: Host> Ui<'_, '_, H> {
     /// because newly referenced media can upload textures. No UI tick, input, or notices
     /// are repeated. Mode teardown still releases its old texture links in ui_use_time.
     fn compose_ui_draw_list(&mut self) {
-        if let Some(shell) = self.shell.ui.as_mut() {
-            self.shell.ui_draw_list = shell.draw_list();
+        if let Some(shell) = self.front.ui.as_mut() {
+            self.shared.ui_draw_list = shell.draw_list();
             let interface = std::sync::Arc::clone(&shell.interface);
             let world = std::sync::Arc::clone(self.cx.store());
             self.cx
                 .present_mut()
-                .prepare_ui(&interface, &world, &self.shell.ui_draw_list);
+                .prepare_ui(&interface, &world, &self.shared.ui_draw_list);
         }
     }
 
@@ -1926,11 +2422,11 @@ impl<H: Host> Ui<'_, '_, H> {
         use dereth_ui_screens::screens::gameplay_host::GameCall;
 
         let now = self.cx.now();
-        let dt = (now - self.shell.paper_doll_last_time).clamp(0.0, 0.25);
-        self.shell.paper_doll_last_time = now;
+        let dt = (now - self.front.paper_doll_last_time).clamp(0.0, 0.25);
+        self.front.paper_doll_last_time = now;
 
         // Where it draws, and whether it draws at all.
-        let where_ = self.shell.ui.as_mut().and_then(|shell| {
+        let where_ = self.front.ui.as_mut().and_then(|shell| {
             let screen = crate::hud_drive::game_screen(&mut shell.flow)?;
             let GameCall::PaperDollViewport(h) = crate::hud_drive::game_call(
                 &mut shell.ui,
@@ -1985,7 +2481,7 @@ impl<H: Host> Ui<'_, '_, H> {
         // Rebuild when no preview object exists or its visual descriptor changed, because the
         // meshes are baked from the dressed part array. See [`Self::paper_doll_built`].
         let look = self.cx.present().objects_in_other_look();
-        if self.shell.paper_doll_built.as_ref() != Some(&(setup, objdesc.clone(), look)) {
+        if self.front.paper_doll_built.as_ref() != Some(&(setup, objdesc.clone(), look)) {
             self.cx.present_mut().preview_remove_all_objects(id);
             match self.cx.present_mut().preview_add_object_dressed(
                 id,
@@ -2019,15 +2515,15 @@ impl<H: Host> Ui<'_, '_, H> {
                             tracing::warn!("UIASSET PaperDollAnimation does not resolve")
                         }
                     }
-                    self.shell.paper_doll_built = Some((setup, objdesc, look));
+                    self.front.paper_doll_built = Some((setup, objdesc, look));
                 }
                 Ok(None) => {
                     tracing::warn!("the paper-doll setup {setup:?} would not load");
-                    self.shell.paper_doll_built = None;
+                    self.front.paper_doll_built = None;
                 }
                 Err(e) => {
                     tracing::warn!("the paper-doll space failed: {e}");
-                    self.shell.paper_doll_built = None;
+                    self.front.paper_doll_built = None;
                 }
             }
         }
@@ -2058,8 +2554,8 @@ impl<H: Host> Ui<'_, '_, H> {
         // (see [`Self::paper_doll_selection_seen`]) it then listens to global message 3, which
         // drives the part-selection-lighting update, the per-frame tick, on the doll's own object.
         let selected = self.cx.model().selected;
-        if self.shell.paper_doll_selection_seen != selected {
-            self.shell.paper_doll_selection_seen = selected;
+        if self.front.paper_doll_selection_seen != selected {
+            self.front.paper_doll_selection_seen = selected;
             if let Some(item) = selected {
                 let world = self.cx.model();
                 let inventory = player.and_then(|p| world.tables.inventories.get(p));
@@ -2070,11 +2566,11 @@ impl<H: Host> Ui<'_, '_, H> {
                     &upper,
                 );
                 let doll = self.cx.present_mut().preview_part_array_mut(id, 0);
-                self.shell.paper_doll_lighting.begin(mask, now, doll);
+                self.front.paper_doll_lighting.begin(mask, now, doll);
             }
         }
         let doll = self.cx.present_mut().preview_part_array_mut(id, 0);
-        self.shell.paper_doll_lighting.update(now, doll);
+        self.front.paper_doll_lighting.update(now, doll);
 
         #[allow(clippy::cast_sign_loss)]
         // LINT-OK: proves x1 >= x0 and y1 >= y0; `max(0)` covers an element laid
@@ -2141,14 +2637,14 @@ impl<H: Host> Ui<'_, '_, H> {
         use dereth_ui_screens::screens::gameplay_host::GameCall;
 
         let now = self.cx.now();
-        let dt = (now - self.shell.examine_3d_last_time).clamp(0.0, 0.25);
-        self.shell.examine_3d_last_time = now;
+        let dt = (now - self.front.examine_3d_last_time).clamp(0.0, 0.25);
+        self.front.examine_3d_last_time = now;
 
         // Where it draws, whether it draws at all, and which object the panel is showing.
         //
         // The `ExamineSubUi::Item` arm is the virtual `Init` fork: the item pane's `Init` adds no
         // object, so an appraised item must leave the space untouched rather than portray itself.
-        let where_ = self.shell.ui.as_mut().and_then(|shell| {
+        let where_ = self.front.ui.as_mut().and_then(|shell| {
             let screen = crate::hud_drive::game_screen(&mut shell.flow)?;
             let GameCall::ExaminePreview(p) =
                 crate::hud_drive::game_call(&mut shell.ui, screen, GameCall::ExaminePreview(None))
@@ -2207,7 +2703,7 @@ impl<H: Host> Ui<'_, '_, H> {
         let store = std::sync::Arc::clone(self.cx.store());
         let id = crate::gpu::PreviewId::Examine;
         let fresh = self.cx.present_mut().preview_ensure(id, &assets);
-        let rebuild = fresh || self.shell.examine_3d_built != Some((object, setup));
+        let rebuild = fresh || self.front.examine_3d_built != Some((object, setup));
 
         if rebuild {
             // Setting this light is the first initialization act and removes all lights, adds one,
@@ -2234,15 +2730,15 @@ impl<H: Host> Ui<'_, '_, H> {
                     self.cx
                         .present_mut()
                         .preview_set_heading(id, 0, portrait::HEADING_DEGREES);
-                    self.shell.examine_3d_built = Some((object, setup));
+                    self.front.examine_3d_built = Some((object, setup));
                 }
                 Ok(None) => {
                     tracing::warn!("the identify portrait's setup {setup:?} would not load");
-                    self.shell.examine_3d_built = None;
+                    self.front.examine_3d_built = None;
                 }
                 Err(e) => {
                     tracing::warn!("the identify portrait's space failed: {e}");
-                    self.shell.examine_3d_built = None;
+                    self.front.examine_3d_built = None;
                 }
             }
         }
@@ -2330,15 +2826,15 @@ impl<H: Host> Ui<'_, '_, H> {
         let now = self.cx.now();
         // Elapsed seconds since the last tick, clamped exactly as the world's own delta is.
         // Nothing below accumulates a per-frame increment: takes `dt`.
-        let dt = (now - self.shell.preview_last_time).clamp(0.0, 0.25);
-        self.shell.preview_last_time = now;
+        let dt = (now - self.front.preview_last_time).clamp(0.0, 0.25);
+        self.front.preview_last_time = now;
 
         // The appearance page's global-message 3 arm is the
         // per-frame tick: zoom animation when a zoom is animating, then rotation when rotating.
         // `CharGenScreen::tick_preview` is the rotation step: the two rotate arrows set the
         // rotating flag and direction, and this is what advances the heading. Driven off elapsed
         // seconds, like everything else in this step.
-        if let Some(shell) = self.shell.ui.as_mut() {
+        if let Some(shell) = self.front.ui.as_mut() {
             let wizard_took = shell.flow.current_mut().is_some_and(|w| {
                 crate::hud_drive::pregame_call(
                     &mut shell.ui,
@@ -2359,7 +2855,7 @@ impl<H: Host> Ui<'_, '_, H> {
 
         // What the wizard wants drawn, and where. `screen_clip_box` rather than `screen_box`: a
         // viewport scrolled under its parent must draw inside the parent's clipping rectangle.
-        let want = self.shell.ui.as_mut().and_then(|shell| {
+        let want = self.front.ui.as_mut().and_then(|shell| {
             let wizard = {
                 let w = shell.flow.current_mut()?;
                 match crate::hud_drive::pregame_call(
@@ -2417,7 +2913,7 @@ impl<H: Host> Ui<'_, '_, H> {
         let (objdesc, dress_stats) = match cg_tables.as_ref() {
             Some(t) => {
                 let s = std::sync::Arc::clone(self.cx.store());
-                let cache = &mut self.shell.chargen_pal_sets;
+                let cache = &mut self.front.chargen_pal_sets;
                 crate::preview::chargen_objdesc(
                     &t.chargen,
                     &cg_state,
@@ -2431,7 +2927,7 @@ impl<H: Host> Ui<'_, '_, H> {
                 crate::preview::ChargenDressStats::default(),
             ),
         };
-        self.shell.chargen_dress = dress_stats;
+        self.front.chargen_dress = dress_stats;
 
         // The preview object's setup-changed test, the background object's own
         // environment-setup-changed test, and the animation edge, together.
@@ -2445,9 +2941,9 @@ impl<H: Host> Ui<'_, '_, H> {
         // The two animation enums are in the key because the block below reads them. See
         // [`ChargenPreviewKey`].
         let key = ChargenPreviewKey::from_view(&view3d, objdesc.clone());
-        if self.shell.preview_chargen.as_ref() != Some(&key) {
+        if self.front.preview_chargen.as_ref() != Some(&key) {
             let rebuild =
-                !matches!(self.shell.preview_chargen.as_ref(), Some(k) if k.same_space(&key));
+                !matches!(self.front.preview_chargen.as_ref(), Some(k) if k.same_space(&key));
             if rebuild {
                 self.cx.present_mut().preview_remove_all_objects(id);
                 // Enable sharp rendering after rebuilding the preview; this is the preview update's
@@ -2517,7 +3013,7 @@ impl<H: Host> Ui<'_, '_, H> {
                     tracing::warn!("UIASSET enum {enum_value:#010X} does not resolve");
                 }
             }
-            self.shell.preview_chargen = Some(key);
+            self.front.preview_chargen = Some(key);
         }
 
         let p = view3d.camera_position;
@@ -2582,17 +3078,17 @@ impl<H: Host> Ui<'_, '_, H> {
         // `None` on a `--no-ui` run, which gates the
         // `SetCursor` and nothing else.
         // The pointers are the interface's own art.
-        let interface = self.shell.ui.as_ref().map_or_else(
+        let interface = self.front.ui.as_ref().map_or_else(
             || self.cx.store().interface_files(),
             |s| std::sync::Arc::clone(&s.interface),
         );
-        let mut shell = self.shell.ui.as_mut();
+        let mut shell = self.front.ui.as_mut();
         let ui = shell.as_mut().map(|s| &mut s.ui);
-        self.shell
+        self.shared
             .cursor
             .update_cursor_state(&*interface, ui, inputs);
-        if let Some(s) = self.shell.ui.as_mut() {
-            self.shell.cursor.apply_pending(&interface, &mut s.ui);
+        if let Some(s) = self.front.ui.as_mut() {
+            self.shared.cursor.apply_pending(&interface, &mut s.ui);
         }
     }
 }
@@ -2746,6 +3242,94 @@ fn build_classic<H: Host>(
 }
 
 impl<H: Host> ClientShell<H> {
+    fn front(&self) -> &dyn FrontEnd<H> {
+        match self.classic.active() {
+            Some(ui) => ui,
+            None => &self.modern,
+        }
+    }
+    fn front_and_services(&mut self) -> (&mut dyn FrontEnd<H>, &mut FrontEndServices<H>) {
+        match self.classic.active_mut() {
+            Some(ui) => (ui, &mut self.shared),
+            None => (&mut self.modern, &mut self.shared),
+        }
+    }
+
+    fn sync_classic_input(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        capturing: bool,
+        key: Option<u16>,
+        host_message: bool,
+    ) {
+        let Some(ui) = self.classic.active() else {
+            return;
+        };
+        let (editing, modal, own_capture) = ui.input_scope(None);
+        let barrier = ui.keyboard_barrier(key);
+        let recall = ui.chat_focused() && !barrier;
+        let Some(input) = self.shared.input.as_mut() else {
+            return;
+        };
+        if let Some(ui) = self.classic.active_mut() {
+            input.defer_runtime_actions(ui.take_runtime_actions());
+        }
+        input.set_character_session_input_maps(cx.pregame().in_world);
+        input.finish_session_retirement(|released| {
+            if host_message {
+                for action in released {
+                    cx.inject_action(action);
+                }
+            } else {
+                cx.accept_actions(released);
+            }
+        });
+        input.set_focused_input_maps(if editing {
+            &crate::input::FOCUSED_TEXT_MAP_REGISTRATIONS
+        } else if barrier {
+            &[(1, 2990)]
+        } else {
+            &[]
+        });
+        input.classic_recall_scope(recall);
+        input.set_mode_input_maps(if modal || !cx.pregame().in_world {
+            &[9]
+        } else {
+            &[]
+        });
+        if input.manager.text.text_mode != editing {
+            input.set_text_mode(editing);
+        }
+        input.set_key_hit_handler(capturing || own_capture);
+    }
+
+    fn drain_classic_message(&mut self, cx: &mut Cx<'_, H>) -> bool {
+        let Some(input) = self.shared.input.as_mut() else {
+            return false;
+        };
+        let (events, chars) = input.drain_message();
+        let consumed = events
+            .iter()
+            .any(|event| !matches!(event.input_map.0, 1 | 7 | 8 | 9 | 10));
+        input.take_key_hits();
+        for event in events {
+            input.manager.begin_action_dispatch(event.from_key_down);
+            if let Some(ui) = self.classic.active_mut() {
+                ui.mapped_action(cx, event);
+                let editing = ui.input_scope(None).0;
+                if input.manager.text.text_mode != editing {
+                    input.set_text_mode(editing);
+                }
+            }
+            input.manager.end_action_dispatch();
+        }
+        if let Some(ui) = self.classic.active_mut() {
+            ui.mapped_characters(cx, chars);
+            input.defer_runtime_actions(ui.take_runtime_actions());
+        }
+        consumed
+    }
+
     /// Follow the interface choice: bring the classic interface up and show it, or put it away
     /// and show this one; a classic choice that cannot be shown goes back, and the chat says why.
     fn follow_interface(&mut self, cx: &mut Cx<'_, H>) {
@@ -2764,10 +3348,10 @@ impl<H: Host> ClientShell<H> {
             Interface::Classic => {
                 if let Some(ui) = self.classic.ui.as_mut() {
                     ui.shown_again();
-                    ui.set_classic_keys(classic_keys(self.input.as_mut()));
+                    ui.set_classic_keys(classic_keys(self.shared.input.as_mut()));
                 }
                 if self.classic.ui.is_none() {
-                    match build_classic(cx, classic_keys(self.input.as_mut())) {
+                    match build_classic(cx, classic_keys(self.shared.input.as_mut())) {
                         Ok(ui) => {
                             self.classic.ui = Some(ui);
                         }
@@ -2783,7 +3367,7 @@ impl<H: Host> ClientShell<H> {
                     }
                 }
                 // Capture widget drafts before the incoming interface projects the shared sessions.
-                if let Some(shell) = self.ui.as_mut() {
+                if let Some(shell) = self.modern.ui.as_mut() {
                     if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                         crate::hud_drive::game_call(
                             &mut shell.ui,
@@ -2807,6 +3391,11 @@ impl<H: Host> ClientShell<H> {
                 }
                 flush_panel_sessions(cx);
                 service_journal(cx);
+                <ModernFrontEnd as FrontEnd<H>>::suspend(&mut self.modern, cx);
+                if let Some(input) = self.shared.input.as_mut() {
+                    cx.accept_actions(input.release_actions());
+                    input.activate_classic(true);
+                }
                 self.classic.active = true;
                 cx.hud_mut().classic_active = true;
                 let size = cx.present().size();
@@ -2837,17 +3426,27 @@ impl<H: Host> ClientShell<H> {
                 if !self.classic.active {
                     return;
                 }
+                if let Some(ui) = self.classic.ui.as_mut() {
+                    ui.suspend(cx);
+                }
+                if let Some(input) = self.shared.input.as_mut() {
+                    cx.accept_actions(input.release_actions());
+                    input.activate_classic(false);
+                    if let Some(ui) = self.modern.ui.as_mut() {
+                        ui.resume_input(input);
+                    }
+                }
                 self.classic.active = false;
                 cx.hud_mut().classic_active = false;
                 // This interface was not framed while the classic one was shown: it comes up on
                 // the screen the game is at, whatever it last showed.
-                if let Some(shell) = self.ui.as_mut() {
+                if let Some(shell) = self.modern.ui.as_mut() {
                     shell.catch_up(cx.pregame());
                 }
                 // The classic interface dressed the shared preview spaces with its own models:
                 // this one builds its own again.
-                self.paper_doll_built = None;
-                self.preview_chargen = None;
+                self.modern.paper_doll_built = None;
+                self.modern.preview_chargen = None;
                 flush_panel_sessions(cx);
                 service_journal(cx);
                 // Discard widget caches; the shared notebook remains loaded.
@@ -2868,14 +3467,14 @@ impl<H: Host> ClientShell<H> {
                 // The other interface may have changed any option while this one was put
                 // away (the interface choice itself among them): every option page shows the
                 // store and the character as they are now.
-                if let Some(shell) = self.ui.as_mut() {
+                if let Some(shell) = self.modern.ui.as_mut() {
                     if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                         let (hud, objects) = cx.hud_and_objects();
                         let moved = hud.reread_option_pages(&mut shell.ui, screen, objects);
                         tracing::debug!("the option pages read again: {moved} rows moved");
                     }
                 }
-                if let Some(shell) = self.ui.as_mut() {
+                if let Some(shell) = self.modern.ui.as_mut() {
                     if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
                         for draft in cx.chat_entry_drafts() {
                             crate::hud_drive::game_call(
@@ -2920,7 +3519,7 @@ impl<H: Host> Shell for ClientShell<H> {
             });
         let keymap = crate::input::keymap_path_for(&preferences_file, keymap_file.as_deref());
         match crate::input::InputShell::new(&**cx.store(), keymap.as_ref()) {
-            Ok(i) => self.input = Some(i),
+            Ok(i) => self.shared.input = Some(i),
             Err(e) => tracing::warn!("no input: {e}"),
         }
     }
@@ -2932,34 +3531,75 @@ impl<H: Host> Shell for ClientShell<H> {
         } else {
             dereth_client_contract::options::interface::Interface::Retail
         });
-        let events: Vec<_> = self.window_events.borrow_mut().drain(..).collect();
+        let events: Vec<_> = self.shared.window_events.borrow_mut().drain(..).collect();
         if self.classic.active {
-            // The classic interface takes the devices; the window's lifecycle stays the
-            // runtime's, and the keys still reach the window procedure for its own arms
-            // (Alt+Enter among them).
-            let mut devices = Vec::new();
             for event in &events {
                 use crate::platform::window::HostEvent;
                 if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
                     cx.window_event(self, &lifecycle, time_ms);
-                    if matches!(event, HostEvent::Focused(_)) {
-                        devices.push(event.clone());
-                    }
-                    continue;
-                }
-                if matches!(
-                    event,
-                    HostEvent::KeyboardInput { .. } | HostEvent::ModifiersChanged { .. }
-                ) {
-                    for m in self.devices.map_device_event(event, time_ms) {
-                        cx.window_message(crate::pump::window_message(m), m.time_ms);
+                    if let Some(input) = self.shared.input.as_mut() {
+                        for message in
+                            dereth_client_runtime::pump::Pump::map_window_event(&lifecycle)
+                        {
+                            input.on_message(crate::pump::from_window(message, time_ms));
+                        }
                     }
                 }
-                devices.push(event.clone());
-            }
-            let mut clipboard = ClassicClipboard(&mut self.host_clipboard);
-            if let Some(ui) = self.classic.ui.as_mut() {
-                ui.window_input(cx, &devices, &mut clipboard);
+                let key = match event {
+                    HostEvent::KeyboardInput { key, .. } => u16::try_from(key.virtual_key).ok(),
+                    _ => None,
+                };
+                if let Some(ui) = self.classic.active_mut() {
+                    ui.prepare_host_input(cx, event);
+                }
+                let capturing = self
+                    .classic
+                    .active()
+                    .is_some_and(|ui| ui.input_scope(key).2);
+                self.sync_classic_input(cx, capturing, key, true);
+                // The widget receives key transitions, but characters come only from the
+                // normalized input stream after its text-mode gate.
+                let widget_event = match event {
+                    HostEvent::KeyboardInput { key, pressed, .. } => HostEvent::KeyboardInput {
+                        key: *key,
+                        pressed: *pressed,
+                        text: None,
+                    },
+                    _ => event.clone(),
+                };
+                let keyboard = matches!(event, HostEvent::KeyboardInput { .. });
+                if !keyboard {
+                    if let Some(ui) = self.classic.active_mut() {
+                        ui.window_input(
+                            cx,
+                            std::slice::from_ref(&widget_event),
+                            &mut ClassicClipboard(&mut self.shared.host_clipboard),
+                        );
+                    }
+                }
+                let mut widget_key_pending = keyboard;
+                for message in self.shared.devices.map_device_event(event, time_ms) {
+                    cx.window_message(crate::pump::window_message(message), message.time_ms);
+                    if let Some(input) = self.shared.input.as_mut() {
+                        input.on_message(message);
+                    }
+                    let consumed = self.drain_classic_message(cx);
+                    if widget_key_pending {
+                        widget_key_pending = false;
+                        if !consumed || capturing {
+                            if let Some(ui) = self.classic.active_mut() {
+                                ui.window_input(
+                                    cx,
+                                    std::slice::from_ref(&widget_event),
+                                    &mut ClassicClipboard(&mut self.shared.host_clipboard),
+                                );
+                            }
+                        }
+                        self.sync_classic_input(cx, capturing, key, true);
+                    }
+                }
+                self.drain_classic_message(cx);
+                self.sync_classic_input(cx, false, None, true);
             }
             return;
         }
@@ -2969,7 +3609,7 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn input_use_time(&mut self, _cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
-        if let Some(input) = self.input.as_mut() {
+        if let Some(input) = self.shared.input.as_mut() {
             input.use_time(now);
         }
     }
@@ -2977,18 +3617,14 @@ impl<H: Host> Shell for ClientShell<H> {
     fn hand_on_actions(&mut self, actions: &mut dereth_client_runtime::actions::ActionQueue) {
         if let Some(ui) = self.classic.active_mut() {
             ui.hand_on_actions(actions);
-            return;
         }
-        if let Some(input) = self.input.as_mut() {
+        if let Some(input) = self.shared.input.as_mut() {
             input.hand_on(actions);
         }
     }
 
     fn control_notice(&mut self, notice: dereth_client_runtime::shell::ControlNotice) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.control_notice(notice);
-        }
-        if let Some(input) = self.input.as_mut() {
+        if let Some(input) = self.shared.input.as_mut() {
             input.apply_notice(notice);
         }
     }
@@ -2999,6 +3635,7 @@ impl<H: Host> Shell for ClientShell<H> {
     fn save_bindings(&mut self) -> dereth_client_runtime::shutdown::Outcome {
         use dereth_client_runtime::shutdown::Outcome;
         match self
+            .shared
             .input
             .as_ref()
             .map(crate::input::InputShell::save_keymap)
@@ -3013,51 +3650,38 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn start_ui(&mut self, cx: &mut Cx<'_, H>) -> Result<(), StartupError> {
-        Ui { cx, shell: self }.start_ui()
+        Ui {
+            cx,
+            front: &mut self.modern,
+            shared: &mut self.shared,
+        }
+        .start_ui()
     }
 
     fn has_ui(&self) -> bool {
-        self.ui.is_some() || self.classic.active().is_some()
+        self.modern.ui.is_some() || self.classic.active().is_some()
     }
 
     /// Whether the current UI mode is the gameplay screen, which means "the player is in the world".
     fn in_gameplay(&self) -> bool {
-        if let Some(ui) = self.classic.active() {
-            return ui.in_gameplay();
-        }
-        self.ui
-            .as_ref()
-            .is_some_and(|s| s.flow.current_mode() == Some(dereth_ui::framework::mode::GAME_PLAY))
+        self.front().in_gameplay()
     }
 
     /// Credits has no backdrop element. Retail's black is the frame-start clear:
     /// the character-management screen builds the rotating preview, while the credits screen
     /// only creates its two authored roots, so entering Credits hides the retained world.
     fn hides_world(&self) -> bool {
-        if let Some(ui) = self.classic.active() {
-            return ui.hides_world();
-        }
-        self.ui.as_ref().and_then(|shell| shell.flow.current_mode())
-            == Some(dereth_ui::framework::mode::CREDITS)
+        self.front().hides_world()
     }
 
     /// A Turbine callback is a synchronous notice to the CURRENT chat subscribers. Preserve that
     /// generation through the deferred Hud delivery, not across a rebuild.
     fn chat_generation(&self) -> Option<u64> {
-        if self.classic.active {
-            return None;
-        }
-        self.ui
-            .as_ref()
-            .and_then(|shell| shell.flow.current())
-            .and_then(|s| s.is_game().then_some(self.gameplay_serial))
+        self.front().chat_generation()
     }
 
     fn ui_requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox> {
-        if self.classic.active {
-            return self.classic.ui.as_mut().map(|ui| &mut ui.outbox);
-        }
-        self.ui.as_mut().map(|s| &mut s.ui.requests)
+        self.front_and_services().0.requests()
     }
 
     /// The 3D viewport's rectangle, from `<SBOX>`'s own screen box.
@@ -3071,27 +3695,7 @@ impl<H: Host> Shell for ClientShell<H> {
     /// the original viewport calculation's answer with nothing docked, so the two agree
     /// on the degenerate case rather than merely not disagreeing.
     fn game_viewport(&self) -> Option<dereth_primitives::Viewport> {
-        if let Some(ui) = self.classic.active() {
-            return ui.game_viewport();
-        }
-        let shell = self.ui.as_ref()?;
-        let root = *shell.flow.current()?.roots().first()?;
-        let h = shell
-            .ui
-            .get_child_recursive(root, dereth_ui_screens::hud::world_view::SMART_BOX)?;
-        let b = dereth_ui_screens::hud::world_view::client_rect(&shell.ui, h);
-        if !b.is_valid() {
-            return None;
-        }
-        #[allow(clippy::cast_sign_loss)]
-        // LINT-OK: `is_valid` proves the box is non-empty; `max(0)` covers an element laid out off
-        // the top-left edge, matching the UI box clamp used during layout.
-        Some(dereth_primitives::Viewport {
-            x: b.x0.max(0) as u32,
-            y: b.y0.max(0) as u32,
-            width: (b.x1 - b.x0.max(0) + 1).max(0) as u32,
-            height: (b.y1 - b.y0.max(0) + 1).max(0) as u32,
-        })
+        self.front().game_viewport()
     }
 
     /// Is the pointer over the 3-D view, rather than over a HUD window drawn on
@@ -3099,63 +3703,23 @@ impl<H: Host> Shell for ClientShell<H> {
     /// shipped layout, so this build asks the hit test instead -- the same machinery the click
     /// path consults. `true` with no UI at all.
     fn pointer_over_game_view(&self, cursor: (i32, i32)) -> bool {
-        if let Some(ui) = self.classic.active() {
-            return ui.pointer_over_game_view(cursor);
-        }
-        let Some(shell) = self.ui.as_ref() else {
-            return true;
-        };
-        let (x, y) = cursor;
-        pointer_over_game_view_at(shell, shell.ui.hit_test_screen(x, y))
+        self.front().pointer_over_game_view(cursor)
     }
 
     /// Look up element `0x100005F7` and read its visibility bit: is `<EXAM>` on
     /// screen? `false` covers both negative legs: no UI manager and no such element.
     fn examine_panel_open(&mut self) -> bool {
-        if let Some(ui) = self.classic.active() {
-            return ui.examine_panel_open();
-        }
-        let Some(shell) = self.ui.as_mut() else {
-            return false;
-        };
-        let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) else {
-            return false;
-        };
-        use dereth_ui_screens::screens::gameplay_host::GameCall;
-        matches!(
-            crate::hud_drive::game_call(&mut shell.ui, screen, GameCall::ExaminationOpen(false)),
-            GameCall::ExaminationOpen(true)
-        )
+        self.front_and_services().0.examine_panel_open()
     }
 
     /// Use the panel's own hide path so the key and close button
     /// reach one statement and one counter.
     fn close_examine_panel(&mut self) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.close_examine_panel();
-            return;
-        }
-        let Some(shell) = self.ui.as_mut() else {
-            return;
-        };
-        let ui = &mut shell.ui;
-        let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) else {
-            return;
-        };
-        crate::hud_drive::game_call(
-            ui,
-            screen,
-            dereth_ui_screens::screens::gameplay_host::GameCall::CloseExamination(false),
-        );
+        self.front_and_services().0.close_examine_panel()
     }
 
     fn service_dialogs(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.service_dialogs(cx, now);
-            return;
-        }
-        self.targeted_dialogs
-            .service_with(cx, self.ui.as_mut(), now);
+        self.front_and_services().0.service_dialogs(cx, now)
     }
 
     fn resolution_prompt(
@@ -3164,38 +3728,30 @@ impl<H: Host> Shell for ClientShell<H> {
         prompt: Option<dereth_client_contract::resolution::ResolutionPrompt>,
     ) {
         if let Some(classic) = self.classic.active_mut() {
-            if let Some(ui) = self.ui.as_mut() {
-                self.resolution_dialog.clear(&mut ui.ui);
+            if let Some(ui) = self.modern.ui.as_mut() {
+                self.modern.resolution_dialog.clear(&mut ui.ui);
             }
             classic.project_resolution(prompt);
-        } else if let Some(ui) = self.ui.as_mut() {
+        } else if let Some(ui) = self.modern.ui.as_mut() {
             ui.ui.now = dereth_primitives::LocalTime(cx.now());
-            self.resolution_dialog.project(&mut ui.ui, prompt);
+            self.modern.resolution_dialog.project(&mut ui.ui, prompt);
         }
     }
 
     fn before_ui_input(&mut self, player_airborne: bool) {
-        if self.classic.active {
-            return;
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
-                crate::hud_drive::game_call(
-                    &mut shell.ui,
-                    screen,
-                    dereth_ui_screens::screens::gameplay_host::GameCall::PlayerAirborne(
-                        player_airborne,
-                    ),
-                );
-            }
-        }
+        self.front_and_services().0.before_ui_input(player_airborne)
     }
 
     fn drive_pregame_screens(&mut self, cx: &mut Cx<'_, H>) {
         if self.classic.active {
             return;
         }
-        Ui { cx, shell: self }.drive_pregame_screens();
+        Ui {
+            cx,
+            front: &mut self.modern,
+            shared: &mut self.shared,
+        }
+        .drive_pregame_screens();
     }
 
     fn drive_world_script(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
@@ -3206,7 +3762,7 @@ impl<H: Host> Shell for ClientShell<H> {
             let own = dereth_input::dereth::name(action).is_some();
             if let Some(ui) = self.classic.active_mut() {
                 ui.press_action(action);
-            } else if let (true, Some(input)) = (own, self.input.as_mut()) {
+            } else if let (true, Some(input)) = (own, self.shared.input.as_mut()) {
                 // This client's own actions, in their own map, pressed and let go.
                 for start in [true, false] {
                     input.inject_action(dereth_input::InputEvent {
@@ -3223,7 +3779,7 @@ impl<H: Host> Shell for ClientShell<H> {
             } else if !window {
                 cx.inject_action(dereth_client_runtime::actions::Action::begin(action));
                 cx.inject_action(dereth_client_runtime::actions::Action::end(action));
-            } else if let Some(input) = self.input.as_mut() {
+            } else if let Some(input) = self.shared.input.as_mut() {
                 // On the map a key of it is bound in, else the UI's.
                 let input_map = input
                     .manager
@@ -3247,7 +3803,11 @@ impl<H: Host> Shell for ClientShell<H> {
         if self.classic.active {
             return;
         }
-        let mut ui = Ui { cx, shell: self };
+        let mut ui = Ui {
+            cx,
+            front: &mut self.modern,
+            shared: &mut self.shared,
+        };
         ui.drive_world_script(now.0);
         ui.drive_say(now.0);
     }
@@ -3261,7 +3821,7 @@ impl<H: Host> Shell for ClientShell<H> {
             return;
         }
         let id = crate::gpu::PreviewId::Portal;
-        let who = self.ui.as_ref().and_then(|shell| {
+        let who = self.modern.ui.as_ref().and_then(|shell| {
             let root = *shell.flow.current()?.roots().first()?;
             let h = shell
                 .ui
@@ -3301,7 +3861,7 @@ impl<H: Host> Shell for ClientShell<H> {
 
     /// The screens carry `--enter-world` whenever they are up; with no UI the runtime does.
     fn drives_scripted_entry(&self) -> bool {
-        self.ui.is_some() && !self.classic.active
+        self.modern.ui.is_some() && !self.classic.active
     }
 
     fn ui_frame(
@@ -3317,26 +3877,40 @@ impl<H: Host> Shell for ClientShell<H> {
         } else {
             dereth_client_contract::options::interface::Interface::Retail
         });
-        if let Some(ui) = self.classic.active_mut() {
-            ui.ui_frame(cx, now, notices);
-            // What the classic key page asked of its key map, carried out, and the map handed back
-            // as it then is.
-            let requests = ui.take_key_store_requests();
-            if !requests.is_empty() {
-                if let Some(input) = self.input.as_mut() {
-                    for r in requests {
-                        input.classic_request(r);
+        if self.classic.active {
+            self.sync_classic_input(cx, false, None, false);
+            if let Some(input) = self.shared.input.as_mut() {
+                input.use_time(now);
+                let events = input.take_events();
+                if let Some(ui) = self.classic.active_mut() {
+                    for event in events {
+                        ui.mapped_action(cx, event);
                     }
                 }
-                let keys = classic_keys(self.input.as_mut());
-                if let Some(ui) = self.classic.active_mut() {
-                    ui.set_classic_keys(keys);
-                }
             }
-            service_journal(cx);
-            return;
         }
-        Ui { cx, shell: self }.ui_frame(now, notices);
+        let changed = {
+            let (front, services) = self.front_and_services();
+            front.frame(cx, services, now, notices)
+        };
+        if let Some(input) = self.shared.input.as_mut() {
+            input.finish_session_retirement(|released| cx.accept_actions(released));
+        }
+        if changed {
+            cx.follow_screen_change(self);
+        }
+        {
+            let (front, services) = self.front_and_services();
+            front.before_portal(cx, services);
+        }
+        if !self.classic.active {
+            cx.teleport_use_time(self);
+            cx.portal_space_use_time(self);
+        }
+        {
+            let (front, services) = self.front_and_services();
+            front.after_portal(cx, services);
+        }
         service_journal(cx);
     }
 
@@ -3345,14 +3919,9 @@ impl<H: Host> Shell for ClientShell<H> {
         talk_focus: dereth_client_model::chat::TalkFocus,
         notice: dereth_client_model::chat::TalkFocusNotice,
     ) -> bool {
-        if let Some(ui) = self.classic.active_mut() {
-            return ui.talk_focus_notice(talk_focus, notice);
-        }
-        self.ui.as_mut().is_some_and(|shell| {
-            crate::hud_drive::game_screen(&mut shell.flow).is_some_and(|screen| {
-                crate::hud::talk_focus_notice(&mut shell.ui, screen, talk_focus, notice)
-            })
-        })
+        self.front_and_services()
+            .0
+            .talk_focus_notice(talk_focus, notice)
     }
 
     /// Jump's notices are synchronous with their input/control-loss owner. Finish the
@@ -3363,26 +3932,9 @@ impl<H: Host> Shell for ClientShell<H> {
         hud: &mut crate::hud::Hud,
         notices: Vec<dereth_client_model::combat::PowerBarNotice>,
     ) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.deliver_power_bar_notices(notices);
-            return;
-        }
-        let Some(shell) = self.ui.as_mut() else {
-            return;
-        };
-        let Some(screen) = shell.flow.current() else {
-            return;
-        };
-        if !screen.is_game() {
-            return;
-        }
-        let writes = u64::from(crate::hud::deliver_power_bar_notices(
-            &mut shell.ui,
-            &mut hud.panels,
-            notices,
-        ));
-        hud.stats.power_bar_writes += writes;
-        hud.stats.panels_written += writes;
+        self.front_and_services()
+            .0
+            .deliver_power_bar_notices(hud, notices)
     }
 
     fn object_panel_notice(
@@ -3391,32 +3943,17 @@ impl<H: Host> Shell for ClientShell<H> {
         world: &dereth_client_model::World,
         notice: &dereth_client_model::Notice,
     ) -> Vec<dereth_client_contract::UiRequest> {
-        if let Some(ui) = self.classic.active_mut() {
-            return ui.object_panel_notice(world, notice);
-        }
-        dispatch_object_panel_notice(self.ui.as_mut(), hud, world, notice)
+        self.front_and_services()
+            .0
+            .object_panel_notice(hud, world, notice)
     }
 
     fn emit_magic_notices(&mut self, notices: Vec<dereth_client_contract::view::MagicNotice>) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.emit_magic_notices(notices);
-            return;
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            for n in notices {
-                shell.ui.notice_inbox.emit(n);
-            }
-        }
+        self.front_and_services().0.emit_magic_notices(notices)
     }
 
     fn open_vendor_buying(&mut self, hud: &mut crate::hud::Hud) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.open_vendor_buying();
-            return;
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            hud.panels.vendor.open_buying(&mut shell.ui);
-        }
+        self.front_and_services().0.open_vendor_buying(hud)
     }
 
     fn run_ui_layout_commands(
@@ -3426,31 +3963,9 @@ impl<H: Host> Shell for ClientShell<H> {
         world: &str,
         layout_commands: Vec<crate::interaction::UiLayoutCommand>,
     ) {
-        if self.classic.active {
-            return;
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            for command in layout_commands {
-                let result = match command {
-                    crate::interaction::UiLayoutCommand::Save(name) => shell
-                        .screen_layout_path(&name, prefs, character, world)
-                        .map(|path| shell.save_ui_layout(&path)),
-                    crate::interaction::UiLayoutCommand::Load(name) => shell
-                        .screen_layout_path(&name, prefs, character, world)
-                        .map(|path| shell.load_ui_layout(&path)),
-                    crate::interaction::UiLayoutCommand::SetLockUi(locked) => {
-                        // Both `/lockui` and the radar request already ran the lock-UI setter, then
-                        // OnChanged(51) in Interaction. Complete native's following global-0D
-                        // visible cascade without constructing a second option write.
-                        shell.apply_lock_ui(locked);
-                        None
-                    }
-                };
-                if let Some(Err(e)) = result {
-                    tracing::warn!("screen layout command failed: {e}");
-                }
-            }
-        }
+        self.front_and_services()
+            .0
+            .run_ui_layout_commands(prefs, character, world, layout_commands)
     }
 
     fn split_stack(
@@ -3458,37 +3973,15 @@ impl<H: Host> Shell for ClientShell<H> {
         view: &crate::hud::HudView<'_>,
         selected: dereth_primitives::ObjectId,
     ) {
-        if self.classic.active {
-            return;
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
-                crate::hud_drive::game_call_with_view(
-                    &mut shell.ui,
-                    screen,
-                    view,
-                    dereth_ui_screens::screens::gameplay_host::GameCall::SplitStack(selected),
-                );
-            }
-        }
+        self.front_and_services().0.split_stack(view, selected)
     }
 
     fn dispatch_input_action(&mut self, action: u32) -> Option<bool> {
-        if let Some(ui) = self.classic.active_mut() {
-            return ui.dispatch_input_action(action);
-        }
-        self.ui
-            .as_mut()
-            .map(|shell| shell.ui.dispatch_input_action(action))
+        self.front_and_services().0.dispatch_input_action(action)
     }
 
     fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
-        if self.classic.active {
-            return;
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            apply_world_tooltip(shell, tooltip);
-        }
+        self.front_and_services().0.world_tooltip(tooltip)
     }
 
     fn draw_world_target(&mut self, cx: &mut Cx<'_, H>) {
@@ -3509,7 +4002,12 @@ impl<H: Host> Shell for ClientShell<H> {
             }
             return;
         }
-        Ui { cx, shell: self }.draw_world_target();
+        Ui {
+            cx,
+            front: &mut self.modern,
+            shared: &mut self.shared,
+        }
+        .draw_world_target();
     }
 
     fn update_cursor(&mut self, cx: &mut Cx<'_, H>) {
@@ -3518,17 +4016,21 @@ impl<H: Host> Shell for ClientShell<H> {
             // shows this interface's; with none chosen the system's pointer is hidden.
             ui.update_cursor(cx);
             match ui.system_pointer() {
-                Some(pointer) => {
-                    self.cursor
-                        .show_picture(pointer.did, (pointer.hot_x, pointer.hot_y), || {
-                            ui.system_pointer_pixels(pointer)
-                        })
-                }
-                None => self.cursor.hide(),
+                Some(pointer) => self.shared.cursor.show_picture(
+                    pointer.did,
+                    (pointer.hot_x, pointer.hot_y),
+                    || ui.system_pointer_pixels(pointer),
+                ),
+                None => self.shared.cursor.hide(),
             }
             return;
         }
-        Ui { cx, shell: self }.update_cursor_state();
+        Ui {
+            cx,
+            front: &mut self.modern,
+            shared: &mut self.shared,
+        }
+        .update_cursor_state();
     }
 
     /// Copy the completed frame into the UI image, and the mirror `Paste` reads
@@ -3539,20 +4041,16 @@ impl<H: Host> Shell for ClientShell<H> {
         if self.classic.active {
             return;
         }
-        if let Some(s) = self.ui.as_mut() {
-            self.clipboard.sync(&mut s.ui, &mut self.host_clipboard);
+        if let Some(s) = self.modern.ui.as_mut() {
+            self.shared
+                .clipboard
+                .sync(&mut s.ui, &mut self.shared.host_clipboard);
         }
     }
 
     fn compose_ui(&mut self, cx: &mut Cx<'_, H>) {
-        if let Some(ui) = self.classic.active_mut() {
-            ui.compose_ui(cx);
-            for error in ui.errors.drain(..).chain(ui.desktop.errors.drain(..)) {
-                tracing::warn!("classic interface: {error}");
-            }
-            return;
-        }
-        Ui { cx, shell: self }.compose_ui_draw_list();
+        let (front, services) = self.front_and_services();
+        front.compose(cx, services);
     }
 
     /// Ending the frame with `true` is three things in one call: **the 2D UI overlay**,
@@ -3562,20 +4060,16 @@ impl<H: Host> Shell for ClientShell<H> {
         &mut self,
         present: &mut Self::Present,
     ) -> Result<(), dereth_client_runtime::present::PresentError> {
-        if let Some(ui) = self.classic.active_mut() {
-            return ui.draw_ui(present);
-        }
-        present.draw_ui(&self.ui_draw_list)
+        let (front, services) = self.front_and_services();
+        front.draw(present, services)
     }
 
     /// Broadcast the global refresh message — `UiSystem::refresh_event`, which re-lays the root
     /// out at the new extent and pushes `UIGlobalMessage 0x0E` at every registered listener.
     fn set_display(&mut self, display: (i32, i32)) {
+        <ModernFrontEnd as FrontEnd<H>>::resize(&mut self.modern, display);
         if let Some(ui) = self.classic.ui.as_mut() {
-            ui.set_display(display);
-        }
-        if let Some(shell) = self.ui.as_mut() {
-            shell.set_display(display);
+            <dereth_classic_ui::runtime::ClassicUi as FrontEnd<H>>::resize(ui, display);
         }
     }
 
@@ -3584,12 +4078,12 @@ impl<H: Host> Shell for ClientShell<H> {
     fn cleanup_ui(&mut self, cx: &mut Cx<'_, H>) {
         self.classic.ui = None;
         self.classic.active = false;
-        let ui = self.ui.take();
+        let ui = self.modern.ui.take();
         if ui.is_some() {
             let r = cx.present_mut().release_ui_textures();
-            self.ui_release.freed += r.freed;
-            self.ui_release.still_linked += r.still_linked;
-            self.ui_release.unknown += r.unknown;
+            self.shared.ui_release.freed += r.freed;
+            self.shared.ui_release.still_linked += r.still_linked;
+            self.shared.ui_release.unknown += r.unknown;
         }
         drop(ui);
     }
@@ -3739,7 +4233,7 @@ pub(crate) fn route_host_event<H: Host>(
 
     if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
         cx.window_event(shell, &lifecycle, time_ms);
-        if let Some(input) = shell.input.as_mut() {
+        if let Some(input) = shell.shared.input.as_mut() {
             // `wnd_proc_disposition` inside the input manager applies the window procedure's
             // table again and drops everything it does not forward.
             for m in dereth_client_runtime::pump::Pump::map_window_event(&lifecycle) {
@@ -3760,11 +4254,17 @@ pub(crate) fn route_host_event<H: Host>(
     // The window procedure runs its message table, then packages
     // `hwnd/message/wParam/lParam/GetMessageTime()` into a `MSG` for the input manager's
     // message handler, whose tap and double-click thresholds are driven by that time.
-    for m in shell.devices.map_device_event(event, time_ms) {
+    for m in shell.shared.devices.map_device_event(event, time_ms) {
         cx.window_message(crate::pump::window_message(m), m.time_ms);
-        if let Some(input) = shell.input.as_mut() {
+        if let Some(input) = shell.shared.input.as_mut() {
             input.on_message(m);
         }
+        Ui {
+            cx,
+            front: &mut shell.modern,
+            shared: &mut shell.shared,
+        }
+        .input_message();
     }
 }
 
@@ -3777,6 +4277,7 @@ pub(crate) fn flycam_key<H: Host>(
 ) {
     use crate::platform::keys::Key;
     if shell
+        .shared
         .input
         .as_ref()
         .is_some_and(crate::input::InputShell::keyboard_blocked)
@@ -3902,3 +4403,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/message_tests.rs"]
+mod message_tests;

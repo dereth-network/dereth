@@ -260,13 +260,13 @@ impl<H: Host> App<H> {
 
     /// The device input, for the tests and the console's state line.
     pub fn input_manager_mut(&mut self) -> Option<&mut crate::input::InputShell> {
-        self.shell.input.as_mut()
+        self.shell.shared.input.as_mut()
     }
 
     /// The device input, read-only.
     #[must_use]
     pub fn input_manager(&self) -> Option<&crate::input::InputShell> {
-        self.shell.input.as_ref()
+        self.shell.shared.input.as_ref()
     }
 
     /// One key transition of the residual flycam: `Space` raises it and `C` lowers it, unless a
@@ -385,7 +385,7 @@ impl<H: Host> App<H> {
     /// `--ui-mode`: queue one of the eight modes by hand, for looking at a screen the flow would
     /// only reach through the network.
     pub fn queue_ui_mode(&mut self, m: dereth_ui::UiMode) {
-        if let Some(shell) = self.shell.ui.as_mut() {
+        if let Some(shell) = self.shell.modern.ui.as_mut() {
             shell.queue(m);
         }
     }
@@ -393,12 +393,12 @@ impl<H: Host> App<H> {
     /// The UI-flow shell, for the tests and for the report line.
     #[must_use]
     pub fn ui(&self) -> Option<&crate::ui::UiShell> {
-        self.shell.ui.as_ref()
+        self.shell.modern.ui.as_ref()
     }
 
     /// The UI-flow shell, mutably, so a test can drive a documented transition.
     pub fn ui_mut(&mut self) -> Option<&mut crate::ui::UiShell> {
-        self.shell.ui.as_mut()
+        self.shell.modern.ui.as_mut()
     }
 
     /// The three halves `Hud::drive` holds at once — the element tree, the panel holder and a live
@@ -420,7 +420,7 @@ impl<H: Host> App<H> {
             &dyn dereth_ui_screens::view::GameView,
         ) -> R,
     ) -> Option<R> {
-        let shell = self.shell.ui.as_mut()?;
+        let shell = self.shell.modern.ui.as_mut()?;
         let mut panels = std::mem::take(&mut self.core.hud.panels);
         let out = f(
             &mut shell.ui,
@@ -434,13 +434,13 @@ impl<H: Host> App<H> {
     /// What the key-binding page's three host drains have done, with denominators.
     #[must_use]
     pub fn key_binding_stats(&self) -> KeyBindingStats {
-        self.shell.key_binding_stats
+        self.shell.modern.key_binding_stats
     }
 
     /// This frame's 2D blit list, for the tests.
     #[must_use]
     pub fn ui_draw_list(&self) -> &[dereth_ui::UiDrawCmd] {
-        &self.shell.ui_draw_list
+        &self.shell.shared.ui_draw_list
     }
 
     /// What the cursor path did this session — [`crate::cursor::CursorStats`].
@@ -448,13 +448,13 @@ impl<H: Host> App<H> {
     /// `updates` is the per-frame wire: it must equal the number of frames drawn.
     #[must_use]
     pub fn cursor_stats(&self) -> crate::cursor::CursorStats {
-        self.shell.cursor.stats
+        self.shell.shared.cursor.stats
     }
 
     /// The cursor asset currently applied, exposed for tests.
     #[must_use]
     pub fn current_cursor_did(&self) -> Option<dereth_primitives::DataId> {
-        self.shell.cursor.current()
+        self.shell.shared.cursor.current()
     }
 
     /// Access to the renderer, for the capture the acceptance gate takes.
@@ -477,13 +477,13 @@ impl<H: Host> App<H> {
     /// test tells that apart from a block that never ran.
     #[must_use]
     pub fn chargen_dress(&self) -> crate::preview::ChargenDressStats {
-        self.shell.chargen_dress
+        self.shell.modern.chargen_dress
     }
 
     /// What the UI-texture releases have done, for the descriptor-bound assertion.
     #[must_use]
     pub fn ui_release_report(&self) -> crate::gpu::UiReleaseReport {
-        self.shell.ui_release
+        self.shell.shared.ui_release
     }
 
     /// Read-only access to the renderer, for the counters the report prints.

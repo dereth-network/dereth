@@ -304,6 +304,11 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.inject_action(action);
     }
 
+    /// Accept actions immediately, including releases from an outgoing input scope.
+    pub fn accept_actions(&mut self, actions: impl IntoIterator<Item = crate::actions::Action>) {
+        self.app.actions.submit(actions);
+    }
+
     /// One pass of the dialog service with `presenter` showing the questions, or none to drop
     /// them.
     pub fn service_dialogs(
