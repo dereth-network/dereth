@@ -617,7 +617,7 @@ fn the_ui_sound_the_shell_starts_produces_samples_from_the_mixer() {
     let nonzero = block.iter().filter(|s| **s != 0.0).count();
     assert!(peak > 0.0, "the mixer produced 2048 frames of silence");
     // The button click is a short wave, so the assertion is on the *shape*: a run of non-zero
-    // samples at the head of the block and silence after it. Nothing loops (contract 12.6), so a
+    // samples at the head of the block and silence after it. Nothing loops, so a
     // second block finds the voice finished.
     assert!(
         nonzero > 100,
@@ -637,7 +637,7 @@ fn the_ui_sound_the_shell_starts_produces_samples_from_the_mixer() {
         "a centre-panned sound must be identical in both channels"
     );
 
-    // "Nothing loops; continuous ambience is a re-trigger on a timer" (contract 12.6). The voice
+    // "Nothing loops; continuous ambience is a re-trigger on a timer". The voice
     // ends when the sample does, and a rebuild that looped it would keep this at 1 for ever.
     for _ in 0..64 {
         audio.mix(&mut block);

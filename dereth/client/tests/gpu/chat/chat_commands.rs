@@ -67,7 +67,7 @@ pub(crate) fn app() -> App {
         width: 800,
         height: 600,
         dat_dir: dereth_dat::testing::dat_dir(),
-        preferences_file: std::env::temp_dir().join("dere-p3-chat-commands/preferences.ini"),
+        preferences_file: std::env::temp_dir().join("dereth-chat-commands/preferences.ini"),
         ..Config::default()
     })
     .expect("required retail DATs and headless graphics device");
@@ -1126,7 +1126,7 @@ fn die_asks_first_and_only_yes_sends_the_suicide() {
 #[test]
 fn typed_saveui_and_loadui_round_trip_the_visible_layout_file() {
     let _gpu = gpu_lock();
-    let dir = std::env::temp_dir().join("dere-p3-chat-commands");
+    let dir = std::env::temp_dir().join("dereth-chat-commands");
     std::fs::create_dir_all(&dir).expect("create this test's disposable directory");
     let mut app = app();
     let mut hand = Hand::new();
@@ -2260,8 +2260,8 @@ fn typed_log_appends_displayed_chat_stops_and_preserves_native_path_rules() {
     let mut app = app();
     let mut hand = Hand::new();
     let dir = std::env::temp_dir()
-        .join("dere-p3-chat-commands")
-        .join(format!("p3_6b-log-{}", std::process::id()));
+        .join("dereth-chat-commands")
+        .join(format!("chat-command-log-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
     }
@@ -2422,8 +2422,8 @@ fn typed_loadfile_echoes_then_executes_each_local_command_in_file_order() {
     let mut app = app();
     let mut hand = Hand::new();
     let dir = std::env::temp_dir()
-        .join("dere-p3-chat-commands")
-        .join(format!("p3_6b-loadfile-{}", std::process::id()));
+        .join("dereth-chat-commands")
+        .join(format!("chat-command-loadfile-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
     }
@@ -2509,8 +2509,8 @@ fn typed_loadfile_truncates_each_fetched_chunk_at_nul_without_ending_the_file() 
     let mut app = app();
     let mut hand = Hand::new();
     let dir = std::env::temp_dir()
-        .join("dere-p3-chat-commands")
-        .join(format!("p3_6b-loadfile-nul-{}", std::process::id()));
+        .join("dereth-chat-commands")
+        .join(format!("chat-command-loadfile-nul-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
     }

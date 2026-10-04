@@ -139,9 +139,14 @@ impl Peer {
     /// same entry point at the real local time, so the transport's 140 s silence clock receives
     /// the clock it actually compares against instead of a frozen zero.
     fn attach(app: &mut App) -> Self {
-        let mut net =
-            dereth_client::net::ClientNetwork::new("127.0.0.1:19000", 7304, "p5-4a", "unused", 0)
-                .unwrap();
+        let mut net = dereth_client::net::ClientNetwork::new(
+            "127.0.0.1:19000",
+            7304,
+            "long-session-growth",
+            "unused",
+            0,
+        )
+        .unwrap();
         let mut hello = dereth_transport::OutPacket::new(dereth_transport::ProtoHeader {
             rec_id: 0xB,
             iteration: 1,
@@ -685,7 +690,8 @@ fn app() -> App {
         // `Hud::sync` -- and therefore the radar row -- runs inside `App::ui_use_time`'s shell
         // block, so the radar census needs the real shell.
         ui: true,
-        preferences_file: std::env::temp_dir().join("dere-p5-4a-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir()
+            .join("dereth-long-session-growth-not-created/prefs.ini"),
         dat_dir: dereth_dat::testing::dat_dir(),
         ..Default::default()
     })

@@ -64,8 +64,14 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net =
-            ClientNetwork::new("127.0.0.1:19000", 7304, "p48-station", "unused", 0).expect("a net");
+        let mut net = ClientNetwork::new(
+            "127.0.0.1:19000",
+            7304,
+            "inscription-placeholder-station",
+            "unused",
+            0,
+        )
+        .expect("a net");
         net.session.transport.add_connection(
             0xB,
             0,
@@ -146,7 +152,8 @@ fn setup() -> (App, Peer) {
         headless: true,
         sound: false,
         dat_dir: client_dir(),
-        preferences_file: std::env::temp_dir().join("dere-p48-inscription-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir()
+            .join("dereth-inscription-placeholder-not-created/prefs.ini"),
         ..Config::default()
     })
     .expect("an application");

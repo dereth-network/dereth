@@ -310,17 +310,17 @@
         {
           "at": 52,
           "behaviour": "the door object created",
-          "cited_by": "gpu/p1_70e_open_door_pick.rs"
+          "cited_by": "dereth/client/tests/gpu/selection/open_door_pick.rs"
         },
         {
           "at": 143,
           "behaviour": "the placement that precedes the door USE",
-          "cited_by": "dat/astra_door_control_audit.rs, gpu/astra_door_recovery.rs, gpu/p1_70e_open_door_pick.rs"
+          "cited_by": "dereth/client/tests/gpu/selection/open_door_pick.rs"
         },
         {
           "at": 148,
           "behaviour": "the recorded door movement",
-          "cited_by": "gpu/p1_70e_open_door_pick.rs"
+          "cited_by": "dereth/client/tests/gpu/selection/open_door_pick.rs"
         }
       ],
       "slug": "early-inventory-and-casting",
@@ -452,7 +452,7 @@
         {
           "at": 351,
           "behaviour": "the three-member allegiance roster",
-          "cited_by": "dat/p1_followers.rs, dat/p2_allegiance_requests.rs"
+          "cited_by": "dereth/testkit/tests/dat/social.rs"
         }
       ],
       "slug": "fellowship-one-vassal",
@@ -907,8 +907,7 @@
       "slices": [
         {
           "at": 1304,
-          "behaviour": "a channel broadcast carrying a sender name",
-          "cited_by": "dat/p1_129_channel_line.rs"
+          "behaviour": "a channel broadcast carrying a sender name"
         }
       ],
       "slug": "house-purchase-and-trade",
@@ -1270,92 +1269,90 @@
         {
           "at": 2674,
           "behaviour": "a book put into a container",
-          "cited_by": "dat/f46_drop_hints.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 2675,
           "behaviour": "the refusal that answers it",
-          "cited_by": "dat/f46_drop_hints.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4025,
           "behaviour": "spell foci dropped",
-          "cited_by": "dat/f46_drop_hints.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4026,
           "behaviour": "the refusal that answers it",
-          "cited_by": "dat/f46_drop_hints.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4114,
           "behaviour": "a container unlocked",
-          "cited_by": "dat/f22_interactions.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4152,
           "behaviour": "the first vendor contact",
-          "cited_by": "cpu/o231_vendor.rs, dat/f57_player_coin.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4274,
           "behaviour": "the container relocked",
-          "cited_by": "dat/f22_interactions.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4315,
           "behaviour": "a targeted-use request",
-          "cited_by": "dat/astra_target_confirmation.rs"
+          "cited_by": "dereth/client/tests/gpu/inventory/targeted_use.rs"
         },
         {
           "at": 4324,
           "behaviour": "the targeted delivery it produces",
-          "cited_by": "dat/astra_targeted_delivery.rs, dat/astra_target_confirmation.rs, gpu/astra_targeted_use.rs"
+          "cited_by": "dereth/client/tests/gpu/inventory/targeted_use.rs"
         },
         {
           "at": 4363,
           "behaviour": "the confirmation that answers it",
-          "cited_by": "dat/astra_target_confirmation.rs"
+          "cited_by": "dereth/client/tests/gpu/inventory/targeted_use.rs"
         },
         {
           "at": 4736,
           "behaviour": "the vendor shop opening (0x0062 VendorInfo)",
-          "cited_by": "dat/f33_vendor_items.rs, dat/f46_drop_hints.rs, dat/f47_vendor_info.rs, dat/f54_vendor_busy.rs, dat/f63_vendor_polish.rs, gpu/p3_chat_commands.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4744,
           "behaviour": "the state after the buy",
-          "cited_by": "dat/f47_vendor_info.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4748,
-          "behaviour": "the state after the buy, as f54 counts it",
-          "cited_by": "dat/f54_vendor_busy.rs"
+          "behaviour": "the state after the buy",
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4784,
           "behaviour": "the last vendor contact",
-          "cited_by": "dat/f54_vendor_busy.rs, dat/f57_player_coin.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 4788,
-          "behaviour": "the state after the sale",
-          "cited_by": "dat/f47_vendor_info.rs"
+          "behaviour": "the state after the sale"
         },
         {
           "at": 6594,
           "behaviour": "the container contents created",
-          "cited_by": "dat/f22_interactions.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 6683,
           "behaviour": "an attuned item appraised",
-          "cited_by": "dat/f46_drop_hints.rs"
+          "cited_by": "dereth/testkit/tests/dat/inventory.rs"
         },
         {
           "at": 8830,
-          "behaviour": "an item carrying spells",
-          "cited_by": "dat/f62_item_spells.rs"
+          "behaviour": "an item carrying spells"
         }
       ],
       "slug": "long-solo-play",

@@ -221,8 +221,8 @@ pub fn module_of(name: &str, areas: &BTreeSet<String>) -> String {
 /// `{module: [test, ...]}` from a libtest `--list` dump, tests in list order.
 ///
 /// A module is a former `tests/<stem>.rs`, so a slice of modules is a slice of the old targets and
-/// `<module>::` is a filter that selects exactly it. The trailing `::` matters: a bare `astra_chat`
-/// also matches `astra_chat_focus_model`, because libtest's positional filters are substring
+/// `<module>::` is a filter that selects exactly it. The trailing `::` matters: a bare `chat`
+/// also matches `chat_focus_model`, because libtest's positional filters are substring
 /// matches, not prefixes.
 pub fn list_modules(list_output: &str, areas: &BTreeSet<String>) -> BTreeMap<String, Vec<String>> {
     let mut mods: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -238,7 +238,7 @@ pub fn list_modules(list_output: &str, areas: &BTreeSet<String>) -> BTreeMap<Str
 ///
 /// libtest's positional filters are substring matches on the whole test name. The `::` stops
 /// `alpha` reaching `alpha_extra`, but nothing stops a filter reaching a module whose name *ends*
-/// with it: `routing::` also selects every `o164_click_routing::<test>`. Measured: the first N=4
+/// with it: `routing::` also selects every `click_routing::<test>`. Measured: the first N=4
 /// run of the client `dat` binary ran 1,311 tests where `--list` said 1,288, because those two
 /// modules landed in different shards and 23 tests ran twice, and nothing said which.
 pub fn filter_selection(module: &str, names: &[String]) -> Vec<String> {
@@ -1433,9 +1433,9 @@ mod tests {
         test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n";
 
     /// The overlap that cost a real run 23 duplicated tests, in miniature and with the real names:
-    /// `routing::` is a substring of `o164_click_routing::`. `solo` is the control.
+    /// `routing::` is a substring of `click_routing::`. `solo` is the control.
     const SHARD_LIST_OVERLAP: &str = "routing::one: test\nrouting::two: test\n\
-        o164_click_routing::a: test\no164_click_routing::b: test\nsolo::x: test\n\n5 tests, 0 benchmarks\n";
+        click_routing::a: test\nclick_routing::b: test\nsolo::x: test\n\n5 tests, 0 benchmarks\n";
 
     /// A shard that died: two tests printed, no roll-call, no result line.
     const SHARD_LOG_CRASH: &str =
@@ -1567,7 +1567,7 @@ mod tests {
     }
 
     /// libtest's filters are substring matches: a bare `alpha` sweeps in `alpha_extra`, the
-    /// `alpha::` form does not, and `routing::` reaches into `o164_click_routing`.
+    /// `alpha::` form does not, and `routing::` reaches into `click_routing`.
     #[test]
     fn a_filter_is_a_substring_match_so_it_carries_its_separator() {
         let names: Vec<String> = LIST_LINE
@@ -1597,8 +1597,8 @@ mod tests {
         assert_eq!(
             reached,
             s(&[
-                "o164_click_routing::a",
-                "o164_click_routing::b",
+                "click_routing::a",
+                "click_routing::b",
                 "routing::one",
                 "routing::two"
             ])
@@ -1614,7 +1614,7 @@ mod tests {
         let groups = filter_groups(&over);
         assert_eq!(
             groups.iter().map(|(g, _)| g.clone()).collect::<Vec<_>>(),
-            vec![s(&["o164_click_routing", "routing"]), s(&["solo"])]
+            vec![s(&["click_routing", "routing"]), s(&["solo"])]
         );
         assert_eq!(
             groups.iter().map(|(_, t)| t.len()).collect::<Vec<_>>(),
@@ -1635,10 +1635,10 @@ mod tests {
         );
         // A welded shard counts its tests once; summing the two filters double-counts.
         assert_eq!(
-            shard_test_count(&s(&["o164_click_routing", "routing"]), By::Module, &names),
+            shard_test_count(&s(&["click_routing", "routing"]), By::Module, &names),
             4
         );
-        let summed: usize = ["o164_click_routing", "routing"]
+        let summed: usize = ["click_routing", "routing"]
             .iter()
             .map(|m| filter_selection(m, &names).len())
             .sum();

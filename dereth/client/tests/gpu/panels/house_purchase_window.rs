@@ -125,8 +125,14 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19100", 7304, "p4-4c-station", "unused", 0)
-            .expect("a net");
+        let mut net = ClientNetwork::new(
+            "127.0.0.1:19100",
+            7304,
+            "house-purchase-window-station",
+            "unused",
+            0,
+        )
+        .expect("a net");
         net.session.transport.add_connection(
             0xB,
             0,
@@ -248,8 +254,9 @@ fn setup(tag: &str) -> (App, Peer) {
         width: 800,
         height: 600,
         dat_dir: client_dir(),
-        preferences_file: std::env::temp_dir()
-            .join(format!("dere-p4-4c-{tag}-not-created/prefs.ini")),
+        preferences_file: std::env::temp_dir().join(format!(
+            "dereth-house-purchase-window-{tag}-not-created/prefs.ini"
+        )),
         ..Config::default()
     })
     .expect("an application");

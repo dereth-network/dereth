@@ -166,7 +166,7 @@ fn the_regions_ambient_tables_and_their_waves_are_resident() {
     );
 }
 
-/// **The scan runs on a position change, not once per frame.** Contract 10.5:
+/// **The scan runs on a position change, not once per frame.**
 /// `total_sound_count` is a per-pass sum, and recomputing it every frame gives slightly different
 /// volumes. The position-change path is the only caller.
 #[test]
@@ -348,7 +348,7 @@ fn a_triggered_sound_is_attenuated_by_distance_and_panned_by_bearing() {
     eprintln!("near {near:?} far {far:?} left {left:?} right {right:?}");
 }
 
-/// **A voice ends with its sample.** Contract 10.4: *nothing loops*. Continuous ambience is a
+/// **A voice ends with its sample.** *nothing loops*. Continuous ambience is a
 /// re-trigger on a timer, and a sound buffer played once stops when it runs out.
 ///
 /// The block asked for here is far longer than any retail wave, so a looping voice would still be
@@ -828,7 +828,7 @@ fn each_sound_pair_drives_only_its_own_category_through_the_request_seam() {
     );
 
     // The effect box silences effects and not interface sounds. `Sound.SoundDisabled=False` means
-    // OFF: the name is inverted and the polarity is contract 10.7.
+    // OFF: false disables effects despite the preference name.
     set_pref(&mut a, "Sound.SoundDisabled", PrefValue::Bool(false));
     assert_eq!(
         effect_peak(&mut a, wave),
@@ -934,7 +934,7 @@ fn the_preferences_file_reaches_the_mixer() {
     let mut probe = audio(dereth_audio::Prefs::default());
     let wave = a_wave(&store, &mut probe);
 
-    let dir = std::env::temp_dir().join("dere-o194");
+    let dir = std::env::temp_dir().join("dereth-world-audio");
     std::fs::create_dir_all(&dir).expect("scratch dir");
     let path = dir.join("UserPreferences.ini");
     // The save format splits the name at its **last** dot,

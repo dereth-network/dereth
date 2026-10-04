@@ -119,7 +119,7 @@ fn the_corpus_records_each_emote_request_and_answer() {
 /// A dedicated preferences path under the system temp directory, separate from the user's
 /// `UserPreferences.ini`. This test does not assert that the parent directory is absent.
 fn prefs_file() -> PathBuf {
-    std::env::temp_dir().join("dere-p1-133-not-created/prefs.ini")
+    std::env::temp_dir().join("dereth-heard-emotes-not-created/prefs.ini")
 }
 
 fn connected_config() -> Config {

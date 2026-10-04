@@ -18,7 +18,7 @@ struct TempDir(PathBuf);
 impl TempDir {
     fn new() -> Self {
         let unique = format!(
-            "dere-p1-13-selected-prefs-{}-{}",
+            "dereth-selected-preferences-profile-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

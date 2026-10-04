@@ -551,12 +551,7 @@ impl FontAtlas {
 ///
 /// The destination rectangle is `(x, y, width, height)` sampled from
 /// `(offset_x, offset_y, width, height)` in the sheet.
-/// The background (shadow) sheet is **not** composited here:
-/// the font-texture setup passes `0xFFFFFFFF` foreground and `0xFF000000` background, and how
-/// the character draw combines the two is inferred from the parameter names and the
-/// visual result, not traced.
-///
-/// the background sheet's contribution to the atlas.
+/// The background (shadow) sheet is not composited here.
 fn blit_glyph(atlas: &mut [u8], d: &FontCharDesc, sheet: GlyphSheet<'_>, x: u32, y: u32) {
     for row in 0..u32::from(d.height) {
         let sy = u32::from(d.offset_y) + row;

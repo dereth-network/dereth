@@ -150,11 +150,7 @@ impl Particle {
             ParticleType::GlobalVelocity => (p.a, Vec3::ZERO, Vec3::ZERO, offset),
             ParticleType::ParabolicGvga => (p.a, p.b, Vec3::ZERO, offset),
             ParticleType::ParabolicGvgagr => (p.a, p.b, p.c, offset),
-            // the per-type meaning of `a`, `b` and `c` for the
-            // rarer types is inferred from the enum names, not from a symbol. `Still`,
-            // `LocalVelocity`, `ParabolicLVGA` and `GlobalVelocity` are well understood; `Swarm`,
-            // `Explode`, `Implode` and the `LR`/`GR` rotating variants below are the inferred ones.
-            // `b` is read as the three angular frequencies and `c` as the three amplitudes.
+            // For swarm motion, b supplies angular frequencies and c supplies amplitudes.
             ParticleType::Swarm => (to_global(p.a), p.b, p.c, offset),
             ParticleType::Explode => {
                 let pi = std::f32::consts::PI;

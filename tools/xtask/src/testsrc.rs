@@ -419,6 +419,17 @@ pub struct Target {
 pub struct Inventory {
     pub tests: Vec<TestFn>,
     pub files: Vec<ModFile>,
+    /// Named items in test code, including helpers and inline modules.
+    pub declarations: Vec<Declaration>,
+}
+
+/// A source declaration, not necessarily a compiled test.
+#[derive(Debug, Clone)]
+pub struct Declaration {
+    pub file: String,
+    pub line: usize,
+    pub name: String,
+    pub module: bool,
 }
 
 /// FNV-1a 64, as hex.
@@ -532,7 +543,7 @@ fn rel(ws: &Path, p: &Path) -> String {
 
 impl Walk<'_> {
     /// Read one file as module `module`; `child_dir` is where its `mod name;` files are looked for.
-    fn file(&mut self, path: &Path, module: &[String], child_dir: &Path, root: bool) {
+    fn file(&mut self, path: &Path, module: &[String], child_dir: &Path, root: bool, test: bool) {
         let r = rel(self.ws, path);
         if !self.seen.insert((self.target.clone(), r.clone())) {
             return;
@@ -559,6 +570,7 @@ impl Walk<'_> {
             &r,
             &mut decls,
             true,
+            test,
         );
         self.inv.files.push(ModFile {
             package: self.package.clone(),
@@ -585,6 +597,7 @@ impl Walk<'_> {
         file: &str,
         decls: &mut Vec<(String, usize, Option<String>)>,
         file_level: bool,
+        test: bool,
     ) {
         let mut k = start;
         let mut attrs: Vec<(usize, usize)> = Vec::new();
@@ -658,6 +671,48 @@ impl Walk<'_> {
                 }
             }
             let head = toks.get(j);
+            let test_item = test
+                || attrs.iter().any(|&(o, c)| {
+                    let path = attr_path(toks, o, c);
+                    path == "test"
+                        || path.ends_with("::test")
+                        || path == "cfg" && toks[o..c].iter().any(|t| is_i(Some(t), "test"))
+                });
+            if test_item {
+                let name = if is_i(head, "mod")
+                    || is_i(head, "fn")
+                    || is_i(head, "const")
+                    || is_i(head, "static")
+                {
+                    let at =
+                        j + 1 + usize::from(is_i(head, "static") && is_i(toks.get(j + 1), "mut"));
+                    toks.get(at).filter(|t| t.kind == TokKind::Ident)
+                } else if is_i(head, "macro_rules") && is_p(toks.get(j + 1), "!") {
+                    toks.get(j + 2).filter(|t| t.kind == TokKind::Ident)
+                } else if head
+                    .is_some_and(|t| matches!(t.text.as_str(), "message_roundtrip_test" | "rule3"))
+                    && is_p(toks.get(j + 1), "!")
+                    && is_p(toks.get(j + 2), "(")
+                {
+                    // This macro's first argument declares a test. Do not pretend its invocation
+                    // is a function body or invent assertion counts for the inventory.
+                    let mut at = j + 3;
+                    while is_p(toks.get(at), "#") && is_p(toks.get(at + 1), "[") {
+                        at = close_of(toks, at + 1) + 1;
+                    }
+                    toks.get(at).filter(|t| t.kind == TokKind::Ident)
+                } else {
+                    None
+                };
+                if let Some(name) = name {
+                    self.inv.declarations.push(Declaration {
+                        file: file.to_owned(),
+                        line: name.line,
+                        name: name.text.clone(),
+                        module: is_i(head, "mod"),
+                    });
+                }
+            }
             if is_i(head, "mod") {
                 let name = toks.get(j + 1).map(|x| x.text.clone()).unwrap_or_default();
                 let path_attr = attrs.iter().find_map(|&(o, c)| {
@@ -704,7 +759,7 @@ impl Walk<'_> {
                                 .unwrap_or(Path::new("."))
                                 .join(p.file_stem().unwrap_or_default())
                         };
-                        self.file(&p, &sub, &next_dir, false);
+                        self.file(&p, &sub, &next_dir, false, test_item);
                     }
                     k = j + 3;
                 } else if is_p(toks.get(j + 2), "{") {
@@ -723,6 +778,7 @@ impl Walk<'_> {
                         file,
                         decls,
                         false,
+                        test_item,
                     );
                     k = close + 1;
                 } else {
@@ -834,6 +890,7 @@ impl Walk<'_> {
                         &r,
                         &mut none,
                         false,
+                        test_item,
                     );
                 }
                 k = close_of(toks, j + 2) + 1;
@@ -864,6 +921,20 @@ impl Walk<'_> {
                         }
                         "{" => {
                             let c = close_of(toks, e);
+                            if is_i(head, "impl") || is_i(head, "trait") {
+                                self.items(
+                                    toks,
+                                    e + 1,
+                                    c,
+                                    module,
+                                    child_dir,
+                                    file_dir,
+                                    file,
+                                    decls,
+                                    false,
+                                    test_item,
+                                );
+                            }
                             if !to_semicolon {
                                 e = c;
                                 break;
@@ -953,7 +1024,8 @@ pub fn read(ws: &Path, targets: &[Target]) -> Inventory {
         w.package.clone_from(&t.package);
         w.target.clone_from(&t.name);
         let dir = t.root.parent().unwrap_or(Path::new(".")).to_path_buf();
-        w.file(&t.root, &[], &dir, true);
+        let test = t.name != "lib" && !t.name.starts_with("bin.");
+        w.file(&t.root, &[], &dir, true, test);
     }
     w.inv
 }
@@ -1090,6 +1162,10 @@ mod tests {
     }
 
     fn walk_src(src: &str) -> Inventory {
+        walk_target(src, "cpu")
+    }
+
+    fn walk_target(src: &str, target: &str) -> Inventory {
         let dir = std::env::temp_dir().join(format!("xtask-testsrc-{}", fnv(src)));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let root = dir.join("main.rs");
@@ -1098,12 +1174,100 @@ mod tests {
             &dir,
             &[Target {
                 package: "p".into(),
-                name: "cpu".into(),
+                name: target.into(),
                 root,
             }],
         );
         std::fs::remove_dir_all(&dir).ok();
         inv
+    }
+
+    #[test]
+    fn declarations_include_helpers_constants_modules_and_named_macro_inputs() {
+        let inv = walk_target(
+            "fn production() {} const LIVE: u8 = 0;\n#[cfg(test)] mod tests {\n\
+             const SAMPLE: u8 = 1; fn helper() {} mod inner { fn setup() {} }\n\
+             message_roundtrip_test!(message_reaches_client, Packet);\n\
+             message_roundtrip_test!(#[ignore = \"unsupported\"] future_message, Packet);\n\
+             #[test] fn ordinary() { assert!(true); }\n}",
+            "lib",
+        );
+        let names: Vec<_> = inv.declarations.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "tests",
+                "SAMPLE",
+                "helper",
+                "inner",
+                "setup",
+                "message_reaches_client",
+                "future_message",
+                "ordinary"
+            ]
+        );
+        assert!(inv.declarations[3].module);
+        assert_eq!(
+            inv.tests.len(),
+            1,
+            "macro inputs are declarations, not invented test bodies"
+        );
+        assert_eq!(inv.tests[0].assert_macros, 1);
+    }
+
+    #[test]
+    fn declarations_include_test_impl_methods_and_associated_constants() {
+        let inv = walk_target(
+            "struct Fixture; impl Fixture { fn live() {} #[cfg(test)] fn fixture() {} }\n\
+             #[cfg(test)] mod tests { struct Sample; impl Sample {\n\
+             const LIMIT: u8 = 1; fn r#helper() {} }\n\
+             trait Setup { const DEFAULT: u8 = 2; fn initialize(&self); } }",
+            "lib",
+        );
+        let names: Vec<_> = inv.declarations.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "fixture",
+                "tests",
+                "LIMIT",
+                "r#helper",
+                "DEFAULT",
+                "initialize"
+            ]
+        );
+        assert!(inv.tests.is_empty());
+    }
+
+    #[test]
+    fn declarations_follow_gated_module_files_and_included_helpers() {
+        let dir = std::env::temp_dir().join("xtask-testsrc-declarations");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let root = dir.join("lib.rs");
+        std::fs::write(&root, "#[cfg(test)] #[path = \"checks.rs\"] mod checks;").expect("root");
+        std::fs::write(
+            dir.join("checks.rs"),
+            "include!(\"helpers.rs\"); #[test] fn works() { assert!(true); }",
+        )
+        .expect("tests");
+        std::fs::write(
+            dir.join("helpers.rs"),
+            "fn helper() {} const LIMIT: u8 = 1;",
+        )
+        .expect("helpers");
+        let inv = read(
+            &dir,
+            &[Target {
+                package: "sample".into(),
+                name: "lib".into(),
+                root,
+            }],
+        );
+        std::fs::remove_dir_all(&dir).expect("remove fixture");
+        let names: Vec<_> = inv.declarations.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["checks", "helper", "LIMIT", "works"]);
+        assert_eq!(inv.declarations[1].file, "helpers.rs");
+        assert_eq!(inv.tests[0].libtest_name(), "checks::works");
     }
 
     #[test]

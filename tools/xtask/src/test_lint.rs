@@ -2,9 +2,8 @@
 //!
 //! It reads sources only (no build) and applies four groups of rules:
 //!
-//! * **names**: a test module file, or a `#[test]` fn, is not named after the piece of work that
-//!   produced it (`o89_…`, `p1_70b_…`, `astra_…`, `integration_q1`, `z8_sweep`, `gap_…`,
-//!   `test_…`), and a tier binary with more than twelve modules keeps them in area directories;
+//! * **names**: test modules, functions and helpers are named for their purpose, and a tier
+//!   binary with more than twelve modules keeps them in area directories;
 //! * **anchors**: every `/// Behaviour: <id>` names a row of the behaviour registry, every registry
 //!   row's `station` names a live test or scenario (a row marked `private_oracle` names one the
 //!   workspace does not carry; see [`check_stations`]), a client crate's integration test module
@@ -37,7 +36,10 @@ const MODULE_NAME: &str =
     r"^([a-z]{1,2}\d+[a-z]?(_\d+[a-z]?)*|astra|fable|integration_[a-z]\d+|[a-z]\d+_sweep)(_|$)";
 
 /// A `#[test]` fn named after a piece of work, or carrying a `gap_`/`test_` prefix (rule 2).
-const FN_NAME: &str = r"^([a-z]{1,2}\d+[a-z]?(_\d+[a-z]?)*|astra|fable|gap|test)_";
+const FN_NAME: &str = r"^([a-z]{1,2}\d+[a-z]?(_\d+[a-z]?)*|astra|fable|rule3|gap|test)_";
+
+/// Work labels on helpers and constants; ordinary `test_` helpers remain valid.
+const ITEM_NAME: &str = r"(?i)^(?:[ophr]\d+[a-z]?(?:_\d+[a-z]?)*_|(?:astra|fable|rule3)(?:_|$))";
 
 /// Where the behaviour registry's rows are, relative to the workspace root.
 const REGISTRY_DIR: &str = "dereth/testkit/src/behaviours";
@@ -67,6 +69,7 @@ const NOT_AREAS: &[&str] = &["common", "instruments"];
 pub const RULES: &[(&str, &str)] = &[
     ("work-unit module name", "names"),
     ("work-unit test name", "names"),
+    ("work-unit declaration name", "names"),
     ("module outside an area", "names"),
     ("unknown behaviour id", "anchors"),
     ("station does not resolve", "anchors"),
@@ -83,6 +86,39 @@ pub struct Finding {
     pub rule: String,
     pub line: usize,
     pub what: String,
+}
+
+fn declaration_findings(inv: &Inventory) -> Vec<Finding> {
+    let item_re = Regex::new(ITEM_NAME).expect("item name rule");
+    let module_re = Regex::new(MODULE_NAME).expect("module name rule");
+    inv.declarations
+        .iter()
+        .filter_map(|d| {
+            let matches = if d.module {
+                module_re.is_match(d.name.trim_start_matches("r#"))
+            } else {
+                item_re.is_match(d.name.trim_start_matches("r#"))
+            };
+            if !matches {
+                return None;
+            }
+            let is_test = inv
+                .tests
+                .iter()
+                .any(|t| t.file == d.file && t.name == d.name && t.line == d.line);
+            (!is_test).then(|| Finding {
+                path: d.file.clone(),
+                rule: if d.module {
+                    "work-unit module name"
+                } else {
+                    "work-unit declaration name"
+                }
+                .into(),
+                line: d.line,
+                what: d.name.clone(),
+            })
+        })
+        .collect()
 }
 
 /// A registry row, as text.
@@ -301,6 +337,7 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
     let mut out: BTreeSet<Finding> = BTreeSet::new();
     let module_re = Regex::new(MODULE_NAME).map_err(|e| e.to_string())?;
     let fn_re = Regex::new(FN_NAME).map_err(|e| e.to_string())?;
+    out.extend(declaration_findings(&inv));
 
     // Names: module files of integration tests.
     for f in &inv.files {
@@ -319,7 +356,7 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
     }
     // Names: every test fn.
     for t in &inv.tests {
-        if fn_re.is_match(&t.name) {
+        if fn_re.is_match(t.name.trim_start_matches("r#")) {
             out.insert(Finding {
                 path: t.file.clone(),
                 rule: "work-unit test name".into(),
@@ -546,15 +583,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn helper_names_reject_private_labels_and_preserve_public_numeric_names() {
+        let names = [
+            concat!("O", "422_COUNT"),
+            concat!("p", "1_41_press"),
+            concat!("rule", "3_roundtrip"),
+            concat!("r#o", "422_setup"),
+            "F7",
+            "F750",
+            "u32_at",
+            "D0",
+            "T0",
+            "P1",
+            "p16",
+            "test_client",
+            "contract7",
+        ];
+        let inv = Inventory {
+            declarations: names
+                .iter()
+                .enumerate()
+                .map(|(line, name)| testsrc::Declaration {
+                    file: "sample.rs".into(),
+                    line,
+                    name: (*name).into(),
+                    module: false,
+                })
+                .collect(),
+            ..Inventory::default()
+        };
+        let findings = declaration_findings(&inv);
+        assert_eq!(
+            findings.iter().map(|f| f.what.as_str()).collect::<Vec<_>>(),
+            &names[..4]
+        );
+    }
+
+    #[test]
     fn the_standards_name_rules_catch_work_unit_names_and_pass_claims() {
         let m = Regex::new(MODULE_NAME).expect("module rule");
         for bad in [
-            "o89_contain",
-            "p1_70b_things",
-            "p1_164_example_module",
-            "r2_1_x",
-            "astra_old_samplers",
-            "fable_door_collision",
+            concat!("o", "89_contain"),
+            concat!("p", "1_70b_things"),
+            concat!("p", "1_164_example_module"),
+            concat!("r", "2_1_x"),
+            concat!("a", "stra_old_samplers"),
+            concat!("f", "able_door_collision"),
             "integration_q1",
             "z8_sweep",
             "g25",
@@ -572,11 +646,11 @@ mod tests {
         }
         let f = Regex::new(FN_NAME).expect("fn rule");
         for bad in [
-            "p1_164_an_example_claim",
+            concat!("p", "1_164_an_example_claim"),
             "gap_something",
             "test_parse",
-            "astra_bc2_mips",
-            "o12_x",
+            concat!("a", "stra_bc2_mips"),
+            concat!("o", "12_x"),
         ] {
             assert!(f.is_match(bad), "{bad} passed the fn rule");
         }
@@ -688,6 +762,6 @@ mod tests {
     #[test]
     fn a_mod_rs_is_named_by_its_directory() {
         assert_eq!(module_stem("x/tests/gpu/rendering/mod.rs"), "rendering");
-        assert_eq!(module_stem("x/tests/gpu/o12_thing.rs"), "o12_thing");
+        assert_eq!(module_stem("x/tests/gpu/rendering.rs"), "rendering");
     }
 }

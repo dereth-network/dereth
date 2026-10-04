@@ -1262,7 +1262,7 @@ pub fn a_rebind_is_written_beside_the_preferences() {
     use dereth_client::shutdown::{Outcome, Step};
     use dereth_input::binding::Capture;
 
-    let prefs = scratch_preferences("o196-saved");
+    let prefs = scratch_preferences("shell-saved");
     let mut app = build_app(&AppSpec {
         preferences_file: Some(prefs.clone()),
         ..AppSpec::in_gameplay(4)
@@ -13229,7 +13229,7 @@ fn submit_save_name(c: &mut dereth_client::app::App, name: &str) {
 
 /// A cell shows what a player would call the key, not the name the client looks it up by.
 pub fn a_cell_shows_the_key_the_way_the_desktop_names_it() {
-    let mut c = a_client_on_the_key_bindings("p1-43-name");
+    let mut c = a_client_on_the_key_bindings("keybinding-name");
     let starts_bound = keys_for_forward(c.app_mut()).contains(&kb_control(KB_W));
 
     let cell = forward_cell(c.app_mut());
@@ -13296,7 +13296,7 @@ fn kb_tooltip(c: &mut dereth_client::app::App, cell: dereth_ui::ElemHandle, time
 
 /// A cell with a key in it says how to take it away; an empty one says how to fill it.
 pub fn resting_on_a_cell_says_what_a_press_there_would_do() {
-    let mut c = a_client_on_the_key_bindings("p1-43-tooltips");
+    let mut c = a_client_on_the_key_bindings("keybinding-tooltips");
     let cells = {
         let s = kb_screen(c.app_mut());
         let i = s
@@ -13348,7 +13348,7 @@ fn scenario_resting_on_a_cell_says_what_a_press_there_would_do() {
 
 /// The headings are words, not the tokens that look the words up.
 pub fn every_section_is_titled_in_words() {
-    let mut c = a_client_on_the_key_bindings("p1-43-titles");
+    let mut c = a_client_on_the_key_bindings("keybinding-titles");
     let headers = kb_screen(c.app_mut()).key_bindings.header_elements.clone();
     let enough = headers.len() >= 6;
     let titles: Vec<String> = headers
@@ -13378,7 +13378,7 @@ fn scenario_every_section_is_titled_in_words() {
 
 /// The undo button is dead when the page comes up.
 pub fn undo_opens_greyed_because_nothing_has_changed_yet() {
-    let mut c = a_client_on_the_key_bindings("p1-43-revert");
+    let mut c = a_client_on_the_key_bindings("keybinding-revert");
     let nothing_changed = !kb_screen(c.app_mut()).key_bindings.changed();
     let undo = kb_screen(c.app_mut())
         .key_bindings
@@ -13404,7 +13404,7 @@ fn scenario_undo_opens_greyed_because_nothing_has_changed_yet() {
 
 /// The whole gesture: press a cell, be told to press a key, cancel, do it again, and undo.
 pub fn a_press_on_a_cell_waits_for_a_key_and_undo_puts_the_old_one_back() {
-    let mut c = a_client_on_the_key_bindings("p1-43-gesture");
+    let mut c = a_client_on_the_key_bindings("keybinding-gesture");
     let mut hand = KeyHand::new();
 
     let before = keys_for_forward(c.app_mut());
@@ -13500,7 +13500,7 @@ fn scenario_a_press_on_a_cell_waits_for_a_key_and_undo_puts_the_old_one_back() {
 
 /// The two ways a captured key is not simply taken.
 pub fn a_key_already_in_use_asks_first_and_one_that_cannot_be_taken_refuses() {
-    let mut c = a_client_on_the_key_bindings("p1-43-conflicts");
+    let mut c = a_client_on_the_key_bindings("keybinding-conflicts");
     let mut hand = KeyHand::new();
     let cell = forward_cell(c.app_mut());
 
@@ -13615,7 +13615,7 @@ fn scenario_a_key_already_in_use_asks_first_and_one_that_cannot_be_taken_refuses
 
 /// Saying yes really does rebind, and the row that lost the key stops drawing it.
 pub fn taking_a_key_clears_it_from_the_rows_that_had_it() {
-    let mut c = a_client_on_the_key_bindings("p1-43-refresh");
+    let mut c = a_client_on_the_key_bindings("keybinding-refresh");
     let mut hand = KeyHand::new();
     let cell = forward_cell(c.app_mut());
     let a = kb_caption(c.app_mut(), KB_A);
@@ -13708,7 +13708,7 @@ fn scenario_taking_a_key_clears_it_from_the_rows_that_had_it() {
 
 /// The three prompts, word for word, with the key and the action in them.
 pub fn the_questions_about_a_key_in_use_are_the_shipped_sentences() {
-    let mut c = a_client_on_the_key_bindings("p1-43-conflict-text");
+    let mut c = a_client_on_the_key_bindings("keybinding-conflict-text");
     let mut hand = KeyHand::new();
     let cell = forward_cell(c.app_mut());
 
@@ -13816,7 +13816,7 @@ fn scenario_the_questions_about_a_key_in_use_are_the_shipped_sentences() {
 
 /// Save, change, load: the loaded keys come back and the page redraws them.
 pub fn a_set_of_keys_can_be_saved_under_a_name_and_loaded_back() {
-    let mut c = a_client_on_the_key_bindings("p1-43-files");
+    let mut c = a_client_on_the_key_bindings("keybinding-files");
     let dir = c
         .scratch_settings()
         .expect("a settings directory")
@@ -13903,7 +13903,7 @@ fn scenario_a_set_of_keys_can_be_saved_under_a_name_and_loaded_back() {
 
 /// Saving over a file that exists asks, and a file that cannot be written says so.
 pub fn saving_over_a_set_asks_first_and_one_that_cannot_be_written_refuses() {
-    let mut c = a_client_on_the_key_bindings("p1-43-overwrite");
+    let mut c = a_client_on_the_key_bindings("keybinding-overwrite");
     let dir = c
         .scratch_settings()
         .expect("a settings directory")
@@ -14006,7 +14006,7 @@ fn scenario_saving_over_a_set_asks_first_and_one_that_cannot_be_written_refuses(
 pub fn restoring_the_defaults_gives_back_the_shipped_keys() {
     use dereth_testkit::adapters_shell::{build_app, scratch_preferences, AppSpec};
 
-    let prefs = scratch_preferences("p1-43-defaults");
+    let prefs = scratch_preferences("keybinding-defaults");
     let dir = prefs.parent().expect("a directory").to_path_buf();
     // A fresh start: a previous run's file would be this run's precondition.
     for name in ["UserPreferences.keymap", "UserPreferences.ini"] {

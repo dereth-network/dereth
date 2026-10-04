@@ -291,9 +291,7 @@ pub mod keys {
 ///
 /// The supported tags are 2 = enum, 3 = float, and 4 = bool.
 ///
-/// 1 and 5 are unused in this build and their assignment is inferred. Only 2/3/4 are implemented,
-/// which is every shipped call site; 1 and 5 are named here and rejected by
-/// [`UiPreferenceItem::new`].
+/// Other tags are rejected by [`UiPreferenceItem::new`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreferenceDataType {
     Enum = 2,

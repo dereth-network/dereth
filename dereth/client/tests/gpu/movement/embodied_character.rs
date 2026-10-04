@@ -326,7 +326,7 @@ fn walking_carries_the_body_along_its_own_heading_and_it_stays_on_the_ground() {
 }
 
 /// Behaviour: movement.tick.physics-runs-at-thirty-hertz-whatever-the-frame-rate
-/// Oracle: `core/physics/tests/cpu/walk_scenarios.rs`'s own gate test, reproduced over real terrain and
+/// Oracle: `core/physics/tests/cpu/transition/walk_scenarios.rs`'s own gate test, reproduced over real terrain and
 /// through the real animation. Its bounds are used verbatim, including the "slightly less than 30"
 /// allowance for the accumulated wall clock straddling `1/30`.
 ///

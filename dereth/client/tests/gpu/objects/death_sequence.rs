@@ -125,7 +125,7 @@ const OTHER_CORPSE: ObjectId = ObjectId(0x8000_01ED);
 const DEATH_BLOCK: u32 = 0x9DAF;
 const LIFESTONE_BLOCK: u32 = 0xA9B4;
 /// `HIDDEN_PS` and `IGNORE_COLLISIONS_PS` — `dereth_protocol::objects`'s names for the two bits a
-/// death teleport sets, and the pair `dereth/client/src/objects.rs` calls "the teleport hide".
+/// death teleport sets to hide the character and suppress collisions.
 const HIDDEN_PS: u32 = 0x0000_4000;
 const IGNORE_COLLISIONS_PS: u32 = 0x0000_0010;
 /// The three objects the shard deleted out of the player's hands at the death teleport —

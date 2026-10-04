@@ -95,14 +95,14 @@ fn corpus_blobs(wanted: &[u32]) -> Vec<Recorded> {
 /// A designated temporary preferences path, separate from the normal user file. No existence
 /// check is performed here, so the test does not establish that nothing is already at this path.
 fn prefs_file() -> PathBuf {
-    std::env::temp_dir().join("dere-p1-185-not-created/prefs.ini")
+    std::env::temp_dir().join("dereth-chat-family-post-processing-not-created/prefs.ini")
 }
 
 /// An explicitly selected temporary log path. The host opens this path for
 /// `Scroll::start_copy_output_to_file`, and each logging test uses its own tag. Remove any
 /// prior file at that path first; this does not select the normal chat log path.
 fn log_file(tag: &str) -> PathBuf {
-    let p = std::env::temp_dir().join(format!("dere-p1-185-{tag}.log"));
+    let p = std::env::temp_dir().join(format!("dereth-chat-family-post-processing-{tag}.log"));
     let _ = std::fs::remove_file(&p);
     p
 }

@@ -10,6 +10,7 @@ pub use dereth_client_contract::{
 pub use dereth_primitives::{DataId, ObjectId};
 
 pub struct Context<'a> {
+    pub now: dereth_primitives::LocalTime,
     pub game: &'a dyn GameView,
     pub pregame: &'a PregameView,
     pub keyboard: &'a KeyboardState,
@@ -990,11 +991,11 @@ pub fn configure_keyboard() -> PanelAction {
 
 /// Every classic panel, by id.
 #[must_use]
-pub fn factory(id: &str) -> Option<Box<dyn Panel>> {
+pub fn factory(id: &str, now: dereth_primitives::LocalTime) -> Option<Box<dyn Panel>> {
     if id == "character-options" {
         return Some(Box::new(character_options::CharacterOptions::new()));
     }
-    pregame::make(id)
+    pregame::make(id, now)
         .or_else(|| hud::make(id))
         .or_else(|| game::make(id))
         .or_else(|| services::make(id))

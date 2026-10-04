@@ -39,7 +39,10 @@ fn typed_render_preserves_the_native_parser_and_reaches_projection_and_landscape
     const W: u32 = 800;
     const H: u32 = 600;
     let _gpu = gpu_lock();
-    let dir = std::env::temp_dir().join(format!("dere-p3-6b-render-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "dereth-render-and-day-commands-{}",
+        std::process::id()
+    ));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
     }

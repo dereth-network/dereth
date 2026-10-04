@@ -163,8 +163,8 @@ impl Host {
         let mut net = ClientNetwork::new(
             "127.0.0.1:19400",
             7304,
-            "o401",
-            "o401",
+            "world-drop-give",
+            "world-drop-give",
             connection_sequence_number(records).expect("the capture has no LoginRequest"),
         )
         .expect("host");
@@ -481,8 +481,8 @@ fn replay(session: &str) -> Vec<SessionEvent> {
     let mut net = ClientNetwork::new(
         "127.0.0.1:19410",
         7304,
-        "o401",
-        "o401",
+        "world-drop-give",
+        "world-drop-give",
         connection_sequence_number(records).expect("the capture has no LoginRequest"),
     )
     .expect("host");

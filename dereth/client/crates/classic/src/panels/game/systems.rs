@@ -1034,6 +1034,7 @@ mod tests {
         run(&TestContext {
             game,
             context: Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game,
                 pregame: &pregame,
                 keyboard: &keyboard,

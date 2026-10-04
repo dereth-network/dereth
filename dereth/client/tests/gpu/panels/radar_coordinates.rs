@@ -154,7 +154,8 @@ fn app() -> App {
         headless: true,
         sound: false,
         ui: true,
-        preferences_file: std::env::temp_dir().join("dere-p157-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir()
+            .join("dereth-radar-coordinates-not-created/prefs.ini"),
         dat_dir: client_dir(),
         ..Default::default()
     })

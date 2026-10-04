@@ -180,3 +180,5 @@ pub fn version_text() -> String {
         option_env!("DERETH_BUILD_TARGET").unwrap_or("unknown"),
     )
 }
+
+mod clock;

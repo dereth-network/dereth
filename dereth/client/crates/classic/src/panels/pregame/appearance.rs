@@ -464,7 +464,7 @@ mod tests {
             d.appearance.palettes.insert(id.into(), p);
         }
         let d = std::rc::Rc::new(d);
-        let mut p = Pregame::new("clothing", Ok(d.clone()));
+        let mut p = Pregame::new("clothing", Ok(d.clone()), dereth_primitives::LocalTime(0.0));
         p.state.set_shirt_style(&d.tables.chargen, 0);
         p.state.shirt_color = 0;
         p.state.shirt_palette_template_ids = vec![1];
@@ -495,7 +495,7 @@ mod tests {
         let d = super::super::tests::data();
         let d = std::rc::Rc::new(d);
         super::super::tests::context(|c| {
-            let mut p = Pregame::new("clothing", Ok(d.clone()));
+            let mut p = Pregame::new("clothing", Ok(d.clone()), dereth_primitives::LocalTime(0.0));
             p.state.set_shirt_style(&d.tables.chargen, 0);
             p.event(
                 ControlEvent::Scroll {

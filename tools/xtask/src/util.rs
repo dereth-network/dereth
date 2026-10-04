@@ -424,7 +424,7 @@ mod tests {
     /// the environment so the test says the same thing on a machine with no retail install.
     #[test]
     fn the_shortfall_names_the_missing_files_and_is_empty_when_all_four_are_there() {
-        let base = std::env::temp_dir().join("dere-o840-shortfall");
+        let base = std::env::temp_dir().join("dereth-shortfall");
         let empty = base.join("empty");
         let full = base.join("full");
         std::fs::create_dir_all(&empty).expect("a temp directory");

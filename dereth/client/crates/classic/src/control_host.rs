@@ -81,11 +81,11 @@ pub struct ControlHost {
     controls: Vec<Control>,
     pointer: (i32, i32),
     dragging: Option<(String, DragPayload, (i32, i32))>,
-    last_click: Option<(String, usize, std::time::Instant)>,
+    last_click: Option<(String, usize, dereth_primitives::LocalTime)>,
     slider: Option<String>,
     choice: Option<(String, usize)>,
     size: (u32, u32),
-    edit_click: Option<(NodeId, (i32, i32), std::time::Instant)>,
+    edit_click: Option<(NodeId, (i32, i32), dereth_primitives::LocalTime)>,
     item_feedback: Option<(String, usize, u32)>,
     canvas_feedback: Option<(Rect, bool)>,
     /// The slot a dragged spell would land in, lit while the drag is over it.
@@ -203,14 +203,14 @@ impl ControlHost {
     }
     /// Release a hidden/destroyed pane's editing owner and transient input. The focused
     /// control loses focus, and an edit field that had it reports its commit.
-    pub fn deactivate(&mut self) -> Vec<ControlEvent> {
+    pub fn deactivate(&mut self, now: dereth_primitives::LocalTime) -> Vec<ControlEvent> {
         let edit = self.tree.focus().and_then(|node| {
             self.controls
                 .iter()
                 .find(|c| self.ids[&c.id] == node && matches!(c.kind, ControlKind::Edit { .. }))
                 .map(|c| c.id.clone())
         });
-        let mut events = self.handle(Input::Cancel);
+        let mut events = self.handle(Input::Cancel, now);
         self.tree.release_focus();
         self.choice = None;
         self.edit_click = None;
@@ -670,7 +670,7 @@ impl ControlHost {
         };
         Self::slider_event(c, x, y)
     }
-    pub fn handle(&mut self, input: Input) -> Vec<ControlEvent> {
+    pub fn handle(&mut self, input: Input, now: dereth_primitives::LocalTime) -> Vec<ControlEvent> {
         let before = self.alternate_states();
         let release = matches!(input, Input::PointerUp { .. });
         let cancel = matches!(input, Input::Cancel);
@@ -718,7 +718,7 @@ impl ControlHost {
                 *thumb && self.controls.iter().any(|c| c.id == *id && c.enabled)
             });
         let input = self.wheel_target(input);
-        let events = self.handle_inner(input);
+        let events = self.handle_inner(input, now);
         if release || cancel {
             self.sound_scroll = None;
             self.settings_slider_grab = None;
@@ -789,7 +789,11 @@ impl ControlHost {
             _ => input,
         }
     }
-    fn handle_inner(&mut self, input: Input) -> Vec<ControlEvent> {
+    fn handle_inner(
+        &mut self,
+        input: Input,
+        now: dereth_primitives::LocalTime,
+    ) -> Vec<ControlEvent> {
         use crate::widgets::Key;
         let edit_pointer = match input {
             Input::PointerDown { x, y } => self
@@ -1011,7 +1015,7 @@ impl ControlHost {
                             id: id.clone(),
                             index,
                         });
-                        self.double_click(&id, index, &mut result);
+                        self.double_click(&id, index, now, &mut result);
                     } else if let ControlKind::Choice { options, selected } = &c.kind {
                         if !options.is_empty() {
                             self.choice = Some((id, *selected));
@@ -1022,7 +1026,7 @@ impl ControlHost {
                     ) {
                         result.push(ControlEvent::Activate(id.clone()));
                         if c.slot {
-                            self.double_click(&id, 0, &mut result);
+                            self.double_click(&id, 0, now, &mut result);
                         }
                     }
                 }
@@ -1040,10 +1044,9 @@ impl ControlHost {
             }
         }
         if let Some((node, x, y)) = edit_pointer {
-            let now = std::time::Instant::now();
             if self.edit_click.is_some_and(|(old, (px, py), time)| {
                 old == node
-                    && now.duration_since(time).as_millis() <= 500
+                    && crate::clock::milliseconds(now, time) <= 500
                     && (px - x).abs() + (py - y).abs() <= 4
             }) {
                 self.tree.select_edit_word(node, x, y);
@@ -1064,7 +1067,7 @@ impl ControlHost {
                 {
                     let y = self.pointer.1 - c.rect.y + offset;
                     if row_height > 0 && y >= 0 && y < content_height {
-                        self.double_click(&c.id, (y / row_height) as usize, &mut result);
+                        self.double_click(&c.id, (y / row_height) as usize, now, &mut result);
                     }
                 }
             }
@@ -1101,10 +1104,15 @@ impl ControlHost {
         }
         result
     }
-    fn double_click(&mut self, id: &str, index: usize, out: &mut Vec<ControlEvent>) {
-        let now = std::time::Instant::now();
+    fn double_click(
+        &mut self,
+        id: &str,
+        index: usize,
+        now: dereth_primitives::LocalTime,
+        out: &mut Vec<ControlEvent>,
+    ) {
         if self.last_click.as_ref().is_some_and(|(old, row, t)| {
-            old == id && *row == index && now.duration_since(*t).as_millis() < 500
+            old == id && *row == index && crate::clock::milliseconds(now, *t) < 500
         }) {
             out.push(ControlEvent::DoubleClick {
                 id: id.into(),
@@ -1684,23 +1692,38 @@ mod tests {
             .iter()
             .any(|c| matches!(c,Command::Image{did,width:7,height:12,..} if did=="06001286")));
         assert!(host
-            .handle(Input::PointerDown { x: 2, y: 5 })
+            .handle(
+                Input::PointerDown { x: 2, y: 5 },
+                dereth_primitives::LocalTime(0.0)
+            )
             .contains(&ControlEvent::Value {
                 id: "volume".into(),
                 value: 0
             }));
         assert!(host
-            .handle(Input::PointerMove { x: 59, y: 5 })
+            .handle(
+                Input::PointerMove { x: 59, y: 5 },
+                dereth_primitives::LocalTime(0.0)
+            )
             .contains(&ControlEvent::Value {
                 id: "volume".into(),
                 value: 50
             }));
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::PointerUp { x: 59, y: 5 });
+        host.handle(
+            Input::PointerUp { x: 59, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x74]);
-        host.handle(Input::PointerDown { x: 60, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 60, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host
-            .handle(Input::PointerUp { x: 60, y: 5 })
+            .handle(
+                Input::PointerUp { x: 60, y: 5 },
+                dereth_primitives::LocalTime(0.0)
+            )
             .contains(&ControlEvent::Value {
                 id: "volume".into(),
                 value: 50
@@ -1731,20 +1754,41 @@ mod tests {
             .silent = true;
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host
-            .handle(Input::PointerUp { x: 5, y: 5 })
+            .handle(
+                Input::PointerUp { x: 5, y: 5 },
+                dereth_primitives::LocalTime(0.0)
+            )
             .contains(&ControlEvent::Activate("print".into())));
         assert!(host
-            .handle(Input::Key {
-                key: crate::widgets::Key::Enter,
-                shift: false
-            })
+            .handle(
+                Input::Key {
+                    key: crate::widgets::Key::Enter,
+                    shift: false
+                },
+                dereth_primitives::LocalTime(0.0)
+            )
             .contains(&ControlEvent::Activate("print".into())));
-        host.handle(Input::PointerDown { x: 65, y: 5 });
-        host.handle(Input::PointerUp { x: 65, y: 5 });
-        host.handle(Input::PointerDown { x: 65, y: 20 });
-        host.handle(Input::PointerUp { x: 90, y: 155 });
+        host.handle(
+            Input::PointerDown { x: 65, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 65, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerDown { x: 65, y: 20 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 90, y: 155 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
     }
     #[test]
@@ -1755,22 +1799,46 @@ mod tests {
         let mut host = ControlHost::default();
         host.sync(&frame);
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::PointerDown { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x72]);
-        host.handle(Input::PointerMove { x: 6, y: 6 });
-        host.handle(Input::PointerMove { x: 60, y: 6 });
+        host.handle(
+            Input::PointerMove { x: 6, y: 6 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerMove { x: 60, y: 6 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::PointerMove { x: 5, y: 5 });
+        host.handle(
+            Input::PointerMove { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x72]);
-        host.handle(Input::PointerUp { x: 5, y: 5 });
+        host.handle(
+            Input::PointerUp { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::Key {
-            key: crate::widgets::Key::Enter,
-            shift: false,
-        });
+        host.handle(
+            Input::Key {
+                key: crate::widgets::Key::Enter,
+                shift: false,
+            },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x72]);
-        host.handle(Input::PointerDown { x: 5, y: 35 });
-        host.handle(Input::PointerUp { x: 5, y: 35 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 35 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 5, y: 35 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
     }
     #[test]
@@ -1779,12 +1847,24 @@ mod tests {
         frame.check("check", rect(0, 0, 40, 20), "Test", false, true);
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x72]);
-        host.handle(Input::PointerUp { x: 5, y: 5 });
+        host.handle(
+            Input::PointerUp { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::PointerDown { x: 5, y: 5 });
-        host.handle(Input::PointerUp { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
     }
     #[test]
@@ -1807,16 +1887,34 @@ mod tests {
         );
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x72]);
-        host.handle(Input::PointerUp { x: 5, y: 5 });
+        host.handle(
+            Input::PointerUp { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::PointerDown { x: 5, y: 20 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 20 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
-        host.handle(Input::PointerUp { x: 80, y: 155 });
+        host.handle(
+            Input::PointerUp { x: 80, y: 155 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(host.take_sounds(), vec![0x74]);
-        host.handle(Input::PointerDown { x: 5, y: 90 });
-        host.handle(Input::PointerUp { x: 5, y: 90 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 90 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 5, y: 90 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.take_sounds().is_empty());
     }
     #[test]
@@ -1825,23 +1923,82 @@ mod tests {
         frame.button("spell:0", rect(10, 10, 32, 32), "", true).slot = true;
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 20, y: 20 });
-        assert!(host.handle(Input::PointerMove { x: 30, y: 20 }).contains(
-            &ControlEvent::DragStart {
+        host.handle(
+            Input::PointerDown { x: 20, y: 20 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        assert!(host
+            .handle(
+                Input::PointerMove { x: 30, y: 20 },
+                dereth_primitives::LocalTime(0.0)
+            )
+            .contains(&ControlEvent::DragStart {
                 id: "spell:0".into(),
                 index: 0
-            }
-        ));
-        host.handle(Input::PointerUp { x: 30, y: 20 });
+            }));
+        host.handle(
+            Input::PointerUp { x: 30, y: 20 },
+            dereth_primitives::LocalTime(0.0),
+        );
         let mut events = vec![];
         for _ in 0..2 {
-            host.handle(Input::PointerDown { x: 20, y: 20 });
-            events.extend(host.handle(Input::PointerUp { x: 20, y: 20 }));
+            host.handle(
+                Input::PointerDown { x: 20, y: 20 },
+                dereth_primitives::LocalTime(0.0),
+            );
+            events.extend(host.handle(
+                Input::PointerUp { x: 20, y: 20 },
+                dereth_primitives::LocalTime(0.0),
+            ));
         }
         assert!(events.contains(&ControlEvent::DoubleClick {
             id: "spell:0".into(),
             index: 0
         }));
+    }
+    #[test]
+    fn supplied_click_times_keep_list_and_edit_millisecond_boundaries() {
+        use dereth_primitives::LocalTime;
+        for (elapsed, list_double, edit_double) in [
+            (0.499, true, true),
+            (0.4999, true, true),
+            (0.5, false, true),
+            (0.5009, false, true),
+            (0.501, false, false),
+            (0.5011, false, false),
+            (-1.0, true, true),
+        ] {
+            let mut frame = PanelFrame::new(200, 100);
+            frame.list("rows", rect(0, 0, 100, 40), vec!["row".into()], None, 20);
+            let mut host = ControlHost::default();
+            host.sync(&frame);
+            let mut second = Vec::new();
+            for time in [10.0, 10.0 + elapsed] {
+                host.handle(Input::PointerDown { x: 5, y: 5 }, LocalTime(time));
+                second = host.handle(Input::PointerUp { x: 5, y: 5 }, LocalTime(time));
+            }
+            assert_eq!(
+                second
+                    .iter()
+                    .any(|e| matches!(e, ControlEvent::DoubleClick { .. })),
+                list_double,
+                "list elapsed={elapsed}"
+            );
+
+            let mut frame = PanelFrame::new(200, 100);
+            frame.edit("body", rect(0, 0, 180, 30), "alpha beta", 100, false, true);
+            let mut host = ControlHost::default();
+            host.sync(&frame);
+            for time in [10.0, 10.0 + elapsed] {
+                host.handle(Input::PointerDown { x: 12, y: 10 }, LocalTime(time));
+                host.handle(Input::PointerUp { x: 12, y: 10 }, LocalTime(time));
+            }
+            assert_eq!(
+                host.selected_text().as_deref(),
+                edit_double.then_some("alpha"),
+                "edit elapsed={elapsed}"
+            );
+        }
     }
     #[test]
     fn a_choice_list_taller_than_the_space_above_and_below_stays_on_screen() {
@@ -1861,11 +2018,20 @@ mod tests {
         let popup = host.choice_popup(&frame.controls[0], 20);
         assert_eq!((popup.outer.y, popup.outer.h), (240, 360));
         // The last row is reachable.
-        host.handle(Input::PointerDown { x: 135, y: 305 });
-        host.handle(Input::PointerUp { x: 135, y: 305 });
+        host.handle(
+            Input::PointerDown { x: 135, y: 305 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 135, y: 305 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.popup_open());
         assert_eq!(
-            host.handle(Input::PointerUp { x: 135, y: 590 }),
+            host.handle(
+                Input::PointerUp { x: 135, y: 590 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Select {
                 id: "resolution".into(),
                 index: 19
@@ -1888,19 +2054,36 @@ mod tests {
             .choice_enabled = Some(vec![true, false, true]);
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 5, y: 5 });
-        host.handle(Input::PointerUp { x: 5, y: 5 });
-        assert!(host.handle(Input::PointerUp { x: 5, y: 45 }).is_empty());
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        assert!(host
+            .handle(
+                Input::PointerUp { x: 5, y: 45 },
+                dereth_primitives::LocalTime(0.0)
+            )
+            .is_empty());
         assert!(host.popup_open());
-        host.handle(Input::Key {
-            key: crate::widgets::Key::Down,
-            shift: false,
-        });
+        host.handle(
+            Input::Key {
+                key: crate::widgets::Key::Down,
+                shift: false,
+            },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(
-            host.handle(Input::Key {
-                key: crate::widgets::Key::Enter,
-                shift: false
-            }),
+            host.handle(
+                Input::Key {
+                    key: crate::widgets::Key::Enter,
+                    shift: false
+                },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Select {
                 id: "destination".into(),
                 index: 2
@@ -1948,8 +2131,14 @@ mod tests {
             images(&host),
             [("0600050A".into(), 368, 221), ("060004EA".into(), 485, 221)]
         );
-        host.handle(Input::PointerDown { x: 490, y: 230 });
-        host.handle(Input::PointerUp { x: 490, y: 230 });
+        host.handle(
+            Input::PointerDown { x: 490, y: 230 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 490, y: 230 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.popup_open());
         let open = images(&host);
         assert!(open.contains(&("060004EB".into(), 485, 221)));
@@ -1962,39 +2151,68 @@ mod tests {
             ("060011F2".into(), 368, 329),
         ]));
         // Down from the last row wraps to the first.
-        host.handle(Input::Key {
-            key: crate::widgets::Key::Down,
-            shift: false,
-        });
+        host.handle(
+            Input::Key {
+                key: crate::widgets::Key::Down,
+                shift: false,
+            },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(
-            host.handle(Input::Key {
-                key: crate::widgets::Key::Enter,
-                shift: false
-            }),
+            host.handle(
+                Input::Key {
+                    key: crate::widgets::Key::Enter,
+                    shift: false
+                },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Select {
                 id: "style".into(),
                 index: 0
             }]
         );
-        host.handle(Input::PointerDown { x: 490, y: 230 });
-        host.handle(Input::PointerUp { x: 490, y: 230 });
+        host.handle(
+            Input::PointerDown { x: 490, y: 230 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 490, y: 230 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.popup_open());
         // A click on the popup's top edge picks nothing; the second row is 25 pixels down.
-        assert!(host.handle(Input::PointerUp { x: 400, y: 250 }).is_empty());
+        assert!(host
+            .handle(
+                Input::PointerUp { x: 400, y: 250 },
+                dereth_primitives::LocalTime(0.0)
+            )
+            .is_empty());
         assert_eq!(
-            host.handle(Input::PointerUp { x: 400, y: 280 }),
+            host.handle(
+                Input::PointerUp { x: 400, y: 280 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Select {
                 id: "style".into(),
                 index: 1
             }]
         );
-        host.handle(Input::PointerDown { x: 490, y: 230 });
-        host.handle(Input::PointerUp { x: 490, y: 230 });
+        host.handle(
+            Input::PointerDown { x: 490, y: 230 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 490, y: 230 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host
-            .handle(Input::Key {
-                key: crate::widgets::Key::Escape,
-                shift: false
-            })
+            .handle(
+                Input::Key {
+                    key: crate::widgets::Key::Escape,
+                    shift: false
+                },
+                dereth_primitives::LocalTime(0.0)
+            )
             .is_empty());
         assert!(!host.popup_open());
     }
@@ -2012,12 +2230,21 @@ mod tests {
         );
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 5, y: 85 });
-        host.handle(Input::PointerUp { x: 5, y: 85 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 85 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        host.handle(
+            Input::PointerUp { x: 5, y: 85 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host.popup_open());
         assert!(host.contains_control(180, 5));
         assert_eq!(
-            host.handle(Input::PointerUp { x: 5, y: 45 }),
+            host.handle(
+                Input::PointerUp { x: 5, y: 45 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Select {
                 id: "destination".into(),
                 index: 1,
@@ -2035,14 +2262,20 @@ mod tests {
         let mut host = ControlHost::default();
         host.sync(&frame);
         assert_eq!(
-            host.handle(Input::PointerDown { x: 20, y: 20 }),
+            host.handle(
+                Input::PointerDown { x: 20, y: 20 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Held {
                 id: "attack".into(),
                 pressed: true
             }]
         );
         assert_eq!(
-            host.handle(Input::PointerUp { x: 80, y: 80 }),
+            host.handle(
+                Input::PointerUp { x: 80, y: 80 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Held {
                 id: "attack".into(),
                 pressed: false
@@ -2060,20 +2293,30 @@ mod tests {
         host.sync(&frame);
         assert!(host.focus_control("body"));
         assert_eq!(
-            host.deactivate(),
+            host.deactivate(dereth_primitives::LocalTime(0.0)),
             [ControlEvent::Commit { id: "body".into() }]
         );
         assert!(!host.editing());
-        assert!(host.deactivate().is_empty());
-        host.handle(Input::PointerDown { x: 5, y: 45 });
+        assert!(host
+            .deactivate(dereth_primitives::LocalTime(0.0))
+            .is_empty());
+        host.handle(
+            Input::PointerDown { x: 5, y: 45 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(
-            host.deactivate(),
+            host.deactivate(dereth_primitives::LocalTime(0.0)),
             [ControlEvent::Held {
                 id: "held".into(),
                 pressed: false
             }]
         );
-        assert!(host.handle(Input::PointerUp { x: 5, y: 45 }).is_empty());
+        assert!(host
+            .handle(
+                Input::PointerUp { x: 5, y: 45 },
+                dereth_primitives::LocalTime(0.0)
+            )
+            .is_empty());
     }
     #[test]
     fn chat_submission_is_enter_only_and_blur_commits_without_sending() {
@@ -2083,12 +2326,18 @@ mod tests {
         let mut host = ControlHost::default();
         host.sync(&frame);
         assert!(host.focus_control("chat"));
-        let events = host.handle(Input::Key {
-            key: crate::widgets::Key::Enter,
-            shift: false,
-        });
+        let events = host.handle(
+            Input::Key {
+                key: crate::widgets::Key::Enter,
+                shift: false,
+            },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(events.contains(&ControlEvent::Submit { id: "chat".into() }));
-        let blur = host.handle(Input::PointerDown { x: 5, y: 45 });
+        let blur = host.handle(
+            Input::PointerDown { x: 5, y: 45 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(blur.contains(&ControlEvent::Commit { id: "chat".into() }));
         assert!(!blur
             .iter()
@@ -2100,16 +2349,32 @@ mod tests {
         frame.button("use", rect(10, 10, 40, 20), "Use", true);
         let mut host = ControlHost::default();
         host.sync(&frame);
-        assert!(host.handle(Input::PointerDown { x: 20, y: 20 }).is_empty());
+        assert!(host
+            .handle(
+                Input::PointerDown { x: 20, y: 20 },
+                dereth_primitives::LocalTime(0.0)
+            )
+            .is_empty());
         host.sync(&frame);
         assert_eq!(
-            host.handle(Input::PointerUp { x: 20, y: 20 }),
+            host.handle(
+                Input::PointerUp { x: 20, y: 20 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Activate("use".into())]
         );
-        host.handle(Input::PointerDown { x: 20, y: 20 });
+        host.handle(
+            Input::PointerDown { x: 20, y: 20 },
+            dereth_primitives::LocalTime(0.0),
+        );
         frame.controls[0].enabled = false;
         host.sync(&frame);
-        assert!(host.handle(Input::PointerUp { x: 20, y: 20 }).is_empty());
+        assert!(host
+            .handle(
+                Input::PointerUp { x: 20, y: 20 },
+                dereth_primitives::LocalTime(0.0)
+            )
+            .is_empty());
     }
     #[test]
     fn second_click_on_selected_row_emits_double_click_and_refresh_keeps_scroll() {
@@ -2123,20 +2388,35 @@ mod tests {
         );
         let mut host = ControlHost::default();
         host.sync(&frame);
-        host.handle(Input::Wheel {
-            x: 5,
-            y: 5,
-            delta: 2,
-        });
+        host.handle(
+            Input::Wheel {
+                x: 5,
+                y: 5,
+                delta: 2,
+            },
+            dereth_primitives::LocalTime(0.0),
+        );
         host.sync(&frame);
-        host.handle(Input::PointerDown { x: 5, y: 5 });
-        let first = host.handle(Input::PointerUp { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
+        let first = host.handle(
+            Input::PointerUp { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(first
             .iter()
             .any(|e| matches!(e, ControlEvent::Select { index: 2, .. })));
-        host.handle(Input::PointerDown { x: 5, y: 5 });
+        host.handle(
+            Input::PointerDown { x: 5, y: 5 },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(host
-            .handle(Input::PointerUp { x: 5, y: 5 })
+            .handle(
+                Input::PointerUp { x: 5, y: 5 },
+                dereth_primitives::LocalTime(0.0)
+            )
             .iter()
             .any(|e| matches!(e, ControlEvent::DoubleClick { index: 2, .. })));
     }
@@ -2158,11 +2438,14 @@ mod tests {
         let mut host = ControlHost::default();
         host.sync(&frame);
         // Over a row of the page, not the bar: two notches down move the bar two steps.
-        let events = host.handle(Input::Wheel {
-            x: 100,
-            y: 100,
-            delta: 2,
-        });
+        let events = host.handle(
+            Input::Wheel {
+                x: 100,
+                y: 100,
+                delta: 2,
+            },
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(
             events
                 .iter()
@@ -2174,11 +2457,14 @@ mod tests {
         let mut host = ControlHost::default();
         host.sync(&frame);
         assert!(!host
-            .handle(Input::Wheel {
-                x: 100,
-                y: 100,
-                delta: 2,
-            })
+            .handle(
+                Input::Wheel {
+                    x: 100,
+                    y: 100,
+                    delta: 2,
+                },
+                dereth_primitives::LocalTime(0.0)
+            )
             .iter()
             .any(|e| matches!(e, ControlEvent::Scroll { .. })));
     }
@@ -2215,14 +2501,20 @@ mod tests {
         let mut host = ControlHost::default();
         host.sync(&frame);
         assert_eq!(
-            host.handle(Input::PointerDown { x: 60, y: 15 }),
+            host.handle(
+                Input::PointerDown { x: 60, y: 15 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Value {
                 id: "level".into(),
                 value: 50
             }]
         );
         assert_eq!(
-            host.handle(Input::PointerMove { x: 250, y: 80 }),
+            host.handle(
+                Input::PointerMove { x: 250, y: 80 },
+                dereth_primitives::LocalTime(0.0)
+            ),
             vec![ControlEvent::Value {
                 id: "level".into(),
                 value: 100

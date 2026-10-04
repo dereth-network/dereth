@@ -61,7 +61,7 @@ const CHAT_ENTRY: ElementId = ElementId(0x1000_0016);
 /// Scratch preferences location: layout paths resolve beside the configured preferences
 /// file, so naming that file supplies the directory without a process working-directory fallback.
 fn prefs_file() -> PathBuf {
-    let dir = std::env::temp_dir().join("dere-o246");
+    let dir = std::env::temp_dir().join("dereth-screen-layout-persistence");
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     dir.join("UserPreferences.ini")
 }
@@ -77,8 +77,9 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "o246-login", "unused", 0)
-            .expect("a socket-free client network");
+        let mut net =
+            ClientNetwork::new("127.0.0.1:19000", 7304, "screen-layout-login", "unused", 0)
+                .expect("a socket-free client network");
         net.session.transport.add_connection(
             0xB,
             0,
@@ -198,7 +199,7 @@ fn login_at_saved_resolution() -> App {
                 seconds_greyed_out: 0,
             }],
             num_allowed_characters: 5,
-            account: "o246-login".to_owned(),
+            account: "screen-layout-login".to_owned(),
             ..Default::default()
         })
         .expect("0xF658"),

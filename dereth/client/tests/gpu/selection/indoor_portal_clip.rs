@@ -134,7 +134,7 @@ fn setup_in(block: u16, cell: u32, portal_clip: bool) -> App {
         height: SCREEN.1,
         dat_dir: dereth_dat::testing::dat_dir(),
         preferences_file: std::env::temp_dir()
-            .join("dere-p1-70c-portal-clip-not-created")
+            .join("dereth-indoor-portal-clip-not-created")
             .join("preferences.ini"),
         ..Config::default()
     })

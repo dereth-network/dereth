@@ -49,7 +49,7 @@ struct Scratch {
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("p4_1b_{name}"));
+        let dir = std::env::temp_dir().join(format!("dat_patch_{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a scratch directory");
         Self {
@@ -1113,7 +1113,7 @@ fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
             headless: true,
             sound: false,
             ui: true,
-            preferences_file: std::env::temp_dir().join("dere-p4_1b-not-created/prefs.ini"),
+            preferences_file: std::env::temp_dir().join("dereth-dat-patch-not-created/prefs.ini"),
             dat_dir: dir.clone(),
             ..Default::default()
         },
@@ -1123,7 +1123,7 @@ fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
     app.start_shell().expect("the UI shell comes up");
 
     // A socket-free replay endpoint using the same transport construction as the login stations.
-    let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "p4_1b", "unused", 0)
+    let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "dat-patch", "unused", 0)
         .expect("a socket-free network client");
     net.session.transport.add_connection(
         0xB,

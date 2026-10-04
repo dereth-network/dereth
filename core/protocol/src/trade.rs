@@ -260,16 +260,13 @@ impl Message for TradeRegisterTrade {
 
 /// `0x0200 Trade_AddToTrade`, **server to client**.
 ///
-/// **It has a third dword** at +0x0C which the client passes with the item and side;
-/// the catalogue lists only two fields. Its exact meaning is inferred to be the
-/// container-properties value that also appears in `ContentProfile`.
+/// Carries item, side, and a third dword that is decoded and passed through unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TradeAddToTradeRecv {
     pub item: ObjectId,
     /// See [`trade_side`].
     pub side: u32,
-    // The third dword is treated as a container-properties
-    // flag. It is decoded and passed through; name it when a capture explains it.
+    // The third dword's meaning is unspecified here.
     pub container_properties: u32,
 }
 

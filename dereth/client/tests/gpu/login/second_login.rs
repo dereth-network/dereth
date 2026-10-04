@@ -49,7 +49,7 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "o939", "unused", 0)
+        let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "second-login", "unused", 0)
             .expect("a socket-free client network");
         net.session.transport.add_connection(
             0xB,
@@ -118,7 +118,7 @@ fn app() -> App {
         headless: true,
         sound: false,
         ui: true,
-        preferences_file: std::env::temp_dir().join("dere-o939-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir().join("dereth-second-login-not-created/prefs.ini"),
         dat_dir: client_dir(),
         ..Default::default()
     })
@@ -184,7 +184,7 @@ fn frames(app: &mut App, n: u32, what: &str) {
 fn log_on(app: &mut App, peer: &mut Peer, id: ObjectId, cell: u32, xyz: (f32, f32, f32)) {
     app.replay_network_mut()
         .expect("the endpoint")
-        .enter_world(id, "o939");
+        .enter_world(id, "second-login");
     frames(app, 1, "phase 1");
 
     peer.send(

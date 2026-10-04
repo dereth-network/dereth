@@ -78,7 +78,7 @@ pub struct ClassicUi {
     target_commands: Vec<crate::Command>,
     leave_target_after_click: bool,
     /// Where and when the last left press in the world landed, to tell a double click.
-    world_press: Option<(i32, i32, std::time::Instant)>,
+    world_press: Option<(i32, i32, dereth_primitives::LocalTime)>,
     /// Where the left button went down over the world while it is held, to start a drag.
     world_held: Option<(i32, i32)>,
     /// Movement held by the right button while right-click mouse look is off.
@@ -107,7 +107,7 @@ pub struct ClassicUi {
     options_seen: Option<u32>,
     dialogs: ClassicDialogs,
     panel_events: Vec<(String, ControlEvent)>,
-    preview_click: Option<(u64, i32, i32, std::time::Instant)>,
+    preview_click: Option<(u64, i32, i32, dereth_primitives::LocalTime)>,
     preview_held: Option<(u64, Preview, i32, i32)>,
     settings_host: Option<crate::settings_host::SettingsHost>,
     /// The classic key map as the host last handed it over.
@@ -175,7 +175,7 @@ impl ClassicUi {
     pub fn new(
         art: std::sync::Arc<crate::art::ClassicArt>,
         paths: crate::art::ClassicPaths,
-        factory: fn(&str) -> Option<Box<dyn Panel>>,
+        factory: fn(&str, dereth_primitives::LocalTime) -> Option<Box<dyn Panel>>,
         size: (u32, u32),
     ) -> Self {
         let previews = crate::previews::Previews::default();
@@ -531,6 +531,7 @@ impl ClassicUi {
             ) {
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
+                    now,
                     game: &view,
                     pregame: cx.pregame(),
                     keyboard: &self.keyboard,
@@ -554,6 +555,7 @@ impl ClassicUi {
             {
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
+                    now,
                     game: &view,
                     pregame: cx.pregame(),
                     keyboard: &self.keyboard,
@@ -1502,6 +1504,7 @@ impl ClassicUi {
         {
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                now: dereth_primitives::LocalTime(cx.now()),
                 game: &view,
                 pregame: cx.pregame(),
                 keyboard: &self.keyboard,
@@ -1901,6 +1904,7 @@ impl ClassicUi {
         {
             let view = cx.hud().view(cx.objects());
             let context = Context {
+                now,
                 game: &view,
                 pregame: cx.pregame(),
                 keyboard: &self.keyboard,
@@ -2106,6 +2110,7 @@ impl ClassicUi {
                 };
                 let view = cx.hud().view(cx.objects());
                 let context = Context {
+                    now,
                     game: &view,
                     pregame: cx.pregame(),
                     keyboard: &self.keyboard,
@@ -2183,10 +2188,10 @@ impl ClassicUi {
                                 && self.preview_click.is_some_and(|(token, px, py, t)| {
                                     token == origin
                                         && (x - px).abs() + (y - py).abs() < 4
-                                        && t.elapsed().as_millis() < 500
+                                        && crate::clock::milliseconds(now, t) < 500
                                 });
-                            self.preview_click = (!right_click && !double_click)
-                                .then(|| (origin, x, y, std::time::Instant::now()));
+                            self.preview_click =
+                                (!right_click && !double_click).then_some((origin, x, y, now));
                             paper_doll_clicks.push((
                                 origin,
                                 preview.clone(),
@@ -2239,8 +2244,8 @@ impl ClassicUi {
                     let mouse = match input {
                         // A second press close by and soon after is a double click, which uses.
                         Input::PointerDown { x, y } if !self.desktop.pointer_over_panel(x, y) => {
-                            let double = world_double_click(self.world_press, x, y);
-                            self.world_press = (!double).then(|| (x, y, std::time::Instant::now()));
+                            let double = world_double_click(self.world_press, x, y, now);
+                            self.world_press = (!double).then_some((x, y, now));
                             Some((if double { 0x0A } else { 7 }, true, x, y))
                         }
                         Input::PointerDown { x, y } => Some((7, true, x, y)),
@@ -2319,6 +2324,7 @@ impl ClassicUi {
         }
         let view = cx.hud().view(cx.objects());
         let context = Context {
+            now: dereth_primitives::LocalTime(cx.now()),
             game: &view,
             pregame: cx.pregame(),
             keyboard: &self.keyboard,
@@ -2797,9 +2803,14 @@ fn leaves_target(armed: bool, over_panel: bool) -> bool {
 
 /// Whether a left press is the second of a double click: within four pixels of the previous press
 /// and half a second after it.
-fn world_double_click(previous: Option<(i32, i32, std::time::Instant)>, x: i32, y: i32) -> bool {
+fn world_double_click(
+    previous: Option<(i32, i32, dereth_primitives::LocalTime)>,
+    x: i32,
+    y: i32,
+    now: dereth_primitives::LocalTime,
+) -> bool {
     previous.is_some_and(|(px, py, t)| {
-        (x - px).abs() + (y - py).abs() < 4 && t.elapsed().as_millis() < 500
+        (x - px).abs() + (y - py).abs() < 4 && crate::clock::milliseconds(now, t) < 500
     })
 }
 
@@ -2882,12 +2893,23 @@ mod click_and_chat_tests {
     }
     #[test]
     fn a_second_press_close_by_and_soon_is_a_double_click() {
-        let now = std::time::Instant::now();
-        assert!(world_double_click(Some((100, 100, now)), 101, 102));
-        assert!(!world_double_click(Some((100, 100, now)), 110, 100));
-        assert!(!world_double_click(None, 100, 100));
-        let old = now - std::time::Duration::from_millis(600);
-        assert!(!world_double_click(Some((100, 100, old)), 100, 100));
+        let then = dereth_primitives::LocalTime(10.0);
+        let near = dereth_primitives::LocalTime(10.4999);
+        assert!(world_double_click(Some((100, 100, then)), 101, 102, near));
+        assert!(!world_double_click(Some((100, 100, then)), 110, 100, near));
+        assert!(!world_double_click(None, 100, 100, near));
+        assert!(!world_double_click(
+            Some((100, 100, then)),
+            100,
+            100,
+            dereth_primitives::LocalTime(10.5)
+        ));
+        assert!(world_double_click(
+            Some((100, 100, then)),
+            100,
+            100,
+            dereth_primitives::LocalTime(9.0)
+        ));
     }
 }
 
@@ -2911,6 +2933,7 @@ mod house_profile_tests {
 
     fn with_context(hud: &Hud, objects: &ObjectStream, run: impl FnOnce(&Context<'_>)) {
         run(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &hud.view(objects),
             pregame: &Default::default(),
             keyboard: &Default::default(),
@@ -2925,7 +2948,7 @@ mod house_profile_tests {
     fn a_house_profile_opens_once_and_a_repeated_use_reopens_after_close() {
         let mut hud = Hud::new();
         let mut objects = ObjectStream::new();
-        let mut desktop = Desktop::new(crate::panels::services::make, (800, 600));
+        let mut desktop = Desktop::new(|id, _| crate::panels::services::make(id), (800, 600));
         let mut seen = 0;
         with_context(&hud, &objects, |context| {
             open_house_profile(&mut desktop, &mut seen, context);
@@ -2951,7 +2974,8 @@ mod house_profile_tests {
                 assert_eq!(context.game.slumlord_notices(), receipt);
                 open_house_profile(&mut desktop, &mut seen, context);
                 assert!(desktop.is_open("maintenance"));
-                let mut rebuilt = Desktop::new(crate::panels::services::make, (800, 600));
+                let mut rebuilt =
+                    Desktop::new(|id, _| crate::panels::services::make(id), (800, 600));
                 open_house_profile(&mut rebuilt, &mut seen, context);
                 assert!(
                     rebuilt.is_open("maintenance"),

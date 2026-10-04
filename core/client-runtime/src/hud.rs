@@ -2544,11 +2544,8 @@ impl Hud {
     ///   *self* is inside the player range and would otherwise pass.
     /// * **the id range.** The 126-of-126 case above.
     ///
-    /// The name is the one the `^`/`&` meta-language trim has already run over — the client
-    /// searches the **sender name** for `^` (Olthoi) then `&`, and passes the trailing-trimmed
-    /// buffer to the last-teller-name setter. Reproduced because a marker left on would compose
-    /// `@tell Bob^,`; the exact string handling is not directly observable,
-    /// and **unexercised by the corpus**: none of the 126 names carries either marker.
+    /// The sender name is passed through `trim_language_marker` before it becomes
+    /// the reply target name.
     fn note_last_teller(
         &mut self,
         world: &mut dereth_client_model::World,
@@ -5134,22 +5131,8 @@ pub mod bool_property {
     pub const NO_OLTHOI_TALK: u32 = 0x81;
 }
 
-/// The language record's two speech markers, trimmed off a **sender name** before it is remembered.
-///
-/// Direct speech checks for `^` and then `&`, and in either case trims the trailing marker before
-/// remembering the sender name. The accompanying flag chooses Olthoi or human replacement text
-/// for a listener who cannot understand the speaker.
-///
-/// The exact parameter shape is not directly observable, so it is inferred from how
-/// the name and id are used. It is reproduced
-/// because a marker left on the name composes `@tell Bob^,`, a tell to a character that does not
-/// exist. **No name in the 126-tell corpus carries either marker**, so this line is not exercised
-/// by it and a name without a marker is returned unchanged.
-///
-/// The body is [`crate::chat::language_marker`], which
-/// the `Communication_HearEmote` handler needs as well — the same `strstr` then
-/// `trim(leading = 0, trailing = 1, marker)` pair, `^` before `&`. One copy, two callers, so a
-/// correction to either function's reading cannot land in only one of them.
+/// Remove a trailing language marker from the sender name through [`crate::chat::language_marker`].
+/// An unmarked name is returned unchanged.
 fn trim_language_marker(name: &str) -> &str {
     crate::chat::language_marker(name).1
 }

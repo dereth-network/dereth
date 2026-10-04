@@ -715,7 +715,7 @@ mod in_the_doorway {
             height: SCREEN.1,
             dat_dir: dereth_dat::testing::dat_dir(),
             preferences_file: std::env::temp_dir()
-                .join("dere-p1-70e-open-door-not-created")
+                .join("dereth-open-door-pick-not-created")
                 .join("preferences.ini"),
             ..Config::default()
         })

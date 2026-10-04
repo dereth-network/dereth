@@ -459,6 +459,7 @@ mod shared_stock_tests {
     }
     fn with<T>(game: &Shop, f: impl FnOnce(&Context<'_>) -> T) -> T {
         f(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game,
             pregame: &PregameView::default(),
             keyboard: &KeyboardState::default(),
@@ -567,6 +568,7 @@ mod basket_tests {
     }
     fn with<T>(v: &View, f: impl FnOnce(&Context<'_>) -> T) -> T {
         f(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: v,
             pregame: &PregameView::default(),
             keyboard: &KeyboardState::default(),

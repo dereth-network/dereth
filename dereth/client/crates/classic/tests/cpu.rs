@@ -31,6 +31,7 @@ fn choosing_a_pack_updates_the_shared_pickup_destination() {
             world: &world,
         };
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &view,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -178,6 +179,7 @@ fn a_recreated_classic_inventory_reads_the_shared_pack_selection() {
     for _ in 0..2 {
         let panel = dereth_classic_ui::panels::game::make("inventory").unwrap();
         let context = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &snapshot,
             pregame: &Default::default(),
             keyboard: &Default::default(),
@@ -239,6 +241,7 @@ fn character_squelch_from_panel(name: &str, add: bool) {
     dereth_client_contract::options::store::init();
     let view = View(name.to_owned());
     let context = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -348,6 +351,7 @@ fn equipment_drop(
     let hud = Hud::new();
     let view = dereth_client_runtime::hud::HudView { hud: &hud, world };
     let context = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -576,6 +580,7 @@ fn classic_ready_slot_displays_a_confirmed_two_handed_weapon() {
     hud.sync(&objects, None);
     let view = hud.view(&objects);
     let context = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -600,6 +605,7 @@ fn era_context<T>(
     f: impl FnOnce(&Context<'_>) -> T,
 ) -> T {
     f(&Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: view,
         pregame: &Default::default(),
         keyboard: &Default::default(),

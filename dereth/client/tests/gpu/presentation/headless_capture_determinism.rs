@@ -120,7 +120,7 @@ fn the_first_pixel_quad_is_still_reachable_and_still_byte_identical() {
          set DERETH_TEST_DAT_DIR",
         dat_dir.display()
     );
-    let dir = std::env::temp_dir().join("dere-client-gate-o5");
+    let dir = std::env::temp_dir().join("dereth-headless-capture");
     std::fs::create_dir_all(&dir).expect("a scratch directory");
 
     let mut images: Vec<Vec<u8>> = Vec::new();

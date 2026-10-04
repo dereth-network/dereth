@@ -49,6 +49,7 @@ fn runtime_spell_power_reaches_classic_rows_and_supported_background_pixels() {
     hud.spells = ids.iter().map(|id| hud.spell_entry(*id).unwrap()).collect();
     let view = hud.view(&objects);
     let ctx = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &view,
         pregame: &Default::default(),
         keyboard: &Default::default(),
@@ -56,7 +57,7 @@ fn runtime_spell_power_reaches_classic_rows_and_supported_background_pixels() {
         map_teleport_allowed: false,
         classic: &Default::default(),
     };
-    let panel = crate::panels::factory("spellbook").unwrap();
+    let panel = crate::panels::factory("spellbook", dereth_primitives::LocalTime(0.0)).unwrap();
     let frame = panel.frame(&ctx);
     canvas.load_runtime_images(&frame.screen, &store).unwrap();
     let commands: Vec<_> = frame

@@ -766,6 +766,7 @@ mod tests {
     }
     fn context<T>(view: &dyn GameView, f: impl FnOnce(&Context<'_>) -> T) -> T {
         f(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: view,
             pregame: &Default::default(),
             keyboard: &Default::default(),

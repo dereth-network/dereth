@@ -19,10 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// entire `PlayerModule` is packed and sent.
 pub const DIRTY_FLUSH_SECONDS: f64 = 480.0;
 
-/// The shortcut manager's 18-slot shortcut array.
-///
-/// 18 slots are stored but the retail UI shows a single row; the remaining slots are the alternate
-/// bars. Allocate 18 and let the UI decide what to draw.
+/// Eighteen stored shortcut slots. The interface chooses which slots to display.
 pub const SHORTCUT_SLOTS: usize = 18;
 
 /// The eight hotbar spell tabs, `favorite_spells_[0..7]`.

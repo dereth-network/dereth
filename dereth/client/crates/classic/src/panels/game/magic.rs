@@ -724,6 +724,7 @@ mod filter_layout_tests {
             era.era_announced = true;
             let game = World(era);
             let ctx = Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game: &game,
                 pregame: &Default::default(),
                 keyboard: &Default::default(),

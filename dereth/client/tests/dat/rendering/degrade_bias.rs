@@ -66,7 +66,12 @@ fn oracle(levels: &[Words], dist: f32, degrade_distance: f32, bias: f32) -> usiz
 /// The wrong reading of the negative arm: the **positive** arm's pair of fields, with `max_dist`
 /// where the client adds `ideal_dist`. Kept so the census below can say how much of the shipped
 /// data can tell the two apart.
-fn pre_o102(levels: &[Words], dist: f32, degrade_distance: f32, bias: f32) -> usize {
+fn negative_arm_with_maximum_origin(
+    levels: &[Words],
+    dist: f32,
+    degrade_distance: f32,
+    bias: f32,
+) -> usize {
     let d = (dist.abs() - degrade_distance).max(0.0);
     for (i, l) in levels.iter().enumerate() {
         let threshold = if bias >= 0.0 {
@@ -373,7 +378,7 @@ fn the_census_of_records_the_defect_could_ever_have_moved() {
             }
             for dist in probes.into_iter().filter(|d| d.is_finite() && *d >= 0.0) {
                 let right = oracle(&flat, dist, dd, bias);
-                let wrong = pre_o102(&flat, dist, dd, bias);
+                let wrong = negative_arm_with_maximum_origin(&flat, dist, dd, bias);
                 if right != wrong {
                     moved = true;
                     if worst.is_none() {
@@ -429,7 +434,7 @@ fn the_falsifiability_census_reads_non_zero_on_a_known_positive_and_zero_on_a_kn
         "the client degrades at 50 m past the clamp"
     );
     assert_eq!(
-        pre_o102(&sep, dd + 50.0, dd, bias),
+        negative_arm_with_maximum_origin(&sep, dd + 50.0, dd, bias),
         0,
         "the old reading did not"
     );
@@ -441,7 +446,7 @@ fn the_falsifiability_census_reads_non_zero_on_a_known_positive_and_zero_on_a_kn
         let dist = dd + (step as f32);
         assert_eq!(
             oracle(&flat, dist, dd, bias),
-            pre_o102(&flat, dist, dd, bias),
+            negative_arm_with_maximum_origin(&flat, dist, dd, bias),
             "a record with min == ideal == max cannot tell the two readings apart, at {dist}"
         );
     }

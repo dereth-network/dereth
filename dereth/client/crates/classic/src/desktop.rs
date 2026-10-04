@@ -1,7 +1,7 @@
 //! Classic window lifetimes, modal callbacks and composition over the game viewport.
 use crate::{control_host::ControlHost, panels::*, widgets::Input, Command, Screen};
 
-type Factory = fn(&str) -> Option<Box<dyn Panel>>;
+type Factory = fn(&str, dereth_primitives::LocalTime) -> Option<Box<dyn Panel>>;
 #[derive(Debug)]
 struct Window {
     token: u64,
@@ -454,7 +454,7 @@ impl Desktop {
             .windows
             .iter_mut()
             .find(|w| w.token == token)
-            .map(|w| w.controls.deactivate())
+            .map(|w| w.controls.deactivate(context.now))
             .unwrap_or_default();
         if self.capture == Some(token) {
             self.capture = None;
@@ -605,7 +605,7 @@ impl Desktop {
             self.release_inactive(context);
             return Some(token);
         }
-        let Some(mut panel) = (self.factory)(id) else {
+        let Some(mut panel) = (self.factory)(id, context.now) else {
             self.errors.push(format!("Unknown classic panel: {id}"));
             return None;
         };
@@ -754,7 +754,7 @@ impl Desktop {
     pub fn release_pointer(&mut self, context: &Context<'_>) {
         if let Some(token) = self.capture.take() {
             if let Some(w) = self.windows.iter_mut().find(|w| w.token == token) {
-                w.controls.handle(Input::Cancel);
+                w.controls.handle(Input::Cancel, context.now);
             }
             self.refresh(context);
         }
@@ -1080,7 +1080,7 @@ impl Desktop {
                     },
                 );
             }
-            let events = modal.controls.handle(input);
+            let events = modal.controls.handle(input, context.now);
             self.sounds.extend(modal.controls.take_sounds());
             if events
                 .iter()
@@ -1176,7 +1176,7 @@ impl Desktop {
                         })
                 });
                 for w in &mut self.windows {
-                    w.controls.handle(Input::Cancel);
+                    w.controls.handle(Input::Cancel, context.now);
                 }
                 self.capture = None;
                 if let Some((token, event)) = drop {
@@ -1259,7 +1259,7 @@ impl Desktop {
             }
             if let Some(w) = self.windows.iter_mut().find(|w| w.token == token) {
                 let local = translate_input(input, -w.x, -w.y);
-                let mut events = w.controls.handle(local.clone());
+                let mut events = w.controls.handle(local.clone(), context.now);
                 self.sounds.extend(w.controls.take_sounds());
                 match local {
                     Input::PointerMove { x, y }
@@ -1578,9 +1578,26 @@ mod tests {
         });
     }
     #[test]
+    fn opening_a_panel_passes_the_supplied_clock_to_its_constructor() {
+        context_test(|context| {
+            let context = Context {
+                now: dereth_primitives::LocalTime(42.0),
+                ..*context
+            };
+            let mut desktop = Desktop::new(
+                |_, now| {
+                    assert_eq!(now, dereth_primitives::LocalTime(42.0));
+                    Some(Box::new(StatefulPane(0)))
+                },
+                (800, 600),
+            );
+            assert!(desktop.open("first", &context).is_some());
+        });
+    }
+    #[test]
     fn switching_side_panels_retains_state_and_restores_the_existing_instance() {
         context_test(|c| {
-            let mut desktop = Desktop::new(|_| Some(Box::new(StatefulPane(0))), (800, 600));
+            let mut desktop = Desktop::new(|_, _| Some(Box::new(StatefulPane(0))), (800, 600));
             let first = desktop.open("first", c).unwrap();
             desktop.dispatch(first, ControlEvent::Activate("increment".into()), c);
             desktop.open("second", c);
@@ -1599,7 +1616,7 @@ mod tests {
     #[test]
     fn closing_the_shown_page_closes_the_side_panel_instead_of_uncovering_an_older_page() {
         context_test(|c| {
-            let mut desktop = Desktop::new(|_| Some(Box::new(StatefulPane(0))), (800, 600));
+            let mut desktop = Desktop::new(|_, _| Some(Box::new(StatefulPane(0))), (800, 600));
             desktop.open("first", c);
             desktop.open("second", c);
             desktop.close("second", c);
@@ -1721,7 +1738,7 @@ mod tests {
     }
     #[test]
     fn a_side_column_notice_leaves_the_world_clickable() {
-        let mut d = Desktop::new(|_| None, (800, 600));
+        let mut d = Desktop::new(|_, _| None, (800, 600));
         d.show_dialog("notice".into(), "Notice".into(), vec![], vec![]);
         assert!(
             d.pointer_over_panel(100, 100),
@@ -1757,7 +1774,7 @@ mod tests {
     #[test]
     fn hiding_retained_pane_commits_once_and_restoring_does_not_restore_edit_focus() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| Some(Box::new(EditingPane)), (800, 600));
+            let mut d = Desktop::new(|_, _| Some(Box::new(EditingPane)), (800, 600));
             let first = d.open("first", c).unwrap();
             assert!(d
                 .windows
@@ -1779,7 +1796,7 @@ mod tests {
     #[test]
     fn visual_teardown_commits_before_removal_without_user_close_action() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| Some(Box::new(EditingPane)), (800, 600));
+            let mut d = Desktop::new(|_, _| Some(Box::new(EditingPane)), (800, 600));
             let token = d.open("first", c).unwrap();
             assert!(d
                 .windows
@@ -1797,7 +1814,7 @@ mod tests {
     #[test]
     fn service_ground_teardown_precedes_peace_without_external_use() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| Some(Box::new(StatefulPane(0))), (800, 600));
+            let mut d = Desktop::new(|_, _| Some(Box::new(StatefulPane(0))), (800, 600));
             d.open("external-container", c);
             d.open("salvage", c);
             assert_eq!(
@@ -1820,6 +1837,7 @@ mod tests {
         let settings = ClassicSettings::default();
         let classic = ClassicState::default();
         f(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -1831,7 +1849,7 @@ mod tests {
     #[test]
     fn replacing_a_visible_dialog_answers_only_the_latest_context_and_keeps_queue() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| None, (800, 600));
+            let mut d = Desktop::new(|_, _| None, (800, 600));
             let answer = |n| vec![PanelAction::Host(HostAction::CombatMode(n))];
             d.show_dialog("server".into(), "First".into(), answer(1), answer(2));
             d.show_dialog("next".into(), "Next".into(), answer(4), vec![]);
@@ -1848,7 +1866,7 @@ mod tests {
     #[test]
     fn enter_uses_dialog_default_and_single_button_popup_acknowledges() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| None, (800, 600));
+            let mut d = Desktop::new(|_, _| None, (800, 600));
             let answer = |yes| vec![PanelAction::Host(HostAction::ConfirmBinding(yes))];
             d.show_dialog(
                 "confirm".into(),
@@ -1882,7 +1900,7 @@ mod tests {
     #[test]
     fn window_teardown_cancels_unanswered_dialogs_without_sending_refusals() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| None, (800, 600));
+            let mut d = Desktop::new(|_, _| None, (800, 600));
             d.show_dialog(
                 "pending".into(),
                 "Question".into(),
@@ -1896,7 +1914,7 @@ mod tests {
     }
     #[test]
     fn fixed_pregame_modal_placement_survives_window_resize_and_queueing() {
-        let mut d = Desktop::new(|_| None, (1024, 768));
+        let mut d = Desktop::new(|_, _| None, (1024, 768));
         d.show_dialog("login".into(), "Login".into(), vec![], vec![]);
         d.show_dialog("create".into(), "Create".into(), vec![], vec![]);
         d.set_dialog_placement("login", ModalPlacement::for_panel("login").unwrap());
@@ -1922,7 +1940,7 @@ mod tests {
     #[test]
     fn modal_hotkeys_use_button_presence_and_explicit_default_independent_of_focus() {
         context_test(|c| {
-            let mut d = Desktop::new(|_| None, (800, 600));
+            let mut d = Desktop::new(|_, _| None, (800, 600));
             let choice = |yes| vec![PanelAction::Host(HostAction::ConfirmBinding(yes))];
             for (key, expected) in [("y", true), ("O", true), ("c", false), ("N", false)] {
                 d.show_dialog(

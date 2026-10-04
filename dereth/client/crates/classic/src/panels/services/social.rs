@@ -1283,6 +1283,7 @@ mod tests {
             ..Default::default()
         });
         run(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &Default::default(),
             keyboard: &Default::default(),

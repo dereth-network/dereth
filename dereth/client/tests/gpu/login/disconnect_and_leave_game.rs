@@ -41,7 +41,7 @@ fn base_config() -> Config {
 fn connected_config() -> Config {
     Config {
         connect: true,
-        account: "o71".into(),
+        account: "disconnect".into(),
         host: "127.0.0.1".into(),
         port: 9000,
         ..base_config()

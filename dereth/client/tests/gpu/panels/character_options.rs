@@ -176,7 +176,8 @@ impl Bench {
             headless: true,
             sound: false,
             ui: true,
-            preferences_file: std::env::temp_dir().join("dere-p1-65-not-created/prefs.ini"),
+            preferences_file: std::env::temp_dir()
+                .join("dereth-character-options-not-created/prefs.ini"),
             dat_dir: client_dir(),
             ..Config::default()
         })

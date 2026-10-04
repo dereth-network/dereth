@@ -175,6 +175,7 @@ mod tests {
         });
         let (state, pregame, keyboard, settings) = Default::default();
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &game,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -227,6 +228,7 @@ mod tests {
             let (pregame, keyboard, settings) = Default::default();
             state.book_edit_privileged = true;
             let c = Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game: &game,
                 pregame: &pregame,
                 keyboard: &keyboard,

@@ -991,6 +991,7 @@ mod slot_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &Corpse,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -1080,6 +1081,7 @@ mod fitting_scroll_tests {
         let mut panel = Inventory::default();
         let frame = |game: &Contents, panel: &Inventory| {
             panel.frame(&Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game,
                 pregame: &Default::default(),
                 keyboard: &Default::default(),

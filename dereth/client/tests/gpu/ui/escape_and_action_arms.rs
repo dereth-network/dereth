@@ -748,7 +748,7 @@ fn app_in_gameplay(frames: u32) -> dereth_client::app::App {
     // somewhere disposable. `Config::default()` leaves it empty, and an empty default preferences
     // path is relative to the working directory, which here would be the workspace.
     let prefs = std::env::temp_dir()
-        .join("dere-o635-screenshots")
+        .join("dereth-action-screenshots")
         .join("dereth-client.ini");
     if let Some(d) = prefs.parent() {
         std::fs::create_dir_all(d).expect("a disposable preferences directory");

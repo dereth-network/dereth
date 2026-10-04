@@ -29,7 +29,7 @@ fn app() -> App {
         sound: false,
         connect: false,
         dat_dir: dir,
-        preferences_file: std::env::temp_dir().join("dere-p1-82b-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir().join("dereth-sync-to-refresh-not-created/prefs.ini"),
         ..Config::default()
     };
     // Display-preference initialization defaults FullScreen to true. This station

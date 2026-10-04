@@ -359,7 +359,8 @@ mod wired {
             sound: false,
             connect: false,
             dat_dir: client_dir(),
-            preferences_file: std::env::temp_dir().join("dere-p1-82-not-created/prefs.ini"),
+            preferences_file: std::env::temp_dir()
+                .join("dereth-resolution-dropdown-not-created/prefs.ini"),
             ..Config::default()
         };
         let mut a = App::new(cfg).expect("an application");

@@ -529,7 +529,7 @@ fn no_recorded_move_to_arm_ever_changes_the_players_stance() {
     }
     eprintln!("player stance edges={edges} on_a_move_to_arm={on_a_move_to_arm}");
     // The claim is the zero: it holds across every recording, including `melee-attack-run`,
-    // whose move-to arms ACE composes by a different path (see `dat/o134_approach_walk`).
+    // whose move-to arms ACE composes by a different path.
     assert!(
         edges > 0,
         "the server sent the player no stance change at all"

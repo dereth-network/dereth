@@ -654,6 +654,7 @@ mod spell_tests {
         ] {
             let game = Spell(description);
             let ctx = Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game: &game,
                 pregame: &Default::default(),
                 keyboard: &Default::default(),
@@ -721,6 +722,7 @@ mod appraisal_tests {
     }
     fn with_context(view: &dyn GameView, run: impl FnOnce(&Context<'_>)) {
         run(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: view,
             pregame: &Default::default(),
             keyboard: &Default::default(),

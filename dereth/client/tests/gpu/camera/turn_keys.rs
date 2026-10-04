@@ -276,7 +276,7 @@ impl Wire {
         let mut net = dereth_client::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
-            "p3-4-station",
+            "turn-keys-station",
             "unused",
             0,
         )

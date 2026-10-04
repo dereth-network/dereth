@@ -119,30 +119,8 @@ pub struct SkillEntry {
     pub sac: u32,
     /// The unenchanted skill value used as the baseline for the font comparison.
     pub level: i32,
-    /// The non-raw skill query for `id` — the **enchanted** value, which is `Update`'s
-    /// comparison operand and what picks the buffed / debuffed font.
-    ///
-    /// It is **not** the skill base-level query's answer, which is the
-    /// *attribute-formula contribution alone* (the base-level query is a
-    /// formula over one or two attributes and nothing else). Comparing that
-    /// against the skill lookup marks **every skill with any experience in it** as buffed: measured
-    /// against a recorded first-login capture, exactly the character's 14 trained and
-    /// specialised skills came out font 1 and the 24 untrained ones font 0, which is not a buff, it
-    /// is a restatement of `_sac`.
-    ///
-    /// The right operand pair is the skill lookup with `raw = 1` — the number that is
-    /// **displayed** — against the same lookup with `raw = 0`. The attribute row settles it: it
-    /// computes the identical 0/1/2 index from **only** those two calls, with no base-level term in
-    /// scope at all, and the secondary-attribute row does the same with the vitae modifier
-    /// subtracted. The skill row does call the base-level query as well, and which values its
-    /// comparison uses is **not established** — but the sibling function is unambiguous and the
-    /// capture shows what the other reading produces.
-    ///
-    /// The skill row reads
-    /// the skill lookup with `raw=1` and with `raw=0` separately, and the
-    /// comparison is the raw one against the enchanted one **less the vitae modifier**. The
-    /// **string** the row prints is the *enchanted* value, not [`Self::level`]. See
-    /// `crate::panels::skills::value_font`.
+    /// The enchanted skill value used for display.
+    /// Font comparison uses `effective - vitae` against `level`.
     pub effective: i32,
 
     /// The vitae modifier for this skill — zero, or **negative**

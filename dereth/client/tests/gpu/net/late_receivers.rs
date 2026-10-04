@@ -114,8 +114,14 @@ pub(crate) struct Peer {
 
 impl Peer {
     pub(crate) fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19100", 7304, "p2-4-station", "unused", 0)
-            .expect("a net");
+        let mut net = ClientNetwork::new(
+            "127.0.0.1:19100",
+            7304,
+            "late-receivers-station",
+            "unused",
+            0,
+        )
+        .expect("a net");
         net.session.transport.add_connection(
             0xB,
             0,
@@ -223,7 +229,7 @@ pub(crate) fn setup(tag: &str) -> (App, Peer) {
         height: 600,
         dat_dir: client_dir(),
         preferences_file: std::env::temp_dir()
-            .join(format!("dere-p24-{tag}-not-created/prefs.ini")),
+            .join(format!("dereth-late-receivers-{tag}-not-created/prefs.ini")),
         ..Config::default()
     })
     .expect("an application");

@@ -153,8 +153,7 @@ pub fn press_use(c: &mut HeadlessClient, key: Key) {
     press_bound(c, USE, UI_COMMANDS, key);
 }
 
-/// The frames a key press needs for what it raised to reach the screen. Six, which is what
-/// `p1_97c`'s own `settle` ran.
+/// The frames allowed for a key press to update the displayed screen.
 pub const SETTLE_FRAMES: u64 = 6;
 
 /// One key transition, as a key going down or coming up.

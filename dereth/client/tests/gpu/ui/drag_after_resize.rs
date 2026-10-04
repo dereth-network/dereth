@@ -172,7 +172,7 @@ fn station() -> App {
         width: 800,
         height: 600,
         dat_dir: client_dir(),
-        preferences_file: std::env::temp_dir().join("dere-p1-81/preferences.ini"),
+        preferences_file: std::env::temp_dir().join("dereth-drag-after-resize/preferences.ini"),
         ..Config::default()
     })
     .expect("an App with the retail dats and a headless GPU device");

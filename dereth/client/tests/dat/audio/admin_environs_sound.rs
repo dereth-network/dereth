@@ -23,7 +23,7 @@ struct TempDir(std::path::PathBuf);
 impl TempDir {
     fn new() -> Self {
         let unique = format!(
-            "dere-p3-admin-environs-{}-{}",
+            "dereth-admin-environs-sound-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -50,8 +50,9 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "p3-admin-environs", "unused", 0)
-            .expect("a socket-free client net");
+        let mut net =
+            ClientNetwork::new("127.0.0.1:19000", 7304, "admin-environs-sound", "unused", 0)
+                .expect("a socket-free client net");
         net.session.transport.add_connection(
             0xB,
             0,

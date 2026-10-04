@@ -402,7 +402,7 @@ impl Pregame {
         }
     }
 
-    pub(super) fn credits(&self, _c: &Context<'_>) -> PanelFrame {
+    pub(super) fn credits(&self, c: &Context<'_>) -> PanelFrame {
         let mut f = PanelFrame::new(800, 600);
         f.fill(rect(0, 0, 800, 600), 0xff000000);
         let dm = self.credits_variant;
@@ -414,7 +414,7 @@ impl Pregame {
         } else {
             &[0x1a98, 0x1a99, 0x1a9a, 0x1a9b, 0x1a9c, 0x1a9d, 0x1a9e]
         };
-        let elapsed = self.credits_started.elapsed().as_secs_f64();
+        let elapsed = crate::clock::seconds(c.now, self.credits_started);
         let distance = to_i32_f64(elapsed * 32.);
         let cycle = i32_from(photos.len()) * 300;
         for (i, &did) in photos.iter().enumerate() {
@@ -444,7 +444,7 @@ impl Pregame {
             .paint = false;
         f
     }
-    pub(super) fn credits_finished(&self) -> bool {
+    pub(super) fn credits_finished(&self, now: dereth_primitives::LocalTime) -> bool {
         let dm = self.credits_variant;
         let key = if dm { 0x31000020u32 } else { 0x31000022 };
         self.data
@@ -452,7 +452,7 @@ impl Pregame {
             .ok()
             .and_then(|d| d.text_heights.get(&key.to_string()))
             .is_some_and(|&height| {
-                self.credits_started.elapsed().as_secs_f64() * 25. - 10. >= height as f64
+                crate::clock::seconds(now, self.credits_started) * 25. - 10. >= height as f64
             })
     }
 

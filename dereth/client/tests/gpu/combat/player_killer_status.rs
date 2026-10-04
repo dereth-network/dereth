@@ -41,8 +41,9 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19100", 7304, "p1-97-pk", "unused", 0)
-            .expect("a socket-free replay net");
+        let mut net =
+            ClientNetwork::new("127.0.0.1:19100", 7304, "player-killer-status", "unused", 0)
+                .expect("a socket-free replay net");
         net.session.transport.add_connection(
             0xB,
             0,
@@ -175,7 +176,8 @@ fn setup() -> (App, Peer) {
         width: 800,
         height: 600,
         dat_dir: client_dir(),
-        preferences_file: std::env::temp_dir().join("dere-p1-97-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir()
+            .join("dereth-player-killer-status-not-created/prefs.ini"),
         ..Config::default()
     })
     .expect("an application");

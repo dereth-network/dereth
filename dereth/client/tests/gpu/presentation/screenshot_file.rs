@@ -49,7 +49,7 @@ use dereth_client::interaction::action as ia;
 
 /// A disposable directory standing in for the default preferences file's directory.
 fn scratch(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("dere-p1-144-{tag}"));
+    let d = std::env::temp_dir().join(format!("dereth-screenshot-file-{tag}"));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).expect("a disposable preferences directory");
     d

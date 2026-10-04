@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn an_absent_golden_is_a_panic_and_not_a_pass() {
-        let e = std::panic::catch_unwind(|| check("no-such-golden-r5-1", "anything"));
+        let e = std::panic::catch_unwind(|| check("no-such-golden-missing-oracle", "anything"));
         assert!(e.is_err(), "a missing oracle must not read as a pass");
     }
 

@@ -47,7 +47,7 @@ fn base_config() -> Config {
 fn connected_config() -> Config {
     Config {
         connect: true,
-        account: "o100".into(),
+        account: "booted-and-banned".into(),
         host: "127.0.0.1".into(),
         port: 9000,
         ..base_config()

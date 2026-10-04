@@ -4,7 +4,7 @@
 //! ```text
 //! cargo xtask sweep                          every discovered target and every lib
 //! cargo xtask sweep --touched world.rs       targets whose source mentions a string
-//! cargo xtask sweep rendering::sky o604_vendor_money
+//! cargo xtask sweep rendering::sky inventory::vendor_split
 //! cargo xtask sweep --list                   the registry, and exit
 //! cargo xtask sweep --shard-binary dereth-client:dat          one binary, 4 processes
 //! cargo xtask sweep --shard-binary dereth-client:dat --serial the same, in one
@@ -1680,13 +1680,13 @@ mod tests {
     /// anything looser than "a result line" reads it as fine.
     const WRONG_PKG: &str =
         "error: no test target named `examine_window` in default-run packages\n\
-        help: available test targets:\n    o124_selection_queries\n    o164_click_routing\n";
+        help: available test targets:\n    selection_queries\n    click_routing\n";
 
     /// The crash shape: the binary is built, launched and dies; libtest never reaches its summary,
     /// and cargo reports it only in a tail a result-line grep never sees.
-    const CRASH: &str = "   Compiling dereth-client v0.1.0\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.02s\n     Running tests\\o525_trade_window.rs (target\\debug\\deps\\o525_trade_window-9c1.exe)\n\n\
-        running 6 tests\nerror: test failed, to rerun pass `-p dereth-client --test o525_trade_window`\n\n\
-        Caused by:\n  process didn't exit successfully: `target\\debug\\deps\\o525_trade_window-9c1.exe`\n  (exit code: 0xc0000005, STATUS_ACCESS_VIOLATION)\n";
+    const CRASH: &str = "   Compiling dereth-client v0.1.0\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.02s\n     Running tests\\trade_window.rs (target\\debug\\deps\\trade_window-9c1.exe)\n\n\
+        running 6 tests\nerror: test failed, to rerun pass `-p dereth-client --test trade_window`\n\n\
+        Caused by:\n  process didn't exit successfully: `target\\debug\\deps\\trade_window-9c1.exe`\n  (exit code: 0xc0000005, STATUS_ACCESS_VIOLATION)\n";
 
     /// A red whose per-test status lines are split by a printing test -- the interleaving that once
     /// scored real failures as passes for weeks. The roll-call at the end is intact.

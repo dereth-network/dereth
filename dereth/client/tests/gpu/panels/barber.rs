@@ -37,7 +37,7 @@ struct Peer {
 
 impl Peer {
     fn new() -> (Self, ClientNetwork) {
-        let mut net = ClientNetwork::new("127.0.0.1:19100", 7304, "p2-5b-barber", "unused", 0)
+        let mut net = ClientNetwork::new("127.0.0.1:19100", 7304, "barber", "unused", 0)
             .expect("a socket-free replay net");
         net.session.transport.add_connection(
             0xB,
@@ -108,7 +108,7 @@ fn setup() -> (App, Peer) {
         width: 800,
         height: 600,
         dat_dir: client_dir(),
-        preferences_file: std::env::temp_dir().join("dere-p2-5b-barber-not-created/prefs.ini"),
+        preferences_file: std::env::temp_dir().join("dereth-barber-not-created/prefs.ini"),
         ..Config::default()
     })
     .expect("app");

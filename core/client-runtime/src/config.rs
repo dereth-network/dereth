@@ -1810,12 +1810,8 @@ impl Preferences {
     }
 
     /// A preference registered with the boolean data type.
-    ///
-    /// typed-variable inquiry writes
-    /// booleans through the `KW_TRUE` / `KW_FALSE` globals, and `KW_TRUE` is the literal `"True"`
-    /// but the switch that selects the boolean arm has not been traced, so the written form is
-    /// inferred. Both that spelling and
-    /// the numeric one are accepted here, which is correct under either answer.
+    /// Accepts case-insensitive `True`/`False` or numeric `1`/`0` after trimming whitespace;
+    /// other values return `None`.
     #[must_use]
     pub fn bool(&self, name: &str) -> Option<bool> {
         match self.get(name)?.trim() {

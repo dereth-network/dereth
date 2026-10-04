@@ -50,12 +50,12 @@ const WHITE: u32 = 0xffff_ffff;
 /// A character slot's height on the character screen.
 const SLOT: i32 = 16;
 
-pub fn make(id: &str) -> Option<Box<dyn Panel>> {
+pub fn make(id: &str, now: dereth_primitives::LocalTime) -> Option<Box<dyn Panel>> {
     let &external = IDS
         .iter()
         .find(|&&v| v == id.strip_prefix("pregame/").unwrap_or(id))?;
     let page = external.strip_prefix("create-").unwrap_or(external);
-    Some(Box::new(Pregame::new(page, data::current())))
+    Some(Box::new(Pregame::new(page, data::current(), now)))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,7 +106,7 @@ struct Pregame {
     color_scroll: [i32; 4],
     help_scroll: i32,
     keyboard_scroll: i32,
-    credits_started: std::time::Instant,
+    credits_started: dereth_primitives::LocalTime,
     credits_variant: bool,
     creation_slot: Option<i32>,
 }
@@ -274,7 +274,11 @@ fn text(f: &mut PanelFrame, r: crate::widgets::Rect, value: impl Into<String>) {
 }
 
 impl Pregame {
-    fn new(page: &'static str, mut data: Result<std::rc::Rc<CreationData>, String>) -> Self {
+    fn new(
+        page: &'static str,
+        mut data: Result<std::rc::Rc<CreationData>, String>,
+        now: dereth_primitives::LocalTime,
+    ) -> Self {
         if let (Ok(data), Some(art)) = (&mut data, crate::art::installed()) {
             std::rc::Rc::make_mut(data).read_chrome(&art);
         }
@@ -289,7 +293,7 @@ impl Pregame {
             );
         Self {
             page,
-            startup: startup::Startup::default(),
+            startup: startup::Startup::new(now),
             startup_error: None,
             data,
             state,
@@ -325,7 +329,7 @@ impl Pregame {
             color_scroll: [0; 4],
             help_scroll: 0,
             keyboard_scroll: 0,
-            credits_started: std::time::Instant::now(),
+            credits_started: now,
             credits_variant: false,
             creation_slot: None,
         }
@@ -1239,7 +1243,7 @@ impl Panel for Pregame {
             if self.page == "key-edit" && c.keyboard.capture_revision != self.capture_before {
                 self.page = "keyboard";
             }
-            if self.page == "credits" && self.credits_finished() {
+            if self.page == "credits" && self.credits_finished(c.now) {
                 self.credits_variant = !self.credits_variant;
                 self.page = "login";
             }
@@ -1271,7 +1275,7 @@ impl Panel for Pregame {
                         });
                     }
                 }
-                if self.startup_error.is_none() && self.startup.tick(c.pregame) {
+                if self.startup_error.is_none() && self.startup.tick(c.pregame, c.now) {
                     self.page = "login";
                 }
             }
@@ -1534,7 +1538,7 @@ impl Panel for Pregame {
                 "keyboard" => self.page = "keyboard",
                 "credits" => {
                     self.page = "credits";
-                    self.credits_started = std::time::Instant::now();
+                    self.credits_started = c.now;
                 }
                 "create" | "quick" => {
                     self.creation_slot = presentation::first_empty_slot(c.pregame);

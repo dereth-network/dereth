@@ -101,7 +101,7 @@ fn setup() -> (App, ObjectId) {
         height: SCREEN.1,
         dat_dir: dereth_dat::testing::dat_dir(),
         preferences_file: std::env::temp_dir()
-            .join("dere-p1-self-indicator-not-created")
+            .join("dereth-self-target-indicator-not-created")
             .join("preferences.ini"),
         ..Config::default()
     })

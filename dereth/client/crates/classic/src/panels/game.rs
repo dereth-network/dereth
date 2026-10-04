@@ -125,6 +125,7 @@ mod tests {
     }
     fn with_context<T>(world: &World, run: impl FnOnce(&Context<'_>) -> T) -> T {
         run(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: world,
             pregame: &Default::default(),
             keyboard: &Default::default(),
@@ -350,6 +351,7 @@ mod tests {
             let mut p = make("examine").unwrap();
             p.set_object(ObjectId(5));
             p.frame(&Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game: &w,
                 pregame: &Default::default(),
                 keyboard: &Default::default(),
@@ -967,6 +969,7 @@ mod tests {
                     ..Default::default()
                 };
                 let context = Context {
+                    now: dereth_primitives::LocalTime(0.0),
                     classic: &classic,
                     ..*ctx
                 };

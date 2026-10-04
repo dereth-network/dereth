@@ -1416,7 +1416,7 @@ struct Chat {
     /// The selected text, ready for the copy key.
     selected: Option<String>,
     /// When and where the last press in the log landed, to tell a double click.
-    last_press: Option<(std::time::Instant, i32, i32)>,
+    last_press: Option<(dereth_primitives::LocalTime, i32, i32)>,
 }
 impl Default for Chat {
     fn default() -> Self {
@@ -1542,9 +1542,10 @@ impl Panel for Chat {
             Input::PointerDown { x, y } => {
                 let place = self.log_place(c, x, y, false)?;
                 let double = self.last_press.is_some_and(|(t, px, py)| {
-                    (x - px).abs() + (y - py).abs() < 4 && t.elapsed().as_millis() < 500
+                    (x - px).abs() + (y - py).abs() < 4
+                        && crate::clock::milliseconds(c.now, t) < 500
                 });
-                self.last_press = (!double).then(|| (std::time::Instant::now(), x, y));
+                self.last_press = (!double).then_some((c.now, x, y));
                 if double {
                     let word = chat_log::word(&chat_lines(c), place);
                     self.select(c, Some(word));
@@ -1907,6 +1908,7 @@ mod tests {
         s: &'a ClassicSettings,
     ) -> Context<'a> {
         Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: g,
             pregame: p,
             keyboard: k,

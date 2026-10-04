@@ -69,7 +69,7 @@ fn setup() -> App {
         height: SCREEN.1,
         dat_dir: dereth_dat::testing::dat_dir(),
         preferences_file: std::env::temp_dir()
-            .join("dere-p1-70-tooltip-faults-not-created")
+            .join("dereth-hover-tooltip-occlusion-not-created")
             .join("preferences.ini"),
         ..Config::default()
     })

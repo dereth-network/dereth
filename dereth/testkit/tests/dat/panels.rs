@@ -10705,7 +10705,7 @@ use dereth_ui_screens::panels::{abuse, numfmt};
 /// Raise the character page with `sub` up -- **unless it is already up**, because the tab is a
 /// toggle and pressing it again would move the page to the other sub-panel. This is
 /// [`show_the_skills_page`]'s guard with the sub-panel as a parameter.
-fn o422_show_the_page(c: &mut HeadlessClient, sub: ElementId) {
+fn character_page_show_the_page(c: &mut HeadlessClient, sub: ElementId) {
     open_the_page(c, remaining::CHARACTER_PAGE);
     let already_up = {
         let (ui, screen) = gameplay_screen(c.app_mut());
@@ -10721,7 +10721,7 @@ fn o422_show_the_page(c: &mut HeadlessClient, sub: ElementId) {
 
 /// A real press at the middle of `h`, with **the shipped id of the element the hit test chose**
 /// handed back -- which on a list row is never the row.
-fn o422_press(c: &mut HeadlessClient, h: ElemHandle) -> Option<ElementId> {
+fn character_page_press(c: &mut HeadlessClient, h: ElemHandle) -> Option<ElementId> {
     let (hit, _) = press_and_say_what_was_under_it(c, h);
     let (ui, _) = gameplay_screen(c.app_mut());
     hit.and_then(|e| ui.node(e))
@@ -10729,13 +10729,13 @@ fn o422_press(c: &mut HeadlessClient, h: ElemHandle) -> Option<ElementId> {
 }
 
 /// The shipped id of the element `h` is.
-fn o422_id_of(c: &mut HeadlessClient, h: ElemHandle) -> Option<ElementId> {
+fn character_page_id_of(c: &mut HeadlessClient, h: ElemHandle) -> Option<ElementId> {
     let (ui, _) = gameplay_screen(c.app_mut());
     ui.node(h).map(dereth_ui::ElementNode::element_id)
 }
 
 /// One child of a list row, as text.
-fn o422_row_text(c: &mut HeadlessClient, row: ElemHandle, child: u32) -> String {
+fn character_page_row_text(c: &mut HeadlessClient, row: ElemHandle, child: u32) -> String {
     let h = {
         let (ui, _) = gameplay_screen(c.app_mut());
         ui.get_child_recursive(row, ElementId(child))
@@ -10744,7 +10744,7 @@ fn o422_row_text(c: &mut HeadlessClient, row: ElemHandle, child: u32) -> String 
 }
 
 /// The skills footer's own child, as text. [`footer_child`] resolves it the way the panel does.
-fn o422_footer_text(c: &mut HeadlessClient, child: u32) -> String {
+fn character_page_footer_text(c: &mut HeadlessClient, child: u32) -> String {
     let h = footer_child(c.app_mut(), child);
     glyph_runs(c.app_mut(), h).0
 }
@@ -10757,7 +10757,7 @@ fn o422_footer_text(c: &mut HeadlessClient, child: u32) -> String {
 /// button under test in the *other* scenario -- the ten-point one -- is
 /// the one whose claim is about what the pointer lands on. Two frames afterwards, because the
 /// action the press queues is turned into a request by the next frame's pass.
-fn o422_press_the_raise_button(c: &mut HeadlessClient) -> bool {
+fn character_page_press_the_raise_button(c: &mut HeadlessClient) -> bool {
     let button = {
         let (ui, screen) = gameplay_screen(c.app_mut());
         let root = screen.root().expect("the gameplay screen has a root");
@@ -10782,7 +10782,7 @@ fn o422_press_the_raise_button(c: &mut HeadlessClient) -> bool {
 /// toggle is an edge in both directions. Nothing is sent.
 pub fn a_press_picks_the_attribute_row_under_it_and_lands_on_the_list() {
     let mut c = a_recorded_character(SESSION);
-    o422_show_the_page(&mut c, attributes::PANEL);
+    character_page_show_the_page(&mut c, attributes::PANEL);
 
     let rows: Vec<(u32, ElemHandle)> = c
         .view()
@@ -10802,8 +10802,8 @@ pub fn a_press_picks_the_attribute_row_under_it_and_lands_on_the_list() {
     let sent_before = c.outbound_opcodes();
 
     let row = rows[0].1;
-    let row_id = o422_id_of(&mut c, row);
-    let hit = o422_press(&mut c, row);
+    let row_id = character_page_id_of(&mut c, row);
+    let hit = character_page_press(&mut c, row);
     // Asserted rather than assumed: the press never lands on the row.
     let it_landed_on_the_list = hit != row_id && hit == Some(attributes::LIST_BOX);
 
@@ -10828,12 +10828,12 @@ pub fn a_press_picks_the_attribute_row_under_it_and_lands_on_the_list() {
 
     // The toggle is an **edge**, so it is driven three times: a harness that stops at the first
     // press cannot tell a toggle from a one-way latch.
-    let _ = o422_press(&mut c, row);
+    let _ = character_page_press(&mut c, row);
     let pressing_it_again_un_picks_it = {
         let panel = &c.view().expect_app().hud().panels.attributes;
         panel.selected_index == -1 && panel.footer_content.title == "Select an Attribute to Improve"
     };
-    let _ = o422_press(&mut c, row);
+    let _ = character_page_press(&mut c, row);
     let and_a_third_press_picks_it_again =
         c.view().expect_app().hud().panels.attributes.selected_index == 0;
 
@@ -10870,7 +10870,7 @@ fn scenario_a_press_picks_the_attribute_row_under_it_and_lands_on_the_list() {
 /// pass with the two panels' answers swapped in exactly one direction.
 pub fn a_press_picks_the_skill_row_under_it_and_the_attribute_page_stays_put() {
     let mut c = a_recorded_character(SESSION);
-    o422_show_the_page(&mut c, skills::PANEL);
+    character_page_show_the_page(&mut c, skills::PANEL);
 
     let rows: Vec<(u32, ElemHandle)> = c
         .view()
@@ -10888,13 +10888,13 @@ pub fn a_press_picks_the_skill_row_under_it_and_the_attribute_page_stays_put() {
     let sent_before = c.outbound_opcodes();
 
     let (skill, row) = rows[0];
-    let hit = o422_press(&mut c, row);
+    let hit = character_page_press(&mut c, row);
     let it_landed_on_the_list = hit == Some(skills::LIST_BOX);
     let it_picked_that_skill = c.view().expect_app().hud().panels.skills.selected_skill == skill;
     let the_other_page_stayed_put =
         c.view().expect_app().hud().panels.attributes.selected_index == the_other_page_before;
 
-    let _ = o422_press(&mut c, row);
+    let _ = character_page_press(&mut c, row);
     let pressing_it_again_un_picks_it =
         c.view().expect_app().hud().panels.skills.selected_skill == 0;
 
@@ -10928,13 +10928,13 @@ fn scenario_a_press_picks_the_skill_row_under_it_and_the_attribute_page_stays_pu
 /// Without the first half a green result would say nothing about whether the gate exists at all.
 pub fn a_raise_sends_nothing_until_a_skill_row_is_picked() {
     let mut c = a_recorded_character(SESSION);
-    o422_show_the_page(&mut c, skills::PANEL);
+    character_page_show_the_page(&mut c, skills::PANEL);
     let sent_before = c.outbound_opcodes();
 
     // With nothing picked the default container carries no raise button at all, and the panel's
     // raise action returns false when the selected skill is zero. Either way: silence.
     let nothing_is_picked_to_start = c.view().expect_app().hud().panels.skills.selected_skill == 0;
-    let _ = o422_press_the_raise_button(&mut c);
+    let _ = character_page_press_the_raise_button(&mut c);
     let silent_with_nothing_picked = c.outbound_opcodes() == sent_before;
 
     // A **trained** skill, whose arm is the one that sends the raise.
@@ -10949,7 +10949,7 @@ pub fn a_raise_sends_nothing_until_a_skill_row_is_picked() {
         .find(|r| r.group == skills::SkillGroup::Trained)
         .map(|r| (r.skill, r.element))
         .expect("the recorded character has a trained skill with a row");
-    let _ = o422_press(&mut c, row);
+    let _ = character_page_press(&mut c, row);
     let the_pick_is_the_gate = c.view().expect_app().hud().panels.skills.selected_skill == skill;
     let picking_is_silent_too = c.outbound_opcodes() == sent_before;
 
@@ -10963,7 +10963,7 @@ pub fn a_raise_sends_nothing_until_a_skill_row_is_picked() {
         .footer_content
         .line_one_value
         .clone();
-    let the_button_was_there = o422_press_the_raise_button(&mut c);
+    let the_button_was_there = character_page_press_the_raise_button(&mut c);
 
     // One press, one message -- and the opcode is the one the **production sender** wrote onto the
     // blob, not a number typed here twice.
@@ -11012,7 +11012,7 @@ fn scenario_a_raise_sends_nothing_until_a_skill_row_is_picked() {
 /// = 1, which adds **+5** to the non-raw value for each of these 38 rows. So every value
 /// here is the character's base skill plus five, and *Melee Defense* is pinned separately at
 /// 72 raw, 77 drawn.
-const O422_FIRST_LOGIN_WALK_JUMP_SKILL_CELLS: [(u32, &str, &str); 38] = [
+const FIRST_LOGIN_WALK_JUMP_SKILL_CELLS: [(u32, &str, &str); 38] = [
     // Specialized
     (52, "Dirty Fighting", "58"),
     (49, "Dual Wield", "82"),
@@ -11071,7 +11071,7 @@ const O422_FIRST_LOGIN_WALK_JUMP_SKILL_CELLS: [(u32, &str, &str); 38] = [
 /// declares one of each.
 pub fn every_skill_row_draws_its_value_in_a_font_that_exists() {
     let mut c = a_recorded_character(SESSION);
-    o422_show_the_page(&mut c, skills::PANEL);
+    character_page_show_the_page(&mut c, skills::PANEL);
 
     let rows: Vec<(u32, i32, u32, ElemHandle)> = c
         .view()
@@ -11088,8 +11088,8 @@ pub fn every_skill_row_draws_its_value_in_a_font_that_exists() {
     let mut every_row_draws_a_value = true;
     let mut cells: Vec<(u32, String, String)> = Vec::new();
     for (skill, value, colour_index, row) in &rows {
-        let label = o422_row_text(&mut c, *row, skills::row::LABEL);
-        let drawn = o422_row_text(&mut c, *row, skills::row::VALUE);
+        let label = character_page_row_text(&mut c, *row, skills::row::LABEL);
+        let drawn = character_page_row_text(&mut c, *row, skills::row::VALUE);
         every_row_draws_a_value &= !label.is_empty();
         // **Not the value check** -- the value is pinned against the table below. `SkillRow::value`
         // and the drawn cell are written from `SkillEntry::effective` on the same line, so this can
@@ -11117,7 +11117,7 @@ pub fn every_skill_row_draws_its_value_in_a_font_that_exists() {
     // The independent oracle. Compared as one vector so the **order** is pinned too:
     // The rebuild makes four groups back to front and re-sorts them, and a row that
     // moved would still match a per-skill lookup.
-    let want: Vec<(u32, String, String)> = O422_FIRST_LOGIN_WALK_JUMP_SKILL_CELLS
+    let want: Vec<(u32, String, String)> = FIRST_LOGIN_WALK_JUMP_SKILL_CELLS
         .iter()
         .map(|(id, name, value)| (*id, (*name).to_string(), (*value).to_string()))
         .collect();
@@ -11200,7 +11200,7 @@ fn scenario_every_skill_row_draws_its_value_in_a_font_that_exists() {
 /// The oracle is the shipped master mapper, read here rather than through the panel.
 pub fn every_attribute_row_draws_the_icon_its_own_group_names() {
     let mut c = a_recorded_character(SESSION);
-    o422_show_the_page(&mut c, attributes::PANEL);
+    character_page_show_the_page(&mut c, attributes::PANEL);
 
     let rows: Vec<(u32, bool, ElemHandle)> = c
         .view()
@@ -11226,7 +11226,7 @@ pub fn every_attribute_row_draws_the_icon_its_own_group_names() {
         };
         let want = dereth_assets::did_by_enum(&*store, group, *stat)
             .unwrap_or_else(|| panic!("group {group:#010X} value {stat} resolves to nothing"));
-        let label = o422_row_text(&mut c, *row, skills::row::LABEL);
+        let label = character_page_row_text(&mut c, *row, skills::row::LABEL);
         let icon = {
             let (ui, _) = gameplay_screen(c.app_mut());
             ui.get_child_recursive(*row, ElementId(skills::row::ICON))
@@ -11269,7 +11269,7 @@ fn scenario_every_attribute_row_draws_the_icon_its_own_group_names() {
 /// grouped.
 pub fn the_character_pages_numbers_carry_the_shipped_separator() {
     let mut c = a_recorded_character(SESSION);
-    o422_show_the_page(&mut c, skills::PANEL);
+    character_page_show_the_page(&mut c, skills::PANEL);
 
     // ---- the separator itself, pinned two ways -----------------------------------------------
     let g = numfmt::shipped();
@@ -11316,17 +11316,18 @@ pub fn the_character_pages_numbers_carry_the_shipped_separator() {
 
     // Footer line two is `Unassigned Experience`, the third grouped site. It is read out of
     // the live element rather than off the panel's own record.
-    let shown = o422_footer_text(&mut c, statmgmt::child::LINE_TWO_VALUE);
+    let shown = character_page_footer_text(&mut c, statmgmt::child::LINE_TWO_VALUE);
     let the_footer = shown == numfmt::group(available, &g) && shown.contains(',');
 
     // The same after a pick, because the selection footer is a different function.
     let row = c.view().expect_app().hud().panels.skills.rows[0].element;
-    let _ = o422_press(&mut c, row);
-    let shown = o422_footer_text(&mut c, statmgmt::child::LINE_TWO_VALUE);
+    let _ = character_page_press(&mut c, row);
+    let shown = character_page_footer_text(&mut c, statmgmt::child::LINE_TWO_VALUE);
     let the_selection_footer_too = shown == numfmt::group(available, &g);
 
     // A row **value** is `%d` in the client and must *not* be grouped.
-    let a_row_value_is_left_plain = !o422_row_text(&mut c, row, skills::row::VALUE).contains(',');
+    let a_row_value_is_left_plain =
+        !character_page_row_text(&mut c, row, skills::row::VALUE).contains(',');
 
     c.assert_behaviour(
         "skills.numbers.the-experience-numbers-are-grouped-with-the-shipped-separator",
@@ -11364,20 +11365,20 @@ fn scenario_the_character_pages_numbers_carry_the_shipped_separator() {
 // =============================================================================================
 
 /// `UICommands`' `Show/Hide Abuse Panel`, the action the shipped keymap leaves user-bindable.
-const P1_41_TOGGLE_ABUSE: dereth_input::ActionId = dereth_input::ActionId(0x1000_0003);
+const TOGGLE_ABUSE: dereth_input::ActionId = dereth_input::ActionId(0x1000_0003);
 
 /// Fire that action once, and run the frames the window it opens needs to reach the screen.
-fn p1_41_toggle_the_window(c: &mut HeadlessClient) {
+fn abuse_toggle_the_window(c: &mut HeadlessClient) {
     dereth_testkit::input_steps::press_on_map(
         c,
-        P1_41_TOGGLE_ABUSE,
+        TOGGLE_ABUSE,
         dereth_testkit::input_steps::UI_COMMANDS,
     );
     c.tick(2);
 }
 
 /// The shipped abuse-report panel, taken from its own binding rather than found by a tree walk.
-fn p1_41_window(c: &HeadlessClient) -> ElemHandle {
+fn abuse_window(c: &HeadlessClient) -> ElemHandle {
     c.view()
         .expect_app()
         .hud()
@@ -11388,8 +11389,8 @@ fn p1_41_window(c: &HeadlessClient) -> ElemHandle {
 }
 
 /// One child of that window.
-fn p1_41_child(c: &HeadlessClient, id: ElementId) -> ElemHandle {
-    let window = p1_41_window(c);
+fn abuse_child(c: &HeadlessClient, id: ElementId) -> ElemHandle {
+    let window = abuse_window(c);
     c.view()
         .expect_app()
         .ui()
@@ -11400,8 +11401,8 @@ fn p1_41_child(c: &HeadlessClient, id: ElementId) -> ElemHandle {
 }
 
 /// What one of its children says.
-fn p1_41_text(c: &mut HeadlessClient, id: ElementId) -> String {
-    let h = p1_41_child(c, id);
+fn abuse_text(c: &mut HeadlessClient, id: ElementId) -> String {
+    let h = abuse_child(c, id);
     glyph_runs(c.app_mut(), h).0
 }
 
@@ -11410,7 +11411,7 @@ fn p1_41_text(c: &mut HeadlessClient, id: ElementId) -> String {
 /// The table is the one the mapper names for the window's own enum, and the id is the same hash the
 /// client computes from the name -- neither is written down here.
 #[allow(deprecated)]
-fn p1_41_shipped_sentence(c: &HeadlessClient, token: &str) -> String {
+fn abuse_shipped_sentence(c: &HeadlessClient, token: &str) -> String {
     let table = dereth_ui_screens::env::did_by_enum(
         &c.view().expect_app().ui().expect("the UI shell is up").ui,
         4,
@@ -11427,8 +11428,8 @@ fn p1_41_shipped_sentence(c: &HeadlessClient, token: &str) -> String {
 }
 
 /// Whether the window is on screen.
-fn p1_41_window_is_up(c: &HeadlessClient) -> bool {
-    let window = p1_41_window(c);
+fn abuse_window_is_up(c: &HeadlessClient) -> bool {
+    let window = abuse_window(c);
     c.view()
         .expect_app()
         .ui()
@@ -11439,7 +11440,7 @@ fn p1_41_window_is_up(c: &HeadlessClient) -> bool {
 
 /// The state an element of the window is in -- which page the window is on, or whether a button is
 /// out of reach.
-fn p1_41_state(c: &HeadlessClient, h: ElemHandle) -> dereth_ui::StateId {
+fn abuse_state(c: &HeadlessClient, h: ElemHandle) -> dereth_ui::StateId {
     c.view()
         .expect_app()
         .ui()
@@ -11452,8 +11453,8 @@ fn p1_41_state(c: &HeadlessClient, h: ElemHandle) -> dereth_ui::StateId {
 
 /// A real press on one of the window's own controls, with **whether the pointer could reach it**
 /// handed back: a press that landed on something drawn over the control would be measuring nothing.
-fn p1_41_press(c: &mut HeadlessClient, id: ElementId) -> bool {
-    let h = p1_41_child(c, id);
+fn abuse_press(c: &mut HeadlessClient, id: ElementId) -> bool {
+    let h = abuse_child(c, id);
     let (at, reached) = {
         let view = c.view();
         let ui = &view.expect_app().ui().expect("the UI shell is up").ui;
@@ -11476,7 +11477,7 @@ fn p1_41_press(c: &mut HeadlessClient, id: ElementId) -> bool {
 ///
 /// It is the wire and not the frame's outbox on purpose -- the report's own bytes are what is
 /// pinned, and a request has no bytes until it is framed.
-fn p1_41_ordered_actions(c: &mut HeadlessClient) -> Vec<Vec<u8>> {
+fn abuse_ordered_actions(c: &mut HeadlessClient) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     let taken = c
         .replay_net_mut()
@@ -11501,7 +11502,7 @@ fn p1_41_ordered_actions(c: &mut HeadlessClient) -> Vec<Vec<u8>> {
 }
 
 /// One `CommunicationWeenieError`, delivered the way the session layer delivers one.
-fn p1_41_shard_answers(c: &mut HeadlessClient, code: u32) {
+fn abuse_shard_answers(c: &mut HeadlessClient, code: u32) {
     deliver(
         c,
         &dereth_protocol::comms::CommunicationWeenieError { error_type: code },
@@ -11516,33 +11517,33 @@ fn p1_41_shard_answers(c: &mut HeadlessClient, code: u32) {
 pub fn the_shards_abuse_answer_writes_the_result_line_and_nothing_in_chat() {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
 
-    let it_starts_shut = !p1_41_window_is_up(&c);
-    p1_41_toggle_the_window(&mut c);
-    let the_action_opens_it = p1_41_window_is_up(&c);
+    let it_starts_shut = !abuse_window_is_up(&c);
+    abuse_toggle_the_window(&mut c);
+    let the_action_opens_it = abuse_window_is_up(&c);
 
-    let no_such_character = p1_41_shipped_sentence(&c, "ID_Abuse_Response_NoSuchCharacter");
-    let before = p1_41_text(&mut c, abuse::RESULT_TEXT);
-    p1_41_shard_answers(&mut c, abuse::response::NO_SUCH_CHARACTER);
-    let line = p1_41_text(&mut c, abuse::RESULT_TEXT);
+    let no_such_character = abuse_shipped_sentence(&c, "ID_Abuse_Response_NoSuchCharacter");
+    let before = abuse_text(&mut c, abuse::RESULT_TEXT);
+    abuse_shard_answers(&mut c, abuse::response::NO_SUCH_CHARACTER);
+    let line = abuse_text(&mut c, abuse::RESULT_TEXT);
     let the_first_answer = line != before && line == no_such_character;
     let and_nothing_was_said_in_chat = c.chat_lines().is_empty();
 
     // There is no visibility gate on the receiver. Shut the window, prove the next answer still
     // writes the same child, and that it did not re-open the window to do it.
-    p1_41_toggle_the_window(&mut c);
-    let the_action_shuts_it_too = !p1_41_window_is_up(&c);
-    let self_report = p1_41_shipped_sentence(&c, "ID_Abuse_Response_Self");
-    p1_41_shard_answers(&mut c, abuse::response::SELF_REPORT);
+    abuse_toggle_the_window(&mut c);
+    let the_action_shuts_it_too = !abuse_window_is_up(&c);
+    let self_report = abuse_shipped_sentence(&c, "ID_Abuse_Response_Self");
+    abuse_shard_answers(&mut c, abuse::response::SELF_REPORT);
     let a_shut_window_still_receives =
-        !p1_41_window_is_up(&c) && p1_41_text(&mut c, abuse::RESULT_TEXT) == self_report;
+        !abuse_window_is_up(&c) && abuse_text(&mut c, abuse::RESULT_TEXT) == self_report;
 
     // The default arm is a true no-op, not a write of the empty string.
-    p1_41_shard_answers(&mut c, 0);
-    let an_unknown_answer_changes_nothing = p1_41_text(&mut c, abuse::RESULT_TEXT) == self_report;
+    abuse_shard_answers(&mut c, 0);
+    let an_unknown_answer_changes_nothing = abuse_text(&mut c, abuse::RESULT_TEXT) == self_report;
 
     // The success arm reaches the same place through the failure that carries free-form text, and
     // that text is not what the window draws.
-    let success = p1_41_shipped_sentence(&c, "ID_Abuse_Response_Success");
+    let success = abuse_shipped_sentence(&c, "ID_Abuse_Response_Success");
     deliver(
         &mut c,
         &dereth_protocol::comms::CommunicationWeenieErrorWithString {
@@ -11551,11 +11552,11 @@ pub fn the_shards_abuse_answer_writes_the_result_line_and_nothing_in_chat() {
         },
     );
     c.tick(2);
-    let the_success_sentence = p1_41_text(&mut c, abuse::RESULT_TEXT) == success;
+    let the_success_sentence = abuse_text(&mut c, abuse::RESULT_TEXT) == success;
 
-    p1_41_toggle_the_window(&mut c);
+    abuse_toggle_the_window(&mut c);
     let the_last_answer_is_waiting =
-        p1_41_window_is_up(&c) && p1_41_text(&mut c, abuse::RESULT_TEXT) == success;
+        abuse_window_is_up(&c) && abuse_text(&mut c, abuse::RESULT_TEXT) == success;
     let and_still_nothing_in_chat = c.chat_lines().is_empty();
 
     c.assert_behaviour(
@@ -11607,36 +11608,36 @@ pub fn the_abuse_page_sends_one_report_and_then_empties_itself() {
     }
     c.tick(2);
     // Whatever the login and the first frames put on the wire is not this scenario's.
-    let _ = p1_41_ordered_actions(&mut c);
+    let _ = abuse_ordered_actions(&mut c);
 
-    p1_41_toggle_the_window(&mut c);
-    let the_window_is_up = p1_41_window_is_up(&c);
-    let window = p1_41_window(&c);
+    abuse_toggle_the_window(&mut c);
+    let the_window_is_up = abuse_window_is_up(&c);
+    let window = abuse_window(&c);
     // The window comes up on neither of its two numbered pages -- the shipped layout gives it no
     // state at all until something moves it -- and what matters here is that it is not already on
     // the entry page, or the advance below would be no advance.
-    let it_does_not_start_on_the_entry_page = p1_41_state(&c, window) != abuse::PAGE_TWO;
+    let it_does_not_start_on_the_entry_page = abuse_state(&c, window) != abuse::PAGE_TWO;
 
     // Page one's own button: it advances to the entry page and copies the selected player's name.
-    let pressed_the_name_button = p1_41_press(&mut c, abuse::SELECTED_NAME_BUTTON);
-    let it_advanced = p1_41_state(&c, window) == abuse::PAGE_TWO;
-    let it_took_the_selected_name = p1_41_text(&mut c, abuse::NAME_ENTRY) == "Target Player";
+    let pressed_the_name_button = abuse_press(&mut c, abuse::SELECTED_NAME_BUTTON);
+    let it_advanced = abuse_state(&c, window) == abuse::PAGE_TWO;
+    let it_took_the_selected_name = abuse_text(&mut c, abuse::NAME_ENTRY) == "Target Player";
 
     // The complaint, typed into the box the caret was put in.
-    let pressed_the_complaint_box = p1_41_press(&mut c, abuse::COMPLAINT_ENTRY);
+    let pressed_the_complaint_box = abuse_press(&mut c, abuse::COMPLAINT_ENTRY);
     c.when(Player::Type("Repeated unwanted tells".to_owned()));
     c.tick(1);
     let the_complaint_is_there =
-        p1_41_text(&mut c, abuse::COMPLAINT_ENTRY) == "Repeated unwanted tells";
-    let continue_button = p1_41_child(&c, abuse::CONTINUE_BUTTON);
+        abuse_text(&mut c, abuse::COMPLAINT_ENTRY) == "Repeated unwanted tells";
+    let continue_button = abuse_child(&c, abuse::CONTINUE_BUTTON);
     // Both fields non-empty is what arms Continue.
     let continue_is_armed =
-        p1_41_state(&c, continue_button) == dereth_ui::widgets::button::state::NORMAL;
-    let typing_alone_sends_nothing = p1_41_ordered_actions(&mut c).is_empty();
+        abuse_state(&c, continue_button) == dereth_ui::widgets::button::state::NORMAL;
+    let typing_alone_sends_nothing = abuse_ordered_actions(&mut c).is_empty();
 
-    let pressed_continue = p1_41_press(&mut c, abuse::CONTINUE_BUTTON);
+    let pressed_continue = abuse_press(&mut c, abuse::CONTINUE_BUTTON);
     c.tick(3);
-    let actions = p1_41_ordered_actions(&mut c);
+    let actions = abuse_ordered_actions(&mut c);
 
     // The literal oracle: the sub-type, the reported name, the status word, and the complaint.
     let mut expected = Vec::new();
@@ -11650,21 +11651,21 @@ pub fn the_abuse_page_sends_one_report_and_then_empties_itself() {
     expected.extend_from_slice(&[0, 0, 0]);
     let one_exact_report = actions == vec![expected];
 
-    let wait_text = p1_41_shipped_sentence(&c, "ID_Abuse_PageThree_WaitText");
-    let it_says_it_is_waiting = p1_41_text(&mut c, abuse::RESULT_TEXT) == wait_text;
+    let wait_text = abuse_shipped_sentence(&c, "ID_Abuse_PageThree_WaitText");
+    let it_says_it_is_waiting = abuse_text(&mut c, abuse::RESULT_TEXT) == wait_text;
 
-    let success = p1_41_shipped_sentence(&c, "ID_Abuse_Response_Success");
-    p1_41_shard_answers(&mut c, abuse::response::SUCCESS);
-    let the_answer_replaces_the_wait_text = p1_41_text(&mut c, abuse::RESULT_TEXT) == success;
+    let success = abuse_shipped_sentence(&c, "ID_Abuse_Response_Success");
+    abuse_shard_answers(&mut c, abuse::response::SUCCESS);
+    let the_answer_replaces_the_wait_text = abuse_text(&mut c, abuse::RESULT_TEXT) == success;
 
-    let pressed_done = p1_41_press(&mut c, abuse::DONE_BUTTON);
-    let it_went_back_to_page_one = p1_41_state(&c, window) == abuse::PAGE_ONE;
-    let both_fields_are_empty = p1_41_text(&mut c, abuse::NAME_ENTRY).is_empty()
-        && p1_41_text(&mut c, abuse::COMPLAINT_ENTRY).is_empty();
-    let continue_button = p1_41_child(&c, abuse::CONTINUE_BUTTON);
+    let pressed_done = abuse_press(&mut c, abuse::DONE_BUTTON);
+    let it_went_back_to_page_one = abuse_state(&c, window) == abuse::PAGE_ONE;
+    let both_fields_are_empty = abuse_text(&mut c, abuse::NAME_ENTRY).is_empty()
+        && abuse_text(&mut c, abuse::COMPLAINT_ENTRY).is_empty();
+    let continue_button = abuse_child(&c, abuse::CONTINUE_BUTTON);
     let continue_is_out_of_reach_again =
-        p1_41_state(&c, continue_button) == dereth_ui::widgets::button::state::DISABLED;
-    let done_sends_nothing_more = p1_41_ordered_actions(&mut c).is_empty();
+        abuse_state(&c, continue_button) == dereth_ui::widgets::button::state::DISABLED;
+    let done_sends_nothing_more = abuse_ordered_actions(&mut c).is_empty();
 
     c.assert_behaviour(
         "abuse.report.the-page-sends-one-report-naming-who-and-why-and-then-empties-itself",
@@ -11713,18 +11714,18 @@ fn scenario_the_abuse_page_sends_one_report_and_then_empties_itself() {
 
 /// The stat-management list's vertical scrollbar, attribute `0x72` on `0x1000023D` in the shipped
 /// `classic_gameplay` layout. Read back off the live tree below rather than assumed.
-const O458_SCROLLBAR: ElementId = ElementId(0x1000_023E);
+const SKILL_LIST_SCROLLBAR: ElementId = ElementId(0x1000_023E);
 
 /// The skill id for *Melee Defense*, the row the value claims are pinned against: the
 /// recorded character's first specialised skill, and a number well clear of zero.
-const O458_MELEE_DEFENSE: u32 = 6;
+const SKILL_LIST_MELEE_DEFENSE: u32 = 6;
 /// *Healing*, and *Jump* -- the second is chosen because `70 * 0.95` is exactly `66.5`, so
 /// rounding half up and cutting short disagree on it.
-const O458_HEALING: u32 = 21;
-const O458_JUMP: u32 = 22;
+const SKILL_LIST_HEALING: u32 = 21;
+const SKILL_LIST_JUMP: u32 = 22;
 
 /// The live `0x1000023D` under the skill panel.
-fn o458_list_box(c: &mut HeadlessClient) -> ElemHandle {
+fn skill_list_list_box(c: &mut HeadlessClient) -> ElemHandle {
     let (ui, screen) = gameplay_screen(c.app_mut());
     let root = screen.root().expect("the gameplay screen has a root");
     let page = ui
@@ -11739,7 +11740,10 @@ fn o458_list_box(c: &mut HeadlessClient) -> ElemHandle {
 
 /// The element's own scrollable behavior: the offset that really moves the rows and the
 /// content extent written when the scrollable area is resized.
-fn o458_scrollable(c: &mut HeadlessClient, lb: ElemHandle) -> dereth_ui::scrollable::Scrollable {
+fn skill_list_scrollable(
+    c: &mut HeadlessClient,
+    lb: ElemHandle,
+) -> dereth_ui::scrollable::Scrollable {
     let (ui, _) = gameplay_screen(c.app_mut());
     ui.node(lb)
         .and_then(|n| n.behaviour.as_ref())
@@ -11750,27 +11754,27 @@ fn o458_scrollable(c: &mut HeadlessClient, lb: ElemHandle) -> dereth_ui::scrolla
 }
 
 /// The live vertical scroll offset, read off the element and never off a second copy.
-fn o458_scroll_y(c: &mut HeadlessClient, lb: ElemHandle) -> i32 {
-    o458_scrollable(c, lb).y
+fn skill_list_scroll_y(c: &mut HeadlessClient, lb: ElemHandle) -> i32 {
+    skill_list_scrollable(c, lb).y
 }
 
 /// The bar the list really bound through its relative-element lookup. A bar
 /// that is the list's *sibling* would not be found by a walk down from the panel.
-fn o458_bar(c: &mut HeadlessClient, lb: ElemHandle) -> ElemHandle {
-    let s = o458_scrollable(c, lb);
+fn skill_list_bar(c: &mut HeadlessClient, lb: ElemHandle) -> ElemHandle {
+    let s = skill_list_scrollable(c, lb);
     let (ui, _) = gameplay_screen(c.app_mut());
     s.scrollbar(ui, lb, false)
         .expect("the skills list names a vertical bar of its own")
 }
 
-fn o458_bar_float(c: &mut HeadlessClient, bar: ElemHandle, attr: u32) -> f32 {
+fn skill_list_bar_float(c: &mut HeadlessClient, bar: ElemHandle, attr: u32) -> f32 {
     let (ui, _) = gameplay_screen(c.app_mut());
     ui.node(bar)
         .and_then(|n| n.merged_properties().get_float(attr))
         .unwrap_or_else(|| panic!("the bar carries no float attribute {attr:#04x}"))
 }
 
-fn o458_bar_bool(c: &mut HeadlessClient, bar: ElemHandle, attr: u32) -> Option<bool> {
+fn skill_list_bar_bool(c: &mut HeadlessClient, bar: ElemHandle, attr: u32) -> Option<bool> {
     let (ui, _) = gameplay_screen(c.app_mut());
     ui.node(bar)
         .and_then(|n| n.merged_properties().get_bool(attr))
@@ -11778,7 +11782,7 @@ fn o458_bar_bool(c: &mut HeadlessClient, bar: ElemHandle, attr: u32) -> Option<b
 
 /// One of the bar's two arrows, named by the bar's increment or decrement button id rather than
 /// by a transcribed id.
-fn o458_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) -> ElemHandle {
+fn skill_list_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) -> ElemHandle {
     // **The shipped bar's two attributes are named the other way round from what they do here.**
     // The one it calls the increment names the arrow drawn at the *head* of the bar, and that is
     // the one that moves the list up. Which is which is therefore read off the bar and then
@@ -11804,8 +11808,8 @@ fn o458_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) -> ElemHandle
 ///
 /// **One press per fire.** The bar auto-repeats while an arrow is held, so this measures the
 /// per-press scroll delta and not the repeat rate.
-fn o458_press_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) {
-    let h = o458_arrow(c, bar, down);
+fn skill_list_press_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) {
+    let h = skill_list_arrow(c, bar, down);
     let (cx, cy) = {
         let (ui, _) = gameplay_screen(c.app_mut());
         let b = ui.screen_box(h);
@@ -11819,7 +11823,7 @@ fn o458_press_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) {
 }
 
 /// Scroll one item into view; report whether the viewport moved.
-fn o458_bring_into_view(c: &mut HeadlessClient, index: usize) -> bool {
+fn skill_list_bring_into_view(c: &mut HeadlessClient, index: usize) -> bool {
     let app = c.app_mut();
     let mut panels = std::mem::take(&mut app.hud_mut().panels);
     let moved = {
@@ -11837,7 +11841,7 @@ fn o458_bring_into_view(c: &mut HeadlessClient, index: usize) -> bool {
 }
 
 /// The centre of one list **item** -- headers included, so the index is the list's own.
-fn o458_item_centre(c: &mut HeadlessClient, index: usize) -> ScreenPoint {
+fn skill_list_item_centre(c: &mut HeadlessClient, index: usize) -> ScreenPoint {
     let item = c
         .view()
         .expect_app()
@@ -11859,7 +11863,11 @@ fn o458_item_centre(c: &mut HeadlessClient, index: usize) -> ScreenPoint {
 /// **The discriminator.** What the band walk would name for this point with the scroll offset
 /// dropped -- the answer the defect gave. If it is the item really under the pointer then a
 /// scrolled station proves nothing, so it is taken before the press and asserted to differ.
-fn o458_band_walk_without_the_offset(c: &mut HeadlessClient, lb: ElemHandle, y: i32) -> usize {
+fn skill_list_band_walk_without_the_offset(
+    c: &mut HeadlessClient,
+    lb: ElemHandle,
+    y: i32,
+) -> usize {
     let heights = c
         .view()
         .expect_app()
@@ -11887,7 +11895,7 @@ fn o458_band_walk_without_the_offset(c: &mut HeadlessClient, lb: ElemHandle, y: 
 
 /// Which skill rows are **drawn** under a point, from geometry alone -- an oracle that never
 /// calls the list's item-at-point lookup.
-fn o458_rows_drawn_under(c: &mut HeadlessClient, at: ScreenPoint) -> Vec<u32> {
+fn skill_list_rows_drawn_under(c: &mut HeadlessClient, at: ScreenPoint) -> Vec<u32> {
     let rows: Vec<(u32, ElemHandle)> = c
         .view()
         .expect_app()
@@ -11909,13 +11917,13 @@ fn o458_rows_drawn_under(c: &mut HeadlessClient, at: ScreenPoint) -> Vec<u32> {
 }
 
 /// The skill the page has selected. `0` is "none"; selecting the current row again toggles it off.
-fn o458_selected(c: &HeadlessClient) -> u32 {
+fn skill_list_selected(c: &HeadlessClient) -> u32 {
     c.view().expect_app().hud().panels.skills.selected_skill
 }
 
 /// The three numbers used to build one row: the raw value, the enchanted/effective total, and the
 /// vitae modifier, in that order.
-fn o458_skill_numbers(c: &HeadlessClient, skill: u32) -> (i32, i32, i32) {
+fn skill_list_skill_numbers(c: &HeadlessClient, skill: u32) -> (i32, i32, i32) {
     let e = c
         .view()
         .expect_app()
@@ -11930,7 +11938,7 @@ fn o458_skill_numbers(c: &HeadlessClient, skill: u32) -> (i32, i32, i32) {
 /// What one row's value cell **draws**: the text, and the index into the element's own `0x1B`
 /// colour array -- so the claim reads as the composition style's colour index, not as an ARGB
 /// word. `3` is returned when the colour is none of the three the element declares.
-fn o458_value_cell(c: &mut HeadlessClient, skill: u32) -> (String, u32) {
+fn skill_list_value_cell(c: &mut HeadlessClient, skill: u32) -> (String, u32) {
     let row = skill_row(c, skill);
     let cell = {
         let (ui, _) = gameplay_screen(c.app_mut());
@@ -11948,7 +11956,7 @@ fn o458_value_cell(c: &mut HeadlessClient, skill: u32) -> (String, u32) {
 
 /// The colour each row was drawn in, over the whole page, so that "plain" is a property of the
 /// panel and not of one row.
-fn o458_fonts(c: &HeadlessClient) -> Vec<u32> {
+fn skill_list_fonts(c: &HeadlessClient) -> Vec<u32> {
     c.view()
         .expect_app()
         .hud()
@@ -11960,13 +11968,13 @@ fn o458_fonts(c: &HeadlessClient) -> Vec<u32> {
         .collect()
 }
 
-fn o458_by_font(c: &HeadlessClient, f: u32) -> usize {
-    o458_fonts(c).into_iter().filter(|x| *x == f).count()
+fn skill_list_by_font(c: &HeadlessClient, f: u32) -> usize {
+    skill_list_fonts(c).into_iter().filter(|x| *x == f).count()
 }
 
 /// Vitae is a **single** enchantment on the registry rather than a list entry, and its `StatMod`
 /// is keyed on `0`. Skill enchantment applies it before culling either spell list.
-fn o458_vitae(multiplier: f32) -> dereth_protocol::types::qualities::Enchantment {
+fn skill_list_vitae(multiplier: f32) -> dereth_protocol::types::qualities::Enchantment {
     dereth_protocol::types::qualities::Enchantment {
         id: 0,
         category_word: 0,
@@ -11995,7 +12003,7 @@ fn o458_vitae(multiplier: f32) -> dereth_protocol::types::qualities::Enchantment
 /// Removing property **326** is how a *plain* baseline is reached at all: the recorded
 /// character's `JACK_OF_ALL_TRADES` buffs every skill by five, so with it present a vitae penalty
 /// can never bring `eff - vitae` below `raw` and the vitae arm would be unobservable.
-fn o458_a_character_respun(
+fn skill_list_a_character_respun(
     clear_augmentation: bool,
     registry: Option<dereth_protocol::types::qualities::EnchantmentRegistry>,
 ) -> HeadlessClient {
@@ -12080,7 +12088,7 @@ pub fn the_skills_list_is_one_column_of_equal_rows_mostly_out_of_sight() {
     let content: i32 = heights.iter().sum();
     let sums = content == 840;
 
-    let lb = o458_list_box(&mut c);
+    let lb = skill_list_list_box(&mut c);
     let b = {
         let (ui, _) = gameplay_screen(c.app_mut());
         ui.node(lb).expect("the list box has a node").region.box_
@@ -12089,7 +12097,7 @@ pub fn the_skills_list_is_one_column_of_equal_rows_mostly_out_of_sight() {
 
     // A second, independent reading of the content extent: the live height on the scrollable element
     // rather than off the widget's own array. Two readings that could have disagreed.
-    let declared = o458_scrollable(&mut c, lb).height == content;
+    let declared = skill_list_scrollable(&mut c, lb).height == content;
 
     let fits = b.height() / 20;
     let out_of_sight =
@@ -12127,14 +12135,14 @@ fn scenario_the_skills_list_is_one_column_of_equal_rows_mostly_out_of_sight() {
 pub fn the_bar_beside_the_skills_list_reports_the_view_and_where_it_is() {
     let mut c = a_recorded_character(SESSION);
     show_the_skills_page(&mut c);
-    let lb = o458_list_box(&mut c);
+    let lb = skill_list_list_box(&mut c);
 
     // Attribute `0x72` names the bar and there is no `0x71`, which is why every claim here is on
     // the y axis.
-    let s = o458_scrollable(&mut c, lb);
-    let names_a_bar = s.v_scrollbar == Some(O458_SCROLLBAR) && s.h_scrollbar.is_none();
+    let s = skill_list_scrollable(&mut c, lb);
+    let names_a_bar = s.v_scrollbar == Some(SKILL_LIST_SCROLLBAR) && s.h_scrollbar.is_none();
 
-    let bar = o458_bar(&mut c, lb);
+    let bar = skill_list_bar(&mut c, lb);
     let real_bar = {
         let (ui, _) = gameplay_screen(c.app_mut());
         let kind = ui.node(bar).expect("the bar has a node").ty().0;
@@ -12145,29 +12153,33 @@ pub fn the_bar_beside_the_skills_list_reports_the_view_and_where_it_is() {
     };
 
     // Station 1 -- at rest.
-    let at_rest = o458_scroll_y(&mut c, lb) == 0;
+    let at_rest = skill_list_scroll_y(&mut c, lb) == 0;
     let want = 160.0f32 / 840.0f32;
     let sized =
-        (o458_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::PROPORTION) - want).abs()
+        (skill_list_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::PROPORTION) - want)
+            .abs()
             < 1e-6;
-    let placed = o458_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::POSITION) == 0.0;
+    let placed =
+        skill_list_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::POSITION) == 0.0;
     // 840 of content in a 160 view: the bar is live, not disabled.
-    let live =
-        o458_bar_bool(&mut c, bar, dereth_ui::widgets::scrollbar::attr::DISABLED) == Some(false);
+    let live = skill_list_bar_bool(&mut c, bar, dereth_ui::widgets::scrollbar::attr::DISABLED)
+        == Some(false);
 
     // Station 2 -- after four arrow presses, the bar must have moved with the viewport.
     for _ in 0..4 {
-        o458_press_arrow(&mut c, bar, true);
+        skill_list_press_arrow(&mut c, bar, true);
     }
-    let moved = o458_scroll_y(&mut c, lb) == 80;
+    let moved = skill_list_scroll_y(&mut c, lb) == 80;
     let want_pos = 80.0f32 / (840.0f32 - 160.0f32);
-    let followed = (o458_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::POSITION)
-        - want_pos)
-        .abs()
-        < 1e-6;
+    let followed =
+        (skill_list_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::POSITION)
+            - want_pos)
+            .abs()
+            < 1e-6;
     // The proportion is a property of the content, so it must **not** have moved.
     let still_sized =
-        (o458_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::PROPORTION) - want).abs()
+        (skill_list_bar_float(&mut c, bar, dereth_ui::widgets::scrollbar::attr::PROPORTION) - want)
+            .abs()
             < 1e-6;
 
     c.assert_behaviour(
@@ -12204,32 +12216,32 @@ fn scenario_the_bar_beside_the_skills_list_reports_the_view_and_where_it_is() {
 pub fn each_arrow_moves_the_skills_list_one_row_its_own_way() {
     let mut c = a_recorded_character(SESSION);
     show_the_skills_page(&mut c);
-    let lb = o458_list_box(&mut c);
-    let bar = o458_bar(&mut c, lb);
+    let lb = skill_list_list_box(&mut c);
+    let bar = skill_list_bar(&mut c, lb);
 
     // Which arrow is which is read off the bar, and where each is drawn is asserted rather than
     // assumed: the one that moves the list **up** is the one at the head of the bar.
-    let up = o458_arrow(&mut c, bar, false);
-    let down = o458_arrow(&mut c, bar, true);
+    let up = skill_list_arrow(&mut c, bar, false);
+    let down = skill_list_arrow(&mut c, bar, true);
     let laid_out = {
         let (ui, _) = gameplay_screen(c.app_mut());
         ui.screen_box(up).y0 < ui.screen_box(down).y0
     };
 
-    let start = o458_scroll_y(&mut c, lb) == 0;
-    o458_press_arrow(&mut c, bar, true);
+    let start = skill_list_scroll_y(&mut c, lb) == 0;
+    skill_list_press_arrow(&mut c, bar, true);
     // One press moves one row: 840 / 42 = 20 pixels.
-    let one = o458_scroll_y(&mut c, lb) == 20;
-    o458_press_arrow(&mut c, bar, true);
-    let two = o458_scroll_y(&mut c, lb) == 40;
-    o458_press_arrow(&mut c, bar, false);
-    let back = o458_scroll_y(&mut c, lb) == 20;
-    o458_press_arrow(&mut c, bar, false);
-    let home = o458_scroll_y(&mut c, lb) == 0;
+    let one = skill_list_scroll_y(&mut c, lb) == 20;
+    skill_list_press_arrow(&mut c, bar, true);
+    let two = skill_list_scroll_y(&mut c, lb) == 40;
+    skill_list_press_arrow(&mut c, bar, false);
+    let back = skill_list_scroll_y(&mut c, lb) == 20;
+    skill_list_press_arrow(&mut c, bar, false);
+    let home = skill_list_scroll_y(&mut c, lb) == 0;
     // The scroll offset clamps into `0 ..= content - view` unless attribute `0x73`
     // says otherwise, and `0x1000023D` declares no `0x73`, so the local reads 1 and it clamps.
-    o458_press_arrow(&mut c, bar, false);
-    let clamped = o458_scroll_y(&mut c, lb) == 0;
+    skill_list_press_arrow(&mut c, bar, false);
+    let clamped = skill_list_scroll_y(&mut c, lb) == 0;
 
     c.assert_behaviour(
         "skills.scroll.each-arrow-moves-the-list-one-row-its-own-way-and-the-top-is-the-top",
@@ -12260,7 +12272,7 @@ fn scenario_each_arrow_moves_the_skills_list_one_row_its_own_way() {
 pub fn a_press_on_a_scrolled_skills_list_picks_the_row_it_is_drawn_over() {
     let mut c = a_recorded_character(SESSION);
     show_the_skills_page(&mut c);
-    let lb = o458_list_box(&mut c);
+    let lb = skill_list_list_box(&mut c);
 
     // Station 1 -- unscrolled. The control, and the arm the old code got right.
     let first = c
@@ -12273,35 +12285,35 @@ pub fn a_press_on_a_scrolled_skills_list_picks_the_row_it_is_drawn_over() {
         .first()
         .expect("the page has 38 rows")
         .skill;
-    let at_rest = o458_scroll_y(&mut c, lb) == 0;
+    let at_rest = skill_list_scroll_y(&mut c, lb) == 0;
     press_skill_row(&mut c, first);
     c.tick(1);
-    let picked_first = o458_selected(&c) == first;
+    let picked_first = skill_list_selected(&c) == first;
     // Clear the selection again so the scrolled station starts from nothing. Selecting the
     // current row again toggles it off.
     press_skill_row(&mut c, first);
     c.tick(1);
-    let cleared = o458_selected(&c) == 0;
+    let cleared = skill_list_selected(&c) == 0;
 
     // Station 2 -- scrolled, which is the one the claim is about.
     const TARGET: usize = 39;
-    let brought = o458_bring_into_view(&mut c, TARGET);
-    let y = o458_scroll_y(&mut c, lb);
+    let brought = skill_list_bring_into_view(&mut c, TARGET);
+    let y = skill_list_scroll_y(&mut c, lb);
     let scrolled = brought && y > 0;
-    let at = o458_item_centre(&mut c, TARGET);
+    let at = skill_list_item_centre(&mut c, TARGET);
     // It must really be inside the list box now, or the press proves nothing.
     let inside = {
         let (ui, _) = gameplay_screen(c.app_mut());
         let lbb = ui.screen_box(lb);
         at.y >= lbb.y0 && at.y <= lbb.y1
     };
-    let discriminates = o458_band_walk_without_the_offset(&mut c, lb, at.y) != TARGET;
-    let drawn = o458_rows_drawn_under(&mut c, at);
+    let discriminates = skill_list_band_walk_without_the_offset(&mut c, lb, at.y) != TARGET;
+    let drawn = skill_list_rows_drawn_under(&mut c, at);
     let exactly_one = drawn.len() == 1;
 
     c.when(Player::Click(Target::Point(at)));
     c.tick(2);
-    let picked = drawn.first().copied() == Some(o458_selected(&c));
+    let picked = drawn.first().copied() == Some(skill_list_selected(&c));
     // A selection emits no request; the spend is the advancement family's claim.
     let sent_nothing = c
         .view()
@@ -12349,13 +12361,13 @@ fn scenario_a_press_on_a_scrolled_skills_list_picks_the_row_it_is_drawn_over() {
 pub fn rebuilding_the_skills_list_keeps_where_it_was_scrolled_to() {
     let mut c = a_recorded_character(SESSION);
     show_the_skills_page(&mut c);
-    let lb = o458_list_box(&mut c);
-    let bar = o458_bar(&mut c, lb);
+    let lb = skill_list_list_box(&mut c);
+    let bar = skill_list_bar(&mut c, lb);
 
     for _ in 0..6 {
-        o458_press_arrow(&mut c, bar, true);
+        skill_list_press_arrow(&mut c, bar, true);
     }
-    let y = o458_scroll_y(&mut c, lb);
+    let y = skill_list_scroll_y(&mut c, lb);
     let six = y == 120;
 
     let skills_now = c.view().expect_app().hud().skills.clone();
@@ -12369,7 +12381,7 @@ pub fn rebuilding_the_skills_list_keeps_where_it_was_scrolled_to() {
         app.hud_mut().panels = panels;
     }
 
-    let kept = o458_scroll_y(&mut c, lb) == y;
+    let kept = skill_list_scroll_y(&mut c, lb) == y;
     // The first list item's own box: at offset 120 it must sit 120 px above the list box's top,
     // in the rebuild's own frame.
     let placed = {
@@ -12435,9 +12447,9 @@ pub fn a_skill_row_shows_the_total_after_everything_in_the_colour_of_the_change(
             .clone();
         q.inq_int(326) == 1 && q.enchantments.vitae_value() == 1.0
     };
-    let numbers = o458_skill_numbers(&c, O458_MELEE_DEFENSE) == (72, 77, 0);
+    let numbers = skill_list_skill_numbers(&c, SKILL_LIST_MELEE_DEFENSE) == (72, 77, 0);
     // The cell carries the ENCHANTED total, not the base 72; 72 < 77 - 0, so the buffed colour.
-    let cell = o458_value_cell(&mut c, O458_MELEE_DEFENSE) == ("77".to_owned(), 1);
+    let cell = skill_list_value_cell(&mut c, SKILL_LIST_MELEE_DEFENSE) == ("77".to_owned(), 1);
     // And it is every row, not one: all 38 are +5 and all 38 are green.
     let every_row = c
         .view()
@@ -12446,11 +12458,11 @@ pub fn a_skill_row_shows_the_total_after_everything_in_the_colour_of_the_change(
         .skills
         .iter()
         .all(|r| r.effective == r.level + 5)
-        && o458_fonts(&c).iter().all(|f| *f == 1);
+        && skill_list_fonts(&c).iter().all(|f| *f == 1);
 
     // ---- station 2: the same character with the augmentation removed and nothing added. -------
     let plain = {
-        let mut p = o458_a_character_respun(true, None);
+        let mut p = skill_list_a_character_respun(true, None);
         let gone = p
             .view()
             .world()
@@ -12458,9 +12470,9 @@ pub fn a_skill_row_shows_the_total_after_everything_in_the_colour_of_the_change(
             .expect("the description")
             .inq_int(326)
             == 0;
-        let n = o458_skill_numbers(&p, O458_MELEE_DEFENSE) == (72, 72, 0);
-        let drawn = o458_value_cell(&mut p, O458_MELEE_DEFENSE) == ("72".to_owned(), 0);
-        let whole_page = o458_fonts(&p).iter().all(|f| *f == 0);
+        let n = skill_list_skill_numbers(&p, SKILL_LIST_MELEE_DEFENSE) == (72, 72, 0);
+        let drawn = skill_list_value_cell(&mut p, SKILL_LIST_MELEE_DEFENSE) == ("72".to_owned(), 0);
+        let whole_page = skill_list_fonts(&p).iter().all(|f| *f == 0);
         p.shutdown();
         gone && n && drawn && whole_page
     };
@@ -12475,22 +12487,22 @@ pub fn a_skill_row_shows_the_total_after_everything_in_the_colour_of_the_change(
         let reg = dereth_protocol::types::qualities::EnchantmentRegistry {
             flags: dereth_protocol::types::qualities::EnchantmentRegistry::ADDITIVE,
             additive: Some(vec![
-                spell_on(4700, 110, O458_MELEE_DEFENSE, 20.0),
-                spell_on(4701, 111, O458_HEALING, -20.0),
+                spell_on(4700, 110, SKILL_LIST_MELEE_DEFENSE, 20.0),
+                spell_on(4701, 111, SKILL_LIST_HEALING, -20.0),
             ]),
             ..dereth_protocol::types::qualities::EnchantmentRegistry::default()
         };
-        let mut p = o458_a_character_respun(true, Some(reg));
-        let n = o458_skill_numbers(&p, O458_MELEE_DEFENSE) == (72, 92, 0)
-            && o458_skill_numbers(&p, O458_HEALING) == (58, 38, 0);
-        let up = o458_value_cell(&mut p, O458_MELEE_DEFENSE) == ("92".to_owned(), 1);
-        let down = o458_value_cell(&mut p, O458_HEALING) == ("38".to_owned(), 2);
+        let mut p = skill_list_a_character_respun(true, Some(reg));
+        let n = skill_list_skill_numbers(&p, SKILL_LIST_MELEE_DEFENSE) == (72, 92, 0)
+            && skill_list_skill_numbers(&p, SKILL_LIST_HEALING) == (58, 38, 0);
+        let up = skill_list_value_cell(&mut p, SKILL_LIST_MELEE_DEFENSE) == ("92".to_owned(), 1);
+        let down = skill_list_value_cell(&mut p, SKILL_LIST_HEALING) == ("38".to_owned(), 2);
         // The rest of the panel is untouched -- the enchantments are keyed, so exactly two rows
         // move. A colour bug that painted the list uniformly would fail here.
         let rest = (
-            o458_by_font(&p, 0),
-            o458_by_font(&p, 1),
-            o458_by_font(&p, 2),
+            skill_list_by_font(&p, 0),
+            skill_list_by_font(&p, 1),
+            skill_list_by_font(&p, 2),
         ) == (36, 1, 1);
         p.shutdown();
         n && up && down && rest
@@ -12532,11 +12544,11 @@ pub fn a_weakened_character_shows_the_lower_number_still_drawn_plain() {
     let reg = dereth_protocol::types::qualities::EnchantmentRegistry {
         flags: dereth_protocol::types::qualities::EnchantmentRegistry::VITAE
             | dereth_protocol::types::qualities::EnchantmentRegistry::ADDITIVE,
-        additive: Some(vec![spell_on(4702, 112, O458_HEALING, 8.0)]),
-        vitae: Some(o458_vitae(0.95)),
+        additive: Some(vec![spell_on(4702, 112, SKILL_LIST_HEALING, 8.0)]),
+        vitae: Some(skill_list_vitae(0.95)),
         ..dereth_protocol::types::qualities::EnchantmentRegistry::default()
     };
-    let mut c = o458_a_character_respun(true, Some(reg));
+    let mut c = skill_list_a_character_respun(true, Some(reg));
 
     let reached = c
         .view()
@@ -12549,24 +12561,24 @@ pub fn a_weakened_character_shows_the_lower_number_still_drawn_plain() {
 
     // Vitae alone: 72 * 0.95 = 68.4, + 0.5, truncated: 68 -- and the row is PLAIN, because
     // 72 == 68 - (-4).
-    let alone = o458_skill_numbers(&c, O458_MELEE_DEFENSE) == (72, 68, -4)
-        && o458_value_cell(&mut c, O458_MELEE_DEFENSE) == ("68".to_owned(), 0);
+    let alone = skill_list_skill_numbers(&c, SKILL_LIST_MELEE_DEFENSE) == (72, 68, -4)
+        && skill_list_value_cell(&mut c, SKILL_LIST_MELEE_DEFENSE) == ("68".to_owned(), 0);
 
     // The rounding, on the panel: 70 * 0.95 = 66.5, + 0.5 = 67.0, truncated: 67, not 66.
-    let rounding = o458_skill_numbers(&c, O458_JUMP) == (70, 67, -3)
-        && o458_value_cell(&mut c, O458_JUMP) == ("67".to_owned(), 0);
+    let rounding = skill_list_skill_numbers(&c, SKILL_LIST_JUMP) == (70, 67, -3)
+        && skill_list_value_cell(&mut c, SKILL_LIST_JUMP) == ("67".to_owned(), 0);
 
     // Vitae plus a small buff -- green, though the number drawn is below the base level:
     // 58 * 0.95 = 55.1 -> 55, + 8 = 63; 55 - 58 = -3; and 58 < 63 - (-3) = 66.
-    let buffed_under_it = o458_skill_numbers(&c, O458_HEALING) == (58, 63, -3)
-        && o458_value_cell(&mut c, O458_HEALING) == ("63".to_owned(), 1);
+    let buffed_under_it = skill_list_skill_numbers(&c, SKILL_LIST_HEALING) == (58, 63, -3)
+        && skill_list_value_cell(&mut c, SKILL_LIST_HEALING) == ("63".to_owned(), 1);
 
     // The whole list, so "plain" is a property of the panel and not of one row: vitae alone
     // colours nothing, exactly the buffed row is green, and nothing is red.
     let whole_page = (
-        o458_by_font(&c, 0),
-        o458_by_font(&c, 1),
-        o458_by_font(&c, 2),
+        skill_list_by_font(&c, 0),
+        skill_list_by_font(&c, 1),
+        skill_list_by_font(&c, 2),
     ) == (37, 1, 0);
 
     c.assert_behaviour(
@@ -13138,31 +13150,31 @@ fn scenario_the_sort_buttons_choose_the_order_and_a_second_press_turns_it_round(
 // =============================================================================================
 
 /// The recording these claims are read off. See the section header.
-const P115_SESSION: &str = "long-solo-play";
+const CHARACTER_SHEET_SESSION: &str = "long-solo-play";
 
 /// The player this file's shard creates and adopts.
-const P115_PLAYER: ObjectId = ObjectId(0x5000_0001);
+const CHARACTER_SHEET_PLAYER: ObjectId = ObjectId(0x5000_0001);
 
 /// Shipped element `0x100000F7` -- the burden lamp that opens the character-information panel.
-const P115_BURDEN_LAMP: ElementId = ElementId(0x1000_00F7);
+const CHARACTER_SHEET_BURDEN_LAMP: ElementId = ElementId(0x1000_00F7);
 
 /// What `long-solo-play`'s `0x0013` carries for `98 CreationTimestamp`, and the sentence it makes.
-const P115_CORPUS_CREATED: i32 = 1_788_565_581;
+const CHARACTER_SHEET_CORPUS_CREATED: i32 = 1_788_565_581;
 
 /// What it carries for `125 Age`: fifteen seconds. A character made moments before the capture.
-const P115_CORPUS_AGE: i32 = 15;
+const CHARACTER_SHEET_CORPUS_AGE: i32 = 15;
 
 /// `0x14D LumAugDamageRating` -- one of the four ratings whose line splits at five. The **next**
 /// pair, `0x14E`, is deliberately left ungranted, so that a specialised value leaking out of this
 /// one would show up as a line that must not be there.
-const P115_LUM_DAMAGE_RATING: u32 = 0x14D;
+const CHARACTER_SHEET_LUM_DAMAGE_RATING: u32 = 0x14D;
 /// `0x152 LumAugSurgeChanceRating` -- a single rating, which has no cap of five.
-const P115_LUM_SURGE_CHANCE_RATING: u32 = 0x152;
+const CHARACTER_SHEET_LUM_SURGE_CHANCE_RATING: u32 = 0x152;
 /// `0xDA AugmentationInnateStrength` -- one augmentation row, for the plural block every row has.
-const P115_AUG_INNATE_STRENGTH: u32 = 0xDA;
+const CHARACTER_SHEET_AUG_INNATE_STRENGTH: u32 = 0xDA;
 /// `PropertyInt` **43** `NumDeaths`, which is *text* on this sheet and so the visible witness
 /// for a property the shard clears.
-const P115_NUM_DEATHS: u32 = 43;
+const CHARACTER_SHEET_NUM_DEATHS: u32 = 43;
 
 /// The recorded character, **with a shard attached**, for a chosen recording.
 ///
@@ -13174,13 +13186,15 @@ const P115_NUM_DEATHS: u32 = 43;
 /// somewhere to put one for an object the client's own object stream has been told about. The
 /// **description** still comes through the corpus step, because it is nearly two kilobytes and is
 /// a description rather than a panel notice, so nothing here turns on which way it arrived.
-fn p115_a_recorded_character_and_a_shard(session: &'static str) -> (HeadlessClient, Peer) {
+fn character_sheet_a_recorded_character_and_a_shard(
+    session: &'static str,
+) -> (HeadlessClient, Peer) {
     let end = description_blob(session).idx;
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
-    let mut shard = Peer::attach(&mut c, P115_PLAYER);
+    let mut shard = Peer::attach(&mut c, CHARACTER_SHEET_PLAYER);
 
     let mut p = dereth_protocol::objects::ObjectCreatePayload {
-        id: P115_PLAYER,
+        id: CHARACTER_SHEET_PLAYER,
         ..Default::default()
     };
     p.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::SETUP;
@@ -13194,7 +13208,7 @@ fn p115_a_recorded_character_and_a_shard(session: &'static str) -> (HeadlessClie
     );
     c.tick(1);
     assert!(
-        c.world_mut().set_player(P115_PLAYER),
+        c.world_mut().set_player(CHARACTER_SHEET_PLAYER),
         "the identity is adopted once"
     );
 
@@ -13210,8 +13224,8 @@ fn p115_a_recorded_character_and_a_shard(session: &'static str) -> (HeadlessClie
 /// Open the burden lamp's panel with element message 1 and `p1 = 7`, which is the message a
 /// released button raises and the one the six lamp classes answer. The lamp's own gesture is
 /// claimed elsewhere; what this file's claims are about is the text behind it.
-fn p115_open_the_burden_sheet(c: &mut HeadlessClient) {
-    let h = el(c, P115_BURDEN_LAMP);
+fn character_sheet_open_the_burden_sheet(c: &mut HeadlessClient) {
+    let h = el(c, CHARACTER_SHEET_BURDEN_LAMP);
     {
         let (ui, _) = gameplay_screen(c.app_mut());
         ui.broadcast_element_message(h, dereth_ui::msg::element::id::BUTTON_CLICKED, 7, 0);
@@ -13224,7 +13238,7 @@ fn p115_open_the_burden_sheet(c: &mut HeadlessClient) {
 }
 
 /// The sheet's six sections, in the order the composer appends them.
-fn p115_sections(c: &HeadlessClient) -> Vec<String> {
+fn character_sheet_sections(c: &HeadlessClient) -> Vec<String> {
     c.view()
         .expect_app()
         .hud()
@@ -13235,8 +13249,8 @@ fn p115_sections(c: &HeadlessClient) -> Vec<String> {
 }
 
 /// One section of the sheet, with the count asserted rather than indexed into blindly.
-fn p115_section(c: &HeadlessClient, n: usize) -> String {
-    let s = p115_sections(c);
+fn character_sheet_section(c: &HeadlessClient, n: usize) -> String {
+    let s = character_sheet_sections(c);
     assert!(
         s.len() > n,
         "the sheet has been written and carries a section {n}: {s:?}"
@@ -13245,19 +13259,25 @@ fn p115_section(c: &HeadlessClient, n: usize) -> String {
 }
 
 /// How many times the composer has written the sheet.
-fn p115_updates(c: &HeadlessClient) -> u32 {
+fn character_sheet_updates(c: &HeadlessClient) -> u32 {
     c.view().expect_app().hud().panels.character_info.updates
 }
 
 /// **What the live information-text element is actually showing**, read back rather than off the
 /// panel's own cache.
-fn p115_sheet_on_the_element(c: &mut HeadlessClient) -> String {
+fn character_sheet_sheet_on_the_element(c: &mut HeadlessClient) -> String {
     el_text(c, dereth_ui_screens::panels::characterinfo::INFO_TEXT)
 }
 
 /// A `0x02CD Qualities_PrivateUpdateInt` for the player, **through the transport** -- bytes from
 /// the shard rather than a model handed to the panel -- and the frames that consume it.
-fn p115_set_int(c: &mut HeadlessClient, shard: &mut Peer, sequence: u8, property: u32, value: i32) {
+fn character_sheet_set_int(
+    c: &mut HeadlessClient,
+    shard: &mut Peer,
+    sequence: u8,
+    property: u32,
+    value: i32,
+) {
     shard.event(
         c,
         &dereth_protocol::qualities::QualitiesPrivateUpdateInt(
@@ -13272,7 +13292,12 @@ fn p115_set_int(c: &mut HeadlessClient, shard: &mut Peer, sequence: u8, property
 }
 
 /// A `0x01D1 Qualities_PrivateRemoveIntEvent` for the player, the same way.
-fn p115_remove_int(c: &mut HeadlessClient, shard: &mut Peer, sequence: u8, property: u32) {
+fn character_sheet_remove_int(
+    c: &mut HeadlessClient,
+    shard: &mut Peer,
+    sequence: u8,
+    property: u32,
+) {
     shard.event(
         c,
         &dereth_protocol::qualities::QualitiesPrivateRemoveInt(
@@ -13291,7 +13316,7 @@ fn p115_remove_int(c: &mut HeadlessClient, shard: &mut Peer, sequence: u8, prope
 /// This is the premise every claim below rests on, and it is asserted rather than assumed: a green
 /// run over absent qualities would prove nothing, so each scenario carries the reading it needs.
 /// It is the whole table in one call because the corpus is loaded to answer it.
-fn p115_recorded_ints(session: &str) -> Vec<(u32, i32)> {
+fn character_sheet_recorded_ints(session: &str) -> Vec<(u32, i32)> {
     let d = recorded_description(session);
     d.qualities
         .base
@@ -13304,7 +13329,7 @@ fn p115_recorded_ints(session: &str) -> Vec<(u32, i32)> {
 }
 
 /// One integer property of it.
-fn p115_recorded_int(ints: &[(u32, i32)], property: u32) -> Option<i32> {
+fn character_sheet_recorded_int(ints: &[(u32, i32)], property: u32) -> Option<i32> {
     ints.iter().find(|(k, _)| *k == property).map(|(_, v)| *v)
 }
 
@@ -13322,23 +13347,26 @@ fn p115_recorded_int(ints: &[(u32, i32)], property: u32) -> Option<i32> {
 pub fn the_born_line_is_the_day_and_time_the_character_was_made() {
     use dereth_ui_screens::panels::characterinfo::prop;
 
-    let ints = p115_recorded_ints(P115_SESSION);
-    let premise = p115_recorded_int(&ints, prop::CREATION_TIMESTAMP) == Some(P115_CORPUS_CREATED);
+    let ints = character_sheet_recorded_ints(CHARACTER_SHEET_SESSION);
+    let premise = character_sheet_recorded_int(&ints, prop::CREATION_TIMESTAMP)
+        == Some(CHARACTER_SHEET_CORPUS_CREATED);
 
-    let (mut c, _shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, _shard) = character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    let composed = p115_updates(&c) > 0;
-    let born = p115_section(&c, 0);
+    let composed = character_sheet_updates(&c) > 0;
+    let born = character_sheet_section(&c, 0);
     let expected = format!(
         "You were born on {}.",
         dereth_ui_screens::ctime::strftime_c(
-            i64::from(P115_CORPUS_CREATED),
-            dereth_client::platform::local_utc_offset_secs(i64::from(P115_CORPUS_CREATED)),
+            i64::from(CHARACTER_SHEET_CORPUS_CREATED),
+            dereth_client::platform::local_utc_offset_secs(i64::from(
+                CHARACTER_SHEET_CORPUS_CREATED
+            )),
         )
     );
     let says_it = born.contains(&expected);
-    let on_the_element = p115_sheet_on_the_element(&mut c).contains(&expected);
+    let on_the_element = character_sheet_sheet_on_the_element(&mut c).contains(&expected);
     // `%c` under English_United States has no month name and no weekday...
     let not_asctime = !born.contains("Sep") && !born.contains("Fri");
     // ...and it does have AM/PM.
@@ -13376,28 +13404,31 @@ fn scenario_the_born_line_is_the_day_and_time_the_character_was_made() {
 pub fn the_playtime_line_spells_out_only_the_terms_that_are_not_zero() {
     use dereth_ui_screens::panels::characterinfo::prop;
 
-    let premise =
-        p115_recorded_int(&p115_recorded_ints(P115_SESSION), prop::AGE) == Some(P115_CORPUS_AGE);
+    let premise = character_sheet_recorded_int(
+        &character_sheet_recorded_ints(CHARACTER_SHEET_SESSION),
+        prop::AGE,
+    ) == Some(CHARACTER_SHEET_CORPUS_AGE);
 
-    let (mut c, mut shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, mut shard) =
+        character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    let born_and_played = p115_section(&c, 0);
+    let born_and_played = character_sheet_section(&c, 0);
     let fifteen_seconds = born_and_played.contains("You have played for 15 seconds.");
     let no_markup = !born_and_played.contains('{') && !born_and_played.contains("#1:");
 
-    let before = p115_updates(&c);
-    p115_set_int(&mut c, &mut shard, 1, prop::AGE, 90_061);
-    let recomposed = p115_updates(&c) > before;
-    let after = p115_section(&c, 0);
+    let before = character_sheet_updates(&c);
+    character_sheet_set_int(&mut c, &mut shard, 1, prop::AGE, 90_061);
+    let recomposed = character_sheet_updates(&c) > before;
+    let after = character_sheet_section(&c, 0);
     // 90 061 s is 1 day 1 hour 1 minute 1 second, each term singular.
     let singular = after.contains("You have played for 1 day 1 hour 1 minute 1 second.");
     let reached_the_element =
-        p115_sheet_on_the_element(&mut c).contains("1 day 1 hour 1 minute 1 second");
+        character_sheet_sheet_on_the_element(&mut c).contains("1 day 1 hour 1 minute 1 second");
 
     // The singular/plural choice is the block's, not a suffix rule: nudge it by one second.
-    p115_set_int(&mut c, &mut shard, 2, prop::AGE, 90_062);
-    let plural = p115_section(&c, 0).contains("1 day 1 hour 1 minute 2 seconds.");
+    character_sheet_set_int(&mut c, &mut shard, 2, prop::AGE, 90_062);
+    let plural = character_sheet_section(&c, 0).contains("1 day 1 hour 1 minute 2 seconds.");
 
     c.assert_behaviour(
         "character-sheet.played.the-line-spells-out-only-the-terms-that-are-not-zero",
@@ -13440,33 +13471,36 @@ pub fn the_mastery_lines_name_the_weapon_group_rather_than_the_number() {
 
     // The whole recorded premise, in one place: the four integers the four lines are made of, and
     // the two absences that make two of the assertions below able to fail.
-    let ints = p115_recorded_ints(P115_SESSION);
-    let premise = p115_recorded_int(&ints, prop::CREATION_TIMESTAMP) == Some(P115_CORPUS_CREATED)
-        && p115_recorded_int(&ints, prop::AGE) == Some(P115_CORPUS_AGE)
+    let ints = character_sheet_recorded_ints(CHARACTER_SHEET_SESSION);
+    let premise = character_sheet_recorded_int(&ints, prop::CREATION_TIMESTAMP) == Some(CHARACTER_SHEET_CORPUS_CREATED)
+        && character_sheet_recorded_int(&ints, prop::AGE) == Some(CHARACTER_SHEET_CORPUS_AGE)
         // 354 = 1 is "Unarmed Weapons" on the melee list.
-        && p115_recorded_int(&ints, prop::WEAPON_MASTERY) == Some(1)
+        && character_sheet_recorded_int(&ints, prop::WEAPON_MASTERY) == Some(1)
         // 355 = 8 is "Bows" on the ranged one, which is indexed at [v - 8].
-        && p115_recorded_int(&ints, prop::MISSILE_MASTERY) == Some(8)
-        && p115_recorded_int(&ints, prop::SUMMONING_MASTERY).is_none()
+        && character_sheet_recorded_int(&ints, prop::MISSILE_MASTERY) == Some(8)
+        && character_sheet_recorded_int(&ints, prop::SUMMONING_MASTERY).is_none()
         // ...and no deaths either, so that line takes its zero arm.
-        && p115_recorded_int(&ints, P115_NUM_DEATHS).is_none();
+        && character_sheet_recorded_int(&ints, CHARACTER_SHEET_NUM_DEATHS).is_none();
 
-    let (mut c, mut shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, mut shard) =
+        character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    let augs = p115_section(&c, 4);
+    let augs = character_sheet_section(&c, 4);
     // 354 = 1 is the first line of the augmentations section.
     let melee = augs.starts_with("Your melee mastery is Unarmed Weapons.");
     // 355 = 8 indexes the *ranged* list at [v-8].
     let ranged = augs.contains("Your ranged mastery is Bows.");
     // The recording carries no 362, so the line must not be there.
     let no_summoning = !augs.contains("summoning mastery");
-    let on_the_element = p115_sheet_on_the_element(&mut c).contains("Your ranged mastery is Bows.");
+    let on_the_element =
+        character_sheet_sheet_on_the_element(&mut c).contains("Your ranged mastery is Bows.");
 
     // A shard that grants one moves the line, and the three summoning arms are named by value.
-    p115_set_int(&mut c, &mut shard, 1, prop::SUMMONING_MASTERY, 2);
+    character_sheet_set_int(&mut c, &mut shard, 1, prop::SUMMONING_MASTERY, 2);
     // 362 = 2 maps to the displayed mastery group `Necromancer`.
-    let summoning = p115_section(&c, 4).contains("Your summoning mastery is Necromancer.");
+    let summoning =
+        character_sheet_section(&c, 4).contains("Your summoning mastery is Necromancer.");
 
     c.assert_behaviour(
         "character-sheet.mastery.the-lines-name-the-weapon-group-rather-than-the-number-that-picks-it",
@@ -13493,21 +13527,28 @@ fn scenario_the_mastery_lines_name_the_weapon_group_rather_than_the_number() {
 /// pair; leaking the previous pair's specialised value into the next (the accumulator is cleared
 /// between pairs, and omitting that reset would show a phantom line).
 pub fn the_luminance_section_is_a_header_a_split_pair_and_an_unclamped_single() {
-    let (mut c, mut shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, mut shard) =
+        character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    let augs = p115_section(&c, 4);
+    let augs = character_sheet_section(&c, 4);
     let header_is_unconditional = augs.contains("Luminance Augmentations:");
     // The recording carries no rating, so no aura line may appear yet.
     let nothing_behind_it = !augs.contains("Aura of");
 
     // `0x14D LumAugDamageRating = 8` -> base 5 and specialised 3, i.e. **both** lines.
-    p115_set_int(&mut c, &mut shard, 1, P115_LUM_DAMAGE_RATING, 8);
+    character_sheet_set_int(&mut c, &mut shard, 1, CHARACTER_SHEET_LUM_DAMAGE_RATING, 8);
     // `0x152 LumAugSurgeChanceRating = 7` -> one line that says **7**, not 5: the singles have no
     // split at 5; this single has only a `> 0` gate.
-    p115_set_int(&mut c, &mut shard, 2, P115_LUM_SURGE_CHANCE_RATING, 7);
+    character_sheet_set_int(
+        &mut c,
+        &mut shard,
+        2,
+        CHARACTER_SHEET_LUM_SURGE_CHANCE_RATING,
+        7,
+    );
 
-    let augs = p115_section(&c, 4);
+    let augs = character_sheet_section(&c, 4);
     let base_caps_at_five = augs.contains("Aura of Valor. Your Damage Rating is increased by 5.");
     let the_remainder_is_specialised =
         augs.contains("Your Seer grants you an increase to Damage Rating of 3.");
@@ -13516,7 +13557,7 @@ pub fn the_luminance_section_is_a_header_a_split_pair_and_an_unclamped_single() 
     // 0x14E is absent, so the next pair's specialised line must not appear; clearing the
     // specialised accumulator between pairs prevents the prior remainder from leaking into it.
     let no_leak_into_the_next_pair = !augs.contains("Aura of Invulnerability");
-    let on_the_element = p115_sheet_on_the_element(&mut c).contains("Aura of Valor");
+    let on_the_element = character_sheet_sheet_on_the_element(&mut c).contains("Aura of Valor");
 
     c.assert_behaviour(
         "character-sheet.luminance.the-heading-is-always-there-and-a-rating-over-five-splits-in-two",
@@ -13544,17 +13585,31 @@ fn scenario_the_luminance_section_is_a_header_a_split_pair_and_an_unclamped_sing
 /// variable, so it is the auto-derived `1` flag on the value that picks the singular. Without
 /// `dereth_ui::text::metalanguage` the sheet would read *"3 {time[1]|times}"*.
 pub fn an_augmentation_row_says_time_once_and_times_more_than_once() {
-    let (mut c, mut shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, mut shard) =
+        character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    p115_set_int(&mut c, &mut shard, 1, P115_AUG_INNATE_STRENGTH, 1);
-    let one = p115_section(&c, 4).contains("You have augmented your Innate Strength 1 time.");
+    character_sheet_set_int(
+        &mut c,
+        &mut shard,
+        1,
+        CHARACTER_SHEET_AUG_INNATE_STRENGTH,
+        1,
+    );
+    let one =
+        character_sheet_section(&c, 4).contains("You have augmented your Innate Strength 1 time.");
 
-    p115_set_int(&mut c, &mut shard, 2, P115_AUG_INNATE_STRENGTH, 3);
-    let augs = p115_section(&c, 4);
+    character_sheet_set_int(
+        &mut c,
+        &mut shard,
+        2,
+        CHARACTER_SHEET_AUG_INNATE_STRENGTH,
+        3,
+    );
+    let augs = character_sheet_section(&c, 4);
     let three = augs.contains("You have augmented your Innate Strength 3 times.");
     let no_markup = !augs.contains('{');
-    let on_the_element = p115_sheet_on_the_element(&mut c)
+    let on_the_element = character_sheet_sheet_on_the_element(&mut c)
         .contains("You have augmented your Innate Strength 3 times.");
 
     c.assert_behaviour(
@@ -13577,10 +13632,10 @@ fn scenario_an_augmentation_row_says_time_once_and_times_more_than_once() {
 /// so the order is read twice: once off the panel's own sections and once off the live element,
 /// where the three landmarks have to come in the same sequence.
 pub fn the_six_sections_of_the_sheet_are_in_the_order_the_composer_appends_them() {
-    let (mut c, _shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, _shard) = character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    let s = p115_sections(&c);
+    let s = character_sheet_sections(&c);
     // Six string appends, six sections.
     let six = s.len() == 6;
     let in_order = six
@@ -13594,7 +13649,7 @@ pub fn the_six_sections_of_the_sheet_are_in_the_order_the_composer_appends_them(
         && s[5].starts_with("You are not overburdened");
 
     // And the whole thing reaches the element in that order.
-    let text = p115_sheet_on_the_element(&mut c);
+    let text = character_sheet_sheet_on_the_element(&mut c);
     let born = text.find("You were born on");
     let mastery = text.find("Your melee mastery");
     let load = text.find("You are not overburdened");
@@ -13636,35 +13691,36 @@ fn scenario_the_six_sections_of_the_sheet_are_in_the_order_the_composer_appends_
 pub fn a_removed_death_count_disappears_from_the_character_sheet() {
     use dereth_client_model::{StatKey, StatType};
 
-    let (mut c, mut shard) = p115_a_recorded_character_and_a_shard(P115_SESSION);
-    p115_open_the_burden_sheet(&mut c);
+    let (mut c, mut shard) =
+        character_sheet_a_recorded_character_and_a_shard(CHARACTER_SHEET_SESSION);
+    character_sheet_open_the_burden_sheet(&mut c);
 
-    let with_none = p115_section(&c, 0);
-    let updates_at_start = p115_updates(&c);
+    let with_none = character_sheet_section(&c, 0);
+    let updates_at_start = character_sheet_updates(&c);
 
-    p115_set_int(&mut c, &mut shard, 1, P115_NUM_DEATHS, 7);
-    let with_seven = p115_section(&c, 0);
+    character_sheet_set_int(&mut c, &mut shard, 1, CHARACTER_SHEET_NUM_DEATHS, 7);
+    let with_seven = character_sheet_section(&c, 0);
     let seven_reached_the_sheet = with_seven.contains('7');
     let the_line_moved = with_seven != with_none;
-    let recomposed_for_the_update = p115_updates(&c) > updates_at_start;
-    let updates_before_remove = p115_updates(&c);
+    let recomposed_for_the_update = character_sheet_updates(&c) > updates_at_start;
+    let updates_before_remove = character_sheet_updates(&c);
 
     // `0x01D1 Qualities_PrivateRemoveIntEvent` -- ACE clears `NumDeaths` nowhere, but the retail
     // client has the handler and this is the shape of every property a shard ever clears.
-    p115_remove_int(&mut c, &mut shard, 2, P115_NUM_DEATHS);
+    character_sheet_remove_int(&mut c, &mut shard, 2, CHARACTER_SHEET_NUM_DEATHS);
 
     let key_is_gone = c
         .view()
         .world()
         .player_qualities()
         .expect("the player's store")
-        .get(StatKey::new(StatType::Int, P115_NUM_DEATHS))
+        .get(StatKey::new(StatType::Int, CHARACTER_SHEET_NUM_DEATHS))
         .is_none();
-    let after = p115_section(&c, 0);
+    let after = character_sheet_section(&c, 0);
     let stopped_saying_seven = !after.contains('7');
     let reads_as_it_did = after == with_none;
     // A stale cache would show the same text for the wrong reason.
-    let recomposed_for_the_remove = p115_updates(&c) > updates_before_remove;
+    let recomposed_for_the_remove = character_sheet_updates(&c) > updates_before_remove;
 
     c.assert_behaviour(
         "character-sheet.deaths.a-count-the-shard-clears-leaves-the-sheet",

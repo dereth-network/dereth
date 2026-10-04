@@ -48,7 +48,8 @@ mod wired {
             sound: false,
             connect: false,
             dat_dir: client_dir(),
-            preferences_file: std::env::temp_dir().join("dere-p1-84-not-created/prefs.ini"),
+            preferences_file: std::env::temp_dir()
+                .join("dereth-window-position-not-created/prefs.ini"),
             ..Config::default()
         };
         if let Some(r) = resolution {

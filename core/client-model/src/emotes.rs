@@ -217,7 +217,7 @@ pub struct PublicChatOutcome {
 /// cursor survives — and a delimiter search that does not find its delimiter leaves the cursor at
 /// the string's length, where the next read finds the terminator and the loop ends.
 ///
-/// Two consequences, and the second is a player-visible quirk:
+/// This parser has two consequences:
 ///
 /// 1. it terminates. A line with an unresolvable `*xyzzy*` and no `<` runs the body **once**: the
 ///    `*` pass changes nothing, the `<` pass runs the cursor to the end, and the next read returns
@@ -489,7 +489,7 @@ mod tests {
 
     /// **Only the first `*…*` on a line fires, unless a `<…>` keeps the loop going.**
     ///
-    /// See [`public_chat`]: the retail loop restores the cursor after the `*` pass and not
+    /// See [`public_chat`]: this parser restores the cursor after the `*` pass and not
     /// after the `<` pass, so with no angle brackets the body runs exactly once.
     #[test]
     fn only_the_first_asterisk_pose_fires_on_a_line_with_no_angle_brackets() {
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(out.poses[0].motion_name, "one");
 
         // …and a `<…>` on the same line restarts the loop, so the second one does fire. Both
-        // arms of the same mechanism, which is what makes the first a measurement.
+        // cases exercise the same cursor handling.
         let out = public_chat(
             "<one> a *two* b *three* c",
             stub(&["one", "two", "three"], true),

@@ -9,21 +9,21 @@ pub(super) struct Startup {
     downloaded: u64,
     complete: bool,
     frame: usize,
-    last_animation: std::time::Instant,
+    last_animation: dereth_primitives::LocalTime,
 }
-impl Default for Startup {
-    fn default() -> Self {
+impl Startup {
+    pub fn new(now: dereth_primitives::LocalTime) -> Self {
         Self {
             expected: 0,
             downloaded: 0,
             complete: false,
             frame: 0,
-            last_animation: std::time::Instant::now(),
+            last_animation: now,
         }
     }
 }
 impl Startup {
-    pub fn tick(&mut self, view: &PregameView) -> bool {
+    pub fn tick(&mut self, view: &PregameView, now: dereth_primitives::LocalTime) -> bool {
         for event in &view.ddd {
             match event {
                 DddEvent::PatchtimeInterrogation => {
@@ -44,9 +44,9 @@ impl Startup {
             }
         }
         self.complete |= view.patch_finished;
-        if self.last_animation.elapsed().as_secs_f64() >= 0.067 {
+        if crate::clock::seconds(now, self.last_animation) >= 0.067 {
             self.frame = (self.frame + 1) % 15;
-            self.last_animation = std::time::Instant::now();
+            self.last_animation = now;
         }
         view.error.is_none()
             && (!view.has_packet_controller
@@ -137,8 +137,28 @@ mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
     #[test]
+    fn supplied_ticks_advance_one_animation_frame_from_the_constructor_time() {
+        use dereth_primitives::LocalTime;
+        let mut startup = Startup::new(LocalTime(100.0));
+        let view = PregameView::default();
+        for (time, frame) in [
+            (100.0, 0),
+            (100.066, 0),
+            (100.08, 1),
+            (101.0, 2),
+            (99.0, 2),
+            (101.01, 2),
+        ] {
+            startup.tick(&view, LocalTime(time));
+            assert_eq!(startup.frame, frame, "time={time}");
+            assert!(startup.paint(&view).screen.commands.iter().any(|command| matches!(command,
+                crate::Command::Image { did, .. } if did == &format!("{:08X}", 0x0600195c + frame)
+            )));
+        }
+    }
+    #[test]
     fn startup_waits_for_patch_completion_and_character_set_and_tracks_download_bytes() {
-        let mut s = Startup::default();
+        let mut s = Startup::new(dereth_primitives::LocalTime(0.0));
         let mut v = PregameView {
             has_packet_controller: true,
             connected: true,
@@ -149,7 +169,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        assert!(!s.tick(&v));
+        assert!(!s.tick(&v, dereth_primitives::LocalTime(0.0)));
         assert_eq!(s.update_fraction(), 0.25);
         let f = s.paint(&v);
         assert!(f
@@ -158,17 +178,18 @@ mod tests {
             .iter()
             .any(|c| matches!(c,crate::Command::TextBox{text,..} if text=="Updating... 25% done")));
         v.ddd = vec![DddEvent::DataDownloaded { bytes: 150 }];
-        assert!(!s.tick(&v)); // Receiving all bytes is not the completion notice.
+        assert!(!s.tick(&v, dereth_primitives::LocalTime(0.0))); // Receiving all bytes is not the completion notice.
         v.ddd = vec![DddEvent::PatchtimeEnd];
         v.received_set = false;
-        assert!(!s.tick(&v));
+        assert!(!s.tick(&v, dereth_primitives::LocalTime(0.0)));
         v.ddd.clear();
         v.received_set = true;
-        assert!(s.tick(&v));
+        assert!(s.tick(&v, dereth_primitives::LocalTime(0.0)));
         assert_eq!(s.update_fraction(), 1.0);
     }
     #[test]
     fn startup_without_packet_controller_advances_without_invented_network_progress() {
-        assert!(Startup::default().tick(&PregameView::default()));
+        assert!(Startup::new(dereth_primitives::LocalTime(0.0))
+            .tick(&PregameView::default(), dereth_primitives::LocalTime(0.0)));
     }
 }

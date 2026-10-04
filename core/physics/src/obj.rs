@@ -298,11 +298,8 @@ pub struct SetPositionStruct {
     pub xrad: f32,
     pub yrad: f32,
     pub num_tries: u32,
-    /// Three game-record predicates
-    /// that make place with `ForceIntoCell` and **no collision
-    /// test at all**. The three predicates collapse into one named
-    /// boolean here for the game layer to drive; the physics side is a
-    /// straight `force_into_cell` either way, so nothing in this crate depends on the answer.
+    /// Request `ForceIntoCell` placement without collision testing.
+    /// The game layer supplies this flag.
     pub skip_collision_force_into_cell: bool,
 }
 

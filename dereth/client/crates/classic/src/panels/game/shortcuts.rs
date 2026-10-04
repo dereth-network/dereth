@@ -647,6 +647,7 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &TargetedSpell,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -673,6 +674,7 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -715,6 +717,7 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -772,6 +775,7 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -804,6 +808,7 @@ mod magic_tests {
         let settings = Default::default();
         let classic = Default::default();
         let ctx = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: &world,
             pregame: &pregame,
             keyboard: &keyboard,
@@ -827,6 +832,7 @@ mod magic_tests {
     }
     fn with_game(run: impl FnOnce(&Context<'_>), game: &dyn GameView) {
         run(&Context {
+            now: dereth_primitives::LocalTime(0.0),
             game,
             pregame: &Default::default(),
             keyboard: &Default::default(),

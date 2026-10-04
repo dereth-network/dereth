@@ -64,7 +64,8 @@ fn app() -> App {
         width: 800,
         height: 600,
         dat_dir: dereth_dat::testing::dat_dir(),
-        preferences_file: std::env::temp_dir().join("dere-p1-44/preferences.ini"),
+        preferences_file: std::env::temp_dir()
+            .join("dereth-slash-command-forwarding/preferences.ini"),
         ..Config::default()
     })
     .expect("required retail DATs and a headless graphics device");

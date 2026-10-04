@@ -5724,7 +5724,7 @@ pub fn while_the_shop_has_not_answered_the_refusal_still_fires() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// p4_9g and p4_9g2: the salvage window's drag-out.
+// The salvage window's drag-out.
 // ---------------------------------------------------------------------------------------------
 
 const SALVAGE_PLAYER: ObjectId = ObjectId(0x5000_0001);

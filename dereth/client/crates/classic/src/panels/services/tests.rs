@@ -148,6 +148,7 @@ fn with_context<T>(v: &View, f: impl FnOnce(&Context<'_>) -> T) -> T {
     let keyboard = KeyboardState::default();
     let settings = ClassicSettings::default();
     f(&Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: v,
         pregame: &pregame,
         keyboard: &keyboard,
@@ -512,6 +513,7 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
         ..Default::default()
     };
     let c = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &v,
         pregame: &pregame,
         keyboard: &keyboard,
@@ -602,6 +604,7 @@ fn sound_reset_restores_saved_draft_and_defaults_reset_the_texture_sizes() {
         ..settings.clone()
     };
     let limited = Context {
+        now: dereth_primitives::LocalTime(0.0),
         settings: &unavailable,
         ..c
     };
@@ -664,6 +667,7 @@ fn the_classic_graphics_rows_carry_the_retail_captions_end_labels_and_texture_st
         ..Default::default()
     };
     let c = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &v,
         pregame: &pregame,
         keyboard: &keyboard,
@@ -976,6 +980,7 @@ fn game_center_fits_sidebar_height_and_hides_status_below_413() {
             ..Default::default()
         };
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             classic: &state,
             ..*c
         };
@@ -1425,6 +1430,7 @@ fn a_click_on_the_map_teleports_only_a_character_allowed_to() {
     let keyboard = KeyboardState::default();
     let settings = ClassicSettings::default();
     let allowed = Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &v,
         pregame: &pregame,
         keyboard: &keyboard,

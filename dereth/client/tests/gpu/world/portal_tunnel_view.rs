@@ -401,7 +401,7 @@ fn the_tunnel_takes_the_world_off_the_screen_and_leaves_the_opaque_hud_alone() {
 /// computes actually reaches the matrix.
 ///
 /// Without `projection`'s `view_distance_override` arm
-/// (`dereth/client/crates/render/src/camera.rs`) `outside` is 0.
+/// (`dereth/client/crates/render-cpu/src/camera.rs`) `outside` is 0.
 #[test]
 fn the_collapsing_view_distance_reaches_the_projection_and_leaves_the_opaque_hud_alone() {
     let _gpu = gpu_lock();

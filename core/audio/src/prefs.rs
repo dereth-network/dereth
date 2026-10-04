@@ -274,12 +274,9 @@ impl Prefs {
         p
     }
 
-    /// The `[Sound]` section as the client would write it: the name split at
-    /// its last `.`, and the eight keys in registration order.
-    ///
-    /// the exact spelling of a `Bool` and the float precision are
-    /// inferred from `KW_TRUE`/`KW_FALSE` rather than traced; [`Self::from_ini`] accepts both forms,
-    /// so a round trip through this writer is stable regardless of which answer is right.
+    /// Serialize the eight Sound preferences in registration order under `[Sound]`.
+    /// Booleans use `True`/`False`, and volumes use the `f32` display format.
+    /// The preference-name prefix is omitted from each key.
     #[must_use]
     pub fn to_ini_section(&self) -> String {
         let b = |v: bool| if v { "True" } else { "False" };

@@ -10,6 +10,7 @@ pub(super) fn context(f: impl FnOnce(&Context<'_>)) {
     let settings = ClassicSettings::default();
     let classic = ClassicState::default();
     f(&Context {
+        now: dereth_primitives::LocalTime(0.0),
         game: &game,
         pregame: &pregame,
         keyboard: &keyboard,
@@ -190,9 +191,73 @@ pub(super) fn data() -> CreationData {
     CreationData::from_tables(std::rc::Rc::new(tables()))
 }
 #[test]
+fn credits_use_constructor_and_reentry_times_for_scroll_and_completion() {
+    use dereth_primitives::LocalTime;
+    context(|base| {
+        let mut data = data();
+        data.help_text
+            .insert(0x31000022u32.to_string(), "credits".into());
+        data.text_heights.insert(0x31000022u32.to_string(), 40);
+        let mut panel = Pregame::new("credits", Ok(std::rc::Rc::new(data)), LocalTime(100.0));
+        for (time, photo_y, text_y) in [(100.0, 100, 10), (101.0, 68, -15), (99.0, 100, 10)] {
+            let context = Context {
+                now: LocalTime(time),
+                ..*base
+            };
+            let frame = panel.frame(&context);
+            assert!(frame.screen.commands.iter().any(|command| matches!(command,
+                crate::Command::Image { did, y, .. } if did == "06001A98" && *y == photo_y
+            )));
+            assert!(frame.screen.commands.iter().any(|command| matches!(command,
+                crate::Command::TextBox { text, rect, .. } if text == "credits" && rect[1] == text_y
+            )));
+        }
+        panel.event(
+            ControlEvent::Tick,
+            &Context {
+                now: LocalTime(101.99),
+                ..*base
+            },
+        );
+        assert_eq!(panel.page, "credits");
+        panel.event(
+            ControlEvent::Tick,
+            &Context {
+                now: LocalTime(102.0),
+                ..*base
+            },
+        );
+        assert_eq!(panel.page, "login");
+        panel.event(
+            ControlEvent::Activate("credits".into()),
+            &Context {
+                now: LocalTime(200.0),
+                ..*base
+            },
+        );
+        assert_eq!(panel.page, "credits");
+        assert_eq!(panel.credits_started, LocalTime(200.0));
+        assert!(panel
+            .frame(&Context {
+                now: LocalTime(201.0),
+                ..*base
+            })
+            .screen
+            .commands
+            .iter()
+            .any(|command| matches!(command,
+                crate::Command::Image { did, y: 68, .. } if did == "06001A98"
+            )));
+    });
+}
+#[test]
 fn choosing_heritage_and_sex_enables_normal_next_navigation() {
     context(|c| {
-        let mut p = Pregame::new("heritage", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "heritage",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         assert!(
             !p.frame(c)
                 .controls
@@ -240,7 +305,11 @@ fn choosing_heritage_and_sex_enables_normal_next_navigation() {
 #[test]
 fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
     context(|c| {
-        let mut p = Pregame::new("clothing", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "clothing",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.state.headgear_color = 99;
         p.event(
             ControlEvent::Select {
@@ -280,7 +349,11 @@ fn headgear_choice_includes_none_and_the_last_style_and_clamps_colour() {
 #[test]
 fn attribute_slider_and_numeric_editor_have_distinct_routing_ids() {
     context(|c| {
-        let mut p = Pregame::new("attributes", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "attributes",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let f = p.frame(c);
         let mut ids = std::collections::BTreeSet::new();
         for control in &f.controls {
@@ -309,7 +382,11 @@ fn attribute_slider_and_numeric_editor_have_distinct_routing_ids() {
 #[test]
 fn selected_skill_uses_original_table_index_across_hidden_rows_and_regrouping() {
     context(|c| {
-        let mut p = Pregame::new("skills", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "skills",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let row =
             presentation::skill_rows(p.data.as_ref().unwrap(), &p.view(p.data.as_ref().unwrap()))
                 .iter()
@@ -345,6 +422,7 @@ fn deletion_waits_only_after_confirmation_and_releases_on_character_set_notice()
             ..Default::default()
         });
         let mut c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -352,7 +430,11 @@ fn deletion_waits_only_after_confirmation_and_releases_on_character_set_notice()
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "login",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.selected = Some(0);
         p.delete_name = "Test Character".into();
         let actions = p.event(ControlEvent::Activate("delete".into()), &c);
@@ -403,6 +485,7 @@ fn more_characters_than_the_six_slots_scroll_in_the_six() {
             ..Default::default()
         });
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -410,7 +493,11 @@ fn more_characters_than_the_six_slots_scroll_in_the_six() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "login",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let shown = |p: &Pregame| {
             let f = p.frame(&c);
             let list = f
@@ -468,6 +555,7 @@ fn character_list_refresh_keeps_wire_slot_when_display_sort_order_changes() {
             ..Default::default()
         });
         let mut c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -475,7 +563,11 @@ fn character_list_refresh_keeps_wire_slot_when_display_sort_order_changes() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "login",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.event(
             ControlEvent::Select {
                 id: "characters".into(),
@@ -523,6 +615,7 @@ fn successful_creation_enters_from_verification_identity_without_new_list_notice
                     .push(identity.clone());
             }
             let mut c = Context {
+                now: dereth_primitives::LocalTime(0.0),
                 game: base.game,
                 pregame: &view,
                 keyboard: base.keyboard,
@@ -530,7 +623,11 @@ fn successful_creation_enters_from_verification_identity_without_new_list_notice
                 map_teleport_allowed: base.map_teleport_allowed,
                 classic: base.classic,
             };
-            let mut p = Pregame::new("name-summary", Ok(std::rc::Rc::new(data())));
+            let mut p = Pregame::new(
+                "name-summary",
+                Ok(std::rc::Rc::new(data())),
+                dereth_primitives::LocalTime(0.0),
+            );
             p.created_name = Some("New Character".into());
             p.waiting = true;
             let mut actions = p.event(ControlEvent::Tick, &c);
@@ -571,6 +668,7 @@ fn successful_creation_enters_when_the_server_prefixes_a_privileged_name() {
         view.chargen_response = Some(1);
         view.chargen_response_notices = 1;
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -578,7 +676,11 @@ fn successful_creation_enters_when_the_server_prefixes_a_privileged_name() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("name-summary", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "name-summary",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.created_name = Some("New Character".into());
         p.waiting = true;
         assert!(matches!(
@@ -597,6 +699,7 @@ fn successful_restore_clears_waiting_without_creation_status_or_logon() {
         view.chargen_response = Some(1);
         view.chargen_response_notices = 1;
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -604,7 +707,11 @@ fn successful_restore_clears_waiting_without_creation_status_or_logon() {
             map_teleport_allowed: base.map_teleport_allowed,
             classic: base.classic,
         };
-        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "login",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.waiting = true;
         assert!(p.event(ControlEvent::Tick, &c).is_empty());
         assert!(!p.waiting);
@@ -615,7 +722,11 @@ fn successful_restore_clears_waiting_without_creation_status_or_logon() {
 #[test]
 fn confirmed_login_quit_requests_process_exit_without_dropping_only_the_panel() {
     context(|c| {
-        let mut p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "login",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let actions = p.event(ControlEvent::Activate("quit".into()), c);
         let [PanelAction::Confirm { accept, .. }] = actions.as_slice() else {
             panic!("quit must confirm first")
@@ -628,7 +739,11 @@ fn confirmed_login_quit_requests_process_exit_without_dropping_only_the_panel() 
 #[test]
 fn startup_cancel_exits_immediately_without_creation_abandon_prompt() {
     context(|c| {
-        let mut p = Pregame::new("startup", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "startup",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         assert_eq!(
             p.event(ControlEvent::Activate("cancel".into()), c),
             vec![PanelAction::Host(HostAction::Quit)]
@@ -649,6 +764,7 @@ fn enter_confirmation_initializes_the_current_character_selection() {
             ..Default::default()
         });
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -656,7 +772,11 @@ fn enter_confirmation_initializes_the_current_character_selection() {
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("enter-confirmation", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "enter-confirmation",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.event(ControlEvent::Tick, &c);
         assert_eq!(p.selected, Some(0));
         assert!(p
@@ -673,6 +793,7 @@ fn startup_error_blocks_advance_and_acknowledgement_exits_once() {
         let mut view = base.pregame.clone();
         view.error = Some("Connection failed".into());
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: &view,
             keyboard: base.keyboard,
@@ -680,7 +801,11 @@ fn startup_error_blocks_advance_and_acknowledgement_exits_once() {
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("startup", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "startup",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let actions = p.event(ControlEvent::Tick, &c);
         assert!(
             matches!(actions.as_slice(),[PanelAction::Message {id,accept,..}]
@@ -697,6 +822,7 @@ fn save_as_existing_name_only_emits_overwrite_after_confirmation() {
         let mut keyboard = base.keyboard.clone();
         keyboard.schemes = vec!["Default".into(), "Existing".into()];
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: base.pregame,
             keyboard: &keyboard,
@@ -704,7 +830,11 @@ fn save_as_existing_name_only_emits_overwrite_after_confirmation() {
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "keyboard",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.save_scheme = Some("existing".into());
         let actions = p.event(ControlEvent::Activate("key-save-confirm".into()), &c);
         assert!(
@@ -722,6 +852,7 @@ fn dirty_keyboard_exit_and_switch_offer_save_and_preserve_pending_transition_unt
         keyboard.schemes = vec!["Default".into(), "Named".into()];
         keyboard.scheme = 1;
         let mut c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: base.pregame,
             keyboard: &keyboard,
@@ -729,7 +860,11 @@ fn dirty_keyboard_exit_and_switch_offer_save_and_preserve_pending_transition_unt
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "keyboard",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let ask = p.event(ControlEvent::Activate("key-done".into()), &c);
         let [PanelAction::Question { accept, reject, .. }] = ask.as_slice() else {
             panic!("dirty exit asks")
@@ -787,6 +922,7 @@ fn same_key_or_cancel_completion_closes_capture_without_requiring_changed_labels
         keyboard.schemes = vec!["Default".into(), "Named".into()];
         keyboard.scheme = 1;
         let mut c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             game: base.game,
             pregame: base.pregame,
             keyboard: &keyboard,
@@ -794,7 +930,11 @@ fn same_key_or_cancel_completion_closes_capture_without_requiring_changed_labels
             map_teleport_allowed: false,
             classic: base.classic,
         };
-        let mut p = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "keyboard",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.event(ControlEvent::Activate("key-save".into()), &c);
         assert_eq!(p.save_scheme.as_deref(), Some("Named"));
         assert!(matches!(
@@ -839,7 +979,11 @@ fn credit_vial_shows_the_share_of_credits_left_above_the_attribute_minimums() {
 #[test]
 fn attributes_page_draws_the_vial_from_the_bottom_with_no_balance_toggle() {
     context(|c| {
-        let p = Pregame::new("attributes", Ok(std::rc::Rc::new(data())));
+        let p = Pregame::new(
+            "attributes",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let f = p.frame(c);
         assert!(!f.controls.iter().any(|v| v.id == "balance"));
         // 330 credits, 300 spent: 30 of the 270 spendable left fill 12 of the 108 rows.
@@ -853,7 +997,11 @@ fn attributes_page_draws_the_vial_from_the_bottom_with_no_balance_toggle() {
 #[test]
 fn preview_rotate_and_zoom_controls_exist_before_there_is_a_model() {
     context(|c| {
-        let p = Pregame::new("heritage", Ok(std::rc::Rc::new(data())));
+        let p = Pregame::new(
+            "heritage",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let f = p.frame(c);
         assert!(f.previews.is_empty());
         for id in ["rotate-left", "rotate-right", "zoom-face"] {
@@ -864,7 +1012,11 @@ fn preview_rotate_and_zoom_controls_exist_before_there_is_a_model() {
 #[test]
 fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
     context(|c| {
-        let mut p = Pregame::new("clothing", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "clothing",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         let f = p.frame(c);
         let style = f.controls.iter().find(|v| v.id == "style-1").unwrap();
         assert!(style.choice_art);
@@ -880,7 +1032,11 @@ fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
 #[test]
 fn the_trademark_sign_sits_after_the_title_not_over_it() {
     use dereth_classic_gdi::fonts::{rasterize, FontSpec};
-    let p = Pregame::new("login", Ok(std::rc::Rc::new(data())));
+    let p = Pregame::new(
+        "login",
+        Ok(std::rc::Rc::new(data())),
+        dereth_primitives::LocalTime(0.0),
+    );
     let mut boxes = vec![];
     context(|c| {
         for command in p.login(c).screen.commands {
@@ -942,10 +1098,15 @@ fn allocated_credits_and_raw_name_edits_reach_the_real_finish_action() {
         view.connected = true;
         view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             pregame: &view,
             ..*base
         };
-        let mut p = Pregame::new("name-summary", Ok(std::rc::Rc::new(data())));
+        let mut p = Pregame::new(
+            "name-summary",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
         p.attribute(0, 80);
         assert_eq!(p.state.remaining_atrb_credits, 0);
         assert_eq!(
@@ -1031,6 +1192,7 @@ fn later_appearance_choices_and_clothing_palette_order_are_reachable() {
             Ok(std::rc::Rc::new(CreationData::from_tables(
                 std::rc::Rc::new(t),
             ))),
+            dereth_primitives::LocalTime(0.0),
         );
         p.event(
             ControlEvent::Value {
@@ -1219,11 +1381,16 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
             view.connected = true;
             view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
             let c = Context {
+                now: dereth_primitives::LocalTime(0.0),
                 pregame: &view,
                 ..*base
             };
             let data = Rc::new(data);
-            let mut p = Pregame::new("heritage", Ok(Rc::clone(&data)));
+            let mut p = Pregame::new(
+                "heritage",
+                Ok(Rc::clone(&data)),
+                dereth_primitives::LocalTime(0.0),
+            );
             for (hi, h) in data.heritages.iter().enumerate() {
                 p.event(
                     ControlEvent::Select {
@@ -1285,7 +1452,11 @@ fn special_heritage_skip_route_starts_with_body_framing_and_keeps_explicit_zoom(
         }
         let data = std::rc::Rc::new(CreationData::from_tables(std::rc::Rc::new(t)));
         for (index, key) in [(1, 12), (2, 13)] {
-            let mut p = Pregame::new("heritage", Ok(std::rc::Rc::clone(&data)));
+            let mut p = Pregame::new(
+                "heritage",
+                Ok(std::rc::Rc::clone(&data)),
+                dereth_primitives::LocalTime(0.0),
+            );
             assert!(p.zoom_face, "ordinary initial framing");
             p.event(
                 ControlEvent::Select {
@@ -1363,26 +1534,34 @@ fn the_real_keyboard_list_scrolls_over_names_and_each_binding_column() {
             })
             .collect();
         let c = Context {
+            now: dereth_primitives::LocalTime(0.0),
             keyboard: &keyboard,
             ..*base
         };
         for x in [150, 340, 490, 650] {
-            let mut panel = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
+            let mut panel = Pregame::new(
+                "keyboard",
+                Ok(std::rc::Rc::new(data())),
+                dereth_primitives::LocalTime(0.0),
+            );
             let mut host = crate::control_host::ControlHost::default();
             host.sync(&panel.frame(&c));
-            let events = host.handle(crate::widgets::Input::Wheel {
-                x,
-                y: 300,
-                delta: 2,
-            });
+            let events = host.handle(
+                crate::widgets::Input::Wheel {
+                    x,
+                    y: 300,
+                    delta: 2,
+                },
+                c.now,
+            );
             assert!(!events.is_empty(), "column {x}");
             for e in events {
                 panel.event(e, &c);
             }
             assert_eq!(panel.keyboard_scroll, 34, "column {x}");
             host.sync(&panel.frame(&c));
-            host.handle(crate::widgets::Input::PointerDown { x: 340, y: 210 });
-            for e in host.handle(crate::widgets::Input::PointerUp { x: 340, y: 210 }) {
+            host.handle(crate::widgets::Input::PointerDown { x: 340, y: 210 }, c.now);
+            for e in host.handle(crate::widgets::Input::PointerUp { x: 340, y: 210 }, c.now) {
                 panel.event(e, &c);
             }
             assert_eq!(

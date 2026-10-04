@@ -100,7 +100,7 @@ fn setup() -> App {
         height: SCREEN.1,
         dat_dir: dereth_dat::testing::dat_dir(),
         preferences_file: std::env::temp_dir()
-            .join("dere-p1-73-viewport-clicks-not-created")
+            .join("dereth-viewport-click-passthrough-not-created")
             .join("preferences.ini"),
         ..Config::default()
     })
