@@ -3840,28 +3840,41 @@ impl Interaction {
         //
         // Selected-object visibility is one global in the client
         // and two halves here: the draw observes, `dereth_client_model::World` latches. This is
-        // where the observation crosses, and it is before the checks deliberately -- in the client
-        // viewport update is frame step 8 and drawing is step 11, so the flag
-        // the range-exit handler reads at step 8 is always one an *earlier*
-        // frame's draw wrote. Draining rather than copying keeps the observation single-use; the
-        // latch below is what persists, exactly as retail's does.
+        // where the observation crosses. Draining rather than copying keeps the observation
+        // single-use; the latch is what persists, exactly as retail's does.
         //
-        // It runs before the `SceneRangeGeometry` bail-out because the observation must not
-        // survive a frame with no body -- the pick's clear would then be undone by a stale one.
+        // **The order is the client's frame order, rotated to start here.** The client runs the
+        // player system's update, and with it the range checks, at the very start of a frame,
+        // before the UI update; object search clears the flag in the UI update, and part drawing
+        // sets it later in the same frame. So the flag a range exit reads is always the one the
+        // previous frame's draw left, after the previous frame's clear. This build polls the
+        // ranges after the frame's input has been dispatched, so it raises the latch from the
+        // last draw first, polls, and only then applies a clear that input asked for.
         //
-        // The **clear** is drained first and the set second, which is the client's own order
-        // within one frame: object search clears the flag in the UI queue
-        // (step 7) and part drawing sets it in the draw (step 11), so a click and a draw in
-        // the same frame leave the flag **up**. Reversing these two lines would leave it down.
-        if self.pick.take_selected_object_in_view_clear() {
-            objects.world.find_object();
-            if let Some(sc) = scene {
-                sc.clear_selected_part_drawn();
-            }
-        }
+        // The clear has to come last. Object search runs every frame the pointer rests on the
+        // world view, the hover search, and not only on a click. Applied before the poll, it
+        // would take the latch down every such frame, and a far selection would be dropped at
+        // its first range exit although every frame drew it.
+        //
+        // Both halves run whether or not there is a body to measure from, so the observation
+        // never outlives a frame with no body.
         if scene.is_some_and(crate::present::Scene::take_selected_part_drawn) {
             objects.world.selected_object_in_view = true;
         }
+        self.poll_object_ranges(scene, objects, now);
+        if self.pick.take_selected_object_in_view_clear() {
+            objects.world.find_object();
+        }
+    }
+
+    /// The range poll itself, between the two halves of the selection latch's seam in
+    /// [`Self::run_object_range_checks`].
+    fn poll_object_ranges(
+        &mut self,
+        scene: Option<&dyn crate::present::Scene>,
+        objects: &mut crate::objects::ObjectStream,
+        now: ServerTime,
+    ) {
         let player_id = objects.world.player;
         let Some(geometry) = crate::object_range::SceneRangeGeometry::new(
             scene.and_then(crate::present::Scene::character),

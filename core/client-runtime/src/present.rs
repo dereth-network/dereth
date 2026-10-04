@@ -99,7 +99,6 @@ pub trait Scene: std::fmt::Debug {
     // ---------------------------------------------------------------------------------------
 
     fn take_selected_part_drawn(&self) -> bool;
-    fn clear_selected_part_drawn(&self);
     /// Set the object whose selected parts the draw tracks.
     fn set_selected_object_id(&self, id: Option<ObjectId>);
 

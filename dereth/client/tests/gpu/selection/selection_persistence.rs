@@ -47,7 +47,7 @@ use dereth_client_net::client_session::SessionEvent;
 use dereth_dat::RetailDatStore;
 use dereth_input::ActionId;
 use dereth_primitives::num::math;
-use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
+use dereth_primitives::{LocalTime, ObjectId, Position, Quat, ServerTime, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 
 // Three monsters on a 53.13° heading at 3 m, 9 m and 30 m — non-cardinal throughout.
@@ -59,6 +59,8 @@ const MID_AT: (f32, f32, f32) = (5.4, 7.2, 0.0);
 const FAR_AT: (f32, f32, f32) = (18.0, 24.0, 0.0);
 /// Beyond the outdoor radar radius, which is the range the selection watch is armed at.
 const OUT_OF_RANGE_AT: (f32, f32, f32) = (54.0, 72.0, 0.0); // 90 m
+/// The same 90 m, behind the player, where no frame draws it.
+const OUT_OF_RANGE_BEHIND_AT: (f32, f32, f32) = (-54.0, -72.0, 0.0);
 /// `0x02000001`, the Aluvian male setup — a creature body, which is what a monster station wants
 /// and what `SceneRangeGeometry` needs on both ends of its measurement.
 const MONSTER_SETUP: u32 = 0x0200_0001;
@@ -479,6 +481,22 @@ impl Bench {
         assert_eq!(self.frame(Vec::new()), 0);
     }
 
+    /// A manual bench frame with the pointer resting on the middle of the world view: the hover
+    /// search the frame loop runs whenever no click or drop is in flight, then the frame.
+    ///
+    /// The hover is an object search like a click's, so it lowers the in-view latch exactly as a
+    /// click does; the draw that follows puts it back up for whatever it drew.
+    fn hover_frame(&mut self) {
+        self.inter.dispatch_ui_hover(
+            (400, 300),
+            None,
+            (800, 600),
+            &mut self.objects.world,
+            ServerTime(self.now),
+        );
+        self.idle();
+    }
+
     fn press(&mut self, action: u32) {
         let e = dereth_client_runtime::actions::Action {
             id: ActionId(action),
@@ -685,8 +703,8 @@ fn the_draw_time_setter_matches_the_id_and_not_merely_the_fact_that_something_wa
 ///
 /// The test calls `wrapper_mouse` directly with the world-view button-down event; it does not drive
 /// the full mouse producer. That wrapper arm reaches object lookup, and the manual frame is then
-/// completed so the player-system drain runs. The clear must land **before** the next range check,
-/// which is the ordering under test.
+/// completed so the player-system drain runs. The clear lands after that frame's range check, as
+/// the client's UI update follows its range checks, and before the next one.
 #[test]
 fn a_world_click_takes_the_latch_down_and_the_next_draw_puts_it_back_up() {
     let mut b = three_monsters();
@@ -863,6 +881,77 @@ fn a_driven_run_keeps_the_selection_across_every_range_exit_once_the_object_has_
         c.clears(),
         c.rearms()
     );
+}
+
+/// Behaviour: selection.range-watch.a-drawn-far-selection-survives-the-pointer-resting-on-the-world
+///
+/// **A far selection, with the pointer resting on the world view.**
+///
+/// While no click or drop is in flight, every frame runs an object search at the pointer, the
+/// hover search, and that search lowers the in-view latch exactly as a click does. The client
+/// polls the ranges at the start of its frame, before that search, and draws after it, so the
+/// latch a range exit reads is always the one the previous frame's draw raised. A selection 90 m
+/// away that every frame draws is therefore kept at every exit however long the pointer rests
+/// there.
+///
+/// The control is the same run with the selection 90 m **behind** the player, where no frame
+/// draws it: the hover search takes the latch down, nothing puts it back, and the first exit
+/// empties the selection. Both arms hover and draw every frame; only whether the selected object
+/// is drawn differs.
+#[test]
+fn a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view() {
+    // (a) In front of the player, so every frame draws it.
+    let mut b = three_monsters();
+    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    assert_eq!(b.selected(), Some(NEAR));
+    b.idle(); // arms the range-exit watch
+    b.move_to(NEAR, OUT_OF_RANGE_AT);
+    let searches = b.inter.pick.stats.requests;
+    for _ in 0..12 {
+        b.hover_frame();
+    }
+    assert_eq!(
+        b.inter.pick.stats.requests,
+        searches + 12,
+        "premise: every frame's hover started an object search, so every frame lowered the latch"
+    );
+    assert!(
+        b.parts_drawn_for(NEAR) > 0,
+        "premise: the draw submitted {NEAR:?}'s parts at 90 m"
+    );
+    assert!(b.exits() > 0, "premise: the selection's watch fired at 90 m");
+    assert_eq!(
+        b.clears(),
+        0,
+        "MEASURED: {} range exits with the pointer resting on the world view, {} of them emptied \
+         the selection",
+        b.exits(),
+        b.clears()
+    );
+    assert_eq!(b.selected(), Some(NEAR), "and the far target is still selected");
+    assert!(
+        b.exits() >= 5,
+        "the watch kept firing at every poll, {} exits",
+        b.exits()
+    );
+    assert_eq!(b.rearms(), b.exits(), "and every exit re-armed it");
+
+    // (b) The control: 90 m behind the player, never drawn there.
+    let mut c = three_monsters();
+    c.press(ia::SELECTION_CLOSEST_MONSTER);
+    assert_eq!(c.selected(), Some(NEAR));
+    c.idle();
+    c.move_to(NEAR, OUT_OF_RANGE_BEHIND_AT);
+    for _ in 0..12 {
+        c.hover_frame();
+    }
+    assert_eq!(
+        c.parts_drawn_for(NEAR),
+        0,
+        "premise: nothing of {NEAR:?} was drawn behind the player"
+    );
+    assert_eq!(c.selected(), None, "the undrawn far target was dropped");
+    assert_eq!(c.clears(), 1, "by a range exit");
 }
 
 /// The state an emptied selection leaves behind, asserted rather than assumed — because it is what

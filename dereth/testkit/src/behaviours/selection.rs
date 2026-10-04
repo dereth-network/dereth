@@ -155,6 +155,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "selection.range-watch.a-drawn-far-selection-survives-the-pointer-resting-on-the-world",
+        says: "A selected object beyond radar range stays selected while the pointer rests on \
+               the world view, for as long as it is drawn; one that is not drawn is dropped at \
+               the first range check.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SELECTION-LATCH-HOVER"),
+        station: "dereth-client::gpu::selection::selection_persistence::a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "selection.range-watch.a-drawn-selection-survives-every-range-exit",
         says: "A selected monster that has been drawn stays selected however often it goes out of \
                radar range and back; each exit re-arms the range watch instead of clearing the \

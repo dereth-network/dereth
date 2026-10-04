@@ -4980,11 +4980,6 @@ mod imp {
             self.draw.take_selected_part_drawn()
         }
 
-        /// [`SceneDraw::clear_selected_part_drawn`] on this scene.
-        pub fn clear_selected_part_drawn(&self) {
-            self.draw.clear_selected_part_drawn()
-        }
-
         /// [`SceneDraw::sun_light`] on this scene.
         pub fn sun_light(&self) -> Option<D3dLight> {
             self.draw.sun_light()
@@ -10309,13 +10304,6 @@ mod imp {
         /// part-drawing visibility result, handed across the crate seam.
         pub fn take_selected_part_drawn(&self) -> bool {
             self.selected_part_drawn.replace(false)
-        }
-
-        /// Reset the pick observation on the render side of the seam:
-        /// a click that starts a pick throws away an observation this frame's `use_time` has
-        /// not collected yet, exactly as it throws away the latch.
-        pub fn clear_selected_part_drawn(&self) {
-            self.selected_part_drawn.set(false);
         }
 
         /// The viewer position used for lighting. The client copies the player's
@@ -17032,11 +17020,6 @@ mod imp {
             self.draw.take_selected_part_drawn()
         }
 
-        /// [`SceneDraw::clear_selected_part_drawn`] on this view.
-        pub fn clear_selected_part_drawn(&self) {
-            self.draw.clear_selected_part_drawn()
-        }
-
         /// [`SceneDraw::sun_light`] on this view.
         pub fn sun_light(&self) -> Option<D3dLight> {
             self.draw.sun_light()
@@ -17508,11 +17491,6 @@ mod imp {
             self.draw.take_selected_part_drawn()
         }
 
-        /// [`SceneDraw::clear_selected_part_drawn`] on this view.
-        pub fn clear_selected_part_drawn(&self) {
-            self.draw.clear_selected_part_drawn()
-        }
-
         /// [`SceneDraw::sun_light`] on this view.
         pub fn sun_light(&self) -> Option<D3dLight> {
             self.draw.sun_light()
@@ -17824,10 +17802,6 @@ mod imp {
 
                 fn as_pick_scene(&self) -> &dyn dereth_client_runtime::pick::PickScene {
                     self
-                }
-
-                fn clear_selected_part_drawn(&self) {
-                    self.halves().1.clear_selected_part_drawn();
                 }
 
                 fn listener(&self) -> dereth_audio::Listener {

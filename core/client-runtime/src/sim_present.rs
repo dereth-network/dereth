@@ -504,7 +504,6 @@ macro_rules! impl_sim_scene_reads {
             fn take_selected_part_drawn(&self) -> bool {
                 false
             }
-            fn clear_selected_part_drawn(&self) {}
             fn set_selected_object_id(&self, _id: Option<ObjectId>) {}
             fn listener(&self) -> dereth_audio::Listener {
                 self.halves().0.listener()
