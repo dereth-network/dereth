@@ -41,6 +41,7 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 use crate::common::test_gpu;
+use dereth_client::world::SceneWrites;
 
 use std::sync::Arc;
 

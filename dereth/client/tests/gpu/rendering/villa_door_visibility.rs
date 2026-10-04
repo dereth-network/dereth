@@ -7,6 +7,7 @@
 use dereth_client::character::CharacterInput;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::{Message, Reader};

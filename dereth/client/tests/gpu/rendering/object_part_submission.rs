@@ -15,6 +15,7 @@ use dereth_client::character::CharacterInput;
 use dereth_client::net::ClientNetwork;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording;

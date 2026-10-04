@@ -16,6 +16,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{addr, connection_sequence_number, load, retail_store, test_gpu};
+use dereth_client::world::{SceneReads, SceneWrites};
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

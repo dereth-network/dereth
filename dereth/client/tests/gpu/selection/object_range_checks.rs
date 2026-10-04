@@ -22,6 +22,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client::character::PLAYER_OBJECT_ID;
@@ -253,6 +254,7 @@ mod range_watch {
     //! put on the land cell the building stands in. So the body is stood at a point the room's own
     //! `cell_bsp` says is inside it (`WorldScene::standable_point`).
 
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::character::PLAYER_OBJECT_ID;

@@ -17,6 +17,7 @@ use dereth_assets::Decode;
 use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{landblock_did, SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_dat::{DbType, RetailDatStore};

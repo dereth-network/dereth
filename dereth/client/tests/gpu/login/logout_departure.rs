@@ -14,6 +14,7 @@
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;
+use dereth_client::world::SceneReads;
 
 use dereth_animation::MotionCommand;
 use dereth_client::world::{EmitterOwner, SceneConfig};

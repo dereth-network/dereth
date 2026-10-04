@@ -12,6 +12,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
+use dereth_client::world::SceneReads;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
@@ -468,8 +469,7 @@ fn glyphs_that_appeared(before: &[UiDrawCmd], after: &[UiDrawCmd]) -> String {
 fn reached_cells(app: &App) -> Vec<(u32, Vec<Vec<(f32, f32)>>, f32)> {
     let scene = app.world_scene().expect("a world scene");
     let here = scene.viewer_cell_id().map_or(0, |c| c.0);
-    let mut out: Vec<(u32, Vec<Vec<(f32, f32)>>, f32)> = scene
-        .drawn_cells()
+    let mut out: Vec<(u32, Vec<Vec<(f32, f32)>>, f32)> = SceneReads::drawn_cells(&scene)
         .unwrap_or_default()
         .iter()
         .filter(|id| **id != here && !dereth_physics::landdefs::is_outdoors(CellId(**id)))
@@ -583,7 +583,7 @@ fn sweep_bearings(app: &mut App, chests: &[(ObjectId, u32)]) -> Vec<Vec<Bearing>
         let scene = app.world_scene().expect("a world scene");
         let viewer = PickScene::viewer(&scene);
         let fov = PickScene::fov_y_rad(&scene, SCREEN);
-        let drawn = scene.drawn_cells().unwrap_or_default();
+        let drawn = SceneReads::drawn_cells(&scene).unwrap_or_default();
         for ((chest, cell), sweep) in chests.iter().zip(out.iter_mut()) {
             let polys = scene.cell_view_polys(CellId(*cell));
             let parts = scene
@@ -717,7 +717,7 @@ fn the_same_object_is_drawn_and_named_only_from_bearings_its_cell_sees_it_throug
             let eligible: Vec<(ObjectId, String, u32)> = {
                 let scene = app.world_scene().expect("a world scene");
                 let here = scene.viewer_cell_id().map_or(0, |c| c.0);
-                let reached = scene.drawn_cells().unwrap_or_default();
+                let reached = SceneReads::drawn_cells(&scene).unwrap_or_default();
                 // Placement can change the effective draw cell (a chest created in 0xA9B40146
                 // can settle in the body's own 0xA9B40143, whose full-screen view makes the
                 // comparison meaningless). Require an actual submitted part and

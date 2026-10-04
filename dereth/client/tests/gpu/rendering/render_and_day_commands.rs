@@ -14,6 +14,7 @@ use crate::common::chat::{
     install_player_module, Hand,
 };
 use crate::common::gpu_lock;
+use dereth_client::world::SceneReads;
 
 use dereth_assets::Decode;
 use dereth_client::{app::App, config::Config, world::SceneConfig};

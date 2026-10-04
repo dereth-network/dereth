@@ -10,6 +10,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #![allow(clippy::pedantic)]
 
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client::character::{Character, CharacterInput, MovementCommands, ALUVIAN_MALE_SCALE};

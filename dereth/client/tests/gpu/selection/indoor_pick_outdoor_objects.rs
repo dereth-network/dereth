@@ -36,6 +36,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
+use dereth_client::world::SceneReads;
 
 use std::collections::BTreeSet;
 

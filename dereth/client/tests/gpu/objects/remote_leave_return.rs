@@ -29,6 +29,7 @@
 //! not a pixel-perfect image or exact final position.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneReads;
 use dereth_client::{app::App, config::Config, net::ClientNetwork, world::SceneConfig};
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::{

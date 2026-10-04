@@ -32,6 +32,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::client_dir;
+use dereth_client::world::SceneWrites;
 
 use std::sync::Arc;
 

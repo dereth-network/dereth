@@ -25,6 +25,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
+use dereth_client::world::SceneReads;
 
 use std::collections::BTreeSet;
 
@@ -442,9 +443,7 @@ fn a_cell_behind_a_wall(app: &App, store: &dereth_dat::RetailDatStore) -> Option
     let here = position(app);
     // Reached cells do not exercise this exclusion, even if some points inside them could
     // still be occluded. Exclude them from the candidate set.
-    let seen = scene
-        .drawn_cells()
-        .expect("the frame's cell walk has an answer");
+    let seen = SceneReads::drawn_cells(&scene).expect("the frame's cell walk has an answer");
     let mut best: Option<(f32, u32, Vec3)> = None;
     for d in dereth_client::env_cells::EnvCellLoader::new().load_block(store, DEFAULT_LANDBLOCK) {
         if seen.contains(&d.id.0) {
@@ -547,9 +546,7 @@ fn a_placed_door_in_a_non_visible_building_cell_is_not_submitted_after_the_shell
     let (door, _) = place_the_corpus_item_in(&mut app, cell, origin, Some(DOOR_SETUP));
 
     let scene = app.world_scene().expect("a world scene");
-    let drawn = scene
-        .drawn_cells()
-        .expect("the frame's cell walk has an answer");
+    let drawn = SceneReads::drawn_cells(&scene).expect("the frame's cell walk has an answer");
     assert!(
         !drawn.contains(&cell),
         "the outdoor building-portal walk reached {cell:#010X}, so this is not an unreached-cell control"
@@ -660,7 +657,7 @@ fn an_object_behind_an_interior_wall_never_names_itself() {
     );
 
     // ---- premises: the chest cell is unreached and the aim ray points at the chest ------------
-    let drawn = app.world_scene().unwrap().drawn_cells();
+    let drawn = SceneReads::drawn_cells(&app.world_scene().unwrap());
     assert!(
         drawn.is_some(),
         "the frame's cell walk has an answer at all"

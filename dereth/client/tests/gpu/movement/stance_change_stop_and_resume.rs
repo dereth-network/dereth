@@ -88,6 +88,7 @@
 
 use super::common::client_dir;
 use super::common::workspace_root_buf as workspace_root;
+use dereth_client::world::SceneWrites;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

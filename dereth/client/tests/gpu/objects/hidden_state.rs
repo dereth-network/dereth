@@ -59,6 +59,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::retail_store;
+use dereth_client::world::SceneReads;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 

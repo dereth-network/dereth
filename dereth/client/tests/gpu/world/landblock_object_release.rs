@@ -13,6 +13,7 @@
 //! * `outdoor_objects`: objects in a departed block's outdoor cells are released by the scroll.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
 
 use dereth_client::character::CharacterInput;
@@ -1337,6 +1338,7 @@ mod outdoor_objects {
         block_at, doomed, embodied, feed, store, DESTRUCTION_TIME, DOOR_OPEN, PORTAL, PORTAL_2,
         SETUP,
     };
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::character::CharacterInput;

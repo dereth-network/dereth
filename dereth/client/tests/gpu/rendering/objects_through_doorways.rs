@@ -17,6 +17,7 @@ use dereth_client::character::CharacterInput;
 use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};

@@ -25,6 +25,8 @@
 
 use dereth_client::config::Config;
 use dereth_client::corestrings;
+#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+use dereth_client::world::SceneReads;
 use dereth_client::Dereth;
 use dereth_desktop::crashlog;
 

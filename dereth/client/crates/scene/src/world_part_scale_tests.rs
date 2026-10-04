@@ -1,3 +1,6 @@
+use super::*;
+use dereth_primitives::CellId;
+
 // A setup's own per-part scale reaches the baked landscape objects: the flowering shrub
 // `0x020007A3` that scenery generation grows by the water west of the Holtburg dungeon entrance
 // (block 0xA8B5, land cell 0x3E) is baked through the production object bake and its vertices

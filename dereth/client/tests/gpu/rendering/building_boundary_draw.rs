@@ -13,6 +13,7 @@
 use dereth_client::character::CharacterInput;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};

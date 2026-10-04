@@ -27,6 +27,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
+use dereth_client::world::SceneReads;
 
 use std::collections::BTreeSet;
 
@@ -699,9 +700,8 @@ fn creature_through_an_opening(portal_clip: bool) -> (usize, bool, bool, String,
             .iter()
             .filter(|p| p.object == Some(placed))
             .count();
-        let published = scene
-            .drawn_objects()
-            .is_some_and(|seen| seen.contains(&placed));
+        let published =
+            SceneReads::drawn_objects(&scene).is_some_and(|seen| seen.contains(&placed));
         let at = object_pixel(&app, placed);
         if ui_of(&mut app).hit_test_screen(at.0, at.1) != Some(sbox) {
             continue;
@@ -930,9 +930,7 @@ fn facing_a_wall_no_outdoor_object_is_drawn_or_named() {
          cell-draw pass never reached landscape drawing at all"
     );
     assert!(
-        scene
-            .drawn_objects()
-            .is_some_and(|seen| !seen.contains(&chest)),
+        SceneReads::drawn_objects(&scene).is_some_and(|seen| !seen.contains(&chest)),
         "and the frame's offered-object set must not contain it"
     );
 

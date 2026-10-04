@@ -15,6 +15,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client::camera::CameraInput;
@@ -1026,6 +1027,7 @@ mod cell_source {
     //! retail dats on a software device; fails when the dats or a device are absent.
 
     use super::{block_at, store, CELL};
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::camera::CameraInput;
@@ -1594,6 +1596,7 @@ mod load_time {
     //! Fixture: the retail dats on a software device; fails without the dats or a device.
 
     use super::{block_at, sim, stand, store, BLOCK, CELL};
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};

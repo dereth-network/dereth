@@ -60,6 +60,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

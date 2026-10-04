@@ -16,6 +16,7 @@
 use dereth_client::objects::ObjectStream;
 use dereth_client::render_prefs::{RegionStyle, RequiredFiles};
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;

@@ -8,6 +8,7 @@
 
 use dereth_client::camera::CameraPreferences;
 use dereth_client::config::{Config, Preferences};
+use dereth_client::world::SceneWrites;
 use dereth_client::world::{SceneConfig, WorldScene};
 
 /// The landblock the body is attached in, Holtburg; any block with a body would do.

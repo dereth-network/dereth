@@ -16,6 +16,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
 
 use dereth_client::character::CharacterInput;
@@ -318,6 +319,7 @@ mod frame_writers {
     //! Holtburg. Fails when the retail dats are absent or a device is absent.
 
     use super::{block_at, first_part, store, BLOCK};
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::camera::CameraInput;

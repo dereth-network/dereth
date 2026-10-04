@@ -10,6 +10,7 @@
 
 use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;
+use dereth_client::world::{SceneReads, SceneWrites};
 
 use dereth_client::{app::App, config::Config, net::ClientNetwork, world::SceneConfig};
 use dereth_client_model::weenie::{bitfield, item_type};

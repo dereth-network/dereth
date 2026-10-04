@@ -8,6 +8,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneReads;
 use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::RetailDatStore;
 

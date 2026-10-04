@@ -13,6 +13,7 @@ use dereth_animation::motion::moveto::{distance, position_heading};
 use dereth_animation::table::MovementType;
 use dereth_animation::MotionCommand;
 use dereth_client::objects::ObjectStream;
+use dereth_client::world::SceneWrites;
 use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
 use dereth_client_net::client_session::SessionEvent;

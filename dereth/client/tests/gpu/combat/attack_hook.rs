@@ -142,6 +142,7 @@ fn the_shipped_attack_cones() {
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 mod seam {
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_animation::{AnimAssets, MotionCommand};

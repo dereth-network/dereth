@@ -1,3 +1,6 @@
+use super::*;
+use crate::world_scene::DEFAULT_LANDBLOCK;
+
 // Exercise the production building-to-mesh path and its subset guard.
 // Real DAT materials and placements, with explicitly synthetic stationary draw geometry/camera.
 
@@ -64,7 +67,14 @@ fn batches(
     surface: DataId,
 ) -> Vec<StaticBatch> {
     let id = DataId(0x0100_0000);
-    cache.parts.insert(id, vec![dereth_client_runtime::models::ModelPart { gfxobj: id, frame: Frame::default(), scale: Vec3::new(1.0, 1.0, 1.0) }]);
+    cache.parts.insert(
+        id,
+        vec![dereth_client_runtime::models::ModelPart {
+            gfxobj: id,
+            frame: Frame::default(),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        }],
+    );
     cache.geometry.insert(id, vec![quad(surface)]);
     let mut baker = ObjectBaker::new(store, cache, false, false, false);
     baker.add_object(id, &Frame::default(), 1.0);
@@ -77,21 +87,36 @@ fn batches(
 fn draw(gpu: &mut Gpu, batches: &[&StaticBatch]) -> Vec<u8> {
     gpu.begin_frame().unwrap();
     for batch in batches {
-        submit_static_batch(gpu, &frame(), &world_constants(&Frame::default()), batch, None, None)
-            .unwrap();
+        submit_static_batch(
+            gpu,
+            &frame(),
+            &world_constants(&Frame::default()),
+            batch,
+            None,
+            None,
+        )
+        .unwrap();
     }
     gpu.end_frame().unwrap();
     gpu.capture().unwrap().bgra
 }
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn real_building_and_ordinary_geometry_keep_separate_batches_with_identical_material_keys() {
     let store = retail_store();
     let translucent = visible_translucent_solid(&store);
-    eprintln!("visible translucent solid {translucent:?}: {:?}", read_surface(&store, translucent));
+    eprintln!(
+        "visible translucent solid {translucent:?}: {:?}",
+        read_surface(&store, translucent)
+    );
     assert_eq!(
-        read_surface(&store, DataId(0x0800_00dd)).unwrap().translucency,
+        read_surface(&store, DataId(0x0800_00dd))
+            .unwrap()
+            .translucency,
         1.0,
         "academy portal material was unsuitable as a visible ordinary control"
     );
@@ -110,8 +135,15 @@ fn real_building_and_ordinary_geometry_keep_separate_batches_with_identical_mate
     let mut solids = 0;
     for key in &baker.order[..building_count] {
         assert!(key.building_pass);
-        let ordinary = BatchKey { material: key.material.clone(), building_pass: false, instance: key.instance.map(|i| i + 1) };
-        assert_eq!(baker.groups[key], baker.groups[&ordinary], "geometry/chunks are not filtered");
+        let ordinary = BatchKey {
+            material: key.material.clone(),
+            building_pass: false,
+            instance: key.instance.map(|i| i + 1),
+        };
+        assert_eq!(
+            baker.groups[key], baker.groups[&ordinary],
+            "geometry/chunks are not filtered"
+        );
         if key
             .material
             .surface
@@ -132,15 +164,26 @@ fn real_building_and_ordinary_geometry_keep_separate_batches_with_identical_mate
 }
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn actual_baker_draw_skips_building_solid_but_preserves_ordinary_textured_and_cache_lifetime() {
     let store = retail_store();
     let mut gpu = gpu();
-    for surface in [DataId(0x0800_0139), visible_translucent_solid(&store), DataId(0x0800_0005)] {
+    for surface in [
+        DataId(0x0800_0139),
+        visible_translucent_solid(&store),
+        DataId(0x0800_0005),
+    ] {
         let source = read_surface(&store, surface).unwrap();
         let mut cache = BakeCache::default();
         let batches = batches(&store, &mut cache, &mut gpu, surface);
-        assert_eq!(batches.len(), 2, "same-material ordinary/building are distinct draw owners");
+        assert_eq!(
+            batches.len(),
+            2,
+            "same-material ordinary/building are distinct draw owners"
+        );
         let ordinary = &batches[0];
         let shell = &batches[1];
         assert!(!ordinary.building_pass);
@@ -149,18 +192,33 @@ fn actual_baker_draw_skips_building_solid_but_preserves_ordinary_textured_and_ca
         assert_eq!(shell.surface_type, source.surface_type);
         assert_eq!(ordinary.vertices, shell.vertices);
         assert_eq!(ordinary.chunks, shell.chunks);
-        assert_eq!(drawn_vertices(shell).len(), 6 * OBJECT_VERTEX_STRIDE,"picking/stats retain the triangles");
-        assert_eq!(cache.surfaces.len(), 1, "draw owner is NOT a material cache key");
+        assert_eq!(
+            drawn_vertices(shell).len(),
+            6 * OBJECT_VERTEX_STRIDE,
+            "picking/stats retain the triangles"
+        );
+        assert_eq!(
+            cache.surfaces.len(),
+            1,
+            "draw owner is NOT a material cache key"
+        );
         let slot = ordinary.texture.expect("even solid colour has a texture");
         assert_eq!(shell.texture, Some(slot));
         assert_eq!(cache.links[&slot.0], 2);
         let clear = draw(&mut gpu, &[]);
         let object_pixels = draw(&mut gpu, &[ordinary]);
-        assert!(object_pixels != clear, "ordinary positive control must draw {surface:?}");
+        assert!(
+            object_pixels != clear,
+            "ordinary positive control must draw {surface:?}"
+        );
         let before_shell = gpu.draw_calls();
         let shell_pixels = draw(&mut gpu, &[shell]);
         if source.surface_type & 6 == 0 {
-            assert_eq!(gpu.draw_calls(), before_shell, "skipped subset is not merely painted black");
+            assert_eq!(
+                gpu.draw_calls(),
+                before_shell,
+                "skipped subset is not merely painted black"
+            );
             assert!(
                 shell_pixels == clear,
                 "building shell must skip nontextured subset {surface:?}; first BGRA {:?} vs {:?}",
@@ -169,7 +227,10 @@ fn actual_baker_draw_skips_building_solid_but_preserves_ordinary_textured_and_ca
             );
         } else {
             assert_eq!(gpu.draw_calls(), before_shell + 1);
-            assert_eq!(shell_pixels, object_pixels, "textured building subset remains visible");
+            assert_eq!(
+                shell_pixels, object_pixels,
+                "textured building subset remains visible"
+            );
         }
         assert_eq!(
             draw(&mut gpu, &[shell, ordinary]),
@@ -178,7 +239,11 @@ fn actual_baker_draw_skips_building_solid_but_preserves_ordinary_textured_and_ca
         );
         assert!(!cache.release_group_texture(&mut gpu, slot));
         assert_eq!(cache.links[&slot.0], 1);
-        assert_eq!(draw(&mut gpu, &[ordinary]), object_pixels, "shared texture survives one owner");
+        assert_eq!(
+            draw(&mut gpu, &[ordinary]),
+            object_pixels,
+            "shared texture survives one owner"
+        );
         assert!(cache.release_group_texture(&mut gpu, slot));
         assert!(cache.surfaces.is_empty());
         assert!(gpu.texture_mip_levels(slot).is_none());
@@ -186,7 +251,10 @@ fn actual_baker_draw_skips_building_solid_but_preserves_ordinary_textured_and_ca
 }
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_statics() {
     let store = retail_store();
     let mut gpu = gpu();
@@ -216,7 +284,11 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
         "real LandContext::bake building call must carry shell ownership"
     );
     assert!(
-        block.opaque.iter().chain(&block.blended).any(|b| !b.building_pass),
+        block
+            .opaque
+            .iter()
+            .chain(&block.blended)
+            .any(|b| !b.building_pass),
         "ordinary placements must retain their own draw owner"
     );
     let resident_textures = gpu.live_textures();
@@ -230,7 +302,12 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
     let ordinary = pair.remove(0);
     let shell = pair.remove(0);
     assert!(
-        ordinary.vertices.as_chunks::<OBJECT_VERTEX_STRIDE>().0.iter().all(|v| v[VERTEX_ALPHA_BYTE] == 127),
+        ordinary
+            .vertices
+            .as_chunks::<OBJECT_VERTEX_STRIDE>()
+            .0
+            .iter()
+            .all(|v| v[VERTEX_ALPHA_BYTE] == 127),
         "actual SetSurface alpha must reach the ordinary overlap control"
     );
     let clear = draw(&mut gpu, &[]);
@@ -241,51 +318,102 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
     let origin = block.origin;
     block.origin = (0.0, 0.0);
     let saved = std::mem::replace(&mut block.blended, vec![shell]);
-    assert_eq!(scene.alpha_list_batches(), 0, "hidden shell never enters alpha queue");
+    assert_eq!(
+        scene.alpha_list_batches(),
+        0,
+        "hidden shell never enters alpha queue"
+    );
     let mut flushed = std::collections::HashSet::new();
     let before_flush = gpu.draw_calls();
     gpu.begin_frame().unwrap();
-    scene.draw.flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame).unwrap();
+    scene
+        .draw
+        .flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame)
+        .unwrap();
     gpu.end_frame().unwrap();
     assert!(gpu.capture().unwrap().bgra == clear);
-    assert!(flushed.is_empty(), "no eligible batch means no flush marker");
+    assert!(
+        flushed.is_empty(),
+        "no eligible batch means no flush marker"
+    );
     assert_eq!(gpu.draw_calls(), before_flush);
-    scene.draw.blocks.get_mut(&key).unwrap().blended.push(ordinary);
+    scene
+        .draw
+        .blocks
+        .get_mut(&key)
+        .unwrap()
+        .blended
+        .push(ordinary);
     assert_eq!(scene.alpha_list_batches(), 1);
     gpu.begin_frame().unwrap();
-    scene.draw.flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame).unwrap();
+    scene
+        .draw
+        .flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame)
+        .unwrap();
     gpu.end_frame().unwrap();
     assert!(
         gpu.capture().unwrap().bgra == expected,
         "eligible ordinary batch flushed in original order"
     );
     assert_eq!(flushed, std::collections::HashSet::from([key]));
-    assert_eq!(gpu.draw_calls(), before_flush + 1, "eligible batch is submitted once");
+    assert_eq!(
+        gpu.draw_calls(),
+        before_flush + 1,
+        "eligible batch is submitted once"
+    );
     // The same production helper also backs indoor object drawing. These are NOT env-cell faces.
     gpu.begin_frame().unwrap();
-    scene.draw.draw_cell_statics(&mut gpu, &frame(), &scene.draw.blocks[&key].blended, (0.0, 0.0), None).unwrap();
+    scene
+        .draw
+        .draw_cell_statics(
+            &mut gpu,
+            &frame(),
+            &scene.draw.blocks[&key].blended,
+            (0.0, 0.0),
+            None,
+        )
+        .unwrap();
     gpu.end_frame().unwrap();
-    assert!(gpu.capture().unwrap().bgra == expected, "cell static ordinary solid remains visible");
+    assert!(
+        gpu.capture().unwrap().bgra == expected,
+        "cell static ordinary solid remains visible"
+    );
     assert_eq!(gpu.draw_calls(), before_flush + 2);
 
     // Genuine overlap/order oracle. Both surfaces are the actual DAT alpha0.5 white material;
     // only the intervening quad's RGB vertex tint is synthetic red, preserving authored alpha.
     // This replaces the old clipped_outdoor_pass fixed camera's stale pixel-difference premise.
     let mut intervening = batches(&store, &mut scene.draw.land.bake, &mut gpu, translucent);
-    for vertex in intervening[0].vertices.as_chunks_mut::<OBJECT_VERTEX_STRIDE>().0 {
+    for vertex in intervening[0]
+        .vertices
+        .as_chunks_mut::<OBJECT_VERTEX_STRIDE>()
+        .0
+    {
         vertex[OBJECT_DIFFUSE_OFFSET] = 0;
         vertex[OBJECT_DIFFUSE_OFFSET + 1] = 0;
         vertex[OBJECT_DIFFUSE_OFFSET + 2] = 255;
     }
-    let expected_early = draw(&mut gpu, &[&scene.draw.blocks[&key].blended[1], &intervening[0]]);
-    let expected_deferred = draw(&mut gpu, &[&intervening[0], &scene.draw.blocks[&key].blended[1]]);
-    assert!(expected_early != expected_deferred, "ordinary alpha overlap must discriminate order");
+    let expected_early = draw(
+        &mut gpu,
+        &[&scene.draw.blocks[&key].blended[1], &intervening[0]],
+    );
+    let expected_deferred = draw(
+        &mut gpu,
+        &[&intervening[0], &scene.draw.blocks[&key].blended[1]],
+    );
+    assert!(
+        expected_early != expected_deferred,
+        "ordinary alpha overlap must discriminate order"
+    );
     for early in [true, false] {
         let mut flushed = std::collections::HashSet::new();
         let before = gpu.draw_calls();
         gpu.begin_frame().unwrap();
         if early {
-            scene.draw.flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame).unwrap();
+            scene
+                .draw
+                .flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame)
+                .unwrap();
         }
         submit_static_batch(
             &mut gpu,
@@ -300,7 +428,10 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
         // path a baked blended batch reaches the device by, so the two arms are the same flush
         // issued on either side of the intervening quad.
         if !early {
-            scene.draw.flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame).unwrap();
+            scene
+                .draw
+                .flush_alpha_list(&mut gpu, &frame(), &[key], &mut flushed, AlphaFlush::Frame)
+                .unwrap();
         }
         gpu.end_frame().unwrap();
         let pixels = gpu.capture().unwrap().bgra;
@@ -309,7 +440,11 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
             before + 2,
             "ordinary alpha once; hidden shell never; early={early}"
         );
-        let expected_order = if early { &expected_early } else { &expected_deferred };
+        let expected_order = if early {
+            &expected_early
+        } else {
+            &expected_deferred
+        };
         assert!(
             pixels == *expected_order,
             "the flush must preserve source order, and where it is issued must decide the overlap"
@@ -320,14 +455,22 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
         );
     }
     for b in intervening {
-        scene.draw.land.bake.release_group_texture(&mut gpu, b.texture.unwrap());
+        scene
+            .draw
+            .land
+            .bake
+            .release_group_texture(&mut gpu, b.texture.unwrap());
     }
     let block = scene.draw.blocks.get_mut(&key).unwrap();
     block.origin = origin;
     let injected = std::mem::replace(&mut block.blended, saved);
     for batch in injected {
         assert_eq!(drawn_vertices(&batch).len(), 6 * OBJECT_VERTEX_STRIDE);
-        scene.draw.land.bake.release_group_texture(&mut gpu, batch.texture.unwrap());
+        scene
+            .draw
+            .land
+            .bake
+            .release_group_texture(&mut gpu, batch.texture.unwrap());
     }
     assert_eq!(
         gpu.live_textures(),
@@ -339,7 +482,10 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
 }
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn real_degrade_levels_keep_owner_and_active_chunks_without_filtering_geometry() {
     let store = retail_store();
     let mut cache = BakeCache::default();
@@ -364,7 +510,9 @@ fn real_degrade_levels_keep_owner_and_active_chunks_without_filtering_geometry()
     assert!(batches.iter().all(|b| !b.chunks.is_empty()));
     for b in &batches {
         assert!(
-            b.chunks.iter().all(|c| c.placement == u32::from(!b.building_pass)),
+            b.chunks
+                .iter()
+                .all(|c| c.placement == u32::from(!b.building_pass)),
             "all levels must retain their owner's placement index"
         );
     }
@@ -390,16 +538,29 @@ fn real_degrade_levels_keep_owner_and_active_chunks_without_filtering_geometry()
                 expected,
                 "active level bytes are not visibility-filtered"
             );
-            let out = if b.building_pass { &mut building_bytes } else { &mut ordinary_bytes };
+            let out = if b.building_pass {
+                &mut building_bytes
+            } else {
+                &mut ordinary_bytes
+            };
             out.extend_from_slice(drawn_vertices(b));
         }
-        assert_eq!(building_bytes, ordinary_bytes, "same real mesh at every owner/level");
+        assert_eq!(
+            building_bytes, ordinary_bytes,
+            "same real mesh at every owner/level"
+        );
         if entry.gfxobj_id.0 == 0 {
             assert!(building_bytes.is_empty());
         } else if !building_bytes.is_empty() {
             nonempty_levels += 1;
         }
-        assert_eq!(batches.iter().map(|b| b.vertices.clone()).collect::<Vec<_>>(), whole);
+        assert_eq!(
+            batches
+                .iter()
+                .map(|b| b.vertices.clone())
+                .collect::<Vec<_>>(),
+            whole
+        );
     }
     assert!(nonempty_levels >= 2);
     eprintln!(

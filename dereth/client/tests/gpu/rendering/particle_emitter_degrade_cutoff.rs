@@ -12,6 +12,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
 
 use dereth_client::objects::ObjectStream;

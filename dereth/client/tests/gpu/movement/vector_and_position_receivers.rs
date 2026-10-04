@@ -11,6 +11,7 @@
 
 #![cfg(windows)]
 
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client::objects::ObjectStream;

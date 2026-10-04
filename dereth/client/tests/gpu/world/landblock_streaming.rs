@@ -10,6 +10,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeSet;
 
 use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};

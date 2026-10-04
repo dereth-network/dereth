@@ -5,6 +5,7 @@
 //! `Movement_SetObjectMovement 0xF74C` messages; the retail dats.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;

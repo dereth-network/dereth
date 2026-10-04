@@ -12,6 +12,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_assets::{Decode, Setup};
+use dereth_client::world::SceneWrites;
 use dereth_physics::math::V3 as _;
 use dereth_physics::{PhysicsState, Transition};
 

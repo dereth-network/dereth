@@ -14,6 +14,7 @@ use dereth_client::app::App;
 use dereth_client::config::{Config, Preferences};
 use dereth_client::render_prefs::RenderPreferences;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{AssetSource, DataId};
 use dereth_render::device::Gpu;

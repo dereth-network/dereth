@@ -22,6 +22,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client::character::PLAYER_OBJECT_ID;
@@ -1047,6 +1048,7 @@ mod defender_notification {
     //! stamps through a notification and then calls the world's target-selection routine directly
     //! at a later time.
 
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::character::PLAYER_OBJECT_ID;
@@ -1838,6 +1840,7 @@ mod selection_change {
     //! doing anything when the selected id already equals the requested id, and even a forced call
     //! skips the notice if the id did not change. So every deselect below first holds a target.
 
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::character::PLAYER_OBJECT_ID;

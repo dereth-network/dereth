@@ -8,6 +8,7 @@
 //! replay endpoint, and its first `0x0024` event; constructed inventory and descriptor state in a
 //! headless `App` with the shipped UI and geometry.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+use dereth_client::world::SceneReads;
 use dereth_client::{app::App, config::Config, net::ClientNetwork, world::SceneConfig};
 use dereth_client_model::{objects::ObjectInventory, Weenie};
 use dereth_client_net::client_session::{

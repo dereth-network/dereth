@@ -25,6 +25,7 @@ use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
+use dereth_client::world::{SceneReads, SceneWrites};
 
 use dereth_client::net::ClientNetwork;
 use dereth_client::objects::ObjectStream;

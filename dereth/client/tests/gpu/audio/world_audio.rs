@@ -26,6 +26,7 @@
 
 use dereth_client::audio::Audio;
 use dereth_client::objects::ObjectStream;
+use dereth_client::world::SceneWrites;
 use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime, Vec3};

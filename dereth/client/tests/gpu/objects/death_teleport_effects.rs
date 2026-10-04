@@ -27,6 +27,7 @@
 //! the test.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneReads;
 use dereth_client::world::{EmitterOwner, SceneConfig};
 use dereth_client::{app::App, config::Config};
 use dereth_client_net::client_session::SessionEvent;

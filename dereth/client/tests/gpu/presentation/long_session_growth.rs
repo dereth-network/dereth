@@ -53,6 +53,7 @@
 //! `TimeSync` optional header, which advances the application clock.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::SceneReads;
 use dereth_client::{app::App, config::Config, world::SceneConfig};
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::{

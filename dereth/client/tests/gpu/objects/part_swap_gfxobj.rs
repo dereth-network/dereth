@@ -18,6 +18,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{retail_store, test_gpu};
+use dereth_client::world::SceneWrites;
 use std::sync::Arc;
 
 use dereth_animation::data::{AnimAssets, GfxObjLookup, NoAssets};

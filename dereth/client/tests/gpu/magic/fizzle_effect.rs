@@ -11,6 +11,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #![allow(clippy::pedantic)]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
 
 use dereth_assets::{Decode, HookData};

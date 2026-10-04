@@ -17,6 +17,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
+use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
 
 use dereth_client::character::CharacterInput;
@@ -1412,6 +1413,7 @@ mod interior_cell_objects {
     //! retail dats (fails without them) and a software device.
 
     use super::{block_at, store};
+    use dereth_client::world::SceneWrites;
     use std::sync::Arc;
 
     use dereth_client::character::CharacterInput;

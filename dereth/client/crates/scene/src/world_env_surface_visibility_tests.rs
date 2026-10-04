@@ -1,3 +1,5 @@
+use super::*;
+
 // Exercise the actual environment-surface draw consumers with synthetic stationary geometry and
 // unchanged installed surfaces. This does not reproduce any particular camera or cell.
 
@@ -34,7 +36,17 @@ fn draw(gpu: &mut Gpu, cell: &EnvCellDraw, env: bool) -> Vec<u8> {
     } else {
         let part = dereth_animation::parts::PhysicsPart::new(DataId(0));
         for mesh in &cell.meshes {
-            submit_part_mesh(gpu, &frame, &part, &Frame::default(), mesh, true, None, false).unwrap();
+            submit_part_mesh(
+                gpu,
+                &frame,
+                &part,
+                &Frame::default(),
+                mesh,
+                true,
+                None,
+                false,
+            )
+            .unwrap();
         }
     }
     gpu.end_frame().unwrap();
@@ -42,13 +54,19 @@ fn draw(gpu: &mut Gpu, cell: &EnvCellDraw, env: bool) -> Vec<u8> {
 }
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn actual_cell_draw_skips_solid_subset_but_ordinary_object_still_draws_it() {
     check(DataId(0x0800_0139), true);
 }
 
 #[test]
-#[cfg_attr(not(feature = "retail-dats"), ignore = "reads the retail dats: --features retail-dats")]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
 fn actual_cell_draw_keeps_textured_subset() {
     check(DataId(0x0800_0005), false);
 }
@@ -71,12 +89,22 @@ fn check(surface: DataId, untextured: bool) {
     )
     .expect("required headless WARP device");
     let mut cache = BakeCache::default();
-    let meshes =
-        build_meshes(&store, &mut cache, &textures, &mut gpu, &[quad(surface)], None, None)
-            .unwrap();
+    let meshes = build_meshes(
+        &store,
+        &mut cache,
+        &textures,
+        &mut gpu,
+        &[quad(surface)],
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(meshes.len(), 1, "draw guard must not erase baked geometry");
     assert_eq!(meshes[0].surface_type, source.surface_type);
-    assert!(meshes[0].texture.is_some(), "even the solid surface has a bound colour texel");
+    assert!(
+        meshes[0].texture.is_some(),
+        "even the solid surface has a bound colour texel"
+    );
     let bytes = meshes[0].vertices.clone();
     let cell = EnvCellDraw {
         id: CellId(0x7f03_0100),
@@ -93,13 +121,29 @@ fn check(surface: DataId, untextured: bool) {
     gpu.end_frame().unwrap();
     let clear = gpu.capture().unwrap().bgra;
     let ordinary = draw(&mut gpu, &cell, false);
-    assert_ne!(ordinary, clear, "the ordinary-object control must actually draw");
+    assert_ne!(
+        ordinary, clear,
+        "the ordinary-object control must actually draw"
+    );
     let interior = draw(&mut gpu, &cell, true);
     if untextured {
-        assert_eq!(interior, clear, "retail's isEnvCell guard must skip this solid-colour subset");
+        assert_eq!(
+            interior, clear,
+            "retail's isEnvCell guard must skip this solid-colour subset"
+        );
     } else {
-        assert_eq!(interior, ordinary, "the guard must preserve textured cell geometry");
+        assert_eq!(
+            interior, ordinary,
+            "the guard must preserve textured cell geometry"
+        );
     }
-    assert_eq!(cell.meshes[0].vertices, bytes, "draw eligibility never mutates geometry");
-    assert_eq!(draw(&mut gpu, &cell, false), ordinary, "later ordinary draw remains visible");
+    assert_eq!(
+        cell.meshes[0].vertices, bytes,
+        "draw eligibility never mutates geometry"
+    );
+    assert_eq!(
+        draw(&mut gpu, &cell, false),
+        ordinary,
+        "later ordinary draw remains visible"
+    );
 }

@@ -59,6 +59,7 @@ use dereth_assets::motion::GfxObjDegradeInfo;
 use dereth_assets::Decode;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_runtime::camera::FrameRate;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{LocalTime, Vec3};

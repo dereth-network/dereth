@@ -19,6 +19,7 @@ use dereth_assets::{Decode, EnvCell};
 use dereth_client::character::CharacterInput;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
@@ -377,6 +378,7 @@ mod teleport_into_a_dungeon {
     use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
     use dereth_client::objects::ObjectStream;
     use dereth_client::world::{SceneConfig, WorldScene};
+    use dereth_client::world::{SceneReads, SceneWrites};
     use dereth_dat::{DbType, RetailDatStore};
     use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
     use dereth_render::device::Gpu;

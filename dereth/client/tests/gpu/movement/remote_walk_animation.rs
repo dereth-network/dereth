@@ -11,6 +11,7 @@
 
 use dereth_animation::MotionCommand;
 use dereth_client::objects::ObjectStream;
+use dereth_client::world::SceneWrites;
 use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;

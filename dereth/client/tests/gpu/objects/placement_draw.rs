@@ -16,6 +16,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{retail_store, test_gpu};
+use dereth_client::world::{SceneReads, SceneWrites};
 
 use dereth_assets::{Decode, Setup};
 use dereth_client::models::{placement_frames, PLACEMENT_DEFAULT, PLACEMENT_RESTING};

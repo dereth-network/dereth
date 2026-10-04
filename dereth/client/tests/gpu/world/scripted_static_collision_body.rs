@@ -304,6 +304,7 @@ fn the_sound_table_hooks_ceiling_is_the_four_setups_that_name_a_table() {
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 mod scene {
+    use dereth_client::world::{SceneReads, SceneWrites};
     use std::sync::Arc;
 
     use dereth_client::objects::ObjectStream;

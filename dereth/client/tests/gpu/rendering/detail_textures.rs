@@ -13,6 +13,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_client::world::SceneConfig;
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client::{app::App, config::Config};
 use dereth_ui_screens::{PrefValue, UiRequest};
 use dereth_world_render::detail::DetailClass;

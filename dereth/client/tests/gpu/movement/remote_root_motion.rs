@@ -12,6 +12,7 @@ use dereth_animation::motion::moveto::distance;
 use dereth_animation::MotionCommand;
 use dereth_client::objects::ObjectStream;
 use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{Frame, LocalTime, ObjectId};

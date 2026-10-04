@@ -42,6 +42,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
+use dereth_client::world::SceneReads;
 
 use dereth_animation::parts::{
     DEFAULT_DIFFUSE, DEFAULT_LUMINOSITY, SELECTION_HIGH_LIGHTING, SELECTION_LOW_LIGHTING,
