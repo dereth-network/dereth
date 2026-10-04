@@ -41,6 +41,14 @@
 //!   the same id in both. A surface is only ever read in the era of the graphics object that
 //!   names it, and so is everything below it.
 //!
+//! - **A world's overlay** (records a world adds, replaces or deletes over the locked files) keeps
+//!   the world's own look for everything it touches: the verdicts are worked out over the locked
+//!   files, and then any record the overlay holds or deletes, any graphics object whose surfaces,
+//!   textures, pictures or palettes reach one, any setup with such a part, and any room the
+//!   overlay changes (or whose environment or surfaces it changes) is no longer the same as the
+//!   other era's ([`pin_to_world`](crate::object_identity::ObjectIdentity::pin_to_world)). The
+//!   other era's look is Turbine's by definition, and a world's own change is the world's.
+//!
 //! [`load_or_build`](crate::object_identity::ObjectIdentity::load_or_build) keeps the answer in
 //! a per-user cache file keyed by both files' hashes, so a pair of files is only worked out once.
 //!
@@ -1086,6 +1094,102 @@ impl ObjectIdentity {
         self.geometry_same.contains(&id.0)
     }
 
+    /// Keep the world's own look for everything the world's overlay over `portal` and `cell`
+    /// touches: a record it holds or deletes, a graphics object whose surfaces reach one (through
+    /// their textures, pictures and palettes), a setup with such a part, and a room it changes or
+    /// whose environment or surfaces it changes. Answers how many verdicts were withdrawn.
+    pub fn pin_to_world(&mut self, portal: &DatFile, cell: &DatFile) -> usize {
+        let before = self.same.len() + self.rooms.len();
+        let touched = |f: &DatFile| -> HashSet<u32> {
+            let Some(layer) = f.layer() else {
+                return HashSet::new();
+            };
+            let mut t: HashSet<u32> = layer.records().map(|(id, _)| id.0).collect();
+            t.extend(
+                f.base_entries()
+                    .filter(|(id, _)| layer.hides(*id))
+                    .map(|(id, _)| id.0),
+            );
+            t
+        };
+        let t = touched(portal);
+        if !t.is_empty() {
+            let mut surface_reaches: HashMap<u32, bool> = HashMap::new();
+            let mut reaches_surface = |s: u32| -> bool {
+                *surface_reaches.entry(s).or_insert_with(|| {
+                    if t.contains(&s) {
+                        return true;
+                    }
+                    let Some(surface) = get::<Surface>(portal, s) else {
+                        return false;
+                    };
+                    let tex = surface.orig_texture_id.map(|d| d.0);
+                    let pal = surface.orig_palette_id.map(|d| d.0);
+                    if tex.is_some_and(|x| t.contains(&x)) || pal.is_some_and(|x| t.contains(&x)) {
+                        return true;
+                    }
+                    tex.and_then(|x| get::<SurfaceTexture>(portal, x))
+                        .is_some_and(|st| st.source_levels.iter().any(|l| t.contains(&l.0)))
+                })
+            };
+            let gfx: Vec<u32> = self
+                .same
+                .iter()
+                .copied()
+                .filter(|id| id >> 24 == 0x01)
+                .collect();
+            let mut gone: HashSet<u32> = t.clone();
+            for g in gfx {
+                if gone.contains(&g) {
+                    continue;
+                }
+                let reaches = get::<GfxObj>(portal, g)
+                    .is_some_and(|o| o.surfaces.iter().any(|s| reaches_surface(s.0)));
+                if reaches {
+                    gone.insert(g);
+                }
+            }
+            let setups: Vec<u32> = self
+                .same
+                .iter()
+                .copied()
+                .filter(|id| id >> 24 == 0x02)
+                .collect();
+            for su in setups {
+                let reaches = get::<Setup>(portal, su)
+                    .is_some_and(|s| s.parts.iter().any(|p| gone.contains(&p.0)));
+                if reaches {
+                    gone.insert(su);
+                }
+            }
+            self.same.retain(|id| !gone.contains(id));
+            self.geometry_same.retain(|id| !gone.contains(id));
+            self.remodels.retain(|id, _| !gone.contains(id));
+            self.palettes.retain(|id, _| !gone.contains(id));
+            self.bare.retain(|(_, model), _| !gone.contains(model));
+            self.hair.retain(|(_, model), _| !gone.contains(model));
+            // A room whose environment or surfaces the overlay changes is the world's room.
+            if gone
+                .iter()
+                .any(|id| matches!(id >> 24, 0x0D | 0x08 | 0x05 | 0x06 | 0x04))
+            {
+                let rooms: Vec<u32> = self.rooms.iter().copied().collect();
+                for r in rooms {
+                    let reaches = get::<EnvCell>(cell, r).is_some_and(|c| {
+                        gone.contains(&c.environment.0)
+                            || c.surfaces.iter().any(|s| reaches_surface(s.0))
+                    });
+                    if reaches {
+                        self.rooms.remove(&r);
+                    }
+                }
+            }
+        }
+        let c = touched(cell);
+        self.rooms.retain(|r| !c.contains(r));
+        before - (self.same.len() + self.rooms.len())
+    }
+
     /// How many ids the other era may stand in for.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -1685,12 +1789,23 @@ impl IdentityBuild {
         let pace = Arc::new(Pace::default());
         let p = Arc::clone(&pace);
         let work = async move {
+            // Worked out over the locked files, so a world's overlay never changes the cache; the
+            // overlay's own changes are then pinned to the world's look.
+            let (portal, cell) = (world.portal().base(), world.cell().base());
             let files = IdentityFiles {
-                world: world.portal(),
+                world: &portal,
                 other: look.portal(),
-                cells: interiors.as_ref().map(|i| (world.cell(), i.cell())),
+                cells: interiors.as_ref().map(|i| (&cell, i.cell())),
             };
-            load_or_build(files, cache.as_deref(), &p).await
+            let (mut identity, source) = load_or_build(files, cache.as_deref(), &p).await;
+            let pinned = identity.pin_to_world(world.portal(), world.cell());
+            if pinned > 0 {
+                tracing::info!(
+                    "object identity: {pinned} verdict(s) keep the world's own look, which its \
+                     overlay changes"
+                );
+            }
+            (identity, source)
         };
         Self {
             pace,

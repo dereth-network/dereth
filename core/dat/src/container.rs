@@ -13,6 +13,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use dereth_primitives::DataId;
 
@@ -270,17 +271,24 @@ impl StructureReport {
 }
 
 /// One retail `.dat` file, opened read-only.
-#[derive(Debug)]
+///
+/// A file may carry a world's overlay ([`DatFile::layered`]): every read of a record then asks the
+/// overlay first. A record the overlay holds is the overlay's (an addition or a replacement), a
+/// record its tombstones cover is not there, and every other record is the file's own. The
+/// container's structure (its header, its tree, its free chain) is always the file's own.
+#[derive(Debug, Clone)]
 pub struct DatFile {
     path: PathBuf,
-    storage: Box<dyn DatStorage>,
+    storage: Arc<dyn DatStorage>,
     header: DiskFileInfo,
     /// The whole directory, ascending by id. The B-tree in-order walk and ascending id order are
     /// the same thing, which `verify_structure` checks.
-    dir: BTreeMap<u32, BtEntry>,
-    node_offsets: Vec<u32>,
+    dir: Arc<BTreeMap<u32, BtEntry>>,
+    node_offsets: Arc<Vec<u32>>,
     era: ContainerEra,
     header_iteration: Option<u32>,
+    /// The world's overlay over this file, when it has one.
+    layer: Option<Arc<crate::overlay::Layer>>,
 }
 
 impl DatFile {
@@ -298,7 +306,7 @@ impl DatFile {
     pub fn from_storage(path: PathBuf, storage: Box<dyn DatStorage>) -> Result<Self, DatError> {
         let mut me = Self {
             path,
-            storage,
+            storage: Arc::from(storage),
             header: DiskFileInfo {
                 magic: 0,
                 block_size: 8,
@@ -318,10 +326,11 @@ impl DatFile {
                 version_major: [0; 16],
                 version_minor: 0,
             },
-            dir: BTreeMap::new(),
-            node_offsets: Vec::new(),
+            dir: Arc::new(BTreeMap::new()),
+            node_offsets: Arc::new(Vec::new()),
             era: ContainerEra::Tod,
             header_iteration: None,
+            layer: None,
         };
         let mut hdr = [0u8; 0x50];
         me.read_exact_at(HEADER_OFFSET, &mut hdr)?;
@@ -354,10 +363,62 @@ impl DatFile {
 
     /// The whole file's iteration, which a file from before Throne of Destiny keeps in its header
     /// (2112 in the February 2005 portal, 1593 in its cell file). `None` from Throne of Destiny on,
-    /// where the iteration is the `0xFFFF0001` list ([`DatFile::iteration_list`]).
+    /// where the iteration is the `0xFFFF0001` list ([`DatFile::iteration_list`]), and for a file
+    /// carrying an overlay, whose iterations are the file's and the overlay's together in that list.
     #[must_use]
     pub fn header_iteration(&self) -> Option<u32> {
+        if self.layer.is_some() {
+            return None;
+        }
         self.header_iteration
+    }
+
+    /// The file's own header iteration, whether or not an overlay is over it.
+    #[must_use]
+    pub fn base_header_iteration(&self) -> Option<u32> {
+        self.header_iteration
+    }
+
+    /// This file with `layer` over it: every record read asks the overlay first. `layer` must have
+    /// been built over this file ([`crate::overlay::Layer::over`]).
+    #[must_use]
+    pub fn layered(&self, layer: Arc<crate::overlay::Layer>) -> Self {
+        Self {
+            layer: Some(layer),
+            ..self.base()
+        }
+    }
+
+    /// This file as it is on disk, with no overlay over it.
+    #[must_use]
+    pub fn base(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            storage: Arc::clone(&self.storage),
+            header: self.header,
+            dir: Arc::clone(&self.dir),
+            node_offsets: Arc::clone(&self.node_offsets),
+            era: self.era,
+            header_iteration: self.header_iteration,
+            layer: None,
+        }
+    }
+
+    /// The overlay over this file, if any.
+    #[must_use]
+    pub fn layer(&self) -> Option<&crate::overlay::Layer> {
+        self.layer.as_deref()
+    }
+
+    /// The file's own directory entry for `id`, ignoring any overlay.
+    #[must_use]
+    pub fn base_entry(&self, id: DataId) -> Option<&BtEntry> {
+        self.dir.get(&id.raw())
+    }
+
+    /// Every one of the file's own entries, ascending by id, ignoring any overlay.
+    pub fn base_entries(&self) -> impl Iterator<Item = (DataId, &BtEntry)> + Send + '_ {
+        self.dir.iter().map(|(k, v)| (DataId(*k), v))
     }
 
     /// The directory node's size in this layout.
@@ -413,43 +474,72 @@ impl DatFile {
         Ok(b)
     }
 
-    /// The directory entry for an id, if present.
+    /// The directory entry for an id, if present: the overlay's when it holds the id, none when its
+    /// tombstones cover it, else the file's own.
     #[must_use]
     pub fn entry(&self, id: DataId) -> Option<&BtEntry> {
+        if let Some(layer) = &self.layer {
+            if let Some(e) = layer.record(id) {
+                return Some(e);
+            }
+            if layer.hides(id) {
+                return None;
+            }
+        }
         self.dir.get(&id.raw())
     }
 
     #[must_use]
     pub fn contains(&self, id: DataId) -> bool {
-        self.dir.contains_key(&id.raw())
+        self.entry(id).is_some()
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.dir.len()
+        self.layer.as_ref().map_or(self.dir.len(), |l| l.len())
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.dir.is_empty()
+        self.len() == 0
     }
 
     /// Directory order == B-tree order == ascending `DataID`.
-    pub fn iter_ids(&self) -> impl Iterator<Item = DataId> + '_ {
-        self.dir.keys().copied().map(DataId)
+    pub fn iter_ids(&self) -> impl Iterator<Item = DataId> + Send + '_ {
+        self.iter_entries().map(|(id, _)| id)
     }
 
-    /// Every entry, ascending by id.
-    pub fn iter_entries(&self) -> impl Iterator<Item = (DataId, &BtEntry)> + '_ {
-        self.dir.iter().map(|(k, v)| (DataId(*k), v))
+    /// Every entry, ascending by id, the overlay's merged over the file's own.
+    pub fn iter_entries(&self) -> impl Iterator<Item = (DataId, &BtEntry)> + Send + '_ {
+        let own = self.dir.iter().map(|(k, v)| (DataId(*k), v));
+        match &self.layer {
+            None => Box::new(own) as Box<dyn Iterator<Item = (DataId, &BtEntry)> + Send + '_>,
+            Some(layer) => Box::new(crate::overlay::merge(
+                own.filter(move |(id, _)| !layer.hides(*id) && layer.record(*id).is_none()),
+                layer.records(),
+            )),
+        }
     }
 
-    /// The payload of one file, with the container's framing removed.
+    /// The payload of one file, with the container's framing removed: the overlay's record when it
+    /// holds the id, not found when its tombstones cover it. With an overlay the `0xFFFF0001`
+    /// iteration list is the file's iterations and the overlay's together.
     ///
     /// A compressed entry would be inflated here; no retail file
     /// is stored compressed, so this reader parses the flag and refuses rather than carrying an
     /// inflate path that nothing can test.
     pub fn read(&self, id: DataId) -> Result<Vec<u8>, DatError> {
+        if let Some(layer) = &self.layer {
+            if id == crate::divine::ITERATION_LIST {
+                return Ok(crate::iteration::encode(layer.iterations()));
+            }
+            if layer.record(id).is_some() {
+                return layer.read(id);
+            }
+            if layer.hides(id) {
+                return Err(DatError::NotFound(id));
+            }
+        }
         let e = *self.dir.get(&id.raw()).ok_or(DatError::NotFound(id))?;
         if e.compressed() {
             return Err(DatError::CompressionUnsupported(id));
@@ -511,17 +601,19 @@ impl DatFile {
     fn load_directory(&mut self) -> Result<(), DatError> {
         let mut stack = vec![self.header.btree_root];
         let mut nodes = Vec::new();
+        let mut dir = BTreeMap::new();
         while let Some(offset) = stack.pop() {
             let node = self.load_node(offset)?;
             nodes.push(offset);
             for e in &node.entries {
-                self.dir.insert(e.id, *e);
+                dir.insert(e.id, *e);
             }
             if !node.is_leaf() {
                 stack.extend_from_slice(&node.children[..=node.entries.len()]);
             }
         }
-        self.node_offsets = nodes;
+        self.dir = Arc::new(dir);
+        self.node_offsets = Arc::new(nodes);
         Ok(())
     }
 

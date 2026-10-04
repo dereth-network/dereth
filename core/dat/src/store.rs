@@ -70,6 +70,9 @@ pub struct RetailDatStore {
     other_cell: Option<Arc<DatFile>>,
     /// Where [`Self::grant_highres`] looks for the file; `None` for a store built from files.
     client_dir: Option<PathBuf>,
+    /// The world's overlay folder, once [`Self::with_overlay`] has laid it over the world files:
+    /// the high-resolution file takes its overlay from here when it is granted.
+    overlay: Option<(crate::overlay::OverlayDir, Option<String>)>,
 }
 
 impl RetailDatStore {
@@ -125,6 +128,7 @@ impl RetailDatStore {
             legacy_portal: None,
             other_cell: None,
             client_dir: Some(client_dir.to_path_buf()),
+            overlay: None,
         })
     }
 
@@ -161,6 +165,7 @@ impl RetailDatStore {
             legacy_portal: None,
             other_cell: None,
             client_dir: Some(dir.to_path_buf()),
+            overlay: None,
         })
     }
 
@@ -267,6 +272,7 @@ impl RetailDatStore {
             legacy_portal: None,
             other_cell: None,
             client_dir: None,
+            overlay: None,
         })
     }
 
@@ -327,6 +333,7 @@ impl RetailDatStore {
             legacy_portal: None,
             other_cell: None,
             client_dir: None,
+            overlay: None,
         })
     }
 
@@ -379,6 +386,7 @@ impl RetailDatStore {
             legacy_portal: None,
             other_cell: None,
             client_dir: None,
+            overlay: None,
         })
     }
 
@@ -419,6 +427,7 @@ impl RetailDatStore {
             legacy_portal: None,
             other_cell: None,
             client_dir: None,
+            overlay: None,
         }
     }
 
@@ -442,10 +451,102 @@ impl RetailDatStore {
         if !path.is_file() {
             return Ok(false);
         }
-        let file = shared::open(&path)?;
+        let mut file = shared::open(&path)?;
+        if let Some((dir, key)) = &self.overlay {
+            match dir.layer_over(RetailDat::HighRes, &file, key.as_deref()) {
+                Ok(Some(l)) => file = Arc::new(file.base().layered(Arc::new(l))),
+                Ok(None) => {}
+                Err(crate::overlay::OverlayError::Dat(e)) => return Err(e),
+                // A refused overlay leaves the file as it is; the world's other files have
+                // already been checked against the same folder.
+                Err(_) => {}
+            }
+        }
         // A concurrent grant may have won; either file is the same file.
         let _ = self.highres.set(file);
         Ok(true)
+    }
+
+    /// This store with the world's overlay in `dir` laid over the world's own files: the portal,
+    /// cell and language files (and the high-resolution file when it is granted) each read through
+    /// the overlay container the folder has for them. The other era's files beside the world, read
+    /// for presentation alone, never carry it. `world_key`, when given, is the world the overlay
+    /// must belong to.
+    ///
+    /// An overlay is made against one base file and opens over no other: a container whose base is
+    /// not the file this store reads is refused, as is one belonging to another world.
+    ///
+    /// # Errors
+    /// The first container that is refused or will not open; the store is then unchanged.
+    pub fn with_overlay(
+        mut self,
+        dir: &crate::overlay::OverlayDir,
+        world_key: Option<&str>,
+    ) -> Result<Self, crate::overlay::OverlayError> {
+        let alias = Arc::ptr_eq(&self.local, &self.portal);
+        let lay = |slot: &Arc<DatFile>,
+                   target: RetailDat|
+         -> Result<Option<Arc<DatFile>>, crate::overlay::OverlayError> {
+            Ok(dir
+                .layer_over(target, slot, world_key)?
+                .map(|l| Arc::new(slot.base().layered(Arc::new(l)))))
+        };
+        let portal = lay(&self.portal, RetailDat::Portal)?;
+        let cell = lay(&self.cell, RetailDat::Cell)?;
+        let local = if alias {
+            None
+        } else {
+            lay(&self.local, RetailDat::Local)?
+        };
+        let highres = match self.highres.get() {
+            Some(h) => lay(h, RetailDat::HighRes)?,
+            None => None,
+        };
+        if let Some(p) = portal {
+            self.portal = p;
+        }
+        if let Some(c) = cell {
+            self.cell = c;
+        }
+        if alias {
+            self.local = Arc::clone(&self.portal);
+        } else if let Some(l) = local {
+            self.local = l;
+        }
+        if let Some(h) = highres {
+            let lock = OnceLock::new();
+            let _ = lock.set(h);
+            self.highres = lock;
+        }
+        self.overlay = Some((dir.clone(), world_key.map(str::to_owned)));
+        Ok(self)
+    }
+
+    /// The world's overlay folder, when one is laid over this store.
+    #[must_use]
+    pub fn overlay_dir(&self) -> Option<&crate::overlay::OverlayDir> {
+        self.overlay.as_ref().map(|(d, _)| d)
+    }
+
+    /// Whether any of the world's files reads through an overlay.
+    #[must_use]
+    pub fn has_overlay(&self) -> bool {
+        self.portal.layer().is_some()
+            || self.cell.layer().is_some()
+            || self.local.layer().is_some()
+            || self.highres.get().is_some_and(|h| h.layer().is_some())
+    }
+
+    /// The file a data-patch target names as the world reads it (with its overlay); `None` for
+    /// the high-resolution file before it is granted.
+    #[must_use]
+    pub fn target_file(&self, target: RetailDat) -> Option<&DatFile> {
+        match target {
+            RetailDat::Portal => Some(&self.portal),
+            RetailDat::Cell => Some(&self.cell),
+            RetailDat::Local => Some(&self.local),
+            RetailDat::HighRes => self.highres(),
+        }
     }
 
     /// Whether [`Self::grant_highres`] has opened the high-res dat -- the client's
@@ -671,6 +772,15 @@ impl RetailDatStore {
 fn reload_one(slot: &mut Arc<DatFile>) -> Result<(), DatError> {
     let fresh = Arc::new(DatFile::open(slot.path())?);
     shared::replace(fresh.path(), &fresh);
+    // A file carrying the world's overlay carries it again, reopened from its container too.
+    let fresh = match slot.layer() {
+        Some(layer) => match layer.reopen_over(&fresh) {
+            Ok(l) => Arc::new(fresh.layered(Arc::new(l))),
+            Err(crate::overlay::OverlayError::Dat(e)) => return Err(e),
+            Err(_) => fresh,
+        },
+        None => fresh,
+    };
     *slot = fresh;
     Ok(())
 }

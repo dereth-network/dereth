@@ -38,14 +38,32 @@
 //! compressing ones. A patched record therefore lands uncompressed, exactly like every one of
 //! the 887,455 records already in the retail files.
 //!
+//! # Where a patch goes: the world's overlay
+//!
+//! **A deliberate divergence from retail** (client divergence CD-031). Retail saves every record
+//! into its own data files. This client never writes the files a player installed: every record,
+//! purge and iteration a server sends goes into that world's overlay folder
+//! ([`dereth_dat::overlay`]), one container per file, and the world is read through the overlay
+//! laid over the locked files. A purge is a tombstone there, not a deletion: a landblock purge
+//! hides the whole landblock family, a record purge one record. The iterations the client reports
+//! are the locked files' and the overlay's together, so a server's ordinary patch logic carries an
+//! overlay's revisions as it would retail's.
+//!
+//! **The overlay extension.** With a server that knows it (Empyrean), the client receives the
+//! world's overlay manifest (`0xF7EC`) before the patch: the world's name, the base each file's
+//! overlay was made against, and every record's SHA-256 and every deletion. The client refuses an
+//! overlay made against another base, a world on its blocklist, and a folder holding another
+//! world's overlay, and it refuses any record whose bytes are not the ones the manifest names.
+//! Without the extension (a stock ACE server) the patch is retail's, into the overlay all the same.
+//!
 //! # The safety rails that are not native's
 //!
-//! Three, all deliberate, all reported rather than silent:
+//! All deliberate, all reported rather than silent:
 //!
-//! 1. `DatWriter::open` refuses any path in a directory declared read-only with
-//!    `dereth_dat::protect_install`. The client and headless binaries declare their `dat_dir`, so
-//!    in a normal run **every save is refused and the retail install's dats cannot be written by
-//!    a server**. That is the intended posture until the user opts in.
+//! 1. The locked files are never opened for writing; the patch's only writer is the overlay's.
+//!    `DatWriter::open` also refuses any path in a directory declared read-only with
+//!    `dereth_dat::protect_install`, which the client and headless binaries declare their data
+//!    folders to be.
 //! 2. A record's `DataID` must route to the dat file the message names it for — a portal id
 //!    offered for the language dat is refused. Native checks nothing: the save is handed the
 //!    disk controller the qualified id selects and stores whatever it is given.
@@ -53,14 +71,17 @@
 //!    roundabout way: archive decoding raises an error for any other value, and the per-frame
 //!    update's guard, which saves only while flag bit 2 is clear, then skips the save *and* the
 //!    notify.
+//! 4. The overlay's own records (`0xFFFF0002` tombstones, `0xFFFF0003` manifest) are never taken
+//!    from the wire.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use dereth_dat::write::{DatWriter, SaveOutcome};
-use dereth_dat::{DatError, DatKind};
+use dereth_dat::overlay::{OverlayDir, OverlayError, OverlayWriter};
+use dereth_dat::write::SaveOutcome;
+use dereth_dat::{DatError, DatFile, DatKind, RetailDatStore};
 use dereth_primitives::DataId;
-use dereth_protocol::admin::{DddBeginDdd, DddData, DddError, DddRequestData};
+use dereth_protocol::admin::{DddBeginDdd, DddData, DddError, DddOverlayManifest, DddRequestData};
 
 /// The `0xFFFF0000` mask used for a type-1 purge, which removes the whole landblock
 /// family containing the named record.
@@ -121,6 +142,13 @@ pub enum DddRefusal {
     },
     /// Disk decompression answered false.
     Decompress(String),
+    /// One of the overlay's own records, which no server may send.
+    ReservedId(u32),
+    /// The record's bytes are not the ones the world's overlay manifest names.
+    HashMismatch { id: u32 },
+    /// The world's overlay was refused (blocked, made against another base, another world's
+    /// folder, or no overlay folder at all), so nothing of this world is written.
+    OverlayRefused(String),
     /// `DatWriter::save` refused or failed — including [`DatError::RetailDatRefused`], which is
     /// what a normal run gets for every record.
     Write(String),
@@ -158,6 +186,12 @@ impl std::fmt::Display for DddRefusal {
                     named.file_name()
                 )
             }
+            Self::ReservedId(id) => write!(f, "{id:#010X} is one of the overlay's own records"),
+            Self::HashMismatch { id } => write!(
+                f,
+                "{id:#010X} is not the record the world's overlay manifest names"
+            ),
+            Self::OverlayRefused(why) => write!(f, "the world's overlay is refused: {why}"),
             Self::Decompress(e) | Self::Write(e) => write!(f, "{e}"),
         }
     }
@@ -263,16 +297,111 @@ impl DddSummary {
     }
 }
 
+/// Where a world's patch is written: its overlay folder, over the files the world reads.
+#[derive(Debug, Clone)]
+pub struct OverlayTarget {
+    dir: OverlayDir,
+    /// Each file the world reads, as it is on disk, and its name: what that file's overlay
+    /// container is made against.
+    bases: BTreeMap<DatTarget, (DatFile, String)>,
+    /// The world the overlay belongs to: the manifest's name for it, else the folder's, else the
+    /// name the client knows the server by.
+    world_key: String,
+}
+
+impl OverlayTarget {
+    /// The overlay folder `dir` over the files `store` reads, for the world `world_key` (the
+    /// folder's own world when it already holds an overlay).
+    #[must_use]
+    pub fn new(dir: OverlayDir, store: &RetailDatStore, world_key: &str) -> Self {
+        let world_key = dir.world_key().unwrap_or_else(|| world_key.to_owned());
+        let mut me = Self {
+            dir,
+            bases: BTreeMap::new(),
+            world_key,
+        };
+        me.set_bases(store);
+        me
+    }
+
+    /// The overlay folder `dir` over the given base files, for the world `world_key`.
+    #[must_use]
+    pub fn with_bases(
+        dir: OverlayDir,
+        bases: impl IntoIterator<Item = (DatTarget, DatFile)>,
+        world_key: &str,
+    ) -> Self {
+        let world_key = dir.world_key().unwrap_or_else(|| world_key.to_owned());
+        let bases = bases
+            .into_iter()
+            .map(|(t, f)| {
+                let name = f
+                    .path()
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                (t, (f.base(), name))
+            })
+            .collect();
+        Self {
+            dir,
+            bases,
+            world_key,
+        }
+    }
+
+    /// Read the base files again from `store` (after it was reopened, or the high-resolution
+    /// file was granted).
+    pub fn set_bases(&mut self, store: &RetailDatStore) {
+        self.bases.clear();
+        for t in DatTarget::ALL {
+            if let Some(f) = store.target_file(t) {
+                let name = f
+                    .path()
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.bases.insert(t, (f.base(), name));
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn dir(&self) -> &OverlayDir {
+        &self.dir
+    }
+
+    #[must_use]
+    pub fn world_key(&self) -> &str {
+        &self.world_key
+    }
+
+    /// The base file `target` names, as it is on disk.
+    #[must_use]
+    pub fn base(&self, target: DatTarget) -> Option<&DatFile> {
+        self.bases.get(&target).map(|(f, _)| f)
+    }
+}
+
 /// The client cache's DDD state, its writers, and the bookkeeping the protocol needs.
 ///
-/// One per client. Holds a [`DatWriter`] per file it has actually had to write to, opened lazily —
-/// so a session with no patch never opens a dat for writing at all, and the common case costs
-/// nothing.
+/// One per client. Holds an overlay writer per file it has actually had to write to, opened
+/// lazily — so a session with no patch never opens a container for writing at all, and the common
+/// case costs nothing.
 #[derive(Debug)]
 pub struct DddPatcher {
-    dir: PathBuf,
+    target: Option<OverlayTarget>,
+    /// Why this world's overlay is refused, when it is: nothing is written and the patch ends at
+    /// once.
+    overlay_refused: Option<String>,
+    /// The record hashes the world's overlay manifest names, by file and id.
+    expected: BTreeMap<(DatTarget, u32), [u8; 32]>,
+    /// The single-record deletions the manifest names, by file and revision.
+    manifest_tombstones: BTreeMap<(DatTarget, u32), Vec<(u32, u32)>>,
+    /// The world keys whose overlays the player refuses.
+    blocklist: BTreeSet<String>,
     phase: DddPhase,
-    writers: BTreeMap<DatTarget, DatWriter>,
+    writers: BTreeMap<DatTarget, OverlayWriter>,
     /// The missing iterations.
     revisions: Vec<Revision>,
     /// The pending downloads, keyed the way the wire keys it: the id, per file. Native's key is the
@@ -299,11 +428,15 @@ pub struct DddPatcher {
 }
 
 impl DddPatcher {
-    /// A patcher over one client directory.
+    /// A patcher writing into `target`, the world's overlay; with none, every record is refused.
     #[must_use]
-    pub fn new(dir: PathBuf) -> Self {
+    pub fn new(target: Option<OverlayTarget>) -> Self {
         Self {
-            dir,
+            target,
+            overlay_refused: None,
+            expected: BTreeMap::new(),
+            manifest_tombstones: BTreeMap::new(),
+            blocklist: BTreeSet::new(),
             phase: DddPhase::Idle,
             writers: BTreeMap::new(),
             revisions: Vec::new(),
@@ -321,9 +454,125 @@ impl DddPatcher {
         }
     }
 
+    /// The overlay folder patches go to, when there is one.
     #[must_use]
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    pub fn dir(&self) -> Option<&Path> {
+        self.target.as_ref().map(|t| t.dir.path())
+    }
+
+    /// Where patches go.
+    #[must_use]
+    pub fn target(&self) -> Option<&OverlayTarget> {
+        self.target.as_ref()
+    }
+
+    /// Read the base files again from `store`.
+    pub fn set_bases(&mut self, store: &RetailDatStore) {
+        if let Some(t) = &mut self.target {
+            t.set_bases(store);
+        }
+    }
+
+    /// The world keys whose overlays are refused.
+    pub fn set_blocklist(&mut self, keys: impl IntoIterator<Item = String>) {
+        self.blocklist = keys.into_iter().collect();
+        if let Some(t) = &self.target {
+            if self.blocklist.contains(&t.world_key) {
+                self.refuse(format!(
+                    "the world {:?} is on the overlay blocklist",
+                    t.world_key
+                ));
+            }
+        }
+    }
+
+    /// Why this world's overlay is refused, when it is.
+    #[must_use]
+    pub fn refused(&self) -> Option<&str> {
+        self.overlay_refused.as_deref()
+    }
+
+    fn refuse(&mut self, why: String) {
+        if self.overlay_refused.is_none() {
+            tracing::warn!(
+                "DDD the world's overlay is refused and nothing of it is written: {why}"
+            );
+            self.notices
+                .push(format!("the world's overlay is refused: {why}"));
+            self.overlay_refused = Some(why);
+            self.writers.clear();
+        }
+    }
+
+    /// `0xF7EC`, the world's overlay manifest: check it names this client's bases and a world it
+    /// takes, and keep its record hashes and deletions for the patch that follows.
+    pub fn on_manifest(&mut self, m: &DddOverlayManifest) {
+        if self.blocklist.contains(&m.world_key) {
+            self.refuse(format!(
+                "the world {:?} is on the overlay blocklist",
+                m.world_key
+            ));
+            return;
+        }
+        let Some(target) = &mut self.target else {
+            self.refuse("there is no overlay folder for this world".into());
+            return;
+        };
+        if let Some(found) = target.dir.world_key() {
+            if found != m.world_key {
+                let why = format!(
+                    "{} holds the overlay of the world {found:?}, and this world is {:?}",
+                    target.dir.path().display(),
+                    m.world_key
+                );
+                self.refuse(why);
+                return;
+            }
+        }
+        target.world_key.clone_from(&m.world_key);
+        let mut mismatch = None;
+        for f in &m.files {
+            let Some(t) = target_from_wire(f.dat_file_type, f.dat_file_id) else {
+                continue;
+            };
+            let Some((base, name)) = target.bases.get(&t) else {
+                continue;
+            };
+            let have = dereth_dat::overlay::fingerprint(base);
+            if have != f.base_fingerprint {
+                mismatch = Some(format!(
+                    "the world's {} overlay was made against {} {}, and this client holds {name} {}",
+                    t.file_name(),
+                    f.base_name,
+                    dereth_dat::overlay::hex(&f.base_fingerprint),
+                    dereth_dat::overlay::hex(&have)
+                ));
+                break;
+            }
+            for r in &f.records {
+                self.expected.insert((t, r.id), r.sha256);
+            }
+            for x in &f.tombstones {
+                self.manifest_tombstones
+                    .entry((t, x.iteration))
+                    .or_default()
+                    .push((x.id, x.mask));
+            }
+        }
+        if let Some(why) = mismatch {
+            self.refuse(why);
+            return;
+        }
+        self.note(format!(
+            "0xF7EC the world {:?} names {} file(s), {} record(s) and {} deletion(s)",
+            m.world_key,
+            m.files.len(),
+            self.expected.len(),
+            self.manifest_tombstones
+                .values()
+                .map(Vec::len)
+                .sum::<usize>()
+        ));
     }
 
     #[must_use]
@@ -398,6 +647,12 @@ impl DddPatcher {
         self.phase = DddPhase::Patching;
         self.revisions.clear();
         self.pending.clear();
+        if self.overlay_refused.is_some() {
+            // Nothing of a refused world is written, so nothing is waited for either: the patch
+            // ends now and the world is played over the locked files alone.
+            self.phase = DddPhase::EndSent;
+            return (0, DddAction { send_end: true });
+        }
 
         for rev in &m.revisions {
             let Some(target) = target_from_wire(rev.dat_file_type, rev.dat_file_id) else {
@@ -412,7 +667,12 @@ impl DddPatcher {
             // The begin-request worker performs the revision's purges *before*
             // the revision can finish; its completion handler then updates the
             // iteration bookkeeping.
-            let blocked = !self.purge(target, rev.iteration, &rev.ids_to_purge);
+            let mut blocked = !self.purge(target, rev.iteration, &rev.ids_to_purge);
+            // The deletions only the manifest can say (a single interior cell), in the revision
+            // that made them.
+            if let Some(more) = self.manifest_tombstones.remove(&(target, rev.iteration)) {
+                blocked |= !self.tombstone_all(target, rev.iteration, &more);
+            }
             let index = self.revisions.len();
             self.revisions.push(Revision {
                 target,
@@ -523,6 +783,16 @@ impl DddPatcher {
     /// (`dispatch::database::dispatch`'s `send_end`, gated on the interrogation-received flag exactly
     /// as retail's end-of-DDD handler gates it); this half only closes the books.
     pub fn on_end(&mut self) -> DddSummary {
+        let date = entry_date(crate::platform::clock::system_unix_time());
+        let mut failed = Vec::new();
+        for (t, w) in &mut self.writers {
+            if let Err(e) = w.flush(date) {
+                failed.push(format!("{}: {e}", t.file_name()));
+            }
+        }
+        for line in failed {
+            self.note(format!("the overlay could not be written: {line}"));
+        }
         let summary = DddSummary {
             applied: self.applied,
             refused: self.refused,
@@ -538,6 +808,8 @@ impl DddPatcher {
         // writer still holding the handle is the kind of thing that works on this platform and
         // not on the next one.
         self.writers.clear();
+        self.expected.clear();
+        self.manifest_tombstones.clear();
         self.phase = DddPhase::RunTime;
         summary
     }
@@ -574,6 +846,12 @@ impl DddPatcher {
         if id == dereth_dat::ITERATION_LIST && target != DatTarget::Cell {
             return DataOutcome::IterationListKept { target };
         }
+        if dereth_dat::overlay::is_reserved(id) {
+            return DataOutcome::Refused(DddRefusal::ReservedId(id.raw()));
+        }
+        if let Some(why) = &self.overlay_refused {
+            return DataOutcome::Refused(DddRefusal::OverlayRefused(why.clone()));
+        }
         let belongs = id_home(id);
         if belongs != Some(target.kind()) {
             return DataOutcome::Refused(DddRefusal::WrongDatFile {
@@ -591,17 +869,32 @@ impl DddPatcher {
             m.data.clone()
         };
 
+        if let Some(want) = self.expected.get(&(target, id.raw())) {
+            if dereth_dat::overlay::record_hash(&payload) != *want {
+                return DataOutcome::Refused(DddRefusal::HashMismatch { id: id.raw() });
+            }
+        }
+
         let bytes = m.data.len();
         let iteration = m.iteration;
+        let date = entry_date(crate::platform::clock::system_unix_time());
+        let run_time = self.phase == DddPhase::RunTime;
+        let Some(base) = self.target.as_ref().and_then(|t| t.base(target)).cloned() else {
+            return DataOutcome::Refused(DddRefusal::OverlayRefused(
+                "there is no overlay folder for this world".into(),
+            ));
+        };
         match self.writer(target) {
             Err(e) => DataOutcome::Refused(DddRefusal::Write(e.to_string())),
-            Ok(w) => match w.save(
-                id,
-                &payload,
-                version,
-                iteration,
-                entry_date(crate::platform::clock::system_unix_time()),
-            ) {
+            Ok(w) => match w
+                .save(&base, id, &payload, version, iteration, date)
+                .and_then(|s| {
+                    // A run-time answer has no end of patch behind it to write the manifest.
+                    if run_time {
+                        w.flush(date)?;
+                    }
+                    Ok(s)
+                }) {
                 Ok(SaveOutcome::RefusedOlderIteration) => {
                     DataOutcome::RefusedOlderIteration { id, target }
                 }
@@ -633,22 +926,29 @@ impl DddPatcher {
     /// reads next login, and claiming a revision landed when its deletions did not means the
     /// server never offers it again.
     fn purge(&mut self, target: DatTarget, iteration: u32, ids: &[u32]) -> bool {
+        let mask = if target == DatTarget::Cell {
+            LANDBLOCK_MASK
+        } else {
+            0
+        };
+        let pairs: Vec<(u32, u32)> = ids.iter().map(|id| (*id, mask)).collect();
+        self.tombstone_all(target, iteration, &pairs)
+    }
+
+    /// Write each `(id, mask)` deletion into the overlay as a tombstone of revision `iteration`.
+    /// Answers whether every one was written.
+    fn tombstone_all(&mut self, target: DatTarget, iteration: u32, ids: &[(u32, u32)]) -> bool {
         if ids.is_empty() {
             return true;
         }
-        let by_mask = target == DatTarget::Cell;
         let mut removed = 0usize;
-        let mut failure: Option<String> = None;
+        let mut failure: Option<String> = self.overlay_refused.clone();
         match self.writer(target) {
             Err(e) => failure = Some(e.to_string()),
+            Ok(_) if failure.is_some() => {}
             Ok(w) => {
-                for id in ids {
-                    let outcome = if by_mask {
-                        w.delete_data_by_mask(DataId(*id), LANDBLOCK_MASK)
-                    } else {
-                        w.delete_data(DataId(*id), 0).map(usize::from)
-                    };
-                    match outcome {
+                for (id, mask) in ids {
+                    match w.tombstone(DataId(*id), *mask, iteration) {
                         Ok(n) => removed += n,
                         // Native ignores the result and carries on through the list; so does this,
                         // but the first failure is what blocks the iteration.
@@ -659,17 +959,25 @@ impl DddPatcher {
                         }
                     }
                 }
+                // The deletions are on disk before the revision's downloads land, as the retail
+                // purge is.
+                let date = entry_date(crate::platform::clock::system_unix_time());
+                if let Err(e) = w.flush(date) {
+                    failure.get_or_insert(e.to_string());
+                }
             }
         }
-        if removed > 0 {
+        if failure.is_none() {
+            // A tombstone changes what the world reads even where the overlay held nothing.
             self.changed.insert(target);
         }
         match failure {
             None => {
                 self.note(format!(
-                    "0xF7E7 iteration {iteration}: purged {removed} record(s) from {} for {} id(s)",
-                    target.file_name(),
-                    ids.len()
+                    "0xF7E7 iteration {iteration}: {} deletion(s) of {} written to the overlay \
+                     ({removed} of its own record(s) went)",
+                    ids.len(),
+                    target.file_name()
                 ));
                 true
             }
@@ -685,10 +993,30 @@ impl DddPatcher {
         }
     }
 
-    /// Open the file's writer, once.
-    fn writer(&mut self, target: DatTarget) -> Result<&mut DatWriter, DatError> {
+    /// Open the file's overlay writer, once.
+    fn writer(&mut self, target: DatTarget) -> Result<&mut OverlayWriter, DatError> {
         if !self.writers.contains_key(&target) {
-            let w = DatWriter::open(&target.in_dir(&self.dir))?;
+            let t = self
+                .target
+                .as_ref()
+                .ok_or(DatError::NotFound(DataId(0)))?;
+            let (base, name) = t.bases.get(&target).ok_or(DatError::NotFound(DataId(0)))?;
+            let date = entry_date(crate::platform::clock::system_unix_time());
+            let w = match OverlayWriter::open_or_create(
+                &t.dir.container(target),
+                base,
+                name,
+                &t.world_key,
+                date,
+            ) {
+                Ok(w) => w,
+                Err(OverlayError::Dat(e)) => return Err(e),
+                Err(e) => {
+                    let why = e.to_string();
+                    self.refuse(why.clone());
+                    return Err(DatError::Io(std::io::Error::other(why)));
+                }
+            };
             self.writers.insert(target, w);
         }
         Ok(self
@@ -868,9 +1196,12 @@ mod tests {
         let scratch =
             dereth_dat::testing::ScratchDir::new("ddd-entry-dates").expect("scratch directory");
         let dir = scratch.path().to_path_buf();
-        let path = DatTarget::Local.in_dir(&dir);
+        let base_path = DatTarget::Local.in_dir(&dir.join("base"));
+        std::fs::create_dir_all(dir.join("base")).expect("base folder");
         {
-            let mut writer = DatWriter::create(&path, 0x400, 1, 3, 64 * 1024).expect("create");
+            let mut writer =
+                dereth_dat::write::DatWriter::create(&base_path, 0x400, 1, 3, 64 * 1024)
+                    .expect("create");
             writer
                 .save(
                     dereth_dat::ITERATION_LIST,
@@ -881,8 +1212,14 @@ mod tests {
                 )
                 .expect("seed iterations");
         }
+        let base = DatFile::open(&base_path).expect("the base");
+        let overlay = OverlayDir::new(&dir.join("overlay")).expect("an overlay folder");
         let id = DataId(0x2100_0001);
-        let mut patcher = DddPatcher::new(dir);
+        let mut patcher = DddPatcher::new(Some(OverlayTarget::with_bases(
+            overlay.clone(),
+            [(DatTarget::Local, base.clone())],
+            "a world",
+        )));
         patcher.on_interrogation();
         let (_, action) = patcher.on_begin(&DddBeginDdd {
             data_expected: 4,
@@ -915,7 +1252,7 @@ mod tests {
         );
         assert!(action.send_end, "the revision completed");
         patcher.on_end();
-        let reader = dereth_dat::DatFile::open(&path).expect("read completed patch");
+        let reader = DatFile::open(&overlay.container(DatTarget::Local)).expect("the overlay");
         for record in [id, dereth_dat::ITERATION_LIST] {
             let date = reader.entry(record).expect("written entry").date;
             assert!(
@@ -923,8 +1260,21 @@ mod tests {
                 "{record:?}: {date} outside {before}..={after}"
             );
         }
-        assert_eq!(reader.iteration_list().expect("iterations"), [1, 2]);
-        drop(reader);
+        assert_eq!(reader.iteration_list().expect("iterations"), [2]);
+        // Read over its base, the file's iterations are the base's and the overlay's.
+        let layer = dereth_dat::overlay::Layer::over(&base, reader, Some("a world"))
+            .expect("the overlay over its base");
+        assert_eq!(
+            base.layered(std::sync::Arc::new(layer))
+                .iteration_list()
+                .unwrap(),
+            [1, 2]
+        );
+        assert!(
+            DatFile::open(&base_path).unwrap().entry(id).is_none(),
+            "the base is untouched"
+        );
+        drop(base);
         drop(patcher);
         drop(scratch);
     }

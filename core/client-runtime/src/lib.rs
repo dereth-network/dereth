@@ -94,8 +94,10 @@ pub mod flags;
 /// A `dereth_physics::LandSource` over the retail cell dat. Lives in `dereth-world-data`;
 /// re-exported at its old path.
 pub use dereth_world_data::land_source;
-/// The DDD data-cache patch path: receive a patch, validate it, put it in the dat.
+/// The DDD data-cache patch path: receive a patch, validate it, put it in the world's overlay.
 pub mod ddd;
+/// The world's overlay folder: where it is, the blocklist, and laying it over the store.
+pub mod world_overlay;
 /// The interior cells of a landblock, wired onto both of their consumers. Lives in
 /// `dereth-world-data`; re-exported at its old path.
 pub use dereth_world_data::env_cells;

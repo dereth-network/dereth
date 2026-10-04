@@ -159,6 +159,16 @@ pub fn open_world_files(
     }
 }
 
+/// The store a run reads: the world's files from its folders ([`open_world_files`]) with the
+/// world's overlay over them when there is one ([`crate::world_overlay::lay_over`]).
+///
+/// # Errors
+/// [`DataFilesError`] as [`open_data_files`].
+pub fn open_store(cfg: &crate::config::Config) -> Result<RetailDatStore, DataFilesError> {
+    let store = open_world_files(&cfg.dat_dir, cfg.classic_dat_dir.as_deref(), cfg.era)?;
+    Ok(crate::world_overlay::lay_over(store, cfg))
+}
+
 /// Resolve the two-level enum-id map lookup for any group.
 ///
 /// An enum lookup resolves `(enumValue, group, dbType)` in two hops: the master

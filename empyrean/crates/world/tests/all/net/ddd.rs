@@ -783,6 +783,7 @@ mod real_content {
                 .collect(),
             iters_without_keys: Vec::new(),
             flags: 0,
+            overlay_bases: Vec::new(),
         }
     }
 

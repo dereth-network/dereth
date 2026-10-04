@@ -640,23 +640,68 @@ impl Message for DddInterrogation {
 ///
 /// `iters_without_keys` is a second iteration list that is empty in every observed session;
 /// ACE reads only the first and then skips the rest.
+///
+/// **The overlay extension** (this client's and Empyrean's alone). The retail client sends
+/// `flags` as 0, and a server reads nothing after the first list. A client that keeps a world's
+/// records in an overlay over its locked files sets [`Self::FLAG_OVERLAY`] and follows the flags
+/// with the base files it holds ([`OverlayBase`]); a server that knows the extension answers it
+/// with a [`DddOverlayManifest`] and the world's cell records in its patch, and any other server
+/// reads the message as a retail one.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DddInterrogationResponse {
     pub client_language: u32,
     pub iters_with_keys: Vec<TaggedIterationList>,
     pub iters_without_keys: Vec<TaggedIterationList>,
     pub flags: u32,
+    /// The base files the client holds, sent only with [`Self::FLAG_OVERLAY`].
+    pub overlay_bases: Vec<OverlayBase>,
+}
+
+impl DddInterrogationResponse {
+    /// The client keeps the world's records in an overlay and takes the overlay manifest.
+    pub const FLAG_OVERLAY: u32 = 0x0000_0001;
+}
+
+/// One base file a client holds, by the file's wire pair and its fingerprint (the SHA-256 of its
+/// header and directory).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OverlayBase {
+    pub dat_file_type: u32,
+    pub dat_file_id: u32,
+    pub fingerprint: [u8; 32],
+}
+
+fn read_hash(r: &mut Reader<'_>) -> Result<[u8; 32], MessageError> {
+    let mut h = [0u8; 32];
+    h.copy_from_slice(r.bytes(32)?);
+    Ok(h)
 }
 
 impl Message for DddInterrogationResponse {
     const OPCODE: Opcode = Opcode::DDD_INTERROGATION_RESPONSE_MESSAGE;
 
     fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        let client_language = r.u32()?;
+        let iters_with_keys = r.packed_list(TaggedIterationList::read)?;
+        let iters_without_keys = r.packed_list(TaggedIterationList::read)?;
+        let flags = r.u32()?;
+        let overlay_bases = if flags & Self::FLAG_OVERLAY != 0 {
+            r.packed_list(|r| {
+                Ok(OverlayBase {
+                    dat_file_type: r.u32()?,
+                    dat_file_id: r.u32()?,
+                    fingerprint: read_hash(r)?,
+                })
+            })?
+        } else {
+            Vec::new()
+        };
         Ok(Self {
-            client_language: r.u32()?,
-            iters_with_keys: r.packed_list(TaggedIterationList::read)?,
-            iters_without_keys: r.packed_list(TaggedIterationList::read)?,
-            flags: r.u32()?,
+            client_language,
+            iters_with_keys,
+            iters_without_keys,
+            flags,
+            overlay_bases,
         })
     }
 
@@ -671,6 +716,14 @@ impl Message for DddInterrogationResponse {
             Ok(())
         })?;
         w.u32(self.flags);
+        if self.flags & Self::FLAG_OVERLAY != 0 {
+            w.packed_list(&self.overlay_bases, |w, b| {
+                w.u32(b.dat_file_type);
+                w.u32(b.dat_file_id);
+                w.bytes(&b.fingerprint);
+                Ok(())
+            })?;
+        }
         Ok(())
     }
 }
@@ -841,6 +894,126 @@ impl Message for DddError {
     }
 }
 
+/// One record of a world's overlay, as a [`DddOverlayManifest`] lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OverlayRecord {
+    pub id: u32,
+    /// The revision that brought it.
+    pub iteration: u32,
+    /// Its size once inflated.
+    pub size: u32,
+    /// The SHA-256 of its inflated bytes.
+    pub sha256: [u8; 32],
+}
+
+/// One deletion of a world's overlay: `id` alone when `mask` is 0, else every id whose bits under
+/// `mask` are `id`'s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OverlayTombstone {
+    pub id: u32,
+    pub mask: u32,
+    /// The revision that deleted it.
+    pub iteration: u32,
+}
+
+/// One file's part of a [`DddOverlayManifest`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OverlayFileManifest {
+    /// The file's wire pair, as [`TaggedIterationList`] names it.
+    pub dat_file_type: u32,
+    pub dat_file_id: u32,
+    /// The base file the overlay was made against: its name, fingerprint and iteration count.
+    pub base_name: String,
+    pub base_fingerprint: [u8; 32],
+    pub base_iterations: u32,
+    /// The overlay's revisions.
+    pub revisions: Vec<u32>,
+    pub records: Vec<OverlayRecord>,
+    pub tombstones: Vec<OverlayTombstone>,
+}
+
+/// `0xF7EC DDD_OverlayManifestMessage` (S2C), on queue 5: the overlay extension's own message,
+/// outside the retail client's `0xF7E2..=0xF7EB` dispatch, sent only to a client that set
+/// [`DddInterrogationResponse::FLAG_OVERLAY`], before its `0xF7E7`. It names the world, the base
+/// each file's overlay was made against, and every record and deletion the overlay holds, so the
+/// client can refuse an overlay made against another base and check every record it is sent.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DddOverlayManifest {
+    /// The world the overlay belongs to, as the world names itself.
+    pub world_key: String,
+    /// The bytes the patch will send.
+    pub total_bytes: u32,
+    pub files: Vec<OverlayFileManifest>,
+}
+
+impl Message for DddOverlayManifest {
+    const OPCODE: Opcode = Opcode::DDD_OVERLAY_MANIFEST;
+
+    fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
+        let world_key = r.pstring()?;
+        let total_bytes = r.u32()?;
+        let files = r.packed_list(|r| {
+            Ok(OverlayFileManifest {
+                dat_file_type: r.u32()?,
+                dat_file_id: r.u32()?,
+                base_name: r.pstring()?,
+                base_fingerprint: read_hash(r)?,
+                base_iterations: r.u32()?,
+                revisions: r.packed_list(Reader::u32)?,
+                records: r.packed_list(|r| {
+                    Ok(OverlayRecord {
+                        id: r.u32()?,
+                        iteration: r.u32()?,
+                        size: r.u32()?,
+                        sha256: read_hash(r)?,
+                    })
+                })?,
+                tombstones: r.packed_list(|r| {
+                    Ok(OverlayTombstone {
+                        id: r.u32()?,
+                        mask: r.u32()?,
+                        iteration: r.u32()?,
+                    })
+                })?,
+            })
+        })?;
+        Ok(Self {
+            world_key,
+            total_bytes,
+            files,
+        })
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
+        w.pstring(&self.world_key)?;
+        w.u32(self.total_bytes);
+        w.packed_list(&self.files, |w, f| {
+            w.u32(f.dat_file_type);
+            w.u32(f.dat_file_id);
+            w.pstring(&f.base_name)?;
+            w.bytes(&f.base_fingerprint);
+            w.u32(f.base_iterations);
+            w.packed_list(&f.revisions, |w, v| {
+                w.u32(*v);
+                Ok(())
+            })?;
+            w.packed_list(&f.records, |w, x| {
+                w.u32(x.id);
+                w.u32(x.iteration);
+                w.u32(x.size);
+                w.bytes(&x.sha256);
+                Ok(())
+            })?;
+            w.packed_list(&f.tombstones, |w, t| {
+                w.u32(t.id);
+                w.u32(t.mask);
+                w.u32(t.iteration);
+                Ok(())
+            })
+        })
+    }
+}
+
 empty_message!(
     /// `0xF7EA DDD_OnEndDDD` — **the end-of-patching message, in both directions**.
     ///
@@ -997,8 +1170,58 @@ mod tests {
             }],
             iters_without_keys: vec![],
             flags: 0,
+            overlay_bases: vec![],
         };
-        let _: DddInterrogationResponse = round_trip(&write_body(&answer).unwrap());
+        let retail = write_body(&answer).unwrap();
+        let _: DddInterrogationResponse = round_trip(&retail);
+
+        // The overlay extension: the flag, then the bases the client holds after it. A retail
+        // reader (ACE's, which reads the first list and nothing after it) sees the same leading
+        // bytes.
+        let extended = DddInterrogationResponse {
+            flags: DddInterrogationResponse::FLAG_OVERLAY,
+            overlay_bases: vec![OverlayBase {
+                dat_file_type: 0,
+                dat_file_id: 1,
+                fingerprint: [9; 32],
+            }],
+            ..answer
+        };
+        let bytes = write_body(&extended).unwrap();
+        assert_eq!(bytes[..retail.len() - 4], retail[..retail.len() - 4]);
+        let back: DddInterrogationResponse = round_trip(&bytes);
+        assert_eq!(back, extended);
+    }
+
+    /// Behaviour: none (the overlay manifest's own round trip)
+    #[test]
+    fn the_overlay_manifest_round_trips() {
+        let m = DddOverlayManifest {
+            world_key: "a world".into(),
+            total_bytes: 1234,
+            files: vec![OverlayFileManifest {
+                dat_file_type: 1,
+                dat_file_id: 2,
+                base_name: "client_cell_1.dat".into(),
+                base_fingerprint: [3; 32],
+                base_iterations: 982,
+                revisions: vec![983],
+                records: vec![OverlayRecord {
+                    id: 0xA9B4_0100,
+                    iteration: 983,
+                    size: 40,
+                    sha256: [4; 32],
+                }],
+                tombstones: vec![OverlayTombstone {
+                    id: 0xA9B4_0101,
+                    mask: 0,
+                    iteration: 983,
+                }],
+            }],
+        };
+        let back: DddOverlayManifest = round_trip(&write_body(&m).unwrap());
+        assert_eq!(back, m);
+        assert_eq!(DddOverlayManifest::OPCODE.0, 0xF7EC);
     }
 
     #[test]

@@ -124,11 +124,7 @@ impl<S: Shell> App<S> {
         // Step 10: open the data files.
         let store = match store {
             Some(store) => store,
-            None => std::sync::Arc::new(crate::assets::open_world_files(
-                &cfg.dat_dir,
-                cfg.classic_dat_dir.as_deref(),
-                cfg.era,
-            )?),
+            None => std::sync::Arc::new(crate::assets::open_store(&cfg)?),
         };
 
         // Step 12: UI initialization -> (windowed, title, 800, 600, visible, "").
@@ -217,7 +213,8 @@ impl<S: Shell> App<S> {
         let objects = crate::objects::ObjectStream::with_store(std::sync::Arc::clone(&store));
         // Before the struct literal, for the same reason `anim_assets` is: `cfg`
         // is moved into it.
-        let ddd = crate::ddd::DddPatcher::new(cfg.dat_dir.clone());
+        // Every patch goes into the world's overlay, never into the locked files.
+        let ddd = crate::world_overlay::patcher(&store, &cfg);
         // The object identity verdicts start now, whatever look is chosen, so a later switch to
         // the other era's look is instant.
         let scene_cfg = cfg.scene_config();

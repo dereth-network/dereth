@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dereth_client::ddd::{drain_cache_misses, DddPatcher};
+use dereth_client::ddd::{drain_cache_misses, DddPatcher, OverlayTarget};
 use dereth_client::land_source::DatLandSource;
 use dereth_client_net::client_session::testing::MockTransport;
 use dereth_client_net::client_session::Session;
@@ -97,9 +97,11 @@ fn digest(path: &Path) -> (u64, u64) {
     (bytes.len() as u64, h)
 }
 
-/// A scratch directory, and the retail files it promises not to touch.
+/// A scratch directory, the world's overlay folder in it, and the retail files it promises not
+/// to touch.
 struct Scratch {
     dir: PathBuf,
+    overlay: dereth_dat::overlay::OverlayDir,
     _directory: dereth_dat::testing::ScratchDir,
     pristine: Vec<(PathBuf, (u64, u64))>,
 }
@@ -108,11 +110,30 @@ impl Scratch {
     fn new(name: &str) -> Self {
         let directory = dereth_dat::testing::ScratchDir::new(name).expect("a scratch directory");
         let dir = directory.path().to_path_buf();
+        let overlay =
+            dereth_dat::overlay::OverlayDir::new(&dir.join("overlay")).expect("an overlay folder");
         Self {
             dir,
+            overlay,
             _directory: directory,
             pristine: Vec::new(),
         }
+    }
+
+    /// The patcher, writing the world's overlay over the store with this cell file.
+    fn patcher(&self, cell: &Path) -> DddPatcher {
+        DddPatcher::new(Some(OverlayTarget::new(
+            self.overlay.clone(),
+            &store_with_cell_copy(cell),
+            "net scenarios",
+        )))
+    }
+
+    /// The store with this cell file, as the world reads it through its overlay.
+    fn world(&self, cell: &Path) -> RetailDatStore {
+        store_with_cell_copy(cell)
+            .with_overlay(&self.overlay, None)
+            .expect("the overlay opens over its base")
     }
 
     fn watch(&mut self, name: &str) -> PathBuf {
@@ -245,8 +266,8 @@ fn cut_the_record_out(cell: &Path, did: DataId) {
 // -------------------------------------------------------------------------------------------
 
 /// **The whole chain.** Ground the player's files do not carry is asked for once however many
-/// times the client walks into it, the shard's answer is written into the player's own files, and
-/// the next lookup builds the ground and can be stood on.
+/// times the client walks into it, the shard's answer is written into the world's overlay over the
+/// player's files, and the next lookup builds the ground and can be stood on.
 pub fn a_missing_landblock_is_asked_for_once_and_then_builds() {
     let mut s = Scratch::new("chain");
     let cell = s.cell_copy();
@@ -275,7 +296,7 @@ pub fn a_missing_landblock_is_asked_for_once_and_then_builds() {
     );
 
     let land = land_without_the_block(&cell);
-    let mut patcher = DddPatcher::new(s.dir.clone());
+    let mut patcher = s.patcher(&cell);
     let mut session = Session::new(MockTransport::new());
 
     // 1. The streaming ring asks for the ground. This is the miss.
@@ -302,7 +323,7 @@ pub fn a_missing_landblock_is_asked_for_once_and_then_builds() {
         && session.transport.sent.len() == 1
         && patcher.outstanding_gets() == 1;
 
-    // 4. The shard answers, and the answer reaches the player's own container byte for byte.
+    // 4. The shard answers, and the answer reaches the world's overlay byte for byte.
     feed_answer(
         &mut patcher,
         &cell_data_msg(did, &record, version, iteration),
@@ -310,14 +331,11 @@ pub fn a_missing_landblock_is_asked_for_once_and_then_builds() {
     let resupplied = patcher.take_resupplied();
     let answered = patcher.outstanding_gets() == 0
         && resupplied == vec![did]
-        && DatFile::open(&cell)
-            .expect("reopen")
-            .read(did)
-            .expect("reads")
-            == record;
+        && s.world(&cell).read_cell(did).expect("reads") == record
+        && !DatFile::open(&cell).expect("reopen").contains(did);
 
     // 5. The caller re-seeds the land source, and the next lookup builds the ground.
-    land.resupply(Arc::new(store_with_cell_copy(&cell)), &resupplied);
+    land.resupply(Arc::new(s.world(&cell)), &resupplied);
     let built = land
         .landblock(landblock_id())
         .is_some_and(|b| b.id == landblock_id())
@@ -388,7 +406,7 @@ pub fn a_refusal_lets_the_client_ask_again() {
     cut_the_record_out(&cell, did);
 
     let land = land_without_the_block(&cell);
-    let mut patcher = DddPatcher::new(s.dir.clone());
+    let mut patcher = s.patcher(&cell);
     let mut session = Session::new(MockTransport::new());
 
     let missing = land.landblock(landblock_id()).is_none();

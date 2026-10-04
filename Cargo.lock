@@ -1075,6 +1075,7 @@ name = "dereth-dat"
 version = "0.0.0"
 dependencies = [
  "dereth-primitives",
+ "sha2",
  "thiserror 2.0.20",
 ]
 

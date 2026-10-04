@@ -783,6 +783,10 @@ impl Opcode {
     pub const DDD_ON_END_DDD: Self = Self(0xF7EA);
     /// `0xF7EB` DDD_EndDDDMessage
     pub const DDD_END_DDDMESSAGE: Self = Self(0xF7EB);
+    /// `0xF7EC` DDD_OverlayManifestMessage: not a retail message. The overlay extension's
+    /// manifest, which only this client and Empyrean send and read (see
+    /// [`crate::admin::DddOverlayManifest`]); it is not in the retail table below.
+    pub const DDD_OVERLAY_MANIFEST: Self = Self(0xF7EC);
 
     /// The master table row for this opcode, if the client knows it.
     #[must_use]

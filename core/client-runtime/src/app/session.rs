@@ -688,6 +688,7 @@ impl<S: Shell> App<S> {
                             ),
                             Err(e) => tracing::warn!("client_highres.dat did not open: {e}"),
                         }
+                        self.ddd.set_bases(&self.store);
                     }
                     let response =
                         ddd_interrogation_response(&self.store, interrogation.product_id);
@@ -758,6 +759,12 @@ impl<S: Shell> App<S> {
                         }
                         dereth_client_net::client_session::DddEvent::PatchtimePending => {
                             Some(UiDdd::PatchtimePending { total: 0 })
+                        }
+                        // The overlay extension's manifest, ahead of the patch: the patcher
+                        // checks it names this client's bases and a world it takes.
+                        dereth_client_net::client_session::DddEvent::OverlayManifest(m) => {
+                            self.ddd.on_manifest(m);
+                            None
                         }
                         dereth_client_net::client_session::DddEvent::Error(e) => {
                             // The per-frame step's `0xF7E4` arm only marks the asynchronous get
@@ -896,11 +903,7 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
-        match crate::assets::open_world_files(
-            &self.cfg.dat_dir,
-            self.cfg.classic_dat_dir.as_deref(),
-            self.cfg.era,
-        ) {
+        match crate::assets::open_store(&self.cfg) {
             Ok(fresh) => {
                 self.store = std::sync::Arc::new(fresh);
                 tracing::info!(
@@ -947,11 +950,7 @@ impl<S: Shell> App<S> {
             // The patch is on disk; the land source is still reading through the handle it took
             // at world entry. `invalidate_after_ddd` replaced `App::store` for the *patch* phase;
             // a run-time answer arrives with no `0xF7EA` behind it, so the reopen happens here.
-            match crate::assets::open_world_files(
-                &self.cfg.dat_dir,
-                self.cfg.classic_dat_dir.as_deref(),
-                self.cfg.era,
-            ) {
+            match crate::assets::open_store(&self.cfg) {
                 Ok(fresh) => {
                     let fresh = std::sync::Arc::new(fresh);
                     self.store = std::sync::Arc::clone(&fresh);
@@ -1386,6 +1385,25 @@ pub fn ddd_interrogation_response(
             push(HIFI, 1, hi);
         }
     }
+    // Not retail: the overlay extension. The flag says the client keeps the world's records in an
+    // overlay over its locked files, and the bases it holds follow; a server that does not know the
+    // extension reads none of it (see `dereth_protocol::admin::DddInterrogationResponse`).
+    let mut overlay_bases = Vec::new();
+    let mut base = |ty: u32, id: u32, f: &dereth_dat::DatFile| {
+        overlay_bases.push(dereth_protocol::admin::OverlayBase {
+            dat_file_type: ty,
+            dat_file_id: id,
+            fingerprint: dereth_dat::overlay::fingerprint(f),
+        });
+    };
+    base(0, 1, store.portal());
+    base(1, 2, store.cell());
+    base(1, 3, store.local());
+    if product_id & PRODUCT_HIGHRES != 0 {
+        if let Some(hi) = store.highres() {
+            base(HIFI, 1, hi);
+        }
+    }
     DddInterrogationResponse {
         // Read the local language. 1 is English, which is the only `client_local_*.dat` this
         // install has; `-language` does not reach this yet.
@@ -1393,6 +1411,7 @@ pub fn ddd_interrogation_response(
         iters_with_keys,
         // "a second `CAllIterationList`, always empty in practice" -- and ACE does not read it.
         iters_without_keys: Vec::new(),
-        flags: 0,
+        flags: DddInterrogationResponse::FLAG_OVERLAY,
+        overlay_bases,
     }
 }

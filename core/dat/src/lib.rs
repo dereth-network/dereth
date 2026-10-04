@@ -43,6 +43,7 @@ pub mod error;
 pub mod inflate;
 pub mod iteration;
 pub mod locate;
+pub mod overlay;
 pub mod packobj;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]

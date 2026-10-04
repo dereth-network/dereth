@@ -1,6 +1,7 @@
 //! The dat patch path end to end: a `0xF7E2 DDD_DataMessage` off the wire becomes a record in the
-//! dat and a reader that reopens the file sees it; malformed or older records write nothing; the
-//! iteration list is recorded when a revision completes; the client directory is never written.
+//! world's overlay, and the files read through the overlay show it; malformed or older records
+//! write nothing; the iteration list is recorded when a revision completes; purges are tombstones;
+//! the installed data files are never written.
 //!
 //! ACE's `Source/ACE.Server` tree is the oracle for the bytes a server sends:
 //! `Network/Handlers/DDDHandler.cs`, `Managers/DDDManager.cs`, and
@@ -8,11 +9,9 @@
 //!
 //! # Safety
 //!
-//! **Every write here targets a disposable scratch copy**: most tests copy the 1 MiB language
-//! dat, while the landblock-family purge copies the cell dat. Each source retail file has a
-//! pristine digest held by the scratch guard and checked again when it drops. `DatWriter::open`
-//! also refuses any path under `DERETH_TEST_DAT_DIR` outright, which is itself asserted because a normal
-//! run points `dat_dir` at that directory.
+//! **Every write here goes into a scratch overlay folder** over the retail install at
+//! `DERETH_TEST_DAT_DIR`, which is protected for the run and read only. The language and cell
+//! files a test patches are digested before and checked again when the scratch guard drops.
 //!
 //! No socket is bound and no datagram is sent: the messages are built with `dereth_protocol` and pushed
 //! through `dereth_client_net::client_session`'s own queue-5 dispatcher, so what reaches the patcher is what a server's
@@ -20,16 +19,17 @@
 
 use std::path::{Path, PathBuf};
 
-use dereth_client::ddd::{DatTarget, DataOutcome, DddPatcher, DddPhase, DddRefusal};
+use dereth_client::ddd::{DatTarget, DataOutcome, DddPatcher, DddPhase, DddRefusal, OverlayTarget};
 use dereth_client::present::NullPresentation;
+use dereth_dat::overlay::OverlayDir;
 use dereth_dat::write::SaveOutcome;
-use dereth_dat::DatFile;
+use dereth_dat::{DatFile, RetailDatStore};
 use dereth_primitives::DataId;
 use dereth_protocol::admin::{DddBeginDdd, DddData, DddError, PatchRevision};
 
 // ---------------------------------------------------------------------------------------------
-// Disposable copies, and the proof the originals were not touched. The same shape as the dat
-// writer's own suite, which makes the same promise.
+// A scratch overlay over the protected install, and the proof the installed files were not
+// touched.
 // ---------------------------------------------------------------------------------------------
 
 fn digest(path: &Path) -> (u64, u64) {
@@ -42,8 +42,12 @@ fn digest(path: &Path) -> (u64, u64) {
     (bytes.len() as u64, h)
 }
 
+/// The world name every scratch overlay here belongs to.
+const WORLD: &str = "dat patch tests";
+
 struct Scratch {
-    dir: PathBuf,
+    overlay: OverlayDir,
+    store: RetailDatStore,
     _directory: dereth_dat::testing::ScratchDir,
     pristine: Vec<(PathBuf, (u64, u64))>,
 }
@@ -51,52 +55,70 @@ struct Scratch {
 impl Scratch {
     fn new(name: &str) -> Self {
         let directory = dereth_dat::testing::ScratchDir::new(name).expect("a scratch directory");
-        let dir = directory.path().to_path_buf();
+        let overlay =
+            OverlayDir::new(&directory.path().join("overlay")).expect("an overlay folder");
+        let store = dereth_dat::testing::open_store_or_fail();
+        let local = dereth_dat::RetailDat::Local.in_dir(&dereth_dat::testing::dat_dir());
+        let pristine = vec![(local.clone(), digest(&local))];
         Self {
-            dir,
+            overlay,
+            store,
             _directory: directory,
-            pristine: Vec::new(),
+            pristine,
         }
     }
 
-    /// Copy the language dat in. It is the smallest of the four (1 MiB against 885 MiB for the
-    /// portal dat), which is why the language-dat tests patch `(1, 3)`: the protocol does not care
-    /// which file it is, and repeatedly copying the portal dat would make the suite impractical.
-    fn local_dat(&mut self) -> PathBuf {
-        let name = "client_local_English.dat";
-        let src = dereth_dat::testing::dat_dir().join(name);
-        assert!(
-            src.is_file(),
-            "PREFLIGHT: {} is this suite's oracle and is not a file; set DERETH_TEST_DAT_DIR",
-            src.display()
-        );
-        let before = digest(&src);
-        let dst = self.dir.join(name);
-        std::fs::copy(&src, &dst).unwrap_or_else(|e| panic!("copy {}: {e}", src.display()));
-        self.pristine.push((src, before));
-        dst
+    /// The cell file is digested too, for the test that tombstones a landblock in it.
+    fn watch_cell(&mut self) {
+        let cell = dereth_dat::RetailDat::Cell.in_dir(&dereth_dat::testing::dat_dir());
+        let d = digest(&cell);
+        self.pristine.push((cell, d));
     }
 
-    /// The cell dat, for the one test that needs the file a purge actually arrives for. It is
-    /// 332 MiB, so exactly one test copies it.
-    fn cell_dat(&mut self) -> PathBuf {
-        let name = "client_cell_1.dat";
-        let src = dereth_dat::testing::dat_dir().join(name);
-        assert!(
-            src.is_file(),
-            "PREFLIGHT: {} is not a file; set DERETH_TEST_DAT_DIR",
-            src.display()
-        );
-        let before = digest(&src);
-        let dst = self.dir.join(name);
-        std::fs::copy(&src, &dst).unwrap_or_else(|e| panic!("copy {}: {e}", src.display()));
-        self.pristine.push((src, before));
-        dst
+    fn patcher(&self) -> DddPatcher {
+        DddPatcher::new(Some(OverlayTarget::new(
+            self.overlay.clone(),
+            &self.store,
+            WORLD,
+        )))
     }
 
-    fn patcher(&mut self) -> DddPatcher {
-        let _ = self.local_dat();
-        DddPatcher::new(self.dir.clone())
+    /// The install's own language file.
+    fn base_local(&self) -> &DatFile {
+        self.store.local()
+    }
+
+    /// The files as the world reads them now: the install with the overlay over it.
+    fn world(&self) -> RetailDatStore {
+        self.store
+            .clone()
+            .with_overlay(&self.overlay, Some(WORLD))
+            .expect("the overlay opens over its base")
+    }
+
+    /// The language file as the world reads it.
+    fn local(&self) -> DatFile {
+        self.world().local().clone()
+    }
+
+    /// The overlay container over `target`'s file.
+    fn container(&self, target: DatTarget) -> PathBuf {
+        self.overlay.container(target)
+    }
+
+    /// The overlay container's own structure is sound.
+    fn assert_sound(&self, target: DatTarget) {
+        let f = DatFile::open(&self.container(target)).expect("the overlay container opens");
+        assert!(
+            f.verify_structure().expect("the tree walks").is_sound(),
+            "the overlay's tree is sound"
+        );
+    }
+
+    /// The language overlay container's length and digest, or nothing while it does not exist.
+    fn overlay_digest(&self) -> Option<(u64, u64)> {
+        let c = self.container(DatTarget::Local);
+        c.is_file().then(|| digest(&c))
     }
 
     fn assert_pristine(&self) {
@@ -255,15 +277,12 @@ fn a_run_time_cache_miss_produces_the_native_f7e3_bytes() {
 /// iteration and version the message carried.
 #[test]
 fn an_uncompressed_record_is_applied_and_reopens_byte_exact() {
-    let mut s = Scratch::new("apply_plain");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("apply_plain");
     let mut p = s.patcher();
 
     // Precondition: the id really is new, so "Added" means something.
     assert!(
-        !DatFile::open(&dat)
-            .expect("the copy opens")
-            .contains(NEW_STRING),
+        !s.local().contains(NEW_STRING),
         "the test id must not already be in the shipped file"
     );
 
@@ -285,7 +304,7 @@ fn an_uncompressed_record_is_applied_and_reopens_byte_exact() {
         "no 0xF7E7 arrived, so nothing is pending and nothing is owed"
     );
 
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.local();
     assert_eq!(f.read(NEW_STRING).expect("the new record reads"), body);
     let e = *f.entry(NEW_STRING).expect("the directory has it");
     assert_eq!(
@@ -301,23 +320,19 @@ fn an_uncompressed_record_is_applied_and_reopens_byte_exact() {
         !e.compressed(),
         "both relevant save cases leave the stored compressed flag clear"
     );
-    assert!(
-        f.verify_structure().expect("the tree walks").is_sound(),
-        "the tree is still sound"
-    );
+    s.assert_sound(DatTarget::Local);
 }
 
 /// A record that **replaces** a shipped one, which is the case a real patch is made of, with the
 /// old bytes read first so the change is measured rather than assumed.
 #[test]
 fn a_replaced_record_is_the_new_bytes_and_the_old_ones_are_gone() {
-    let mut s = Scratch::new("apply_replace");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("apply_replace");
     let mut p = s.patcher();
 
     // Any shipped id will do; take the first one the reader lists that is not the iteration list.
     let (victim, before) = {
-        let f = DatFile::open(&dat).expect("the copy opens");
+        let f = s.local();
         let id = f
             .iter_ids()
             .find(|i| *i != dereth_dat::ITERATION_LIST)
@@ -345,9 +360,9 @@ fn a_replaced_record_is_the_new_bytes_and_the_old_ones_are_gone() {
         "{outcome:?}"
     );
 
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.local();
     assert_eq!(f.read(victim).expect("the replacement reads"), body);
-    assert!(f.verify_structure().expect("the tree walks").is_sound());
+    s.assert_sound(DatTarget::Local);
 }
 
 /// The compressed path: compressed flag 1, payload `[u32 uncompressed_length][zlib stream]`,
@@ -365,8 +380,7 @@ fn a_compressed_record_is_inflated_before_it_is_stored() {
         .map(|i| AL[((i * i * 7 + i * 13) % 36) as usize])
         .collect();
 
-    let mut s = Scratch::new("apply_compressed");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("apply_compressed");
     let mut p = s.patcher();
 
     let m = compressed_msg(NEW_STRING, plain.len(), &hex(ZLIB), 3);
@@ -387,7 +401,7 @@ fn a_compressed_record_is_inflated_before_it_is_stored() {
         "{outcome:?}"
     );
 
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.local();
     assert_eq!(
         f.read(NEW_STRING).expect("it reads"),
         plain,
@@ -408,10 +422,9 @@ fn a_compressed_record_is_inflated_before_it_is_stored() {
 /// write" is measured for the sequence rather than inferred from its return values.
 #[test]
 fn a_malformed_record_is_refused_and_not_one_byte_is_written() {
-    let mut s = Scratch::new("refusals");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("refusals");
     let mut p = s.patcher();
-    let untouched = digest(&dat);
+    let untouched = s.overlay_digest();
     let body = payload(0x11, 500);
 
     // `data_size` counts the size dword, so a declared 504 needs a 500-byte payload.
@@ -482,7 +495,7 @@ fn a_malformed_record_is_refused_and_not_one_byte_is_written() {
     ));
 
     assert_eq!(
-        digest(&dat),
+        s.overlay_digest(),
         untouched,
         "seven refusals and the file is byte-identical"
     );
@@ -500,14 +513,13 @@ fn a_malformed_record_is_refused_and_not_one_byte_is_written() {
 /// no-op reported as **success**, so the record that is there stays and the patch does not regress.
 #[test]
 fn an_older_iteration_is_a_no_op_and_the_newer_record_stands() {
-    let mut s = Scratch::new("stale_iteration");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("stale_iteration");
     let mut p = s.patcher();
 
     let new = payload(0x01, 800);
     let old = payload(0x02, 800);
     assert!(p.on_data(&data_msg(NEW_STRING, &new, 3, 100)).0.wrote());
-    let after_new = digest(&dat);
+    let after_new = s.overlay_digest();
 
     let (outcome, _) = p.on_data(&data_msg(NEW_STRING, &old, 3, 50));
     assert_eq!(
@@ -519,17 +531,11 @@ fn an_older_iteration_is_a_no_op_and_the_newer_record_stands() {
     );
     assert!(!outcome.wrote());
     assert_eq!(
-        digest(&dat),
+        s.overlay_digest(),
         after_new,
         "iteration 50 after 100 changes nothing"
     );
-    assert_eq!(
-        DatFile::open(&dat)
-            .expect("opens")
-            .read(NEW_STRING)
-            .expect("reads"),
-        new
-    );
+    assert_eq!(s.local().read(NEW_STRING).expect("reads"), new);
 }
 
 /// `0xF7E4`: the cache update records an asynchronous-source failure and takes no save path, so
@@ -537,10 +543,9 @@ fn an_older_iteration_is_a_no_op_and_the_newer_record_stands() {
 /// `0xF7EA`. A server that errors on every request is why the patch screen can hang.
 #[test]
 fn an_error_message_writes_nothing_and_leaves_the_download_pending() {
-    let mut s = Scratch::new("error_message");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("error_message");
     let mut p = s.patcher();
-    let untouched = digest(&dat);
+    let untouched = s.overlay_digest();
 
     p.on_interrogation();
     let (expected, action) = p.on_begin(&begin(9, &[NEW_STRING.raw()], 4096));
@@ -555,7 +560,7 @@ fn an_error_message_writes_nothing_and_leaves_the_download_pending() {
     });
     assert_eq!(p.pending(), 1, "an error does not retire the download");
     assert_eq!(p.applied(), 0);
-    assert_eq!(digest(&dat), untouched);
+    assert_eq!(s.overlay_digest(), untouched);
 
     let summary = p.on_end();
     assert_eq!(summary.still_pending, 1);
@@ -566,11 +571,11 @@ fn an_error_message_writes_nothing_and_leaves_the_download_pending() {
 }
 
 /// Behaviour: net.dat-patch.the-owners-client-directory-is-never-written
-/// The production posture: in a normal run the patch directory **is** `DERETH_TEST_DAT_DIR`, and
-/// `DatWriter::open` refuses it. The client directory's dats cannot be written by a server, and
-/// the refusal is reported rather than swallowed.
+/// The production posture: a patch goes into the world's overlay and nowhere else. The installed
+/// language file is byte-identical after a record lands; the data folder itself is refused as an
+/// overlay folder; and a client with no overlay folder writes nothing at all and says so.
 #[test]
-fn a_patch_aimed_at_the_owners_client_directory_is_refused() {
+fn a_patch_never_writes_the_installed_files() {
     let dir = dereth_dat::testing::dat_dir();
     assert!(
         dereth_dat::testing::have_dats(),
@@ -579,19 +584,36 @@ fn a_patch_aimed_at_the_owners_client_directory_is_refused() {
     );
     let before = digest(&dereth_dat::RetailDat::Local.in_dir(&dir));
 
-    let mut p = DddPatcher::new(dir.clone());
-    let (outcome, _) = p.on_data(&data_msg(NEW_STRING, &payload(0x77, 64), 3, 0));
-    match outcome {
-        DataOutcome::Refused(DddRefusal::Write(msg)) => assert!(
-            msg.contains("disposable copy"),
-            "the refusal should be DatError::RetailDatRefused, was {msg}"
-        ),
-        other => panic!("the client directory's dat must be refused, got {other:?}"),
-    }
+    let s = Scratch::new("installed_untouched");
+    let mut p = s.patcher();
+    let body = payload(0x77, 64);
+    assert!(p.on_data(&data_msg(NEW_STRING, &body, 3, 0)).0.wrote());
+    p.on_end();
+    assert_eq!(
+        s.local().read(NEW_STRING).expect("the world reads it"),
+        body
+    );
+    assert!(
+        !s.base_local().contains(NEW_STRING),
+        "the installed file does not have it"
+    );
+
+    // The data folder is never an overlay folder.
+    assert!(matches!(
+        OverlayDir::new(&dir),
+        Err(dereth_dat::overlay::OverlayError::BaseFolder(_))
+    ));
+    // With no overlay folder, nothing is written and the refusal is reported.
+    let mut none = DddPatcher::new(None);
+    let (outcome, _) = none.on_data(&data_msg(NEW_STRING, &body, 3, 0));
+    assert!(
+        matches!(outcome, DataOutcome::Refused(DddRefusal::OverlayRefused(_))),
+        "{outcome:?}"
+    );
     assert_eq!(
         digest(&dereth_dat::RetailDat::Local.in_dir(&dir)),
         before,
-        "the client directory's dat is byte-identical"
+        "the installed language file is byte-identical"
     );
 }
 
@@ -608,14 +630,10 @@ fn a_patch_aimed_at_the_owners_client_directory_is_refused() {
 /// `0xF7EA` itself.
 #[test]
 fn a_whole_exchange_records_its_iteration_and_asks_to_end() {
-    let mut s = Scratch::new("whole_exchange");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("whole_exchange");
     let mut p = s.patcher();
 
-    let iterations_before = DatFile::open(&dat)
-        .expect("opens")
-        .iteration_list()
-        .expect("a set");
+    let iterations_before = s.local().iteration_list().expect("a set");
     let next = iterations_before
         .iter()
         .copied()
@@ -645,7 +663,7 @@ fn a_whole_exchange_records_its_iteration_and_asks_to_end() {
     assert_eq!(summary.changed, vec![DatTarget::Local]);
     assert_eq!(p.phase(), DddPhase::RunTime);
 
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.local();
     assert_eq!(f.read(NEW_STRING).expect("reads"), body);
     let after = f.iteration_list().expect("a set");
     assert!(
@@ -657,7 +675,7 @@ fn a_whole_exchange_records_its_iteration_and_asks_to_end() {
         iterations_before.len() + 1,
         "exactly one iteration was added"
     );
-    assert!(f.verify_structure().expect("the tree walks").is_sound());
+    s.assert_sound(DatTarget::Local);
 }
 
 /// A revision with **no** downloads is complete on arrival, so its iteration is recorded straight
@@ -666,13 +684,9 @@ fn a_whole_exchange_records_its_iteration_and_asks_to_end() {
 /// acknowledged.
 #[test]
 fn a_revision_with_nothing_to_download_records_its_iteration_immediately() {
-    let mut s = Scratch::new("empty_revision");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("empty_revision");
     let mut p = s.patcher();
-    let before = DatFile::open(&dat)
-        .expect("opens")
-        .iteration_list()
-        .expect("a set");
+    let before = s.local().iteration_list().expect("a set");
     let next = before.iter().copied().max().expect("non-empty") + 1;
 
     let (_, action) = p.on_begin(&begin(next, &[], 0));
@@ -687,10 +701,7 @@ fn a_revision_with_nothing_to_download_records_its_iteration_immediately() {
         "the iteration list was rewritten"
     );
 
-    let after = DatFile::open(&dat)
-        .expect("opens")
-        .iteration_list()
-        .expect("a set");
+    let after = s.local().iteration_list().expect("a set");
     assert!(after.contains(&next), "{after:?}");
 }
 
@@ -705,12 +716,11 @@ fn a_revision_with_nothing_to_download_records_its_iteration_immediately() {
 /// login that it does not need to send this revision again.
 #[test]
 fn a_revision_with_purges_completes_and_records_its_iteration() {
-    let mut s = Scratch::new("purge_done");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("purge_done");
     let mut p = s.patcher();
 
     let (before, victims) = {
-        let f = DatFile::open(&dat).expect("opens");
+        let f = s.local();
         let victims: Vec<DataId> = f
             .iter_ids()
             .filter(|i| *i != dereth_dat::ITERATION_LIST)
@@ -738,7 +748,7 @@ fn a_revision_with_purges_completes_and_records_its_iteration() {
     // The purge happens at `0xF7E7`, before the downloads land: the begin-request worker applies
     // purges before the request-finished step performs iteration bookkeeping.
     {
-        let mid = DatFile::open(&dat).expect("reopen mid-patch");
+        let mid = s.local();
         for v in &victims {
             assert!(!mid.contains(*v), "{v:?} should already be gone");
         }
@@ -754,7 +764,7 @@ fn a_revision_with_purges_completes_and_records_its_iteration() {
     let summary = p.on_end();
     assert!(summary.changed_anything(), "{summary:?}");
 
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.local();
     assert_eq!(
         f.read(NEW_STRING).expect("reads"),
         body,
@@ -768,7 +778,7 @@ fn a_revision_with_purges_completes_and_records_its_iteration() {
         after.contains(&next),
         "the completed revision's iteration is recorded: {after:?}"
     );
-    assert!(f.verify_structure().expect("verify").is_sound());
+    s.assert_sound(DatTarget::Local);
 }
 
 /// The cell dat, which is the file a purge actually arrives for: ACE's own note is that "PCAPs
@@ -777,16 +787,17 @@ fn a_revision_with_purges_completes_and_records_its_iteration() {
 ///
 /// Every cell purge takes the mask arm because cell-file ID serialization sets type 1
 /// **unconditionally**, without consulting the general type mapping. The whole `0xXXXX0000`
-/// landblock family therefore goes, not just the named ID.
+/// landblock family therefore goes, not just the named ID: here it is a family tombstone in the
+/// world's overlay, and the installed cell file keeps every record.
 #[test]
 fn a_cell_revision_purges_the_whole_landblock_family_and_completes_on_arrival() {
     let mut s = Scratch::new("purge_cell");
-    let dat = s.cell_dat();
-    let mut p = DddPatcher::new(s.dir.clone());
+    s.watch_cell();
+    let mut p = s.patcher();
 
     let block = 0xA9B4u32;
     let (before, family) = {
-        let f = DatFile::open(&dat).expect("opens");
+        let f = s.world().cell().clone();
         let family: Vec<DataId> = f.iter_ids().filter(|i| i.raw() >> 16 == block).collect();
         assert!(family.len() > 1, "the fixture landblock must have a family");
         (f.iteration_list().expect("a set"), family)
@@ -812,7 +823,7 @@ fn a_cell_revision_purges_the_whole_landblock_family_and_completes_on_arrival() 
     let summary = p.on_end();
     assert_eq!(summary.changed, vec![DatTarget::Cell], "{summary:?}");
 
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.world().cell().clone();
     for id in &family {
         assert!(!f.contains(*id), "{id:?} survived the mask purge");
     }
@@ -826,7 +837,13 @@ fn a_cell_revision_purges_the_whole_landblock_family_and_completes_on_arrival() 
         after.contains(&next),
         "the cell revision's iteration is recorded: {after:?}"
     );
-    assert!(f.verify_structure().expect("verify").is_sound());
+    for id in &family {
+        assert!(
+            s.store.cell().contains(*id),
+            "{id:?} is still in the installed file"
+        );
+    }
+    s.assert_sound(DatTarget::Cell);
 }
 
 /// A revision whose purges cannot be *performed* withholds its iteration however many downloads
@@ -837,34 +854,22 @@ fn a_cell_revision_purges_the_whole_landblock_family_and_completes_on_arrival() 
 /// did not, and it would never offer that revision again. Withholding it makes the next login
 /// offer the whole revision afresh, which is the recoverable failure.
 ///
-/// The failure is manufactured the way a real one would arise: an interrupted remove
-/// (`Fault::AfterRecordFreed`, after a record chain is freed) leaves an entry
-/// naming a chain that is already on the free list, and purging that id then fails with
-/// `DoubleFree`. The file itself is perfectly writable, so the iteration *could* be recorded --
-/// which is what makes the assertion that it is not mean something. In a normal run the failure is
-/// duller and universal: `DatWriter::open` refuses the client directory outright.
+/// The failure is manufactured the way a real one would arise: the overlay folder cannot be
+/// written (it is declared read-only for the run), so the purge's tombstone cannot be kept.
 #[test]
 fn a_revision_whose_purges_fail_still_withholds_its_iteration() {
-    let mut s = Scratch::new("purge_failed");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("purge_failed");
+    std::fs::create_dir_all(s.overlay.path()).expect("the overlay folder");
+    dereth_dat::protect_install(s.overlay.path());
     let mut p = s.patcher();
 
-    // Leave one entry naming a freed chain, and remember which.
     let victim = {
-        let f = DatFile::open(&dat).expect("opens");
+        let f = s.local();
         let id = f.iter_ids().find(|i| *i != dereth_dat::ITERATION_LIST);
         id.expect("the language dat has records")
     };
-    {
-        let mut w = dereth_dat::write::DatWriter::open(&dat).expect("the copy opens for writing");
-        w.inject_fault(dereth_dat::write::Fault::AfterRecordFreed);
-        w.remove(victim).expect_err("the injected interrupt");
-    }
 
-    let before = DatFile::open(&dat)
-        .expect("opens")
-        .iteration_list()
-        .expect("a set");
+    let before = s.local().iteration_list().expect("a set");
     let next = before.iter().copied().max().expect("non-empty") + 1;
     let m = DddBeginDdd {
         data_expected: 0,
@@ -890,10 +895,7 @@ fn a_revision_whose_purges_fail_still_withholds_its_iteration() {
     );
     p.on_end();
 
-    let after = DatFile::open(&dat)
-        .expect("opens")
-        .iteration_list()
-        .expect("a set");
+    let after = s.local().iteration_list().expect("a set");
     assert!(
         !after.contains(&next),
         "iteration {next} must not be recorded while its purges failed: {after:?}"
@@ -907,13 +909,12 @@ fn a_revision_whose_purges_fail_still_withholds_its_iteration() {
 /// `App::invalidate_after_ddd` calls, and this is the test that shows it is needed.
 #[test]
 fn a_reader_open_across_the_patch_is_stale_until_it_is_reloaded() {
-    let mut s = Scratch::new("invalidation");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("invalidation");
     let mut p = s.patcher();
 
     // The reader that was up before the patch. Replace a *shipped* id, so the stale reader has a
     // stale entry rather than no entry — the failure mode that matters.
-    let mut reader = DatFile::open(&dat).expect("the copy opens");
+    let mut reader = s.local();
     let victim = reader
         .iter_ids()
         .find(|i| *i != dereth_dat::ITERATION_LIST)
@@ -934,16 +935,23 @@ fn a_reader_open_across_the_patch_is_stale_until_it_is_reloaded() {
         "an open reader cannot see a patch without being told"
     );
 
+    // A reader opened before the patch has no overlay container to reopen; the store reopened
+    // over the overlay (`App::invalidate_after_ddd` does this) sees the record.
     reader.reload().expect("the reader reloads");
-    assert_eq!(
-        reader.read(victim).expect("reads"),
-        new,
-        "after the reload it is the new record"
+    assert_ne!(
+        reader.read(victim).ok(),
+        Some(new.clone()),
+        "the installed file is unchanged"
     );
-    assert!(reader
-        .verify_structure()
-        .expect("the tree walks")
-        .is_sound());
+    assert_eq!(
+        s.local().read(victim).expect("reads"),
+        new,
+        "reopened over the overlay it is the new record"
+    );
+    let mut world = s.world();
+    world.reload().expect("the world reloads");
+    assert_eq!(world.local().read(victim).expect("reads"), new);
+    s.assert_sound(DatTarget::Local);
 }
 
 /// Behaviour: net.dat-patch.a-downloaded-record-is-written-and-seen-after-reopen
@@ -951,8 +959,7 @@ fn a_reader_open_across_the_patch_is_stale_until_it_is_reloaded() {
 /// `DatFile` readers opened afterwards see the record.
 #[test]
 fn a_patched_record_survives_a_fresh_open() {
-    let mut s = Scratch::new("persistence");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("persistence");
     let body = payload(0x6E, 1500);
     {
         let mut p = s.patcher();
@@ -963,23 +970,10 @@ fn a_patched_record_survives_a_fresh_open() {
 
     // Two fresh `DatFile` opens check payload and iteration; a raw length check independently
     // confirms only that the file remains above the minimum expected size.
-    assert_eq!(
-        DatFile::open(&dat)
-            .expect("opens")
-            .read(NEW_STRING)
-            .expect("reads"),
-        body
-    );
-    let raw = std::fs::read(&dat).expect("the file is readable as bytes");
+    assert_eq!(s.local().read(NEW_STRING).expect("reads"), body);
+    let raw = std::fs::read(s.container(DatTarget::Local)).expect("the overlay reads as bytes");
     assert!(raw.len() >= 1024, "still a container");
-    assert_eq!(
-        DatFile::open(&dat)
-            .expect("reopens")
-            .entry(NEW_STRING)
-            .expect("the entry")
-            .iteration,
-        5
-    );
+    assert_eq!(s.local().entry(NEW_STRING).expect("the entry").iteration, 5);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -991,10 +985,9 @@ fn a_patched_record_survives_a_fresh_open() {
 /// for writing and `on_end` reports no change — which is what tells `App` not to invalidate.
 #[test]
 fn a_session_with_no_patch_opens_no_writer_and_changes_nothing() {
-    let mut s = Scratch::new("no_patch");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("no_patch");
     let mut p = s.patcher();
-    let untouched = digest(&dat);
+    let untouched = s.overlay_digest();
 
     p.on_interrogation();
     let summary = p.on_end();
@@ -1006,7 +999,7 @@ fn a_session_with_no_patch_opens_no_writer_and_changes_nothing() {
     );
     assert!(!summary.changed_anything());
     assert!(p.notices().is_empty(), "{:?}", p.notices());
-    assert_eq!(digest(&dat), untouched);
+    assert_eq!(s.overlay_digest(), untouched);
 }
 
 /// The queue-5 decoder in front of all of this: the bytes a server sends are what the patcher
@@ -1015,8 +1008,7 @@ fn a_session_with_no_patch_opens_no_writer_and_changes_nothing() {
 /// something the tests above assume.
 #[test]
 fn the_wire_bytes_decode_to_the_event_the_patcher_applies() {
-    let mut s = Scratch::new("wire");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("wire");
     let mut p = s.patcher();
 
     let body = payload(0x9D, 600);
@@ -1059,13 +1051,7 @@ fn the_wire_bytes_decode_to_the_event_the_patcher_applies() {
     };
     let (outcome, _) = p.on_data(&decoded);
     assert!(outcome.wrote(), "{outcome:?}");
-    assert_eq!(
-        DatFile::open(&dat)
-            .expect("opens")
-            .read(NEW_STRING)
-            .expect("reads"),
-        body
-    );
+    assert_eq!(s.local().read(NEW_STRING).expect("reads"), body);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1076,11 +1062,9 @@ fn the_wire_bytes_decode_to_the_event_the_patcher_applies() {
 /// real `ClientNetwork` reassembles it, the real `Session` dispatches it on queue 5, `App`'s own
 /// `0xF7E2` arm hands it to its `DddPatcher`, and the patcher answers to `App::ddd()`.
 ///
-/// What it demonstrates, deliberately, is the **safe** outcome: `App`'s patcher is aimed at
-/// `Config::dat_dir`, which here is the real client directory, so `DatWriter::open` refuses and
-/// the record is not written. The retail dats are hashed before and after. A test that copied
-/// 1.4 GB of container to demonstrate the other outcome would not be a test anybody runs; the
-/// patcher tests above cover the writing half against a 1 MiB copy.
+/// What it demonstrates is where the record goes: `App`'s patcher writes into the world's
+/// overlay folder (`--overlay-dat-dir`, here a scratch folder), and the installed data files,
+/// hashed before and after, are untouched.
 ///
 /// The application uses a `NullPresentation`; this station exercises transport, session, app,
 /// patcher, and UI host-state routing without creating a GPU device.
@@ -1104,6 +1088,9 @@ fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
     .iter()
     .map(|n| (dir.join(n), digest(&dir.join(n))))
     .collect();
+    let scratch =
+        dereth_dat::testing::ScratchDir::new("dat-patch-app").expect("a scratch directory");
+    let overlay = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
 
     // `ui: true` and the shell, because the screen hop is part of what is being shown:
     // `App::build_host_state` -- which drains `pending_ddd` into `HostState::ddd` -- runs inside
@@ -1115,6 +1102,7 @@ fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
             ui: true,
             preferences_file: std::env::temp_dir().join("dereth-dat-patch-not-created/prefs.ini"),
             dat_dir: dir.clone(),
+            overlay_dat_dir: Some(overlay.path().to_path_buf()),
             ..Default::default()
         },
         Box::new(NullPresentation::new(800, 600)),
@@ -1245,19 +1233,14 @@ fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
         "the patch screen sees the download: {seen:?}"
     );
 
-    // And the patcher refused it, because the target is the client directory.
-    assert_eq!(
-        app.ddd().applied(),
-        0,
-        "nothing may be written to DERETH_TEST_DAT_DIR"
-    );
+    // And the patcher wrote it into the world's overlay, not the installed files.
+    assert_eq!(app.ddd().applied(), 1, "{:?}", app.ddd().notices());
+    let container = overlay.container(DatTarget::Local);
     assert!(
-        app.ddd()
-            .notices()
-            .iter()
-            .any(|n| n.contains("disposable copy")),
-        "the refusal is reported: {:?}",
-        app.ddd().notices()
+        DatFile::open(&container)
+            .expect("the overlay container")
+            .contains(NEW_STRING),
+        "the record is in the overlay"
     );
     for (path, was) in &before {
         assert_eq!(&digest(path), was, "{} changed", path.display());
@@ -1301,13 +1284,9 @@ fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
 /// claims 5000 iterations.
 #[test]
 fn the_servers_iteration_list_counts_as_delivered_and_is_not_written() {
-    let mut s = Scratch::new("rr82_iteration_list");
-    let dat = dereth_dat::RetailDat::Local.in_dir(&s.dir);
+    let s = Scratch::new("rr82_iteration_list");
     let mut p = s.patcher();
-    let before = DatFile::open(&dat)
-        .expect("the copy opens")
-        .iteration_list()
-        .expect("its list reads");
+    let before = s.local().iteration_list().expect("its list reads");
     let next = before.last().copied().expect("a list") + 1;
 
     let list = dereth_dat::ITERATION_LIST;
@@ -1346,11 +1325,194 @@ fn the_servers_iteration_list_counts_as_delivered_and_is_not_written() {
 
     let mut want = before;
     want.push(next);
-    let f = DatFile::open(&dat).expect("the patched copy opens");
+    let f = s.local();
     assert_eq!(
         f.iteration_list().expect("the list reads"),
         want,
         "the client's list gained the one iteration"
     );
-    assert!(f.verify_structure().expect("the tree walks").is_sound());
+    s.assert_sound(DatTarget::Local);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The overlay extension: the world's manifest, ahead of its patch.
+// ---------------------------------------------------------------------------------------------
+
+/// The manifest a server that knows the extension sends for one language-file revision.
+fn manifest(
+    s: &Scratch,
+    world: &str,
+    records: &[(DataId, &[u8])],
+    tombstones: &[(u32, u32)],
+    iteration: u32,
+) -> dereth_protocol::admin::DddOverlayManifest {
+    use dereth_protocol::admin::{OverlayFileManifest, OverlayRecord, OverlayTombstone};
+    dereth_protocol::admin::DddOverlayManifest {
+        world_key: world.into(),
+        total_bytes: 0,
+        files: vec![OverlayFileManifest {
+            dat_file_type: 1,
+            dat_file_id: 3,
+            base_name: "client_local_English.dat".into(),
+            base_fingerprint: dereth_dat::overlay::fingerprint(s.base_local()),
+            base_iterations: 0,
+            revisions: vec![iteration],
+            records: records
+                .iter()
+                .map(|(id, b)| OverlayRecord {
+                    id: id.raw(),
+                    iteration,
+                    size: b.len() as u32,
+                    sha256: dereth_dat::overlay::record_hash(b),
+                })
+                .collect(),
+            tombstones: tombstones
+                .iter()
+                .map(|(id, mask)| OverlayTombstone {
+                    id: *id,
+                    mask: *mask,
+                    iteration,
+                })
+                .collect(),
+        }],
+    }
+}
+
+/// The next iteration the installed language file does not have.
+fn next_iteration(s: &Scratch) -> u32 {
+    s.base_local()
+        .iteration_list()
+        .expect("a set")
+        .last()
+        .copied()
+        .unwrap_or(0)
+        + 1
+}
+
+/// Behaviour: net.dat-patch.an-overlay-the-client-cannot-take-is-refused-and-nothing-is-written
+/// A world's overlay is refused, reported, and nothing of it written, when its manifest names
+/// another base than the file the client holds, when the world is on the player's blocklist, or
+/// when the folder already holds another world's overlay; the patch then ends at once and the
+/// world is read from the installed files alone.
+#[test]
+fn an_overlay_made_against_another_base_or_for_a_blocked_or_other_world_is_refused() {
+    let next = 9999;
+    let body = payload(0x42, 300);
+    // Another base.
+    let s = Scratch::new("other_base");
+    let mut p = s.patcher();
+    let mut m = manifest(&s, WORLD, &[(NEW_STRING, &body)], &[], next);
+    m.files[0].base_fingerprint = [0xAB; 32];
+    p.on_manifest(&m);
+    assert!(
+        p.refused().is_some_and(|r| r.contains("made against")),
+        "{:?}",
+        p.refused()
+    );
+    let (_, action) = p.on_begin(&begin(next, &[NEW_STRING.raw()], 300));
+    assert!(action.send_end, "a refused patch ends at once");
+    assert!(matches!(
+        p.on_data(&data_msg(NEW_STRING, &body, 3, next)).0,
+        DataOutcome::Refused(DddRefusal::OverlayRefused(_))
+    ));
+    p.on_end();
+    assert_eq!(s.overlay_digest(), None, "no overlay container was made");
+
+    // A blocked world.
+    let s = Scratch::new("blocked");
+    let mut p = s.patcher();
+    p.set_blocklist(["a bad world".to_owned()]);
+    p.on_manifest(&manifest(
+        &s,
+        "a bad world",
+        &[(NEW_STRING, &body)],
+        &[],
+        next,
+    ));
+    assert!(p.refused().is_some_and(|r| r.contains("blocklist")));
+    assert!(!p.on_data(&data_msg(NEW_STRING, &body, 3, next)).0.wrote());
+    assert_eq!(s.overlay_digest(), None);
+
+    // A folder holding another world's overlay.
+    let s = Scratch::new("other_world");
+    let mut first = s.patcher();
+    assert!(first.on_data(&data_msg(NEW_STRING, &body, 3, 0)).0.wrote());
+    first.on_end();
+    let held = s.overlay_digest();
+    let mut p = s.patcher();
+    p.on_manifest(&manifest(
+        &s,
+        "another world",
+        &[(NEW_STRING, &body)],
+        &[],
+        next,
+    ));
+    assert!(
+        p.refused().is_some_and(|r| r.contains("another world")),
+        "{:?}",
+        p.refused()
+    );
+    assert!(!p.on_data(&data_msg(NEW_STRING, &body, 3, next)).0.wrote());
+    assert_eq!(
+        s.overlay_digest(),
+        held,
+        "the other world's overlay is untouched"
+    );
+}
+
+/// Behaviour: net.dat-patch.a-record-the-manifest-does-not-name-is-refused
+/// With the world's manifest in hand, a record whose bytes are not the ones it names is refused
+/// and not written; the one it names is written, and the revision completes when it lands.
+#[test]
+fn a_record_whose_bytes_are_not_the_manifests_is_refused() {
+    let s = Scratch::new("manifest_hash");
+    let mut p = s.patcher();
+    let next = next_iteration(&s);
+    let body = payload(0x24, 700);
+    p.on_manifest(&manifest(&s, WORLD, &[(NEW_STRING, &body)], &[], next));
+    assert_eq!(p.refused(), None);
+    p.on_interrogation();
+    let (_, action) = p.on_begin(&begin(next, &[NEW_STRING.raw()], 700));
+    assert!(!action.send_end);
+    let forged = payload(0x25, 700);
+    assert_eq!(
+        p.on_data(&data_msg(NEW_STRING, &forged, 3, next)).0,
+        DataOutcome::Refused(DddRefusal::HashMismatch {
+            id: NEW_STRING.raw()
+        })
+    );
+    let (outcome, action) = p.on_data(&data_msg(NEW_STRING, &body, 3, next));
+    assert!(outcome.wrote(), "{outcome:?}");
+    assert!(action.send_end, "the revision's one download landed");
+    p.on_end();
+    assert_eq!(s.local().read(NEW_STRING).expect("reads"), body);
+    assert!(s.local().iteration_list().expect("a set").contains(&next));
+}
+
+/// Behaviour: net.dat-patch.a-deletion-the-manifest-names-hides-that-record-alone
+/// A deletion only the manifest can say -- one record, where a retail purge of the cell file
+/// takes a whole landblock -- hides that record alone, in the revision that made it.
+#[test]
+fn a_deletion_the_manifest_names_hides_that_record_alone() {
+    let s = Scratch::new("manifest_tombstone");
+    let mut p = s.patcher();
+    let ids: Vec<DataId> = s
+        .base_local()
+        .iter_ids()
+        .filter(|i| *i != dereth_dat::ITERATION_LIST)
+        .take(2)
+        .collect();
+    let next = next_iteration(&s);
+    p.on_manifest(&manifest(&s, WORLD, &[], &[(ids[0].raw(), 0)], next));
+    let (_, action) = p.on_begin(&begin(next, &[], 0));
+    assert!(action.send_end);
+    p.on_end();
+    let world = s.local();
+    assert!(!world.contains(ids[0]), "the named record is hidden");
+    assert!(world.contains(ids[1]), "its neighbour stands");
+    assert!(
+        s.base_local().contains(ids[0]),
+        "the installed file still holds it"
+    );
+    assert!(world.iteration_list().expect("a set").contains(&next));
 }

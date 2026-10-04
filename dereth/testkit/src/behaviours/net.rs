@@ -13,7 +13,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -383,11 +383,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "net.dat-patch.a-deletion-the-manifest-names-hides-that-record-alone",
+        says: "A deletion the world's overlay manifest names hides that one record, where a \
+               shard's purge of the cell file takes a whole landblock; the installed file keeps it.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
+        evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-TOMBSTONES"),
+        station: "dereth-client::dat::net::dat_patch_apply::a_deletion_the_manifest_names_hides_that_record_alone",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "net.dat-patch.a-downloaded-record-is-written-and-seen-after-reopen",
-        says: "A data file the shard sends during the update exchange is written into the client's \
-               own data files and is there, unchanged, when those files are opened again \
-               afterwards.",
-        since: RETAIL,
+        says: "A data file the shard sends during the update exchange is written into that world's \
+               overlay over the client's data files and is there, unchanged, when the files are \
+               opened again afterwards with the overlay over them.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
         evidence: Evidence::Private("AC-EVID-P41B-DAT-PATCH"),
         station: "dereth-client::dat::net::dat_patch_apply::a_patched_record_survives_a_fresh_open",
         tier: Tier::Dat,
@@ -402,6 +413,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "net.dat-patch.a-record-the-manifest-does-not-name-is-refused",
+        says: "With the world's overlay manifest in hand, a downloaded record whose bytes are not \
+               the ones the manifest names is refused and not written, and the one it names is.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
+        evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-HASHES"),
+        station: "dereth-client::dat::net::dat_patch_apply::a_record_whose_bytes_are_not_the_manifests_is_refused",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "net.dat-patch.an-overlay-the-client-cannot-take-is-refused-and-nothing-is-written",
+        says: "A world's overlay is refused and reported, and nothing of it is written, when the \
+               world's manifest names another base than the data file the client holds, when \
+               the world is on the player's overlay blocklist, or when the overlay folder \
+               already holds another world's overlay; the update then ends at once.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
+        evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-REFUSALS"),
+        station: "dereth-client::dat::net::dat_patch_apply::an_overlay_made_against_another_base_or_for_a_blocked_or_other_world_is_refused",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "net.dat-patch.the-iteration-list-counts-as-delivered",
         says: "When the shard sends its copy of a data file's version list during an update, the \
                client counts it as delivered so the update can finish, but keeps its own list plus \
@@ -413,11 +446,14 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "net.dat-patch.the-owners-client-directory-is-never-written",
-        says: "Downloaded data is never written into the installed retail game's own folder: a \
-               patch aimed there is refused and the refusal is reported.",
-        since: RETAIL,
+        says: "Downloaded data never goes into the installed data files: it is written to the \
+               world's overlay folder, the installed files are byte for byte as they were, the \
+               data folder is never taken as an overlay folder, and a client with no overlay \
+               folder writes nothing and says so.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
         evidence: Evidence::Private("AC-EVID-P41B-DAT-PATCH-OWNERS"),
-        station: "dereth-client::dat::net::dat_patch_apply::a_patch_aimed_at_the_owners_client_directory_is_refused",
+        station: "dereth-client::dat::net::dat_patch_apply::a_patch_never_writes_the_installed_files",
         tier: Tier::Dat,
     },
     behaviour! {

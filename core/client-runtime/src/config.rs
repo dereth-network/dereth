@@ -268,6 +268,11 @@ pub struct Config {
     /// world are available whenever an older set is found, wherever it is. `None`: look in
     /// [`Self::dat_dir`] alone.
     pub classic_dat_dir: Option<PathBuf>,
+    /// `--overlay-dat-dir <dir>`: the folder this world's overlay is kept in for the run (the
+    /// records the world adds, replaces and deletes over the locked data files, which a patch from
+    /// the server writes and nothing else does). Only where the overlay is follows from it.
+    /// `None`: a folder per server in the per-user cache ([`crate::world_overlay::overlay_dir`]).
+    pub overlay_dat_dir: Option<PathBuf>,
     /// `--object-visuals <world|legacy|modern>`: the era whose look the world's objects draw
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
@@ -508,6 +513,7 @@ impl Default for Config {
             dat_dir: default_dat_dir(),
             object_visuals: None,
             classic_dat_dir: None,
+            overlay_dat_dir: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
         }
@@ -660,6 +666,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // Where the files from before Throne of Destiny are, when they are not beside the later ones.
     Switch {
         long: "classic-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    // Where the world's overlay is kept.
+    Switch {
+        long: "overlay-dat-dir",
         short: None,
         arity: Arity::Required,
     },
@@ -1409,6 +1421,7 @@ impl Config {
             "log-spans" => self.log_spans = true,
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "classic-dat-dir" => self.classic_dat_dir = Some(PathBuf::from(v)),
+            "overlay-dat-dir" => self.overlay_dat_dir = Some(PathBuf::from(v)),
             "object-visuals" => {
                 let style = dereth_client_contract::options::landscape::parse(v)
                     .ok_or_else(|| {
@@ -2018,6 +2031,8 @@ mod tests {
         assert_eq!(c.dat_dir, PathBuf::from("eor"));
         assert_eq!(c.classic_dat_dir, Some(PathBuf::from("feb2005")));
         assert_eq!(parse(&[]).expect("parses").classic_dat_dir, None);
+        let c = parse(&["--overlay-dat-dir", "worlds/one"]).expect("parses");
+        assert_eq!(c.overlay_dat_dir, Some(PathBuf::from("worlds/one")));
         for retired in ["--world-dat-dir", "--legacy-dat-dir"] {
             assert!(parse(&[retired, "x"]).is_err(), "{retired}");
         }

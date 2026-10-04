@@ -105,6 +105,7 @@ fn response(portal: MostlyConsecutiveIntSet, cell: i32, language: i32) -> DddInt
         ],
         iters_without_keys: Vec::new(),
         flags: 0,
+        overlay_bases: Vec::new(),
     }
 }
 

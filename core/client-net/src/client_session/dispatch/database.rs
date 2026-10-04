@@ -1,7 +1,8 @@
 //! Queue 5 — the DDD / dat-cache queue.
 //!
-//! Six opcodes are handled: `0xF7E2`, `0xF7E4`, `0xF7E5`, `0xF7E7`, `0xF7EA` and `0xF7EB`.
-//! Anything else is dropped.
+//! Six retail opcodes are handled: `0xF7E2`, `0xF7E4`, `0xF7E5`, `0xF7E7`, `0xF7EA` and `0xF7EB`,
+//! and one of the overlay extension's, `0xF7EC` (the overlay manifest), which only a server that
+//! knows the extension sends. Anything else is dropped.
 //!
 //! **The end message is `0xF7EA` in both directions** and `0xF7EB` is a received-only "patching
 //! pending, wait". The community catalogue has this backwards; the verified direction is recorded
@@ -14,7 +15,7 @@
 use crate::client_session::{DropReason, SessionEvent};
 use dereth_primitives::IncomingMessage;
 use dereth_protocol::admin::{
-    DddBeginDdd, DddData, DddError, DddInterrogation, DddInterrogationResponse,
+    DddBeginDdd, DddData, DddError, DddInterrogation, DddInterrogationResponse, DddOverlayManifest,
 };
 use dereth_protocol::{read_body, Message, Opcode};
 
@@ -47,6 +48,8 @@ pub enum DddEvent {
     End,
     /// `0xF7EB` — "patching pending, wait". Raises the patch-time-pending notice.
     PatchtimePending,
+    /// `0xF7EC` — the world's overlay manifest, ahead of its `0xF7E7`.
+    OverlayManifest(Box<DddOverlayManifest>),
 }
 
 /// The queue-5 dispatcher's decision: an event for the caller, and optionally a reply to send.
@@ -108,6 +111,9 @@ pub fn dispatch(state: &mut DddState, m: &IncomingMessage) -> DddDispatch {
             }
         }
         o if o == Opcode::DDD_END_DDDMESSAGE => decoded(DddEvent::PatchtimePending),
+        o if o == DddOverlayManifest::OPCODE => decoded(decode!(DddOverlayManifest, |v| {
+            DddEvent::OverlayManifest(Box::new(v))
+        })),
         _ => DddDispatch {
             event: SessionEvent::Dropped {
                 queue: m.queue,
@@ -136,6 +142,7 @@ pub fn interrogation_response(
         // The iterations-without-keys list is empty in every observed session.
         iters_without_keys: Vec::new(),
         flags,
+        overlay_bases: Vec::new(),
     }
 }
 
