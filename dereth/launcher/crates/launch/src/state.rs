@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::datset::{DatOrigin, DatSet, SetKind, SHARED_SET_ID};
 use crate::eras::EraChoice;
 use crate::install::{ClientKind, Installation};
-use crate::world::{Endpoint, World};
+use crate::world::{Emulator, Endpoint, World};
 
 pub const STATE_FILE: &str = "launcher-state.json";
 pub const SCHEMA: u32 = 1;
@@ -106,6 +106,9 @@ pub struct CustomWorld {
     /// The rules the player said it plays (`PvE` or `PvP`), if they said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruleset: Option<String>,
+    /// The emulator the player said it runs; unknown when they did not say.
+    #[serde(default)]
+    pub emulator: Emulator,
 }
 
 impl CustomWorld {
@@ -114,6 +117,7 @@ impl CustomWorld {
     pub fn to_world(&self) -> World {
         let mut w = World::new(self.slug.clone(), self.name.clone());
         w.ruleset.clone_from(&self.ruleset);
+        w.emulator = self.emulator;
         w.endpoint = Some(Endpoint {
             address: self.host.clone(),
             port: self.port,
@@ -412,6 +416,7 @@ impl LauncherState {
         host: &str,
         port: &str,
         ruleset: Option<&str>,
+        emulator: Emulator,
     ) -> Result<String, CustomWorldError> {
         let host = host.trim();
         if host.is_empty() {
@@ -443,6 +448,7 @@ impl LauncherState {
         {
             w.name = name;
             w.ruleset = ruleset;
+            w.emulator = emulator;
             return Ok(w.slug.clone());
         }
         let slug = (1u32..)
@@ -455,6 +461,7 @@ impl LauncherState {
             host: host.to_owned(),
             port,
             ruleset,
+            emulator,
         });
         Ok(slug)
     }
@@ -643,25 +650,31 @@ mod tests {
     fn a_typed_server_is_checked_kept_once_and_removed_with_what_used_it() {
         let mut s = LauncherState::default();
         assert_eq!(
-            s.add_custom_world("", "", "9000", None),
+            s.add_custom_world("", "", "9000", None, Emulator::Unknown),
             Err(CustomWorldError::NoHost)
         );
         assert_eq!(
-            s.add_custom_world("", "a:1", "9000", None),
+            s.add_custom_world("", "a:1", "9000", None, Emulator::Unknown),
             Err(CustomWorldError::BadHost)
         );
         assert_eq!(
-            s.add_custom_world("", "a", "0", None),
+            s.add_custom_world("", "a", "0", None, Emulator::Unknown),
             Err(CustomWorldError::BadPort)
         );
         let slug = s
-            .add_custom_world("", " play.example ", "9000", Some("PvP"))
+            .add_custom_world("", " play.example ", "9000", Some("PvP"), Emulator::Unknown)
             .unwrap();
         assert_eq!(slug, "custom-1");
         assert_eq!(s.custom_worlds[0].name, "play.example");
         assert_eq!(
-            s.add_custom_world("Mine", "PLAY.example", "9000", Some(" PvE "))
-                .unwrap(),
+            s.add_custom_world(
+                "Mine",
+                "PLAY.example",
+                "9000",
+                Some(" PvE "),
+                Emulator::ClassicAce
+            )
+            .unwrap(),
             "custom-1"
         );
         assert_eq!(
@@ -670,6 +683,7 @@ mod tests {
         );
         let w = s.custom_worlds[0].to_world();
         assert_eq!(w.ruleset.as_deref(), Some("PvE"), "the rules said last");
+        assert_eq!(w.emulator, Emulator::ClassicAce, "and the emulator");
         assert_eq!(
             w.endpoint.as_ref().map(|e| (e.address.as_str(), e.port)),
             Some(("play.example", 9000))

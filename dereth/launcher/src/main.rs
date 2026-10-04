@@ -200,16 +200,8 @@ fn set_remember(b: State<'_, Shared>, slug: String, username: String, remember: 
 }
 
 #[tauri::command]
-fn add_custom_world(
-    b: State<'_, Shared>,
-    name: String,
-    host: String,
-    port: String,
-    ruleset: Option<String>,
-    era: Option<String>,
-) -> Cmd<String> {
-    let slug =
-        lock(&b).add_custom_world(&name, &host, &port, ruleset.as_deref(), era.as_deref())?;
+fn add_custom_world(b: State<'_, Shared>, server: backend::NewServer) -> Cmd<String> {
+    let slug = lock(&b).add_custom_world(&server)?;
     Backend::probe(&b, vec![slug.clone()]);
     Ok(slug)
 }
@@ -392,13 +384,10 @@ fn main() {
 
             let servers_list = std::env::var("DERETH_SERVERS_LIST")
                 .unwrap_or_else(|_| backend::DEFAULT_SERVERS_LIST.into());
-            let servers_api = std::env::var("DERETH_SERVERS_API")
-                .unwrap_or_else(|_| backend::DEFAULT_SERVERS_API.into());
             let (vault, name) = vault();
             let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(Backend::new(
                 folders.clone(),
                 servers_list,
-                servers_api,
                 client.clone(),
                 vault,
                 name,

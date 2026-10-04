@@ -17,7 +17,7 @@
 //! | module | what it knows |
 //! |---|---|
 //! | [`world`] | a registry entry, read tolerantly: which clients a world accepts, which dats it expects |
-//! | [`serverlist`] | the community's world list, its day-old copy, and what the directory adds to it |
+//! | [`serverlist`] | the community's world list, and its day-old copy |
 //! | [`eras`] | the eras and systems a world can play, and the player's choice for a world that does not say |
 //! | [`dat`] | a dat's iteration number, read straight off disk in a few small reads |
 //! | [`datset`] | a Modern set (the four later dats, identified by iterations) or a Classic one (`portal.dat` and `cell.dat`) |

@@ -6,11 +6,9 @@
 //! settled the world is (`Stable`, `Development` or `Experimental`) and its website and Discord.
 //! It says nothing about a world's era, its data files, its software's version or whether it is up.
 //!
-//! The dereth.network directory (`/v1/servers`) imports the same list and adds what a server
-//! reports to it: how its status is read, its era, its software's version. When the directory
-//! answers, each listed world takes those facts from the directory's row for it ([`merge_directory`]);
-//! the directory's own worlds that the list does not name are not added. When it does not answer,
-//! the list alone is the world list.
+//! With the servers the player adds by hand, the list is every world the launcher shows. What the
+//! list does not say (era, systems, version, players) comes from the world itself when it answers
+//! (Empyrean's status document) or from the player.
 //!
 //! Reading is tolerant: a row without a name is skipped, a malformed port is no endpoint, and
 //! nothing in one row can cost the player another.
@@ -45,10 +43,10 @@ impl core::fmt::Display for MalformedList {
 
 impl std::error::Error for MalformedList {}
 
-/// A world's identity from its name, as the directory spells it: lower case, every run of other
-/// characters one dash, none at either end (`Asheron4Fun.com` is `asheron4fun-com`). Accounts,
-/// passwords and remembered choices are kept under it, so a world keeps them across the move from
-/// the directory to the list.
+/// A world's identity from its name: lower case, every run of other characters one dash, none at
+/// either end (`Asheron4Fun.com` is `asheron4fun-com`). Accounts, passwords and remembered choices
+/// are kept under it. It is the spelling the launcher's earlier world source used, so what was kept
+/// under a world before stays with it.
 pub fn slug_for(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut dash = false;
@@ -126,94 +124,13 @@ fn world_of(row: &BTreeMap<String, String>, taken: &mut HashSet<String>) -> Opti
     Some(w)
 }
 
-/// Each listed world, with what the directory's row for it adds: its row is the one that names the
-/// list's id, else the one at the same address. The list's own facts (name, description, address,
-/// rules, links) stay the list's.
-pub fn merge_directory(list: Vec<World>, directory: &[World]) -> Vec<World> {
-    list.into_iter()
-        .map(|mut w| {
-            let same_address = |d: &World| match (&w.endpoint, &d.endpoint) {
-                (Some(a), Some(b)) => {
-                    a.address.eq_ignore_ascii_case(&b.address) && a.port == b.port
-                }
-                _ => false,
-            };
-            let row = directory
-                .iter()
-                .find(|d| d.list_id.is_some() && d.list_id == w.list_id)
-                .or_else(|| directory.iter().find(|d| same_address(d)));
-            if let Some(d) = row {
-                take_directory_facts(&mut w, d);
-            }
-            w
-        })
-        .collect()
-}
-
-fn take_directory_facts(w: &mut World, d: &World) {
-    if matches!(w.emulator, Emulator::Unknown | Emulator::Other) && d.emulator != Emulator::Unknown
-    {
-        w.emulator = d.emulator;
-    }
-    if w.emulator_version.is_none() {
-        w.emulator_version.clone_from(&d.emulator_version);
-    }
-    if d.era.is_some() {
-        w.era.clone_from(&d.era);
-    }
-    if d.era_features.is_some() {
-        w.era_features.clone_from(&d.era_features);
-    }
-    if w.accepted_clients.is_empty() {
-        w.accepted_clients.clone_from(&d.accepted_clients);
-    }
-    if w.preferred_client.is_none() {
-        w.preferred_client.clone_from(&d.preferred_client);
-    }
-    if w.dats == crate::world::WorldDats::default() {
-        w.dats = d.dats.clone();
-    }
-    if w.account_model == crate::world::AccountModel::Unknown {
-        w.account_model = d.account_model;
-    }
-    if w.signup_url.is_none() {
-        w.signup_url.clone_from(&d.signup_url);
-    }
-    if w.reset_url.is_none() {
-        w.reset_url.clone_from(&d.reset_url);
-    }
-    if d.status_method != crate::world::StatusMethod::None {
-        w.status_method = d.status_method;
-        w.status_url.clone_from(&d.status_url);
-    }
-    if d.state != crate::world::WorldState::Unknown {
-        w.state = d.state;
-    }
-    if d.players.is_some() {
-        w.players = d.players;
-    }
-    if w.links.rules.is_none() {
-        w.links.rules.clone_from(&d.links.rules);
-    }
-    if w.links.guide.is_none() {
-        w.links.guide.clone_from(&d.links.guide);
-    }
-    if w.operator.is_none() {
-        w.operator.clone_from(&d.operator);
-    }
-    w.schema = w.schema.max(d.schema);
-}
-
-/// The day's copy: the list as it was fetched, the directory's pages, and when.
+/// The day's copy: the list as it was fetched, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ListCache {
     /// Seconds since the epoch.
     pub fetched_at: u64,
     /// `Servers.xml`, as fetched.
     pub list: String,
-    /// The directory's pages, as fetched; none when it did not answer.
-    #[serde(default)]
-    pub directory: Vec<String>,
 }
 
 impl ListCache {
@@ -240,20 +157,12 @@ impl ListCache {
         std::fs::rename(&tmp, dir.join(CACHE_FILE))
     }
 
-    /// The worlds the copy holds: the list's, with the directory's facts over them.
+    /// The worlds the copy holds.
     ///
     /// # Errors
-    /// [`MalformedList`] when the list itself cannot be read. A directory page that cannot be read
-    /// is passed over.
+    /// [`MalformedList`] when the list cannot be read.
     pub fn worlds(&self) -> Result<Vec<World>, MalformedList> {
-        let list = parse_servers_xml(self.list.as_bytes())?;
-        let directory: Vec<World> = self
-            .directory
-            .iter()
-            .filter_map(|p| crate::world::parse_page(p.as_bytes()).ok())
-            .flat_map(|(rows, _)| rows)
-            .collect();
-        Ok(merge_directory(list, &directory))
+        parse_servers_xml(self.list.as_bytes())
     }
 }
 
@@ -390,7 +299,6 @@ fn decode(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{StatusMethod, WorldState};
 
     /// Two rows as the list publishes them, one with an entity, one with its links left out.
     const LIST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -423,7 +331,7 @@ mod tests {
 </ArrayOfServerItem>"#;
 
     #[test]
-    fn the_community_list_reads_as_worlds_with_the_directorys_slugs() {
+    fn the_community_list_reads_as_worlds_with_slugs_from_their_names() {
         let w = parse_servers_xml(LIST.as_bytes()).unwrap();
         assert_eq!(
             w.len(),
@@ -460,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn slugs_follow_the_directorys_spelling_and_two_alike_are_told_apart() {
+    fn slugs_follow_the_name_and_two_alike_are_told_apart() {
         assert_eq!(slug_for("Buadren AC"), "buadren-ac");
         assert_eq!(slug_for("  -Frost--Fell!  "), "frost-fell");
         let xml = "<ArrayOfServerItem><ServerItem><name>Twin</name></ServerItem>\
@@ -491,57 +399,11 @@ mod tests {
         assert_eq!(decode("fish & chips &bogus;"), "fish & chips &bogus;");
     }
 
-    /// A directory row for AChard as `/v1/servers` returns it: imported from the list, with what
-    /// its server reported.
-    const DIRECTORY: &str = r#"{"data":[
-      {"slug":"achard","name":"AChard (directory)","emulator":{"family":"ACE"},
-       "endpoint":{"address":"elsewhere.example","port":1},
-       "provenance":{"source":"community-list","externalId":"9d17ce44-7db5-40c1-b7bb-a01c9de21d00"},
-       "status":{"state":"online","playersOnline":40,"reported":{"emulatorVersion":"1.77.4778"}},
-       "era":"infiltration"},
-      {"slug":"a4f","name":"A4F","endpoint":{"address":"PLAY.a4f.example","port":9000},
-       "status":{"method":"empyrean_http","url":"https://a4f.example/v1/world"}},
-      {"slug":"eulmore","name":"Eulmore","endpoint":{"address":"e.example","port":9000}}
-    ]}"#;
-
-    #[test]
-    fn a_listed_world_takes_the_directorys_facts_and_keeps_its_own() {
-        let mut list = parse_servers_xml(LIST.as_bytes()).unwrap();
-        // The second row's port is malformed in the list above; here it has one.
-        list[1].endpoint = Some(Endpoint {
-            address: "play.a4f.example".into(),
-            port: 9000,
-            transport: None,
-        });
-        let (dir, _) = crate::world::parse_page(DIRECTORY.as_bytes()).unwrap();
-        let w = merge_directory(list, &dir);
-        assert_eq!(w.len(), 2, "a world only the directory names is not added");
-        let a = &w[0];
-        assert_eq!(a.name, "AChard", "the list's name");
-        assert_eq!(
-            a.endpoint.as_ref().unwrap().address,
-            "a-chard.ddns.net",
-            "the list's address"
-        );
-        assert_eq!(a.emulator_version.as_deref(), Some("1.77.4778"));
-        assert_eq!(a.era.as_deref(), Some("infiltration"));
-        assert_eq!((a.state, a.players), (WorldState::Online, Some(40)));
-        // Matched by its address, the second world learns where its status is.
-        let b = &w[1];
-        assert_eq!(b.status_method, StatusMethod::EmpyreanHttp);
-        assert_eq!(
-            b.status_url.as_deref(),
-            Some("https://a4f.example/v1/world")
-        );
-        assert_eq!(b.emulator, Emulator::Gdle, "the list's emulator stands");
-    }
-
     #[test]
     fn the_copy_is_used_for_a_day_and_round_trips() {
         let c = ListCache {
             fetched_at: 1_000,
             list: LIST.into(),
-            directory: vec![DIRECTORY.into(), "not json".into()],
         };
         assert!(c.is_fresh(1_000));
         assert!(c.is_fresh(1_000 + MAX_AGE_SECS - 1));
@@ -557,12 +419,14 @@ mod tests {
         assert_eq!(ListCache::load(&d), None, "no copy yet");
         c.save(&d).unwrap();
         assert_eq!(ListCache::load(&d).as_ref(), Some(&c));
-        let w = c.worlds().unwrap();
-        assert_eq!(
-            w[0].era.as_deref(),
-            Some("infiltration"),
-            "an unreadable page is passed over"
-        );
+        assert_eq!(c.worlds().unwrap().len(), 2);
+        // A copy written while the directory was read with the list still reads.
+        std::fs::write(
+            d.join(CACHE_FILE),
+            serde_json::json!({"fetched_at": 5, "list": LIST, "directory": ["{}"]}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(ListCache::load(&d).map(|c| c.fetched_at), Some(5));
         std::fs::write(d.join(CACHE_FILE), b"{").unwrap();
         assert_eq!(ListCache::load(&d), None, "a damaged copy is no copy");
         let _ = std::fs::remove_dir_all(&d);

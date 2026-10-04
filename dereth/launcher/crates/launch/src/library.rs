@@ -13,8 +13,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::datset::{
-    is_classic_pair, scan_classic_dir, scan_dir, DatOrigin, DatSet, SetKind, CLASSIC_FILES,
-    SHARED_SET_ID,
+    scan_classic_dir, scan_dir, DatOrigin, DatRole, DatSet, SetKind, CLASSIC_FILES, SHARED_SET_ID,
 };
 use crate::install::{identify_dereth, identify_retail, Installation};
 use crate::state::LauncherState;
@@ -37,18 +36,28 @@ pub struct FolderFind {
 pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
     let retail = identify_retail(path, "retail").ok();
     let files = scan_dir(path);
-    let dats = (!files.is_empty()).then(|| DatSet {
+    // A Modern set is all four files; a Classic set both of its pair.
+    let modern_missing: Vec<&str> = DatRole::ALL
+        .iter()
+        .filter(|r| !files.iter().any(|f| f.role == **r))
+        .map(|r| r.file_name())
+        .collect();
+    let classic_files = scan_classic_dir(path);
+    let classic_missing: Vec<&str> = CLASSIC_FILES
+        .iter()
+        .filter(|(r, _)| !classic_files.iter().any(|f| f.role == *r))
+        .map(|(_, name)| *name)
+        .collect();
+    let dats = modern_missing.is_empty().then(|| DatSet {
         id: state.new_id("d"),
         path: path.to_path_buf(),
         kind: SetKind::Modern,
         origin: DatOrigin::Unassigned,
-        files,
+        files: files.clone(),
         last_patched_by_server: None,
         created_by_launcher: false,
     });
-    let classic_files = scan_classic_dir(path);
-    let half_pair = !classic_files.is_empty() && !is_classic_pair(&classic_files);
-    let classic = is_classic_pair(&classic_files).then(|| DatSet {
+    let classic = classic_missing.is_empty().then(|| DatSet {
         // Its own prefix, so it never takes the Modern set's id from the same reading.
         id: state.new_id("c"),
         path: path.to_path_buf(),
@@ -58,19 +67,32 @@ pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
         last_patched_by_server: None,
         created_by_launcher: false,
     });
-    let error = if half_pair {
-        let (have, lacks) = if classic_files[0].file_name == CLASSIC_FILES[0].1 {
-            (CLASSIC_FILES[0].1, CLASSIC_FILES[1].1)
+    // What is wrong with the data files, when no whole set of either kind is here: a part of a
+    // set names what it lacks. The retail client is not spoken of: whether one is wanted is the
+    // front end's to say.
+    let error = (dats.is_none() && classic.is_none()).then(|| {
+        if !files.is_empty() {
+            format!(
+                "This folder has only some of the Modern data files: {} {} missing.",
+                modern_missing.join(", "),
+                if modern_missing.len() == 1 {
+                    "is"
+                } else {
+                    "are"
+                }
+            )
+        } else if !classic_files.is_empty() {
+            format!(
+                "This folder has {} but no {}: Classic data files come as a pair.",
+                classic_files[0].file_name,
+                classic_missing.join(", ")
+            )
         } else {
-            (CLASSIC_FILES[1].1, CLASSIC_FILES[0].1)
-        };
-        (retail.is_none() && dats.is_none()).then(|| {
-            format!("This folder has {have} but no {lacks}: Classic data files come as a pair.")
-        })
-    } else {
-        (retail.is_none() && dats.is_none() && classic.is_none())
-            .then(|| "No acclient.exe and no data files in this folder.".to_owned())
-    };
+            "No data files in this folder: a Modern set is the four client_*.dat files, a \
+             Classic set portal.dat and cell.dat."
+                .to_owned()
+        }
+    });
     FolderFind {
         folder: path.display().to_string(),
         retail,
@@ -219,6 +241,47 @@ mod tests {
         assert_eq!(s.dat_sets.len(), 3);
         let _ = std::fs::remove_dir_all(&d);
         let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn a_modern_set_is_all_four_files_and_no_data_folder_asks_for_acclient() {
+        let s = LauncherState::default();
+        // Three of the four: not a set, and the missing one is named.
+        let d = tmp("lib-three");
+        fake_set(
+            &d,
+            Iterations {
+                highres: None,
+                ..Iterations::END_OF_RETAIL
+            },
+        );
+        let find = read_folder(&d, &s);
+        assert!(find.dats.is_none());
+        let e = find.error.unwrap();
+        assert!(e.contains("client_highres.dat is missing"), "{e}");
+        assert!(!e.contains("acclient"), "{e}");
+
+        // A Classic pair alone is a set, with nothing said about a client.
+        let c = tmp("lib-pair-only");
+        std::fs::create_dir_all(&c).unwrap();
+        std::fs::write(c.join("portal.dat"), b"p").unwrap();
+        std::fs::write(c.join("cell.dat"), b"c").unwrap();
+        let find = read_folder(&c, &s);
+        assert!(find.classic.is_some() && find.dats.is_none() && find.retail.is_none());
+        assert_eq!(find.error, None);
+
+        // Nothing at all: the data files are named, the client is not.
+        let e = tmp("lib-nothing");
+        std::fs::create_dir_all(&e).unwrap();
+        let msg = read_folder(&e, &s).error.unwrap();
+        assert!(
+            msg.contains("client_*.dat") && msg.contains("portal.dat"),
+            "{msg}"
+        );
+        assert!(!msg.contains("acclient"), "{msg}");
+        for x in [d, c, e] {
+            let _ = std::fs::remove_dir_all(&x);
+        }
     }
 
     #[test]

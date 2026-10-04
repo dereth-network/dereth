@@ -33,9 +33,11 @@ dereth-launch` from the repository root.
   the folder that holds `acclient.exe`. There is only ever one; choosing another replaces it. On
   macOS and Linux the launcher offers the Dereth client alone and never mentions retail.
 - **Data sets**: a library of folders of data files, of two kinds, each with its own default.
-  A **Modern** set is the four `client_*.dat` files from Throne of Destiny on; a **Classic** set is
-  the pair from before it, `portal.dat` and `cell.dat`. One folder may hold both, and is then two
-  sets. The Library lists the two kinds apart. Adding the retail install
+  A **Modern** set is all four `client_*.dat` files of a modern install (`client_portal.dat`,
+  `client_cell_1.dat`, `client_local_English.dat`, `client_highres.dat`); a **Classic** set is
+  both files of an older install, `portal.dat` and `cell.dat`. A folder with only some of either is
+  refused, naming what it lacks. One folder may hold both kinds, and is then two sets. The retail
+  client is `acclient.exe` with a Modern set beside it. The Library lists the two kinds apart. Adding the retail install
   adds its data files too.
 
 On a world's page the player chooses **Dereth** or **Retail**. The retail client plays with the
@@ -56,12 +58,13 @@ The launcher shows and logs the command line with the password replaced by `***`
 Worlds shows three sections, each opened and closed by its header: **Custom** (the servers the
 player added, each with a bin to remove it), **Online** (listed worlds that are up, or not yet
 asked) and **Offline** (closed at first). A search shows every match, closed section or not. Each
-row names the world, its server software and version (`ACE`, `Empyrean | v0.1.2`; the version only
+row names the world, its emulator and version (`ACE`, `Empyrean | v0.1.2`; the version only
 when the world says it), its era (a drop-down, `Unknown` first, when the world does not say it),
 its rules and its players (`unknown` when nobody says). Clicking a row opens it, one at a time:
 its description, website and Discord, how settled it says it is, and the era's systems as check
-boxes, which the player may change when the world does not say them. Its `>` opens the world's
-page, whose `<` comes back.
+boxes, which the player may change when the world does not say them. Its PLAY opens the world's
+page, whose `<` comes back. A server added by hand is given its name, host, port, emulator, rules
+and era.
 
 ## Where things are
 
@@ -72,8 +75,7 @@ page, whose `<` comes back.
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
 | passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (the Secret Service: GNOME Keyring, KWallet): one entry per account per world, named `dereth:world/<slug>/<account>` |
 | the world list | the community's list, `Servers.xml` in [acresources/serverslist](https://github.com/acresources/serverslist) (`DERETH_SERVERS_LIST` overrides), fetched at most once a day (the refresh button fetches it again) and kept in the data folder as `world-list.json`; and the servers the player added, which are kept in the state |
-| what a world adds to the list | the dereth.network directory, `https://api.dereth.network/v1/servers` (`DERETH_SERVERS_API` overrides; empty for none), fetched with the list: a listed world takes its row's status address, era, systems and software version. The directory's worlds the list does not name are not shown |
-| a world's era and systems | its Empyrean status document or its directory row when either says them; otherwise the player's choice on the world's row, kept per world in the state |
+| a world's era and systems | its Empyrean status document when it says them; otherwise the player's choice on the world's row, kept per world in the state |
 | whether a world is up | its Empyrean status document when it has one; otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on |
 
 Nothing is kept beside the launcher, and the launcher writes nothing outside its own `launcher`

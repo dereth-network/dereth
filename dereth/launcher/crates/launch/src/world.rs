@@ -22,6 +22,8 @@ use crate::datset::Iterations;
 pub enum Emulator {
     Empyrean,
     Ace,
+    /// ClassicACE, a fork of ACE.
+    ClassicAce,
     Gdle,
     Other,
     #[default]
@@ -33,6 +35,7 @@ impl Emulator {
         match s.to_ascii_lowercase().as_str() {
             "empyrean" => Emulator::Empyrean,
             "ace" => Emulator::Ace,
+            "classicace" | "classic ace" | "classic-ace" => Emulator::ClassicAce,
             // The community list spells it `GDL`.
             "gdle" | "gdl" => Emulator::Gdle,
             "" => Emulator::Unknown,
@@ -44,17 +47,31 @@ impl Emulator {
         match self {
             Emulator::Empyrean => "Empyrean",
             Emulator::Ace => "ACE",
+            Emulator::ClassicAce => "ClassicACE",
             Emulator::Gdle => "GDLE",
             Emulator::Other => "Other",
             Emulator::Unknown => "Unknown",
         }
     }
 
-    /// Whether this server is known to insist on the end-of-retail wire protocol. All three
-    /// emulators refuse a logon whose version string is not `"1802"`.
+    /// Whether this server is known to insist on the end-of-retail wire protocol. Every emulator
+    /// named here refuses a logon whose version string is not `"1802"` (ClassicACE keeps ACE's
+    /// logon).
     pub fn requires_end_of_retail_protocol(self) -> bool {
-        matches!(self, Emulator::Empyrean | Emulator::Ace | Emulator::Gdle)
+        matches!(
+            self,
+            Emulator::Empyrean | Emulator::Ace | Emulator::ClassicAce | Emulator::Gdle
+        )
     }
+
+    /// The emulators a player can name for a server they add, in the order offered.
+    pub const CHOOSABLE: [Emulator; 5] = [
+        Emulator::Ace,
+        Emulator::ClassicAce,
+        Emulator::Gdle,
+        Emulator::Empyrean,
+        Emulator::Other,
+    ];
 }
 
 /// Whether a world is up, as last reported.
@@ -624,6 +641,8 @@ mod tests {
             Emulator::Gdle
         );
         assert_eq!(w.era_source, None);
+        assert_eq!(Emulator::parse("ClassicACE"), Emulator::ClassicAce);
+        assert_eq!(Emulator::ClassicAce.label(), "ClassicACE");
         assert_eq!(
             world(r#"{"slug":"a","era":"eor"}"#).era_source,
             Some(Told::World)

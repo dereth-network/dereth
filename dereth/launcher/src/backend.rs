@@ -32,10 +32,6 @@ use serde::{Deserialize, Serialize};
 /// list.
 pub const DEFAULT_SERVERS_LIST: &str = serverlist::COMMUNITY_LIST_URL;
 
-/// The directory whose rows add to the list's worlds, unless `DERETH_SERVERS_API` says otherwise
-/// (an empty value: none).
-pub const DEFAULT_SERVERS_API: &str = "https://api.dereth.network/v1/servers";
-
 const STATUS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// How many servers are asked whether they are up at once.
@@ -87,7 +83,7 @@ fn now() -> u64 {
 }
 
 /// One HTTPS GET, bounded. Plain HTTP is refused: the URLs come from configuration and the
-/// directory, and quietly downgrading either to plaintext is not a favour.
+/// world list, and quietly downgrading either to plaintext is not a favour.
 pub fn http_get(url: &str) -> Result<Vec<u8>, String> {
     if !url.to_ascii_lowercase().starts_with("https://") {
         return Err(format!("{url}: only https is accepted"));
@@ -104,7 +100,7 @@ pub fn http_get(url: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("{url}: {e}"))
 }
 
-/// Open an `http`/`https` URL in the browser. Operator- and directory-supplied links are not
+/// Open an `http`/`https` URL in the browser. Operator- and list-supplied links are not
 /// trusted to be anything else.
 pub fn open_url(url: &str) -> Result<(), String> {
     let lower = url.to_ascii_lowercase();
@@ -226,6 +222,24 @@ pub struct Choice {
     pub classic_set_id: Option<String>,
 }
 
+/// The Add server form, as the player filled it in.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct NewServer {
+    #[serde(default)]
+    pub name: String,
+    pub host: String,
+    pub port: String,
+    /// `PvE` or `PvP`; `None` when not said.
+    #[serde(default)]
+    pub ruleset: Option<String>,
+    /// Unknown when not said.
+    #[serde(default)]
+    pub emulator: Emulator,
+    /// An era's name; `None` when not said.
+    #[serde(default)]
+    pub era: Option<String>,
+}
+
 /// What pressing PLAY came to.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -255,7 +269,6 @@ const RETAIL_HERE: bool = cfg!(windows);
 pub struct Backend {
     folders: Folders,
     servers_list: String,
-    servers_api: String,
     state: LauncherState,
     dereth: Option<Installation>,
     worlds: Vec<World>,
@@ -294,14 +307,13 @@ pub fn lock(b: &Shared) -> MutexGuard<'_, Backend> {
 impl Backend {
     /// Load the state from the settings folder and the last copy of the world list from the data
     /// folder, read the Dereth client at `dereth_exe`, and start. `servers_list` is the list's
-    /// address and `servers_api` the directory's (empty: none).
+    /// address.
     ///
     /// A first run whose Dereth client has a full end-of-retail set beside it (a developer's
     /// checkout, say) takes that set as the shared one, so there is something to play with at once.
     pub fn new(
         folders: Folders,
         servers_list: String,
-        servers_api: String,
         dereth_exe: Option<PathBuf>,
         vault: Box<dyn Vault + Send>,
         vault_name: &'static str,
@@ -340,7 +352,6 @@ impl Backend {
         Self {
             folders,
             servers_list,
-            servers_api,
             state,
             dereth,
             worlds,
@@ -438,7 +449,7 @@ impl Backend {
         w
     }
 
-    /// Every world: the directory's, then the servers the player added.
+    /// Every world: the list's, then the servers the player added.
     fn all_worlds(&self) -> impl Iterator<Item = World> + '_ {
         self.worlds
             .iter()
@@ -502,17 +513,17 @@ impl Backend {
         }
     }
 
-    /// Fetch the list again on a thread, and the directory's pages with it, whatever the copy's
-    /// age: the refresh button. A failure keeps the last copy's worlds on screen.
+    /// Fetch the list again on a thread, whatever the copy's age: the refresh button. A failure
+    /// keeps the last copy's worlds on screen.
     pub fn refresh(shared: &Shared) {
-        let (list_url, api_url) = {
+        let list_url = {
             let mut b = lock(shared);
             b.list_state = ListState::Loading;
-            (b.servers_list.clone(), b.servers_api.clone())
+            b.servers_list.clone()
         };
         let shared = shared.clone();
         std::thread::spawn(move || {
-            let result = fetch_list(&list_url, &api_url, now());
+            let result = fetch_list(&list_url, now());
             let mut b = lock(&shared);
             match result {
                 Ok((cache, worlds)) => {
@@ -1086,20 +1097,13 @@ impl Backend {
         self.save();
     }
 
-    /// Add a server by hand, with the rules and the era the player says it plays.
-    pub fn add_custom_world(
-        &mut self,
-        name: &str,
-        host: &str,
-        port: &str,
-        ruleset: Option<&str>,
-        era: Option<&str>,
-    ) -> Result<String, String> {
+    /// Add a server by hand, with the rules, the emulator and the era the player says it has.
+    pub fn add_custom_world(&mut self, s: &NewServer) -> Result<String, String> {
         let slug = self
             .state
-            .add_custom_world(name, host, port, ruleset)
+            .add_custom_world(&s.name, &s.host, &s.port, s.ruleset.as_deref(), s.emulator)
             .map_err(|e| e.to_string())?;
-        self.state.set_world_era(&slug, era);
+        self.state.set_world_era(&slug, s.era.as_deref());
         self.save();
         Ok(slug)
     }
@@ -1174,49 +1178,16 @@ impl Backend {
     }
 }
 
-/// Fetch the list, and the directory's pages when there is a directory, as the day's copy and the
-/// worlds it holds. The list must answer; the directory need not.
-fn fetch_list(list_url: &str, api_url: &str, now: u64) -> Result<(ListCache, Vec<World>), String> {
+/// Fetch the list, as the day's copy and the worlds it holds.
+fn fetch_list(list_url: &str, now: u64) -> Result<(ListCache, Vec<World>), String> {
     let body = http_get(list_url)?;
     let list = String::from_utf8(body).map_err(|e| format!("{list_url}: {e}"))?;
-    let directory = if api_url.is_empty() {
-        Vec::new()
-    } else {
-        fetch_pages(api_url).unwrap_or_else(|e| {
-            eprintln!("dereth-launcher: the directory did not answer: {e}");
-            Vec::new()
-        })
-    };
     let cache = ListCache {
         fetched_at: now,
         list,
-        directory,
     };
     let worlds = cache.worlds().map_err(|e| e.to_string())?;
     Ok((cache, worlds))
-}
-
-/// Follow the directory's `nextOffset` until it is exhausted, up to a bound: every page's body.
-fn fetch_pages(url: &str) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    let mut next: Option<u64> = None;
-    for _ in 0..20 {
-        let page_url = match next {
-            None => url.to_owned(),
-            Some(off) => format!(
-                "{url}{}offset={off}",
-                if url.contains('?') { '&' } else { '?' }
-            ),
-        };
-        let body = http_get(&page_url)?;
-        let (_, more) = dereth_launch::world::parse_page(&body).map_err(|e| e.to_string())?;
-        out.push(String::from_utf8_lossy(&body).into_owned());
-        match more {
-            Some(off) => next = Some(off),
-            None => break,
-        }
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
@@ -1253,7 +1224,6 @@ mod tests {
         }
         let mut b = Backend::new(
             Folders::single(dir.join("state")),
-            String::new(),
             String::new(),
             Some(exe),
             Box::new(MemoryVault::default()),
@@ -1382,13 +1352,14 @@ mod tests {
     fn a_server_added_by_hand_is_a_world_and_goes_with_its_accounts() {
         let (mut b, dir) = backend("custom");
         let slug = b
-            .add_custom_world(
-                "Home",
-                "127.0.0.1",
-                "9001",
-                Some("PvP"),
-                Some("infiltration"),
-            )
+            .add_custom_world(&NewServer {
+                name: "Home".into(),
+                host: "127.0.0.1".into(),
+                port: "9001".into(),
+                ruleset: Some("PvP".into()),
+                emulator: Emulator::ClassicAce,
+                era: Some("infiltration".into()),
+            })
             .unwrap();
         assert!(b
             .snapshot()
@@ -1397,6 +1368,13 @@ mod tests {
             .any(|w| w.slug == slug && w.name == "Home"));
         let v = b.world_view(&slug).unwrap();
         assert_eq!(v.world.ruleset.as_deref(), Some("PvP"));
+        assert_eq!(v.world.emulator, Emulator::ClassicAce);
+        // The form as the page sends it.
+        let form: NewServer = serde_json::from_str(
+            r#"{"name":"","host":"h","port":"9000","ruleset":null,"emulator":"classic_ace","era":null}"#,
+        )
+        .unwrap();
+        assert_eq!(form.emulator, Emulator::ClassicAce);
         assert_eq!(v.world.era.as_deref(), Some("infiltration"));
         assert_eq!(v.world.era_source, Some(Told::Player));
         assert_eq!(
@@ -1559,13 +1537,11 @@ mod tests {
             list: "<ArrayOfServerItem><ServerItem><name>Leafcull</name><server_host>l.example</server_host>\
                    <server_port>9000</server_port><type>PvE</type></ServerItem></ArrayOfServerItem>"
                 .into(),
-            directory: vec![],
         }
         .save(&folders.data)
         .unwrap();
         let b = Backend::new(
             folders,
-            String::new(),
             String::new(),
             None,
             Box::new(MemoryVault::default()),
