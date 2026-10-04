@@ -205,11 +205,10 @@ impl<'a, S: Shell> UiContext<'a, S> {
     /// The screen sizes the display offers.
     #[must_use]
     pub fn display_modes(&self) -> Vec<(u32, u32)> {
-        self.app
-            .window
-            .display_modes()
+        use dereth_client_contract::options::store;
+        store::display_choices(store::DISPLAY_RESOLUTION)
             .iter()
-            .map(|m| (m.width, m.height))
+            .map(|mode| store::mode_size(mode.value))
             .collect()
     }
 

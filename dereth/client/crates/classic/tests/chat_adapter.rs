@@ -419,14 +419,16 @@ fn classic_resolution_draft_survives_idle_frames_and_rejected_choice_reads_back_
     app.applied_resolution = (800, 600);
     app.cfg.display.full_screen = false;
     app.pump.state.full_screen = false;
-    shell.ui.settings = ClassicSettings {
-        resolutions: vec![(800, 600), (1024, 768)],
-        resolution: 0,
-        full_screen: false,
-        ..Default::default()
-    };
-    shell.ui.settings_host =
-        Some(crate::settings_host::SettingsHost::load(shell.ui.settings.clone()).unwrap());
+    assert!(app.window.display_modes().is_empty());
+    app.register_display_modes();
+    store::set_value(
+        "Display.FullScreen",
+        dereth_client_contract::PrefValue::Bool(false),
+    );
+    shell.ui.start(&mut app.ui_context()).unwrap();
+    assert!(shell.ui.settings.resolutions.contains(&(800, 600)));
+    assert!(shell.ui.settings.resolutions.contains(&(1024, 768)));
+    assert_eq!(shell.ui.settings.resolution, 0);
     let mut panel = crate::panels::factory("sound-graphics").unwrap();
     let event =
         |shell: &TestShell, app: &App<TestShell>, panel: &mut dyn crate::panels::Panel, e| {
