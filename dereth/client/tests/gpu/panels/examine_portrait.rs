@@ -88,7 +88,8 @@ fn gameplay_screen(app: &mut App) -> (&mut UiSystem, &mut GamePlayScreen) {
 
 fn deliver(app: &mut App, object: ObjectId, profile: &AppraisalProfile) {
     let mut sink = dereth_client_model::RecordingSink::default();
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .set_appraise_info(object, profile.clone(), &mut sink);
     app.frame();
@@ -107,7 +108,7 @@ fn examine_recorded(app: &mut App, session: &str, want: ObjectId) -> AppraisalPr
         net.feed(&r.raw, r.peer(), now);
         net.tick(now);
         let _ = net.take_outgoing();
-        let events = app.objects_mut().pump(&mut net, now);
+        let events = app.probe_mut().objects_mut().pump(&mut net, now);
         let _ = app.apply_hud_events(&events);
         for e in &events {
             match e {

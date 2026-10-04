@@ -371,7 +371,7 @@ fn open_the_backpack(app: &mut App) {
 fn app_with_the_doll() -> App {
     let (events, objects) = replay(SESSION);
     let mut app = app_in_gameplay(4);
-    *app.objects_mut() = objects;
+    *app.probe_mut().objects_mut() = objects;
     let _ = app.apply_hud_events(&events);
     open_the_backpack(&mut app);
     for _ in 0..6 {

@@ -127,9 +127,10 @@ fn setup() -> App {
     let here = body_position(&app);
     create.0.physicsdesc.position = Some(position_wire(here));
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(local), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("local create encodes"),
@@ -142,7 +143,7 @@ fn setup() -> App {
     let mut there = here;
     there.frame.origin.x += 3.0;
     remote.0.physicsdesc.position = Some(position_wire(there));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&remote).expect("remote create encodes"),
@@ -150,7 +151,7 @@ fn setup() -> App {
         LocalTime(1.0),
     );
     unhide.id = REMOTE;
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_SET_STATE,
             body: dereth_protocol::write_body(&unhide).expect("recorded F74B unhide encodes"),
@@ -434,7 +435,7 @@ fn arrow_key_release_bytes_clear_remote_turn_state_during_quiet_physics_ticks() 
         .cloned()
         .expect("ArrowLeft up emits a later F61C with no turn command");
     assert!(
-        !app.char_input().turn_left,
+        !app.probe().char_input().turn_left,
         "the same release stopped the local projection"
     );
 
@@ -446,7 +447,7 @@ fn arrow_key_release_bytes_clear_remote_turn_state_during_quiet_physics_ticks() 
         (&pressed.0.raw_motion_state, press_ts),
         (&released.0.raw_motion_state, stop_ts),
     ] {
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
                 body: ace_f74c(raw, REMOTE, instance, ts),
@@ -562,7 +563,7 @@ fn remote_turn_sequence_rotation_reaches_the_attached_body_and_published_scene_f
         presence.instance,
         presence.movement_ts.wrapping_add(1),
     );
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
             body,

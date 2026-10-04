@@ -207,10 +207,12 @@ mod actual_app {
                 body: row.payload[4..].to_vec(),
             },
         };
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .apply_event(&event, LocalTime(row.t_rel_micros as f64 / 1_000_000.0));
         app.apply_hud_events(std::slice::from_ref(&event));
-        app.apply_interaction_events(std::slice::from_ref(&event));
+        app.probe_mut()
+            .apply_interaction_events(std::slice::from_ref(&event));
     }
 
     fn input(app: &mut App, action: dereth_input::ActionId, start: bool) {
@@ -247,7 +249,7 @@ mod actual_app {
             d.movement.interp.interpreted_state,
             d.movement.interp.pending_motions,
             d.movement.moveto.movement_type,
-            app.movement_commands().lists.controlled_by_server,
+            app.probe().movement_commands().lists.controlled_by_server,
             door.state.0,
             c.stats.target_updates
         );
@@ -334,7 +336,13 @@ mod actual_app {
         }
         frames(&mut app, 1);
         // Use the last recorded pre-USE player placement, after the descriptor rebuild.
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         c.land().load_block_cells(origin.cell.landblock());
         c.teleport(origin);
         c.stop_completely_from_action();
@@ -361,7 +369,13 @@ mod actual_app {
                         && m.0.physicsdesc.position.is_some()
                 })
                 .expect("recorded existing creature");
-            let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+            let c = app
+                .probe_mut()
+                .world_state_mut()
+                .unwrap()
+                .character
+                .as_mut()
+                .unwrap();
             c.apply_movement_style(dereth_animation::MotionCommand::SWORD_COMBAT);
             frames(&mut app, 60);
             let h = app
@@ -369,7 +383,13 @@ mod actual_app {
                 .physics
                 .handle(old.0.id)
                 .expect("real creature body");
-            let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+            let c = app
+                .probe_mut()
+                .world_state_mut()
+                .unwrap()
+                .character
+                .as_mut()
+                .unwrap();
             let target = c.world.get(h).unwrap();
             let (radius, height) = (target.radius(), target.height());
             // The production stick entry point, used to construct an earlier combat stick.
@@ -378,7 +398,7 @@ mod actual_app {
             eprintln!("constructed prior combat stick target={:#x}", old.0.id.0);
         }
 
-        app.objects_mut().world.set_selected_object(
+        app.probe_mut().objects_mut().world.set_selected_object(
             Some(door),
             false,
             &mut dereth_client_model::RecordingSink::default(),
@@ -444,10 +464,14 @@ mod actual_app {
                 body: dereth_protocol::write_body(&message).unwrap(),
             };
             let accepted = app.objects().stats.movement_updates;
-            app.objects_mut().apply_event(&event, LocalTime(46.4));
+            app.probe_mut()
+                .objects_mut()
+                .apply_event(&event, LocalTime(46.4));
             assert_eq!(app.objects().stats.movement_updates, accepted + 1);
             // An identical duplicate cannot install/cancel another turn.
-            app.objects_mut().apply_event(&event, LocalTime(46.5));
+            app.probe_mut()
+                .objects_mut()
+                .apply_event(&event, LocalTime(46.5));
             assert_eq!(app.objects().stats.movement_updates, accepted + 1);
         }
         frames(&mut app, 1);
@@ -562,7 +586,13 @@ mod actual_app {
     /// unstick; only the fresh fifth update does.
     fn ignored_buffers_do_not_run_the_prefix(app: &mut App, rows: &[CorpusBlob], door: ObjectId) {
         let h = app.objects().physics.handle(door).unwrap();
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         let target = c.world.get(h).unwrap();
         let (radius, height) = (target.radius(), target.height());
         c.stick_to_object(door, radius, height);
@@ -608,7 +638,7 @@ mod actual_app {
             message.movement =
                 dereth_protocol::movement::MovementSetObjectMovement::encode_movement(&buffer)
                     .unwrap();
-            app.objects_mut().apply_event(
+            app.probe_mut().objects_mut().apply_event(
                 &SessionEvent::WorldObject {
                     opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
                     body: dereth_protocol::write_body(&message).unwrap(),

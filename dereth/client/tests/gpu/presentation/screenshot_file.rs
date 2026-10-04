@@ -162,7 +162,7 @@ fn the_screenshot_lands_beside_the_preferences_file_as_screenshot00000() {
 
     press_screenshot(&mut app);
 
-    let (.., saved, failed) = app.action_arm_host_stats();
+    let (.., saved, failed) = app.probe().action_arm_host_stats();
     assert_eq!(
         failed, 0,
         "the screenshot action reports a successful save on the created GPU"
@@ -246,7 +246,7 @@ fn the_index_is_the_lowest_name_that_does_not_already_exist() {
         dir.join("ScreenShot00003.png").exists(),
         "the second press went to 00003, the next free index -- not to 'the second screenshot'"
     );
-    assert_eq!(app.action_arm_host_stats().3, 2, "two saves");
+    assert_eq!(app.probe().action_arm_host_stats().3, 2, "two saves");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

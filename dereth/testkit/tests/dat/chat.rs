@@ -4630,7 +4630,7 @@ pub fn the_return_key_sends_the_line_and_gives_the_keyboard_back() {
     let w = key_of(winit::keyboard::KeyCode::KeyW);
     hand.key(&mut c, w, true);
     c.tick(1);
-    let walks = c.view().expect_app().char_input().forward;
+    let walks = c.view().expect_app().probe().char_input().forward;
     hand.key(&mut c, w, false);
     c.tick(1);
     hand.character(&mut c, 'q');
@@ -5777,11 +5777,27 @@ pub fn a_key_bound_to_a_pose_moves_the_body() {
         MOVEMENT_COMMANDS,
     );
     let bound_to_b = lie_down == KeyCode::KeyB;
-    let before = c.view().expect_app().movement().transient_motions_issued;
+    let before = c
+        .view()
+        .expect_app()
+        .probe()
+        .movement()
+        .transient_motions_issued;
     hand.tap(&mut c, key_of(lie_down));
     c.tick(2);
-    let moved = c.view().expect_app().movement().transient_motions_issued == before + 1
-        && c.view().expect_app().movement().last_transient_motion == Some((MOTION_SLEEPING, true));
+    let moved = c
+        .view()
+        .expect_app()
+        .probe()
+        .movement()
+        .transient_motions_issued
+        == before + 1
+        && c.view()
+            .expect_app()
+            .probe()
+            .movement()
+            .last_transient_motion
+            == Some((MOTION_SLEEPING, true));
 
     // The other half. The lookup must be able to find a binding at all, so it is pointed at a key
     // that has one first: an empty answer from a lookup that never resolves anything is not
@@ -5842,7 +5858,12 @@ pub fn a_run_between_stars_is_performed_and_the_rest_spoken() {
     let mut c = a_client_to_pose_with();
     let mut hand = Hand::new();
 
-    let motions = c.view().expect_app().movement().transient_motions_issued;
+    let motions = c
+        .view()
+        .expect_app()
+        .probe()
+        .movement()
+        .transient_motions_issued;
     let poses = c.view().expect_app().interaction().stats.poses_resolved;
     hand.say(&mut c, "hello *wave* there");
 
@@ -5887,8 +5908,19 @@ pub fn a_run_between_stars_is_performed_and_the_rest_spoken() {
 
     // The body moved, with the same command the key bound to waving produces.
     c.tick(2);
-    let performed = c.view().expect_app().movement().transient_motions_issued == motions + 1
-        && c.view().expect_app().movement().last_transient_motion == Some((MOTION_WAVE, true));
+    let performed = c
+        .view()
+        .expect_app()
+        .probe()
+        .movement()
+        .transient_motions_issued
+        == motions + 1
+        && c.view()
+            .expect_app()
+            .probe()
+            .movement()
+            .last_transient_motion
+            == Some((MOTION_WAVE, true));
 
     // And what the player himself reads is the **other** word of the pair.
     c.tick(3);
@@ -6372,7 +6404,7 @@ pub fn clicking_a_name_in_the_log_starts_a_tell_to_him() {
     let mut hand = Hand::new();
     let entry = main_chat_entry(&c);
     let (log, point) = a_clickable_name_on_the_log(&mut c, "Alba");
-    c.app_mut().interaction_mut().last_sent.clear();
+    c.app_mut().probe_mut().interaction_mut().last_sent.clear();
 
     let ready = focus_of(&c) != Some(entry)
         && element_text_of(&mut c, entry).is_empty()
@@ -6473,7 +6505,7 @@ pub fn the_selected_players_name_fills_both_changing_rows() {
     let mut facts = with_screen(&mut c, |_ui, s| s.chat_auto_target_world.clone());
     facts.in_range_of_player.push(selected.0);
     let adopted = {
-        let (interaction, world) = c.app_mut().interaction_and_world_mut();
+        let (interaction, world) = c.app_mut().probe_mut().interaction_and_world_mut();
         world
             .chat
             .set_talk_focus_enabled(TalkFocus::Selected, false);

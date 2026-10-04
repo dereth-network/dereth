@@ -61,7 +61,7 @@ fn started_app() -> App {
 fn app_on_character_screen() -> App {
     let mut app = started_app();
     {
-        let host = app.host_state_mut();
+        let host = app.probe_mut().host_state_mut();
         host.character_set = Some(dereth_ui::persist::CharacterSet {
             set: Vec::new(),
             num_allowed_characters: 11,
@@ -761,7 +761,7 @@ fn radar_blips_reach_the_frame_and_land_only_inside_the_radar() {
         app.renderer_mut().prepare_ui(&store, list);
         for _ in 0..2 {
             app.renderer_mut().start_frame().expect("frame");
-            app.draw_world_scene().expect("scene");
+            app.probe_mut().draw_world_scene().expect("scene");
             app.renderer_mut().draw_ui(list).expect("ui");
             app.renderer_mut().end_frame().expect("present");
         }

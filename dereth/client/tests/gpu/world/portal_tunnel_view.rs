@@ -139,7 +139,8 @@ fn run(tunnel: bool) -> Option<Run> {
         // Retail's player creation starts with the position update not yet complete, so the
         // player-exists condition starts the login tunnel; `Teleport::teleport_in_progress()` is
         // the corresponding predicate.
-        app.teleport_mut()
+        app.probe_mut()
+            .teleport_mut()
             .apply_events(&[SessionEvent::PlayerCreated(ObjectId(0x5000_0001))]);
     }
     let before = app.renderer().ui_stats.previews_drawn;
@@ -153,7 +154,7 @@ fn run(tunnel: bool) -> Option<Run> {
     let list = cloned_draw_list(&app);
     let drained = app.renderer().ui_stats.previews_drawn;
     app.renderer_mut().start_frame().ok()?;
-    app.draw_world_scene().ok()?;
+    app.probe_mut().draw_world_scene().ok()?;
     app.renderer_mut().draw_ui(&list).ok()?;
     app.renderer_mut().end_frame().ok()?;
     let (_, _, without_portal_space) = app.renderer_mut().capture_bgra().ok()?;
@@ -414,7 +415,7 @@ fn the_collapsing_view_distance_reaches_the_projection_and_leaves_the_opaque_hud
         // the override back to what the animation says.
         app.renderer_mut().prepare_graphics_device();
         app.renderer_mut().start_frame().ok()?;
-        app.draw_world_scene().ok()?;
+        app.probe_mut().draw_world_scene().ok()?;
         app.renderer_mut().draw_ui(&list).ok()?;
         app.renderer_mut().end_frame().ok()?;
         let s = app.renderer_mut().capture_bgra().ok()?;

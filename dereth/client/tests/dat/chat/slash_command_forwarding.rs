@@ -438,9 +438,10 @@ fn a_typed_pose_reaches_the_local_body_and_the_wire() {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -467,7 +468,7 @@ fn a_typed_pose_reaches_the_local_body_and_the_wire() {
                     == 0
         })
         .expect("long-solo-play's recorded 0xF74B unhide for the player");
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_SET_STATE,
             body: unhide.payload[4..].to_vec(),

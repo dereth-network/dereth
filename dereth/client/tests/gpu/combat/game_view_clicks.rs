@@ -244,7 +244,7 @@ fn a_real_click_on_the_stance_icon_toggles_combat_mode_and_sends_it() {
         .expect("the toolbar's stance icon 0x10000192 is in the shipped layout");
     // Seed the player and his weapon, which is what `0x0013` does on a real login.
     {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         let player = ObjectId(0x5000_0002);
         seed_player(w, player);
         let sword = ObjectId(0x8000_00AA);
@@ -408,7 +408,7 @@ fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
     let player = ObjectId(0x5000_0002);
     let pack = ObjectId(0x8000_00BB);
     {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         seed_player(w, player);
         seed_side_pack(w, pack, player);
     }
@@ -505,7 +505,7 @@ fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
 
     // A notified departure restores the shared parent before the next frame.
     {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         w.server_says_move_item(
             pack,
             ObjectId(0),
@@ -540,7 +540,7 @@ fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
     );
 
     {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         // A notice naming the already-open container reports no change and must not count twice.
         assert!(
             !w.on_new_parent_container(player),
@@ -570,7 +570,7 @@ fn clicking_a_side_pack_is_the_writer_world_open_container_did_not_have() {
     // preference instead of relying on recordings.
     {
         let loot = ObjectId(0x8000_00DD);
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         seed_side_pack(w, pack, player);
         seed_item(w, loot, ObjectId(0));
         assert!(w.on_new_parent_container(pack), "the pack is open again");

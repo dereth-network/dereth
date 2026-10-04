@@ -12,6 +12,8 @@ autotests = false
 # As the scene's: the renderer is gated on a device backend, `wgpu` by default because it builds
 # for every target, and the desktop client turns this off and forwards its own three.
 [features]
+# Opt-in fixture controls and observations.
+test-support = ["dereth-client-runtime/test-support"]
 default = ["wgpu"]
 vulkan = ["dereth-scene/vulkan", "dereth-render/vulkan"]
 wgpu = ["dereth-scene/wgpu", "dereth-render/wgpu"]
@@ -49,6 +51,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+dereth-client-shell = { path = ".", default-features = false, features = ["test-support"] }
 # `dereth_dat::testing`: where the tests find the retail dats.
 dereth-dat = { workspace = true, features = ["test-support"] }
 # `DERETH_TEST_RENDERER`: the backend a test's device comes up on.

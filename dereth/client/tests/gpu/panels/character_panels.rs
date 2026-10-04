@@ -851,12 +851,12 @@ fn the_filled_spellbook_changes_pixels_and_only_inside_the_spell_lists_box() {
             // Flushing returns every slot to empty state `0x1000001C`.
             // `SpellbookPanel::update` guards on its own snapshot,
             // which has not changed, so it does not refill behind the flush.
-            let mut panels = std::mem::take(&mut app.hud_mut().panels);
+            let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
             {
                 let (ui, _) = gameplay_screen(&mut app)?;
                 panels.spellbook.list.as_mut()?.flush(ui);
             }
-            app.hud_mut().panels = panels;
+            app.probe_mut().hud_mut().panels = panels;
         }
         app.frame();
         let (w, h, bgra) = app.renderer_mut().capture_bgra().ok()?;
@@ -966,12 +966,12 @@ fn the_filled_skills_page_changes_pixels_and_only_inside_the_list_boxs_box() {
         if flush {
             // Flushing deletes every skill row. `SkillsPanel::update` guards on its own
             // snapshot, which has not changed, so it does not rebuild behind the flush.
-            let mut panels = std::mem::take(&mut app.hud_mut().panels);
+            let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
             {
                 let (ui, _) = gameplay_screen(&mut app)?;
                 panels.skills.list.as_mut()?.flush(ui);
             }
-            app.hud_mut().panels = panels;
+            app.probe_mut().hud_mut().panels = panels;
         }
         app.frame();
         let (w, h, bgra) = app.renderer_mut().capture_bgra().ok()?;

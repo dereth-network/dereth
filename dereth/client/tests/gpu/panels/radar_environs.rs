@@ -219,6 +219,7 @@ fn setup() -> (TempDir, App, Peer) {
     );
     for (id, name) in [(PLAYER, "Local Player"), (TARGET, "Radar Target")] {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(id)
@@ -243,7 +244,7 @@ fn encoded_environs_six_blanks_the_radar_and_zero_restores_it() {
     let (_temp, mut app, mut peer) = setup();
     // F746 starts the independently covered portal transition. End only that model so the world
     // remains drawn for this environment station.
-    app.teleport_mut().reset();
+    app.probe_mut().teleport_mut().reset();
     settle(&mut app);
     assert_eq!(
         radar_fill_count(&app),

@@ -437,6 +437,7 @@ impl World {
     ///
     /// Despite the common opcode labels, `0xF745` merges an equal instance while `0xF7DB`
     /// always recreates it.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn create_or_merge(
         &mut self,
         p: &ObjectCreatePayload,
@@ -449,6 +450,7 @@ impl World {
     /// The host observes deletion callbacks before a same-id replacement is instantiated.
     /// Legacy NoticeSink callers use the wrapper above; a live owner must not defer this callback
     /// until after recreate has replaced the Weenie that the subscriber is about to read.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn create_or_merge_with_dispatch(
         &mut self,
         p: &ObjectCreatePayload,
@@ -460,9 +462,8 @@ impl World {
 
     /// Request-aware host seam for create-or-merge processing.
     ///
-    /// The compatibility wrapper above deliberately retains its old signature. The live object
-    /// stream supplies a sink because the duplicate-create arm can synchronously request a fresh
-    /// object description.
+    /// The live object stream supplies a sink because the duplicate-create arm can synchronously
+    /// request a fresh object description.
     pub fn create_or_merge_with_dispatch_and_requests(
         &mut self,
         p: &ObjectCreatePayload,
@@ -514,6 +515,7 @@ impl World {
     }
 
     /// `0xF7DB Item_UpdateObject` semantics: **always** delete and rebuild.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn recreate(
         &mut self,
         p: &ObjectCreatePayload,
@@ -674,6 +676,7 @@ impl World {
     /// a session has seen and not by its live objects, and a long-session station prints it to
     /// tell that bound apart from a per-object leak standing next to it.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn physics_setup_count(&self) -> usize {
         self.physics_setups.len()
     }

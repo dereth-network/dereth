@@ -72,7 +72,13 @@ fn app_with_body_at(at: Position, frames: u32) -> App {
     })
     .expect("the static scene and the body load");
     {
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         c.land().load_block_cells(block);
         c.teleport(at);
     }

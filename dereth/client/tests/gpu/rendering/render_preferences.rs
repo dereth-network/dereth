@@ -754,9 +754,9 @@ fn change(app: &mut App, r: UiRequest) -> u64 {
         .requests
         .emit(r);
     assert!(app.frame(), "the frame that carries the option write");
-    let before = app.render_pref_applies();
+    let before = app.probe().render_pref_applies();
     assert!(app.frame(), "the frame whose poll sees it");
-    app.render_pref_applies() - before
+    app.probe().render_pref_applies() - before
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -845,7 +845,7 @@ fn multiple_pass_alpha_adds_a_second_device_pass_on_the_next_frame() {
         "every clip-mapped subset must now ALSO be drawn in place, and {} of {deferred1} were not",
         deferred1 - both1
     );
-    assert_eq!(app.stream_failures(), 0);
+    assert_eq!(app.probe().stream_failures(), 0);
 }
 
 /// Behaviour: rendering.preferences.multiple-pass-alpha-blends-the-edges-the-cut-out-drops
@@ -928,7 +928,7 @@ fn multiple_pass_alpha_s_second_pass_is_blended_and_not_alpha_tested() {
         land1.multipass,
         land1.clip
     );
-    assert_eq!(app.stream_failures(), 0);
+    assert_eq!(app.probe().stream_failures(), 0);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -959,7 +959,7 @@ fn the_landscape_draw_distance_rebuilds_the_ring_on_the_next_frame() {
     );
 
     let s = app.world_scene().expect("a world");
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     eprintln!(
         "live preferences: LandscapeDrawDistance: mid_radius {r0} -> {}, blocks {n0} -> {} ({work:?})",
         s.mid_radius(),
@@ -980,7 +980,11 @@ fn the_landscape_draw_distance_rebuilds_the_ring_on_the_next_frame() {
         "an 11x11 ring must hold more blocks than a 5x5 one: {} vs {n0}",
         s.resident_blocks()
     );
-    assert_eq!(app.stream_failures(), 0, "the rebuild failed somewhere");
+    assert_eq!(
+        app.probe().stream_failures(),
+        0,
+        "the rebuild failed somewhere"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1016,7 +1020,7 @@ fn the_landscape_texture_detail_recomposites_the_terrain_on_the_next_frame() {
     );
 
     let s = app.world_scene().expect("a world");
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     let extent1 = s
         .last_terrain_surface_built()
         .expect("the rebuild composited a surface");
@@ -1052,7 +1056,11 @@ fn the_landscape_texture_detail_recomposites_the_terrain_on_the_next_frame() {
         extent0.0,
         extent0.1
     );
-    assert_eq!(app.stream_failures(), 0, "the rebuild failed somewhere");
+    assert_eq!(
+        app.probe().stream_failures(),
+        0,
+        "the rebuild failed somewhere"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1107,7 +1115,7 @@ fn the_environment_texture_detail_reuploads_object_textures_on_the_next_frame() 
     );
 
     let s = app.world_scene().expect("a world");
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     let (u1, up1, src1, d1) = s.object_texture_census();
     let (du, dup, dsrc, dd) = (u1 - u0, up1 - up0, src1 - src0, d1 - d0);
     eprintln!(
@@ -1143,7 +1151,11 @@ fn the_environment_texture_detail_reuploads_object_textures_on_the_next_frame() 
         dup * 2 < dsrc,
         "the device is still being handed most of the image it was: {dup} of {dsrc} source texels"
     );
-    assert_eq!(app.stream_failures(), 0, "the rebuild failed somewhere");
+    assert_eq!(
+        app.probe().stream_failures(),
+        0,
+        "the rebuild failed somewhere"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1182,7 +1194,7 @@ fn environment_detail_textures_is_polled_and_reaches_no_subsystem_in_this_build(
         "the poll did not notice the change at all"
     );
 
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     let s = app.world_scene().expect("a world");
     assert!(
         work.detail_texturing_changed,

@@ -2144,7 +2144,7 @@ mod cast {
             self.c
                 .world_mut()
                 .set_selected_object(target, false, &mut NullSink);
-            let mut panels = std::mem::take(&mut self.c.app_mut().hud_mut().panels);
+            let mut panels = std::mem::take(&mut self.c.app_mut().probe_mut().hud_mut().panels);
             {
                 let shell = self.c.app_mut().ui_mut().expect("the shell");
                 let ui = &mut shell.ui;
@@ -2152,7 +2152,7 @@ mod cast {
                 panels.spellcasting.set_selected(ui, tab, SUBJECT);
                 panels.spellcasting.cast(ui);
             }
-            self.c.app_mut().hud_mut().panels = panels;
+            self.c.app_mut().probe_mut().hud_mut().panels = panels;
             self.c.tick(3);
         }
 

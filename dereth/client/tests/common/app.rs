@@ -87,9 +87,12 @@ pub fn player_description(app: &mut App, name: &str) {
     )
     .unwrap();
     let event = SessionEvent::PlayerDescription(Box::new(desc));
-    app.objects_mut().apply_event(&event, LocalTime(1.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&event, LocalTime(1.0));
     app.apply_hud_events(std::slice::from_ref(&event));
-    app.apply_interaction_events(std::slice::from_ref(&event));
+    app.probe_mut()
+        .apply_interaction_events(std::slice::from_ref(&event));
 }
 
 /// Apply the server's recorded unhide after its login-tunnel create.
@@ -106,7 +109,7 @@ pub fn unhide_recorded_player(app: &mut App, corpus: &Corpus, id: ObjectId) {
                     == 0
         })
         .expect("early-inventory-and-casting's recorded 0xF74B unhide for the player");
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_SET_STATE,
             body: row.payload[4..].to_vec(),
@@ -128,7 +131,7 @@ pub fn unhide_player(app: &mut App, corpus: &Corpus, id: ObjectId) {
                     == 0
         })
         .expect("early-inventory-and-casting's recorded 0xF74B unhide for the player");
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_SET_STATE,
             body: row.payload[4..].to_vec(),
@@ -250,9 +253,10 @@ pub fn app_with_recorded_body_with(new: impl FnOnce(Config) -> Result<App, Start
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),

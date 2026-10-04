@@ -51,10 +51,12 @@ mod notices;
 mod pointer;
 mod ui_requests;
 
-pub use events::{apply_events, apply_events_at_boundary};
-pub use frame::{
-    draw_use_time_with_chat_focus, registered_systems_use_time, use_time, use_time_with_chat_focus,
-};
+#[cfg(any(test, feature = "test-support"))]
+mod testing;
+pub use events::apply_events_at_boundary;
+pub use frame::{draw_use_time_with_chat_focus, registered_systems_use_time};
+#[cfg(any(test, feature = "test-support"))]
+pub use testing::{apply_events, use_time, use_time_with_chat_focus};
 
 use crate::requests::send_request;
 use dereth_animation::parts::LightingMode;
@@ -369,7 +371,7 @@ pub struct Interaction {
     /// Set by `EscapeKey`'s "nothing is selected" leg to the visibility-toggle action;
     /// drained by `App`, which owns the UI tree.
     visibility_toggle_requested: Option<u32>,
-    /// Standing-still state pushed in by [`use_time`] from the body's
+    /// Standing-still state pushed in by [`draw_use_time_with_chat_focus`] from the body's
     /// own motion interpreter each frame, or `true` when no physics body exists.
     ///
     /// **`true` is the retail answer for "there is no body"**, so the
@@ -388,15 +390,15 @@ pub struct Interaction {
     ///
     /// The original drop-release handler reads shared input state because element
     /// message `0x15` carries the two drag/drop elements but no coordinates.
-    /// [`use_time`] step 1 writes every pointer event's position before dispatch,
+    /// [`draw_use_time_with_chat_focus`] step 1 writes every pointer event's position before dispatch,
     /// so this value is the position used to deliver that event.
     cursor: (i32, i32),
     /// The render target width and height
-    /// — the back buffer, which is what every caller of [`use_time`] passes.
+    /// — the back buffer, which is what every caller of [`draw_use_time_with_chat_focus`] passes.
     ///
     /// Kept here for the same reason as [`Interaction::cursor`]: the drop arm is reached from
     /// [`Interaction::run_ui_requests`], which has no viewport argument and has three callers
-    /// outside this file. Written by [`use_time`] before step 2, so a pick armed by a drop is
+    /// outside this file. Written by [`draw_use_time_with_chat_focus`] before step 2, so a pick armed by a drop is
     /// measured against the same rectangle as a pick armed by a click in the same frame.
     ///
     /// **This is not the viewport:** it is the extent the viewport is clamped into, and the two
@@ -452,7 +454,7 @@ pub struct Interaction {
     /// the three-state form, because with the argument `true` "no body" answers `false` and "a body
     /// with a motion outstanding" answers `true`, and a `bool` cannot hold both.
     player_motions_pending: Option<bool>,
-    /// The requests this frame produced, drained into the session by [`use_time`].
+    /// The requests this frame produced, drained into the session by [`draw_use_time_with_chat_focus`].
     outbox: Vec<Request>,
     /// Ordered notices for the current gameplay subscriber; App drains even without a UI.
     pending_external_container: Vec<ExternalContainerNotice>,
@@ -556,7 +558,7 @@ pub struct Interaction {
     /// the same `MovementCommands` the emote keys use. A `Vec` because `public_chat`
     /// can extract more than one run from a line.
     pending_pose_motions: Vec<u32>,
-    /// Every [`Request`] the last [`use_time`] handed to the wire slot, in order.
+    /// Every [`Request`] the last [`draw_use_time_with_chat_focus`] handed to the wire slot, in order.
     ///
     /// `stats.requests_sent` and `requests_undeliverable` count them and cannot tell
     /// `Communication_Talk` from `Communication_ChannelBroadcast` — and that difference is a line
@@ -573,9 +575,9 @@ pub struct Interaction {
     /// [`crate::character::Character::position`] immediately before the chat command dispatch,
     /// because the handler runs against `dereth_client_model::World`, which does not own the body.
     pub player_position: Option<dereth_primitives::Position>,
-    /// The last frame time [`use_time`] was driven with.
+    /// The last frame time [`draw_use_time_with_chat_focus`] was driven with.
     ///
-    /// [`apply_events`] runs *before* [`use_time`] in `App::frame`, so two of its arms — the
+    /// [`apply_events_at_boundary`] runs *before* [`draw_use_time_with_chat_focus`] in `App::frame`, so two of its arms — the
     /// enchantment rebase and `handle_attack_done`'s power-bar build
     /// start — would otherwise have no clock at all. This is the previous frame's, which is one
     /// frame stale and **stated rather than hidden**: at any frame rate this client runs at that is
@@ -931,7 +933,7 @@ impl Interaction {
     }
 
     /// What step 7 produced: the pointer events dispatched
-    /// and the requests the screens queued. Both are acted on in [`use_time`], which is where the
+    /// and the requests the screens queued. Both are acted on in [`draw_use_time_with_chat_focus`], which is where the
     /// client's per-frame interaction update sits.
     pub fn queue(&mut self, mouse: Vec<UiMouseEvent>, requests: Vec<UiRequest>) {
         self.mouse.extend(mouse);
@@ -950,7 +952,7 @@ impl Interaction {
         self.plugin_manager_open
     }
 
-    /// The standing-still predicate's answer, pushed in by [`use_time`] from
+    /// The standing-still predicate's answer, pushed in by [`draw_use_time_with_chat_focus`] from
     /// the body's motion interpreter.
     pub fn note_standing_still(&mut self, still: bool) {
         self.standing_still = StartsTrue(still);

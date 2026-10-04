@@ -843,7 +843,7 @@ fn the_background_tile_reaches_the_pixels_inside_the_grid_and_nowhere_else() {
 
     let shot = |show: bool| -> (u32, u32, Vec<u8>, Box2D, usize) {
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = replay_to(
+        *app.probe_mut().objects_mut() = replay_to(
             "first-login-walk-jump",
             busiest_instant("first-login-walk-jump"),
             None,

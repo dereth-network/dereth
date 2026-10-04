@@ -542,7 +542,9 @@ fn ui(client: &mut HeadlessClient, requests: Vec<UiRequest>) {
             );
         }
         Backend::App(app) => {
-            app.interaction_mut().queue(Vec::new(), requests);
+            app.probe_mut()
+                .interaction_mut()
+                .queue(Vec::new(), requests);
         }
     }
 }

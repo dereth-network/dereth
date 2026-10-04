@@ -22,6 +22,11 @@
 //! a `Shell` call made at the point in the frame where the retail client makes it, so a front
 //! end supplies behaviour and never sequence.
 
+#[cfg(any(test, feature = "test-support"))]
+mod probe;
+#[cfg(any(test, feature = "test-support"))]
+pub use probe::{AppProbe, AppProbeMut};
+
 mod access;
 mod display;
 mod frame;
@@ -40,12 +45,17 @@ mod world;
 
 use motion::command_interpreter_control_transfer_with_finish;
 pub use motion::{
-    apply_player_teleport, body_jump, body_motion, body_motion_in,
-    command_interpreter_control_transfer, complete_player_teleport, complete_player_teleport_at,
-    jump_edge_sample, player_timestamps, raw_motion_state_to_wire, raw_motion_state_to_wire_in,
+    body_motion_in, complete_player_teleport_at, player_timestamps, raw_motion_state_to_wire_in,
 };
+#[cfg(any(test, feature = "test-support"))]
+mod testing;
 pub use session::{
     character_set_from_login, chargen_result_to_wire, ddd_interrogation_response, PRODUCT_HIGHRES,
+};
+#[cfg(any(test, feature = "test-support"))]
+pub use testing::{
+    apply_player_teleport, body_jump, body_motion, command_interpreter_control_transfer,
+    complete_player_teleport, jump_edge_sample, raw_motion_state_to_wire,
 };
 
 use dereth_client_contract::window_proc::style;
@@ -73,7 +83,7 @@ use crate::{
 // -------------------------------------------------------------------------------------------
 
 /// One host call made while consuming an open-URL request, as recorded by
-/// [`record_shell_calls`].
+/// `record_shell_calls`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellCall {
     /// The URL launch. `result` is the value returned by the host or the armed recorder.
@@ -83,7 +93,7 @@ pub enum ShellCall {
 }
 
 thread_local! {
-    /// `Some` once a test has called [`record_shell_calls`]: the two host calls are then recorded
+    /// `Some` once a test has called `record_shell_calls`: the two host calls are then recorded
     /// instead of performed, so a station can assert that the request reached the shell without a
     /// browser window or a modal dialog appearing on the desktop. The `i32` is what the recorder
     /// answers `ShellExecuteA` with.
@@ -95,12 +105,14 @@ thread_local! {
 /// the smallest value that the signed `result > 32` test accepts as success.
 ///
 /// **A test that drives the support buttons must call this first**, or it opens a browser.
+#[cfg(any(test, feature = "test-support"))]
 pub fn record_shell_calls() {
     record_shell_calls_answering(33);
 }
 
-/// [`record_shell_calls`] with a chosen launch result, so a test can drive the failure leg
+/// `record_shell_calls` with a chosen launch result, so a test can drive the failure leg
 /// (`result <= 32`) and inspect the requested error dialog.
+#[cfg(any(test, feature = "test-support"))]
 pub fn record_shell_calls_answering(result: i32) {
     SHELL_LOG.with(|l| *l.borrow_mut() = Some((result, ())));
 }

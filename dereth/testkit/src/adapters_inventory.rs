@@ -161,6 +161,7 @@ pub fn given_recorded_chest(client: &mut HeadlessClient) -> usize {
     assert!(
         client
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie(RECORDED_CHEST)

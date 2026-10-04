@@ -179,7 +179,7 @@ fn add_player(app: &mut App, peer: &mut Peer) {
     // unrelated to EA60 and can begin on the following frame. Stop that independent model after
     // the encoded player/body assertions, then consume its already-started finite sample before
     // measuring the admin switch. ObjectStream's real F746/F745 player and body remain installed.
-    app.teleport_mut().reset();
+    app.probe_mut().teleport_mut().reset();
     let audio = app.audio_mut().expect("audio");
     let mut block = vec![0.0_f32; 2 * 2048];
     for _ in 0..32 {

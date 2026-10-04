@@ -130,7 +130,7 @@ fn grid_slot_of(app: &mut App, item: ObjectId) -> ElemHandle {
 }
 
 fn seed(app: &mut App) {
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     w.player = Some(PLAYER);
     w.tables.inventories.insert(
         PLAYER,

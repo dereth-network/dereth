@@ -81,7 +81,7 @@ fn app() -> App {
 }
 
 fn send<M: Message>(app: &mut App, m: &M) {
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: M::OPCODE,
             body: dereth_protocol::write_body(m).expect("encodes"),
@@ -188,7 +188,8 @@ fn set_state(app: &mut App, id: ObjectId, state: u32, event: u16) {
 
 /// Log a synthetic local player in, the way `objects::hidden_state` does.
 fn log_in(app: &mut App) {
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(0.0));
     let (cell, origin) = {
         let s = app.world_scene().expect("a scene");

@@ -217,7 +217,7 @@ impl Bench {
         app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
         Self::run(&mut app, 3);
         assert_eq!(
-            app.objects_mut().world.player,
+            app.probe_mut().objects_mut().world.player,
             Some(PLAYER_1),
             "the login put a body in"
         );

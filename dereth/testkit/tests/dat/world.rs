@@ -3390,17 +3390,17 @@ fn scenario_a_walking_body_reports_where_it_is_and_a_still_one_falls_silent() {
 /// through [`ClientSpec::retail`] -- the same client, without the device.
 pub fn every_drawn_frame_reaches_the_position_reporter() {
     let mut c = HeadlessClient::new(ClientSpec::retail());
-    let before = c.view().expect_app().position_use_times();
+    let before = c.view().expect_app().probe().position_use_times();
     c.tick(3);
 
     c.assert_behaviour(
         "movement.position-report.every-drawn-frame-reaches-the-reporter-and-invents-nothing",
         move |v| {
             let app = v.expect_app();
-            let s = app.position_reporter_stats();
+            let s = app.probe().position_reporter_stats();
             before == 0
-                && app.position_use_times() == 3
-                && app.position_use_times() == app.frames_drawn()
+                && app.probe().position_use_times() == 3
+                && app.probe().position_use_times() == app.frames_drawn()
                 // With no link and no body there is nothing to report, and the reporter must
                 // not invent one.
                 && (s.position_events, s.movement_events, s.encode_failures) == (0, 0, 0)
@@ -3681,11 +3681,11 @@ pub fn every_drawn_frame_visits_the_jump_dispatch() {
         "movement.jump.every-drawn-frame-visits-the-jump-dispatch-and-invents-none",
         move |v| {
             let app = v.expect_app();
-            app.jump_use_times() == 3
-                && app.jump_use_times() == app.frames_drawn()
+            app.probe().jump_use_times() == 3
+                && app.probe().jump_use_times() == app.frames_drawn()
                 // Nobody pressed jump, so nothing may have been invented.
-                && app.jump_counts() == (0, 0)
-                && app.position_reporter_stats().jump_events == 0
+                && app.probe().jump_counts() == (0, 0)
+                && app.probe().position_reporter_stats().jump_events == 0
         },
     );
     c.shutdown();
@@ -5465,13 +5465,13 @@ pub fn every_drawn_frame_applies_a_teleport_before_reporting() {
         "movement.teleport.every-drawn-frame-applies-a-teleport-before-it-reports-a-position",
         move |v| {
             let app = v.expect_app();
-            app.player_teleport_use_times() == 3
-                && app.player_teleport_use_times() == app.frames_drawn()
-                && app.position_use_times() == app.frames_drawn()
+            app.probe().player_teleport_use_times() == 3
+                && app.probe().player_teleport_use_times() == app.frames_drawn()
+                && app.probe().position_use_times() == app.frames_drawn()
                 // With no shard and no body there is nothing to teleport, and nothing may have
                 // been invented.
-                && app.player_teleports_applied() == 0
-                && app.player_teleports_before_a_body() == 0
+                && app.probe().player_teleports_applied() == 0
+                && app.probe().player_teleports_before_a_body() == 0
         },
     );
     c.shutdown();

@@ -8,9 +8,9 @@ fn classic_and_absent_interfaces_prune_only_authoritative_unknown_visible_favori
     for no_ui in [false, true] {
         let (mut app, mut shell) = fixture();
         shell.no_ui = no_ui;
-        app.hud_mut().era.era = EraId::Infiltration;
-        app.objects_mut().world.player_system.spell_tabs[0] = vec![900, 901];
-        app.objects_mut().world.player_system.spell_tabs[7] = vec![902];
+        app.probe_mut().hud_mut().era.era = EraId::Infiltration;
+        app.probe_mut().objects_mut().world.player_system.spell_tabs[0] = vec![900, 901];
+        app.probe_mut().objects_mut().world.player_system.spell_tabs[7] = vec![902];
         batch(&mut app, &mut shell, vec![]);
         assert_eq!(app.objects().world.player_system.spell_tabs[0], [900, 901]);
         assert_eq!(app.interaction().stats.spell_favorites_changed, 0);
@@ -19,15 +19,18 @@ fn classic_and_absent_interfaces_prune_only_authoritative_unknown_visible_favori
             ..Default::default()
         };
         if no_ui {
-            app.objects_mut().world.set_player_desc(q);
+            app.probe_mut().objects_mut().world.set_player_desc(q);
             assert!(
                 app.objects().world.player_qualities().is_none(),
                 "description is parked before its object arrives"
             );
         } else {
-            app.objects_mut().world.seed_player_desc(ObjectId(1), q);
+            app.probe_mut()
+                .objects_mut()
+                .world
+                .seed_player_desc(ObjectId(1), q);
         }
-        app.hud_mut().player_desc_received = true;
+        app.probe_mut().hud_mut().player_desc_received = true;
         batch(&mut app, &mut shell, vec![]);
         assert_eq!(app.objects().world.player_system.spell_tabs[0], [901]);
         assert_eq!(app.objects().world.player_system.spell_tabs[7], [902]);
@@ -38,7 +41,8 @@ fn classic_and_absent_interfaces_prune_only_authoritative_unknown_visible_favori
         );
         batch(&mut app, &mut shell, vec![]);
         assert_eq!(app.interaction().stats.spell_favorites_changed, 1);
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .world
             .seed_player_desc(ObjectId(1), Default::default());
         batch(&mut app, &mut shell, vec![]);
@@ -47,7 +51,7 @@ fn classic_and_absent_interfaces_prune_only_authoritative_unknown_visible_favori
             "an authoritative empty book prunes"
         );
         assert_eq!(app.interaction().stats.spell_favorites_changed, 2);
-        app.hud_mut().era.era = EraId::Eor;
+        app.probe_mut().hud_mut().era.era = EraId::Eor;
         batch(&mut app, &mut shell, vec![]);
         assert!(app.objects().world.player_system.spell_tabs[7].is_empty());
         assert_eq!(app.interaction().stats.spell_favorites_changed, 3);

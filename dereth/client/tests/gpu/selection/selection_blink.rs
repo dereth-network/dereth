@@ -165,9 +165,10 @@ fn setup() -> (App, ObjectId) {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -181,7 +182,7 @@ fn setup() -> (App, ObjectId) {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -232,7 +233,7 @@ fn place(app: &mut App, id: ObjectId, offset: (f32, f32, f32), now: f64) {
         wdesc: PublicWeenieDesc::default(),
     };
     let body = dereth_protocol::write_body(&ItemCreateObject(payload)).expect("encode");
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body,
@@ -652,7 +653,7 @@ fn click_map_pixel(map: &dereth_ui_screens::panels::inventory::ClickMap, mask: u
 fn dress_and_open(app: &mut App, player: ObjectId) {
     use dereth_client_model::objects::{InventoryPlacement, ObjectInventory};
     {
-        let world = &mut app.objects_mut().world;
+        let world = &mut app.probe_mut().objects_mut().world;
         assert_eq!(
             world.player,
             Some(player),

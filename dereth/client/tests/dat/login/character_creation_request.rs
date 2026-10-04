@@ -61,7 +61,7 @@ fn app_on_character_screen(create: &str) -> App {
     let mut app = App::with_presentation(cfg, Box::new(NullPresentation::new(800, 600)))
         .expect("the headless app starts");
     app.start_shell().expect("the shell comes up");
-    let host = app.host_state_mut();
+    let host = app.probe_mut().host_state_mut();
     host.character_set = Some(character_set());
     host.received_set = true;
     host.world_name = Some("ACEmulator".into());

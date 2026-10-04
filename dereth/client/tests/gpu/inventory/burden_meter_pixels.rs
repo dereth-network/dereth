@@ -157,7 +157,7 @@ fn changing_only_the_burden_repaints_only_the_burden_widgets() {
                 .hud()
                 .player
                 .unwrap_or(dereth_primitives::ObjectId(0x5000_0001));
-            let w = &mut app.objects_mut().world;
+            let w = &mut app.probe_mut().objects_mut().world;
             w.player = None;
             w.tables
                 .weenies
@@ -184,6 +184,7 @@ fn changing_only_the_burden_repaints_only_the_burden_widgets() {
         if let Some(v) = encumbrance {
             use dereth_client_model::qualities::{StatKey, StatType, StatValue};
             let q = app
+                .probe_mut()
                 .objects_mut()
                 .world
                 .player_qualities_mut()

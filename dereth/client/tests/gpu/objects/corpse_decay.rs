@@ -576,8 +576,12 @@ fn the_recorded_decay_pair_retires_a_corpse_the_observer_can_still_see() {
     let (_spot, tunnel) = observer_and_corpse(&mut app, &mut peer, &recorded);
 
     // The player-visible state a live corpse owns.
-    app.objects_mut().world.opened_corpses.insert(CORPSE);
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .opened_corpses
+        .insert(CORPSE);
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(CORPSE),
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -713,11 +717,11 @@ fn an_observer_the_server_stopped_talking_to_keeps_the_decayed_corpse() {
 
 fn teleport_local(app: &mut App, peer: &mut Peer, to: Position, stamp: &mut u16) {
     *stamp = stamp.wrapping_add(1);
-    let applied = app.player_teleports_applied();
+    let applied = app.probe().player_teleports_applied();
     peer.send(app, &position_message(LOCAL, to, *stamp, *stamp));
     frames(app, 14);
     assert_eq!(
-        app.player_teleports_applied(),
+        app.probe().player_teleports_applied(),
         applied + 1,
         "the local 0xF748 to {:#010X} was admitted",
         to.cell.0
@@ -741,8 +745,12 @@ fn leaving_the_window_past_the_deadline_culls_the_corpse_and_the_return_is_clean
     let mut peer = Peer::attach(&mut app);
     let (_spot, _) = observer_and_corpse(&mut app, &mut peer, &recorded);
 
-    app.objects_mut().world.opened_corpses.insert(CORPSE);
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .opened_corpses
+        .insert(CORPSE);
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(CORPSE),
         false,
         &mut dereth_client_model::RecordingSink::default(),

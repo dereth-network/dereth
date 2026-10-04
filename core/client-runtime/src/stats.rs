@@ -67,7 +67,7 @@ pub struct InteractionStats {
     /// a producer call but are different questions, and a counter shared between them could not
     /// tell "the motion answer never ran" from "the motion answer never changed".
     pub ready_answers_changed: u64,
-    /// How many times [`crate::interaction::use_time`]'s step 3 raised
+    /// How many times [`crate::interaction::draw_use_time_with_chat_focus`]'s step 3 raised
     /// the object-found notice from the arm that has **no scene to sweep**. The
     /// notice block sits outside the player-presence guard,
     /// so an armed pick in a scene-less frame is answered with `click_object_id == 0` rather than
@@ -1262,7 +1262,7 @@ pub struct HudStats {
     /// every frame means the guard in [`crate::hud::DisplayName::matches`] has stopped holding, which would be
     /// a per-frame allocation nobody would otherwise see.
     pub display_names_composed: u64,
-    /// Trackers dropped by [`crate::hud::HudView::contracts`] because the contract table did not resolve their
+    /// Trackers dropped by [`dereth_client_contract::view::GameView::contracts`] because the contract table did not resolve their
     /// id. A denominator: an empty Contracts tab can then say whether the shard sent nothing or
     /// whether the dat did not carry what it sent. The reference client assumes this lookup succeeds.
     pub contracts_unresolved: u64,

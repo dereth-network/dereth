@@ -107,9 +107,10 @@ fn setup() -> (App, ObjectId) {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -127,7 +128,7 @@ fn setup() -> (App, ObjectId) {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -210,9 +211,11 @@ fn aim(app: &App, world: Vec3) -> (i32, i32) {
 
 fn pick_at(app: &mut App, at: (i32, i32)) -> ObjectId {
     let e = click(at.0, at.1);
-    let armed = app
-        .interaction_mut()
-        .wrapper_mouse(e, SCREEN, interaction::is_world_click(e.over));
+    let armed = app.probe_mut().interaction_mut().wrapper_mouse(
+        e,
+        SCREEN,
+        interaction::is_world_click(e.over),
+    );
     assert!(
         armed,
         "({}, {}) is inside the 3D view and arms a Select pick",

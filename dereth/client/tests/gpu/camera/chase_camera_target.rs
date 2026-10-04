@@ -67,7 +67,7 @@ fn weenie(w: &mut dereth_client_model::World, id: ObjectId) -> &mut dereth_clien
 /// The player and one creature. For a non-player, non-pet creature, attackability is bit 4 of the
 /// object's bitfield, so without `ATTACKABLE` the last gate refuses.
 fn seed(app: &mut App, attackable: bool) {
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     w.player = Some(PLAYER);
     weenie(w, PLAYER).pwd.name = "Aldis".into();
     {
@@ -85,7 +85,7 @@ fn seed(app: &mut App, attackable: bool) {
 
 /// `ViewCombatTarget`, option ordinal 7, whose side effect is target tracking.
 fn set_tracking(app: &mut App, on: bool) {
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     w.player_system
         .options
         .set(dereth_client_model::player::option::VIEW_COMBAT_TARGET, on);
@@ -111,7 +111,7 @@ fn the_camera_frames_an_attackable_target_in_melee_mode() {
     let mut app = setup();
     seed(&mut app, true);
     set_tracking(&mut app, true);
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
     frames(&mut app, 3);
 
     let (mask, id) = camera_target(&app);
@@ -148,7 +148,7 @@ fn every_gate_that_refuses_releases_the_camera() {
     let mut app = setup();
     seed(&mut app, true);
     set_tracking(&mut app, false);
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
     frames(&mut app, 3);
     let (mask, id) = camera_target(&app);
     assert_eq!(
@@ -166,7 +166,7 @@ fn every_gate_that_refuses_releases_the_camera() {
     let mut app = setup();
     seed(&mut app, true);
     set_tracking(&mut app, true);
-    app.objects_mut().world.combat.combat_mode = CombatMode::NonCombat;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::NonCombat;
     frames(&mut app, 3);
     let (mask, id) = camera_target(&app);
     assert_eq!(
@@ -183,10 +183,12 @@ fn every_gate_that_refuses_releases_the_camera() {
     let mut app = setup();
     seed(&mut app, true);
     set_tracking(&mut app, true);
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
-    app.objects_mut()
-        .world
-        .set_selected_object(None, false, &mut dereth_client_model::NullSink);
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut().objects_mut().world.set_selected_object(
+        None,
+        false,
+        &mut dereth_client_model::NullSink,
+    );
     frames(&mut app, 3);
     let (mask, id) = camera_target(&app);
     assert_eq!(
@@ -203,7 +205,7 @@ fn every_gate_that_refuses_releases_the_camera() {
     let mut app = setup();
     seed(&mut app, false);
     set_tracking(&mut app, true);
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
     frames(&mut app, 3);
     let (mask, id) = camera_target(&app);
     assert_eq!(
@@ -227,7 +229,7 @@ fn dropping_the_target_in_one_session_restores_the_chase_camera() {
     let mut app = setup();
     seed(&mut app, true);
     set_tracking(&mut app, true);
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
     frames(&mut app, 3);
     let (framed, framed_id) = camera_target(&app);
     assert_ne!(
@@ -238,7 +240,7 @@ fn dropping_the_target_in_one_session_restores_the_chase_camera() {
     assert_eq!(framed_id, MONSTER);
 
     // Sheathe. A combat-mode change is one of the three target-tracking edges.
-    app.objects_mut().world.combat.combat_mode = CombatMode::NonCombat;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::NonCombat;
     frames(&mut app, 3);
     let (released, released_id) = camera_target(&app);
     assert_eq!(

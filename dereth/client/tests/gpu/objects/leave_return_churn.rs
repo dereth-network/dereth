@@ -1171,11 +1171,11 @@ fn known(app: &App, id: ObjectId) -> bool {
 /// subsequent frame checks observe destruction deadlines on objects left behind.
 fn teleport_local(app: &mut App, peer: &mut Peer, to: Position, stamp: &mut u16) {
     *stamp = stamp.wrapping_add(1);
-    let applied = app.player_teleports_applied();
+    let applied = app.probe().player_teleports_applied();
     peer.send(app, &position_message(LOCAL, to, 1, *stamp, *stamp));
     frames(app, 14);
     assert_eq!(
-        app.player_teleports_applied(),
+        app.probe().player_teleports_applied(),
         applied + 1,
         "the local 0xF748 to {:#010X} was admitted",
         to.cell.0

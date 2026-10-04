@@ -14,7 +14,7 @@ publish = false
 # through the facade is the same type reached directly.
 [features]
 # Fixture and mock helpers reached through this facade, enabled by test dependencies.
-test-support = ["dereth-dat/test-support", "dereth-client-net/test-support"]
+test-support = ["dereth-client-runtime/test-support", "dereth-dat/test-support", "dereth-client-net/test-support"]
 
 [dependencies]
 dereth-client-runtime.workspace = true

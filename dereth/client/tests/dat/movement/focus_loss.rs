@@ -95,7 +95,7 @@ fn server_move_to(app: &mut App, metres: f32) -> Position {
         })
         .expect("source-derived movement"),
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
             body: dereth_protocol::write_body(&message).unwrap(),
@@ -104,7 +104,7 @@ fn server_move_to(app: &mut App, metres: f32) -> Position {
     );
     frames(app, 1);
     assert!(
-        app.movement_commands().lists.controlled_by_server,
+        app.probe().movement_commands().lists.controlled_by_server,
         "a non-autonomous 0xF74C for the player is a transfer of control to the server"
     );
     assert!(app
@@ -243,14 +243,17 @@ fn unfocusing_the_client_does_not_cancel_the_run_lock() {
             from_key_down: true,
         });
     frames(&mut app, 20);
-    assert!(app.movement_commands().lists.auto_run, "the run lock is on");
+    assert!(
+        app.probe().movement_commands().lists.auto_run,
+        "the run lock is on"
+    );
     let before = position(&app);
 
     lose_focus(&mut app, 5_000);
     frames(&mut app, 30);
 
     assert!(
-        app.movement_commands().lists.auto_run,
+        app.probe().movement_commands().lists.auto_run,
         "focus loss does not change auto-run; the lock must survive"
     );
     assert!(
@@ -277,7 +280,7 @@ fn unfocusing_the_client_while_walking_under_your_own_power_does_stop_you() {
     frames(&mut app, 60);
     let before = position(&app);
     assert!(
-        !app.movement_commands().lists.controlled_by_server,
+        !app.probe().movement_commands().lists.controlled_by_server,
         "the player owns his own body"
     );
     assert!(

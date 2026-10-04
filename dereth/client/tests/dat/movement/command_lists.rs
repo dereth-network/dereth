@@ -177,9 +177,15 @@ fn releasing_the_second_turn_key_resumes_the_first() {
     let mut app = app_in_gameplay(4);
     let mut hand = Hand::new();
 
-    let turn = |app: &App| (app.char_input().turn_left, app.char_input().turn_right);
+    let turn = |app: &App| {
+        (
+            app.probe().char_input().turn_left,
+            app.probe().char_input().turn_right,
+        )
+    };
     let list = |app: &App| -> Vec<u32> {
-        app.movement_commands()
+        app.probe()
+            .movement_commands()
             .lists
             .turn
             .iter()
@@ -188,7 +194,7 @@ fn releasing_the_second_turn_key_resumes_the_first() {
     };
 
     // The denominator: something reached the interpreter at all.
-    let before = app.movement_commands().commands_handled;
+    let before = app.probe().movement_commands().commands_handled;
 
     hand.down(&mut app, KeyCode::KeyA);
     assert_eq!(turn(&app), (true, false), "DIK_A -> 0x2F Turn Left");
@@ -223,10 +229,10 @@ fn releasing_the_second_turn_key_resumes_the_first() {
     assert!(list(&app).is_empty());
 
     assert!(
-        app.movement_commands().commands_handled >= before + 4,
+        app.probe().movement_commands().commands_handled >= before + 4,
         "four presses and releases must all have reached the interpreter: {} -> {}",
         before,
-        app.movement_commands().commands_handled
+        app.probe().movement_commands().commands_handled
     );
     app.shutdown();
 }
@@ -242,23 +248,23 @@ fn releasing_the_second_movement_key_resumes_the_first() {
     let mut hand = Hand::new();
 
     hand.down(&mut app, KeyCode::KeyW);
-    assert!(app.char_input().forward);
+    assert!(app.probe().char_input().forward);
     hand.down(&mut app, KeyCode::KeyX);
     assert!(
-        app.char_input().back && !app.char_input().forward,
+        app.probe().char_input().back && !app.probe().char_input().forward,
         "the second key wins"
     );
     hand.up(&mut app, KeyCode::KeyX);
     assert!(
-        app.char_input().forward && !app.char_input().back,
+        app.probe().char_input().forward && !app.probe().char_input().back,
         "releasing backward resumes forward"
     );
     hand.up(&mut app, KeyCode::KeyW);
     assert!(
-        !app.char_input().forward && !app.char_input().back,
+        !app.probe().char_input().forward && !app.probe().char_input().back,
         "and the last release stops"
     );
-    assert!(app.movement_commands().lists.substate.is_empty());
+    assert!(app.probe().movement_commands().lists.substate.is_empty());
     app.shutdown();
 }
 
@@ -283,43 +289,47 @@ fn the_run_lock_starts_on_dik_q_and_any_movement_key_cancels_it() {
     let mut app = app_in_gameplay(4);
     let mut hand = Hand::new();
 
-    assert!(!app.char_input().auto_run, "the run lock starts off");
-    assert!(!app.char_input().forward);
+    assert!(
+        !app.probe().char_input().auto_run,
+        "the run lock starts off"
+    );
+    assert!(!app.probe().char_input().forward);
 
     // 1. On.
     hand.tap(&mut app, KeyCode::KeyQ);
-    assert!(app.char_input().auto_run, "DIK_Q -> 0x30 Autorun");
+    assert!(app.probe().char_input().auto_run, "DIK_Q -> 0x30 Autorun");
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "autorun supplies WalkForward in the base slot while it is set"
     );
     assert!(
-        app.movement_commands().lists.substate.is_empty(),
+        app.probe().movement_commands().lists.substate.is_empty(),
         "with nothing on the substate list"
     );
 
     // 2. Off, and it stops.
     hand.tap(&mut app, KeyCode::KeyQ);
-    assert!(!app.char_input().auto_run, "the toggle alternates");
+    assert!(!app.probe().char_input().auto_run, "the toggle alternates");
     assert!(
-        !app.char_input().forward,
+        !app.probe().char_input().forward,
         "turning autorun off also clears forward input -- movement is reapplied in both directions"
     );
 
     // 3. On again, then a movement key.
     hand.tap(&mut app, KeyCode::KeyQ);
-    assert!(app.char_input().auto_run);
+    assert!(app.probe().char_input().auto_run);
     hand.down(&mut app, KeyCode::KeyW);
     assert!(
-        !app.char_input().auto_run,
+        !app.probe().char_input().auto_run,
         "any movement key cancels the run lock"
     );
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "and the character is still walking, on W's own WalkForward"
     );
     assert_eq!(
-        app.movement_commands()
+        app.probe()
+            .movement_commands()
             .lists
             .substate
             .iter()
@@ -328,7 +338,7 @@ fn the_run_lock_starts_on_dik_q_and_any_movement_key_cancels_it() {
         vec![0x4500_0005]
     );
     hand.up(&mut app, KeyCode::KeyW);
-    assert!(!app.char_input().forward);
+    assert!(!app.probe().char_input().forward);
     app.shutdown();
 }
 
@@ -349,10 +359,10 @@ fn the_run_lock_is_behind_the_typing_barrier() {
 
     hand.tap(&mut app, KeyCode::KeyQ);
     assert!(
-        !app.char_input().auto_run,
+        !app.probe().char_input().auto_run,
         "typing `q` must not start autorun"
     );
-    assert!(!app.char_input().forward);
+    assert!(!app.probe().char_input().forward);
     // Separately inject WM_CHAR: control blocking must not suppress text delivery.
     hand.character(&mut app, 'q');
     app.frame();
@@ -370,7 +380,7 @@ fn the_run_lock_is_behind_the_typing_barrier() {
     assert!(!barrier_registered(&mut app));
     hand.tap(&mut app, KeyCode::KeyQ);
     assert!(
-        app.char_input().auto_run,
+        app.probe().char_input().auto_run,
         "unfocused, DIK_Q starts the run lock"
     );
     app.shutdown();
@@ -401,12 +411,18 @@ fn the_eight_world_camera_commands_reach_the_camera_set() {
     let mut hand = Hand::new();
 
     let offset = |app: &App| {
-        app.camera_control()
+        app.probe()
+            .camera_control()
             .expect("a body means a camera")
             .manager
             .viewer_offset
     };
-    let scale = app.camera_control().expect("a camera").manager.scale;
+    let scale = app
+        .probe()
+        .camera_control()
+        .expect("a camera")
+        .manager
+        .scale;
     let default_offset = dereth_primitives::Vec3::new(0.0, -2.5 * scale, 0.75 * scale);
 
     assert_eq!(
@@ -418,7 +434,7 @@ fn the_eight_world_camera_commands_reach_the_camera_set() {
     // 0x3A First Person -- `DIK_DECIMAL`.
     hand.tap(&mut app, KeyCode::NumpadDecimal);
     {
-        let c = app.camera_control().expect("a camera");
+        let c = app.probe().camera_control().expect("a camera");
         assert_eq!(
             c.manager.viewer_offset,
             dereth_client::camera::IN_HEAD_OFFSET,
@@ -441,24 +457,40 @@ fn the_eight_world_camera_commands_reach_the_camera_set() {
     // 0x3B Overhead View -- `DIK_NUMPAD5`, a toggle.
     hand.tap(&mut app, KeyCode::Numpad5);
     assert!(
-        app.camera_control().expect("a camera").set.looking_down,
+        app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .looking_down,
         "overhead view is enabled"
     );
     hand.tap(&mut app, KeyCode::Numpad5);
     assert!(
-        !app.camera_control().expect("a camera").set.looking_down,
+        !app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .looking_down,
         "and back"
     );
 
     // 0x3C Map View -- `DIK_NUMPADENTER`, a toggle.
     hand.tap(&mut app, KeyCode::NumpadEnter);
     assert!(
-        app.camera_control().expect("a camera").set.in_map_mode,
+        app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .in_map_mode,
         "map view is enabled"
     );
     hand.tap(&mut app, KeyCode::NumpadEnter);
     assert!(
-        !app.camera_control().expect("a camera").set.in_map_mode,
+        !app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .in_map_mode,
         "and back"
     );
 
@@ -466,12 +498,12 @@ fn the_eight_world_camera_commands_reach_the_camera_set() {
     // press is enough to see it.
     hand.down(&mut app, KeyCode::NumpadAdd);
     assert!(
-        app.camera_control().expect("a camera").set.farther,
+        app.probe().camera_control().expect("a camera").set.farther,
         "zoom-out hold is set"
     );
     hand.up(&mut app, KeyCode::NumpadAdd);
     assert!(
-        !app.camera_control().expect("a camera").set.farther,
+        !app.probe().camera_control().expect("a camera").set.farther,
         "zoom-out hold is cleared"
     );
 
@@ -481,7 +513,7 @@ fn the_eight_world_camera_commands_reach_the_camera_set() {
     let before = sq(offset(&app));
     hand.down(&mut app, KeyCode::NumpadSubtract);
     assert!(
-        app.camera_control().expect("a camera").set.closer,
+        app.probe().camera_control().expect("a camera").set.closer,
         "zoom-in hold is set"
     );
     for _ in 0..4 {
@@ -511,7 +543,13 @@ fn the_alternate_camera_key_registers_input_map_six_while_it_is_held() {
         !alternate_map_registered(&mut app),
         "map 6 is not a startup registration -- it belongs to action 0x3E"
     );
-    assert!(!app.camera_control().expect("a camera").set.mouselook_active);
+    assert!(
+        !app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .mouselook_active
+    );
 
     hand.down(&mut app, KeyCode::NumpadDivide);
     assert!(
@@ -519,7 +557,11 @@ fn the_alternate_camera_key_registers_input_map_six_while_it_is_held() {
         "0x3E's press registers map 6"
     );
     assert!(
-        app.camera_control().expect("a camera").set.mouselook_active,
+        app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .mouselook_active,
         "...and activates the shared 0x3D mouselook behavior"
     );
 
@@ -528,7 +570,13 @@ fn the_alternate_camera_key_registers_input_map_six_while_it_is_held() {
         !alternate_map_registered(&mut app),
         "0x3E's release unregisters it again"
     );
-    assert!(!app.camera_control().expect("a camera").set.mouselook_active);
+    assert!(
+        !app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .mouselook_active
+    );
     app.shutdown();
 }
 
@@ -549,13 +597,19 @@ fn the_arrow_keys_are_movement_until_the_alternate_camera_key_is_held() {
     // (a) Ordinarily: map 4.
     hand.down(&mut app, KeyCode::ArrowUp);
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "DIK_UP is 0x29 Move Forward in the shipped map 4"
     );
-    assert!(!app.camera_input().look_up, "and it is not a camera key");
+    assert!(
+        !app.probe().camera_input().look_up,
+        "and it is not a camera key"
+    );
     hand.up(&mut app, KeyCode::ArrowUp);
     hand.down(&mut app, KeyCode::ArrowLeft);
-    assert!(app.char_input().turn_left, "DIK_LEFT is 0x2F Turn Left");
+    assert!(
+        app.probe().char_input().turn_left,
+        "DIK_LEFT is 0x2F Turn Left"
+    );
     hand.up(&mut app, KeyCode::ArrowLeft);
 
     // (b) With 0x3E held, map 6 is registered above map 4 and the same keys become the camera --
@@ -564,17 +618,20 @@ fn the_arrow_keys_are_movement_until_the_alternate_camera_key_is_held() {
     assert!(alternate_map_registered(&mut app));
     hand.down(&mut app, KeyCode::ArrowUp);
     assert!(
-        app.camera_input().look_up,
+        app.probe().camera_input().look_up,
         "in alternate mode DIK_UP is 0x37 Rotate Camera Up"
     );
-    assert!(!app.char_input().forward, "and it is no longer movement");
+    assert!(
+        !app.probe().char_input().forward,
+        "and it is no longer movement"
+    );
     hand.up(&mut app, KeyCode::ArrowUp);
     hand.up(&mut app, KeyCode::NumpadDivide);
 
     // (c) ...and it goes back.
     hand.down(&mut app, KeyCode::ArrowUp);
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "releasing 0x3E gives the arrows back to movement"
     );
     hand.up(&mut app, KeyCode::ArrowUp);
@@ -595,7 +652,11 @@ fn the_world_camera_commands_are_behind_the_typing_barrier() {
 
     hand.tap(&mut app, KeyCode::Numpad5);
     assert!(
-        !app.camera_control().expect("a camera").set.looking_down,
+        !app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .looking_down,
         "typing must not put the camera overhead"
     );
     hand.down(&mut app, KeyCode::NumpadDivide);
@@ -613,7 +674,11 @@ fn the_world_camera_commands_are_behind_the_typing_barrier() {
     app.frame();
     hand.tap(&mut app, KeyCode::Numpad5);
     assert!(
-        app.camera_control().expect("a camera").set.looking_down,
+        app.probe()
+            .camera_control()
+            .expect("a camera")
+            .set
+            .looking_down,
         "unfocused, DIK_NUMPAD5 is Overhead View"
     );
     app.shutdown();
@@ -683,7 +748,10 @@ fn escape_drops_the_focus_and_leaves_the_text_exactly_as_retail_does() {
         !barrier_registered(&mut app),
         "so the keyboard barrier comes down with it"
     );
-    assert!(!app.device_done(), "and the process is still running");
+    assert!(
+        !app.probe().device_done(),
+        "and the process is still running"
+    );
 
     // (b) Deactivating the chat entry leaves its text intact.
     assert_eq!(
@@ -696,7 +764,7 @@ fn escape_drops_the_focus_and_leaves_the_text_exactly_as_retail_does() {
     let before_text = entry_text(&mut app);
     hand.down(&mut app, KeyCode::KeyW);
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "with the box blurred, W walks again"
     );
     hand.up(&mut app, KeyCode::KeyW);
@@ -708,6 +776,9 @@ fn escape_drops_the_focus_and_leaves_the_text_exactly_as_retail_does() {
 
     // (d) A second Escape with nothing focused is inert.
     hand.tap(&mut app, KeyCode::Escape);
-    assert!(!app.device_done(), "a bare Escape is not an exit path");
+    assert!(
+        !app.probe().device_done(),
+        "a bare Escape is not an exit path"
+    );
     app.shutdown();
 }

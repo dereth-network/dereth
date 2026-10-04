@@ -282,6 +282,7 @@ impl Trade {
 
     /// Both sides have accepted; the server may now complete the trade.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn both_accepted(&self) -> bool {
         self.accepted && self.partner_accepted
     }

@@ -43,7 +43,7 @@ fn described_player_scale_reaches_animation_and_collision_and_returns_to_normal(
         create.physicsdesc.object_scale = Some(scale);
         create.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::OBJSCALE;
         create.objdesc = Default::default();
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: if index == 0 {
                     Opcode::ITEM_UPDATE_OBJECT

@@ -316,7 +316,7 @@ fn the_interrogation_product_id_grants_the_high_res_dat() {
         .expect("the application comes up headless on WARP");
         app.start_shell().expect("the UI shell comes up");
         assert!(
-            !app.dat_store().highres_granted(),
+            !app.probe().dat_store().highres_granted(),
             "a fresh store has not been granted the dat"
         );
         let mut net = ClientNetwork::new("127.0.0.1:19000", 7304, "highres", "unused", 0)
@@ -372,7 +372,7 @@ fn the_interrogation_product_id_grants_the_high_res_dat() {
         for i in 0..3 {
             assert!(app.frame(), "frame {i} does not end the client");
         }
-        app.dat_store().highres_granted()
+        app.probe().dat_store().highres_granted()
     };
 
     assert!(

@@ -107,7 +107,7 @@ fn step_to(app: &mut App, want: dereth_ui::UiMode, limit: u32) {
 fn app_disconnected_with(code: u32) -> App {
     let mut app = app_on(mode::CHARACTER_MANAGEMENT);
     let token = disconnected::character_error_string_id(code).expect("a code with a token");
-    app.host_state_mut().error = Some(token.to_string());
+    app.probe_mut().host_state_mut().error = Some(token.to_string());
     // One frame queues the mode, one performs the switch, and one applies the error text and draws.
     for _ in 0..3 {
         app.frame();

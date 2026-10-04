@@ -203,6 +203,7 @@ fn a_portal_says_in_portal_space_on_entry_and_at_every_re_aim_and_the_line_reach
 
     // ---- Login tunnel: directly apply a synthetic PlayerCreated event.
     st.app
+        .probe_mut()
         .teleport_mut()
         .apply_events(&[SessionEvent::PlayerCreated(player)]);
     st.run(1, |_| true);
@@ -259,6 +260,7 @@ fn a_portal_says_in_portal_space_on_entry_and_at_every_re_aim_and_the_line_reach
     // ---- Portal seam: directly apply an `0xF751` event with the two-byte synthetic body. The
     // tunnel holds until the synthetic player-position event arrives.
     st.app
+        .probe_mut()
         .teleport_mut()
         .apply_events(&[SessionEvent::WorldObject {
             opcode: Opcode::EFFECTS_PLAYER_TELEPORT,
@@ -286,6 +288,7 @@ fn a_portal_says_in_portal_space_on_entry_and_at_every_re_aim_and_the_line_reach
     assert!(held >= 4, "the held portal interval contributes its entry line and at least three re-aims; got {held}");
     // Apply `0xF748` with only the player id; the tunnel then unwinds to the world.
     st.app
+        .probe_mut()
         .teleport_mut()
         .apply_events(&[SessionEvent::WorldObject {
             opcode: Opcode::MOVEMENT_POSITION_EVENT,

@@ -575,16 +575,17 @@ mod app_journey {
         for _ in 0..4 {
             frame(&mut app);
         }
-        app.objects_mut().world.player = Some(PLAYER);
+        app.probe_mut().objects_mut().world.player = Some(PLAYER);
         let rows = &Corpus::shared("long-solo-play").blobs;
         for row in rows.iter().filter(|r| r.idx < before) {
             if let Some(e) = event(row) {
-                app.objects_mut().apply_event(
+                app.probe_mut().objects_mut().apply_event(
                     &e,
                     LocalTime(std::time::Duration::from_micros(row.t_rel_micros).as_secs_f64()),
                 );
                 app.apply_hud_events(std::slice::from_ref(&e));
-                app.apply_interaction_events(std::slice::from_ref(&e));
+                app.probe_mut()
+                    .apply_interaction_events(std::slice::from_ref(&e));
             }
         }
         let shell = app.ui_mut().unwrap();
@@ -842,7 +843,7 @@ mod app_journey {
         dereth_protocol::read_body_padded::<dereth_protocol::objects::ItemUpdateObject>(&body)
             .expect("constructed scene descriptor consumes exactly");
         let previous = app.objects().stats.recreates;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::ITEM_UPDATE_OBJECT,
                 body,
@@ -920,7 +921,7 @@ mod app_journey {
         assert_eq!(app.interaction().target_mode(), T::UseTarget);
         assert_eq!(app.objects().world.targeting_object, key);
         // Selection is independently mutable; it must never replace the targeted-use source.
-        app.objects_mut().world.set_selected_object(
+        app.probe_mut().objects_mut().world.set_selected_object(
             Some(PLAYER),
             false,
             &mut dereth_client_model::NullSink,
@@ -934,14 +935,16 @@ mod app_journey {
             "fresh move-only real pick"
         );
         assert_cursor(&app, 0x28, (14, 14));
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .world
             .weenie_mut(door)
             .unwrap()
             .trade_state = 1;
         frame(&mut app);
         assert_cursor(&app, 0x29, (14, 14));
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .world
             .weenie_mut(door)
             .unwrap()

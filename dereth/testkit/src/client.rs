@@ -823,7 +823,7 @@ impl HeadlessClient {
     /// mutation is visible in the scenario body rather than inside an assertion.
     pub fn world_mut(&mut self) -> &mut World {
         match &mut self.backend {
-            Backend::App(app) => &mut app.objects_mut().world,
+            Backend::App(app) => &mut app.probe_mut().objects_mut().world,
             Backend::Model(m) => &mut m.objects.world,
         }
     }
@@ -831,7 +831,7 @@ impl HeadlessClient {
     /// The object stream, to set a scenario up with. See [`Self::world_mut`].
     pub fn objects_mut(&mut self) -> &mut ObjectStream {
         match &mut self.backend {
-            Backend::App(app) => app.objects_mut(),
+            Backend::App(app) => app.probe_mut().objects_mut(),
             Backend::Model(m) => &mut m.objects,
         }
     }
@@ -839,7 +839,7 @@ impl HeadlessClient {
     /// The HUD, to set a scenario up with. See [`Self::world_mut`].
     pub fn hud_mut(&mut self) -> &mut Hud {
         match &mut self.backend {
-            Backend::App(app) => app.hud_mut(),
+            Backend::App(app) => app.probe_mut().hud_mut(),
             Backend::Model(m) => &mut m.hud,
         }
     }
@@ -852,7 +852,7 @@ impl HeadlessClient {
     /// gap is the same seam from the other side.
     pub fn interaction_mut(&mut self) -> &mut Interaction {
         match &mut self.backend {
-            Backend::App(app) => app.interaction_mut(),
+            Backend::App(app) => app.probe_mut().interaction_mut(),
             Backend::Model(m) => &mut m.interaction,
         }
     }
@@ -866,7 +866,7 @@ impl HeadlessClient {
     /// two ends up standing a model host of its own up beside the one it is testing.
     pub fn interaction_and_world_mut(&mut self) -> (&mut Interaction, &mut World) {
         match &mut self.backend {
-            Backend::App(app) => app.interaction_and_world_mut(),
+            Backend::App(app) => app.probe_mut().interaction_and_world_mut(),
             Backend::Model(m) => (&mut m.interaction, &mut m.objects.world),
         }
     }
@@ -975,7 +975,7 @@ impl HeadlessClient {
     #[must_use]
     pub fn dat_store(&self) -> Option<&Arc<RetailDatStore>> {
         match &self.backend {
-            Backend::App(app) => Some(app.dat_store()),
+            Backend::App(app) => Some(app.probe().dat_store()),
             Backend::Model(m) => m.store.as_ref(),
         }
     }
@@ -1050,7 +1050,7 @@ impl HeadlessClient {
     /// Deliver `events` the way the frame does -- the objects, then the HUD, then the interaction
     /// layer **with the frame's own panels callback** -- and record everything that came back.
     ///
-    /// **The panels callback must be the real one.** `App::apply_interaction_events` passes
+    /// **The panels callback must be the real one.** `app.probe_mut().apply_interaction_events` passes
     /// `&mut |_, _, _| {}` as its `panels` argument, while `App::frame` delivers through
     /// `apply_events_at_boundary` with the real one. Delivering through the former would leave
     /// every shipped panel that is a cached join of the notice stream -- the enchantment pane, the
@@ -1064,7 +1064,7 @@ impl HeadlessClient {
         match &mut self.backend {
             Backend::App(app) => {
                 for e in events {
-                    app.objects_mut().apply_event(e, now);
+                    app.probe_mut().objects_mut().apply_event(e, now);
                 }
                 let chat = app.apply_hud_events(events);
                 app.apply_interaction_events_to_panels(events);

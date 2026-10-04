@@ -130,9 +130,10 @@ fn setup() -> App {
     let here = position(&app);
     create.0.physicsdesc.position = Some(wire_position(here.cell.0, here.frame.origin, &here));
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -146,7 +147,7 @@ fn setup() -> App {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -214,7 +215,7 @@ fn place_the_corpus_chest_at(app: &mut App, lateral: f32) -> (ObjectId, String) 
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
     let id = create.0.id;
     let name = create.0.wdesc.name.clone();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -231,7 +232,7 @@ fn delete_the_chest(app: &mut App, id: ObjectId) {
         .presence(id)
         .expect("the chest is live")
         .instance;
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemDeleteObject::OPCODE,
             body: dereth_protocol::write_body(&ItemDeleteObject {
@@ -381,7 +382,7 @@ fn world_view(app: &mut App) -> ElemHandle {
 }
 
 fn seed_inventory(app: &mut App) {
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     let player = w.player.expect("the bench's body has the server's id");
     w.tables.inventories.insert(
         player,
@@ -469,9 +470,11 @@ fn selected(app: &App) -> Option<ObjectId> {
 }
 
 fn clear_selection(app: &mut App) {
-    app.objects_mut()
-        .world
-        .set_selected_object(None, false, &mut dereth_client_model::NullSink);
+    app.probe_mut().objects_mut().world.set_selected_object(
+        None,
+        false,
+        &mut dereth_client_model::NullSink,
+    );
 }
 
 // =================================================================================================

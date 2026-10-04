@@ -73,9 +73,10 @@ fn feed(app: &mut App, row: &CorpusBlob) {
         },
     };
     let now = LocalTime(std::time::Duration::from_micros(row.t_rel_micros).as_secs_f64());
-    app.objects_mut().apply_event(&event, now);
+    app.probe_mut().objects_mut().apply_event(&event, now);
     app.apply_hud_events(std::slice::from_ref(&event));
-    app.apply_interaction_events(std::slice::from_ref(&event));
+    app.probe_mut()
+        .apply_interaction_events(std::slice::from_ref(&event));
 }
 
 fn element(app: &App, id: ElementId) -> ElemHandle {
@@ -103,7 +104,7 @@ fn drawn(app: &App, mut h: ElemHandle) -> bool {
 
 fn click_use(app: &mut App, object: ObjectId) -> Vec<Request> {
     // Initial world selection is setup; the USE action itself is the real DAT toolbar button.
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(object),
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -461,7 +462,7 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
     }
     // There is intentionally no toolbar subscriber. Seed the same object-use precondition through
     // production model code; this test concerns the subsequent notice's lifetime, not that action.
-    app.objects_mut().world.use_object(
+    app.probe_mut().objects_mut().world.use_object(
         &mut dereth_client_model::RecordingRequests::default(),
         &mut dereth_client_model::RecordingSink::default(),
         CORPSE,
@@ -470,16 +471,20 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
     );
     assert_eq!(app.objects().world.ground_object, Some(CORPSE));
     feed(&mut app, row(&rows, 6588));
-    app.objects_mut().world.object_range_checks.register(
-        RangeHandler::Vendor,
-        ObjectId(999),
-        1.0,
-        false,
-        false,
-        1.0,
-        0.0,
-        0.0,
-    );
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .object_range_checks
+        .register(
+            RangeHandler::Vendor,
+            ObjectId(999),
+            1.0,
+            false,
+            false,
+            1.0,
+            0.0,
+            0.0,
+        );
     assert!(app.frame()); // no UiShell: drain and discard, no retained history
     assert!(!app
         .objects()
@@ -630,7 +635,7 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
         }
     }
     for id in [PLAYER, CORPSE] {
-        app.objects_mut().world.tables.weenies.insert(
+        app.probe_mut().objects_mut().world.tables.weenies.insert(
             id,
             recorded
                 .world
@@ -639,13 +644,14 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
                 .clone(),
         );
     }
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(CORPSE)
         .expect("recorded corpse")
         .pwd
         .use_radius = None;
-    app.objects_mut().world.player = Some(PLAYER);
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
     app.apply_hud_events(&[SessionEvent::PlayerCreated(PLAYER)]);
 
     // Put a real corpse body at the player's position while keeping it outside the parallel
@@ -689,16 +695,20 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
         "the descriptor reset default, not no registration"
     );
     let armed = watch.next_update;
-    app.objects_mut().world.object_range_checks.register(
-        RangeHandler::ExternalContainer,
-        PLAYER,
-        1.0,
-        true,
-        false,
-        1.0,
-        0.0,
-        armed - 1.0,
-    );
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .object_range_checks
+        .register(
+            RangeHandler::ExternalContainer,
+            PLAYER,
+            1.0,
+            true,
+            false,
+            1.0,
+            0.0,
+            armed - 1.0,
+        );
     let mut uses = Vec::new();
     // 1-second poll at 30Hz headless fixed-step. Coincident bodies are in the inclusive zero
     // radius, so the first poll must not blanket-close the window.
@@ -712,7 +722,8 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
 
     let mut away = corpse_position;
     away.frame.origin.x += 2.0;
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .expect("scene")
         .character
         .as_mut()

@@ -101,16 +101,17 @@ fn setup() -> App {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).unwrap(),
         },
         LocalTime(1.0),
     );
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemSetState::OPCODE,
             body: dereth_protocol::write_body(&unhide).expect("recorded F74B unhide encodes"),
@@ -177,7 +178,7 @@ fn next_manual_move_and_release(app: &mut App, time: u32) {
     let moved = body(app).position().frame.origin;
     assert!(math::hypotf(moved.x - before.x, moved.y - before.y) > 0.25,
         "fresh physical movement station{time}: before={before:?} after={moved:?} input={:?} physics={:?} grounded={} state={:?} pending={} longjump={} ticks={}",
-        app.char_input(), body(app).world.get(body(app).handle).unwrap().velocity_vector,
+        app.probe().char_input(), body(app).world.get(body(app).handle).unwrap().velocity_vector,
         body(app).on_ground(), body(app).driver().movement.interp.interpreted_state,
         body(app).driver().movement.motions_pending(), body(app).driver().movement.interp.standing_longjump,
         body(app).stats.physics_ticks);
@@ -331,10 +332,15 @@ mod bound_wire {
         player_description(&mut app, "early-inventory-and-casting");
         // An explicit option setting, not an injected successful action: starting a jump
         // consults this bit even when no attack is active.
-        app.objects_mut().world.player_system.options.set(
-            dereth_client_model::player::options::option::AUTO_REPEAT_ATTACK,
-            true,
-        );
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .player_system
+            .options
+            .set(
+                dereth_client_model::player::options::option::AUTO_REPEAT_ATTACK,
+                true,
+            );
         frames(&mut app, 4); // Complete the recorded description's existing UI consumers.
 
         let mut net = dereth_client::net::ClientNetwork::new(
@@ -366,7 +372,7 @@ mod bound_wire {
             "grounded input-free fixture is settled"
         );
         assert!(
-            app.position_reporter_stats().position_events > 0,
+            app.probe().position_reporter_stats().position_events > 0,
             "real initial F753 owner ran"
         );
         assert!(body(&app).on_ground());
@@ -376,7 +382,7 @@ mod bound_wire {
             .player_system
             .options
             .auto_repeat_attack());
-        let baseline = app.position_reporter_stats();
+        let baseline = app.probe().position_reporter_stats();
         let first = next_stamp(&mut app);
         assert!(
             first < u32::MAX - 100,
@@ -392,11 +398,11 @@ mod bound_wire {
             "attack cancellation then F61C enqueue once"
         );
         assert_eq!(
-            app.position_reporter_stats().movement_events,
+            app.probe().position_reporter_stats().movement_events,
             baseline.movement_events + 1
         );
         assert_eq!(
-            app.position_reporter_stats().jump_events,
+            app.probe().position_reporter_stats().jump_events,
             baseline.jump_events
         );
         assert!(
@@ -443,7 +449,7 @@ mod bound_wire {
         );
         assert!(!body(&app).on_ground());
         assert_eq!(
-            app.position_reporter_stats().position_events,
+            app.probe().position_reporter_stats().position_events,
             baseline.position_events
         );
         assert_eq!(wire.since(first), [(first, 0x1B7), (first + 1, 0xF61C)]);
@@ -487,15 +493,20 @@ mod bound_wire {
         assert!(body(&app).on_ground());
         assert_eq!(wire.non_positions_since(first), [0x1B7, 0xF61C, 0xF61B]);
         assert_eq!(
-            app.position_reporter_stats().jump_events,
+            app.probe().position_reporter_stats().jump_events,
             baseline.jump_events + 1
         );
 
         // A fresh ordinary tap (Space down and up with no movement key between them).
-        app.objects_mut().world.player_system.options.set(
-            dereth_client_model::player::options::option::AUTO_REPEAT_ATTACK,
-            false,
-        );
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .player_system
+            .options
+            .set(
+                dereth_client_model::player::options::option::AUTO_REPEAT_ATTACK,
+                false,
+            );
         let second = next_stamp(&mut app);
         space(&mut app, true, 801_000);
         space(&mut app, false, 801_001);
@@ -519,7 +530,7 @@ mod bound_wire {
         assert!(body(&app).on_ground());
         assert_eq!(wire.non_positions_since(second), [0xF61C, 0xF61B]);
         assert_eq!(
-            app.position_reporter_stats().jump_events,
+            app.probe().position_reporter_stats().jump_events,
             baseline.jump_events + 2
         );
 
@@ -527,7 +538,7 @@ mod bound_wire {
         // on its own schedule, and the physical key-up stops the travel. Whether F61B resets
         // the position-report deadline is `jump_report`'s claim, not this one.
         let walking = next_stamp(&mut app);
-        let reports = app.position_reporter_stats().position_events;
+        let reports = app.probe().position_reporter_stats().position_events;
         let before_walk = body(&app).position().frame.origin;
         movement_key(
             &mut app,
@@ -539,7 +550,7 @@ mod bound_wire {
         let after_walk = body(&app).position().frame.origin;
         assert!(math::hypotf(after_walk.x - before_walk.x, after_walk.y - before_walk.y) > 0.25);
         assert!(
-            app.position_reporter_stats().position_events > reports,
+            app.probe().position_reporter_stats().position_events > reports,
             "grounded F753 producer ran"
         );
         let positions: Vec<_> = wire
@@ -570,7 +581,7 @@ mod bound_wire {
         assert!(math::hypotf(later.x - stopped.x, later.y - stopped.y) < 0.01);
         assert_eq!(wire.non_positions_since(walking), [0xF61C, 0xF61C]);
         assert_eq!(
-            app.position_reporter_stats().jump_events,
+            app.probe().position_reporter_stats().jump_events,
             baseline.jump_events + 2
         );
         eprintln!(
@@ -597,12 +608,12 @@ fn escape_then_release_then_fresh_press_in_one_batch_cancels_only_the_old_charge
     space(&mut app, true, 300_102);
     frames(&mut app, 1);
     assert_eq!(
-        app.jump_counts(),
+        app.probe().jump_counts(),
         (0, 0),
         "Escape's synchronous charge cancellation precedes old key-up"
     );
     assert!(
-        app.last_jump_request().is_none(),
+        app.probe().last_jump_request().is_none(),
         "cancelled old release must not produce F61B"
     );
     assert!(
@@ -625,7 +636,7 @@ fn escape_then_release_then_fresh_press_in_one_batch_cancels_only_the_old_charge
     frames(&mut app, 1);
     assert!(!app.objects().world.combat.jump_pending);
     assert!(!body(&app).driver().movement.interp.standing_longjump);
-    assert_eq!(app.jump_counts(), (0, 0));
+    assert_eq!(app.probe().jump_counts(), (0, 0));
     assert_eq!(
         app.interaction().stats.escape_finish_jumps,
         3,
@@ -649,7 +660,7 @@ fn movement_prefix_standing_charge_and_batched_tap_use_the_real_command_owner() 
     frames(&mut app, 4);
     space(&mut app, false, 400_200);
     frames(&mut app, 1);
-    let v = app.last_jump_request().unwrap().0.velocity;
+    let v = app.probe().last_jump_request().unwrap().0.velocity;
     assert!(
         math::hypotf(v.x, v.y) > 0.1,
         "moving jump carries the source horizontal impulse"
@@ -686,17 +697,17 @@ fn movement_prefix_standing_charge_and_batched_tap_use_the_real_command_owner() 
     space(&mut app, false, 402_101);
     movement_key(&mut app, TURN_LEFT, false, 402_102);
     frames(&mut app, 10);
-    assert_eq!(app.jump_counts(), (2, 0));
+    assert_eq!(app.probe().jump_counts(), (2, 0));
     // A complete physical tap in one InputManager batch is still a pending release, extent .001.
     space(&mut app, true, 403_000);
     space(&mut app, false, 403_001);
     frames(&mut app, 1);
-    assert_eq!(app.jump_counts(), (3, 0));
-    assert_eq!(app.last_jump_request().unwrap().0.extent, 0.001);
+    assert_eq!(app.probe().jump_counts(), (3, 0));
+    assert_eq!(app.probe().last_jump_request().unwrap().0.extent, 0.001);
     frames(&mut app, 65);
     next_manual_move_and_release(&mut app, 404_000);
     assert_eq!(
-        app.jump_counts(),
+        app.probe().jump_counts(),
         (3, 0),
         "later physics/manual input does not repeat a jump"
     );
@@ -711,9 +722,12 @@ fn ui_event<M: Message>(app: &mut App, message: M) {
         opcode: M::OPCODE,
         blob,
     };
-    app.objects_mut().apply_event(&event, LocalTime(8.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&event, LocalTime(8.0));
     app.apply_hud_events(std::slice::from_ref(&event));
-    app.apply_interaction_events(std::slice::from_ref(&event));
+    app.probe_mut()
+        .apply_interaction_events(std::slice::from_ref(&event));
 }
 
 fn server_state(
@@ -746,7 +760,7 @@ fn server_state(
         })
         .unwrap(),
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: M::OPCODE,
             body: dereth_protocol::write_body(&message).unwrap(),
@@ -787,8 +801,8 @@ fn teleport_here(app: &mut App) {
             ..Default::default()
         },
     };
-    let before = app.player_teleports_applied();
-    app.objects_mut().apply_event(
+    let before = app.probe().player_teleports_applied();
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: MovementPositionEvent::OPCODE,
             body: dereth_protocol::write_body(&msg).unwrap(),
@@ -796,7 +810,7 @@ fn teleport_here(app: &mut App) {
         LocalTime(9.1),
     );
     frames(app, 1);
-    assert_eq!(app.player_teleports_applied(), before + 1);
+    assert_eq!(app.probe().player_teleports_applied(), before + 1);
 }
 
 #[test]
@@ -818,8 +832,8 @@ fn accepted_server_loss_cancels_but_bare_teleport_does_not_invent_finish_jump() 
     assert!(!body(&app).driver().movement.interp.standing_longjump);
     space(&mut app, false, 600_200);
     frames(&mut app, 1);
-    assert_eq!(app.jump_counts(), (0, 0));
-    assert!(app.last_jump_request().is_none());
+    assert_eq!(app.probe().jump_counts(), (0, 0));
+    assert!(app.probe().last_jump_request().is_none());
     assert!(app.hud().panels.power_bar.bars.iter().all(|b| !b.visible));
     next_manual_move_and_release(&mut app, 601_000);
 
@@ -838,7 +852,7 @@ fn accepted_server_loss_cancels_but_bare_teleport_does_not_invent_finish_jump() 
     key(&mut app, winit::keyboard::KeyCode::Escape, true, 602_200);
     space(&mut app, false, 602_201);
     frames(&mut app, 1);
-    assert_eq!(app.jump_counts(), (0, 0));
+    assert_eq!(app.probe().jump_counts(), (0, 0));
     next_manual_move_and_release(&mut app, 603_000);
 
     // A successful jump, then a press and release while airborne. Retail accepts a charge in
@@ -847,7 +861,7 @@ fn accepted_server_loss_cancels_but_bare_teleport_does_not_invent_finish_jump() 
     space(&mut app, false, 604_001);
     frames(&mut app, 2);
     assert!(!body(&app).on_ground());
-    let success = app.last_jump_request().unwrap().clone();
+    let success = app.probe().last_jump_request().unwrap().clone();
     space(&mut app, true, 604_050);
     frames(&mut app, 1);
     assert!(
@@ -856,8 +870,8 @@ fn accepted_server_loss_cancels_but_bare_teleport_does_not_invent_finish_jump() 
     );
     space(&mut app, false, 604_060);
     frames(&mut app, 1);
-    assert_eq!(app.jump_counts(), (2, 1));
-    assert_eq!(app.last_jump_request(), Some(&success));
+    assert_eq!(app.probe().jump_counts(), (2, 1));
+    assert_eq!(app.probe().last_jump_request(), Some(&success));
     assert!(!app.objects().world.combat.jump_pending);
     frames(&mut app, 65);
     assert!(body(&app).on_ground());
@@ -878,11 +892,11 @@ fn accepted_server_loss_cancels_but_bare_teleport_does_not_invent_finish_jump() 
     frames(&mut app, 1);
     assert!(!app.objects().world.combat.jump_pending);
     assert_eq!(
-        app.jump_counts(),
+        app.probe().jump_counts(),
         (2, 1),
         "crouch refuses charge, so release is not attempted"
     );
-    assert_eq!(app.last_jump_request(), Some(&success));
+    assert_eq!(app.probe().last_jump_request(), Some(&success));
     server_state(&mut app, dereth_animation::MotionCommand::READY, 0, false);
     frames(&mut app, 30);
     next_manual_move_and_release(&mut app, 607_000);
@@ -918,8 +932,8 @@ fn missing_description_and_private_load_enchantment_updates_reach_jump_and_burde
     space(&mut app, false, 500_001);
     frames(&mut app, 1);
     assert!(!app.objects().world.combat.jump_pending);
-    assert!(app.last_jump_request().is_none());
-    assert_eq!(app.jump_counts(), (0, 0));
+    assert!(app.probe().last_jump_request().is_none());
+    assert_eq!(app.probe().jump_counts(), (0, 0));
     player_description(&mut app, "early-inventory-and-casting");
     ui_event(
         &mut app,
@@ -963,7 +977,7 @@ fn missing_description_and_private_load_enchantment_updates_reach_jump_and_burde
     space(&mut app, false, 500_101);
     frames(&mut app, 1);
     assert!(
-        app.last_jump_request().is_none(),
+        app.probe().last_jump_request().is_none(),
         "a load of 2 or more refuses the charge before release"
     );
     assert!(!app.objects().world.combat.jump_pending);
@@ -1002,8 +1016,11 @@ fn missing_description_and_private_load_enchantment_updates_reach_jump_and_burde
     space(&mut app, true, 500_200);
     space(&mut app, false, 500_201);
     frames(&mut app, 1);
-    assert_eq!(app.jump_counts(), (1, 0));
-    assert_eq!(app.last_jump_request().unwrap().0.velocity.z, 2.619_160_2);
+    assert_eq!(app.probe().jump_counts(), (1, 0));
+    assert_eq!(
+        app.probe().last_jump_request().unwrap().0.velocity.z,
+        2.619_160_2
+    );
     frames(&mut app, 65);
     assert!(body(&app).on_ground());
     app.shutdown();
@@ -1030,7 +1047,10 @@ fn recorded_player_qualities_drive_the_actual_release_impulse() {
     frames(&mut app, 17);
     space(&mut app, false, 200_600);
     frames(&mut app, 1);
-    let packet = app.last_jump_request().expect("actual release packet");
+    let packet = app
+        .probe()
+        .last_jump_request()
+        .expect("actual release packet");
     assert_eq!(packet.0.extent.to_bits(), 0.6_f32.to_bits());
     // Retail's jump-height formula at Jump skill 75, load < 1, extent 0.6, computed here with no
     // driver values or packet fields fed in; the recorded 0.5086846 jump fixes the skill at 75.
@@ -1057,11 +1077,11 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         .as_ref()
         .unwrap()
         .position();
-    let routed = app.actions_routed();
+    let routed = app.probe().actions_routed();
     space(&mut app, true, 100_000);
     frames(&mut app, 1);
     assert!(
-        app.actions_routed() > routed,
+        app.probe().actions_routed() > routed,
         "actual shipped keymap must route Space"
     );
     assert!(
@@ -1121,6 +1141,7 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         .unwrap()
         .on_ground());
     let request = app
+        .probe()
         .last_jump_request()
         .expect("actual successful release packet")
         .clone();
@@ -1142,7 +1163,7 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         request.0.position.frame.origin.z, before.frame.origin.z,
         "packet is made before physics translates the released body"
     );
-    assert_eq!(app.jump_counts(), (1, 0));
+    assert_eq!(app.probe().jump_counts(), (1, 0));
     let c = app.world_state().unwrap().character.as_ref().unwrap();
     assert!(c.world.get(c.handle).unwrap().velocity_vector.z > 0.0);
     let ticks = c.stats.physics_ticks;
@@ -1167,21 +1188,26 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         .unwrap()
         .on_ground());
     assert_eq!(
-        app.last_jump_request(),
+        app.probe().last_jump_request(),
         Some(&request),
         "no repeated launch on later frames"
     );
-    assert_eq!(app.jump_counts(), (1, 0));
+    assert_eq!(app.probe().jump_counts(), (1, 0));
     // A combat power bar is raised first, then Space sends the jump notices to the same bar
     // subscribers from the dats. This covers the bars' display lifecycle, not a live attack.
     use dereth_ui_screens::bind::{attr, attr_float};
     let classic = app.hud().panels.combat_window.actual_power.unwrap();
     for prior in [PowerBarMode::Combat, PowerBarMode::AdvancedCombat] {
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .world
             .combat
             .begin_power_bar(prior, false, 0);
-        app.objects_mut().world.combat.set_power_bar_level(0.625);
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .combat
+            .set_power_bar_level(0.625);
         frames(&mut app, 1);
         space(&mut app, true, 101_000);
         frames(&mut app, 4);
@@ -1234,6 +1260,6 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         );
         key(&mut app, winit::keyboard::KeyCode::Escape, false, 101_202);
     }
-    assert_eq!(app.jump_counts(), (1, 0));
+    assert_eq!(app.probe().jump_counts(), (1, 0));
     app.shutdown();
 }

@@ -110,9 +110,10 @@ fn setup() -> App {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).unwrap(),
@@ -152,9 +153,12 @@ fn player_description(app: &mut App, name: &str) {
     )
     .unwrap();
     let event = SessionEvent::PlayerDescription(Box::new(desc));
-    app.objects_mut().apply_event(&event, LocalTime(1.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&event, LocalTime(1.0));
     app.apply_hud_events(std::slice::from_ref(&event));
-    app.apply_interaction_events(std::slice::from_ref(&event));
+    app.probe_mut()
+        .apply_interaction_events(std::slice::from_ref(&event));
 }
 
 fn viewer_offset(app: &App) -> dereth_primitives::Vec3 {
@@ -205,7 +209,7 @@ fn focus_loss_with_jump_held_releases_the_charge_and_leaves_lateral_movement_wor
         body(&app).driver().movement.interp.standing_longjump,
         "and it is the standing charge that gates lateral movement"
     );
-    let before = app.jump_counts();
+    let before = app.probe().jump_counts();
 
     lose_focus(&mut app, 700_100);
     frames(&mut app, 4);
@@ -219,7 +223,7 @@ fn focus_loss_with_jump_held_releases_the_charge_and_leaves_lateral_movement_wor
         "the charge is gone, so the lateral gate must be down"
     );
     assert_eq!(
-        app.jump_counts().0,
+        app.probe().jump_counts().0,
         before.0 + 1,
         "the release increments the jump counter"
     );

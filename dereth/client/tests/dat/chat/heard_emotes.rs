@@ -452,7 +452,7 @@ fn a_squelched_speakers_emote_never_reaches_the_log() {
     // The hearing gate asks the per-character squelch entry for the sender id; text type `0xC`
     // is a legal channel for that lookup.
     {
-        let squelch = &mut app.objects_mut().world.chat.squelch;
+        let squelch = &mut app.probe_mut().objects_mut().world.chat.squelch;
         let mut entry = dereth_client_model::chat::SquelchEntry {
             name: "Alba".to_owned(),
             ..Default::default()

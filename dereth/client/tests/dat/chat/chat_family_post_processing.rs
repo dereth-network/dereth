@@ -143,7 +143,7 @@ fn app_in_gameplay(stamps: bool, filter: bool, log: Option<&Path>) -> App {
     app.apply_hud_events(&[SessionEvent::PlayerDescription(Box::default())]);
     app.apply_hud_events(&[SessionEvent::PlayerCreated(LOCAL)]);
     {
-        let world = &mut app.objects_mut().world;
+        let world = &mut app.probe_mut().objects_mut().world;
         // Display Time Stamps is ordinal 33 / second option word bit 6; Filter Language is
         // ordinal 44. The actual public option constants drive both enabled and disabled arms.
         world.player_system.options.set(DISPLAY_TIME_STAMPS, stamps);

@@ -157,7 +157,9 @@ fn resizing_the_world_view_moves_the_game_viewport() {
     app.start_shell().expect("UI shell");
     app.queue_ui_mode(mode::GAME_PLAY);
     assert!(app.frame());
-    app.load_world(&store(), cfg()).expect("a world to draw");
+    app.probe_mut()
+        .load_world(&store(), cfg())
+        .expect("a world to draw");
     assert!(app.frame());
 
     let sbox = {

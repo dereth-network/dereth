@@ -24,15 +24,15 @@ retail-dats = []
 # The client. `App::with_platform(cfg, NullPresentation, Platform::headless(w, h))` is what the
 # retail-assets backend is; `default-features = false` because the default is a graphics backend and
 # a scenario never has a device.
-dereth-client.workspace = true
+dereth-client = { workspace = true, features = ["test-support"] }
 # The headless half: `ObjectStream`, `ClientNetwork` and the frame steps the no-assets backend runs
 # without an `App`.
-dereth-client-runtime.workspace = true
+dereth-client-runtime = { workspace = true, features = ["test-support"] }
 # `GameSnapshot` (what `snapshot()` answers with) and `UiRequest`.
 dereth-client-contract.workspace = true
 # `World`, `Request`, `Notice` -- the model a scenario asserts over, and the requests it watches go
 # out.
-dereth-client-model.workspace = true
+dereth-client-model = { workspace = true, features = ["test-support"] }
 # `InputEvent` and the named movement actions a `Player` step injects.
 dereth-input.workspace = true
 # The typed messages `Inbound::message` takes and the opcodes `outbound_opcodes` reports.

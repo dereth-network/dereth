@@ -809,7 +809,7 @@ fn inject(app: &mut dereth_client::app::App, action: u32) {
 fn the_screenshot_arm_reaches_the_device_and_writes_the_chat_line() {
     let mut app = app_in_gameplay(3);
     assert_eq!(
-        app.action_arm_host_stats().2,
+        app.probe().action_arm_host_stats().2,
         0,
         "premise: nothing saved yet"
     );
@@ -817,7 +817,7 @@ fn the_screenshot_arm_reaches_the_device_and_writes_the_chat_line() {
 
     inject(&mut app, ia::CAPTURE_SCREENSHOT);
 
-    let (.., saved, failed) = app.action_arm_host_stats();
+    let (.., saved, failed) = app.probe().action_arm_host_stats();
     assert_eq!(saved + failed, 1, "the drain ran exactly once");
     assert_eq!(failed, 0, "the screenshot host reports success");
     assert_eq!(
@@ -855,7 +855,7 @@ fn the_screenshot_arm_reaches_the_device_and_writes_the_chat_line() {
 #[test]
 fn escapes_options_leg_reaches_the_live_ui_tree() {
     let mut app = app_in_gameplay(3);
-    assert_eq!(app.action_arm_host_stats().0, 0);
+    assert_eq!(app.probe().action_arm_host_stats().0, 0);
     assert_eq!(
         app.objects().world.selected,
         None,
@@ -876,7 +876,7 @@ fn escapes_options_leg_reaches_the_live_ui_tree() {
     inject(&mut app, ia::ESCAPE_KEY);
     let moved = flips(&before, &visibility_snapshot(&mut app));
 
-    let (dispatched, answered, ..) = app.action_arm_host_stats();
+    let (dispatched, answered, ..) = app.probe().action_arm_host_stats();
     assert_eq!(dispatched, 1, "`App` performed the call the arm asked for");
     assert_eq!(
         answered, 1,

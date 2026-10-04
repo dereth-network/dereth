@@ -70,20 +70,21 @@ fn typed_render_preserves_the_native_parser_and_reaches_projection_and_landscape
         assert!(app.frame());
     }
     let store = std::sync::Arc::new(dereth_dat::testing::open_store_or_fail());
-    app.load_world(
-        &store,
-        SceneConfig {
-            land_radius: 2,
-            scenery_radius: 0,
-            character: false,
-            render: dereth_client::render_prefs::RenderPreferences {
-                landscape_draw_distance: 2,
-                ..dereth_client::render_prefs::RenderPreferences::default()
+    app.probe_mut()
+        .load_world(
+            &store,
+            SceneConfig {
+                land_radius: 2,
+                scenery_radius: 0,
+                character: false,
+                render: dereth_client::render_prefs::RenderPreferences {
+                    landscape_draw_distance: 2,
+                    ..dereth_client::render_prefs::RenderPreferences::default()
+                },
+                ..SceneConfig::default()
             },
-            ..SceneConfig::default()
-        },
-    )
-    .expect("the small real landscape loads");
+        )
+        .expect("the small real landscape loads");
     for _ in 0..3 {
         assert!(app.frame());
     }
@@ -202,7 +203,7 @@ fn typed_render_preserves_the_native_parser_and_reaches_projection_and_landscape
     hand.submit(&mut app, "@render radius 5 ignored");
     assert!(app.frame());
     assert!(
-        app.last_render_pref_work().mid_radius_changed,
+        app.probe().last_render_pref_work().mid_radius_changed,
         "the next render frame records the config change queued at the command-frame tail"
     );
     for _ in 0..2 {
@@ -267,17 +268,18 @@ fn typed_day_toggles_persisted_noon_lighting_from_a_real_night_scene() {
     let mut app = app();
     let mut hand = Hand::new();
     let store = std::sync::Arc::new(dereth_dat::testing::open_store_or_fail());
-    app.load_world(
-        &store,
-        SceneConfig {
-            land_radius: 0,
-            scenery_radius: 0,
-            character: false,
-            time_of_day: Some(NIGHT),
-            ..SceneConfig::default()
-        },
-    )
-    .expect("the one-block night landscape loads");
+    app.probe_mut()
+        .load_world(
+            &store,
+            SceneConfig {
+                land_radius: 0,
+                scenery_radius: 0,
+                character: false,
+                time_of_day: Some(NIGHT),
+                ..SceneConfig::default()
+            },
+        )
+        .expect("the one-block night landscape loads");
     let before = install_player_module(&mut app);
     for _ in 0..3 {
         assert!(app.frame());
@@ -395,16 +397,17 @@ fn typed_framerate_toggles_the_shipped_localized_meter_without_a_request() {
     let mut app = app();
     let mut hand = Hand::new();
     let store = std::sync::Arc::new(dereth_dat::testing::open_store_or_fail());
-    app.load_world(
-        &store,
-        SceneConfig {
-            land_radius: 0,
-            scenery_radius: 0,
-            character: false,
-            ..SceneConfig::default()
-        },
-    )
-    .expect("the one-block scene supplies the real frame-rate/degrade globals");
+    app.probe_mut()
+        .load_world(
+            &store,
+            SceneConfig {
+                land_radius: 0,
+                scenery_radius: 0,
+                character: false,
+                ..SceneConfig::default()
+            },
+        )
+        .expect("the one-block scene supplies the real frame-rate/degrade globals");
     for _ in 0..3 {
         assert!(app.frame());
     }

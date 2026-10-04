@@ -55,7 +55,8 @@ fn the_hourglass_is_up_while_a_request_waits_and_down_once_it_is_answered() {
         Some(wait),
         "waiting on the allegiance"
     );
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .handle_allegiance_update(&dereth_protocol::social::AllegianceProfile::default());
     settle(&mut app);
@@ -68,7 +69,10 @@ fn the_hourglass_is_up_while_a_request_waits_and_down_once_it_is_answered() {
 
     // An examine.
     let mut req = dereth_client_model::RecordingRequests::default();
-    app.objects_mut().world.examine_object(&mut req, SWORD);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .examine_object(&mut req, SWORD);
     settle(&mut app);
     assert_eq!(
         app.current_cursor_did(),
@@ -76,7 +80,8 @@ fn the_hourglass_is_up_while_a_request_waits_and_down_once_it_is_answered() {
         "waiting on the examine"
     );
     let mut sink = dereth_client_model::RecordingSink::default();
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .set_appraise_info(SWORD, Default::default(), &mut sink);
     settle(&mut app);
@@ -87,14 +92,14 @@ fn the_hourglass_is_up_while_a_request_waits_and_down_once_it_is_answered() {
     );
 
     // A swing the server commenced.
-    app.objects_mut().world.handle_commence_attack();
+    app.probe_mut().objects_mut().world.handle_commence_attack();
     settle(&mut app);
     assert_eq!(
         app.current_cursor_did(),
         Some(wait),
         "the swing is outstanding"
     );
-    app.objects_mut().world.handle_attack_done(
+    app.probe_mut().objects_mut().world.handle_attack_done(
         &mut req,
         0,
         true,
@@ -163,6 +168,7 @@ fn a_client_with_no_server_enters_the_game_with_the_pointer_unless_its_stand_in_
         "nothing answers the request"
     );
     unanswered
+        .probe_mut()
         .objects_mut()
         .world
         .handle_allegiance_update(&dereth_protocol::social::AllegianceProfile::default());

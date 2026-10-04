@@ -382,7 +382,7 @@ fn app_with_shortcuts_icons(swap: bool) -> Option<(App, Vec<ShortCutData>)> {
             "quickbar: {} shortcuts out of the capture's own PlayerModule",
             sc.len()
         );
-        if let Some(m) = app.hud_mut().player_module.as_mut() {
+        if let Some(m) = app.probe_mut().hud_mut().player_module.as_mut() {
             m.shortcuts = Some(sc.clone());
         }
         // The player-system shortcut store is the one the bar draws from, and the client keeps
@@ -390,7 +390,11 @@ fn app_with_shortcuts_icons(swap: bool) -> Option<(App, Vec<ShortCutData>)> {
         // player-system copy filled from the same bytes and updated on every drop. The HUD shortcut
         // lookup reads the second, so a seed that only wrote the first is seeding the wrong copy.
         for s in sc {
-            app.objects_mut().world.player_system.add_shortcut(*s);
+            app.probe_mut()
+                .objects_mut()
+                .world
+                .player_system
+                .add_shortcut(*s);
         }
         for _ in 0..4 {
             app.frame();
@@ -436,7 +440,7 @@ fn app_with_shortcuts_icons(swap: bool) -> Option<(App, Vec<ShortCutData>)> {
         "the capture created no object with an icon; the shortcut tests have no oracle"
     );
     {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         for (id, icon, name) in &items {
             if w.tables.weenies.get(*id).is_none() {
                 w.tables
@@ -461,11 +465,15 @@ fn app_with_shortcuts_icons(swap: bool) -> Option<(App, Vec<ShortCutData>)> {
     // update reads, so putting the list there is exactly what `0x0013` does. It also
     // has to go into the player-system store, because that is the copy the HUD lookup reads and the
     // copy a drop writes.
-    if let Some(m) = app.hud_mut().player_module.as_mut() {
+    if let Some(m) = app.probe_mut().hud_mut().player_module.as_mut() {
         m.shortcuts = Some(sc.clone());
     }
     for s in &sc {
-        app.objects_mut().world.player_system.add_shortcut(*s);
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .player_system
+            .add_shortcut(*s);
     }
     for _ in 0..4 {
         app.frame();
@@ -607,9 +615,10 @@ fn an_occupied_slots_numeral_comes_from_the_plain_array_and_magic_mode_takes_the
 
     // (b) This test directly changes combat mode to magic and advances a frame; the resulting
     // HUD update clears toolbar-active state and renumbers every occupied slot from the ghosted array.
-    app.objects_mut().world.combat.combat_mode = dereth_client_model::combat::CombatMode::from_raw(
-        dereth_ui_screens::toolbar::combat_mode::MAGIC,
-    );
+    app.probe_mut().objects_mut().world.combat.combat_mode =
+        dereth_client_model::combat::CombatMode::from_raw(
+            dereth_ui_screens::toolbar::combat_mode::MAGIC,
+        );
     app.frame();
     {
         let (ui, screen) = gameplay_screen(&mut app).expect("the gameplay screen is up");

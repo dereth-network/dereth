@@ -403,7 +403,7 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
     for _ in 0..4 {
         assert!(app.frame());
     }
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert_eq!(work.objects_refused, Some((RequiredFiles::Legacy, None)));
     assert!(!app
         .world_scene()
@@ -439,7 +439,7 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
         .draw
         .objects_from_other_files());
     assert!(app.frame());
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert!(work.objects_changed, "{work:?}");
     let s = app.world_scene().expect("a world");
     assert!(s.draw.objects_from_other_files());
@@ -672,7 +672,7 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
     for _ in 0..4 {
         assert!(app.frame());
     }
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert!(work.objects_waiting, "{work:?}");
     assert!(!app
         .world_scene()
@@ -697,7 +697,7 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
         assert!(app.frame());
         frames += 1;
     }
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert!(work.objects_changed, "{work:?}");
     assert!(app
         .world_scene()

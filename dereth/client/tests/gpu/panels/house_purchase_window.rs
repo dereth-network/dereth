@@ -289,8 +289,9 @@ fn setup(tag: &str) -> (App, Peer) {
         dereth_protocol::write_blob(&ItemCreateObject(p)).expect("blob"),
     );
     app.frame();
-    app.objects_mut().world.player = Some(PLAYER);
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(PLAYER)
         .expect("the player was created")
@@ -377,7 +378,12 @@ fn give_item(app: &mut App, id: ObjectId, wcid: u32, stack: u16, mine: bool) {
     w.pwd.icon_id = 0x0600_1234;
     w.pwd.stack_size = Some(stack);
     w.pwd.container_id = mine.then_some(PLAYER);
-    app.objects_mut().world.tables.weenies.insert(id, w);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .weenies
+        .insert(id, w);
 }
 
 fn give_carried_stack(app: &mut App, id: ObjectId, stack: u16) {
@@ -392,7 +398,7 @@ fn give_carried_item(
     plural_name: &str,
     stack: u16,
 ) {
-    let world = &mut app.objects_mut().world;
+    let world = &mut app.probe_mut().objects_mut().world;
     if world.tables.inventories.get(PLAYER).is_none() {
         world.tables.inventories.insert(
             PLAYER,
@@ -411,6 +417,7 @@ fn give_carried_item(
     player.pwd.containers_capacity = Some(7);
     give_item(app, id, wcid, stack, true);
     let item = app
+        .probe_mut()
         .objects_mut()
         .world
         .weenie_mut(id)
@@ -875,7 +882,8 @@ fn a_house_profile_closes_after_real_movement_beyond_nine_units_and_reopens() {
     );
     let mut here = crystal;
     here.frame.origin.x += 2.0;
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .expect("scene")
         .character
         .as_mut()
@@ -908,7 +916,8 @@ fn a_house_profile_closes_after_real_movement_beyond_nine_units_and_reopens() {
 
     let mut away = here;
     away.frame.origin.x += 12.0;
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .expect("scene")
         .character
         .as_mut()
@@ -929,7 +938,8 @@ fn a_house_profile_closes_after_real_movement_beyond_nine_units_and_reopens() {
         "the one-shot edge retired the watch"
     );
 
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .expect("scene")
         .character
         .as_mut()
@@ -1420,7 +1430,8 @@ fn a_partial_stack_is_split_then_the_authoritative_result_can_be_paid() {
     );
     assert_eq!(app.interaction().stats.house_splits_sent, 1);
     assert_eq!(
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .world
             .pending_split
             .map(|p| (p.wcid, p.stack_size)),
@@ -1438,10 +1449,11 @@ fn a_partial_stack_is_split_then_the_authoritative_result_can_be_paid() {
         amount: 7,
         new_value: 0,
     };
-    app.apply_interaction_events(&[SessionEvent::UiEvent {
-        opcode: Opcode(0x0197),
-        blob: dereth_protocol::write_blob(&update).expect("source stack update"),
-    }]);
+    app.probe_mut()
+        .apply_interaction_events(&[SessionEvent::UiEvent {
+            opcode: Opcode(0x0197),
+            blob: dereth_protocol::write_blob(&update).expect("source stack update"),
+        }]);
     settle(&mut app);
 
     let mut result = ObjectCreatePayload {
@@ -1469,19 +1481,21 @@ fn a_partial_stack_is_split_then_the_authoritative_result_can_be_paid() {
     peer.send(&mut app, 10, result_blob);
     settle(&mut app);
     assert_eq!(
-        app.objects_mut().world.weenie(SPLIT_RESULT).map(|w| (
-            w.pwd.wcid,
-            w.pwd.stack_size,
-            w.pwd.max_stack_size,
-            w.valid
-        )),
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .weenie(SPLIT_RESULT)
+            .map(|w| (w.pwd.wcid, w.pwd.stack_size, w.pwd.max_stack_size, w.valid)),
         Some((PYREAL, Some(3), Some(10), true))
     );
     assert!(
-        app.objects_mut().world.pending_split.is_none(),
+        app.probe_mut().objects_mut().world.pending_split.is_none(),
         "matching F745 consumed the generic pending split"
     );
-    assert_eq!(app.objects_mut().world.selected, Some(SPLIT_RESULT));
+    assert_eq!(
+        app.probe_mut().objects_mut().world.selected,
+        Some(SPLIT_RESULT)
+    );
     assert!(
         panel(&app).buy_items.is_empty(),
         "F745 selects but does not invent a slumlord row"

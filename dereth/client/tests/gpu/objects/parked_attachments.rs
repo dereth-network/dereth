@@ -730,7 +730,7 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
     parent.physicsdesc.bitfield |= flags::POSITION | flags::ANIMFRAME;
     parent.physicsdesc.position = Some(position);
     parent.physicsdesc.animframe_id = Some(101);
-    create(app.objects_mut(), parent, 1000.0);
+    create(app.probe_mut().objects_mut(), parent, 1000.0);
     assert!(app.frame());
     assert!(app
         .world_state()
@@ -742,11 +742,11 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
         .unwrap()
         .server_object_frame(CHILD)
         .is_none());
-    tick(app.objects_mut(), 1025.001);
+    tick(app.probe_mut().objects_mut(), 1025.001);
     let mut child = payload(CHILD, 0x0200_1713, None); // recorded weapon setup; synthetic delayed delivery.
     child.physicsdesc.bitfield |= flags::ANIMFRAME;
     child.physicsdesc.animframe_id = Some(1);
-    create(app.objects_mut(), child, 1026.0);
+    create(app.probe_mut().objects_mut(), child, 1026.0);
     assert!(app.frame());
     let scene = app.world_scene().unwrap();
     let parent_frame = scene.server_object_frame(HOLDER).unwrap();
@@ -800,7 +800,7 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
             ..Default::default()
         },
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: dereth_protocol::movement::MovementPositionEvent::OPCODE,
             body: dereth_protocol::write_body(&event).unwrap(),
@@ -833,12 +833,15 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
         loaded_cell
     );
     assert!(app.objects().world.weenie(CHILD).unwrap().phys_has_cell);
-    app.objects_mut().world.update_visible_object_list();
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .update_visible_object_list();
     assert!(
         app.objects().world.tables.visible.contains(&CHILD),
         "drop regains actual visible/selection eligibility"
     );
-    parent_event(app.objects_mut(), HOLDER, 1, 2, 1028.0);
+    parent_event(app.probe_mut().objects_mut(), HOLDER, 1, 2, 1028.0);
     assert!(app.frame());
     assert!(app.objects().physics.handle(CHILD).is_none());
     assert_eq!(
@@ -868,7 +871,7 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
         objcell_id: 0xFFFF_FFFF,
         ..position
     });
-    create(app.objects_mut(), unloaded, 1029.0);
+    create(app.probe_mut().objects_mut(), unloaded, 1029.0);
     assert_eq!(app.objects().world.physics(absent).unwrap().cell, None);
     assert!(app.frame());
     let absent_handle = app
@@ -890,7 +893,10 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
     );
     assert_eq!(app.objects().world.physics(absent).unwrap().cell, None);
     assert!(!app.objects().world.weenie(absent).unwrap().phys_has_cell);
-    app.objects_mut().world.update_visible_object_list();
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .update_visible_object_list();
     assert!(!app.objects().world.tables.visible.contains(&absent));
 
     // Supplied accepted placement plus a physical velocity, then the real App update: publication
@@ -928,7 +934,7 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
             ..Default::default()
         },
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: dereth_protocol::movement::MovementPositionEvent::OPCODE,
             body: dereth_protocol::write_body(&event).unwrap(),
@@ -949,6 +955,7 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
     assert!(before.is_some());
     {
         let body = app
+            .probe_mut()
             .world_state_mut()
             .unwrap()
             .character

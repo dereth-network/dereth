@@ -388,34 +388,4 @@ impl<S: Shell> App<S> {
                 .on_display_string_info(dereth_client_model::scroll::LOCAL_ERROR_TYPE, text);
         }
     }
-
-    /// How many frames have reached [`Self::player_teleport_use_time`].
-    ///
-    /// One per drawn frame, plus one per admitted session event on a frame that had traffic — the
-    /// per-blob smart-box event-dispatch boundary. A test that asserts this equals
-    /// [`Self::frames_drawn`] therefore drives an `App` with no link, and is asserting the
-    /// **call site**, which no counter inside the object stream can do — a mutation deleting the
-    /// call from `App::frame` is otherwise unobservable.
-    #[must_use]
-    pub const fn player_teleport_use_times(&self) -> u64 {
-        self.events.total(FrameEventKind::PlayerTeleportUseTime)
-    }
-
-    /// How many server teleports actually moved this client's body.
-    ///
-    /// Exposed for the same reason [`Self::position_reporter_stats`] is: replay anchors prove
-    /// *encoding*, while a producer or consumer that
-    /// never fires is invisible to them.
-    #[must_use]
-    pub const fn player_teleports_applied(&self) -> u64 {
-        self.events.total(FrameEventKind::PlayerTeleportApplied)
-    }
-
-    /// Teleports that arrived before there was a body to move. See
-    /// [`Self::player_teleport_use_time`] for why they are dropped rather than queued.
-    #[must_use]
-    pub const fn player_teleports_before_a_body(&self) -> u64 {
-        self.events
-            .amount(FrameEventKind::PlayerTeleportBeforeABody)
-    }
 }

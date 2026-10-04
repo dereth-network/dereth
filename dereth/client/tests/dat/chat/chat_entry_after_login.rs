@@ -233,7 +233,7 @@ fn in_world() -> (App, Peer) {
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
     frames(&mut app, 3, "the gameplay screen");
     assert!(
-        app.objects_mut().world.player == Some(PLAYER_1),
+        app.probe_mut().objects_mut().world.player == Some(PLAYER_1),
         "the login put a player in the world"
     );
     (app, peer)
@@ -295,7 +295,8 @@ fn scroll_state(app: &mut App) -> (i32, i32, i32, bool) {
 /// The world-scroll entry takes `(text, chat type, true, 0)` for every client-generated line in this
 /// build; `Hud::drain_scroll` drains the resulting queue.
 fn add_text_to_scroll(app: &mut App, text: &str, chat_type: u32) {
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .scroll
         .add_text_to_scroll(text, chat_type, true, 0);
@@ -394,7 +395,7 @@ fn not_in_world() -> App {
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
     frames(&mut app, 4, "the gameplay screen");
     assert!(
-        app.objects_mut().world.player.is_none(),
+        app.probe_mut().objects_mut().world.player.is_none(),
         "this station is the no-login side; nothing has entered the world"
     );
     app

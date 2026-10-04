@@ -125,6 +125,7 @@ fn the_local_bodys_motion_style_reaches_the_combat_system_and_changes_the_charge
     // Nothing else is touched: the combat state is not written by hand anywhere in this test.
     {
         let ch = app
+            .probe_mut()
             .world_state_mut()
             .expect("scene")
             .character
@@ -151,6 +152,7 @@ fn the_local_bodys_motion_style_reaches_the_combat_system_and_changes_the_charge
     // Station C: back to a one-handed stance. A bridge that copies once passes B and fails here.
     {
         let ch = app
+            .probe_mut()
             .world_state_mut()
             .expect("scene")
             .character
@@ -188,6 +190,7 @@ fn the_local_bodys_motion_style_reaches_the_combat_system_and_changes_the_charge
     let bridges_d = app.interaction().stats.combat_style_bridges;
     {
         let ch = app
+            .probe_mut()
             .world_state_mut()
             .expect("scene")
             .character

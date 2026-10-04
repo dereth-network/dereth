@@ -998,7 +998,7 @@ fn press_skill_row(c: &mut HeadlessClient, skill: u32) {
     let h = skill_row(c, skill);
     {
         let app = c.app_mut();
-        let mut panels = std::mem::take(&mut app.hud_mut().panels);
+        let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
         {
             let (ui, _) = gameplay_screen(app);
             if let Some(w) = panels.skills.list.as_mut() {
@@ -1007,7 +1007,7 @@ fn press_skill_row(c: &mut HeadlessClient, skill: u32) {
                 }
             }
         }
-        app.hud_mut().panels = panels;
+        app.probe_mut().hud_mut().panels = panels;
     }
     c.tick(1);
     let (x, y) = {
@@ -8592,7 +8592,7 @@ fn a_client_with_a_notebook(tag: &str) -> HeadlessClient {
 /// it logs on, so the notebook's own latch happens first and the file is read on a later frame --
 /// which is the half of the load a scenario that set this up front would never reach.
 fn playing_as(c: &mut HeadlessClient, character: &str) {
-    let host = c.app_mut().host_state_mut();
+    let host = c.app_mut().probe_mut().host_state_mut();
     host.entered_character = Some(character.to_owned());
     host.world_name = Some(JOURNAL_WORLD.to_owned());
     c.tick(2);
@@ -9353,7 +9353,7 @@ fn scenario_a_second_character_gets_its_own_notebook() {
 
 /// A log-off and a log-on again, with the screen genuinely rebound in between.
 fn relog_as(c: &mut HeadlessClient, character: &str) {
-    c.app_mut().host_state_mut().entered_character = None;
+    c.app_mut().probe_mut().host_state_mut().entered_character = None;
     c.app_mut()
         .queue_ui_mode(dereth_ui::framework::mode::CHARACTER_MANAGEMENT);
     c.tick(3);
@@ -9795,7 +9795,7 @@ fn press_the_row(c: &mut HeadlessClient, h: ElemHandle) {
     show_the_page_holding(c, h);
     {
         let app = c.app_mut();
-        let mut panels = std::mem::take(&mut app.hud_mut().panels);
+        let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
         {
             let (ui, _) = gameplay_screen(app);
             for w in [panels.skills.list.as_mut(), panels.attributes.list.as_mut()]
@@ -9807,7 +9807,7 @@ fn press_the_row(c: &mut HeadlessClient, h: ElemHandle) {
                 }
             }
         }
-        app.hud_mut().panels = panels;
+        app.probe_mut().hud_mut().panels = panels;
     }
     c.tick(1);
     let at = {
@@ -11813,7 +11813,7 @@ fn skill_list_press_arrow(c: &mut HeadlessClient, bar: ElemHandle, down: bool) {
 /// Scroll one item into view; report whether the viewport moved.
 fn skill_list_bring_into_view(c: &mut HeadlessClient, index: usize) -> bool {
     let app = c.app_mut();
-    let mut panels = std::mem::take(&mut app.hud_mut().panels);
+    let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
     let moved = {
         let (ui, _) = gameplay_screen(app);
         panels
@@ -11823,7 +11823,7 @@ fn skill_list_bring_into_view(c: &mut HeadlessClient, index: usize) -> bool {
             .expect("the skills list is bound")
             .scroll_to_view(ui, index)
     };
-    app.hud_mut().panels = panels;
+    app.probe_mut().hud_mut().panels = panels;
     c.tick(1);
     moved
 }
@@ -12361,12 +12361,12 @@ pub fn rebuilding_the_skills_list_keeps_where_it_was_scrolled_to() {
     let skills_now = c.view().expect_app().hud().skills.clone();
     {
         let app = c.app_mut();
-        let mut panels = std::mem::take(&mut app.hud_mut().panels);
+        let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
         {
             let (ui, _) = gameplay_screen(app);
             panels.skills.rebuild(ui, &skills_now);
         }
-        app.hud_mut().panels = panels;
+        app.probe_mut().hud_mut().panels = panels;
     }
 
     let kept = skill_list_scroll_y(&mut c, lb) == y;

@@ -83,7 +83,7 @@ fn app_on_character_screen(names: &[&str]) -> Option<App> {
         .unwrap_or_else(|e| panic!("the shell starts over the retail dats: {e}"));
     app.load_first_pixel_scene()
         .unwrap_or_else(|e| panic!("the first-pixel scene loads: {e}"));
-    let host = app.host_state_mut();
+    let host = app.probe_mut().host_state_mut();
     host.character_set = Some(character_set(names));
     host.received_set = true;
     host.world_name = Some("ACEmulator".into());
@@ -781,7 +781,7 @@ fn rebuilding_the_character_list_does_not_leak_descriptor_slots() {
     for i in 0..10 {
         let names: Vec<String> = LIVE_NAMES.iter().map(|n| format!("{n}{i}")).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        app.host_state_mut().character_set = Some(character_set(&refs));
+        app.probe_mut().host_state_mut().character_set = Some(character_set(&refs));
         app.frame();
     }
     let steady = app.renderer().descriptor_usage();
@@ -827,7 +827,7 @@ fn the_mouse_wheel_scrolls_the_worlds_message_with_nothing_focused() {
     have_dats();
     let mut app = app_on_character_screen(&LIVE_NAMES).expect("an app on the character screen");
     let long: String = (1..=60).map(|i| format!("Line {i}.\n")).collect();
-    app.host_state_mut().character_screen_message = Some(long);
+    app.probe_mut().host_state_mut().character_screen_message = Some(long);
     app.frame();
     app.frame();
     let window = screen(&mut app)

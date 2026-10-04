@@ -63,7 +63,7 @@ fn approach(app: &mut App, metres: f32) -> Position {
         .expect("source-derived movement"),
     };
     let accepted = app.objects().stats.movement_updates;
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
             body: dereth_protocol::write_body(&message).unwrap(),
@@ -72,7 +72,7 @@ fn approach(app: &mut App, metres: f32) -> Position {
     );
     assert_eq!(app.objects().stats.movement_updates, accepted + 1);
     frames(app, 1);
-    assert!(app.movement_commands().lists.controlled_by_server);
+    assert!(app.probe().movement_commands().lists.controlled_by_server);
     assert!(app
         .world_state()
         .unwrap()
@@ -101,11 +101,16 @@ fn forward(app: &mut App, start: bool) {
 
 fn manual_move_and_stop(app: &mut App) {
     let stopped = position(app);
-    let retakes = app.movement_commands().control_retakes_from_commands;
+    let retakes = app
+        .probe()
+        .movement_commands()
+        .control_retakes_from_commands;
     forward(app, true);
-    assert!(!app.movement_commands().lists.controlled_by_server);
+    assert!(!app.probe().movement_commands().lists.controlled_by_server);
     assert_eq!(
-        app.movement_commands().control_retakes_from_commands,
+        app.probe()
+            .movement_commands()
+            .control_retakes_from_commands,
         retakes + 1
     );
     assert!(
@@ -162,7 +167,7 @@ fn app_approach_arrives_then_fresh_input_moves_and_releases_the_same_body() {
         "arrival must reach requested clearance: {clearance}"
     );
     assert!(
-        app.movement_commands().lists.controlled_by_server,
+        app.probe().movement_commands().lists.controlled_by_server,
         "retail deliberately retains ownership until a real held/fresh command exists"
     );
     manual_move_and_stop(&mut app);
@@ -245,7 +250,7 @@ fn app_accepted_interpreted_replacement_cancels_before_installing_the_new_motion
                 .unwrap(),
             };
             let accepted = app.objects().stats.movement_updates;
-            app.objects_mut().apply_event(
+            app.probe_mut().objects_mut().apply_event(
                 &SessionEvent::WorldObject {
                     opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
                     body: dereth_protocol::write_body(&message).unwrap(),

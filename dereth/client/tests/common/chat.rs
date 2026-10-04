@@ -101,8 +101,9 @@ pub(crate) fn screen_rect(app: &App, id: ElementId) -> ((i32, i32), (i32, i32)) 
 
 pub(crate) fn install_player_module(app: &mut App) -> dereth_protocol::login::PlayerModule {
     let module = dereth_protocol::login::PlayerModule::default();
-    app.hud_mut().player_module = Some(module.clone());
-    app.objects_mut()
+    app.probe_mut().hud_mut().player_module = Some(module.clone());
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .apply_player_module(&module);
@@ -112,7 +113,8 @@ pub(crate) fn install_player_module(app: &mut App) -> dereth_protocol::login::Pl
 pub(crate) fn forced_saved_player_module(app: &mut App) -> dereth_protocol::login::PlayerModule {
     let mut requests = dereth_client_model::RecordingRequests::default();
     assert!(
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .world
             .player_system
             .save_to_server(&mut requests, true),

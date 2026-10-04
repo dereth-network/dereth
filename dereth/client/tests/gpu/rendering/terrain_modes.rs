@@ -468,7 +468,7 @@ fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() 
     for _ in 0..4 {
         assert!(app.frame());
     }
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert_eq!(work.ground_refused, Some((RequiredFiles::Legacy, None)));
     assert_eq!(work.sky_refused, Some((RequiredFiles::Legacy, None)));
     let s = app.world_scene().expect("a world");
@@ -527,7 +527,7 @@ fn the_client_switches_the_ground_when_the_option_changes() {
         .draw
         .ground_palette_shifts());
     assert!(app.frame());
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert!(work.ground_changed, "{work:?}");
     assert!(work.blocks_rebuilt > 0);
     let s = app.world_scene().expect("a world");

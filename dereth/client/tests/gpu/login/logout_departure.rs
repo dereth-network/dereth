@@ -361,7 +361,7 @@ fn current_mode(app: &App) -> Option<dereth_ui::UiMode> {
 }
 
 fn send<M: Message>(app: &mut App, m: &M) {
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: M::OPCODE,
             body: dereth_protocol::write_body(m).expect("encodes"),
@@ -373,7 +373,8 @@ fn send<M: Message>(app: &mut App, m: &M) {
 /// Log the synthetic player in with the `phstable_id` every recorded player create carries, which
 /// is what gives the body a script table and a motion table to play out of.
 fn log_in(app: &mut App) {
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(0.0));
     let (block, origin) = {
         let s = app.world_scene().expect("a scene");
@@ -528,6 +529,7 @@ fn server_plays_the_departure(app: &mut App) {
         },
     );
     let p = app
+        .probe_mut()
         .objects_mut()
         .presence(PLAYER)
         .expect("the player's presence");
@@ -558,7 +560,7 @@ fn server_plays_the_departure(app: &mut App) {
         instance_sequence: instance,
         movement: MovementSetObjectMovement::encode_movement(&buffer).expect("a 0xF74C buffer"),
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
             body: dereth_protocol::write_body(&m).expect("wire body"),
@@ -812,11 +814,11 @@ fn an_accepted_logout_stops_held_input_and_reports_that_stop_once() {
     keys.key(&mut app, winit::keyboard::KeyCode::KeyW, true);
     app.frame();
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "the physical W press reached the character"
     );
     assert!(
-        !app.movement_commands().lists.substate.is_empty(),
+        !app.probe().movement_commands().lists.substate.is_empty(),
         "and it is genuinely held in the command interpreter's substate list"
     );
     let _ = outgoing_payloads(&mut app);
@@ -840,7 +842,8 @@ fn an_accepted_logout_stops_held_input_and_reports_that_stop_once() {
     click(&mut app, logout::BUTTON_YES);
     app.frame();
     assert!(
-        !app.char_input().forward && app.movement_commands().lists.substate.is_empty(),
+        !app.probe().char_input().forward
+            && app.probe().movement_commands().lists.substate.is_empty(),
         "disabling movement clears the held list and its projection on the accepted edge"
     );
 
@@ -883,7 +886,8 @@ fn an_accepted_logout_stops_held_input_and_reports_that_stop_once() {
     keys.key(&mut app, winit::keyboard::KeyCode::KeyA, true);
     app.frame();
     assert!(
-        !app.char_input().turn_left && app.movement_commands().lists.turn.is_empty(),
+        !app.probe().char_input().turn_left
+            && app.probe().movement_commands().lists.turn.is_empty(),
         "movement is disabled until the world controller accepts another player create"
     );
 
@@ -899,7 +903,7 @@ fn an_accepted_logout_stops_held_input_and_reports_that_stop_once() {
             },
         );
         app.frame();
-        assert!(!app.char_input().forward && !app.char_input().turn_left);
+        assert!(!app.probe().char_input().forward && !app.probe().char_input().turn_left);
     }
 
     // Accepted player creation is the matching input-enable edge. Drive that decoded production
@@ -907,13 +911,13 @@ fn an_accepted_logout_stops_held_input_and_reports_that_stop_once() {
     // decode is covered independently.
     app.process_logon_event_queue(vec![SessionEvent::PlayerCreated(PLAYER)]);
     assert!(
-        app.movement_commands().is_enabled(),
+        app.probe().movement_commands().is_enabled(),
         "the accepted player-create event re-enables"
     );
     keys.key(&mut app, winit::keyboard::KeyCode::KeyD, true);
     app.frame();
     assert!(
-        app.char_input().turn_right,
+        app.probe().char_input().turn_right,
         "a fresh movement key works after movement is re-enabled"
     );
 }
@@ -922,7 +926,7 @@ fn update_player_killer_status(app: &mut App, sequence: u8, value: i32) {
     use dereth_client_model::qualities::{QualityUpdate, UpdateOutcome};
     use dereth_client_model::{Qualities, StatKey, StatType, StatValue};
 
-    let world = &mut app.objects_mut().world;
+    let world = &mut app.probe_mut().objects_mut().world;
     let player = world.weenie_mut(PLAYER).expect("the local player");
     player.qualities.get_or_insert_with(Qualities::default);
     let outcome = world.apply_player_quality_update(&QualityUpdate {

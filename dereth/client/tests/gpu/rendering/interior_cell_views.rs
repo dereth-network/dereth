@@ -196,9 +196,10 @@ fn setup_in(block: u16, cell: u32, portal_clip: bool) -> Option<App> {
     let here = position(&app);
     create.0.physicsdesc.position = Some(wire_position(here.cell.0, here.frame.origin, &here));
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed placement"),
@@ -212,7 +213,7 @@ fn setup_in(block: u16, cell: u32, portal_clip: bool) -> Option<App> {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -384,7 +385,7 @@ fn create_the_corpus_chest_in(
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
     create.0.id = id;
     let name = create.0.wdesc.name.clone();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -397,7 +398,7 @@ fn create_the_corpus_chest_in(
 /// Remove the chest `id` from the world, as the server's delete would.
 fn delete_the_corpus_chest(app: &mut App, id: ObjectId, at: f64) {
     let instance_sequence = corpus_chest().0.physicsdesc.timestamps.instance;
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_DELETE_OBJECT,
             body: dereth_protocol::write_body(&ItemDeleteObject {

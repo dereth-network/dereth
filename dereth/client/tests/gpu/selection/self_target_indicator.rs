@@ -146,9 +146,10 @@ fn setup() -> (App, ObjectId) {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -164,7 +165,7 @@ fn setup() -> (App, ObjectId) {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -195,15 +196,20 @@ fn setup() -> (App, ObjectId) {
     }
     // Enable indicator display. Without it the draw callback hides both elements for everyone,
     // and the control leg could not distinguish a self refusal from an entirely disabled display.
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .apply_player_module(&dereth_protocol::login::PlayerModule::default());
-    app.objects_mut().world.player_system.set_option(
-        OPTION_VIVID_TARGETING_INDICATOR,
-        true,
-        dereth_primitives::ServerTime(0.0),
-    );
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .player_system
+        .set_option(
+            OPTION_VIVID_TARGETING_INDICATOR,
+            true,
+            dereth_primitives::ServerTime(0.0),
+        );
     frames(&mut app, 2);
     (app, id)
 }
@@ -234,7 +240,7 @@ fn place(app: &mut App, id: ObjectId, offset: (f32, f32, f32), now: f64) {
         wdesc: PublicWeenieDesc::default(),
     };
     let body = dereth_protocol::write_body(&ItemCreateObject(payload)).expect("encode");
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body,

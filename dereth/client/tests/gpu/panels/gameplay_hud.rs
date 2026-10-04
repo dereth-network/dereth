@@ -64,7 +64,7 @@ fn embody(app: &mut App) {
         .hud()
         .player
         .unwrap_or(dereth_primitives::ObjectId(0x5000_0001));
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     w.player = None;
     w.tables
         .weenies

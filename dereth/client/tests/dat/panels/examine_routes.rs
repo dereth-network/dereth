@@ -450,19 +450,25 @@ fn raise_examine(app: &mut App, id: ObjectId, floor: &mut u64) {
     // serial monotonic over the whole sweep, which is the client's guarantee, while still leaving
     // the shared world operation as producer.
     {
-        let cache = &mut app.objects_mut().world.appraisal;
+        let cache = &mut app.probe_mut().objects_mut().world.appraisal;
         cache.examine_serial = cache.examine_serial.max(*floor);
     }
     let mut req = dereth_client_model::RecordingRequests::default();
-    app.objects_mut().world.examine_object(&mut req, id);
-    *floor = app.objects_mut().world.appraisal.examine_serial;
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .examine_object(&mut req, id);
+    *floor = app.probe_mut().objects_mut().world.appraisal.examine_serial;
     assert!(
         req.0
             .iter()
             .any(|r| matches!(r, dereth_client_model::Request::Appraise(a) if a.target == id)),
         "examine_object must also send Item_Appraise -- it is attempt_appraise plus one line"
     );
-    assert_eq!(app.objects_mut().world.appraisal.examining, Some(id));
+    assert_eq!(
+        app.probe_mut().objects_mut().world.appraisal.examining,
+        Some(id)
+    );
     // The application frame runs the examination-panel update and pulls the new serial.
     app.frame();
 }
@@ -473,7 +479,8 @@ fn deliver_reply(
     profile: &dereth_protocol::types::AppraisalProfile,
 ) {
     let mut sink = dereth_client_model::RecordingSink::default();
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .set_appraise_info(object, profile.clone(), &mut sink);
     app.frame();
@@ -490,7 +497,7 @@ fn replay_and_examine(app: &mut App, session: &str, out: &mut Vec<Outcome>, floo
         net.feed(&r.raw, addr(r.pair), now);
         net.tick(now);
         let _ = net.take_outgoing();
-        let events = app.objects_mut().pump(&mut net, now);
+        let events = app.probe_mut().objects_mut().pump(&mut net, now);
         let _ = app.apply_hud_events(&events);
         for e in &events {
             match e {
@@ -509,6 +516,7 @@ fn replay_and_examine(app: &mut App, session: &str, out: &mut Vec<Outcome>, floo
                     let m = dereth_protocol::objects::ItemSetAppraiseInfo::read(&mut rd)
                         .expect("a recorded 0x00C9 decodes");
                     let name = app
+                        .probe_mut()
                         .objects_mut()
                         .world
                         .weenie(m.object)
@@ -652,7 +660,7 @@ fn a_second_reply_for_the_same_object_does_not_reopen_a_panel_the_player_closed(
             net.feed(&r.raw, addr(r.pair), now);
             net.tick(now);
             let _ = net.take_outgoing();
-            let events = app.objects_mut().pump(&mut net, now);
+            let events = app.probe_mut().objects_mut().pump(&mut net, now);
             let _ = app.apply_hud_events(&events);
             for e in &events {
                 match e {
@@ -670,7 +678,13 @@ fn a_second_reply_for_the_same_object_does_not_reopen_a_panel_the_player_closed(
                         let mut rd = dereth_protocol::archive::Reader::new(body);
                         let m = dereth_protocol::objects::ItemSetAppraiseInfo::read(&mut rd)
                             .expect("decodes");
-                        if app.objects_mut().world.weenie(m.object).is_some() {
+                        if app
+                            .probe_mut()
+                            .objects_mut()
+                            .world
+                            .weenie(m.object)
+                            .is_some()
+                        {
                             first = Some((m.object, m.profile.clone()));
                             break 'outer;
                         }

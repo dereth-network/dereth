@@ -789,15 +789,18 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
         world.follow_character_now();
     }
 
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::PlayerCreated(ObjectId(PLAYER)),
         LocalTime(0.0),
     );
     feed(
-        app.objects_mut(),
+        app.probe_mut().objects_mut(),
         create_body_with_setup(PLAYER, start_cell, start_origin, ALUVIAN_MALE_SETUP.0),
     );
-    feed(app.objects_mut(), create_held_child(PLAYER_CHILD, PLAYER));
+    feed(
+        app.probe_mut().objects_mut(),
+        create_held_child(PLAYER_CHILD, PLAYER),
+    );
     assert!(
         app.frame(),
         "the player identity and initial placement settle"
@@ -813,7 +816,7 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
 
     let (object_cell, object_origin) = on_terrain(app.world_scene().unwrap(), home, 60.0, 60.0);
     for body in create_return_pair(object_cell, object_origin) {
-        feed(app.objects_mut(), body);
+        feed(app.probe_mut().objects_mut(), body);
     }
     assert!(
         app.frame(),
@@ -848,13 +851,13 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
             Quat::IDENTITY,
         ),
     );
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &position_event(ObjectId(PLAYER), same_cell, instance, 1),
         LocalTime(1.0),
     );
     assert!(app.frame(), "same-cell accepted teleport");
     assert_eq!(
-        app.player_teleports_applied(),
+        app.probe().player_teleports_applied(),
         1,
         "the control really was accepted"
     );
@@ -880,12 +883,12 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
         destination_cell,
         Frame::new(destination_origin, Quat::IDENTITY),
     );
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &position_event(ObjectId(PLAYER), destination, instance, 2),
         LocalTime(2.0),
     );
     assert!(app.frame(), "different-cell short teleport");
-    assert_eq!(app.player_teleports_applied(), 2);
+    assert_eq!(app.probe().player_teleports_applied(), 2);
     let world = app.world_scene().unwrap();
     assert_eq!(world.viewer_block(), Some(block_xy(home.0)));
     assert_eq!(
@@ -986,12 +989,12 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
         app.frame(),
         "ordinary movement resumes after the release/re-entry cycle"
     );
-    assert!(app.char_input().forward);
+    assert!(app.probe().char_input().forward);
     app.input_manager_mut()
         .unwrap()
         .inject_action(movement(false));
     assert!(app.frame(), "ordinary movement release");
-    assert!(!app.char_input().forward);
+    assert!(!app.probe().char_input().forward);
     let character = app.world_state().unwrap().character.as_ref().unwrap();
     assert_eq!(
         character
@@ -1014,7 +1017,13 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
     let released = app.world_scene().unwrap().draw.stats.blocks_released;
     let flushed = app.objects().stats.blocks_flushed;
     {
-        let character = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let character = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         character.world.leave_cell(character.handle);
     }
     let same_id_without_a_cell = Position::new(
@@ -1028,7 +1037,7 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
             Quat::IDENTITY,
         ),
     );
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &position_event(ObjectId(PLAYER), same_id_without_a_cell, instance, 3),
         LocalTime(3.0),
     );
@@ -1036,7 +1045,7 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
         app.frame(),
         "same-id teleport with no current physical cell"
     );
-    assert_eq!(app.player_teleports_applied(), 3);
+    assert_eq!(app.probe().player_teleports_applied(), 3);
     assert_eq!(
         app.world_scene().unwrap().draw.stats.blocks_released - released,
         resident as u64,
@@ -1057,8 +1066,9 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
 
     // Advance the model past the deadlines stamped by both full releases. Re-entry must have
     // removed the exact local body and held-child timers, not merely made the player movable.
-    app.objects_mut().world.tables.visible.clear();
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.tables.visible.clear();
+    app.probe_mut()
+        .objects_mut()
         .use_time::<dereth_client_net::client_session::testing::MockTransport>(
             ServerTime(2.0 * DESTRUCTION_TIME + 10.0),
             None,
@@ -1225,7 +1235,7 @@ fn rapid_teleports_preserve_the_final_local_and_remote_arrivals() {
         "the two teleports and destination arrivals share one received batch"
     );
     assert_eq!(
-        app.player_teleports_applied(),
+        app.probe().player_teleports_applied(),
         2,
         "both encoded position messages were admitted"
     );
@@ -1303,8 +1313,9 @@ fn rapid_teleports_preserve_the_final_local_and_remote_arrivals() {
         "the final set-state unhide remains active after re-entry"
     );
 
-    app.objects_mut().world.tables.visible.clear();
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.tables.visible.clear();
+    app.probe_mut()
+        .objects_mut()
         .use_time::<dereth_client_net::client_session::testing::MockTransport>(
             ServerTime(DESTRUCTION_TIME + 10.0),
             None,

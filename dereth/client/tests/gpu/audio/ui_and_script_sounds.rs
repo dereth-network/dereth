@@ -95,7 +95,7 @@ fn app_on_character_screen() -> App {
     app.start_shell().expect("the shell starts");
     app.load_first_pixel_scene().expect("the first scene loads");
     {
-        let host = app.host_state_mut();
+        let host = app.probe_mut().host_state_mut();
         host.character_set = Some(dereth_ui::persist::CharacterSet {
             set: Vec::new(),
             num_allowed_characters: 11,

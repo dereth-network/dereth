@@ -148,7 +148,7 @@ fn player_description(events: &[SessionEvent]) -> &dereth_protocol::login::Login
 /// different player, set_player allocates its store and installs the parked description.
 fn embody(app: &mut App) {
     let player = app.hud().player.unwrap_or(CAPTURE_PLAYER);
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     if w.player == Some(player) {
         return;
     }
@@ -1967,7 +1967,7 @@ fn press_row(app: &mut App, h: ElemHandle) {
     // scroll_to_view drives the scrollable element used by the scrollbar, preserving the real
     // layout/hit-test relationship.
     {
-        let mut panels = std::mem::take(&mut app.hud_mut().panels);
+        let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
         {
             let (ui, _) = gameplay_screen(app);
             for w in [panels.skills.list.as_mut(), panels.attributes.list.as_mut()]
@@ -1979,7 +1979,7 @@ fn press_row(app: &mut App, h: ElemHandle) {
                 }
             }
         }
-        app.hud_mut().panels = panels;
+        app.probe_mut().hud_mut().panels = panels;
     }
     {
         let (ui, _) = gameplay_screen(app);

@@ -420,7 +420,7 @@ pub(super) fn batch(app: &mut App<TestShell>, shell: &mut TestShell, events: Vec
 )]
 fn classic_host_batches_apply_reply_history_aliases_and_pointer_focus_before_following_text() {
     let (mut app, mut shell) = fixture();
-    app.objects_mut().world.chat.last_teller_name = "Peer".into();
+    app.probe_mut().objects_mut().world.chat.last_teller_name = "Peer".into();
     shell.ui.ui_actions.push("Reply".into());
     batch(
         &mut app,
@@ -512,7 +512,7 @@ fn queued_world_escape_and_paper_doll_releases_keep_their_interception() {
     shell.open_edit = true;
     batch(&mut app, &mut shell, vec![]);
     shell.ui.desktop.focus_control("");
-    app.objects_mut().world.selected = Some(dereth_primitives::ObjectId(77));
+    app.probe_mut().objects_mut().world.selected = Some(dereth_primitives::ObjectId(77));
     shell.world_inputs = true;
     batch(&mut app, &mut shell, vec![key(0x1b, None)]);
     assert!(shell.ui.desktop.is_open("test-edit"));
@@ -687,8 +687,13 @@ fn app_installs_the_chat_target_sweep_with_classic_or_no_interface() {
         let mut peer = dereth_client_model::Weenie::new(id);
         peer.pwd.name = "Nearby Peer".into();
         peer.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-        app.objects_mut().world.tables.weenies.insert(id, peer);
-        app.objects_mut().world.selected = Some(id);
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .tables
+            .weenies
+            .insert(id, peer);
+        app.probe_mut().objects_mut().world.selected = Some(id);
         batch(&mut app, &mut shell, vec![]);
         assert_eq!(app.objects().world.chat.last_speakable_target, Some(id));
         assert!(app

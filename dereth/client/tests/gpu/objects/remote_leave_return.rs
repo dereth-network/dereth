@@ -681,7 +681,8 @@ fn equal_instance_return_create_materializes_remote_body_and_held_item() {
     };
     let mut far = nearby;
     far.cell = far_block.cell(1);
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .unwrap()
         .character
         .as_mut()

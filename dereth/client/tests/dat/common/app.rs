@@ -50,7 +50,7 @@ fn build(frames: u32, player: Option<ObjectId>, answered: bool) -> App {
     }
     app.start_shell().expect("the shell comes up");
     if let Some(player) = player {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         w.tables
             .weenies
             .insert(player, dereth_client_model::weenie::Weenie::new(player));

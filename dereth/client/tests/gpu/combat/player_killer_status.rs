@@ -227,9 +227,10 @@ fn setup() -> (App, Peer) {
         );
         app.frame();
     }
-    app.objects_mut().world.player = Some(PLAYER);
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
     for (id, name) in [(PLAYER, "Local PK"), (TARGET, "Target PK")] {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(id)
@@ -241,14 +242,18 @@ fn setup() -> (App, Peer) {
     }
 
     let desc = SessionEvent::PlayerDescription(Box::new(player_description()));
-    app.objects_mut().apply_event(&desc, LocalTime(0.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&desc, LocalTime(0.0));
     app.apply_hud_events(std::slice::from_ref(&desc));
-    app.apply_interaction_events(std::slice::from_ref(&desc));
-    app.objects_mut()
+    app.probe_mut()
+        .apply_interaction_events(std::slice::from_ref(&desc));
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .set_option(14, true, ServerTime(0.0));
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(TARGET),
         false,
         &mut dereth_client_model::NullSink,
@@ -267,9 +272,8 @@ fn live_pk_updates_recolor_the_selected_player_with_native_social_precedence() {
         "an ordinary selected player starts with the white radar color"
     );
 
-    app.objects_mut()
-        .world
-        .recv_friends_update(&dereth_protocol::social::SocialFriendsUpdate {
+    app.probe_mut().objects_mut().world.recv_friends_update(
+        &dereth_protocol::social::SocialFriendsUpdate {
             friends: vec![dereth_protocol::social::FriendData {
                 id: TARGET,
                 online: 1,
@@ -277,14 +281,17 @@ fn live_pk_updates_recolor_the_selected_player_with_native_social_precedence() {
                 ..Default::default()
             }],
             update_type: 0,
-        });
-    app.objects_mut()
+        },
+    );
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(PLAYER)
         .expect("player")
         .pwd
         .monarch = Some(ObjectId(0x5000_00AA));
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(TARGET)
         .expect("target")
@@ -313,7 +320,7 @@ fn live_pk_updates_recolor_the_selected_player_with_native_social_precedence() {
             ..Fellow::default()
         },
     );
-    app.objects_mut().world.fellowship = Some(Fellowship {
+    app.probe_mut().objects_mut().world.fellowship = Some(Fellowship {
         members,
         leader: TARGET,
         ..Fellowship::default()
@@ -325,7 +332,7 @@ fn live_pk_updates_recolor_the_selected_player_with_native_social_precedence() {
         "fellowship leader green overrides the PK base"
     );
 
-    app.objects_mut().world.fellowship = None;
+    app.probe_mut().objects_mut().world.fellowship = None;
     peer.event(&mut app, public_int(TARGET, 2, 0x40));
     settle(&mut app);
     assert_eq!(
@@ -439,13 +446,19 @@ fn live_pk_updates_drive_attack_eligibility_and_the_radar_from_the_same_pwd_bits
         "native fellowship color overrides the PK base; this is not a PK-state defect"
     );
 
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
-    app.objects_mut().world.combat.requested_attack_power = 0.5;
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .combat
+        .requested_attack_power = 0.5;
     let mut requests = RecordingRequests::default();
-    let refusal =
-        app.objects_mut()
-            .world
-            .execute_attack(&mut requests, AttackHeight::Medium, false, true);
+    let refusal = app.probe_mut().objects_mut().world.execute_attack(
+        &mut requests,
+        AttackHeight::Medium,
+        false,
+        true,
+    );
     assert_eq!(
         refusal, None,
         "the local attack path does not refuse the live PK pair"

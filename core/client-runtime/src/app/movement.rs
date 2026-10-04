@@ -3,6 +3,10 @@
 use super::*;
 
 impl<S: Shell> App<S> {
+    pub(super) const fn position_use_times(&self) -> u64 {
+        self.events.total(FrameEventKind::PositionUseTime)
+    }
+
     /// Tell the server where the player is.
     ///
     /// The client first asks `should_send_position_event`; a non-zero answer calls
@@ -129,22 +133,6 @@ impl<S: Shell> App<S> {
         }
     }
 
-    /// How many frames reached [`Self::command_interpreter_control_transfer`], how
-    /// many accepted calls ran `lose_control_to_server`, and how many took control back. Ordered
-    /// player dispatch can lose control more than once in a frame; each accepted call is counted.
-    ///
-    /// Three numbers rather than one: a run where the server never sent a non-autonomous buffer
-    /// and a run where the step was never called read `(n, 0, 0)` and `(0, 0, 0)`, and only the
-    /// first is a client that is working.
-    #[must_use]
-    pub const fn control_transfer_counts(&self) -> (u64, u64, u64) {
-        (
-            self.events.total(FrameEventKind::ControlTransfer),
-            self.events.total(FrameEventKind::ServerControlLost),
-            self.events.total(FrameEventKind::ServerControlRetaken),
-        )
-    }
-
     /// Press starts `CommenceJump`; release calls `DoJump(true)`.
     /// Commands preceding this event are completed without advancing the world clock.
     pub(super) fn apply_jump_action(
@@ -240,28 +228,6 @@ impl<S: Shell> App<S> {
         shell.deliver_power_bar_notices(&mut self.hud, notices);
     }
 
-    /// Pending releases attempted, and actual nonzero motion-interpreter results.
-    #[must_use]
-    pub const fn jump_counts(&self) -> (u64, u64) {
-        (
-            self.events.total(FrameEventKind::JumpRequested),
-            self.events.amount(FrameEventKind::JumpRequested),
-        )
-    }
-
-    /// Input-dispatch passes, not autonomous `DoJump` calls per frame, despite the name.
-    #[must_use]
-    pub const fn jump_use_times(&self) -> u64 {
-        self.events.total(FrameEventKind::JumpUseTime)
-    }
-
-    /// The last actual successful jump request; offline observers see the same pack transport
-    /// receives, not a substitute acceptance answer or a later post-physics reconstruction.
-    #[must_use]
-    pub fn last_jump_request(&self) -> Option<&dereth_protocol::movement::MovementJump> {
-        self.last_jump_request.as_ref()
-    }
-
     /// Everything [`dereth_client_net::client_session::PositionReporter`] reads off the body, in one place.
     ///
     /// `None` when there is no body yet, which is every frame before `load_pending_scene` has
@@ -279,24 +245,5 @@ impl<S: Shell> App<S> {
             player_timestamps(presence),
             self.objects.command_numbering(),
         ))
-    }
-
-    /// How many `0xF753` and `0xF61C` blobs this client has produced.
-    ///
-    /// Exposed so a test can assert **emission**, which no replay anchor can see.
-    #[must_use]
-    pub const fn position_reporter_stats(
-        &self,
-    ) -> dereth_client_net::client_session::PositionReporterStats {
-        self.position.stats
-    }
-
-    /// How many frames have reached [`Self::position_use_time`].
-    ///
-    /// One per drawn frame. A test that asserts this equals [`Self::frames_drawn`] is asserting
-    /// the **call site**, which no counter inside the reporter can do.
-    #[must_use]
-    pub const fn position_use_times(&self) -> u64 {
-        self.events.total(FrameEventKind::PositionUseTime)
     }
 }

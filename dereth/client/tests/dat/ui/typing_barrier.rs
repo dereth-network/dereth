@@ -20,7 +20,7 @@
 //!    cancellation. The helper sends release separately after sampling the input flag throughout
 //!    the hold.
 //! 2. Blocking everything would pass a focused-only check. Unfocused positive, focused negative
-//!    and restored-after-blur cases distinguish that failure. `App::actions_routed` supplies an
+//!    and restored-after-blur cases distinguish that failure. `app.probe().actions_routed` supplies an
 //!    independent count that the movement path was exercised.
 
 use crate::common::sim_app::app_in_gameplay;
@@ -199,7 +199,7 @@ impl Hand {
         let mut ever = false;
         for _ in 0..frames {
             app.frame();
-            ever |= read(app.char_input());
+            ever |= read(app.probe().char_input());
         }
         self.key(app, code, false);
         app.frame();
@@ -234,9 +234,9 @@ fn a_held_w_walks_only_while_the_chat_box_does_not_have_focus() {
         !barrier_registered(&mut app),
         "nothing is focused, so nothing blocks the keyboard"
     );
-    let before = app.actions_routed();
+    let before = app.probe().actions_routed();
     let walked = hand.hold(&mut app, KeyCode::KeyW, 3, |c| c.forward);
-    let routed_unfocused = app.actions_routed() - before;
+    let routed_unfocused = app.probe().actions_routed() - before;
     assert!(
         walked,
         "with no text box focused, a held W must close the forward slot"
@@ -246,7 +246,7 @@ fn a_held_w_walks_only_while_the_chat_box_does_not_have_focus() {
         "one press and one release must both reach the body: routed {routed_unfocused}"
     );
     assert!(
-        !app.char_input().forward,
+        !app.probe().char_input().forward,
         "and the release must open it again"
     );
 
@@ -268,9 +268,9 @@ fn a_held_w_walks_only_while_the_chat_box_does_not_have_focus() {
         "focusing the box put the barrier up"
     );
 
-    let before = app.actions_routed();
+    let before = app.probe().actions_routed();
     let walked = hand.hold(&mut app, KeyCode::KeyW, 3, |c| c.forward);
-    let routed_focused = app.actions_routed() - before;
+    let routed_focused = app.probe().actions_routed() - before;
     assert!(
         !walked,
         "with the entry focused, a held W must not close the forward slot: typing must not walk \
@@ -300,10 +300,10 @@ fn a_held_w_walks_only_while_the_chat_box_does_not_have_focus() {
         !barrier_registered(&mut app),
         "dropping focus takes the barrier away"
     );
-    let before = app.actions_routed();
+    let before = app.probe().actions_routed();
     let walked = hand.hold(&mut app, KeyCode::KeyW, 3, |c| c.forward);
     assert!(walked, "unfocusing the box restores movement");
-    assert!(app.actions_routed() > before);
+    assert!(app.probe().actions_routed() > before);
 
     app.shutdown();
 }
@@ -348,32 +348,32 @@ fn the_shipped_bindings_drive_the_five_other_motion_slots() {
     // The sixth, whose polarity is the other way round. `actions_routed` is the denominator: it
     // is what tells "the key arrived and set the flag to false" from "the key never arrived",
     // which a bare `!run` cannot.
-    let before = app.actions_routed();
+    let before = app.probe().actions_routed();
     hand.key(&mut app, KeyCode::ShiftLeft, true);
     app.frame();
     assert!(
-        app.actions_routed() > before,
+        app.probe().actions_routed() > before,
         "DIK_LSHIFT -> 0x32 must reach the body"
     );
     assert!(
-        !app.char_input().run,
+        !app.probe().char_input().run,
         "0x32 is MovementWalkMode: holding it WALKS a shipped body"
     );
     hand.key(&mut app, KeyCode::ShiftLeft, false);
     app.frame();
     assert!(
-        app.char_input().run,
+        app.probe().char_input().run,
         "and releasing it runs, because ToggleRun is default-on"
     );
 
     // Stop Moving enters Ready and clears directional slots; it is not another direction.
     hand.key(&mut app, KeyCode::KeyX, true);
     app.frame();
-    assert!(app.char_input().back, "X is held");
+    assert!(app.probe().char_input().back, "X is held");
     hand.key(&mut app, KeyCode::KeyS, true);
     app.frame();
     assert!(
-        !app.char_input().back,
+        !app.probe().char_input().back,
         "DIK_S is 0x2B Stop Moving -- the Ready state, all slots out"
     );
     hand.key(&mut app, KeyCode::KeyS, false);
@@ -398,11 +398,14 @@ fn escape_no_longer_ends_the_process() {
     let mut hand = Hand::new();
 
     // (a) Nothing focused.
-    assert!(!app.device_done(), "the loop starts alive");
+    assert!(!app.probe().device_done(), "the loop starts alive");
     hand.key(&mut app, KeyCode::Escape, true);
     hand.key(&mut app, KeyCode::Escape, false);
     app.frame();
-    assert!(!app.device_done(), "a bare Escape is not an exit path");
+    assert!(
+        !app.probe().device_done(),
+        "a bare Escape is not an exit path"
+    );
 
     // (b) The chat entry focused.
     let entry = find(&app, ENTRY);
@@ -420,7 +423,7 @@ fn escape_no_longer_ends_the_process() {
     hand.key(&mut app, KeyCode::Escape, false);
     assert!(app.frame(), "the frame after Escape still runs");
     assert!(
-        !app.device_done(),
+        !app.probe().device_done(),
         "Escape in the chat box must clear the box, not terminate the client"
     );
     let (ui, _) = gameplay(&mut app);
@@ -491,7 +494,7 @@ fn shift_escape_reaches_end_character_session() {
         );
     }
     assert!(
-        !app.device_done(),
+        !app.probe().device_done(),
         "End Character Session logs off; it does not quit the process"
     );
 
@@ -654,11 +657,14 @@ fn the_numpad_camera_keys_reach_the_look_flags_and_the_barrier_gates_them() {
     for (code, what, read) in cases {
         hand.key(&mut app, code, true);
         app.frame();
-        assert!(read(app.camera_input()), "{what} must set its look flag");
+        assert!(
+            read(app.probe().camera_input()),
+            "{what} must set its look flag"
+        );
         hand.key(&mut app, code, false);
         app.frame();
         assert!(
-            !read(app.camera_input()),
+            !read(app.probe().camera_input()),
             "{what} must clear it again on the release"
         );
     }
@@ -675,7 +681,7 @@ fn the_numpad_camera_keys_reach_the_look_flags_and_the_barrier_gates_them() {
     hand.key(&mut app, KeyCode::Numpad4, true);
     app.frame();
     assert!(
-        !app.camera_input().look_left,
+        !app.probe().camera_input().look_left,
         "typing must not spin the camera either -- the barrier is not movement-specific"
     );
     hand.key(&mut app, KeyCode::Numpad4, false);
@@ -686,7 +692,7 @@ fn the_numpad_camera_keys_reach_the_look_flags_and_the_barrier_gates_them() {
 /// The action-listener walk continues when a handler declines; movement decoding returns
 /// MovementAction::NotHandled outside its movement/emote cases. Backquote's shipped action
 /// 0x1000005A in map 0x10000002 is combat toggle, handled beyond the movement/camera seam.
-/// After a W routing positive, this test requires that action not increment App::actions_routed.
+/// After a W routing positive, this test requires that action not increment app.probe().actions_routed.
 /// It checks non-consumption by that seam, not the downstream combat-state change itself.
 #[test]
 fn an_action_the_body_does_not_model_is_put_back() {
@@ -694,23 +700,23 @@ fn an_action_the_body_does_not_model_is_put_back() {
     let mut hand = Hand::new();
 
     // The denominator: the movement seam is alive in this app at all.
-    let before = app.actions_routed();
+    let before = app.probe().actions_routed();
     hand.key(&mut app, KeyCode::KeyW, true);
     app.frame();
     hand.key(&mut app, KeyCode::KeyW, false);
     app.frame();
     assert!(
-        app.actions_routed() > before,
+        app.probe().actions_routed() > before,
         "the movement seam is live in this application"
     );
 
-    let before = app.actions_routed();
+    let before = app.probe().actions_routed();
     hand.key(&mut app, KeyCode::Backquote, true);
     app.frame();
     hand.key(&mut app, KeyCode::Backquote, false);
     app.frame();
     assert_eq!(
-        app.actions_routed(),
+        app.probe().actions_routed(),
         before,
         "the combat-mode toggle is not a motion command and must reach the combat handler untouched"
     );
@@ -737,25 +743,25 @@ fn the_residual_latch_moves_only_the_flycam_and_only_when_nothing_is_focused() {
     assert!(!barrier_registered(&mut app), "nothing focused");
     app.flycam_key(Key::KEY_C, true);
     assert!(
-        app.camera_input().down,
+        app.probe().camera_input().down,
         "the flycam's descend key is the part with no action behind it"
     );
     app.flycam_key(Key::KEY_C, false);
-    assert!(!app.camera_input().down);
+    assert!(!app.probe().camera_input().down);
     app.flycam_key(Key::SPACE, true);
-    assert!(app.camera_input().up);
+    assert!(app.probe().camera_input().up);
     app.flycam_key(Key::SPACE, false);
 
     // It does **not** drive the body.
     app.flycam_key(Key::KEY_W, true);
     assert!(
-        !app.char_input().forward,
+        !app.probe().char_input().forward,
         "the latch must not write char_input, or the barrier would be inert"
     );
 
     // It does **not** end the process.
     app.flycam_key(Key::ESCAPE, true);
-    assert!(!app.device_done(), "Escape is not an exit");
+    assert!(!app.probe().device_done(), "Escape is not an exit");
 
     // And with the chat box focused it does nothing at all.
     let entry = find(&app, ENTRY);
@@ -765,7 +771,7 @@ fn the_residual_latch_moves_only_the_flycam_and_only_when_nothing_is_focused() {
     assert!(barrier_registered(&mut app), "the entry has focus");
     app.flycam_key(Key::KEY_C, true);
     assert!(
-        !app.camera_input().down,
+        !app.probe().camera_input().down,
         "the one hand-gated control must be gated by the barrier like every other key"
     );
     app.shutdown();
@@ -779,10 +785,10 @@ fn the_residual_latch_moves_only_the_flycam_and_only_when_nothing_is_focused() {
     );
     app.flycam_key(Key::KEY_C, true);
     assert!(
-        !app.camera_input().down,
+        !app.probe().camera_input().down,
         "with a body there is no free camera to lower"
     );
     app.flycam_key(Key::SPACE, true);
-    assert!(!app.camera_input().up, "and none to raise");
+    assert!(!app.probe().camera_input().up, "and none to raise");
     app.shutdown();
 }

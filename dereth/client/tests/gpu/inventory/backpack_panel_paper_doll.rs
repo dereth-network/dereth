@@ -269,7 +269,7 @@ fn app_with_the_capture() -> (App, ObjectStream) {
     let mut app = app_in_gameplay(4);
     // The object half first: `apply_hud_events` writes into `objects.world`, so installing the
     // stream afterwards would throw the qualities away.
-    *app.objects_mut() = objects;
+    *app.probe_mut().objects_mut() = objects;
     let _ = app.apply_hud_events(&events);
     open_the_backpack(&mut app);
     for _ in 0..6 {
@@ -658,7 +658,7 @@ fn the_paper_doll_draws_inside_its_viewport_and_nowhere_else() {
 
     let shot = |show: bool| -> (u32, u32, Vec<u8>, Box2D, u64, u64) {
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = replay(SESSION).1;
+        *app.probe_mut().objects_mut() = replay(SESSION).1;
         let _ = app.apply_hud_events(&events);
         open_the_backpack(&mut app);
         for _ in 0..6 {
@@ -742,7 +742,7 @@ fn dressing_the_doll_changes_the_pixels_inside_the_viewport() {
 
     let shot = |dress: bool| -> (u32, u32, Vec<u8>, Box2D) {
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = replay(SESSION).1;
+        *app.probe_mut().objects_mut() = replay(SESSION).1;
         let _ = app.apply_hud_events(&events);
         open_the_backpack(&mut app);
         for _ in 0..6 {
@@ -887,7 +887,7 @@ fn the_doll_holds_frame_one_because_its_framerate_is_zero() {
 fn the_doll_is_not_built_or_drawn_while_the_backpack_is_closed() {
     let (events, _) = replay(SESSION);
     let mut app = app_in_gameplay(4);
-    *app.objects_mut() = replay(SESSION).1;
+    *app.probe_mut().objects_mut() = replay(SESSION).1;
     let _ = app.apply_hud_events(&events);
     for _ in 0..6 {
         app.frame();
@@ -1147,7 +1147,7 @@ fn the_live_paper_doll_uses_described_scale_and_updates_without_redressing() {
         create.physicsdesc.object_scale = Some(scale);
         create.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::OBJSCALE;
         create.objdesc = Default::default();
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: if index == 0 {
                     Opcode::ITEM_UPDATE_OBJECT

@@ -1488,19 +1488,19 @@ fn the_frame_runs_the_control_transfer_step_once_per_frame() {
         );
         assert_eq!(app.frames_drawn(), n);
         assert_eq!(
-            app.control_transfer_counts(),
+            app.probe().control_transfer_counts(),
             (n, 0, 0),
             "frame {n}: the command interpreter's control-transfer step did not run"
         );
         // The teleport and position steps, asserted alongside so the frame order cannot drift unnoticed:
         // this step runs after `sync_objects`, which runs after both of those.
         assert_eq!(
-            app.player_teleport_use_times(),
+            app.probe().player_teleport_use_times(),
             n,
             "frame {n}: the teleport step did not run"
         );
         assert_eq!(
-            app.position_use_times(),
+            app.probe().position_use_times(),
             n,
             "frame {n}: the position step did not run"
         );

@@ -456,16 +456,22 @@ fn actual_app_teleport_step_clears_autorun_and_the_old_move_to() {
     })
     .expect("actual App world");
     {
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         c.land().load_block_cells(block);
         c.teleport(origin);
     }
     // Finish the recorded earlier creates (including their embedded motion) before the
     // constructed autorun/approach. Replaying those earlier commands only after arming runlock
     // would test control loss clearing autorun, not this accepted teleport edge.
-    *app.objects_mut() = objects;
+    *app.probe_mut().objects_mut() = objects;
     assert!(app.frame());
-    assert_eq!(app.player_teleports_applied(), 0);
+    assert_eq!(app.probe().player_teleports_applied(), 0);
     app.input_manager_mut()
         .expect("input exists")
         .inject_action(dereth_input::InputEvent {
@@ -480,20 +486,27 @@ fn actual_app_teleport_step_clears_autorun_and_the_old_move_to() {
         });
     assert!(app.frame());
     assert!(
-        app.movement_commands().lists.auto_run && app.char_input().forward,
+        app.probe().movement_commands().lists.auto_run && app.probe().char_input().forward,
         "the real App input route must own an active run lock"
     );
     {
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         approach(c);
         c.stick_to_object(TARGET, 0.0, 0.0);
     }
     // Constructed pre-teleport activity, unchanged recorded accepted position edge.
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&event(&edge), LocalTime(74.356));
     assert!(app.frame());
-    assert_eq!(app.player_teleports_applied(), 1);
-    assert!(!app.movement_commands().lists.auto_run && !app.char_input().forward);
+    assert_eq!(app.probe().player_teleports_applied(), 1);
+    assert!(!app.probe().movement_commands().lists.auto_run && !app.probe().char_input().forward);
     let c = app.world_state().unwrap().character.as_ref().unwrap();
     assert_eq!(
         c.position().cell.landblock(),
@@ -508,7 +521,7 @@ fn actual_app_teleport_step_clears_autorun_and_the_old_move_to() {
         MotionCommand::READY
     );
     assert_eq!(
-        app.position_reporter_stats().movement_events,
+        app.probe().position_reporter_stats().movement_events,
         0,
         "no live session is fabricated"
     );
@@ -548,18 +561,19 @@ fn actual_app_preserves_accepted_movement_and_teleport_order_in_one_batch() {
             ..Default::default()
         })
         .expect("actual App world");
-        app.world_state_mut()
+        app.probe_mut()
+            .world_state_mut()
             .unwrap()
             .character
             .as_mut()
             .unwrap()
             .teleport(origin);
-        *app.objects_mut() = objects;
+        *app.probe_mut().objects_mut() = objects;
         assert!(
             app.frame(),
             "create/initial motion precede the constructed batch"
         );
-        assert_eq!(app.player_teleports_applied(), 0);
+        assert_eq!(app.probe().player_teleports_applied(), 0);
 
         let player = app.objects().player().unwrap();
         let p = app.objects().presence(player).unwrap();
@@ -623,26 +637,30 @@ fn actual_app_preserves_accepted_movement_and_teleport_order_in_one_batch() {
             .unwrap()
             .stats
             .move_tos_performed;
-        let losses_before = app.control_transfer_counts().1;
+        let losses_before = app.probe().control_transfer_counts().1;
         let ordered = if movement_after {
             [event(&edge), movement]
         } else {
             [movement, event(&edge)]
         };
         for e in ordered {
-            app.objects_mut().apply_event(&e, LocalTime(74.356));
+            app.probe_mut()
+                .objects_mut()
+                .apply_event(&e, LocalTime(74.356));
         }
         // Both rejects occur after the valid command. They must not erase or re-order it.
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .apply_event(&event(&edge), LocalTime(74.357));
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .apply_event(&rejected_movement, LocalTime(74.358));
         let mut stale_teleport = position;
         stale_teleport.position.position_timestamp =
             stale_teleport.position.position_timestamp.wrapping_add(1);
         stale_teleport.position.teleport_timestamp =
             stale_teleport.position.teleport_timestamp.wrapping_sub(1);
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::MOVEMENT_POSITION_EVENT,
                 body: dereth_protocol::write_body(&stale_teleport).unwrap(),
@@ -651,12 +669,12 @@ fn actual_app_preserves_accepted_movement_and_teleport_order_in_one_batch() {
         );
         assert!(app.frame());
         assert_eq!(
-            app.player_teleports_applied(),
+            app.probe().player_teleports_applied(),
             1,
             "only the accepted edge completes"
         );
         assert_eq!(
-            app.control_transfer_counts().1,
+            app.probe().control_transfer_counts().1,
             losses_before + 1,
             "the accepted loss is counted once at dispatch"
         );
@@ -697,7 +715,7 @@ fn actual_app_preserves_accepted_movement_and_teleport_order_in_one_batch() {
         );
         let c = app.world_state().unwrap().character.as_ref().unwrap();
         assert_eq!(c.stats.move_tos_performed, performed_before + 1);
-        assert_eq!(app.player_teleports_applied(), 1);
+        assert_eq!(app.probe().player_teleports_applied(), 1);
         app.shutdown();
     }
 }
@@ -756,7 +774,13 @@ fn lifecycle_app(origin: Position) -> dereth_client::app::App {
         ..Default::default()
     })
     .expect("actual App world");
-    let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+    let c = app
+        .probe_mut()
+        .world_state_mut()
+        .unwrap()
+        .character
+        .as_mut()
+        .unwrap();
     c.land().load_block_cells(block);
     c.teleport(origin);
     for i in 0..=8 {
@@ -884,9 +908,10 @@ fn actual_app_prepares_a_same_batch_player_create_before_its_movement() {
         .iter()
         .map(|p| p.gfxobj_id)
         .collect();
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(player), LocalTime(0.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&recipe).unwrap(),
@@ -894,7 +919,9 @@ fn actual_app_prepares_a_same_batch_player_create_before_its_movement() {
         LocalTime(0.0),
     );
     let movement = lifecycle_movement(app.objects(), origin, None);
-    app.objects_mut().apply_event(&movement, LocalTime(0.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&movement, LocalTime(0.0));
     assert!(app.frame());
     let c = app.world_state().unwrap().character.as_ref().unwrap();
     assert_eq!(c.setup_id(), want_setup);
@@ -942,7 +969,7 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
     use dereth_protocol::objects::ItemCreateObject;
     let (objects, origin, _) = before_teleport();
     let mut app = lifecycle_app(origin);
-    *app.objects_mut() = objects;
+    *app.probe_mut().objects_mut() = objects;
     assert!(app.frame());
     let target = ObjectId(0x7000_0002);
     assert!(app.objects().presence(target).is_none());
@@ -973,7 +1000,7 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
         y: origin.frame.origin.y,
         z: origin.frame.origin.z,
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&recipe).unwrap(),
@@ -981,7 +1008,9 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
         LocalTime(0.0),
     );
     let movement = lifecycle_movement(app.objects(), origin, Some(target));
-    app.objects_mut().apply_event(&movement, LocalTime(0.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&movement, LocalTime(0.0));
     assert!(app.frame());
     let c = app.world_state().unwrap().character.as_ref().unwrap();
     let driver = c.driver();
@@ -1028,7 +1057,7 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
             .frame
             .origin
             .x = origin.frame.origin.x + 20.0;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::ITEM_CREATE_OBJECT,
                 body: dereth_protocol::write_body(&recipe).unwrap(),
@@ -1077,7 +1106,7 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
             .stats
             .move_tos_failed;
         let accepted = app.objects().stats.movement_updates;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
                 body: dereth_protocol::write_body(&replacement).unwrap(),
@@ -1085,7 +1114,9 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
             LocalTime(1.0),
         );
         let next = lifecycle_movement(app.objects(), origin, Some(new_target));
-        app.objects_mut().apply_event(&next, LocalTime(1.0));
+        app.probe_mut()
+            .objects_mut()
+            .apply_event(&next, LocalTime(1.0));
         assert_eq!(app.objects().stats.movement_updates, accepted + 2);
         assert!(app.frame());
         let c = app.world_state().unwrap().character.as_ref().unwrap();
@@ -1125,7 +1156,7 @@ fn actual_app_cancels_create_embedded_approach_before_later_teleport() {
     use dereth_protocol::{movement::MovementSetObjectMovement, objects::ItemCreateObject};
     let (objects, origin, edge) = before_teleport();
     let mut app = lifecycle_app(origin);
-    *app.objects_mut() = objects;
+    *app.probe_mut().objects_mut() = objects;
     assert!(app.frame());
     let player = app.objects().player().unwrap();
     let corpus = Corpus::load("early-inventory-and-casting")
@@ -1168,14 +1199,15 @@ fn actual_app_cancels_create_embedded_approach_before_later_teleport() {
         .physics_state(player)
         .expect("the recorded player's current state word");
     let stats = app.world_state().unwrap().character.as_ref().unwrap().stats;
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&recipe).unwrap(),
         },
         LocalTime(74.35),
     );
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&event(&edge), LocalTime(74.356));
     assert!(app.frame());
     let c = app.world_state().unwrap().character.as_ref().unwrap();
@@ -1193,7 +1225,7 @@ fn actual_app_cancels_create_embedded_approach_before_later_teleport() {
     assert_eq!(c.stats.move_tos_failed, stats.move_tos_failed + 1);
     assert_eq!(c.stats.last_move_to_error, 0x3c);
     assert!(!c.is_moving_to());
-    assert_eq!(app.player_teleports_applied(), 1);
+    assert_eq!(app.probe().player_teleports_applied(), 1);
     assert!(app
         .objects()
         .presence(player)

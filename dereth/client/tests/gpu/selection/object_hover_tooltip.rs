@@ -118,9 +118,10 @@ fn setup() -> App {
     let here = position(&app);
     create.0.physicsdesc.position = Some(wire_position(here.cell.0, here.frame.origin, &here));
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -134,7 +135,7 @@ fn setup() -> App {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -227,7 +228,7 @@ fn place_the_corpus_chest(app: &mut App) -> (ObjectId, String) {
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
     let id = create.0.id;
     let name = create.0.wdesc.name.clone();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -512,7 +513,8 @@ fn hovering_a_chest_names_it_and_moving_off_takes_the_name_away() {
     }
 
     // ---- 4. the option off -------------------------------------------------------------------
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .options

@@ -219,7 +219,7 @@ fn replay_timed(session: &str) -> Vec<(f64, SessionEvent)> {
 /// `App::apply_hud_events` feeds the HUD out of a list of `SessionEvent`s and never touches the
 /// object table, so an app built that way has qualities but no weenies. The original PK-header
 /// update reads both predicates from the player object. This
-/// is the object half, installed into the app with `App::objects_mut` so the header has the same
+/// is the object half, installed into the app with `app.probe_mut().objects_mut` so the header has the same
 /// world the running client would give it.
 fn replay_objects(session: &str) -> ObjectStream {
     let records = load(session);
@@ -595,7 +595,7 @@ fn press_row(app: &mut App, h: ElemHandle) {
     // it into view first, which is what the list box's scrollbar does: `scroll_to_view` drives
     // the element's own scroll state, which is what the bar drives too.
     {
-        let mut panels = std::mem::take(&mut app.hud_mut().panels);
+        let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
         {
             let (ui, _) = gameplay_screen(app);
             for w in [panels.skills.list.as_mut(), panels.attributes.list.as_mut()]
@@ -607,7 +607,7 @@ fn press_row(app: &mut App, h: ElemHandle) {
                 }
             }
         }
-        app.hud_mut().panels = panels;
+        app.probe_mut().hud_mut().panels = panels;
     }
     {
         let (ui, _) = gameplay_screen(app);
@@ -1615,7 +1615,7 @@ fn the_header_shows_the_captures_own_heritage_line_and_pk_status() {
         let mut app = app_in_gameplay(4);
         // The object half. Without it there is no player object and the original PK-header update
         // takes its missing-player arm, so the PK assertion below would pass for the wrong reason.
-        *app.objects_mut() = replay_objects(session);
+        *app.probe_mut().objects_mut() = replay_objects(session);
         let _ = app.apply_hud_events(&prelude);
         for _ in 0..4 {
             app.frame();

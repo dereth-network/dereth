@@ -200,8 +200,12 @@ fn recorded_corpse_destroy_then_delete_retires_every_app_owner() {
             .is_some(),
         "real rendered body exists"
     );
-    app.objects_mut().world.opened_corpses.insert(CORPSE);
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .opened_corpses
+        .insert(CORPSE);
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(CORPSE),
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -360,7 +364,7 @@ fn create_instance(app: &mut App, id: ObjectId, instance: u16, animated: bool) {
         payload.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::MTABLE;
         payload.physicsdesc.mtable_id = recorded.physicsdesc.mtable_id;
     }
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemCreateObject::OPCODE,
             body: dereth_protocol::write_body(&ItemCreateObject(payload)).unwrap(),
@@ -385,7 +389,7 @@ fn recorded_ui_remove_refreshes_real_inventory_list_and_surviving_item_remains()
     let player = ObjectId(0x5000_0017);
     let mut app = app(false);
     app.apply_hud_events(&[SessionEvent::PlayerDescription(Box::default())]);
-    app.objects_mut().world.set_player(player);
+    app.probe_mut().objects_mut().world.set_player(player);
     for object in [player, id, survivor] {
         let mut w = Weenie::new(object);
         w.valid = true;
@@ -396,16 +400,26 @@ fn recorded_ui_remove_refreshes_real_inventory_list_and_surviving_item_remains()
         } else {
             player
         });
-        app.objects_mut().world.tables.weenies.insert(object, w);
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .tables
+            .weenies
+            .insert(object, w);
     }
-    app.objects_mut().world.tables.inventories.insert(
-        player,
-        ObjectInventory {
-            container: player,
-            items: vec![id, survivor],
-            ..Default::default()
-        },
-    );
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .inventories
+        .insert(
+            player,
+            ObjectInventory {
+                container: player,
+                items: vec![id, survivor],
+                ..Default::default()
+            },
+        );
     assert!(app.frame());
     let list = screen(&app).inventory.item_list.as_ref().unwrap();
     assert_eq!(
@@ -413,10 +427,11 @@ fn recorded_ui_remove_refreshes_real_inventory_list_and_surviving_item_remains()
         vec![id, survivor],
         "actual populated DAT ItemList"
     );
-    app.apply_interaction_events(&[SessionEvent::UiEvent {
-        opcode: Opcode(0x24),
-        blob: raw,
-    }]);
+    app.probe_mut()
+        .apply_interaction_events(&[SessionEvent::UiEvent {
+            opcode: Opcode(0x24),
+            blob: raw,
+        }]);
     assert!(app.frame());
     assert_eq!(
         screen(&app)
@@ -441,12 +456,16 @@ fn a_delete_immediately_removes_model_presence_and_the_render_body_then_allows_r
     create(&mut app, id);
     assert!(app.frame());
     assert!(app.world_state().unwrap().server_object_frame(id).is_some());
-    app.objects_mut().world.opened_corpses.insert(id);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .opened_corpses
+        .insert(id);
     let delete = ItemDeleteObject {
         id,
         instance_sequence: 0,
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemDeleteObject::OPCODE,
             body: dereth_protocol::write_body(&delete).unwrap(),
@@ -476,7 +495,8 @@ fn a_pickup_leaves_the_selected_object_and_toolbar_identity_alive() {
     let id = ObjectId(0x8300_777A);
     create(&mut app, id);
     assert!(app.frame());
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .tables
         .weenies
@@ -484,7 +504,7 @@ fn a_pickup_leaves_the_selected_object_and_toolbar_identity_alive() {
         .unwrap()
         .pwd
         .name = "Selected pickup".into();
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(id),
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -499,7 +519,7 @@ fn a_pickup_leaves_the_selected_object_and_toolbar_identity_alive() {
             event: 1,
         },
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: InventoryPickupEvent::OPCODE,
             body: dereth_protocol::write_body(&pickup).unwrap(),
@@ -534,14 +554,15 @@ fn no_packet_app_frame_runs_final_destruction_and_releases_presence_render_and_s
     let id = ObjectId(0x83007778);
     create(&mut app, id);
     assert!(app.frame());
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(id),
         false,
         &mut dereth_client_model::RecordingSink::default(),
     );
     let now = app.interaction().last_use_time.0;
     // Constructed already-due timer, actual next-frame maintenance: no manual use_time call.
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .schedule_destroy(id, ServerTime(now - 25.0));
     assert!(app.frame());
@@ -587,7 +608,7 @@ fn same_id_replacement_retires_exact_old_physical_and_motion_owners_before_next_
         id,
         instance_sequence: 1,
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemDeleteObject::OPCODE,
             body: dereth_protocol::write_body(&delete).unwrap(),
@@ -620,7 +641,7 @@ fn same_id_replacement_retires_exact_old_physical_and_motion_owners_before_next_
             event: 1,
         },
     };
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: dereth_protocol::objects::ItemSetState::OPCODE,
             body: dereth_protocol::write_body(&state).unwrap(),
@@ -630,7 +651,7 @@ fn same_id_replacement_retires_exact_old_physical_and_motion_owners_before_next_
     assert!(app.frame());
     assert_eq!(app.objects().physics_state(id), Some(0x4000));
     assert!(fresh.upgrade().is_some());
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemDeleteObject::OPCODE,
             body: dereth_protocol::write_body(&ItemDeleteObject {
@@ -664,8 +685,14 @@ fn pending_cell_load_blocks_maintenance_but_absent_ui_or_link_does_not() {
     let id = ObjectId(0x83007780);
     let mut w = Weenie::new(id);
     w.valid = true;
-    app.objects_mut().world.tables.weenies.insert(id, w);
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .weenies
+        .insert(id, w);
+    app.probe_mut()
+        .objects_mut()
         .world
         .schedule_destroy(id, ServerTime(-100.0));
     app.defer_static_scene(SceneConfig::default()); // no player position: synchronous loader is blocked
@@ -684,8 +711,15 @@ fn pending_cell_load_blocks_maintenance_but_absent_ui_or_link_does_not() {
     .unwrap();
     let mut w = Weenie::new(id);
     w.valid = true;
-    unblocked.objects_mut().world.tables.weenies.insert(id, w);
     unblocked
+        .probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .weenies
+        .insert(id, w);
+    unblocked
+        .probe_mut()
         .objects_mut()
         .world
         .schedule_destroy(id, ServerTime(-100.0));

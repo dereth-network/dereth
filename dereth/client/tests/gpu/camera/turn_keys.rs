@@ -137,9 +137,10 @@ fn setup(mouse_turning: bool) -> App {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -347,7 +348,7 @@ fn in_first_person_the_turn_key_turns_the_body_and_the_camera_follows() {
 
     let h0 = heading(&app);
     let yaw0 = camera_yaw_degrees(&app);
-    let turns0 = app.camera_turns_applied();
+    let turns0 = app.probe().camera_turns_applied();
     let sent0 = wire.positions.len();
     let mut turn = Turn::start(&app);
 
@@ -368,9 +369,9 @@ fn in_first_person_the_turn_key_turns_the_body_and_the_camera_follows() {
     let h1 = heading(&app);
 
     assert!(
-        app.camera_turns_applied() > turns0,
+        app.probe().camera_turns_applied() > turns0,
         "camera-set rotation's first-person arm must reach the command interpreter: {turns0} -> {}",
-        app.camera_turns_applied()
+        app.probe().camera_turns_applied()
     );
     assert!(
         turn.total > 3.0,
@@ -470,7 +471,7 @@ fn with_mouse_turning_on_the_mouse_turns_the_body() {
         "this station is the ordinary third-person chase camera"
     );
 
-    let turns0 = app.camera_turns_applied();
+    let turns0 = app.probe().camera_turns_applied();
     let sent0 = wire.move_to_states.len();
     let mut turn = Turn::start(&app);
 
@@ -487,9 +488,9 @@ fn with_mouse_turning_on_the_mouse_turns_the_body() {
     let h1 = heading(&app);
 
     assert!(
-        app.camera_turns_applied() > turns0,
+        app.probe().camera_turns_applied() > turns0,
         "mouse turning must reach the command interpreter: {turns0} -> {}",
-        app.camera_turns_applied()
+        app.probe().camera_turns_applied()
     );
     assert!(
         turn.total < -90.0,
@@ -573,7 +574,7 @@ fn in_third_person_without_mouse_turning_the_keys_do_what_they_did() {
         turn.total
     );
     assert_eq!(
-        app.camera_turns_applied(),
+        app.probe().camera_turns_applied(),
         0,
         "no body turn may be taken off the camera in third person with mouse turning off"
     );
@@ -617,7 +618,7 @@ fn in_third_person_without_mouse_turning_the_keys_do_what_they_did() {
         "and the movement key must not move the camera offset"
     );
     assert_eq!(
-        app.camera_turns_applied(),
+        app.probe().camera_turns_applied(),
         0,
         "nor route through camera-set effects"
     );
@@ -650,7 +651,13 @@ fn a_camera_key_reaches_set_pivot_object_and_the_stiffness_pair() {
     {
         // Start from a state neither field is already in, so an assertion on the end state cannot
         // pass on a build where the key does nothing.
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         c.camera.manager.pivot_object_id = ObjectId(0);
         c.camera.manager.t_stiffness = 0.125;
         c.camera.manager.r_stiffness = 0.125;
@@ -695,7 +702,13 @@ fn a_camera_key_reaches_set_pivot_object_and_the_stiffness_pair() {
     frames(&mut app, 4);
     assert_eq!(camera_offset(&app), IN_HEAD_OFFSET);
     {
-        let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+        let c = app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_mut()
+            .unwrap();
         c.camera.manager.pivot_object_id = ObjectId(0);
     }
     action(

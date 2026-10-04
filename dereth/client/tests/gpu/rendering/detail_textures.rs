@@ -89,9 +89,9 @@ fn change(app: &mut App, on: bool) -> u64 {
         .requests
         .emit(tick(on));
     assert!(app.frame(), "the frame that carries the option write");
-    let before = app.render_pref_applies();
+    let before = app.probe().render_pref_applies();
     assert!(app.frame(), "the frame whose poll sees it");
-    app.render_pref_applies() - before
+    app.probe().render_pref_applies() - before
 }
 
 /// `(detail binds this frame, the frame's pixels)`, both taken from the same frame.
@@ -365,7 +365,7 @@ fn the_preference_is_still_polled_and_counted() {
     // Off first: the preference ships on, so `on` is not a change from the settled state.
     assert_eq!(change(&mut app, false), 1);
     assert_eq!(change(&mut app, true), 1);
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert!(
         work.detail_texturing_changed,
         "the poll did not notice the change at all"
@@ -394,7 +394,7 @@ fn the_preference_is_still_polled_and_counted() {
 
     // And the negative half: off is polled, counted, and generates nothing.
     assert_eq!(change(&mut app, false), 1);
-    let work = app.last_render_pref_work();
+    let work = app.probe().last_render_pref_work();
     assert!(work.detail_texturing_changed);
     assert_eq!(work.detail_surfaces, 0);
 }

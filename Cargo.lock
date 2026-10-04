@@ -951,6 +951,7 @@ version = "0.0.0"
 dependencies = [
  "dereth-assets",
  "dereth-client-contract",
+ "dereth-client-model",
  "dereth-client-net",
  "dereth-dat",
  "dereth-primitives",
@@ -983,6 +984,7 @@ dependencies = [
  "dereth-client-contract",
  "dereth-client-model",
  "dereth-client-net",
+ "dereth-client-runtime",
  "dereth-dat",
  "dereth-landscape",
  "dereth-physics",
@@ -1031,6 +1033,7 @@ dependencies = [
  "dereth-client-model",
  "dereth-client-net",
  "dereth-client-runtime",
+ "dereth-client-shell",
  "dereth-dat",
  "dereth-input",
  "dereth-physics",

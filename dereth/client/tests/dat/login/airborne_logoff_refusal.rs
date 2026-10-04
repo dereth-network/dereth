@@ -164,16 +164,17 @@ fn app_with_a_body() -> App {
         },
     });
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).unwrap(),
         },
         LocalTime(1.0),
     );
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: ItemSetState::OPCODE,
             body: dereth_protocol::write_body(&unhide).expect("recorded F74B unhide encodes"),
@@ -202,9 +203,12 @@ fn app_with_a_body() -> App {
     )
     .unwrap();
     let event = SessionEvent::PlayerDescription(Box::new(desc));
-    app.objects_mut().apply_event(&event, LocalTime(1.0));
+    app.probe_mut()
+        .objects_mut()
+        .apply_event(&event, LocalTime(1.0));
     app.apply_hud_events(std::slice::from_ref(&event));
-    app.apply_interaction_events(std::slice::from_ref(&event));
+    app.probe_mut()
+        .apply_interaction_events(std::slice::from_ref(&event));
     frames(&mut app, 10);
 
     assert!(

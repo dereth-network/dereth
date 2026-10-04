@@ -50,7 +50,7 @@ fn app_in_gameplay(frames: u32) -> App {
     let mut app = App::new(cfg).expect("the headless app starts");
     app.start_shell().expect("the shell comes up");
     {
-        let w = &mut app.objects_mut().world;
+        let w = &mut app.probe_mut().objects_mut().world;
         w.tables.weenies.insert(
             CAPTURE_PLAYER,
             dereth_client_model::weenie::Weenie::new(CAPTURE_PLAYER),
@@ -175,7 +175,7 @@ fn player_description(events: &[SessionEvent]) -> &dereth_protocol::login::Login
 /// Re-point the world at the identity the capture carries.
 fn embody(app: &mut App) {
     let player = app.hud().player.unwrap_or(CAPTURE_PLAYER);
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     if w.player == Some(player) {
         return;
     }
@@ -227,6 +227,7 @@ fn xp_table() -> dereth_assets::tables::XpTable {
 /// The signed 64-bit quality at key 2 as the panels read it, and the synthetic write behind it.
 fn set_available_xp(app: &mut App, n: i64) {
     let q = app
+        .probe_mut()
         .objects_mut()
         .world
         .player_qualities_mut()
@@ -373,7 +374,7 @@ fn show_page_for(app: &mut App, h: ElemHandle) {
 fn press_row(app: &mut App, h: ElemHandle) {
     show_page_for(app, h);
     {
-        let mut panels = std::mem::take(&mut app.hud_mut().panels);
+        let mut panels = std::mem::take(&mut app.probe_mut().hud_mut().panels);
         {
             let (ui, _) = gameplay_screen(app);
             for w in [panels.skills.list.as_mut(), panels.attributes.list.as_mut()]
@@ -385,7 +386,7 @@ fn press_row(app: &mut App, h: ElemHandle) {
                 }
             }
         }
-        app.hud_mut().panels = panels;
+        app.probe_mut().hud_mut().panels = panels;
     }
     let (x, y) = centre(app, h);
     // A real click is always preceded by a `WM_MOUSEMOVE` onto the row: without it the element
@@ -538,6 +539,7 @@ const OWNER_STR_COST_10: u32 = 63_878 - 32_676;
 fn install_owner_figures(app: &mut App) {
     use dereth_client_model::enchant::{ench_type, Enchantment};
     let q = app
+        .probe_mut()
         .objects_mut()
         .world
         .player_qualities_mut()
@@ -756,6 +758,7 @@ fn int64_answer(
 fn install_owner_attribute_and_level(app: &mut App) {
     use dereth_client_model::enchant::{ench_type, Enchantment};
     let q = app
+        .probe_mut()
         .objects_mut()
         .world
         .player_qualities_mut()
@@ -812,6 +815,7 @@ fn a_runtime_available_experience_update_relights_the_plus_ten() {
     // Start below the ten-point cost.
     {
         let q = app
+            .probe_mut()
             .objects_mut()
             .world
             .player_qualities_mut()

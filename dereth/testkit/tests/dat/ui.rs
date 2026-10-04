@@ -1679,15 +1679,17 @@ pub fn the_run_lock_says_so_in_the_message_window() {
     use winit::keyboard::KeyCode;
 
     let (mut c, mut hands) = a_client_in_the_world();
-    let starts_off = !c.view().expect_app().char_input().auto_run && queued_to_say(&c).is_empty();
+    let starts_off =
+        !c.view().expect_app().probe().char_input().auto_run && queued_to_say(&c).is_empty();
     let base = lines_ever_written(&c);
 
     press_and_frame(&mut c, &mut hands, KeyCode::KeyQ);
-    let on = c.view().expect_app().char_input().auto_run
+    let on = c.view().expect_app().probe().char_input().auto_run
         && queued_to_say(&c) == vec![(CLIENT_FEEDBACK_CHANNEL, AUTORUN_ON.to_owned())]
         && lines_ever_written(&c) == base + 1
         && c.view()
             .expect_app()
+            .probe()
             .movement_commands()
             .auto_run_notices_sent
             == 1;
@@ -1695,11 +1697,12 @@ pub fn the_run_lock_says_so_in_the_message_window() {
     let drained = queued_to_say(&c).is_empty();
 
     press_and_frame(&mut c, &mut hands, KeyCode::KeyQ);
-    let off = !c.view().expect_app().char_input().auto_run
+    let off = !c.view().expect_app().probe().char_input().auto_run
         && queued_to_say(&c) == vec![(CLIENT_FEEDBACK_CHANNEL, AUTORUN_OFF.to_owned())]
         && lines_ever_written(&c) == base + 2
         && c.view()
             .expect_app()
+            .probe()
             .movement_commands()
             .auto_run_notices_sent
             == 2;
@@ -1728,10 +1731,11 @@ pub fn a_key_that_changes_nothing_says_nothing() {
     // nothing. Without this direction the claim above would hold on a client that wrote the line
     // on every key press.
     press_and_frame(&mut c, &mut hands, KeyCode::KeyW);
-    let walked = c.view().expect_app().char_input().forward;
+    let walked = c.view().expect_app().probe().char_input().forward;
     let silent = lines_ever_written(&c) == base
         && c.view()
             .expect_app()
+            .probe()
             .movement_commands()
             .auto_run_notices_sent
             == 0;
@@ -1739,11 +1743,11 @@ pub fn a_key_that_changes_nothing_says_nothing() {
 
     // ...and the same key when it *does* change it -- cancelling the lock -- tells the player.
     press_and_frame(&mut c, &mut hands, KeyCode::KeyQ);
-    let locked = c.view().expect_app().char_input().auto_run;
+    let locked = c.view().expect_app().probe().char_input().auto_run;
     release_and_frame(&mut c, &mut hands, KeyCode::KeyQ);
     let after_on = lines_ever_written(&c);
     press_and_frame(&mut c, &mut hands, KeyCode::KeyW);
-    let cancelled = !c.view().expect_app().char_input().auto_run
+    let cancelled = !c.view().expect_app().probe().char_input().auto_run
         && queued_to_say(&c) == vec![(CLIENT_FEEDBACK_CHANNEL, AUTORUN_OFF.to_owned())]
         && lines_ever_written(&c) == after_on + 1;
     release_and_frame(&mut c, &mut hands, KeyCode::KeyW);
@@ -2848,11 +2852,12 @@ pub fn a_jump_shows_one_power_bar_and_never_the_other() {
         && c.view().expect_app().hud().panels.power_bar.bound() == 2;
 
     // The one line a jump runs.
-    c.app_mut().objects_mut().world.combat.begin_power_bar(
-        dereth_client_model::combat::PowerBarMode::Jump,
-        false,
-        0,
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .combat
+        .begin_power_bar(dereth_client_model::combat::PowerBarMode::Jump, false, 0);
     c.tick(1);
 
     let one_came_up = hud_visible(&c, floaty)
@@ -2873,7 +2878,12 @@ pub fn a_jump_shows_one_power_bar_and_never_the_other() {
         .collect::<Vec<_>>()
         == vec![dereth_ui_screens::hud::powerbar::PowerBarMode::Jump];
 
-    c.app_mut().objects_mut().world.combat.hide_power_bar();
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .combat
+        .hide_power_bar();
     c.tick(1);
     let and_went_away = !hud_visible(&c, floaty) && !hud_visible(&c, classic);
 
@@ -3109,9 +3119,15 @@ pub fn both_raise_buttons_on_both_pages_put_the_request_on_the_wire() {
         // The shard's answer is what lets the next press through, and there is no shard here, so
         // it is cleared the way that answer clears it.
         if panel_id == skills::PANEL {
-            c.app_mut().hud_mut().panels.skills.clear_awaiting_raise();
+            c.app_mut()
+                .probe_mut()
+                .hud_mut()
+                .panels
+                .skills
+                .clear_awaiting_raise();
         } else {
             c.app_mut()
+                .probe_mut()
                 .hud_mut()
                 .panels
                 .attributes
@@ -3141,9 +3157,15 @@ pub fn both_raise_buttons_on_both_pages_put_the_request_on_the_wire() {
         every_button &= ten_xp > one_xp;
 
         if panel_id == skills::PANEL {
-            c.app_mut().hud_mut().panels.skills.clear_awaiting_raise();
+            c.app_mut()
+                .probe_mut()
+                .hud_mut()
+                .panels
+                .skills
+                .clear_awaiting_raise();
         } else {
             c.app_mut()
+                .probe_mut()
                 .hud_mut()
                 .panels
                 .attributes
@@ -5935,11 +5957,15 @@ fn wait_on_the_clock(
 
 /// Select something, or nothing, the way the world tells the toolbar about it.
 fn select(c: &mut HeadlessClient, id: Option<dereth_primitives::ObjectId>) {
-    c.app_mut().objects_mut().world.set_selected_object(
-        id,
-        false,
-        &mut dereth_client_model::RecordingSink::default(),
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .set_selected_object(
+            id,
+            false,
+            &mut dereth_client_model::RecordingSink::default(),
+        );
     c.tick(1);
 }
 
@@ -5956,7 +5982,13 @@ fn a_selected_thing(
     w.pwd.name = "a private thing".into();
     w.pwd.obj_type = obj_type;
     w.pwd.stack_size = stack;
-    c.app_mut().objects_mut().world.tables.weenies.insert(id, w);
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .weenies
+        .insert(id, w);
     select(c, Some(id));
     id
 }
@@ -6034,6 +6066,7 @@ pub fn the_meters_start_down_and_a_creatures_answer_brings_its_bar_up() {
     // The answer about its health, through the same door the wire arm goes through.
     let answered = c
         .app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .update_object_health(creature, 0.375);
@@ -6080,6 +6113,7 @@ pub fn empty_a_single_item_and_a_stack_are_three_different_strips() {
 
     // 3. A stack of them. A third state, and the splitter comes up.
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .tables
@@ -6220,7 +6254,7 @@ fn a_pack_with_one_thing_in_it() -> (HeadlessClient, dereth_primitives::ObjectId
     let me = dereth_primitives::ObjectId(0x5000_0001);
     let thing = dereth_primitives::ObjectId(0x7100_0041);
     {
-        let w = c.app_mut().objects_mut();
+        let w = c.app_mut().probe_mut().objects_mut();
         let mut p = dereth_client_model::weenie::Weenie::new(me);
         p.pwd.name = "a private player".into();
         p.pwd.obj_type = 0x10;

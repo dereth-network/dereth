@@ -280,7 +280,7 @@ fn a_store_opened_by_the_platform_is_the_one_the_app_reads() {
         |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
     )
     .expect("bring-up takes the store it is given");
-    assert!(std::sync::Arc::ptr_eq(app.dat_store(), &store));
+    assert!(std::sync::Arc::ptr_eq(app.probe().dat_store(), &store));
 }
 
 /// Behaviour: none (a host may attach one socket-free transport endpoint).

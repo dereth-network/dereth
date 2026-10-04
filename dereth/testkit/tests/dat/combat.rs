@@ -1567,11 +1567,15 @@ mod support {
         }
 
         pub fn char_input(&self) -> dereth_client::character::CharacterInput {
-            self.c.view().expect_app().char_input()
+            self.c.view().expect_app().probe().char_input()
         }
 
         pub fn forward_attack_aborts(&self) -> (u64, u64) {
-            self.c.view().expect_app().new_forward_attack_aborts()
+            self.c
+                .view()
+                .expect_app()
+                .probe()
+                .new_forward_attack_aborts()
         }
 
         /// How many cancels this client has built into a datagram since the last look.

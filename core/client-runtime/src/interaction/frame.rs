@@ -2,69 +2,6 @@
 
 use super::*;
 
-/// Step 8's interaction slot: the drawing pass's pick read-out and the requests produced by it
-/// and by the screens.
-///
-/// Called from [`crate::app::App::frame`] between the camera update and `DrawWorld`, which is
-/// where the client runs it: the viewpoint update builds the ray from **this** frame's camera, and
-/// the notice is raised before the UI overlay draws.
-///
-/// Returns the [`UiRequest`]s nothing owns yet, for the caller to report.
-#[allow(clippy::too_many_arguments)]
-pub fn use_time(
-    inter: &mut Interaction,
-    store: &RetailDatStore,
-    world: Option<&dyn crate::present::Scene>,
-    objects: &mut crate::objects::ObjectStream,
-    net: Option<&mut crate::net::ClientNetwork>,
-    actions: Vec<crate::actions::Action>,
-    player_desc_received: bool,
-    viewport: (u32, u32),
-    now: dereth_primitives::LocalTime,
-) -> (Vec<UiRequest>, Vec<crate::actions::Action>) {
-    use_time_with_chat_focus(
-        inter,
-        store,
-        world,
-        objects,
-        net,
-        actions,
-        player_desc_received,
-        viewport,
-        now,
-        &mut |_| {},
-    )
-}
-
-/// The App supplies the live chat subscriber for synchronous option-notice delivery.
-#[allow(clippy::too_many_arguments)]
-pub fn use_time_with_chat_focus(
-    inter: &mut Interaction,
-    store: &RetailDatStore,
-    world: Option<&dyn crate::present::Scene>,
-    objects: &mut crate::objects::ObjectStream,
-    net: Option<&mut crate::net::ClientNetwork>,
-    actions: Vec<crate::actions::Action>,
-    player_desc_received: bool,
-    viewport: (u32, u32),
-    now: dereth_primitives::LocalTime,
-    chat_focus: &mut dyn FnMut(&mut dereth_client_model::chat::ChatState),
-) -> (Vec<UiRequest>, Vec<crate::actions::Action>) {
-    interaction_frame_tail(
-        inter,
-        store,
-        world,
-        objects,
-        net,
-        actions,
-        player_desc_received,
-        viewport,
-        now,
-        chat_focus,
-        true,
-    )
-}
-
 /// App's draw_no_blit/input tail. Registered UI-system timers have already run at frame entry.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_use_time_with_chat_focus(
@@ -138,7 +75,7 @@ pub fn registered_systems_use_time(
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn interaction_frame_tail(
+pub(super) fn interaction_frame_tail(
     inter: &mut Interaction,
     store: &RetailDatStore,
     world: Option<&dyn crate::present::Scene>,

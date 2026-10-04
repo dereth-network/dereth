@@ -10,6 +10,8 @@ publish = false
 autotests = false
 
 [features]
+# Opt-in fixture controls and observations.
+test-support = []
 # Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
 # modules read the retail dats under $DERETH_TEST_DAT_DIR.
 retail-dats = []
@@ -26,6 +28,7 @@ dereth-client-contract.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+dereth-client-model = { path = ".", default-features = false, features = ["test-support"] }
 dereth-dat = { workspace = true, features = ["test-support"] }
 # The kernel32 NLS arm is not in the production graph, so Windows FFI is not a normal dependency
 # of the game logic: the chat model, `taboo.rs` and `turbine.rs` go through

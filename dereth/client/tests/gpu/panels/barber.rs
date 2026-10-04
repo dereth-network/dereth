@@ -138,8 +138,9 @@ fn setup() -> (App, Peer) {
         dereth_protocol::write_blob(&ItemCreateObject(player)).expect("player"),
     );
     app.frame();
-    app.objects_mut().world.player = Some(PLAYER);
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(PLAYER)
         .expect("created player")
@@ -154,8 +155,11 @@ fn setup() -> (App, Peer) {
         ]
         .into(),
     );
-    app.objects_mut().world.seed_player_desc(PLAYER, q);
-    app.hud_mut().player_desc_received = true;
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .seed_player_desc(PLAYER, q);
+    app.probe_mut().hud_mut().player_desc_received = true;
     settle(&mut app);
     let _ = actions_sent(&mut app);
     (app, peer)
@@ -280,7 +284,10 @@ fn shadowbound_no_crown_runs_the_local_effect_then_sends_the_exact_finish() {
         ]
         .into(),
     );
-    app.objects_mut().world.seed_player_desc(PLAYER, player);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .seed_player_desc(PLAYER, player);
     peer.send(
         &mut app,
         10,
@@ -522,7 +529,10 @@ fn penumbraen_female_crown_and_no_crown_take_their_exact_apply_paths() {
         ]
         .into(),
     );
-    app.objects_mut().world.seed_player_desc(PLAYER, player);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .seed_player_desc(PLAYER, player);
     peer.send(
         &mut app,
         10,
@@ -716,7 +726,10 @@ fn undead_female_zombie_flame_and_no_flame_take_their_exact_apply_paths() {
         ]
         .into(),
     );
-    app.objects_mut().world.seed_player_desc(PLAYER, player);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .seed_player_desc(PLAYER, player);
     peer.send(
         &mut app,
         10,
@@ -941,7 +954,10 @@ fn empyrean_option_changes_the_local_motion_table_before_exact_finish() {
         ]
         .into(),
     );
-    app.objects_mut().world.seed_player_desc(PLAYER, player);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .seed_player_desc(PLAYER, player);
     peer.send(
         &mut app,
         10,
@@ -1140,7 +1156,10 @@ fn both_special_heritages_accept_either_incoming_no_crown_setup_id() {
             ]
             .into(),
         );
-        app.objects_mut().world.seed_player_desc(PLAYER, player);
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .seed_player_desc(PLAYER, player);
         let oracle = appearance_oracle_for(
             heritage,
             u32::try_from(gender).expect("gender"),
@@ -1189,7 +1208,10 @@ fn shadow_no_crown_preview_survives_physical_hair_next() {
             ]
             .into(),
         );
-        app.objects_mut().world.seed_player_desc(PLAYER, player);
+        app.probe_mut()
+            .objects_mut()
+            .world
+            .seed_player_desc(PLAYER, player);
         let oracle = appearance_oracle_for(heritage, 2, Some(crown));
         peer.event(
             &mut app,

@@ -227,16 +227,19 @@ fn settle(app: &mut App) -> Arrival {
 /// in the test touches the body.
 fn teleport_in(store: &Arc<RetailDatStore>, point: Vec3) -> Option<Arrival> {
     let mut app = app()?;
-    app.load_world(store, scene(SURFACE, None))
+    app.probe_mut()
+        .load_world(store, scene(SURFACE, None))
         .expect("the surface loads");
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(0.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &create_player_at(SURFACE_CELL, Vec3::new(96.0, 96.0, 0.0)),
         LocalTime(0.0),
     );
     drive(&mut app, 4);
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&server_teleport(DRUDGE_CELL, point, 1), LocalTime(1.0));
     Some(settle(&mut app))
 }
@@ -246,14 +249,18 @@ fn teleport_in(store: &Arc<RetailDatStore>, point: Vec3) -> Option<Arrival> {
 /// so the arms compare different initial scene/body placements followed by the same server move.
 fn log_in(store: &Arc<RetailDatStore>, point: Vec3) -> Option<Arrival> {
     let mut app = app()?;
-    app.load_world(store, scene(DRUDGE_BLOCK, Some(DRUDGE_CELL)))
+    app.probe_mut()
+        .load_world(store, scene(DRUDGE_BLOCK, Some(DRUDGE_CELL)))
         .expect("the dungeon loads");
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(0.0));
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&create_player_at(DRUDGE_CELL, point), LocalTime(0.0));
     drive(&mut app, 4);
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&server_teleport(DRUDGE_CELL, point, 1), LocalTime(1.0));
     Some(settle(&mut app))
 }

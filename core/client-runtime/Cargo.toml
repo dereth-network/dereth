@@ -15,6 +15,8 @@ publish = false
 # Nothing here draws, holds a device, owns a window or makes an OS call; `dereth-client` keeps all
 # four.
 [features]
+# Opt-in fixture controls and observations.
+test-support = ["dereth-client-model/test-support", "dereth-client-net/test-support"]
 # Tier switch only: no code is gated on it. The lib tests that read the retail dats under
 # $DERETH_TEST_DAT_DIR are ignored without it, so a checkout with no dats tests green.
 retail-dats = []
@@ -69,6 +71,7 @@ web-time.workspace = true
 blake3.workspace = true
 
 [dev-dependencies]
+dereth-client-runtime = { path = ".", default-features = false, features = ["test-support"] }
 dereth-client-net = { workspace = true, default-features = true, features = ["test-support"] }
 dereth-dat = { workspace = true, features = ["test-support"] }
 

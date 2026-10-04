@@ -204,9 +204,10 @@ fn setup() -> (App, Peer) {
     }
     app.frame();
 
-    app.objects_mut().world.player = Some(PLAYER);
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
     {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(PLAYER)
@@ -222,13 +223,19 @@ fn setup() -> (App, Peer) {
         (EQUIPPED_NOT_MINE, "Displayed equipped note", true),
         (PLAIN_NOT_MINE, "Pebble", false),
     ] {
-        let w = app.objects_mut().world.weenie_mut(id).expect("created");
+        let w = app
+            .probe_mut()
+            .objects_mut()
+            .world
+            .weenie_mut(id)
+            .expect("created");
         w.pwd.name = name.to_string();
         if inscribable {
             w.pwd.bitfield |= INSCRIBABLE;
         }
     }
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(EQUIPPED_NOT_MINE)
         .expect("created")
@@ -236,11 +243,14 @@ fn setup() -> (App, Peer) {
         .location = Some(1);
     // The ownership premise every test rests on, measured rather than assumed.
     assert!(
-        app.objects_mut().world.is_owned_by_player(MINE),
+        app.probe_mut().objects_mut().world.is_owned_by_player(MINE),
         "MINE is in his pack"
     );
     assert!(
-        !app.objects_mut().world.is_owned_by_player(NOT_MINE),
+        !app.probe_mut()
+            .objects_mut()
+            .world
+            .is_owned_by_player(NOT_MINE),
         "NOT_MINE is nobody's"
     );
     (app, peer)

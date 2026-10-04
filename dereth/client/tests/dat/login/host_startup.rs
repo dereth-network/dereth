@@ -38,7 +38,7 @@ fn host_startup_reuses_the_store_and_routes_the_supplied_event_queue() {
     )
     .expect("the supplied store bypasses opening a directory");
     assert_eq!(phase.get(), 2);
-    assert!(Arc::ptr_eq(app.dat_store(), &store));
+    assert!(Arc::ptr_eq(app.probe().dat_store(), &store));
     app.start_shell()
         .expect("the supplied presentation supports shell startup");
     events.borrow_mut().push(HostEvent::CloseRequested);

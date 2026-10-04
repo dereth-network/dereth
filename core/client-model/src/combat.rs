@@ -703,6 +703,7 @@ impl World {
     /// since the player description is allocated for the player's object. Tests that need a
     /// described player go through here so that what they assert against is a state the login
     /// path produces.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn seed_player_desc(&mut self, player: ObjectId, desc: crate::Qualities) {
         self.player = Some(player);
         if self.tables.weenies.get(player).is_none() {
@@ -1225,8 +1226,8 @@ impl World {
     /// charging, and the attack goes off when it reaches the requested spot. The mechanism is
     /// here rather than at either trigger: the per-frame update is a **three-part** function, and
     /// this is its first two parts; the third is the pending-combat-mode retry,
-    /// [`Self::combat_use_time`]. Without these parts nothing advances the bar to the requested
-    /// level, so [`Self::end_attack_request`]'s `ui_requested_power <= level` arm would be the
+    /// [`Self::combat_use_time_with_mode_change`]. Without these parts nothing advances the bar
+    /// to the requested level, so [`Self::end_attack_request`]'s `ui_requested_power <= level` arm would be the
     /// only live producer of an attack — which is a hold, and is wrong.
     ///
     /// Combat-bar modes 1 and 2 can fire after the readiness, request and advanced-mode checks.
@@ -1342,6 +1343,7 @@ impl World {
     /// the client would put on the scroll (from inside `set_combat_mode`), if the retry
     /// refused. This geometry-free entry point does not run `auto_target`; the application uses
     /// [`Self::combat_use_time_with_mode_change`] to include that tail before clearing pending.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn combat_use_time(
         &mut self,
         req: &mut dyn RequestSink,
@@ -1351,7 +1353,7 @@ impl World {
         self.combat_use_time_with_mode_change(req, out, ready_for_mode_change, |_, _| {})
     }
 
-    /// [`Self::combat_use_time`] with the application's geometry-dependent mode-change tail.
+    /// Retry a pending mode change with the application's geometry-dependent tail.
     ///
     /// The per-frame retry clears the pending mode only after the mode change returns,
     /// including automatic targeting and its selection effects. The callback therefore runs

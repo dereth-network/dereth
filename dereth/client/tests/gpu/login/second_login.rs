@@ -278,7 +278,7 @@ fn a_second_login_stands_the_body_where_the_server_says_and_not_where_the_first_
         body_origin(&app)
     );
     assert_eq!(
-        app.world_resets(),
+        app.probe().world_resets(),
         1,
         "station 1: one world-controller reset on the entry edge"
     );
@@ -286,7 +286,7 @@ fn a_second_login_stands_the_body_where_the_server_says_and_not_where_the_first_
     // Station 2 — the server's `0xF653`, six seconds after the request in all five recordings.
     log_off(&mut app, &mut peer);
     assert_eq!(
-        app.world_resets(),
+        app.probe().world_resets(),
         1,
         "station 2: logging off is NOT a world teardown -- the reset count stays unchanged"
     );
@@ -298,7 +298,7 @@ fn a_second_login_stands_the_body_where_the_server_says_and_not_where_the_first_
     // Station 3 — the second entry, into a different landblock.
     log_on(&mut app, &mut peer, PLAYER_2, CELL_B, POS_B);
     assert_eq!(
-        app.world_resets(),
+        app.probe().world_resets(),
         2,
         "station 3: the second entry wiped the first one's world"
     );
@@ -329,7 +329,7 @@ fn standing_in_the_world_never_tears_it_down() {
         .expect("a headless App with no live link");
     app.defer_static_scene(scene());
     log_on(&mut app, &mut peer, PLAYER_1, CELL_A, POS_A);
-    let resets = app.world_resets();
+    let resets = app.probe().world_resets();
     assert_eq!(resets, 1);
 
     // Thirty frames of a live world, plus an unrelated object create, move nothing.
@@ -341,7 +341,11 @@ fn standing_in_the_world_never_tears_it_down() {
     for i in 0..30 {
         assert!(app.frame(), "frame {i}");
     }
-    assert_eq!(app.world_resets(), resets, "no entry edge, no teardown");
+    assert_eq!(
+        app.probe().world_resets(),
+        resets,
+        "no entry edge, no teardown"
+    );
     assert!(app.world_scene().is_some(), "and the world is still there");
     assert_eq!(
         body_cell(&app).map(|c| c.landblock()),
@@ -377,7 +381,7 @@ fn the_second_world_does_not_cost_a_second_heap() {
     let after_second = app.renderer().descriptor_usage().live;
 
     assert!(
-        app.world_textures_released() > 0,
+        app.probe().world_textures_released() > 0,
         "the teardown handed slots back rather than merely dropping the scene"
     );
     // Software-device calibration against the shipped dats, both ways: with `release_textures`,
@@ -755,7 +759,7 @@ fn the_talk_focus_goes_back_to_say_on_the_next_login() {
     app.defer_static_scene(scene());
 
     log_on(&mut app, &mut peer, PLAYER_1, CELL_A, POS_A);
-    app.interaction_mut().queue(
+    app.probe_mut().interaction_mut().queue(
         Vec::new(),
         vec![dereth_ui_screens::view::UiRequest::SetTalkFocus {
             focus: TalkFocus::Allegiance as u32,
@@ -803,11 +807,11 @@ fn the_run_lock_does_not_survive_into_the_next_session() {
     let mut keys = Keys::new();
     keys.tap(&mut app, winit::keyboard::KeyCode::KeyQ);
     assert!(
-        app.char_input().auto_run,
+        app.probe().char_input().auto_run,
         "station 1: DIK_Q latched the run lock"
     );
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "station 1: and the character is walking on it"
     );
 
@@ -815,15 +819,15 @@ fn the_run_lock_does_not_survive_into_the_next_session() {
     log_on(&mut app, &mut peer, PLAYER_2, CELL_B, POS_B);
 
     assert!(
-        !app.movement_commands().lists.auto_run,
+        !app.probe().movement_commands().lists.auto_run,
         "station 2: the command-interpreter disable path cleared the run lock"
     );
     assert!(
-        !app.char_input().auto_run && !app.char_input().forward,
+        !app.probe().char_input().auto_run && !app.probe().char_input().forward,
         "station 2: so the new character is standing still, not running out of the landblock"
     );
     assert!(
-        app.movement_commands().lists.substate.is_empty(),
+        app.probe().movement_commands().lists.substate.is_empty(),
         "station 2: the command-interpreter disable path emptied the substate list with it"
     );
     app.shutdown();
@@ -848,7 +852,7 @@ fn the_use_cursor_is_not_still_armed_in_the_next_session() {
     app.defer_static_scene(scene());
 
     log_on(&mut app, &mut peer, PLAYER_1, CELL_A, POS_A);
-    app.interaction_mut().queue(
+    app.probe_mut().interaction_mut().queue(
         Vec::new(),
         vec![dereth_ui_screens::view::UiRequest::SetTargetMode(
             dereth_ui_screens::view::TargetMode::Use,

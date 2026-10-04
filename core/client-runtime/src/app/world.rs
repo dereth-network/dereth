@@ -265,46 +265,6 @@ impl<S: Shell> App<S> {
         }
     }
 
-    /// How many times [`Self::stream_world`] failed, for the tests. A green run has zero: the
-    /// counter exists so that a tolerated failure cannot hide behind a passing suite.
-    #[must_use]
-    pub const fn stream_failures(&self) -> u64 {
-        self.events.total(FrameEventKind::StreamFailed)
-    }
-
-    /// How many frames applied a changed scene-owned render preference, and what the last of
-    /// them did. The preference update is a poll, so both stay at zero on every frame on which
-    /// nothing moved.
-    #[must_use]
-    pub const fn render_pref_applies(&self) -> u64 {
-        self.events.total(FrameEventKind::RenderPreferencesApplied)
-    }
-
-    /// [`Self::render_pref_applies`]'s detail: the last poll's own flags.
-    #[must_use]
-    pub const fn last_render_pref_work(&self) -> crate::frame_events::RenderPrefWork {
-        match self.events.last(FrameEventKind::RenderPreferencesPolled) {
-            Some(FrameEvent::RenderPreferencesPolled(w)) => w,
-            // No poll yet, which is `RenderPrefWork::default()` written out: `Default::default`
-            // is not a `const fn` and this accessor has always been one.
-            _ => crate::frame_events::RenderPrefWork {
-                flushed: false,
-                mid_radius_changed: false,
-                detail_texturing_changed: false,
-                blocks_queued: 0,
-                blocks_rebuilt: 0,
-                detail_surfaces: 0,
-                ground_changed: false,
-                sky_changed: false,
-                ground_refused: None,
-                sky_refused: None,
-                objects_changed: false,
-                objects_refused: None,
-                objects_waiting: false,
-            },
-        }
-    }
-
     /// Give every new object geometry and every moved object its new frame.
     pub(super) fn sync_objects(&mut self) {
         let store = std::sync::Arc::clone(&self.store);
@@ -503,24 +463,6 @@ impl<S: Shell> App<S> {
         self.movement.lists.hold_sidestep = false;
         // The entry-edge cleanup intentionally also clears the run lock through
         // `clear_all_commands`; unlike `request_log_off`, this edge does not disable the interpreter.
-    }
-
-    /// How many times [`App::reset_world_view`] has run.
-    #[must_use]
-    pub const fn world_resets(&self) -> u64 {
-        self.events.total(FrameEventKind::WorldReset)
-    }
-
-    /// Texture slots the teardowns have handed back, cumulatively.
-    #[must_use]
-    pub const fn world_textures_released(&self) -> u64 {
-        self.events.amount(FrameEventKind::WorldReset)
-    }
-
-    /// The switches the landscape is (re)built from, for the tests.
-    #[must_use]
-    pub fn scene_config(&self) -> Option<crate::scene::SceneConfig> {
-        self.scene_config
     }
 
     /// The startup line for a scene, shared by the immediate and the deferred path.

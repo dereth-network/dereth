@@ -153,7 +153,7 @@ fn every_bindable_action_is_taken_by_some_handler_in_the_retail_interface() {
     for (map, action, toggle) in order {
         // Something selected, and a selection before it, as a player has most of the time.
         {
-            let world = &mut app.objects_mut().world;
+            let world = &mut app.probe_mut().objects_mut().world;
             world.selected = Some(ObjectId(0x5000_0001));
             world.prev_selected = Some(ObjectId(0x5000_0002));
             world.combat.combat_mode = mode_of(map);

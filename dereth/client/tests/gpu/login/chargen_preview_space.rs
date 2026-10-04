@@ -681,7 +681,7 @@ fn the_teleport_tunnel_draws_the_portal_object() {
     let mut app = app_in_world();
     // The player object's existence is the condition for the login tunnel;
     // `Teleport::teleport_in_progress()` is the corresponding predicate.
-    app.teleport_mut().apply_events(&[
+    app.probe_mut().teleport_mut().apply_events(&[
         dereth_client_net::client_session::SessionEvent::PlayerCreated(
             dereth_primitives::ObjectId(0x5000_0001),
         ),
@@ -750,7 +750,7 @@ fn the_teleport_tunnel_draws_the_portal_object() {
 #[test]
 fn the_portal_space_is_built_the_way_post_init_builds_it() {
     let mut app = app_in_world();
-    app.teleport_mut().apply_events(&[
+    app.probe_mut().teleport_mut().apply_events(&[
         dereth_client_net::client_session::SessionEvent::PlayerCreated(
             dereth_primitives::ObjectId(0x5000_0001),
         ),

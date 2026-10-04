@@ -242,7 +242,7 @@ fn in_world() -> (App, Peer) {
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
     frames(&mut app, 3, "the gameplay screen");
     assert!(
-        app.objects_mut().world.player == Some(PLAYER_1),
+        app.probe_mut().objects_mut().world.player == Some(PLAYER_1),
         "the login put a player in the world"
     );
     (app, peer)

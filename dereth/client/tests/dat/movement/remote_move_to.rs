@@ -166,7 +166,8 @@ fn body_position(app: &App) -> Position {
 }
 
 fn feed(app: &mut App, opcode: Opcode, body: Vec<u8>, now: f64) {
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::WorldObject { opcode, body }, LocalTime(now));
 }
 
@@ -210,7 +211,8 @@ fn app_with_recorded_body() -> (App, Vec<CorpusBlob>) {
     // The corpus login edge: the body adopts the recorded character's id and its own create.
     let mut create = recorded_create(&rows, PLAYER);
     place(&mut create, body_position(&app));
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(1.0));
     feed(
         &mut app,

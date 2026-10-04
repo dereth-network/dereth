@@ -287,6 +287,7 @@ fn cooldown_items(app: &App) -> Vec<(ObjectId, String, u32, f64)> {
 fn install_cooldown(app: &mut App, cooldown_id: u32, start: f64, duration: f64) {
     use dereth_client_model::enchant::{ench_type, Enchantment};
     let q = app
+        .probe_mut()
         .objects_mut()
         .world
         .player_qualities_mut()
@@ -324,7 +325,7 @@ fn installing_a_cooldown_repaints_only_the_wedge_on_that_items_slot() {
 
     let shot = |cooldown: bool, name: &str| -> (u32, u32, Vec<u8>, Box2D, Option<usize>) {
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = busiest(SESSION);
+        *app.probe_mut().objects_mut() = busiest(SESSION);
         let _ = app.apply_hud_events(&in_world);
         open_the_backpack(&mut app);
         for _ in 0..6 {
@@ -433,7 +434,7 @@ fn the_open_container_frame_draws_its_own_pixels() {
 
     let shot = |frame_on: bool| -> (u32, u32, Vec<u8>, Box2D) {
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = busiest(SESSION);
+        *app.probe_mut().objects_mut() = busiest(SESSION);
         let _ = app.apply_hud_events(&in_world);
         open_the_backpack(&mut app);
         for _ in 0..6 {

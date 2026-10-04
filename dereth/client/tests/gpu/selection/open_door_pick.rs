@@ -326,7 +326,7 @@ mod in_the_doorway {
     /// recorded login.
     fn feed(app: &mut App, row: &CorpusBlob, at: f64) {
         assert_eq!(row.dir, Direction::ServerToClient);
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode(row.opcode),
                 body: row.payload[4..].to_vec(),
@@ -571,7 +571,7 @@ mod in_the_doorway {
         create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
         create.0.id = BEHIND;
         let name = create.0.wdesc.name.clone();
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::ITEM_CREATE_OBJECT,
                 body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -604,7 +604,7 @@ mod in_the_doorway {
             .forward_command = cmd.to_index();
         m.movement = dereth_protocol::movement::MovementSetObjectMovement::encode_movement(&b)
             .expect("encodes");
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::MOVEMENT_SET_OBJECT_MOVEMENT,
                 body: dereth_protocol::write_body(&m).expect("encodes"),
@@ -620,7 +620,7 @@ mod in_the_doorway {
             .presence(DOOR)
             .expect("the door's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -721,7 +721,13 @@ mod in_the_doorway {
         })
         .expect("real academy cell and collision scene");
         {
-            let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+            let c = app
+                .probe_mut()
+                .world_state_mut()
+                .unwrap()
+                .character
+                .as_mut()
+                .unwrap();
             c.land().load_block_cells(origin.cell.landblock());
             c.teleport(origin);
             c.stop_completely_from_action();
@@ -753,9 +759,10 @@ mod in_the_doorway {
         let here = position(&app);
         create.0.physicsdesc.position = Some(wire_position(here.cell.0, here.frame.origin, &here));
         create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-        app.objects_mut()
+        app.probe_mut()
+            .objects_mut()
             .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: Opcode::ITEM_CREATE_OBJECT,
                 body: dereth_protocol::write_body(&create).expect("constructed placement"),
@@ -769,7 +776,7 @@ mod in_the_doorway {
                 .presence(id)
                 .expect("the player's presence")
                 .state_ts;
-            app.objects_mut().apply_event(
+            app.probe_mut().objects_mut().apply_event(
                 &SessionEvent::WorldObject {
                     opcode: ItemSetState::OPCODE,
                     body: dereth_protocol::write_body(&ItemSetState {
@@ -812,7 +819,13 @@ mod in_the_doorway {
         );
         let yaw = dereth_primitives::num::math::atan2f(-d.x, d.y);
         {
-            let c = app.world_state_mut().unwrap().character.as_mut().unwrap();
+            let c = app
+                .probe_mut()
+                .world_state_mut()
+                .unwrap()
+                .character
+                .as_mut()
+                .unwrap();
             c.teleport(Position::new(
                 here.cell,
                 Frame::new(here.frame.origin, yaw_quat(yaw)),

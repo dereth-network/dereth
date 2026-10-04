@@ -134,8 +134,9 @@ fn setup() -> (App, Peer) {
         dereth_protocol::write_blob(&ItemCreateObject(player)).expect("player"),
     );
     app.frame();
-    app.objects_mut().world.player = Some(PLAYER);
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(PLAYER)
         .expect("created player")
@@ -471,7 +472,8 @@ fn an_unowned_book_closes_after_real_movement_beyond_its_use_radius() {
 
     let mut away = book_position;
     away.frame.origin.x += 8.0;
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .expect("scene")
         .character
         .as_mut()
@@ -512,7 +514,8 @@ fn an_owned_book_never_arms_the_range_handler_or_closes_on_movement() {
 
     let mut away = book_position;
     away.frame.origin.x += 8.0;
-    app.world_state_mut()
+    app.probe_mut()
+        .world_state_mut()
         .expect("scene")
         .character
         .as_mut()
@@ -702,6 +705,7 @@ fn physical_next_from_an_owned_blank_page_refuses_without_closing_or_mutating_it
     let (mut app, mut peer) = setup();
     place_book_at_player(&mut app, &mut peer, true);
     let named = app
+        .probe_mut()
         .objects_mut()
         .world
         .weenie_mut(BOOK)
@@ -795,7 +799,11 @@ fn book_open_builds_real_page_menu_rows_and_physical_choices_turn_or_refuse() {
     settle(&mut app);
     assert_eq!(
         (
-            app.objects_mut().world.book_session_view().current_page,
+            app.probe_mut()
+                .objects_mut()
+                .world
+                .book_session_view()
+                .current_page,
             gameplay(&mut app).book.cur_page,
         ),
         (1, 1),

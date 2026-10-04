@@ -203,7 +203,7 @@ impl Interaction {
     /// Tell this frame's `0x1000002B` arm whether `<EXAM>` is on screen, which is
     /// the question the examination action asks the UI element manager.
     ///
-    /// Pushed by `App` immediately before [`use_time`], so the answer is this frame's UI state
+    /// Pushed by `App` immediately before [`draw_use_time_with_chat_focus`], so the answer is this frame's UI state
     /// rather than the previous frame's. A caller that never calls this leaves the arm on its
     /// `false` default, which is retail's *"there is no such element"* leg — see
     /// [`Interaction::examine_panel_open`]'s own note about why that is asserted and not assumed.
@@ -214,7 +214,7 @@ impl Interaction {
     /// Whether the `0x1000002B` arm took its close-first leg this frame, and clear
     /// the flag.
     ///
-    /// `App` drains this immediately after [`use_time`] returns and hides the
+    /// `App` drains this immediately after [`draw_use_time_with_chat_focus`] returns and hides the
     /// panel.
     pub fn take_examine_panel_close(&mut self) -> bool {
         std::mem::take(&mut self.examine_panel_close)
@@ -228,7 +228,7 @@ impl Interaction {
     /// tests contact first, then walkability, returning true only when both bits are set.
     ///
     /// `body` is the local player's physics body; `None` corresponds to an absent body.
-    /// [`use_time`] supplies `WorldScene::character`, and
+    /// [`draw_use_time_with_chat_focus`] supplies `WorldScene::character`, and
     /// [`crate::character::Character::on_ground`] checks the same two bits.
     ///
     /// **Note this is not the command interpreter's logout gate**: that one is
@@ -314,7 +314,7 @@ impl Interaction {
     /// switch decides -- the mode, the combat maneuver table, the six stances and
     /// `forward_command` -- is answered.
     ///
-    /// The reason is a seam: [`use_time`] reads the body out of an
+    /// The reason is a seam: [`draw_use_time_with_chat_focus`] reads the body out of an
     /// `Option<&crate::world::WorldScene>` and `WorldScene::load` needs a `Gpu`, so **every
     /// headless frame in this workspace has no body**. Composing the null arm answers `false` in
     /// all of them and refuses every attack in the headless combat tests -- which is
@@ -353,7 +353,7 @@ impl Interaction {
         &self.outbox
     }
 
-    /// The same, drained — what [`use_time`]'s step 4 does to it.
+    /// The same, drained — what [`draw_use_time_with_chat_focus`]'s step 4 does to it.
     ///
     /// A test that drives several frames needs "what did *this* frame send", and comparing
     /// lengths across frames answers a different question badly: a frame that sent one message
@@ -404,7 +404,7 @@ impl Interaction {
     ///
     /// **Public only so that a test can call an input into it** — the same
     /// reason and the same precedent as [`Self::on_world_object_found`] above. Its one
-    /// production caller is [`use_time`] step 1, and every reason this table parks is consumed by
+    /// production caller is [`draw_use_time_with_chat_focus`] step 1, and every reason this table parks is consumed by
     /// step 3 **in the same frame**, because drawing raises the notice
     /// unconditionally once `looking_for_object` is up. So `search_reason` is `SearchReason::None`
     /// at every frame boundary and a harness that reads it between frames is reading the tail of
@@ -562,7 +562,7 @@ impl Interaction {
     /// double-click your own equipped sword into a use.
     ///
     /// **Public only so that a test can call an input into it.** Its one
-    /// production caller is [`use_time`] step 3, behind `WorldPicker::draw_no_blit`, which needs a
+    /// production caller is [`draw_use_time_with_chat_focus`] step 3, behind `WorldPicker::draw_no_blit`, which needs a
     /// loaded `WorldScene` and a rendered frame — so without this no headless test could reach
     /// any arm of this function directly. It **is** the
     /// client's notice handler, so making it callable is what the notice already is.

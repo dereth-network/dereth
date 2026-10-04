@@ -382,7 +382,8 @@ fn blocked_cell_owner_still_drains_incoming_and_early_exit_only_runs_entry_ui() 
         dereth_protocol::write_blob(&ItemCreateObject(object(id, parent))).unwrap(),
     );
     assert!(app.frame());
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .schedule_destroy(id, ServerTime(-26.0)); // overdue maintenance stimulus
     peer.send(
@@ -832,17 +833,23 @@ fn recent_attacker_removal_dispatches_selection_while_old_weenie_is_being_remove
         StatValue::Iid(attacker),
     );
     weenie.qualities = Some(qualities);
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .tables
         .weenies
         .insert(player, weenie);
-    app.objects_mut().world.set_player(player);
-    app.objects_mut().world.player_system.options.set(
-        dereth_client_model::player::options::option::AUTO_TARGET,
-        true,
-    );
-    app.objects_mut().world.combat.combat_mode = CombatMode::Melee;
+    app.probe_mut().objects_mut().world.set_player(player);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .player_system
+        .options
+        .set(
+            dereth_client_model::player::options::option::AUTO_TARGET,
+            true,
+        );
+    app.probe_mut().objects_mut().world.combat.combat_mode = CombatMode::Melee;
     let here = app
         .world_state()
         .unwrap()
@@ -882,7 +889,10 @@ fn recent_attacker_removal_dispatches_selection_while_old_weenie_is_being_remove
         );
     }
     assert!(app.frame());
-    app.objects_mut().world.update_visible_object_list(); // the visible-list refresh, called explicitly
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .update_visible_object_list(); // the visible-list refresh, called explicitly
     peer.send(
         &mut app,
         9,
@@ -1055,7 +1065,13 @@ fn two_remote_commands_complete_callbacks_without_coalescing_or_advancing_physic
     .unwrap();
     // Private observer placement, as in the recorded remote-motion station. The recorded
     // human must be near the physical owner, not outside its active cell neighborhood.
-    let character = app.world_state_mut().unwrap().character.as_mut().unwrap();
+    let character = app
+        .probe_mut()
+        .world_state_mut()
+        .unwrap()
+        .character
+        .as_mut()
+        .unwrap();
     character.land().load_block_cells(block);
     let mut observer = initial;
     observer.frame.origin.x += 3.0;
@@ -1198,19 +1214,29 @@ fn world_view_deletion_refills_actual_inventory_before_the_producing_frame_draw(
     app.apply_hud_events(&[
         dereth_client_net::client_session::SessionEvent::PlayerDescription(Box::default()),
     ]);
-    app.objects_mut().world.set_player(player);
+    app.probe_mut().objects_mut().world.set_player(player);
     let mut owner = Weenie::new(player);
     owner.valid = true;
     owner.pwd.items_capacity = Some(24);
-    app.objects_mut().world.tables.weenies.insert(player, owner);
-    app.objects_mut().world.tables.inventories.insert(
-        player,
-        ObjectInventory {
-            container: player,
-            items: vec![id],
-            ..Default::default()
-        },
-    );
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .weenies
+        .insert(player, owner);
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .tables
+        .inventories
+        .insert(
+            player,
+            ObjectInventory {
+                container: player,
+                items: vec![id],
+                ..Default::default()
+            },
+        );
     peer.send(
         &mut app,
         10,
@@ -1434,7 +1460,8 @@ fn no_link_frame_still_delivers_scroll_lines_to_the_hud() {
     );
     assert!(app.frame());
     let before = app.hud().stats.scroll_lines;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .scroll
         .add_text_to_scroll("Using the Oil with the Bow", 0x1a, false, 0);

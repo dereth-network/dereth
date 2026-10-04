@@ -199,7 +199,7 @@ fn setup() -> (App, Peer) {
         .expect("the replay endpoint attaches");
 
     assert!(
-        app.objects_mut().world.set_player(PLAYER),
+        app.probe_mut().objects_mut().world.set_player(PLAYER),
         "the player identity is new"
     );
     let scene = app.world_scene().expect("the retail scene");
@@ -231,6 +231,7 @@ fn setup() -> (App, Peer) {
     }
     for (id, name) in [(PLAYER, "Local Player"), (TARGET, "Allegiance Target")] {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(id)
@@ -240,7 +241,8 @@ fn setup() -> (App, Peer) {
         w.pwd.bitfield = bitfield::PLAYER;
         w.pwd.radar_enum = Some(4);
     }
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(TARGET)
         .expect("target")

@@ -148,7 +148,8 @@ fn turned(a: f32, b: f32) -> f32 {
 }
 
 fn feed(app: &mut App, opcode: Opcode, body: Vec<u8>, now: f64) {
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::WorldObject { opcode, body }, LocalTime(now));
 }
 
@@ -212,7 +213,8 @@ fn app_with_recorded_body(ui: bool) -> (App, Vec<CorpusBlob>) {
     let rows = long_solo_play();
     let mut create = recorded_create(&rows, PLAYER);
     place(&mut create, body_position(&app));
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(1.0));
     feed(
         &mut app,
@@ -775,7 +777,7 @@ fn a_held_first_person_turn_key_turns_the_body_continuously() {
     assert_eq!(off, IN_HEAD_OFFSET, "the First Person Camera action took");
 
     let h0 = heading(&app);
-    let turns0 = app.camera_turns_applied();
+    let turns0 = app.probe().camera_turns_applied();
     let mut prev = h0;
     let mut total = 0.0f32;
     let mut trace: Vec<String> = Vec::new();
@@ -815,7 +817,7 @@ fn a_held_first_person_turn_key_turns_the_body_continuously() {
         CAMERA_MAP,
         false,
     );
-    let turns = app.camera_turns_applied() - turns0;
+    let turns = app.probe().camera_turns_applied() - turns0;
     eprintln!("held turn: {turns} turn commands applied across the held-key interval; {total:.3} degrees accumulated");
     for l in &trace {
         eprintln!("  {l}");

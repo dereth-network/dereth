@@ -45,11 +45,13 @@ fn setup_at(size: (u32, u32)) -> App {
         ..SceneConfig::default()
     })
     .expect("DAT world");
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .apply_player_module(&dereth_protocol::login::PlayerModule::default());
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .set_option(14, true, dereth_primitives::ServerTime(0.0));
@@ -108,7 +110,7 @@ fn place(app: &mut App, id: ObjectId, camera_offset: Vec3, corpse: bool) {
     };
     let body =
         dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload)).unwrap();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
             body,
@@ -118,9 +120,11 @@ fn place(app: &mut App, id: ObjectId, camera_offset: Vec3, corpse: bool) {
 }
 
 fn select(app: &mut App, id: Option<ObjectId>) {
-    app.objects_mut()
-        .world
-        .set_selected_object(id, false, &mut dereth_client_model::NullSink);
+    app.probe_mut().objects_mut().world.set_selected_object(
+        id,
+        false,
+        &mut dereth_client_model::NullSink,
+    );
 }
 
 fn assert_hidden(app: &App) {
@@ -253,7 +257,10 @@ fn app_draws_dat_brackets_for_world_creature_and_corpse_and_clears_deselection()
     // Camera movement happens after ui_use_time; this catches a one-frame-old HUD projection.
     let before = assert_sphere_geometry(&app, CORPSE);
     app.flycam_key(dereth_client::platform::keys::Key::SPACE, true);
-    assert!(app.camera_input().up, "real residual flycam input accepted");
+    assert!(
+        app.probe().camera_input().up,
+        "real residual flycam input accepted"
+    );
     assert!(app.frame());
     app.flycam_key(dereth_client::platform::keys::Key::SPACE, false);
     let after = assert_sphere_geometry(&app, CORPSE);
@@ -276,13 +283,15 @@ fn actual_selection_option_ownership_destroy_and_offscreen_consumers_do_not_leav
     assert!(app.frame());
     assert_sphere_geometry(&app, CREATURE);
 
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .set_option(14, false, dereth_primitives::ServerTime(1.0));
     assert!(app.frame());
     assert_hidden(&app);
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .set_option(14, true, dereth_primitives::ServerTime(2.0));
@@ -290,9 +299,10 @@ fn actual_selection_option_ownership_destroy_and_offscreen_consumers_do_not_leav
     assert_sphere_geometry(&app, CREATURE);
 
     let player = ObjectId(0x5000_0F01);
-    app.objects_mut().world.player = Some(player);
+    app.probe_mut().objects_mut().world.player = Some(player);
     {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .tables
@@ -303,11 +313,16 @@ fn actual_selection_option_ownership_destroy_and_offscreen_consumers_do_not_leav
         w.pwd.location = Some(1);
         w.determine_position_state();
     }
-    assert!(app.objects_mut().world.is_owned_by_player(CREATURE));
+    assert!(app
+        .probe_mut()
+        .objects_mut()
+        .world
+        .is_owned_by_player(CREATURE));
     assert!(app.frame());
     assert_hidden(&app);
     {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .tables
@@ -319,11 +334,16 @@ fn actual_selection_option_ownership_destroy_and_offscreen_consumers_do_not_leav
         w.pwd.container_id = Some(ObjectId(0x5000_0F02)); // a foreign container, not ownership
         w.determine_position_state();
     }
-    assert!(!app.objects_mut().world.is_owned_by_player(CREATURE));
+    assert!(!app
+        .probe_mut()
+        .objects_mut()
+        .world
+        .is_owned_by_player(CREATURE));
     assert!(app.frame());
     assert_hidden(&app);
     {
         let w = app
+            .probe_mut()
             .objects_mut()
             .world
             .tables
@@ -333,10 +353,10 @@ fn actual_selection_option_ownership_destroy_and_offscreen_consumers_do_not_leav
         w.pwd.container_id = None;
         w.determine_position_state();
     }
-    app.objects_mut().world.player = Some(CREATURE); // selection of self
+    app.probe_mut().objects_mut().world.player = Some(CREATURE); // selection of self
     assert!(app.frame());
     assert_hidden(&app);
-    app.objects_mut().world.player = None;
+    app.probe_mut().objects_mut().world.player = None;
     assert!(app.frame());
     assert_sphere_geometry(&app, CREATURE);
 
@@ -390,7 +410,7 @@ fn actual_selection_option_ownership_destroy_and_offscreen_consumers_do_not_leav
         instance_sequence: 0,
     })
     .unwrap();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: dereth_protocol::Opcode::ITEM_DELETE_OBJECT,
             body,
@@ -453,7 +473,9 @@ fn selected_target_tracks_world_fade_projection_and_hides_during_the_tunnel() {
 
     // Make the existing three-second timer due; do not set the resulting projection or flags.
     let now = app.ui().unwrap().ui.now.0;
-    app.teleport_mut().request_log_off(now - 3.1, false);
+    app.probe_mut()
+        .teleport_mut()
+        .request_log_off(now - 3.1, false);
     for _ in 0..25 {
         assert!(app.frame());
     }
@@ -481,7 +503,7 @@ fn selected_target_tracks_world_fade_projection_and_hides_during_the_tunnel() {
     );
 
     let now = app.ui().unwrap().ui.now.0;
-    app.teleport_mut().anim.end(now);
+    app.probe_mut().teleport_mut().anim.end(now);
     let mut visible_fade = false;
     let mut finished = false;
     for _ in 0..480 {

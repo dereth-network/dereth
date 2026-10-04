@@ -1316,7 +1316,7 @@ impl ObjectStream {
     /// teleport arm is unconditional and is the one the server uses to *move* the player.
     ///
     /// The caller owes it the player-teleport arm's own null guard — it does nothing when there is no
-    /// player body — and [`crate::app::apply_player_teleport`] is that caller.
+    /// player body. The fixture helper `app::apply_player_teleport` supplies that guard.
     pub fn take_player_teleport(&mut self) -> Option<Position> {
         // Isolated teleport/component adapter: retain its historical latest-position contract.
         // Full App dispatch uses take_player_motion_dispatches instead, preserving every call.

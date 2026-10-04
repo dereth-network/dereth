@@ -84,7 +84,7 @@ fn changed_stack_receipts_reseed_before_the_app_projects_the_toolbar() {
     let player = ObjectId(1);
     let item = ObjectId(2);
     let mut app = app_in_gameplay_unanswered(2, Some(player));
-    let world = &mut app.objects_mut().world;
+    let world = &mut app.probe_mut().objects_mut().world;
     let mut row = Weenie::new(item);
     row.pwd.name = "Apples".into();
     row.pwd.obj_type = 0x20;
@@ -99,8 +99,9 @@ fn changed_stack_receipts_reseed_before_the_app_projects_the_toolbar() {
     );
     app.frame();
     assert_eq!(gameplay_screen(&mut app).1.splitter.split_size, 100);
-    app.objects_mut().world.split.split_size = 40;
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.split.split_size = 40;
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(item)
         .unwrap()
@@ -109,7 +110,7 @@ fn changed_stack_receipts_reseed_before_the_app_projects_the_toolbar() {
     app.frame();
     let shown = gameplay_screen(&mut app).1.splitter;
     assert_eq!((shown.split_size, shown.max_split_size), (80, 80));
-    assert_eq!(app.objects_mut().world.split.split_size, 80);
+    assert_eq!(app.probe_mut().objects_mut().world.split.split_size, 80);
 }
 
 /// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain

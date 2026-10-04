@@ -172,7 +172,7 @@ fn e_with_nothing_selected_arms_the_identify_cursor() {
         "the shipped UICommands section binds SelectionExamine to E"
     );
 
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         None,
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -230,7 +230,7 @@ fn e_with_a_selection_appraises_and_arms_nothing() {
         UI_COMMANDS,
     );
     let target = ObjectId(0x8000_09A4);
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         Some(target),
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -284,7 +284,7 @@ fn escape_puts_the_identify_cursor_away() {
     );
     assert_eq!(esc, KeyCode::Escape);
 
-    app.objects_mut().world.set_selected_object(
+    app.probe_mut().objects_mut().world.set_selected_object(
         None,
         false,
         &mut dereth_client_model::RecordingSink::default(),
@@ -415,17 +415,17 @@ fn b_asks_the_body_to_lie_down() {
         "the shipped emote action-to-command table pairs Sleeping with its motion command"
     );
 
-    let before = app.movement().transient_motions_issued;
+    let before = app.probe().movement().transient_motions_issued;
     press(&mut app, b, 700_000);
     frames(&mut app, 2);
     assert_eq!(
-        app.movement().transient_motions_issued,
+        app.probe().movement().transient_motions_issued,
         before + 1,
         "the emote-command lookup answered, the action was consumed, and one motion was asked \
          for"
     );
     assert_eq!(
-        app.movement().last_transient_motion,
+        app.probe().movement().last_transient_motion,
         Some((MOTION_SLEEPING, true)),
         "the emote arm of the action-command dispatcher sets the motion with a true start flag -- the start \
          flag is a literal, not the key edge, which is why one key press is one motion and not two"
@@ -448,16 +448,16 @@ fn j_asks_the_body_to_wave() {
         "Wave 0x100000E5 -> the wave motion 0x13000087"
     );
 
-    let before = app.movement().transient_motions_issued;
+    let before = app.probe().movement().transient_motions_issued;
     press(&mut app, j, 700_000);
     frames(&mut app, 2);
     assert_eq!(
-        app.movement().transient_motions_issued,
+        app.probe().movement().transient_motions_issued,
         before + 1,
         "the Emotes map is registered, so the key reaches its action"
     );
     assert_eq!(
-        app.movement().last_transient_motion,
+        app.probe().movement().last_transient_motion,
         Some((MOTION_WAVE, true)),
         "the command handed to the movement dispatcher is wave motion, not something that merely \
          counted"
@@ -562,14 +562,14 @@ fn waving_while_running_does_not_stop_the_player() {
         .on_message(down);
     frames(&mut app, 2);
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "W is held, so the forward slot is set"
     );
 
     press(&mut app, j, 810_000);
     frames(&mut app, 2);
     assert!(
-        app.char_input().forward,
+        app.probe().char_input().forward,
         "A 0x13…… emote touches no movement list and the no-list command handler declines it too \
          ((cmd & 0x40000000) is clear), so waving must not release the forward slot"
     );
@@ -583,7 +583,7 @@ fn waving_while_running_does_not_stop_the_player() {
         .expect("the production input manager")
         .on_message(up);
     frames(&mut app, 2);
-    assert!(!app.char_input().forward, "releasing W clears it");
+    assert!(!app.probe().char_input().forward, "releasing W clears it");
 }
 
 /// **`V` is not an emote key.** The only shipped input-map binding for `V` is

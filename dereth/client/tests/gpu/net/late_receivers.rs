@@ -262,8 +262,9 @@ pub(crate) fn setup(tag: &str) -> (App, Peer) {
         dereth_protocol::write_blob(&ItemCreateObject(p)).expect("blob"),
     );
     app.frame();
-    app.objects_mut().world.player = Some(PLAYER);
-    app.objects_mut()
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
+    app.probe_mut()
+        .objects_mut()
         .world
         .weenie_mut(PLAYER)
         .expect("the player was created")
@@ -555,7 +556,7 @@ fn the_two_warnings_queue_a_portal_storm_script_and_the_calm_ones_do_not() {
     // Driven through the model rather than the wire, because `App::frame` drains the queue on the
     // frame the message lands and the intensities would be gone before this could read them. The
     // *wire* half is the station above; this one is about which handler pushes what.
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     w.portal_storm_brewing(0.5);
     w.portal_storm_imminent(0.5);
     w.portal_storm_struck();

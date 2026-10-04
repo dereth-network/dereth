@@ -5513,7 +5513,7 @@ fn sellable(c: &HeadlessClient) -> (ElemHandle, ObjectId) {
 /// The player's next action: a drag released on to their own pack, one of the gestures the
 /// one-thing-at-a-time gate guards and the one that shows the sentence.
 fn try_to_act(c: &mut HeadlessClient, item: ObjectId) -> Vec<Request> {
-    c.app_mut().interaction_mut().queue(
+    c.app_mut().probe_mut().interaction_mut().queue(
         Vec::new(),
         vec![UiRequest::DragDrop {
             item,
@@ -5876,7 +5876,7 @@ fn put_the_ring_in(c: &mut HeadlessClient) {
 /// A client with the salvage window open and one row in it.
 fn a_client_with_a_salvage_row() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
-    seed_salvage(&mut c.app_mut().objects_mut().world);
+    seed_salvage(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     use_the_tool(&mut c);
     put_the_ring_in(&mut c);
@@ -6909,7 +6909,7 @@ fn seed_a_pack(w: &mut dereth_client_model::World) {
 /// strip.
 fn a_client_with_a_loose_item_and_a_side_pack() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
-    seed_a_pack(&mut c.app_mut().objects_mut().world);
+    seed_a_pack(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     c.tick(2);
     c
@@ -7183,7 +7183,7 @@ pub fn a_drop_on_a_side_pack_becomes_one_move() {
         (we.waiting, we.pwd.container_id == Some(DRAG_PLAYER))
     };
     let (moved_by_the_shard, grey_cleared) = {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         w.server_says_move_item(
             DRAG_ITEM,
             DRAG_PACK,
@@ -7372,7 +7372,7 @@ fn seed_for_hints(w: &mut dereth_client_model::World) {
 
 fn a_client_with_four_things() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
-    seed_for_hints(&mut c.app_mut().objects_mut().world);
+    seed_for_hints(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     c.tick(2);
     c
@@ -7572,8 +7572,12 @@ pub fn a_body_slot_shows_whether_it_could_take_what_is_carried() {
     let (sword_on_shield, _) = hints_while_carrying(&mut c, SWORD, shield_slot);
     // A torch may be held, and in peace the weapon hand takes it.
     let (_, torch_at_peace) = hints_while_carrying(&mut c, TORCH, weapon_slot);
-    c.app_mut().objects_mut().world.combat.combat_mode =
-        dereth_client_model::combat::CombatMode::Melee;
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .combat
+        .combat_mode = dereth_client_model::combat::CombatMode::Melee;
     c.tick(1);
     // With the weapon out, the same hand refuses the same torch.
     let (_, torch_in_combat) = hints_while_carrying(&mut c, TORCH, weapon_slot);
@@ -7701,7 +7705,7 @@ fn wear_it(
 fn a_client_wearing_something(material: Option<u32>) -> HeadlessClient {
     let mut c = a_client_with_four_things();
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         wear_it(
             w,
             SHIRT,
@@ -7900,7 +7904,7 @@ fn seed_a_dressed_player(w: &mut dereth_client_model::World) {
 
 fn a_dressed_client() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
-    seed_a_dressed_player(&mut c.app_mut().objects_mut().world);
+    seed_a_dressed_player(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     c.tick(2);
     assert_eq!(
@@ -8406,7 +8410,7 @@ fn assign_shortcut(w: &mut dereth_client_model::World, slot: i32, item: ObjectId
 fn a_client_with_shortcuts() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         seed_for_numerals(w);
         assign_shortcut(w, 0, NUM_ROCK);
         assign_shortcut(w, 3, WORN_SHIRT);
@@ -8531,6 +8535,7 @@ pub fn the_number_follows_the_assignment_off_and_on_again() {
 
     assert!(
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .player_system
@@ -8543,7 +8548,11 @@ pub fn the_number_follows_the_assignment_off_and_on_again() {
         .iter()
         .all(|(n, drawn, _)| *n == -1 && !*drawn);
 
-    assign_shortcut(&mut c.app_mut().objects_mut().world, 5, NUM_ROCK);
+    assign_shortcut(
+        &mut c.app_mut().probe_mut().objects_mut().world,
+        5,
+        NUM_ROCK,
+    );
     c.tick(2);
     let after = numerals(&mut c, NUM_ROCK);
     let moved = after
@@ -8571,10 +8580,14 @@ pub fn the_magic_stance_dims_the_number_everywhere() {
         .and_then(|t| t.2)
         .expect("the premise");
 
-    c.app_mut().objects_mut().world.combat.combat_mode =
-        dereth_client_model::combat::CombatMode::from_raw(
-            dereth_ui_screens::toolbar::combat_mode::MAGIC,
-        );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .combat
+        .combat_mode = dereth_client_model::combat::CombatMode::from_raw(
+        dereth_ui_screens::toolbar::combat_mode::MAGIC,
+    );
     c.tick(2);
 
     let after = numerals(&mut c, NUM_ROCK);
@@ -8646,6 +8659,7 @@ pub fn a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot() {
     let mut c = a_client_with_shortcuts();
     let slot_of = |c: &mut HeadlessClient, item: ObjectId| {
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .player_system
@@ -8671,7 +8685,7 @@ pub fn a_thing_pushed_off_its_tile_keeps_its_shortcut_in_the_next_free_slot() {
     // Fill the two slots right of the pack's, then drop on the pack's tile: the first empty slot
     // to its right is the first of the hidden row.
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         assert!(w.player_system.remove_shortcut(1) && w.player_system.remove_shortcut(3));
         assign_shortcut(w, 7, WORN_SHIRT);
         assign_shortcut(w, 8, NUM_ROCK);
@@ -8785,7 +8799,7 @@ fn seed_two_packs(w: &mut dereth_client_model::World) {
 
 fn a_client_with_two_side_packs() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
-    seed_two_packs(&mut c.app_mut().objects_mut().world);
+    seed_two_packs(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     c.tick(2);
     {
@@ -8976,6 +8990,7 @@ pub fn the_shards_two_answers_both_take_the_mark_off() {
     {
         let mut out = dereth_client_model::RecordingSink::default();
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .server_says_attempt_failed(SIDE_PACK, 0, &mut out);
@@ -8993,15 +9008,11 @@ pub fn the_shards_two_answers_both_take_the_mark_off() {
     let marked_again = mark_is_up(&mut c, SIDE_PACK);
     {
         let mut out = dereth_client_model::RecordingSink::default();
-        c.app_mut().objects_mut().world.server_says_move_item(
-            SIDE_PACK,
-            OTHER_PACK,
-            0,
-            ObjectId(0),
-            0,
-            true,
-            &mut out,
-        );
+        c.app_mut()
+            .probe_mut()
+            .objects_mut()
+            .world
+            .server_says_move_item(SIDE_PACK, OTHER_PACK, 0, ObjectId(0), 0, true, &mut out);
     }
     c.tick(2);
     let the_move_clears_it = mark_is_gone(&mut c, SIDE_PACK);
@@ -9033,6 +9044,7 @@ pub fn every_tile_mirrors_the_things_own_state() {
     let clean_to_start = mark_is_gone(&mut c, SIDE_PACK);
 
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .set_waiting_state(SIDE_PACK, true);
@@ -9040,6 +9052,7 @@ pub fn every_tile_mirrors_the_things_own_state() {
     let follows_it_up = mark_is_up(&mut c, SIDE_PACK);
 
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .set_waiting_state(SIDE_PACK, false);
@@ -9062,6 +9075,7 @@ pub fn every_tile_mirrors_the_things_own_state() {
 pub fn a_destroyed_thing_leaves_no_tile_and_no_mark() {
     let mut c = a_client_with_two_side_packs();
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .set_waiting_state(SIDE_PACK, true);
@@ -9071,6 +9085,7 @@ pub fn a_destroyed_thing_leaves_no_tile_and_no_mark() {
     {
         let mut out = dereth_client_model::RecordingSink::default();
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .server_says_remove(SIDE_PACK, ServerTime(0.0), &mut out);
@@ -9108,7 +9123,7 @@ pub fn a_tile_clears_its_own_before_catching_another_thing() {
     let mut c = a_client_with_two_side_packs();
     let ammunition = dereth_client_model::inventory::slots::loc::MISSILE_AMMO;
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         let stack = w.weenie_mut(LOOSE).expect("seeded");
         stack.pwd.valid_locations = Some(ammunition);
         stack.pwd.stack_size = Some(2);
@@ -9129,6 +9144,7 @@ pub fn a_tile_clears_its_own_before_catching_another_thing() {
         let mut asked = dereth_client_model::RecordingRequests::default();
         let mut notices = dereth_client_model::RecordingSink::default();
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .attempt_wield(
@@ -9235,11 +9251,16 @@ pub fn a_refused_backpack_drop_sends_nothing_and_takes_the_mark_off() {
     let mut c = a_client_with_two_side_packs();
     pick_up_and_see_the_mark(&mut c, SIDE_PACK);
     let already_waiting_on = ObjectId(0x5000_00EE);
-    c.app_mut().objects_mut().world.request_lock.record(
-        already_waiting_on,
-        dereth_client_model::inventory::requests::InventoryRequest::Drop,
-        ServerTime(1.1),
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .request_lock
+        .record(
+            already_waiting_on,
+            dereth_client_model::inventory::requests::InventoryRequest::Drop,
+            ServerTime(1.1),
+        );
     let button = shipped(&mut c, INVENTORY_BUTTON);
     let at = carry_over(&mut c, button);
     c.when(LetGo(at));
@@ -9271,7 +9292,7 @@ pub fn a_refused_backpack_drop_sends_nothing_and_takes_the_mark_off() {
 pub fn a_full_pack_is_named_the_way_the_player_would_name_it() {
     let mut c = a_client_with_two_side_packs();
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         let player = w.weenie_mut(BUSY_PLAYER).expect("seeded");
         player.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
         player.pwd.items_capacity = Some(1);
@@ -9320,7 +9341,7 @@ pub fn a_full_pack_is_named_the_way_the_player_would_name_it() {
     const A_CHEST: ObjectId = ObjectId(0x5000_0040);
     const A_PEBBLE: ObjectId = ObjectId(0x5000_0041);
     let other_name = {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         w.install_material_names(std::collections::BTreeMap::from([(0x3A, "Bronze".into())]));
         let mut chest = dereth_client_model::Weenie::new(A_CHEST);
         chest.valid = true;
@@ -9618,6 +9639,7 @@ pub fn a_hook_the_player_does_not_own_refuses_the_drop_in_words() {
     {
         let w = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(RECORDED_CHEST)
@@ -9799,15 +9821,11 @@ fn a_chest_with_something_in_it() -> (HeadlessClient, ObjectId) {
     // This is the model seam; every gesture under test is real pointer input.
     {
         let mut out = dereth_client_model::RecordingSink::default();
-        c.app_mut().objects_mut().world.server_says_move_item(
-            item,
-            RECORDED_CHEST,
-            0,
-            ObjectId(0),
-            0,
-            true,
-            &mut out,
-        );
+        c.app_mut()
+            .probe_mut()
+            .objects_mut()
+            .world
+            .server_says_move_item(item, RECORDED_CHEST, 0, ObjectId(0), 0, true, &mut out);
     }
     c.tick(2);
     assert!(
@@ -9934,6 +9952,7 @@ fn fill_to_capacity(c: &mut HeadlessClient, container: ObjectId) -> usize {
         .map_or(0, |i| i.items.len());
     let cap = u8::try_from(held).expect("the recorded container holds fewer than 256 things");
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .weenie_mut(container)
@@ -10032,6 +10051,7 @@ pub fn a_refused_move_out_of_the_chest_clears_it_and_lets_the_next_one_go() {
     {
         let mut out = dereth_client_model::RecordingSink::default();
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .server_says_attempt_failed(item, 0, &mut out);
@@ -10087,6 +10107,7 @@ pub fn the_tile_a_drop_lands_on_clears_its_own_grey_mark() {
 
     // The chest row is waiting on an older request: the thing's own flag and nothing else.
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .set_waiting_state(resident, true);
@@ -10133,6 +10154,7 @@ pub fn a_full_destination_draws_no_row_and_the_move_spills_to_a_side_pack() {
     {
         let w = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(pack)
@@ -10293,15 +10315,11 @@ fn scenario_a_full_destination_with_nowhere_to_spill_says_so_and_sends_nothing()
 /// The shard's own move answer.
 fn shard_moves(c: &mut HeadlessClient, item: ObjectId, container: ObjectId, place: u32) {
     let mut out = dereth_client_model::RecordingSink::default();
-    c.app_mut().objects_mut().world.server_says_move_item(
-        item,
-        container,
-        place,
-        ObjectId(0),
-        0,
-        true,
-        &mut out,
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .server_says_move_item(item, container, place, ObjectId(0), 0, true, &mut out);
     c.tick(2);
 }
 
@@ -10309,6 +10327,7 @@ fn shard_moves(c: &mut HeadlessClient, item: ObjectId, container: ObjectId, plac
 fn shard_refuses(c: &mut HeadlessClient, item: ObjectId) {
     let mut out = dereth_client_model::RecordingSink::default();
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .server_says_attempt_failed(item, 0, &mut out);
@@ -10893,15 +10912,11 @@ fn a_second_thing_into_the_chest(c: &mut HeadlessClient, not: ObjectId) -> Objec
         "the premise: a carried thing is a real object, which is the point of this fixture"
     );
     let mut out = dereth_client_model::RecordingSink::default();
-    c.app_mut().objects_mut().world.server_says_move_item(
-        item,
-        RECORDED_CHEST,
-        0,
-        ObjectId(0),
-        0,
-        true,
-        &mut out,
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .server_says_move_item(item, RECORDED_CHEST, 0, ObjectId(0), 0, true, &mut out);
     c.tick(2);
     item
 }
@@ -11077,6 +11092,7 @@ pub fn a_row_with_nothing_behind_it_does_not_keep_a_mark_it_was_given() {
     let the_tile_came_back = !chest_tile_ghosted(&c, ghostless);
 
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .set_waiting_state(first, true);
@@ -11434,6 +11450,7 @@ fn make_the_chest_a_hook(c: &mut HeadlessClient, hook: u16, accepts: u32, owner:
     {
         let w = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(RECORDED_CHEST)
@@ -11456,6 +11473,7 @@ fn make_the_chest_a_hook(c: &mut HeadlessClient, hook: u16, accepts: u32, owner:
 fn make_it_hookable(c: &mut HeadlessClient, item: ObjectId, valid: u16, obj_type: u32) {
     let w = c
         .app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .weenie_mut(item)
@@ -11502,6 +11520,7 @@ pub fn the_open_chest_lights_the_row_the_carried_thing_is_over() {
     {
         let w = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(RECORDED_CHEST)
@@ -12773,6 +12792,7 @@ pub fn a_refused_world_drop_names_the_thing_as_the_player_sees_it() {
     let mut req = dereth_client_model::RecordingRequests::default();
     let mut out = dereth_client_model::RecordingSink::default();
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .attempt_put_in_3d(&mut req, &mut out, FOCI, ServerTime(1.0), false)
@@ -12807,6 +12827,7 @@ pub fn a_refused_world_drop_names_the_thing_as_the_player_sees_it() {
     {
         let item = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(FOCI)
@@ -12819,6 +12840,7 @@ pub fn a_refused_world_drop_names_the_thing_as_the_player_sees_it() {
     let mut req = dereth_client_model::RecordingRequests::default();
     let mut out = dereth_client_model::RecordingSink::default();
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .attempt_put_in_3d(&mut req, &mut out, FOCI, ServerTime(1.0), false)
@@ -12944,6 +12966,7 @@ pub fn an_attuned_thing_says_so_in_its_description() {
     {
         let mut sink = dereth_client_model::RecordingSink::default();
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .set_appraise_info(ATTUNED_SUBJECT, profile, &mut sink);
@@ -13057,7 +13080,7 @@ fn seed_five_loose_things(w: &mut dereth_client_model::World) {
 /// something else with their pack.
 pub fn a_real_drag_across_the_grid_asks_for_the_place_the_player_aimed_at() {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
-    seed_five_loose_things(&mut c.app_mut().objects_mut().world);
+    seed_five_loose_things(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     c.tick(2);
 
@@ -13182,7 +13205,7 @@ fn seed_three_things_and_a_pack(w: &mut dereth_client_model::World) {
 
 fn a_client_with_three_things_and_a_pack() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
-    seed_three_things_and_a_pack(&mut c.app_mut().objects_mut().world);
+    seed_three_things_and_a_pack(&mut c.app_mut().probe_mut().objects_mut().world);
     open_pack(&mut c);
     c.tick(2);
     c
@@ -14018,6 +14041,7 @@ pub fn the_number_key_of_a_filled_tile_uses_what_is_in_it() {
     // that reached nothing would read alike.
     let item = HINT_DRAG_ITEMS[0];
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .weenie_mut(item)
@@ -14073,11 +14097,15 @@ pub fn a_number_key_pressed_with_a_cursor_armed_finishes_that_gesture() {
 
     // The drag selected the tile it started on, and the Examine button only arms the pointer
     // when nothing is selected -- with something selected it appraises that instead.
-    c.app_mut().objects_mut().world.set_selected_object(
-        None,
-        false,
-        &mut dereth_client_model::RecordingSink::default(),
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .set_selected_object(
+            None,
+            false,
+            &mut dereth_client_model::RecordingSink::default(),
+        );
     c.tick(1);
     let nothing_selected = c.view().world().selected.is_none();
 
@@ -14140,10 +14168,10 @@ pub fn a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
     c.tick(8);
     let came_from_the_wizard = c.app_mut().ui_mut().and_then(|s| s.flow.current_mode())
         == Some(dereth_ui::framework::mode::GAME_PLAY);
-    seed_three_things_and_a_pack(&mut c.app_mut().objects_mut().world);
+    seed_three_things_and_a_pack(&mut c.app_mut().probe_mut().objects_mut().world);
     let kit = HINT_DRAG_ITEMS[0];
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         // The shipped healing kit: carried, and used on a creature, the player included.
         let k = w.weenie_mut(kit).expect("seeded");
         k.pwd.name = "Healing Kit".into();
@@ -14171,11 +14199,15 @@ pub fn a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
     drop_on_tile(&mut c, main_pack, PACK_TILE);
     let tiles = (tile_holds(&mut c, KIT_TILE), tile_holds(&mut c, PACK_TILE))
         == (Some(kit), Some(HINT_DRAG_PLAYER));
-    c.app_mut().objects_mut().world.set_selected_object(
-        None,
-        false,
-        &mut dereth_client_model::RecordingSink::default(),
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .set_selected_object(
+            None,
+            false,
+            &mut dereth_client_model::RecordingSink::default(),
+        );
     c.tick(1);
 
     let mark = c.outbound().len();
@@ -14435,7 +14467,7 @@ const SACK_GUIDE: ObjectId = ObjectId(0x8000_0A76);
 /// what the shopkeeper thinks of each of them is her own recorded profile's answer.
 fn fill_the_sack(c: &mut HeadlessClient) {
     let inside = [SACK_BREAD, SACK_SHORTBOW, SACK_LETTER, SACK_GUIDE];
-    let world = &mut c.app_mut().objects_mut().world;
+    let world = &mut c.app_mut().probe_mut().objects_mut().world;
     let player = world.player.expect("the recorded player");
     if let Some(p) = world.tables.inventories.get_mut(player) {
         p.items.retain(|i| !inside.contains(i));
@@ -14832,6 +14864,7 @@ pub fn the_same_drag_is_a_wear_on_the_figure_and_a_move_into_a_pack() {
     let (worn, packed_instead) = {
         let mut c = a_client_with_three_things_and_a_pack();
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(wearable)
@@ -14863,6 +14896,7 @@ pub fn the_same_drag_is_a_wear_on_the_figure_and_a_move_into_a_pack() {
     // On the pack, with everything else the same.
     let mut c = a_client_with_three_things_and_a_pack();
     c.app_mut()
+        .probe_mut()
         .objects_mut()
         .world
         .weenie_mut(wearable)
@@ -15075,7 +15109,7 @@ const CHEST_SHIRT: ObjectId = ObjectId(0x8000_1002);
 fn a_client_with_a_dressed_chest() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
     {
-        let world = &mut c.app_mut().objects_mut().world;
+        let world = &mut c.app_mut().probe_mut().objects_mut().world;
         world.player = Some(CLICKED_PLAYER);
         let mut inv = dereth_client_model::objects::ObjectInventory::new(CLICKED_PLAYER);
         inv.placements = vec![
@@ -15312,7 +15346,7 @@ fn bytes_of(hex: &str) -> Vec<u8> {
 fn a_client_standing_at_the_altar() -> (HeadlessClient, dereth_testkit::Peer) {
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
     let mut peer = dereth_testkit::Peer::attach_creating(&mut c, ALTAR_PLAYER);
-    c.app_mut().objects_mut().world.player = Some(ALTAR_PLAYER);
+    c.app_mut().probe_mut().objects_mut().world.player = Some(ALTAR_PLAYER);
     peer.send(&mut c, 10, bytes_of(RECORDED_ALTAR));
     c.tick(3);
 
@@ -15329,7 +15363,7 @@ fn a_client_standing_at_the_altar() -> (HeadlessClient, dereth_testkit::Peer) {
             "and it is a thing that can be used"
         );
     }
-    c.app_mut().objects_mut().world.selected = Some(ALTAR);
+    c.app_mut().probe_mut().objects_mut().world.selected = Some(ALTAR);
     c.tick(1);
     (c, peer)
 }
@@ -15422,7 +15456,7 @@ pub fn the_shipped_use_key_raises_the_question_and_the_two_answers_differ() {
 
     // What the client acts on is what it put the question up about, and not whatever happens to
     // be picked when the answer comes: the selection is taken away before yes is pressed.
-    c.app_mut().objects_mut().world.selected = None;
+    c.app_mut().probe_mut().objects_mut().world.selected = None;
     answer_the_question(&mut c, true);
     let used_once = uses_of_the_altar(&c) == 1;
     let it_really_left = c.take_wire_count(0x0036) == 1;
@@ -15556,11 +15590,15 @@ fn a_client_at_the_recorded_corpse(pick: Option<ObjectId>) -> HeadlessClient {
     );
     // What the client acts on is what is picked, so the picking is made through the client's own
     // entry point rather than assumed from the recording.
-    c.app_mut().objects_mut().world.set_selected_object(
-        pick,
-        false,
-        &mut dereth_client_model::RecordingSink::default(),
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .set_selected_object(
+            pick,
+            false,
+            &mut dereth_client_model::RecordingSink::default(),
+        );
     c.tick(1);
     assert_eq!(
         c.view().world().selected,
@@ -15718,7 +15756,7 @@ pub fn the_shipped_key_carries_the_picked_stacks_own_count_into_the_merge() {
     // explicit: that is the one branch whose amount is the thing this scenario is about, and a
     // plain corpse thing would only exercise the plain move again.
     {
-        let world = &mut c.app_mut().objects_mut().world;
+        let world = &mut c.app_mut().probe_mut().objects_mut().world;
         let source = world
             .weenie_mut(CORPSE_THING)
             .expect("the recorded corpse thing");
@@ -15747,11 +15785,15 @@ pub fn the_shipped_key_carries_the_picked_stacks_own_count_into_the_merge() {
         );
     }
 
-    c.app_mut().objects_mut().world.set_selected_object(
-        Some(CORPSE_THING),
-        false,
-        &mut dereth_client_model::RecordingSink::default(),
-    );
+    c.app_mut()
+        .probe_mut()
+        .objects_mut()
+        .world
+        .set_selected_object(
+            Some(CORPSE_THING),
+            false,
+            &mut dereth_client_model::RecordingSink::default(),
+        );
     c.tick(1);
     let the_count_was_seeded_by_the_picking = c.view().world().split
         == dereth_client_model::inventory::SplitState::whole_stack(u32::from(CORPSE_STACK_SIZE));
@@ -16248,11 +16290,11 @@ mod shop {
             .last()
             .expect("the live stock list holds a row");
 
-        c.app_mut().objects_mut().world.set_selected_object(
-            None,
-            false,
-            &mut RecordingSink::default(),
-        );
+        c.app_mut()
+            .probe_mut()
+            .objects_mut()
+            .world
+            .set_selected_object(None, false, &mut RecordingSink::default());
         c.tick(1);
         let nothing_picked_yet = c.view().world().selected != Some(item);
 
@@ -24854,7 +24896,7 @@ mod equip {
     /// A whole client with the pack open, the figure live, and the armoury in the pack.
     fn a_player_with_an_armoury() -> HeadlessClient {
         let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
-        seed_the_armoury(&mut c.app_mut().objects_mut().world);
+        seed_the_armoury(&mut c.app_mut().probe_mut().objects_mut().world);
         open_pack(&mut c);
         c.tick(2);
         c
@@ -24864,7 +24906,12 @@ mod equip {
     fn the_shard_puts_it_on(c: &mut HeadlessClient, item: ObjectId, place: u32) {
         c.when(the_shard_says_worn(item, place)).tick(1);
         assert_eq!(
-            c.app_mut().objects_mut().world.inv_slots.item_at(place),
+            c.app_mut()
+                .probe_mut()
+                .objects_mut()
+                .world
+                .inv_slots
+                .item_at(place),
             Some(item),
             "the premise: the shard's own answer put {item:?} on the body"
         );
@@ -24924,6 +24971,7 @@ mod equip {
         );
         let and_nothing_came_off = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .inv_slots
@@ -24964,6 +25012,7 @@ mod equip {
         {
             let w = c
                 .app_mut()
+                .probe_mut()
                 .objects_mut()
                 .world
                 .weenie_mut(ARROWS_IN_THE_PACK)
@@ -24972,6 +25021,7 @@ mod equip {
             w.pwd.plural_name = None;
         }
         c.app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .weenie_mut(ARROWS_ON_THE_BODY)
@@ -24989,6 +25039,7 @@ mod equip {
             && !said.iter().any(|t| t.contains("Lockpixes"));
         let and_the_stack_on_the_body_is_untouched = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .inv_slots
@@ -25029,7 +25080,8 @@ mod equip {
             the_shard_puts_it_on(&mut c, in_the_way, its_place);
             if its_place == loc::SHIELD {
                 assert_eq!(
-                    c.app_mut().objects_mut().world.inventory_mask & loc::WEAPON_READY_SLOT,
+                    c.app_mut().probe_mut().objects_mut().world.inventory_mask
+                        & loc::WEAPON_READY_SLOT,
                     0,
                     "the control: the hand a weapon goes in is empty, so only the shield can be \
                      in the way"
@@ -25046,6 +25098,7 @@ mod equip {
                     t == &format!(
                         "Moving {} to your backpack",
                         c.app_mut()
+                            .probe_mut()
                             .objects_mut()
                             .world
                             .weenie(in_the_way)
@@ -25074,6 +25127,7 @@ mod equip {
             && sent.iter().filter_map(wield_place).collect::<Vec<_>>()
                 == vec![(SWORD, loc::MELEE_WEAPON)]
             && c.app_mut()
+                .probe_mut()
                 .objects_mut()
                 .world
                 .inv_slots
@@ -25111,6 +25165,7 @@ mod equip {
                 .any(|t| t == "A shield may not be worn with the Spear");
         let and_the_weapon_stays = c
             .app_mut()
+            .probe_mut()
             .objects_mut()
             .world
             .inv_slots
@@ -25198,9 +25253,15 @@ mod equip {
                 "the premise: the bar is holding the thing the key is about to act on"
             );
         }
-        c.app_mut().objects_mut().world.selected = None;
+        c.app_mut().probe_mut().objects_mut().world.selected = None;
         c.tick(1);
-        let nothing_selected_yet = c.app_mut().objects_mut().world.selected.is_none();
+        let nothing_selected_yet = c
+            .app_mut()
+            .probe_mut()
+            .objects_mut()
+            .world
+            .selected
+            .is_none();
 
         let presses_before = c.app_mut().ui().expect("a shell").stats.key_presses;
         c.when(Player::Press(dereth_input::ActionId(
@@ -25212,7 +25273,7 @@ mod equip {
         let the_key_reached_the_screens =
             stats.key_presses > presses_before && stats.key_presses_broadcast > 0;
         let and_that_tiles_own_thing_is_selected =
-            c.app_mut().objects_mut().world.selected == Some(BOW);
+            c.app_mut().probe_mut().objects_mut().world.selected == Some(BOW);
 
         c.assert_behaviour(
             "inventory.shortcut-bar.the-other-key-for-a-tile-selects-what-is-in-it-instead-of-using-it",
@@ -25358,7 +25419,7 @@ mod equip {
 
         // The same press, delivered as the message a real click raises, and followed to the far
         // end: what the world records as selected must be the thing in the slot pressed.
-        c.app_mut().objects_mut().world.selected = Some(BOW);
+        c.app_mut().probe_mut().objects_mut().world.selected = Some(BOW);
         {
             let (ui, _screen) = gameplay_screen(c.app_mut());
             ui.broadcast_element_message(
@@ -25370,7 +25431,7 @@ mod equip {
         }
         c.tick(1);
         let the_slot_pressed_and_not_the_last_one =
-            c.app_mut().objects_mut().world.selected == Some(SWORD);
+            c.app_mut().probe_mut().objects_mut().world.selected == Some(SWORD);
 
         let empty = {
             let (_ui, screen) = gameplay_screen(c.app_mut());
@@ -25421,7 +25482,7 @@ mod equip {
         use dereth_ui_screens::view::TargetMode as Asked;
 
         let mut c = a_player_with_an_armoury();
-        c.app_mut().objects_mut().world.selected = None;
+        c.app_mut().probe_mut().objects_mut().world.selected = None;
         c.tick(1);
         let with_nothing_selected = {
             let (_ui, screen) = gameplay_screen(c.app_mut());
@@ -25433,7 +25494,7 @@ mod equip {
                     .is_none()
         };
 
-        c.app_mut().objects_mut().world.selected = Some(BOW);
+        c.app_mut().probe_mut().objects_mut().world.selected = Some(BOW);
         c.tick(1);
         let with_a_selection = {
             let (_ui, screen) = gameplay_screen(c.app_mut());
@@ -25441,7 +25502,7 @@ mod equip {
                 && screen.on_target_mode_button(EXAMINE_BUTTON) == Some(UiRequest::Examine(BOW))
         };
 
-        c.app_mut().objects_mut().world.selected = None;
+        c.app_mut().probe_mut().objects_mut().world.selected = None;
         c.tick(1);
         let nothing_armed_yet = c.app_mut().interaction().target_mode() == ArmedWith::None;
         c.when(Player::click(USE_BUTTON));
@@ -29406,7 +29467,7 @@ mod icons {
     fn a_client_with_a_pack() -> HeadlessClient {
         let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
         {
-            let w = &mut c.app_mut().objects_mut().world;
+            let w = &mut c.app_mut().probe_mut().objects_mut().world;
             w.player = Some(OWNER);
             let mut me = dereth_client_model::Weenie::new(OWNER);
             me.valid = true;
@@ -30376,7 +30437,7 @@ mod clicks {
         // about them.
         let inside = ObjectId(0x5600_0001);
         {
-            let w = &mut c.app_mut().objects_mut().world;
+            let w = &mut c.app_mut().probe_mut().objects_mut().world;
             let mut thing = dereth_client_model::Weenie::new(inside);
             thing.valid = true;
             thing.pwd.name = "Prismatic Taper".into();
@@ -30426,7 +30487,7 @@ mod clicks {
 
         // Editing list membership alone is not an ownership notification.
         {
-            let w = &mut c.app_mut().objects_mut().world;
+            let w = &mut c.app_mut().probe_mut().objects_mut().world;
             if let Some(inv) = w.tables.inventories.get_mut(super::DRAG_PLAYER) {
                 inv.containers.retain(|id| *id != super::DRAG_PACK);
             }
@@ -30633,7 +30694,7 @@ mod death {
         fn new() -> Self {
             let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
             {
-                let w = &mut c.app_mut().objects_mut().world;
+                let w = &mut c.app_mut().probe_mut().objects_mut().world;
                 w.player = Some(ME);
                 for id in [ME, PACK, ROCK, CORPSE] {
                     let mut wn = dereth_client_model::Weenie::new(id);
@@ -30986,7 +31047,7 @@ const PEAR: ObjectId = ObjectId(0x5000_0031);
 fn a_dressed_client_with_food() -> HeadlessClient {
     let mut c = a_dressed_client();
     {
-        let w = &mut c.app_mut().objects_mut().world;
+        let w = &mut c.app_mut().probe_mut().objects_mut().world;
         for (i, (id, name)) in [(APPLE, "Apple"), (PEAR, "Pear")].into_iter().enumerate() {
             let mut wn = dereth_client_model::Weenie::new(id);
             wn.valid = true;

@@ -217,11 +217,13 @@ impl<H: Host> App<H> {
     }
 
     /// The interaction boundary as the frame runs it, with the panels callback.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn apply_interaction_events_to_panels(
         &mut self,
         events: &[dereth_client_net::client_session::SessionEvent],
     ) {
         self.core
+            .probe_mut()
             .apply_interaction_events_to_panels(&mut self.shell, events);
     }
 

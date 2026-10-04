@@ -318,6 +318,7 @@ impl<T: Transport> Session<T> {
     /// Rows of `InstanceTable` — objects whose instance sequence the gate can answer for.
     /// Instrumentation.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn instance_count(&self) -> usize {
         self.instances.len()
     }
@@ -325,6 +326,7 @@ impl<T: Transport> Session<T> {
     /// Objects the session believes have a live Weenie, i.e. the UI-ordering owners.
     /// Instrumentation.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn weenie_count(&self) -> usize {
         self.weenies.len()
     }
@@ -332,6 +334,7 @@ impl<T: Transport> Session<T> {
     /// `PropertySequenceGate`s, one per object [`Self::stamper`] has ever been asked for.
     /// Instrumentation.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn stamper_count(&self) -> usize {
         self.stampers.len()
     }
@@ -340,24 +343,28 @@ impl<T: Transport> Session<T> {
     /// A blob parked on an id that never arrives is held for the rest of the session.
     /// Instrumentation.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn parked_blob_count(&self) -> usize {
         self.parked_world_objects.total()
     }
 
     /// Events raised and not yet taken by [`Self::drain_events`]. Instrumentation.
     #[must_use]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn pending_event_count(&self) -> usize {
         self.events.len()
     }
 
     /// The per-object `PropertySequenceGate`s, keyed by object. Object setup creates one lazily; so does
     /// this.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn stamper(&mut self, id: ObjectId) -> &mut PropertySequenceGate {
         self.stampers.entry(id).or_default()
     }
 
     /// The instance-sequence table the WorldObjects gate reads. The game layer updates it when it
     /// creates or destroys an object.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn instances_mut(&mut self) -> &mut InstanceTable {
         &mut self.instances
     }

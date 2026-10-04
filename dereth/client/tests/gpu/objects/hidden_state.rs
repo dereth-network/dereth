@@ -499,7 +499,7 @@ fn app() -> App {
 }
 
 fn send<M: Message>(app: &mut App, m: &M) {
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: M::OPCODE,
             body: dereth_protocol::write_body(m).expect("encodes"),
@@ -510,7 +510,8 @@ fn send<M: Message>(app: &mut App, m: &M) {
 
 /// The player's own `0xF745`, carrying the state word the caller names.
 fn create_player(app: &mut App, state: u32) {
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(PLAYER), LocalTime(0.0));
     let (block, origin) = {
         let s = app.world_scene().expect("a scene");

@@ -144,7 +144,7 @@ fn assert_lock_wire(request: &Request, locked: bool) {
 fn open_recorded_component_vendor(app: &mut App) {
     const PLAYER: ObjectId = ObjectId(0x5000_000A);
     const VENDOR_INFO_AT: usize = 4736;
-    app.objects_mut().world.player = Some(PLAYER);
+    app.probe_mut().objects_mut().world.player = Some(PLAYER);
     let corpus = Corpus::shared("long-solo-play");
     for row in corpus
         .blobs
@@ -180,9 +180,10 @@ fn open_recorded_component_vendor(app: &mut App) {
             },
         };
         let now = LocalTime(std::time::Duration::from_micros(row.t_rel_micros).as_secs_f64());
-        app.objects_mut().apply_event(&event, now);
+        app.probe_mut().objects_mut().apply_event(&event, now);
         app.apply_hud_events(std::slice::from_ref(&event));
-        app.apply_interaction_events(std::slice::from_ref(&event));
+        app.probe_mut()
+            .apply_interaction_events(std::slice::from_ref(&event));
     }
     for _ in 0..3 {
         assert!(app.frame());
@@ -849,7 +850,7 @@ fn corpse_reads_position_quality_0e_from_a_typed_line_and_sends_nothing() {
     );
 
     // A real player description without 0x0E gets the apology, not the generic command failure.
-    app.objects_mut().world.seed_player_desc(
+    app.probe_mut().objects_mut().world.seed_player_desc(
         ObjectId(0x5000_000A),
         dereth_client_model::Qualities::default(),
     );
@@ -869,6 +870,7 @@ fn corpse_reads_position_quality_0e_from_a_typed_line_and_sends_nothing() {
 
     // 0xA9B4002A -> local coordinates (1357, 1441) -> 42.2N, 33.8E.
     let qualities = app
+        .probe_mut()
         .objects_mut()
         .world
         .player_qualities_mut()
@@ -1120,8 +1122,8 @@ fn typed_saveui_and_loadui_round_trip_the_visible_layout_file() {
     );
 
     // The automatic siblings are the same two notices with the literal `#auto` name.
-    app.host_state_mut().entered_character = Some("Kupo".to_owned());
-    app.host_state_mut().world_name = Some("Frostfell".to_owned());
+    app.probe_mut().host_state_mut().entered_character = Some("Kupo".to_owned());
+    app.probe_mut().host_state_mut().world_name = Some("Frostfell".to_owned());
     let auto_path = dir.join("UI-Kupo-Frostfell-600-800.txt");
     if auto_path.exists() {
         std::fs::remove_file(&auto_path).expect("remove this test's old disposable auto layout");
@@ -1561,7 +1563,7 @@ fn squelch_parser_preserves_native_diagnostics_reply_and_no_argument_query() {
         s == "A player must @tell you before you can squelch them with this command."
     }));
 
-    app.objects_mut().world.chat.last_teller_name = "Baron Lark".into();
+    app.probe_mut().objects_mut().world.chat.last_teller_name = "Baron Lark".into();
     hand.submit(&mut app, "@squelch -reply -account");
     assert_eq!(
         app.interaction().last_sent.as_slice(),
@@ -1590,31 +1592,39 @@ none"
         "the empty local DB prints the native query header and sentinel; log was {log:?}"
     );
 
-    app.objects_mut().world.chat.squelch.characters.insert(
-        ObjectId(10),
-        dereth_client_model::chat::SquelchEntry {
-            types: [
-                dereth_client_model::chat::text_type::SPEECH_DIRECT,
-                dereth_client_model::chat::text_type::COMBAT,
-            ]
-            .into_iter()
-            .collect(),
-            is_zone_squelch: 1,
-            name: "Baron Lark".into(),
-        },
-    );
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .chat
+        .squelch
+        .characters
+        .insert(
+            ObjectId(10),
+            dereth_client_model::chat::SquelchEntry {
+                types: [
+                    dereth_client_model::chat::text_type::SPEECH_DIRECT,
+                    dereth_client_model::chat::text_type::COMBAT,
+                ]
+                .into_iter()
+                .collect(),
+                is_zone_squelch: 1,
+                name: "Baron Lark".into(),
+            },
+        );
     let mut all = dereth_client_model::chat::SquelchEntry {
         name: "Allie".into(),
         ..Default::default()
     };
     all.squelch_everything();
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .chat
         .squelch
         .characters
         .insert(ObjectId(20), all);
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .chat
         .squelch
@@ -1760,7 +1770,13 @@ fn filter_parser_prints_native_refusals_and_queries_the_authoritative_global_ent
 (For a list of filter options, type @help filter)"
     ));
 
-    app.objects_mut().world.chat.squelch.global.types = [
+    app.probe_mut()
+        .objects_mut()
+        .world
+        .chat
+        .squelch
+        .global
+        .types = [
         dereth_client_model::chat::text_type::SPEECH_DIRECT,
         dereth_client_model::chat::text_type::COMBAT,
     ]
@@ -1817,7 +1833,8 @@ fn typed_fillcomps_populates_the_visible_buying_page_and_clear_updates_the_compo
         .components
         .num_component(&app.objects().world.magic.catalogue, wcid);
     let desired = i32::try_from(have + 6).expect("the captured component count is small");
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .world
         .player_system
         .set_desired_comp_level(wcid, desired);
@@ -2142,7 +2159,7 @@ fn typed_log_appends_displayed_chat_stops_and_preserves_native_path_rules() {
     // The full in-world body producer is covered by the speech tests. This station is about the
     // encoded UI-queue record reaching the two final-string consumers, so it states its body
     // premise directly.
-    app.hud_mut().player_body = true;
+    app.probe_mut().hud_mut().player_body = true;
     app.apply_hud_events(&[SessionEvent::UiEvent {
         opcode: dereth_protocol::Opcode::COMMUNICATION_HEAR_DIRECT_SPEECH,
         blob: tell_blob,
@@ -2479,7 +2496,7 @@ fn typed_version_prints_the_rebuild_identity_and_native_optional_turbine_line() 
         "the login protocol version was mislabelled as this binary"
     );
 
-    app.objects_mut().world.chat.using_turbine_chat = true;
+    app.probe_mut().objects_mut().world.chat.using_turbine_chat = true;
     hand.submit(&mut app, "@version");
     assert!(
         app.interaction().last_sent.is_empty(),
@@ -2537,7 +2554,7 @@ fn typed_version_prints_the_rebuild_identity_and_native_optional_turbine_line() 
 fn typed_version_queries_the_server_only_for_the_three_native_psr_boolean_qualities() {
     let mut app = app();
     let mut hand = Hand::new();
-    app.objects_mut().world.seed_player_desc(
+    app.probe_mut().objects_mut().world.seed_player_desc(
         ObjectId(0x5000_000A),
         dereth_client_model::Qualities::default(),
     );
@@ -2707,6 +2724,7 @@ fn typed_popup_title_draws_literal_and_survives_the_player_module_roundtrip() {
     // title receiver, which writes the equal property again. The default title must not win.
     let mut save = dereth_client_model::RecordingRequests::default();
     assert!(app
+        .probe_mut()
         .objects_mut()
         .world
         .player_system

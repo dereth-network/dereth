@@ -100,9 +100,10 @@ fn setup() -> App {
     let here = position(&app);
     create.0.physicsdesc.position = Some(wire_position(here.cell.0, here.frame.origin, &here));
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
-    app.objects_mut()
+    app.probe_mut()
+        .objects_mut()
         .apply_event(&SessionEvent::PlayerCreated(id), LocalTime(1.0));
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("constructed terrain placement"),
@@ -116,7 +117,7 @@ fn setup() -> App {
             .presence(id)
             .expect("the player's presence")
             .state_ts;
-        app.objects_mut().apply_event(
+        app.probe_mut().objects_mut().apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemSetState::OPCODE,
                 body: dereth_protocol::write_body(&ItemSetState {
@@ -199,7 +200,7 @@ fn place_the_corpus_chest_at(app: &mut App, lateral: f32) -> (ObjectId, String) 
     create.0.physicsdesc.bitfield |= dereth_protocol::types::physicsdesc::flags::POSITION;
     let id = create.0.id;
     let name = create.0.wdesc.name.clone();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -510,7 +511,7 @@ fn place_the_corpus_item_in(
     }
     let id = create.0.id;
     let name = create.0.wdesc.name.clone();
-    app.objects_mut().apply_event(
+    app.probe_mut().objects_mut().apply_event(
         &SessionEvent::WorldObject {
             opcode: Opcode::ITEM_CREATE_OBJECT,
             body: dereth_protocol::write_body(&create).expect("re-encodes"),
@@ -713,7 +714,7 @@ fn an_object_behind_an_interior_wall_never_names_itself() {
 /// source. The test starts a grid-icon drag, which exercises the reported shared drag state;
 /// it does not pick an equipped mesh directly from the paper doll.
 fn seed_inventory(app: &mut App) {
-    let w = &mut app.objects_mut().world;
+    let w = &mut app.probe_mut().objects_mut().world;
     let player = w.player.expect("the bench's body has the server's id");
     w.tables.inventories.insert(
         player,

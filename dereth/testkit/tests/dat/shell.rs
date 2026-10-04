@@ -1143,11 +1143,11 @@ fn held_moves(
 }
 
 fn forward(app: &dereth_client::app::App) -> bool {
-    app.char_input().forward
+    app.probe().char_input().forward
 }
 
 fn backward(app: &dereth_client::app::App) -> bool {
-    app.char_input().back
+    app.probe().char_input().back
 }
 
 /// A rebound key walks the body and the key it was taken from stops walking it.
@@ -2135,7 +2135,7 @@ fn scenario_a_modified_number_uses_a_quick_slot_and_not_the_chat_window() {
 
 /// Whether the body is running this frame.
 fn running(c: &HeadlessClient) -> bool {
-    c.view().expect_app().char_input().run
+    c.view().expect_app().probe().char_input().run
 }
 
 /// Hold the walk-mode key down and answer what the body did, then let go and answer again.
@@ -2170,11 +2170,11 @@ pub fn the_walk_mode_key_follows_the_run_by_default_option() {
         .options
         .get(TOGGLE_RUN);
 
-    let routed_before = c.view().expect_app().actions_routed();
+    let routed_before = c.view().expect_app().probe().actions_routed();
     let (held_on, released_on) = walk_mode_edges(&mut c, &mut hands);
     // The denominator: "the flag did not change" and "the key never arrived" are the same reading
     // without it, and a value that silently stayed at its default is this claim's whole subject.
-    let key_arrived = c.view().expect_app().actions_routed() > routed_before;
+    let key_arrived = c.view().expect_app().probe().actions_routed() > routed_before;
 
     // The other arm, on the same client: with the option off the same key does the opposite.
     assert!(
@@ -8056,7 +8056,7 @@ pub fn the_random_button_re_rolls_the_page_the_player_is_on() {
     let mut c = a_client_on_the_wizard();
     // An account with the expansion, so the town roll can reach the fourth town and the people
     // roll the fourth people.
-    c.app_mut().host_state_mut().account_has_tod = true;
+    c.app_mut().probe_mut().host_state_mut().account_has_tod = true;
     c.tick(1);
 
     // The people: the roll may legitimately land where it already is, so it is pressed until it
@@ -8200,7 +8200,7 @@ pub fn the_town_pages_roll_can_land_on_any_town() {
     }
     let three: bool = seen == [0, 1, 2].into_iter().collect();
 
-    c.app_mut().host_state_mut().account_has_tod = true;
+    c.app_mut().probe_mut().host_state_mut().account_has_tod = true;
     c.tick(1);
     let mut seen = std::collections::BTreeSet::new();
     for _ in 0..200 {
@@ -11134,7 +11134,7 @@ fn three_characters() -> dereth_ui::persist::CharacterSet {
 fn a_client_on_character_select() -> HeadlessClient {
     let mut c = HeadlessClient::new(ClientSpec::screen(mode::CHARACTER_MANAGEMENT, 4));
     {
-        let host = c.app_mut().host_state_mut();
+        let host = c.app_mut().probe_mut().host_state_mut();
         host.character_set = Some(three_characters());
         host.received_set = true;
         host.world_name = Some("ACEmulator".into());
@@ -12255,7 +12255,7 @@ pub fn restoring_raises_a_box_with_no_buttons_that_the_next_list_takes_down() {
     // one in that state the way the shard does.
     let mut set = three_characters();
     set.set[1].seconds_grace_period = 3600;
-    c.app_mut().host_state_mut().character_set = Some(set.clone());
+    c.app_mut().probe_mut().host_state_mut().character_set = Some(set.clone());
     c.tick(1);
     let row = charmgmt_row(&mut c, character_id(1));
     hands.click_handle(&mut c, row);
@@ -12296,7 +12296,7 @@ pub fn restoring_raises_a_box_with_no_buttons_that_the_next_list_takes_down() {
     // The shard answering with a fresh list is the box's only way down -- a box with no button
     // and nothing to close it is a stuck client.
     set.set[1].seconds_grace_period = 0;
-    c.app_mut().host_state_mut().character_set = Some(set);
+    c.app_mut().probe_mut().host_state_mut().character_set = Some(set);
     c.tick(1);
     let taken_down = charmgmt_dialog(&mut c, DialogContext::PleaseWait).is_none();
 
@@ -14697,7 +14697,7 @@ pub fn the_how_many_of_a_component_box_takes_digits_only_on_every_row() {
         .len();
 
     let mut c = HeadlessClient::new(ClientSpec::gameplay(4));
-    c.app_mut().objects_mut().world.player = Some(COMPONENT_PLAYER);
+    c.app_mut().probe_mut().objects_mut().world.player = Some(COMPONENT_PLAYER);
     c.when(dereth_testkit::Inbound::from_corpus("long-solo-play", 0..n));
     c.tick(3);
 
@@ -15234,7 +15234,7 @@ fn a_press_on_the_world(c: &mut HeadlessClient, x: i32, y: i32) -> (bool, Option
         over: None,
     };
     let app = c.app_mut();
-    let armed = app.interaction_mut().wrapper_mouse(
+    let armed = app.probe_mut().interaction_mut().wrapper_mouse(
         e,
         VIEW_WINDOW,
         dereth_client::interaction::is_world_click(e.over),
@@ -16026,7 +16026,7 @@ fn the_shard_lists_the_characters(
 /// exchange.
 fn a_character_list_from_the_wire(pending: Option<(ObjectId, u32)>) -> (HeadlessClient, Peer) {
     let mut c = HeadlessClient::new(ClientSpec::screen(mode::CHARACTER_MANAGEMENT, 4));
-    c.app_mut().host_state_mut().world_name = Some("ACEmulator".into());
+    c.app_mut().probe_mut().host_state_mut().world_name = Some("ACEmulator".into());
     let mut peer = Peer::attach(&mut c, WIRE_DOOMED);
     the_shard_lists_the_characters(&mut c, &mut peer, pending);
     (c, peer)
@@ -17508,8 +17508,12 @@ pub fn every_deferred_change_is_saved_at_the_log_off_and_found_by_the_next_sessi
     relog_gesture(&mut c, UiRequest::EndCharacterSession { ask: false });
     relog_drain_wire(&mut c, &mut shard);
     let heard = shard.opcodes();
-    let saved_once =
-        heard.contains(&0x01A1) && c.view().expect_app().player_modules_saved_at_logout() == 1;
+    let saved_once = heard.contains(&0x01A1)
+        && c.view()
+            .expect_app()
+            .probe()
+            .player_modules_saved_at_logout()
+            == 1;
     // ...and in the client's own order: the settings go out ahead of the departure.
     let in_order = match (
         heard.iter().position(|o| *o == 0x01A1),

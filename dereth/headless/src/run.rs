@@ -473,21 +473,16 @@ impl<'a> Run<'a> {
     }
 
     fn use_object(&mut self, id: ObjectId) -> Result<(), RunError> {
-        self.app
-            .interaction_mut()
-            .queue(Vec::new(), vec![UiRequest::Use(id)]);
+        self.app.submit_requests(vec![UiRequest::Use(id)]);
         self.frame()?;
         self.line(format!("use 0x{:08X}", id.0))
     }
 
     fn say(&mut self, text: &str) -> Result<(), RunError> {
-        self.app.interaction_mut().queue(
-            Vec::new(),
-            vec![UiRequest::ChatLine {
-                text: text.to_owned(),
-                window: 0,
-            }],
-        );
+        self.app.submit_requests(vec![UiRequest::ChatLine {
+            text: text.to_owned(),
+            window: 0,
+        }]);
         self.frame()?;
         self.line(format!("say {text}"))
     }

@@ -347,9 +347,9 @@ fn app_in_gameplay(frames: u32) -> App {
     }
     // Seed the two filename inputs for the direct persistence test. Production world-name
     // and entered-character producers are exercised separately by login_at_saved_resolution
-    // using a socket-free peer; they do not require a live shard. App::host_state_mut exposes
+    // using a socket-free peer; they do not require a live shard. app.probe_mut().host_state_mut exposes
     // this explicit test setup without making it evidence for the production ordering.
-    let host = app.host_state_mut();
+    let host = app.probe_mut().host_state_mut();
     host.entered_character = Some("Kupo".to_owned());
     host.world_name = Some("Frostfell".to_owned());
     app

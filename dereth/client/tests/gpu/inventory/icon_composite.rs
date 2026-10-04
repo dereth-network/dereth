@@ -222,7 +222,7 @@ fn the_effects_ring_and_the_icon_overlay_reach_the_pixels_inside_the_grid_and_no
             continue;
         }
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = replay_to(name, busiest_instant(name)).0;
+        *app.probe_mut().objects_mut() = replay_to(name, busiest_instant(name)).0;
         let (_, ev) = replay_to(name, busiest_instant(name));
         let _ = app.apply_hud_events(&ev);
         open_the_backpack(&mut app);
@@ -249,7 +249,7 @@ fn the_effects_ring_and_the_icon_overlay_reach_the_pixels_inside_the_grid_and_no
 
     let shot = |strip_grid: bool| -> (u32, u32, Vec<u8>, Box2D, usize, usize) {
         let mut app = app_in_gameplay(4);
-        *app.objects_mut() = replay_to(session, busiest_instant(session)).0;
+        *app.probe_mut().objects_mut() = replay_to(session, busiest_instant(session)).0;
         let _ = app.apply_hud_events(&events);
         open_the_backpack(&mut app);
         for _ in 0..8 {

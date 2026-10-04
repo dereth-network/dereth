@@ -367,24 +367,6 @@ impl<S: Shell> App<S> {
         }
     }
 
-    /// `(edges consumed, `0x01B7`s the state gate let through)`.
-    #[must_use]
-    pub const fn new_forward_attack_aborts(&self) -> (u64, u64) {
-        (
-            self.events.total(FrameEventKind::NewForwardAttackAborted),
-            self.events
-                .total(FrameEventKind::NewForwardAttackCancelSent),
-        )
-    }
-
-    /// How many `0x01A1`s [`Self::log_off_character`]'s player-module save has
-    /// sent. The unforced `save_to_server`'s gate is
-    /// dirty-or-forced, so this counts *dirty* logouts, not logouts.
-    #[must_use]
-    pub const fn player_modules_saved_at_logout(&self) -> u64 {
-        self.events.total(FrameEventKind::PlayerModuleSavedAtLogout)
-    }
-
     /// Target tracking: the camera update routine, raised on the three edges retail raises it
     /// on.
     ///
@@ -562,13 +544,6 @@ impl<S: Shell> App<S> {
                 }
             }
         }
-    }
-
-    /// How many body turns [`Self::apply_camera_turn`] took off the camera and gave
-    /// to the command interpreter this session.
-    #[must_use]
-    pub const fn camera_turns_applied(&self) -> u64 {
-        self.events.total(FrameEventKind::WorldCameraTurnApplied)
     }
 
     /// The eight `CameraCommand`s [`Self::apply_camera_action`] declines.

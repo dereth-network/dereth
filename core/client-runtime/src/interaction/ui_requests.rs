@@ -3,15 +3,6 @@
 use super::*;
 
 impl Interaction {
-    pub fn run_ui_requests(
-        &mut self,
-        game: &mut dereth_client_model::World,
-        player_desc_received: bool,
-        now: ServerTime,
-    ) -> Vec<UiRequest> {
-        self.run_ui_requests_with_chat_focus(game, player_desc_received, now, &mut |_| {})
-    }
-
     /// App's synchronous UI subscriber boundary. A listen-option change may disable the
     /// current chat focus, and that fallback must happen before the next queued ChatLine.
     pub fn run_ui_requests_with_chat_focus(
@@ -32,7 +23,7 @@ impl Interaction {
         // **attack** flavour, and it is answered by [`Self::ready_for_attack`] from the combat
         // mode, the combat table DataID and the six missile stances.
         //
-        // It is read here rather than passed in because [`use_time`] calls this **after**
+        // It is read here rather than passed in because `use_time` calls this **after**
         // [`Self::note_player_physics`] and the style bridge, so the two inputs are already this
         // frame's; a parameter would only let a caller disagree with the frame it is in.
         //

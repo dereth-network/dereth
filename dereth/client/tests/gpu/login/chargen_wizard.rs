@@ -85,7 +85,7 @@ fn app_on_wizard() -> Option<App> {
         .unwrap_or_else(|e| panic!("the shell starts over the retail dats: {e}"));
     app.load_first_pixel_scene()
         .unwrap_or_else(|e| panic!("the first-pixel scene loads: {e}"));
-    let host = app.host_state_mut();
+    let host = app.probe_mut().host_state_mut();
     host.character_set = Some(character_set());
     host.received_set = true;
     host.world_name = Some("ACEmulator".into());

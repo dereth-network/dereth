@@ -541,7 +541,7 @@ fn a_window_message_reaches_the_input_manager_through_the_frame_and_fires_its_ac
     // would mean nothing anywhere was listening, and it would be re-offered to the UI on every
     // frame.
     assert!(
-        app.camera_input().look_left,
+        app.probe().camera_input().look_left,
         "the camera must be turning left while the key is down"
     );
     let input = app.input_manager_mut().expect("present");

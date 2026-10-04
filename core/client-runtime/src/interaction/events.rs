@@ -2,47 +2,6 @@
 
 use super::*;
 
-/// **The reply half of the inventory loop.**
-///
-/// The network dispatcher inventory arms, which are the *only*
-/// things that ever move an item or release the request lock. The client sends a
-/// move byte-exactly, ghosts the icon and takes an inventory lock with **no timeout**; these
-/// arms are the answer.
-///
-/// | opcode | client arm |
-/// |---|---|
-/// | `0x0022 Item_ServerSaysContainID` | the item's server-says-move-item `(container, slot, 0, 0, notify UI = 1)`; when the item is not created yet the id is recorded in the container's list at `slot` so the later `0xF745` lands in the right place |
-/// | `0x0023 Item_WearItem` | server-says-move-item `(0, 0, player id, slot, 1)` |
-/// | `0x019A Item_ServerSaysMoveItem` | server-says-move-item `(0, 0, 0, 0, 1)` — the item leaves the pack entirely |
-/// | `0x00A0 Character_ServerSaysAttemptFailed` | server-says-attempt-failed `(reason, 1)` on the object the **lock** names, not the one the message names — see the arm below |
-///
-/// `0x0023` is here as well because it is the same apply function and
-/// the same lock, and equipping is the half of "my inventory is not interactable" that a
-/// double-click produces.
-///
-/// The `0x00A0` row does **not** always clear the lock: the attempt-failed handler carries the
-/// same object-id equality guard as the other three clearers, and this function hands it the
-/// previous request's object id itself. Both halves are transcribed and tested.
-///
-/// **Where this lives, and why it is not `hud.rs`.** The UI queue is drained by
-/// [`crate::hud::Hud::ui_event`], which owns chat and the vitals; the
-/// three arms here are inventory. Both read the same `SessionEvent` slice and
-/// neither opcode set overlaps the other's.
-///
-/// **The "item not created yet" branch of `0x0022`** — the container's
-/// server-says-contain-id record, which is
-/// the world's pending-containment record. Twenty-nine of the corpus's 100 `0x0022` take it.
-/// Without it the item would land at the **head** of the pack whatever slot the
-/// server asked for — the head, not the tail, because setting the weenie description
-/// substitutes `0` for the place-in-list lookup's `-1`.
-pub fn apply_events(
-    inter: &mut Interaction,
-    events: &[dereth_client_net::client_session::SessionEvent],
-    game: &mut dereth_client_model::World,
-) {
-    apply_events_at_boundary(inter, events, game, None, &mut |_, _, _| {});
-}
-
 /// The `Communication_ChannelList` / `ChannelIndex` handlers — the part the two share, with
 /// the header as the one parameter.
 ///

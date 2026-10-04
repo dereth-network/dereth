@@ -139,7 +139,7 @@ fn app_on_wizard() -> App {
     let mut app = App::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
     app.load_first_pixel_scene().expect("the first scene loads");
-    let host = app.host_state_mut();
+    let host = app.probe_mut().host_state_mut();
     host.character_set = Some(character_set());
     host.received_set = true;
     host.world_name = Some("ACEmulator".into());
