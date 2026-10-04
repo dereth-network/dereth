@@ -293,7 +293,7 @@ impl World {
     ///
     /// ```text
     ///   worn = 0
-    ///   ready_for_inventory_request(0)                ; the literal 0, not quiet
+    ///   ready_for_inventory_request()                 ; readiness only
     ///   valid_locations & 0x8007FFF == 0      -> false
     ///   priority & clothing_priority_mask == 0 -> true
     ///   the item is on the player              -> worn = 1
@@ -313,10 +313,9 @@ impl World {
     /// `(message, already_worn)`. The message is empty for the silent refusals: not ready, no
     /// weenie, not wearable, and a blocker the client has no object for.
     pub fn auto_wear_is_legal(&self, id: ObjectId) -> Result<(), (String, bool)> {
-        // Quiet is the literal 0 — the check speaks for itself in the client whatever the
-        // caller's `quiet`; this build's version returns the string and leaves the display to
-        // `auto_wear`, which is the one deviation left here.
-        if let Err(e) = self.ready_for_inventory_request(false) {
+        // The readiness check returns the refusal string; `auto_wear` decides whether to
+        // display it using the caller's `quiet` flag.
+        if let Err(e) = self.ready_for_inventory_request() {
             return Err((e.to_string(), false));
         }
         let Some(w) = self.weenie(id) else {
@@ -646,7 +645,7 @@ impl World {
     /// drift, and a change to one belongs in both.
     #[must_use]
     pub fn plan_auto_sort(&self, id: ObjectId, allow_wield: bool) -> AutoSortPlan {
-        if self.ready_for_inventory_request(true).is_err() {
+        if self.ready_for_inventory_request().is_err() {
             return AutoSortPlan::Refused;
         }
         let Some(w) = self.weenie(id) else {
@@ -716,9 +715,8 @@ impl World {
         split: SplitState,
         now: ServerTime,
     ) -> bool {
-        // The readiness check with the literal quiet 0, so this
-        // head speaks whatever the caller's `quiet` is.
-        if let Err(e) = self.ready_for_inventory_request(false) {
+        // A readiness refusal is displayed regardless of the caller's `quiet` flag.
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, false, e);
             return false;
         }
@@ -766,8 +764,8 @@ impl World {
     /// max split size out of the item-holder globals themselves, sending
     /// `Request::StackableSplitToWield` instead when they differ and the stack is larger than one.
     /// A caller that has a splitter — the paper-doll drop does — must hand its own state over;
-    /// a caller that does not passes [`Self::whole_stack_of`], which is what an untouched slider
-    /// holds.
+    /// a caller without one passes equal split and maximum sizes for the whole stack, as an
+    /// untouched slider holds.
     ///
     /// # Errors
     /// The refusal string.
@@ -846,7 +844,7 @@ impl World {
         split: SplitState,
         now: ServerTime,
     ) -> bool {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return false;
         }
@@ -1139,14 +1137,6 @@ impl World {
         }
         self.unblock.reset();
         true
-    }
-
-    /// The holder's split size equals its maximum for the item's whole stack — what the globals
-    /// hold when no stack slider has been touched.
-    #[must_use]
-    pub fn whole_stack_of(&self, id: ObjectId) -> SplitState {
-        let n = self.weenie(id).and_then(|w| w.pwd.stack_size).unwrap_or(0);
-        SplitState::whole_stack(u32::from(n))
     }
 }
 

@@ -703,26 +703,9 @@ pub const TURBINE_CHAT_COMMANDS: &[CommandEntry] = &[
 /// The names the Turbine-chat startup removes before re-adding, so the Turbine-chat entry wins.
 pub const TURBINE_REPLACES: &[&str] = &["a"];
 
-/// The groups the help command walks for `@help` with no argument.
-pub const HELP_GROUPS: &[&str] = &[
-    "commands",
-    "allegiances",
-    "channels",
-    "chatting",
-    "death",
-    "emote",
-    "fillcomps",
-    "friends",
-    "house",
-    "squelch",
-    "status",
-    "text",
-];
-
 /// The order the help command actually appends them in, checked against retail.
 ///
-/// [`HELP_GROUPS`] above is the alphabetical set and it puts `commands` first;
-/// the group summary for `commands` is the **twelfth and last** append, after
+/// The group summary for `commands` is the **twelfth and last** append, after
 /// the `text` group's. Seven of the twelve lines are inline literals in the help command itself and
 /// five are help-function calls with the summary kind, but every one of the twelve names resolves
 /// in this table to a help function whose first summary literal is byte-identical to the line the

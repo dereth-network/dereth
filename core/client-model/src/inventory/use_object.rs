@@ -595,7 +595,7 @@ impl World {
             return UseOutcome::Throttled;
         }
         self.last_used = Some(now);
-        if let Err(e) = self.ready_for_inventory_request(false) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, false, e);
             return UseOutcome::Busy;
         }
@@ -1002,8 +1002,8 @@ impl World {
         item: ObjectId,
         now: ServerTime,
     ) -> GroundObjectResult {
-        // The readiness check — **not** quiet: it prints its own refusal.
-        if let Err(e) = self.ready_for_inventory_request(false) {
+        // A readiness refusal is always displayed by this caller.
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, false, e);
             return GroundObjectResult::Busy;
         }
@@ -1280,7 +1280,7 @@ impl World {
         split: SplitState,
         now: ServerTime,
     ) -> bool {
-        if let Err(e) = self.ready_for_inventory_request(false) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, false, e);
             return false;
         }
@@ -1507,7 +1507,7 @@ impl World {
     ) -> bool {
         use crate::weenie::{bitfield, PositionState};
 
-        if let Err(e) = self.ready_for_inventory_request(false) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, false, e);
             return false;
         }

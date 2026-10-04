@@ -1537,17 +1537,6 @@ pub struct MagicState {
     pub school_pack_wcid: BTreeMap<u32, u32>,
 }
 
-impl MagicState {
-    /// The client's only table read, as a closure the registry can take.
-    ///
-    /// `None` is both "no spell table", which returns 0 and changes no counter, and "the table does
-    /// not know this spell"; the client handles both through the same missing-row arm.
-    #[must_use]
-    pub fn spell_is_beneficial(&self, spell_id: u16) -> Option<bool> {
-        self.spell_beneficial.get(&u32::from(spell_id)).copied()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

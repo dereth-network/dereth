@@ -3,7 +3,7 @@
 //! re-join. An unrecognised command falls through to the server verbatim, **confirmed live**:
 //! a command only the server knows produced the server's answer in the chat window.
 
-use super::table::{CommandEntry, HELP_GROUPS, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS};
+use super::table::{CommandEntry, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS};
 
 /// The talk-focus enumeration, with values 1 through 13.
 ///
@@ -322,12 +322,6 @@ impl CommandInterp {
             },
             None => CommandOutcome::ForwardVerbatim(self.last_line.clone()),
         }
-    }
-
-    /// The help groups, for `@help` with no argument.
-    #[must_use]
-    pub fn help_groups(&self) -> &'static [&'static str] {
-        HELP_GROUPS
     }
 }
 

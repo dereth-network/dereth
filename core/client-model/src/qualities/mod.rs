@@ -254,18 +254,6 @@ impl Qualities {
         self.positions = t.positions.as_ref().map(|h| conv(h, |v| *v));
     }
 
-    /// Behavior: deletes all eight tables.
-    pub fn clear_property_tables(&mut self) {
-        self.ints = None;
-        self.int64s = None;
-        self.bools = None;
-        self.floats = None;
-        self.strings = None;
-        self.dids = None;
-        self.iids = None;
-        self.positions = None;
-    }
-
     /// The property lookups, **raw** (unenchanted). The enchanted forms are
     /// [`dereth_rules::quality::QualityRead::inq_int_enchanted`] and
     /// [`dereth_rules::quality::QualityRead::inq_float_enchanted`], because only the integer and

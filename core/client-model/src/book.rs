@@ -43,13 +43,6 @@ impl OpenBook {
     pub fn num_pages(&self) -> i32 {
         i32::try_from(self.pages.pages.len()).unwrap_or(i32::MAX)
     }
-
-    /// The client's editability test: `page.author_id == player || page.ignore_author`. The authoring panel
-    /// uses this named condition to decide whether its text and page operations are enabled.
-    #[must_use]
-    pub fn editable_by(&self, page: &PageData, player: ObjectId) -> bool {
-        page.author_id == player || page.ignore_author != 0
-    }
 }
 
 /// One shared book session. Receipt counters distinguish repeated deliveries.

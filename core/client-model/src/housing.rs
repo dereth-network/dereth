@@ -338,11 +338,6 @@ impl HouseProfile {
         self.bitmask & house_bitmask::ACTIVE != 0
     }
 
-    #[must_use]
-    pub fn requires_monarch(&self) -> bool {
-        self.bitmask & house_bitmask::REQUIRES_MONARCH != 0
-    }
-
     /// Whether the *buy* list is paid in full.
     #[must_use]
     pub fn is_paid_in_full(&self) -> bool {
@@ -531,13 +526,6 @@ pub struct Har {
     pub guests: BTreeMap<ObjectId, GuestInfo>,
     /// No known client consumer; stored opaquely.
     pub roommate_list: Vec<ObjectId>,
-}
-
-impl Har {
-    #[must_use]
-    pub fn is_open_house(&self) -> bool {
-        self.bitmask & rdb_bitmask::OPEN_HOUSE != 0
-    }
 }
 
 /// `RestrictionDB` â€” the compact form attached to **every** object in the house.

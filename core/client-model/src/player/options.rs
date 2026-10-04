@@ -338,11 +338,6 @@ impl Options {
     }
 
     #[must_use]
-    pub fn ignore_trade_requests(&self) -> bool {
-        self.get(option::IGNORE_TRADE_REQUESTS)
-    }
-
-    #[must_use]
     pub fn allow_give(&self) -> bool {
         self.get(option::ALLOW_GIVE)
     }

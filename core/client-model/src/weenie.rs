@@ -293,12 +293,6 @@ impl Weenie {
         self.is_container()
     }
 
-    /// Return whether this object is a coin stack.
-    #[must_use]
-    pub fn is_coinstack(&self) -> bool {
-        self.pwd.obj_type & item_type::MONEY != 0
-    }
-
     /// Determine the object's position state.
     pub fn determine_position_state(&mut self) {
         self.current_state = if self.being_removed {

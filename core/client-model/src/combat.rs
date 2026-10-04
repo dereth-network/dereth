@@ -2815,14 +2815,14 @@ mod tests {
     fn an_attack_in_progress_blocks_inventory_requests() {
         let mut w = world();
         let mut req = RecordingRequests::default();
-        assert_eq!(w.ready_for_inventory_request(true), Ok(()));
+        assert_eq!(w.ready_for_inventory_request(), Ok(()));
         w.handle_commence_attack();
         assert_eq!(
-            w.ready_for_inventory_request(true),
+            w.ready_for_inventory_request(),
             Err("You cannot move or use an item while attacking")
         );
         w.handle_attack_done(&mut req, 0, true, LocalTime(1.0));
-        assert_eq!(w.ready_for_inventory_request(true), Ok(()));
+        assert_eq!(w.ready_for_inventory_request(), Ok(()));
         let _ = ServerTime(0.0);
     }
 

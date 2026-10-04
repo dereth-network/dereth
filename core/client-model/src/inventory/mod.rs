@@ -75,12 +75,8 @@ impl World {
     ///
     /// # Errors
     /// The client's own refusal string.
-    pub fn ready_for_inventory_request(&self, quiet: bool) -> Result<(), &'static str> {
-        let r = ready_for_inventory_request(&self.request_lock, self.attack_in_progress);
-        // `quiet` only suppresses the message; the refusal is the same either way. The caller
-        // decides whether to display, which is why nothing is emitted here.
-        let _ = quiet;
-        r
+    pub fn ready_for_inventory_request(&self) -> Result<(), &'static str> {
+        ready_for_inventory_request(&self.request_lock, self.attack_in_progress)
     }
 
     fn refuse(&self, out: &mut dyn NoticeSink, quiet: bool, msg: &str) {
@@ -115,7 +111,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -158,7 +154,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -189,7 +185,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -226,7 +222,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -260,7 +256,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -292,7 +288,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -323,7 +319,7 @@ impl World {
         now: ServerTime,
         quiet: bool,
     ) -> Result<(), &'static str> {
-        if let Err(e) = self.ready_for_inventory_request(quiet) {
+        if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, quiet, e);
             return Err(e);
         }
@@ -650,9 +646,9 @@ impl World {
         container: ObjectId,
         split: SplitState,
     ) -> bool {
-        // Quiet is the literal 1, and it is the same lock `attempt_to_place_in_container` takes
-        // with `quiet = 0`.
-        if self.ready_for_inventory_request(true).is_err() {
+        // This legality check is silent and uses the same lock as
+        // `attempt_to_place_in_container`.
+        if self.ready_for_inventory_request().is_err() {
             return false;
         }
         // The six legality arms: no weenie / the player himself / `type == CREATURE` /
@@ -670,7 +666,7 @@ impl World {
     /// # Errors
     /// The refusal string, in the order the client tests them.
     pub fn is_merge_attempt_legal(&self, src: ObjectId, dst: ObjectId) -> Result<(), &'static str> {
-        self.ready_for_inventory_request(true)?;
+        self.ready_for_inventory_request()?;
         if src == dst {
             return Err("");
         }
@@ -1370,7 +1366,7 @@ mod tests {
             w.request_lock.is_idle(),
             "the split-wield hole: no previous request, so the next action is not blocked"
         );
-        assert_eq!(w.ready_for_inventory_request(true), Ok(()));
+        assert_eq!(w.ready_for_inventory_request(), Ok(()));
     }
 
     /// Oracle: §6 — one request in flight *globally*, and the exact refusal string.
@@ -1770,10 +1766,7 @@ mod tests {
             requests::InventoryRequest::Drop,
             ServerTime(0.0),
         );
-        assert!(
-            w.ready_for_inventory_request(true).is_err(),
-            "the lock is held"
-        );
+        assert!(w.ready_for_inventory_request().is_err(), "the lock is held");
 
         w.query_item_mana(&mut req, ObjectId(1));
         assert_eq!(
