@@ -1,0 +1,12 @@
+pub const SLASH: u32 = 0x0001;
+pub const PIERCE: u32 = 0x0002;
+pub const BLUDGEON: u32 = 0x0004;
+pub const COLD: u32 = 0x0008;
+pub const FIRE: u32 = 0x0010;
+pub const ACID: u32 = 0x0020;
+pub const ELECTRIC: u32 = 0x0040;
+pub const HEALTH: u32 = 0x0080;
+pub const STAMINA: u32 = 0x0100;
+pub const MANA: u32 = 0x0200;
+pub const NETHER: u32 = 0x0400;
+pub const BASE: u32 = 0x1000_0000;

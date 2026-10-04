@@ -18,47 +18,6 @@ use dereth_primitives::{LocalTime, NetQueue};
 use dereth_testkit::{Given, HeadlessClient};
 use dereth_transport::wire::{PacketFlags, ParsedPacket};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "the_handshake_is_the_retail_clients_own",
-        &["login.handshake.is-the-retail-clients-own-bytes-on-the-shards-two-ports"],
-        the_handshake_is_the_retail_clients_own,
-    ),
-    (
-        "every_recorded_blob_is_ephemeral_and_unordered",
-        &["login.replay.every-blob-the-shard-sends-is-ephemeral-and-unordered"],
-        every_recorded_blob_is_ephemeral_and_unordered,
-    ),
-    (
-        "the_data_download_interrogation_is_surfaced_and_unanswered",
-        &["login.data-download.the-shards-interrogation-is-surfaced-and-left-unanswered"],
-        the_data_download_interrogation_is_surfaced_and_unanswered,
-    ),
-    (
-        "the_description_is_what_puts_you_in_the_world",
-        &["login.enter-world.the-description-and-not-the-ready-message-puts-you-in-the-world"],
-        the_description_is_what_puts_you_in_the_world,
-    ),
-    (
-        "every_recorded_session_is_consumed_whole",
-        &["login.replay.every-recorded-session-is-consumed-whole-and-stays-connected"],
-        every_recorded_session_is_consumed_whole,
-    ),
-    (
-        "login_offers_the_recordings_own_characters",
-        &["login.replay.character-set-is-the-recordings-own"],
-        login_offers_the_recordings_own_characters,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// The recording whose client half is compared against this client's, and the stand-in credential
 /// it carries.
 ///
@@ -236,9 +195,13 @@ pub fn the_handshake_is_the_retail_clients_own() {
     );
 }
 
-#[test]
-fn scenario_the_handshake_is_the_retail_clients_own() {
-    scenario("the_handshake_is_the_retail_clients_own");
+dereth_testkit::scenarios! {
+    scenario_the_handshake_is_the_retail_clients_own => the_handshake_is_the_retail_clients_own ["login.handshake.is-the-retail-clients-own-bytes-on-the-shards-two-ports"],
+    scenario_every_recorded_blob_is_ephemeral_and_unordered => every_recorded_blob_is_ephemeral_and_unordered ["login.replay.every-blob-the-shard-sends-is-ephemeral-and-unordered"],
+    scenario_the_data_download_interrogation_is_surfaced_and_unanswered => the_data_download_interrogation_is_surfaced_and_unanswered ["login.data-download.the-shards-interrogation-is-surfaced-and-left-unanswered"],
+    scenario_the_description_is_what_puts_you_in_the_world => the_description_is_what_puts_you_in_the_world ["login.enter-world.the-description-and-not-the-ready-message-puts-you-in-the-world"],
+    scenario_every_recorded_session_is_consumed_whole => every_recorded_session_is_consumed_whole ["login.replay.every-recorded-session-is-consumed-whole-and-stays-connected"],
+    scenario_login_offers_the_recordings_own_characters => login_offers_the_recordings_own_characters ["login.replay.character-set-is-the-recordings-own"],
 }
 
 // -------------------------------------------------------------------------------------------
@@ -265,11 +228,6 @@ pub fn every_recorded_blob_is_ephemeral_and_unordered() {
         "login.replay.every-blob-the-shard-sends-is-ephemeral-and-unordered",
         move |_| blobs > 0 && all_ephemeral && none_ordered,
     );
-}
-
-#[test]
-fn scenario_every_recorded_blob_is_ephemeral_and_unordered() {
-    scenario("every_recorded_blob_is_ephemeral_and_unordered");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -299,11 +257,6 @@ pub fn the_data_download_interrogation_is_surfaced_and_unanswered() {
         "login.data-download.the-shards-interrogation-is-surfaced-and-left-unanswered",
         move |_| surfaced && unanswered && in_anyway,
     );
-}
-
-#[test]
-fn scenario_the_data_download_interrogation_is_surfaced_and_unanswered() {
-    scenario("the_data_download_interrogation_is_surfaced_and_unanswered");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -375,11 +328,6 @@ pub fn the_description_is_what_puts_you_in_the_world() {
                 && the_whole_login_arrived
         },
     );
-}
-
-#[test]
-fn scenario_the_description_is_what_puts_you_in_the_world() {
-    scenario("the_description_is_what_puts_you_in_the_world");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -603,11 +551,6 @@ pub fn every_recorded_session_is_consumed_whole() {
     );
 }
 
-#[test]
-fn scenario_every_recorded_session_is_consumed_whole() {
-    scenario("every_recorded_session_is_consumed_whole");
-}
-
 // -------------------------------------------------------------------------------------------
 // 10. login.replay.character-set-is-the-recordings-own
 // -------------------------------------------------------------------------------------------
@@ -629,9 +572,4 @@ pub fn login_offers_the_recordings_own_characters() {
             !account.is_empty() && characters.len() == 2 && characters.iter().all(|n| !n.is_empty())
         },
     );
-}
-
-#[test]
-fn scenario_login_offers_the_recordings_own_characters() {
-    scenario("login_offers_the_recordings_own_characters");
 }

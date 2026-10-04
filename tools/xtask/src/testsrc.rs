@@ -332,6 +332,9 @@ fn is_i(t: Option<&Tok>, s: &str) -> bool {
     t.is_some_and(|t| t.kind == TokKind::Ident && t.text == s)
 }
 
+#[path = "testsrc/scenarios.rs"]
+mod scenarios;
+
 /// How a test is ignored, from its attributes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ignore {
@@ -402,8 +405,6 @@ pub struct ModFile {
     pub decls: Vec<(String, usize, Option<String>)>,
     /// Whether this is a target's root file.
     pub root: bool,
-    /// Its tokens, kept for the checks that need more than the test fns.
-    pub toks: Vec<Tok>,
 }
 
 /// A target to walk.
@@ -421,6 +422,10 @@ pub struct Inventory {
     pub files: Vec<ModFile>,
     /// Named items in test code, including helpers and inline modules.
     pub declarations: Vec<Declaration>,
+    /// Body aliases of generated scenario wrappers, with their declaring files.
+    pub scenarios: Vec<(String, String)>,
+    /// Malformed known declarations, retained so tooling cannot silently omit tests.
+    pub scenario_errors: Vec<(String, usize, String)>,
 }
 
 /// A source declaration, not necessarily a compiled test.
@@ -580,7 +585,6 @@ impl Walk<'_> {
             inner_docs,
             decls,
             root,
-            toks,
         });
     }
 
@@ -712,6 +716,74 @@ impl Walk<'_> {
                         module: is_i(head, "mod"),
                     });
                 }
+            }
+            // Only this public declaration macro has a known generated-test grammar.
+            let scenario_open = if is_i(head, "scenarios") {
+                j + 2
+            } else if (is_i(head, "dereth_testkit")
+                || is_i(head, "crate") && self.package == "dereth-testkit")
+                && is_p(toks.get(j + 1), ":")
+                && is_p(toks.get(j + 2), ":")
+                && is_i(toks.get(j + 3), "scenarios")
+            {
+                j + 5
+            } else {
+                end
+            };
+            if is_p(toks.get(scenario_open.wrapping_sub(1)), "!")
+                && is_p(toks.get(scenario_open), "{")
+            {
+                let close = close_of(toks, scenario_open);
+                match scenarios::parse(toks, scenario_open, close) {
+                    Ok(entries) => {
+                        for entry in entries {
+                            let mut path = vec![self.package.clone(), self.target.clone()];
+                            path.extend_from_slice(module);
+                            path.push(entry.body.clone());
+                            self.inv.scenarios.push((path.join("::"), file.to_owned()));
+                            if entry.claims.is_empty() {
+                                self.inv.scenario_errors.push((
+                                    file.to_owned(),
+                                    entry.line,
+                                    format!("{} must declare at least one claim", entry.test),
+                                ));
+                            }
+                            let mut docs = entry.docs;
+                            docs.extend(entry.claims.iter().map(|id| format!("Behaviour: {id}")));
+                            let body = lex(&format!("{{ dereth_testkit::behaviours::run_scenario(ALL, stringify!({})); }}", entry.body));
+                            self.inv.declarations.push(Declaration {
+                                file: file.to_owned(),
+                                line: entry.line,
+                                name: entry.test.clone(),
+                                module: false,
+                            });
+                            self.inv.tests.push(TestFn {
+                                package: self.package.clone(),
+                                target: self.target.clone(),
+                                module: module.to_vec(),
+                                name: entry.test,
+                                file: file.to_owned(),
+                                line: entry.line,
+                                ignore: entry.ignore,
+                                docs,
+                                assert_macros: 0,
+                                assert_calls: 0,
+                                assert_hashes: Vec::new(),
+                                hash: fnv(&norm(&body, false)),
+                                hash_code: fnv(&norm(&body, true)),
+                            });
+                        }
+                    }
+                    Err(error) => {
+                        self.inv
+                            .scenario_errors
+                            .push((file.to_owned(), toks[j].line, error))
+                    }
+                }
+                k = close + 1;
+                attrs.clear();
+                docs.clear();
+                continue;
             }
             if is_i(head, "mod") {
                 let name = toks.get(j + 1).map(|x| x.text.clone()).unwrap_or_default();
@@ -1099,6 +1171,12 @@ pub fn test_inventory(args: &[String]) -> i32 {
             return 2;
         }
     };
+    if !inv.scenario_errors.is_empty() {
+        for (file, line, error) in &inv.scenario_errors {
+            eprintln!("test-inventory: {file}:{line}: {error}");
+        }
+        return 2;
+    }
     let tsv = inventory_tsv(&inv);
     match args.iter().position(|a| a == "--out") {
         Some(k) => {
@@ -1124,6 +1202,96 @@ pub fn test_inventory(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scenario_declarations_keep_nested_names_claims_and_ignore_attributes() {
+        let inv = walk_src(
+            r#"
+            mod outer { mod inner {
+                dereth_testkit::scenarios! {
+                    #[cfg(windows)]
+                    #[ignore = "needs a device"]
+                    scenario_one => one ["chat.one"],
+                    #[cfg_attr(any(ignore, not(feature = "data")), ignore = "needs data")]
+                    scenario_two => two [
+                        "chat.two",
+                    ],
+                }
+            }}
+        "#,
+        );
+        assert!(inv.scenario_errors.is_empty());
+        assert_eq!(
+            inv.tests
+                .iter()
+                .map(TestFn::libtest_name)
+                .collect::<Vec<_>>(),
+            ["outer::inner::scenario_one", "outer::inner::scenario_two"]
+        );
+        assert_eq!(
+            inv.tests[0].ignore,
+            Ignore::Always(Some("needs a device".into()))
+        );
+        assert_eq!(
+            inv.tests[1].ignore,
+            Ignore::Conditional(Some("needs data".into()))
+        );
+        assert_eq!(inv.tests[0].docs, ["Behaviour: chat.one"]);
+        assert_eq!(
+            (inv.tests[0].assert_macros, inv.tests[0].assert_calls),
+            (0, 0)
+        );
+        assert_eq!(inv.scenarios[0].0, "p::cpu::outer::inner::one");
+        assert!(inventory_tsv(&inv).contains("outer::inner::scenario_two"));
+    }
+
+    #[test]
+    fn local_scenario_qualification_is_known_only_in_the_defining_package() {
+        let src = r#"mod nested { crate::scenarios! {
+            scenario_kept => kept ["chat.kept"],
+            #[cfg(any())]
+            scenario_gated => gated ["chat.gated"],
+        }}"#;
+        let inv = walk_package(src, "lib", "dereth-testkit");
+        assert!(inv.scenario_errors.is_empty());
+        assert_eq!(
+            inv.tests
+                .iter()
+                .map(TestFn::libtest_name)
+                .collect::<Vec<_>>(),
+            ["nested::scenario_kept", "nested::scenario_gated"]
+        );
+        assert!(walk_package(src, "lib", "other-package").tests.is_empty());
+    }
+
+    #[test]
+    fn scenario_text_in_strings_comments_and_macro_definitions_is_not_a_test() {
+        let inv = walk_src(
+            r##"
+            const TEXT: &str = r#"scenarios! { scenario_fake => fake ["fake.claim"], }"#;
+            // scenarios! { scenario_comment => comment ["fake.claim"], }
+            /* scenarios! { scenario_block => block ["fake.claim"], } */
+            macro_rules! another { () => { scenarios! { scenario_template => template ["fake.claim"], } }; }
+        "##,
+        );
+        assert!(inv.tests.is_empty());
+        assert!(inv.scenarios.is_empty());
+        assert!(inv.scenario_errors.is_empty());
+    }
+
+    #[test]
+    fn malformed_or_missing_scenario_claims_are_reported_instead_of_omitted() {
+        for declaration in [
+            "scenarios! { scenario_a => a [], }",
+            "scenarios! { #[cfg_attr(all(), ignore(reason))] scenario_a => a [\"chat.a\"], }",
+            "scenarios! { #[cfg_attr(all(), cfg(any()))] scenario_a => a [\"chat.a\"], }",
+            "scenarios! { scenario_a a [\"chat.a\"], }",
+            "scenarios! { scenario_a => a [CLAIM], }",
+        ] {
+            let inv = walk_src(declaration);
+            assert_eq!(inv.scenario_errors.len(), 1, "{declaration}");
+        }
+    }
 
     fn kinds(src: &str) -> Vec<(TokKind, String)> {
         lex(src).into_iter().map(|t| (t.kind, t.text)).collect()
@@ -1167,6 +1335,10 @@ mod tests {
     }
 
     fn walk_target(src: &str, target: &str) -> Inventory {
+        walk_package(src, target, "p")
+    }
+
+    fn walk_package(src: &str, target: &str, package: &str) -> Inventory {
         let dir = std::env::temp_dir().join(format!("xtask-testsrc-{}", fnv(src)));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let root = dir.join("main.rs");
@@ -1174,7 +1346,7 @@ mod tests {
         let inv = read(
             &dir,
             &[Target {
-                package: "p".into(),
+                package: package.into(),
                 name: target.into(),
                 root,
             }],

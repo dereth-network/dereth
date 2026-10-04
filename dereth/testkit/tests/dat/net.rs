@@ -22,67 +22,6 @@ use dereth_physics::source::LandSource;
 use dereth_primitives::{DataId, LandblockId, NetQueue};
 use dereth_testkit::HeadlessClient;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "a_missing_landblock_is_asked_for_once_and_then_builds",
-        &["data-request.missing-landblock.is-asked-for-once-and-the-answer-builds-the-ground"],
-        a_missing_landblock_is_asked_for_once_and_then_builds,
-    ),
-    (
-        "a_miss_with_no_link_is_kept",
-        &["data-request.missing-landblock.with-no-link-the-miss-is-kept-rather-than-asked-for"],
-        a_miss_with_no_link_is_kept,
-    ),
-    (
-        "a_refusal_lets_the_client_ask_again",
-        &["data-request.missing-landblock.a-refusal-lets-the-client-ask-for-it-again"],
-        a_refusal_lets_the_client_ask_again,
-    ),
-    (
-        "a_record_that_is_present_but_unreadable_is_not_asked_for",
-        &["data-request.missing-landblock.a-record-that-is-there-but-unreadable-is-not-asked-for"],
-        a_record_that_is_present_but_unreadable_is_not_asked_for,
-    ),
-    (
-        "the_link_lamp_lights_on_the_finished_handshake",
-        &["link.connected.the-lamp-lights-when-the-handshake-finishes-and-not-when-the-shard-first-answers"],
-        the_link_lamp_lights_on_the_finished_handshake,
-    ),
-    (
-        "the_packet_loss_line_always_carries_a_number",
-        &["link.packet-loss.the-line-always-carries-a-number-and-it-is-the-ping-that-can-be-unknown"],
-        the_packet_loss_line_always_carries_a_number,
-    ),
-    (
-        "a_client_that_has_heard_nothing_reads_as_total_loss",
-        &["link.packet-loss.a-client-that-has-heard-nothing-reads-as-total-loss-until-the-first-reading"],
-        a_client_that_has_heard_nothing_reads_as_total_loss,
-    ),
-    (
-        "the_panel_shows_the_links_own_packet_loss_figure",
-        &["link.packet-loss.what-the-panel-shows-is-the-links-own-figure-on-a-lossy-link-and-zero-on-a-clean-one"],
-        the_panel_shows_the_links_own_packet_loss_figure,
-    ),
-    (
-        "a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits",
-        &["link.first-connection.a-refusal-before-the-link-is-up-is-an-error-box-and-then-the-client-exits"],
-        a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits,
-    ),
-    (
-        "every_refusal_reads_its_own_sentence",
-        &["link.first-connection.every-refusal-reads-its-own-sentence-from-the-connection-error-strings"],
-        every_refusal_reads_its_own_sentence,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 // -------------------------------------------------------------------------------------------
 // Disposable copies, and the proof the originals were not touched.
 // -------------------------------------------------------------------------------------------
@@ -357,9 +296,17 @@ pub fn a_missing_landblock_is_asked_for_once_and_then_builds() {
     );
 }
 
-#[test]
-fn scenario_a_missing_landblock_is_asked_for_once_and_then_builds() {
-    scenario("a_missing_landblock_is_asked_for_once_and_then_builds");
+dereth_testkit::scenarios! {
+    scenario_a_missing_landblock_is_asked_for_once_and_then_builds => a_missing_landblock_is_asked_for_once_and_then_builds ["data-request.missing-landblock.is-asked-for-once-and-the-answer-builds-the-ground"],
+    scenario_a_miss_with_no_link_is_kept => a_miss_with_no_link_is_kept ["data-request.missing-landblock.with-no-link-the-miss-is-kept-rather-than-asked-for"],
+    scenario_a_refusal_lets_the_client_ask_again => a_refusal_lets_the_client_ask_again ["data-request.missing-landblock.a-refusal-lets-the-client-ask-for-it-again"],
+    scenario_a_record_that_is_present_but_unreadable_is_not_asked_for => a_record_that_is_present_but_unreadable_is_not_asked_for ["data-request.missing-landblock.a-record-that-is-there-but-unreadable-is-not-asked-for"],
+    scenario_the_link_lamp_lights_on_the_finished_handshake => the_link_lamp_lights_on_the_finished_handshake ["link.connected.the-lamp-lights-when-the-handshake-finishes-and-not-when-the-shard-first-answers"],
+    scenario_the_packet_loss_line_always_carries_a_number => the_packet_loss_line_always_carries_a_number ["link.packet-loss.the-line-always-carries-a-number-and-it-is-the-ping-that-can-be-unknown"],
+    scenario_a_client_that_has_heard_nothing_reads_as_total_loss => a_client_that_has_heard_nothing_reads_as_total_loss ["link.packet-loss.a-client-that-has-heard-nothing-reads-as-total-loss-until-the-first-reading"],
+    scenario_the_panel_shows_the_links_own_packet_loss_figure => the_panel_shows_the_links_own_packet_loss_figure ["link.packet-loss.what-the-panel-shows-is-the-links-own-figure-on-a-lossy-link-and-zero-on-a-clean-one"],
+    scenario_a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits => a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits ["link.first-connection.a-refusal-before-the-link-is-up-is-an-error-box-and-then-the-client-exits"],
+    scenario_every_refusal_reads_its_own_sentence => every_refusal_reads_its_own_sentence ["link.first-connection.every-refusal-reads-its-own-sentence-from-the-connection-error-strings"],
 }
 
 // -------------------------------------------------------------------------------------------
@@ -386,11 +333,6 @@ pub fn a_miss_with_no_link_is_kept() {
         "data-request.missing-landblock.with-no-link-the-miss-is-kept-rather-than-asked-for",
         move |_| missing && kept && taken_once,
     );
-}
-
-#[test]
-fn scenario_a_miss_with_no_link_is_kept() {
-    scenario("a_miss_with_no_link_is_kept");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -436,11 +378,6 @@ pub fn a_refusal_lets_the_client_ask_again() {
     );
 }
 
-#[test]
-fn scenario_a_refusal_lets_the_client_ask_again() {
-    scenario("a_refusal_lets_the_client_ask_again");
-}
-
 // -------------------------------------------------------------------------------------------
 // data-request.missing-landblock.a-record-that-is-there-but-unreadable-is-not-asked-for
 // -------------------------------------------------------------------------------------------
@@ -467,11 +404,6 @@ pub fn a_record_that_is_present_but_unreadable_is_not_asked_for() {
         "data-request.missing-landblock.a-record-that-is-there-but-unreadable-is-not-asked-for",
         move |_| does_not_build && nothing_owed,
     );
-}
-
-#[test]
-fn scenario_a_record_that_is_present_but_unreadable_is_not_asked_for() {
-    scenario("a_record_that_is_present_but_unreadable_is_not_asked_for");
 }
 
 // =============================================================================================
@@ -631,11 +563,6 @@ pub fn the_link_lamp_lights_on_the_finished_handshake() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_link_lamp_lights_on_the_finished_handshake() {
-    scenario("the_link_lamp_lights_on_the_finished_handshake");
-}
-
 // ---------------------------------------------------------------------------------------------
 // The link-status panel's own words
 // ---------------------------------------------------------------------------------------------
@@ -718,11 +645,6 @@ pub fn the_packet_loss_line_always_carries_a_number() {
     );
 }
 
-#[test]
-fn scenario_the_packet_loss_line_always_carries_a_number() {
-    scenario("the_packet_loss_line_always_carries_a_number");
-}
-
 /// Before the first reading the line reads as complete loss, and an untouched link is not that.
 pub fn a_client_that_has_heard_nothing_reads_as_total_loss() {
     link_status_holder::reset_packet_loss();
@@ -748,11 +670,6 @@ pub fn a_client_that_has_heard_nothing_reads_as_total_loss() {
     c.assert_behaviour("link.packet-loss.a-client-that-has-heard-nothing-reads-as-total-loss-until-the-first-reading", move |_| {
         starts_there && shown && untouched_is_none
     });
-}
-
-#[test]
-fn scenario_a_client_that_has_heard_nothing_reads_as_total_loss() {
-    scenario("a_client_that_has_heard_nothing_reads_as_total_loss");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -828,11 +745,6 @@ pub fn the_panel_shows_the_links_own_packet_loss_figure() {
     c.assert_behaviour("link.packet-loss.what-the-panel-shows-is-the-links-own-figure-on-a-lossy-link-and-zero-on-a-clean-one", move |_| {
         moved && between && is_the_links_own && clean_reads_none
     });
-}
-
-#[test]
-fn scenario_the_panel_shows_the_links_own_packet_loss_figure() {
-    scenario("the_panel_shows_the_links_own_packet_loss_figure");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -941,11 +853,6 @@ pub fn a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits() {
-    scenario("a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits");
-}
-
 /// Every code the first connection can end with, and the sentence the shipped table gives it.
 ///
 /// Oracle: the retail `client_local_English.dat`, table 8, read by string hash; the sentences are
@@ -1041,9 +948,4 @@ pub fn every_refusal_reads_its_own_sentence() {
         wrong.is_empty() && crypto_says_why
     });
     c.shutdown();
-}
-
-#[test]
-fn scenario_every_refusal_reads_its_own_sentence() {
-    scenario("every_refusal_reads_its_own_sentence");
 }

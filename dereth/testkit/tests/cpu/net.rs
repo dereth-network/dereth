@@ -23,82 +23,6 @@ use dereth_transport::conn::{ConnectRequest, ConnectionState, NetErrorCode};
 use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader};
 use dereth_transport::CryptoSystem;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "the_handshake_answers_on_the_next_port",
-        &["link.handshake.answers-the-shard-on-the-next-port-and-echoes-its-cookie"],
-        the_handshake_answers_on_the_next_port,
-    ),
-    (
-        "the_cookie_outlives_the_handshake",
-        &["link.referral-cookie.outlives-the-handshake-that-carried-it"],
-        the_cookie_outlives_the_handshake,
-    ),
-    (
-        "a_silent_shard_is_logged_into_again",
-        &["link.silent-shard.logs-in-again-once-with-the-cookie-it-was-given"],
-        a_silent_shard_is_logged_into_again,
-    ),
-    (
-        "a_silent_shard_with_no_cookie_just_drops",
-        &["link.silent-shard.with-no-cookie-is-an-ordinary-timeout"],
-        a_silent_shard_with_no_cookie_just_drops,
-    ),
-    (
-        "a_recorded_silence_ends_the_link",
-        &["link.silent-shard.a-recorded-silence-ends-the-link-and-says-the-shard-died"],
-        a_recorded_silence_ends_the_link,
-    ),
-    (
-        "a_link_reading_is_taken_every_two_seconds",
-        &["link.reading.is-taken-every-two-seconds-and-the-counters-start-again-after-it"],
-        a_link_reading_is_taken_every_two_seconds,
-    ),
-    (
-        "a_refusal_after_the_login_is_over_is_a_lost_shard",
-        &["link.dropped.a-refusal-after-the-login-window-closes-is-a-lost-shard-and-not-a-login-failure"],
-        a_refusal_after_the_login_is_over_is_a_lost_shard,
-    ),
-    (
-        "a_named_reason_survives_the_goodbye_that_follows_it",
-        &["link.dropped.a-shard-that-says-why-keeps-that-reason-while-the-goodbye-completes"],
-        a_named_reason_survives_the_goodbye_that_follows_it,
-    ),
-    (
-        "a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down",
-        &["link.dropped.a-goodbye-is-answered-once-and-the-link-is-taken-down-on-the-next-pass"],
-        a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down,
-    ),
-    (
-        "a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_shard",
-        &["link.dropped.a-tampered-datagram-changes-nothing-and-another-recipient-leaving-is-not-the-shard"],
-        a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_shard,
-    ),
-    (
-        "only_real_silence_takes_the_link_down",
-        &["link.dropped.only-real-silence-takes-the-link-down-and-a-stalled-client-is-not-silence"],
-        only_real_silence_takes_the_link_down,
-    ),
-    (
-        "the_packet_loss_figure_counts_both_directions",
-        &["link.packet-loss.counts-what-the-client-sent-as-well-as-what-it-received"],
-        the_packet_loss_figure_counts_both_directions,
-    ),
-    (
-        "a_burst_of_loss_ages_out_of_the_window",
-        &["link.packet-loss.a-burst-ages-out-of-a-window-far-longer-than-the-line-says"],
-        a_burst_of_loss_ages_out_of_the_window,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// The id the shard gives this client. Non-zero: zero is the client's own "this slot is free"
 /// sentinel, so a scenario that used it would be asserting against the empty case.
 const RECIPIENT: u16 = 0x0B;
@@ -233,9 +157,20 @@ pub fn the_handshake_answers_on_the_next_port() {
     );
 }
 
-#[test]
-fn scenario_the_handshake_answers_on_the_next_port() {
-    scenario("the_handshake_answers_on_the_next_port");
+dereth_testkit::scenarios! {
+    scenario_the_handshake_answers_on_the_next_port => the_handshake_answers_on_the_next_port ["link.handshake.answers-the-shard-on-the-next-port-and-echoes-its-cookie"],
+    scenario_the_cookie_outlives_the_handshake => the_cookie_outlives_the_handshake ["link.referral-cookie.outlives-the-handshake-that-carried-it"],
+    scenario_a_silent_shard_is_logged_into_again => a_silent_shard_is_logged_into_again ["link.silent-shard.logs-in-again-once-with-the-cookie-it-was-given"],
+    scenario_a_silent_shard_with_no_cookie_just_drops => a_silent_shard_with_no_cookie_just_drops ["link.silent-shard.with-no-cookie-is-an-ordinary-timeout"],
+    scenario_a_recorded_silence_ends_the_link => a_recorded_silence_ends_the_link ["link.silent-shard.a-recorded-silence-ends-the-link-and-says-the-shard-died"],
+    scenario_a_link_reading_is_taken_every_two_seconds => a_link_reading_is_taken_every_two_seconds ["link.reading.is-taken-every-two-seconds-and-the-counters-start-again-after-it"],
+    scenario_a_refusal_after_the_login_is_over_is_a_lost_shard => a_refusal_after_the_login_is_over_is_a_lost_shard ["link.dropped.a-refusal-after-the-login-window-closes-is-a-lost-shard-and-not-a-login-failure"],
+    scenario_a_named_reason_survives_the_goodbye_that_follows_it => a_named_reason_survives_the_goodbye_that_follows_it ["link.dropped.a-shard-that-says-why-keeps-that-reason-while-the-goodbye-completes"],
+    scenario_a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down => a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down ["link.dropped.a-goodbye-is-answered-once-and-the-link-is-taken-down-on-the-next-pass"],
+    scenario_a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_shard => a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_shard ["link.dropped.a-tampered-datagram-changes-nothing-and-another-recipient-leaving-is-not-the-shard"],
+    scenario_only_real_silence_takes_the_link_down => only_real_silence_takes_the_link_down ["link.dropped.only-real-silence-takes-the-link-down-and-a-stalled-client-is-not-silence"],
+    scenario_the_packet_loss_figure_counts_both_directions => the_packet_loss_figure_counts_both_directions ["link.packet-loss.counts-what-the-client-sent-as-well-as-what-it-received"],
+    scenario_a_burst_of_loss_ages_out_of_the_window => a_burst_of_loss_ages_out_of_the_window ["link.packet-loss.a-burst-ages-out-of-a-window-far-longer-than-the-line-says"],
 }
 
 // -------------------------------------------------------------------------------------------
@@ -268,11 +203,6 @@ pub fn the_cookie_outlives_the_handshake() {
         "link.referral-cookie.outlives-the-handshake-that-carried-it",
         move |_| nothing_registered_yet && written && survives,
     );
-}
-
-#[test]
-fn scenario_the_cookie_outlives_the_handshake() {
-    scenario("the_cookie_outlives_the_handshake");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -317,11 +247,6 @@ pub fn a_silent_shard_is_logged_into_again() {
     );
 }
 
-#[test]
-fn scenario_a_silent_shard_is_logged_into_again() {
-    scenario("a_silent_shard_is_logged_into_again");
-}
-
 // -------------------------------------------------------------------------------------------
 // link.silent-shard.with-no-cookie-is-an-ordinary-timeout
 // -------------------------------------------------------------------------------------------
@@ -345,11 +270,6 @@ pub fn a_silent_shard_with_no_cookie_just_drops() {
         "link.silent-shard.with-no-cookie-is-an-ordinary-timeout",
         move |_| no_cookie && nothing_queued && ordinary && nothing_sent,
     );
-}
-
-#[test]
-fn scenario_a_silent_shard_with_no_cookie_just_drops() {
-    scenario("a_silent_shard_with_no_cookie_just_drops");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -535,11 +455,6 @@ pub fn a_recorded_silence_ends_the_link() {
                 && nothing_refused
         },
     );
-}
-
-#[test]
-fn scenario_a_recorded_silence_ends_the_link() {
-    scenario("a_recorded_silence_ends_the_link");
 }
 
 // =============================================================================================
@@ -745,11 +660,6 @@ pub fn a_link_reading_is_taken_every_two_seconds() {
     );
 }
 
-#[test]
-fn scenario_a_link_reading_is_taken_every_two_seconds() {
-    scenario("a_link_reading_is_taken_every_two_seconds");
-}
-
 // ---------------------------------------------------------------------------------------------
 // link.dropped.a-refusal-after-the-login-window-closes-is-a-lost-shard-and-not-a-login-failure
 // ---------------------------------------------------------------------------------------------
@@ -825,11 +735,6 @@ pub fn a_refusal_after_the_login_is_over_is_a_lost_shard() {
     });
 }
 
-#[test]
-fn scenario_a_refusal_after_the_login_is_over_is_a_lost_shard() {
-    scenario("a_refusal_after_the_login_is_over_is_a_lost_shard");
-}
-
 // ---------------------------------------------------------------------------------------------
 // link.dropped.a-shard-that-says-why-keeps-that-reason-while-the-goodbye-completes
 // ---------------------------------------------------------------------------------------------
@@ -878,11 +783,6 @@ pub fn a_named_reason_survives_the_goodbye_that_follows_it() {
                 && shard_died
         },
     );
-}
-
-#[test]
-fn scenario_a_named_reason_survives_the_goodbye_that_follows_it() {
-    scenario("a_named_reason_survives_the_goodbye_that_follows_it");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -952,11 +852,6 @@ pub fn a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down(
                 && gone
         },
     );
-}
-
-#[test]
-fn scenario_a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down() {
-    scenario("a_goodbye_with_no_complaint_is_answered_once_and_then_the_link_goes_down");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1055,11 +950,6 @@ pub fn a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_
     });
 }
 
-#[test]
-fn scenario_a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_shard() {
-    scenario("a_tampered_datagram_changes_nothing_and_another_party_leaving_is_not_the_shard");
-}
-
 // ---------------------------------------------------------------------------------------------
 // link.dropped.only-real-silence-takes-the-link-down-and-a-stalled-client-is-not-silence
 // ---------------------------------------------------------------------------------------------
@@ -1104,11 +994,6 @@ pub fn only_real_silence_takes_the_link_down() {
         "link.dropped.only-real-silence-takes-the-link-down-and-a-stalled-client-is-not-silence",
         move |_| strict && a_stall_is_not_silence && the_next_frame_sees_it,
     );
-}
-
-#[test]
-fn scenario_only_real_silence_takes_the_link_down() {
-    scenario("only_real_silence_takes_the_link_down");
 }
 
 // =============================================================================================
@@ -1253,11 +1138,6 @@ pub fn the_packet_loss_figure_counts_both_directions() {
     );
 }
 
-#[test]
-fn scenario_the_packet_loss_figure_counts_both_directions() {
-    scenario("the_packet_loss_figure_counts_both_directions");
-}
-
 // ---------------------------------------------------------------------------------------------
 // link.packet-loss.a-burst-ages-out-of-a-window-far-longer-than-the-line-says
 // ---------------------------------------------------------------------------------------------
@@ -1308,9 +1188,4 @@ pub fn a_burst_of_loss_ages_out_of_the_window() {
         "link.packet-loss.a-burst-ages-out-of-a-window-far-longer-than-the-line-says",
         move |_| in_the_window && still_there && whole_window && gone && longer_than_the_line_says,
     );
-}
-
-#[test]
-fn scenario_a_burst_of_loss_ages_out_of_the_window() {
-    scenario("a_burst_of_loss_ages_out_of_the_window");
 }

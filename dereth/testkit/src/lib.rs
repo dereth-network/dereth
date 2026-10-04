@@ -57,6 +57,7 @@ mod login;
 pub mod outbound;
 pub mod player;
 pub mod replay;
+mod scenarios;
 pub mod tier_census;
 pub mod ui_snapshot;
 pub mod view;

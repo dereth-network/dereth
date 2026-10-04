@@ -13,20 +13,6 @@ use dereth_client::frame_events::{
 use dereth_client::world::RenderPrefWork;
 use dereth_testkit::HeadlessClient;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[(
-    "the_frame_log_is_the_counters",
-    &["frame.log.is-the-counters-and-keeps-them-whole"],
-    the_frame_log_is_the_counters,
-)];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// The fourteen lines a frame that ran to the end produces, in order. This is the golden text a
 /// scenario diffs against.
 const WHOLE_FRAME: &str = "\
@@ -253,7 +239,6 @@ pub fn the_frame_log_is_the_counters() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_the_frame_log_is_the_counters() {
-    scenario("the_frame_log_is_the_counters");
+dereth_testkit::scenarios! {
+    scenario_the_frame_log_is_the_counters => the_frame_log_is_the_counters ["frame.log.is-the-counters-and-keeps-them-whole"],
 }

@@ -5,162 +5,150 @@
 //! Both are static: nothing here runs a scenario. A binary lists its scenario files once and
 //! calls [`assert_complete`] and [`assert_every_scenario_is_run`] from two short tests.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::behaviours::{self, Scenario, Tier, SCENARIO_PACKAGE};
 
 /// One scenario file of a tier binary: its module name, which is the registry subject it holds,
 /// and its `ALL` table.
-pub type ScenarioFile = (&'static str, &'static [Scenario]);
+#[derive(Debug, Clone, Copy)]
+pub struct ScenarioFile {
+    /// The complete Rust module path, including the integration target.
+    pub module: &'static str,
+    /// The bodies and claims declared by this scope.
+    pub scenarios: &'static [Scenario],
+    /// The generated wrapper names in the same order as `scenarios`.
+    pub tests: &'static [&'static str],
+}
 
 /// Every scenario the files list, in file order.
 #[must_use]
 pub fn scenarios(files: &[ScenarioFile]) -> Vec<Scenario> {
     files
         .iter()
-        .flat_map(|(_, list)| list.iter().copied())
+        .flat_map(|file| file.scenarios.iter().copied())
         .collect()
 }
 
-/// Whether `station` names the test of scenario `scenario` in the file `module` of `tier`: that
-/// file's test, at its top level or inside one of its inner modules.
+/// Whether a station names this exact compiled wrapper in the requested tier.
 #[must_use]
-pub fn is_station_of(station: &str, tier: Tier, module: &str, scenario: &str) -> bool {
-    let file = format!("{SCENARIO_PACKAGE}::{}::{module}::", tier.binary());
-    station.starts_with(&file) && station.ends_with(&format!("::scenario_{scenario}"))
+pub fn is_station_of(station: &str, tier: Tier, module: &str, test: &str) -> bool {
+    module
+        .split_once("::")
+        .is_some_and(|(target, _)| target == tier.binary())
+        && station == format!("{SCENARIO_PACKAGE}::{module}::{test}")
 }
 
-/// Assert that the tier's scenarios and the registry's rows for the tier are the same set: one
-/// claim per scenario, no claim declared twice, every row declared and every declaration a row,
-/// and every row's `station` the test of the scenario that declares it.
+/// Assert that every documented claim has exactly one matching owner station.
+///
+/// A scenario can own several claims and assert shared claims owned by another
+/// scenario or an ordinary test, including another tier. Every declared claim
+/// must be known; this census owns only this tier's scenario stations. The runtime
+/// recorder still checks each scenario's complete asserted set.
 ///
 /// # Panics
-/// Panics, naming each gap, when any of those does not hold.
+/// Panics on missing, repeated or misplaced declarations and wrapper identities.
 pub fn assert_complete(tier: Tier, files: &[ScenarioFile]) {
-    let all = scenarios(files);
-
-    // **One scenario carries one claim.** It is asserted here rather than inferred from two
-    // totals, so that a scenario declaring two ids or none is named instead of showing up as
-    // arithmetic.
-    let not_one: Vec<&str> = all
-        .iter()
-        .filter(|(_, ids, _)| ids.len() != 1)
-        .map(|(name, _, _)| *name)
+    assert_every_scenario_is_run(files);
+    let rows: Vec<_> = behaviours::all()
+        .filter(|row| row.is_scenario() && row.tier == tier)
+        .map(|row| (row.id, row.station))
         .collect();
-    assert!(
-        not_one.is_empty(),
-        "one scenario carries one behaviour, and these declare some other number: {not_one:?}"
-    );
-
-    let mut declared: BTreeSet<&'static str> = BTreeSet::new();
-    let twice: Vec<&str> = all
+    let known: BTreeSet<_> = behaviours::all().map(|row| row.id).collect();
+    let owned: BTreeSet<_> = rows.iter().map(|(id, _)| *id).collect();
+    let declared = scenarios(files)
         .iter()
         .flat_map(|(_, ids, _)| ids.iter().copied())
-        .filter(|id| !declared.insert(*id))
+        .filter(|id| owned.contains(id))
         .collect();
-    assert!(
-        twice.is_empty(),
-        "two scenarios declare the same behaviour: {twice:?}"
-    );
+    println!("{}", behaviours::census(Some(tier), &declared));
+    let errors = claim_errors(tier, files, &known, &rows);
+    assert!(errors.is_empty(), "scenario census gaps: {errors:#?}");
+}
 
-    let c = behaviours::census(Some(tier), &declared);
-    println!("{c}");
-    assert!(
-        c.complete(),
-        "these documented behaviours have no scenario in the {} tier: {:?}; and these \
-         declarations name nothing the tier documents: {:?}",
-        tier.binary(),
-        c.undeclared,
-        c.undocumented
-    );
-    assert_eq!(
-        c.documented,
-        all.len(),
-        "the tier documents {} behaviours and this binary lists {} scenarios",
-        c.documented,
-        all.len()
-    );
-
-    // **The row names the test that asserts it**, so a reader can go from a claim to its test and
-    // a moved or renamed scenario is a red here rather than a stale pointer.
-    let mut misplaced = Vec::new();
-    for (module, list) in files {
-        for (name, ids, _) in *list {
+fn claim_errors(
+    tier: Tier,
+    files: &[ScenarioFile],
+    known: &BTreeSet<&str>,
+    rows: &[(&str, &str)],
+) -> Vec<String> {
+    let documented: BTreeMap<_, _> = rows.iter().copied().collect();
+    let mut declared = BTreeSet::new();
+    let mut owners = BTreeMap::<&str, usize>::new();
+    let mut errors = Vec::new();
+    for file in files {
+        for ((name, ids, _), test) in file.scenarios.iter().zip(file.tests) {
+            let mut within = BTreeSet::new();
+            if ids.is_empty() {
+                errors.push(format!("{name}: no declared claims"));
+            }
             for id in *ids {
-                let row = behaviours::lookup(id).expect("the census above found every id");
-                if !is_station_of(row.station, tier, module, name) {
-                    misplaced.push(format!(
-                        "{id}: {} (want the test of {module}'s scenario {name})",
-                        row.station
-                    ));
+                if !within.insert(*id) {
+                    errors.push(format!("{}::{test}: duplicate claim {id}", file.module));
+                    continue;
+                }
+                declared.insert(*id);
+                if !known.contains(id) {
+                    errors.push(format!("{name}: unknown claim: {id}"));
+                    continue;
+                }
+                let Some(station) = documented.get(id) else {
+                    continue;
+                };
+                if is_station_of(station, tier, file.module, test) {
+                    *owners.entry(id).or_default() += 1;
                 }
             }
         }
     }
-    assert!(
-        misplaced.is_empty(),
-        "these rows name another station than the scenario that asserts them: {misplaced:#?}"
-    );
-}
-
-/// Every name that follows `marker` in `src`, up to the next `close`.
-///
-/// One pass rather than a `contains` per scenario: the `dat` tier's subject files are half a
-/// megabyte each and a scan per scenario turned the census back into seconds.
-fn names_after<'a>(src: &'a str, marker: &str, close: char) -> BTreeSet<&'a str> {
-    let mut out = BTreeSet::new();
-    let mut rest = src;
-    while let Some(i) = rest.find(marker) {
-        rest = &rest[i + marker.len()..];
-        if let Some(j) = rest.find(close) {
-            out.insert(&rest[..j]);
+    for id in documented.keys() {
+        if !declared.contains(id) {
+            errors.push(format!("undocumented by scenarios: {id}"));
+        }
+        let count = owners.get(id).copied().unwrap_or(0);
+        if count != 1 {
+            errors.push(format!("{id}: expected one owner station, found {count}"));
         }
     }
-    out
-}
-
-/// `src` with the whitespace after every `scenario(` removed, so a call the formatter broke across
-/// lines reads as the call it is.
-fn join_calls(src: &str) -> String {
-    const CALL: &str = "scenario(";
-    let mut out = String::with_capacity(src.len());
-    let mut rest = src;
-    while let Some(i) = rest.find(CALL) {
-        let end = i + CALL.len();
-        out.push_str(&rest[..end]);
-        rest = rest[end..].trim_start();
+    if owners.values().sum::<usize>() != rows.len() {
+        errors.push("owned claim count differs from documented claim count".into());
     }
-    out.push_str(rest);
-    out
+    errors
 }
 
-/// Assert that **every scenario in the table has a test of its own, and that test goes through
-/// the check**, reading each file's source under `dir`.
+/// Check the compiled declaration identities, without rereading source files.
 ///
-/// A static census counts a declaration and never runs it, so a scenario whose `#[test]` had been
-/// deleted would still be counted. The link between the declaration and the run is therefore
-/// asserted against the source -- the same thing the registry's
-/// `every_subject_module_is_listed_in_subjects` test does for its own files.
+/// The macro emits its slices and wrappers together. This check rejects duplicate
+/// slice registration and duplicate wrapper identities before the registry census.
 ///
 /// # Panics
-/// Panics when a file cannot be read, or names a scenario with no `fn scenario_<name>()` that
-/// calls `scenario("<name>")`.
-pub fn assert_every_scenario_is_run(dir: &str, files: &[ScenarioFile]) {
-    for (stem, list) in files {
-        let path = format!("{dir}{stem}.rs");
-        let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        let tests = names_after(&src, "fn scenario_", '(');
-        let joined = join_calls(&src);
-        let checked = names_after(&joined, "scenario(\"", '"');
-        for (name, _, _) in *list {
-            let name: &str = name;
-            assert!(
-                tests.contains(name),
-                "{stem}.rs lists the scenario {name} and has no `fn scenario_{name}()` to run it"
+/// Panics on inconsistent slices or repeated module/test identities.
+pub fn assert_every_scenario_is_run(files: &[ScenarioFile]) {
+    let mut modules = BTreeSet::new();
+    let mut tests = BTreeSet::new();
+    for file in files {
+        assert!(
+            modules.insert(file.module),
+            "scenario scope listed twice: {}",
+            file.module
+        );
+        assert_eq!(
+            file.scenarios.len(),
+            file.tests.len(),
+            "{}: declaration/test mismatch",
+            file.module
+        );
+        for ((name, _, _), test) in file.scenarios.iter().zip(file.tests) {
+            assert_eq!(
+                *test,
+                format!("scenario_{name}"),
+                "{}: wrong wrapper",
+                file.module
             );
             assert!(
-                checked.contains(name),
-                "{stem}.rs's test for {name} does not go through the declared == asserted check"
+                tests.insert((file.module, test)),
+                "duplicate wrapper: {}::{test}",
+                file.module
             );
         }
     }
@@ -171,21 +159,136 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_call_the_formatter_broke_across_lines_still_reads_as_the_call() {
-        let src = "fn scenario_a() {\n    scenario(\n        \"a\",\n    );\n}\n";
-        let joined = join_calls(src);
-        assert!(names_after(&joined, "scenario(\"", '"').contains("a"));
-        assert!(names_after(src, "fn scenario_", '(').contains("a"));
+    fn a_scenario_station_names_its_exact_module_and_wrapper() {
+        let top = "dereth-testkit::dat::chat::scenario_a_line_is_drawn";
+        let inner = "dereth-testkit::dat::chat::window::scenario_a_line_is_drawn";
+        assert!(is_station_of(
+            top,
+            Tier::Dat,
+            "dat::chat",
+            "scenario_a_line_is_drawn"
+        ));
+        assert!(is_station_of(
+            inner,
+            Tier::Dat,
+            "dat::chat::window",
+            "scenario_a_line_is_drawn"
+        ));
+        assert!(!is_station_of(
+            inner,
+            Tier::Dat,
+            "dat::chat",
+            "scenario_a_line_is_drawn"
+        ));
+        assert!(!is_station_of(
+            top,
+            Tier::Cpu,
+            "dat::chat",
+            "scenario_a_line_is_drawn"
+        ));
+        assert!(!is_station_of(
+            top,
+            Tier::Dat,
+            "dat::social",
+            "scenario_a_line_is_drawn"
+        ));
     }
 
     #[test]
-    fn a_scenario_station_is_the_test_path_of_its_scenario() {
-        let top = "dereth-testkit::dat::chat::scenario_a_line_is_drawn";
-        let inner = "dereth-testkit::dat::chat::window::scenario_a_line_is_drawn";
-        assert!(is_station_of(top, Tier::Dat, "chat", "a_line_is_drawn"));
-        assert!(is_station_of(inner, Tier::Dat, "chat", "a_line_is_drawn"));
-        assert!(!is_station_of(top, Tier::Cpu, "chat", "a_line_is_drawn"));
-        assert!(!is_station_of(top, Tier::Dat, "social", "a_line_is_drawn"));
-        assert!(!is_station_of(top, Tier::Dat, "chat", "a_line"));
+    fn duplicate_scopes_cannot_satisfy_the_census() {
+        let file = ScenarioFile {
+            module: "cpu::chat",
+            scenarios: &[],
+            tests: &[],
+        };
+        assert!(std::panic::catch_unwind(|| assert_every_scenario_is_run(&[file, file])).is_err());
+    }
+    fn body() {}
+
+    fn known() -> BTreeSet<&'static str> {
+        [
+            "chat.one",
+            "chat.two",
+            "chat.shared",
+            "chat.external",
+            "chat.ordinary",
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    const OWNER: &str = "dereth-testkit::cpu::chat::scenario_owner";
+    const SHARED: &str = "dereth-testkit::cpu::chat::shared::scenario_shared";
+    const ROWS: &[(&str, &str)] = &[
+        ("chat.one", OWNER),
+        ("chat.two", OWNER),
+        ("chat.shared", SHARED),
+    ];
+    const OWNER_FILE: ScenarioFile = ScenarioFile {
+        module: "cpu::chat",
+        scenarios: &[("owner", &["chat.one", "chat.two", "chat.shared"], body)],
+        tests: &["scenario_owner"],
+    };
+    const SHARED_FILE: ScenarioFile = ScenarioFile {
+        module: "cpu::chat::shared",
+        scenarios: &[("shared", &["chat.shared"], body)],
+        tests: &["scenario_shared"],
+    };
+
+    #[test]
+    fn multiple_owned_claims_and_shared_assertions_keep_one_owner_per_row() {
+        let files = [OWNER_FILE, SHARED_FILE];
+        assert_every_scenario_is_run(&files);
+        assert!(claim_errors(Tier::Cpu, &files, &known(), ROWS).is_empty());
+    }
+
+    #[test]
+    fn shared_assertion_cannot_replace_an_omitted_owner_slice() {
+        let errors = claim_errors(Tier::Cpu, &[OWNER_FILE], &known(), ROWS);
+        assert!(errors
+            .iter()
+            .any(|e| e == "chat.shared: expected one owner station, found 0"));
+        // Every documented id is still declared: only ownership is missing.
+        assert!(!errors
+            .iter()
+            .any(|e| e.starts_with("undocumented by scenarios:")));
+    }
+
+    #[test]
+    fn unknown_duplicate_and_wrong_tier_claims_do_not_pass_through_shared_assertions() {
+        let unknown = ScenarioFile {
+            scenarios: &[("owner", &["chat.one", "chat.two", "chat.unknown"], body)],
+            ..OWNER_FILE
+        };
+        assert!(
+            claim_errors(Tier::Cpu, &[unknown, SHARED_FILE], &known(), ROWS)
+                .iter()
+                .any(|e| e.contains("unknown claim: chat.unknown"))
+        );
+        let repeated = ScenarioFile {
+            scenarios: &[("owner", &["chat.one", "chat.two", "chat.one"], body)],
+            ..OWNER_FILE
+        };
+        assert!(
+            claim_errors(Tier::Cpu, &[repeated, SHARED_FILE], &known(), ROWS)
+                .iter()
+                .any(|e| e.ends_with("duplicate claim chat.one"))
+        );
+        assert!(
+            claim_errors(Tier::Dat, &[OWNER_FILE, SHARED_FILE], &known(), ROWS)
+                .iter()
+                .any(|e| e.ends_with("expected one owner station, found 0"))
+        );
+    }
+
+    #[test]
+    fn known_cross_tier_and_ordinary_test_claims_are_valid_shared_assertions() {
+        let extra = ScenarioFile {
+            module: "cpu::chat::extra",
+            scenarios: &[("extra", &["chat.external", "chat.ordinary"], body)],
+            tests: &["scenario_extra"],
+        };
+        let errors = claim_errors(Tier::Cpu, &[OWNER_FILE, SHARED_FILE, extra], &known(), ROWS);
+        assert!(errors.is_empty());
     }
 }

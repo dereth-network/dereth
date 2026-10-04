@@ -10,27 +10,6 @@ use dereth_client::character::PLAYER_OBJECT_ID;
 use dereth_client_contract::GameView as _;
 use dereth_testkit::{Given, HeadlessClient};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "only_turning_is_allowed_to_a_body_with_nothing_under_it",
-        &["movement.contact.only-turning-is-allowed-to-a-body-with-no-ground-under-it"],
-        only_turning_is_allowed_to_a_body_with_nothing_under_it,
-    ),
-    (
-        "the_player_identity_comes_from_the_shard",
-        &["player.identity.comes-from-the-shard"],
-        the_player_identity_comes_from_the_shard,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 // -------------------------------------------------------------------------------------------
 // movement.contact.only-turning-is-allowed-to-a-body-with-no-ground-under-it
 // -------------------------------------------------------------------------------------------
@@ -92,9 +71,9 @@ pub fn only_turning_is_allowed_to_a_body_with_nothing_under_it() {
     );
 }
 
-#[test]
-fn scenario_only_turning_is_allowed_to_a_body_with_nothing_under_it() {
-    scenario("only_turning_is_allowed_to_a_body_with_nothing_under_it");
+dereth_testkit::scenarios! {
+    scenario_only_turning_is_allowed_to_a_body_with_nothing_under_it => only_turning_is_allowed_to_a_body_with_nothing_under_it ["movement.contact.only-turning-is-allowed-to-a-body-with-no-ground-under-it"],
+    scenario_the_player_identity_comes_from_the_shard => the_player_identity_comes_from_the_shard ["player.identity.comes-from-the-shard"],
 }
 
 // -------------------------------------------------------------------------------------------
@@ -131,9 +110,4 @@ pub fn the_player_identity_comes_from_the_shard() {
             // The shard's own player range, which a placeholder is not in.
             && (0x5000_0001..=0x5FFF_FFFF).contains(&player.0)
     });
-}
-
-#[test]
-fn scenario_the_player_identity_comes_from_the_shard() {
-    scenario("the_player_identity_comes_from_the_shard");
 }

@@ -28,257 +28,6 @@ use dereth_testkit::{HeadlessClient, Inbound, Player};
 use dereth_ui_screens::chat::mainchat::MainChatPanel;
 use dereth_ui_screens::panels::inventory::HERITAGE_GROUP_PROPERTY;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "target_menu_and_activation_require_the_current_named_player",
-        &["chat.target-menu.requires-current-named-player"],
-        target_menu_and_activation_require_the_current_named_player,
-    ),
-    (
-        "turbine_text_conversion_runs_before_the_markup",
-        &["chat.turbine.host-text-conversion-happens-before-the-markup-is-read"],
-        turbine_text_conversion_runs_before_the_markup,
-    ),
-    (
-        "turbine_channel_comes_up_with_the_shards_permission",
-        &["chat.turbine.the-channel-comes-up-with-the-shards-permission"],
-        turbine_channel_comes_up_with_the_shards_permission,
-    ),
-    (
-        "turbine_line_is_refused_by_three_separate_gates",
-        &["chat.turbine.a-line-is-refused-by-the-option-the-bucket-and-the-safety-check"],
-        turbine_line_is_refused_by_three_separate_gates,
-    ),
-    (
-        "allegiance_chat_refusal_and_rejoin",
-        &["chat.allegiance.refusal-is-its-own-and-the-option-rejoins-the-channel"],
-        allegiance_chat_refusal_and_rejoin,
-    ),
-    (
-        "channel_broadcast_wording_per_channel",
-        &["chat.channel.each-channel-has-its-own-wording-and-type"],
-        channel_broadcast_wording_per_channel,
-    ),
-    (
-        "squelch_table_off_the_wire_replaces_the_clients_own",
-        &["chat.squelch.the-shards-table-replaces-the-clients-own"],
-        squelch_table_off_the_wire_replaces_the_clients_own,
-    ),
-    (
-        "squelch_is_asked_on_every_incoming_path",
-        &["chat.squelch.every-incoming-path-asks-on-the-type-it-carries"],
-        squelch_is_asked_on_every_incoming_path,
-    ),
-    (
-        "a_third_partys_death_is_announced",
-        &["chat.death.a-third-partys-death-is-announced-and-your-own-is-not"],
-        a_third_partys_death_is_announced,
-    ),
-    (
-        "an_unplaceable_speaker_is_always_heard",
-        &["chat.speech.a-speaker-the-client-cannot-place-is-always-heard"],
-        an_unplaceable_speaker_is_always_heard,
-    ),
-    (
-        "your_own_soul_emote_is_not_echoed_back",
-        &["chat.soul-emote.your-own-is-not-echoed-back"],
-        your_own_soul_emote_is_not_echoed_back,
-    ),
-    (
-        "a_ranged_line_is_gated_by_its_own_range",
-        &["chat.ranged-speech.is-gated-by-the-range-the-message-carries"],
-        a_ranged_line_is_gated_by_its_own_range,
-    ),
-    (
-        "every_talk_focus_row_is_told_every_time",
-        &["chat.talk-focus.every-row-is-told-every-time-and-the-menu-guard-does-not-unset-it"],
-        every_talk_focus_row_is_told_every_time,
-    ),
-    (
-        "an_incoming_room_packet_must_be_whole",
-        &["chat.turbine.an-incoming-line-is-refused-unless-the-packet-is-whole"],
-        an_incoming_room_packet_must_be_whole,
-    ),
-    (
-        "each_chat_room_is_drawn_with_its_own_name",
-        &["chat.turbine.each-room-is-drawn-with-its-own-name-and-type"],
-        each_chat_room_is_drawn_with_its_own_name,
-    ),
-    (
-        "a_failed_room_line_is_named_back_once",
-        &["chat.turbine.a-failure-answer-names-the-line-and-a-relog-keeps-the-service"],
-        a_failed_room_line_is_named_back_once,
-    ),
-    (
-        "a_speaker_you_cannot_understand_is_a_name_and_a_noise",
-        &["chat.garble.a-speaker-you-cannot-understand-is-drawn-as-a-name-and-a-noise"],
-        a_speaker_you_cannot_understand_is_a_name_and_a_noise,
-    ),
-    (
-        "a_garbled_tell_is_drawn_even_when_it_was_not_for_you",
-        &["chat.garble.a-tell-you-cannot-understand-is-drawn-even-when-it-was-not-for-you"],
-        a_garbled_tell_is_drawn_even_when_it_was_not_for_you,
-    ),
-    (
-        "an_acted_emote_garbles_where_a_pose_and_a_shout_do_not",
-        &["chat.garble.an-acted-emote-is-garbled-where-a-pose-and-a-shout-are-not"],
-        an_acted_emote_garbles_where_a_pose_and_a_shout_do_not,
-    ),
-    (
-        "every_spelling_of_the_emote_command_sends_the_same_thing",
-        &["chat.emote.every-spelling-of-the-command-sends-the-same-thing"],
-        every_spelling_of_the_emote_command_sends_the_same_thing,
-    ),
-    (
-        "an_empty_emote_is_silent_and_costs_no_place_in_the_order",
-        &["chat.emote.an-empty-one-is-silent-and-costs-no-place-in-the-order"],
-        an_empty_emote_is_silent_and_costs_no_place_in_the_order,
-    ),
-    (
-        "a_shard_line_still_carries_its_newline_at_the_model",
-        &["chat.log.a-shard-line-still-carries-its-newline-at-the-model-boundary"],
-        a_shard_line_still_carries_its_newline_at_the_model,
-    ),
-    (
-        "a_composed_room_line_still_carries_its_markup",
-        &["chat.tell-markup.a-composed-room-line-still-carries-its-markup-at-the-model-boundary"],
-        a_composed_room_line_still_carries_its_markup,
-    ),
-    (
-        "a_populated_squelch_list_is_read_whole",
-        &["chat.squelch.a-populated-list-is-read-whole-and-keeps-the-kind-of-each-entry"],
-        a_populated_squelch_list_is_read_whole,
-    ),
-    (
-        "the_squelch_row_is_a_toggle_and_names_the_speaker",
-        &["chat.talk-to-menu.the-squelch-row-is-a-toggle-and-its-message-names-the-speaker"],
-        the_squelch_row_is_a_toggle_and_names_the_speaker,
-    ),
-    (
-        "the_chat_target_follows_what_is_selected_while_it_is_near",
-        &["chat.talk-to-menu.the-chat-target-follows-what-is-selected-while-it-is-near"],
-        the_chat_target_follows_what_is_selected_while_it_is_near,
-    ),
-    (
-        "a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection",
-        &["chat.talk-to-menu.a-tell-goes-to-the-chat-target-and-not-to-the-selection"],
-        a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection,
-    ),
-    (
-        "the_channel_rows_follow_the_service_and_the_options",
-        &["chat.talk-focus.the-channel-rows-follow-the-service-and-the-players-own-options"],
-        the_channel_rows_follow_the_service_and_the_options,
-    ),
-    (
-        "every_recorded_login_asks_for_the_room_service",
-        &["chat.turbine.every-recorded-login-asks-the-client-to-use-the-service"],
-        every_recorded_login_asks_for_the_room_service,
-    ),
-    (
-        "the_newlines_are_trimmed_from_both_ends",
-        &["chat.log.the-newlines-are-trimmed-from-both-ends-and-nothing-else-is"],
-        the_newlines_are_trimmed_from_both_ends,
-    ),
-    (
-        "a_spoken_line_is_the_name_the_verb_and_the_words",
-        &["chat.speech.a-spoken-line-is-the-name-the-verb-and-the-words-in-quotes"],
-        a_spoken_line_is_the_name_the_verb_and_the_words,
-    ),
-    (
-        "a_private_message_is_drawn_only_when_it_was_for_you",
-        &["chat.tell.a-private-message-is-drawn-only-when-it-was-addressed-to-you"],
-        a_private_message_is_drawn_only_when_it_was_for_you,
-    ),
-    (
-        "a_line_with_a_range_on_it_has_no_echo_of_your_own",
-        &["chat.speech.a-line-with-a-range-on-it-has-no-echo-of-your-own"],
-        a_line_with_a_range_on_it_has_no_echo_of_your_own,
-    ),
-    (
-        "only_a_player_has_a_clickable_name",
-        &["chat.speech.only-a-player-has-a-clickable-name-and-the-range-is-exclusive-at-both-ends"],
-        only_a_player_has_a_clickable_name,
-    ),
-    (
-        "every_recorded_spoken_line_is_drawn_with_the_verb",
-        &["chat.speech.every-recorded-spoken-line-is-drawn-with-the-clients-own-verb-and-quotes"],
-        every_recorded_spoken_line_is_drawn_with_the_verb,
-    ),
-    (
-        "every_recorded_spoken_line_is_rebuilt_byte_for_byte",
-        &["chat.speech.every-spoken-line-the-recorded-client-sent-is-rebuilt-byte-for-byte"],
-        every_recorded_spoken_line_is_rebuilt_byte_for_byte,
-    ),
-    (
-        "every_recorded_tell_is_rebuilt_from_a_typed_line",
-        &["chat.tell.every-recorded-private-message-is-rebuilt-from-the-same-typed-line"],
-        every_recorded_tell_is_rebuilt_from_a_typed_line,
-    ),
-    (
-        "a_typed_tell_goes_out_with_the_words_first",
-        &["chat.tell.a-typed-private-message-goes-out-with-the-words-first-and-the-name-after"],
-        a_typed_tell_goes_out_with_the_words_first,
-    ),
-    (
-        "every_way_of_writing_a_private_message_reaches_the_wire",
-        &["chat.tell.every-way-of-writing-a-private-message-reaches-the-wire"],
-        every_way_of_writing_a_private_message_reaches_the_wire,
-    ),
-    (
-        "the_name_on_the_wire_is_the_one_the_line_asked_for",
-        &["chat.tell.the-name-on-the-wire-is-the-one-the-line-asked-for-and-no-other"],
-        the_name_on_the_wire_is_the_one_the_line_asked_for,
-    ),
-    (
-        "a_reply_goes_to_whoever_last_wrote_to_you",
-        &["chat.tell.a-reply-goes-to-whoever-last-wrote-to-you-and-nowhere-when-nobody-has"],
-        a_reply_goes_to_whoever_last_wrote_to_you,
-    ),
-    (
-        "the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out",
-        &["chat.tell.the-mark-a-shard-puts-in-front-of-a-name-is-taken-off-before-it-goes-out"],
-        the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out,
-    ),
-    (
-        "every_refusal_is_the_clients_own_words",
-        &["chat.tell.every-refusal-is-the-clients-own-words"],
-        every_refusal_is_the_clients_own_words,
-    ),
-    (
-        "a_verb_the_client_knows_is_not_refused",
-        &["chat.commands.a-verb-the-client-knows-answers-it-and-a-word-it-does-not-know-is-passed-on"],
-        a_verb_the_client_knows_is_not_refused,
-    ),
-    (
-        "neither_safety_gate_would_have_stopped_a_recorded_line",
-        &["chat.speech.neither-safety-gate-would-have-stopped-a-line-the-recordings-carry"],
-        neither_safety_gate_would_have_stopped_a_recorded_line,
-    ),
-    (
-        "emote_is_drawn_as_name_then_text",
-        &["chat.emote.is-drawn-as-name-then-text"],
-        emote_is_drawn_as_name_then_text,
-    ),
-    (
-        "speech_earshot_and_squelch_both_gate",
-        &["chat.speech.earshot-and-squelch-both-gate"],
-        speech_earshot_and_squelch_both_gate,
-    ),
-    (
-        "talk_focus_has_one_authoritative_value",
-        &["chat.talk-focus.one-authoritative-value"],
-        talk_focus_has_one_authoritative_value,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 const ME: ObjectId = ObjectId(0x5000_0001);
 const SPEAKER: ObjectId = ObjectId(0x5000_0AAA);
 
@@ -2231,94 +1980,56 @@ pub fn an_acted_emote_garbles_where_a_pose_and_a_shout_do_not() {
 // The `#[test]` beside each, which runs it and checks its declaration.
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_turbine_text_conversion_runs_before_the_markup() {
-    scenario("turbine_text_conversion_runs_before_the_markup");
-}
-
-#[test]
-fn scenario_turbine_channel_comes_up_with_the_shards_permission() {
-    scenario("turbine_channel_comes_up_with_the_shards_permission");
-}
-
-#[test]
-fn scenario_turbine_line_is_refused_by_three_separate_gates() {
-    scenario("turbine_line_is_refused_by_three_separate_gates");
-}
-
-#[test]
-fn scenario_allegiance_chat_refusal_and_rejoin() {
-    scenario("allegiance_chat_refusal_and_rejoin");
-}
-
-#[test]
-fn scenario_channel_broadcast_wording_per_channel() {
-    scenario("channel_broadcast_wording_per_channel");
-}
-
-#[test]
-fn scenario_squelch_table_off_the_wire_replaces_the_clients_own() {
-    scenario("squelch_table_off_the_wire_replaces_the_clients_own");
-}
-
-#[test]
-fn scenario_squelch_is_asked_on_every_incoming_path() {
-    scenario("squelch_is_asked_on_every_incoming_path");
-}
-
-#[test]
-fn scenario_a_third_partys_death_is_announced() {
-    scenario("a_third_partys_death_is_announced");
-}
-
-#[test]
-fn scenario_an_unplaceable_speaker_is_always_heard() {
-    scenario("an_unplaceable_speaker_is_always_heard");
-}
-
-#[test]
-fn scenario_your_own_soul_emote_is_not_echoed_back() {
-    scenario("your_own_soul_emote_is_not_echoed_back");
-}
-
-#[test]
-fn scenario_a_ranged_line_is_gated_by_its_own_range() {
-    scenario("a_ranged_line_is_gated_by_its_own_range");
-}
-
-#[test]
-fn scenario_every_talk_focus_row_is_told_every_time() {
-    scenario("every_talk_focus_row_is_told_every_time");
-}
-
-#[test]
-fn scenario_an_incoming_room_packet_must_be_whole() {
-    scenario("an_incoming_room_packet_must_be_whole");
-}
-
-#[test]
-fn scenario_each_chat_room_is_drawn_with_its_own_name() {
-    scenario("each_chat_room_is_drawn_with_its_own_name");
-}
-
-#[test]
-fn scenario_a_failed_room_line_is_named_back_once() {
-    scenario("a_failed_room_line_is_named_back_once");
-}
-
-#[test]
-fn scenario_a_speaker_you_cannot_understand_is_a_name_and_a_noise() {
-    scenario("a_speaker_you_cannot_understand_is_a_name_and_a_noise");
-}
-
-#[test]
-fn scenario_a_garbled_tell_is_drawn_even_when_it_was_not_for_you() {
-    scenario("a_garbled_tell_is_drawn_even_when_it_was_not_for_you");
-}
-
-#[test]
-fn scenario_an_acted_emote_garbles_where_a_pose_and_a_shout_do_not() {
-    scenario("an_acted_emote_garbles_where_a_pose_and_a_shout_do_not");
+dereth_testkit::scenarios! {
+    scenario_turbine_text_conversion_runs_before_the_markup => turbine_text_conversion_runs_before_the_markup ["chat.turbine.host-text-conversion-happens-before-the-markup-is-read"],
+    scenario_turbine_channel_comes_up_with_the_shards_permission => turbine_channel_comes_up_with_the_shards_permission ["chat.turbine.the-channel-comes-up-with-the-shards-permission"],
+    scenario_turbine_line_is_refused_by_three_separate_gates => turbine_line_is_refused_by_three_separate_gates ["chat.turbine.a-line-is-refused-by-the-option-the-bucket-and-the-safety-check"],
+    scenario_allegiance_chat_refusal_and_rejoin => allegiance_chat_refusal_and_rejoin ["chat.allegiance.refusal-is-its-own-and-the-option-rejoins-the-channel"],
+    scenario_channel_broadcast_wording_per_channel => channel_broadcast_wording_per_channel ["chat.channel.each-channel-has-its-own-wording-and-type"],
+    scenario_squelch_table_off_the_wire_replaces_the_clients_own => squelch_table_off_the_wire_replaces_the_clients_own ["chat.squelch.the-shards-table-replaces-the-clients-own"],
+    scenario_squelch_is_asked_on_every_incoming_path => squelch_is_asked_on_every_incoming_path ["chat.squelch.every-incoming-path-asks-on-the-type-it-carries"],
+    scenario_a_third_partys_death_is_announced => a_third_partys_death_is_announced ["chat.death.a-third-partys-death-is-announced-and-your-own-is-not"],
+    scenario_an_unplaceable_speaker_is_always_heard => an_unplaceable_speaker_is_always_heard ["chat.speech.a-speaker-the-client-cannot-place-is-always-heard"],
+    scenario_your_own_soul_emote_is_not_echoed_back => your_own_soul_emote_is_not_echoed_back ["chat.soul-emote.your-own-is-not-echoed-back"],
+    scenario_a_ranged_line_is_gated_by_its_own_range => a_ranged_line_is_gated_by_its_own_range ["chat.ranged-speech.is-gated-by-the-range-the-message-carries"],
+    scenario_every_talk_focus_row_is_told_every_time => every_talk_focus_row_is_told_every_time ["chat.talk-focus.every-row-is-told-every-time-and-the-menu-guard-does-not-unset-it"],
+    scenario_an_incoming_room_packet_must_be_whole => an_incoming_room_packet_must_be_whole ["chat.turbine.an-incoming-line-is-refused-unless-the-packet-is-whole"],
+    scenario_each_chat_room_is_drawn_with_its_own_name => each_chat_room_is_drawn_with_its_own_name ["chat.turbine.each-room-is-drawn-with-its-own-name-and-type"],
+    scenario_a_failed_room_line_is_named_back_once => a_failed_room_line_is_named_back_once ["chat.turbine.a-failure-answer-names-the-line-and-a-relog-keeps-the-service"],
+    scenario_a_speaker_you_cannot_understand_is_a_name_and_a_noise => a_speaker_you_cannot_understand_is_a_name_and_a_noise ["chat.garble.a-speaker-you-cannot-understand-is-drawn-as-a-name-and-a-noise"],
+    scenario_a_garbled_tell_is_drawn_even_when_it_was_not_for_you => a_garbled_tell_is_drawn_even_when_it_was_not_for_you ["chat.garble.a-tell-you-cannot-understand-is-drawn-even-when-it-was-not-for-you"],
+    scenario_an_acted_emote_garbles_where_a_pose_and_a_shout_do_not => an_acted_emote_garbles_where_a_pose_and_a_shout_do_not ["chat.garble.an-acted-emote-is-garbled-where-a-pose-and-a-shout-are-not"],
+    scenario_every_spelling_of_the_emote_command_sends_the_same_thing => every_spelling_of_the_emote_command_sends_the_same_thing ["chat.emote.every-spelling-of-the-command-sends-the-same-thing"],
+    scenario_an_empty_emote_is_silent_and_costs_no_place_in_the_order => an_empty_emote_is_silent_and_costs_no_place_in_the_order ["chat.emote.an-empty-one-is-silent-and-costs-no-place-in-the-order"],
+    scenario_a_shard_line_still_carries_its_newline_at_the_model => a_shard_line_still_carries_its_newline_at_the_model ["chat.log.a-shard-line-still-carries-its-newline-at-the-model-boundary"],
+    scenario_a_composed_room_line_still_carries_its_markup => a_composed_room_line_still_carries_its_markup ["chat.tell-markup.a-composed-room-line-still-carries-its-markup-at-the-model-boundary"],
+    scenario_a_populated_squelch_list_is_read_whole => a_populated_squelch_list_is_read_whole ["chat.squelch.a-populated-list-is-read-whole-and-keeps-the-kind-of-each-entry"],
+    scenario_the_squelch_row_is_a_toggle_and_names_the_speaker => the_squelch_row_is_a_toggle_and_names_the_speaker ["chat.talk-to-menu.the-squelch-row-is-a-toggle-and-its-message-names-the-speaker"],
+    /// Behaviour: chat.target-menu.requires-current-named-player
+    scenario_target_menu_and_activation_require_the_current_named_player => target_menu_and_activation_require_the_current_named_player ["chat.target-menu.requires-current-named-player"],
+    scenario_the_chat_target_follows_what_is_selected_while_it_is_near => the_chat_target_follows_what_is_selected_while_it_is_near ["chat.talk-to-menu.the-chat-target-follows-what-is-selected-while-it-is-near"],
+    scenario_a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection => a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection ["chat.talk-to-menu.a-tell-goes-to-the-chat-target-and-not-to-the-selection"],
+    scenario_the_channel_rows_follow_the_service_and_the_options => the_channel_rows_follow_the_service_and_the_options ["chat.talk-focus.the-channel-rows-follow-the-service-and-the-players-own-options"],
+    scenario_every_recorded_login_asks_for_the_room_service => every_recorded_login_asks_for_the_room_service ["chat.turbine.every-recorded-login-asks-the-client-to-use-the-service"],
+    scenario_the_newlines_are_trimmed_from_both_ends => the_newlines_are_trimmed_from_both_ends ["chat.log.the-newlines-are-trimmed-from-both-ends-and-nothing-else-is"],
+    scenario_a_spoken_line_is_the_name_the_verb_and_the_words => a_spoken_line_is_the_name_the_verb_and_the_words ["chat.speech.a-spoken-line-is-the-name-the-verb-and-the-words-in-quotes"],
+    scenario_a_private_message_is_drawn_only_when_it_was_for_you => a_private_message_is_drawn_only_when_it_was_for_you ["chat.tell.a-private-message-is-drawn-only-when-it-was-addressed-to-you"],
+    scenario_a_line_with_a_range_on_it_has_no_echo_of_your_own => a_line_with_a_range_on_it_has_no_echo_of_your_own ["chat.speech.a-line-with-a-range-on-it-has-no-echo-of-your-own"],
+    scenario_only_a_player_has_a_clickable_name => only_a_player_has_a_clickable_name ["chat.speech.only-a-player-has-a-clickable-name-and-the-range-is-exclusive-at-both-ends"],
+    scenario_every_recorded_spoken_line_is_drawn_with_the_verb => every_recorded_spoken_line_is_drawn_with_the_verb ["chat.speech.every-recorded-spoken-line-is-drawn-with-the-clients-own-verb-and-quotes"],
+    scenario_every_recorded_spoken_line_is_rebuilt_byte_for_byte => every_recorded_spoken_line_is_rebuilt_byte_for_byte ["chat.speech.every-spoken-line-the-recorded-client-sent-is-rebuilt-byte-for-byte"],
+    scenario_every_recorded_tell_is_rebuilt_from_a_typed_line => every_recorded_tell_is_rebuilt_from_a_typed_line ["chat.tell.every-recorded-private-message-is-rebuilt-from-the-same-typed-line"],
+    scenario_a_typed_tell_goes_out_with_the_words_first => a_typed_tell_goes_out_with_the_words_first ["chat.tell.a-typed-private-message-goes-out-with-the-words-first-and-the-name-after"],
+    scenario_every_way_of_writing_a_private_message_reaches_the_wire => every_way_of_writing_a_private_message_reaches_the_wire ["chat.tell.every-way-of-writing-a-private-message-reaches-the-wire"],
+    scenario_the_name_on_the_wire_is_the_one_the_line_asked_for => the_name_on_the_wire_is_the_one_the_line_asked_for ["chat.tell.the-name-on-the-wire-is-the-one-the-line-asked-for-and-no-other"],
+    scenario_a_reply_goes_to_whoever_last_wrote_to_you => a_reply_goes_to_whoever_last_wrote_to_you ["chat.tell.a-reply-goes-to-whoever-last-wrote-to-you-and-nowhere-when-nobody-has"],
+    scenario_the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out => the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out ["chat.tell.the-mark-a-shard-puts-in-front-of-a-name-is-taken-off-before-it-goes-out"],
+    scenario_every_refusal_is_the_clients_own_words => every_refusal_is_the_clients_own_words ["chat.tell.every-refusal-is-the-clients-own-words"],
+    scenario_a_verb_the_client_knows_is_not_refused => a_verb_the_client_knows_is_not_refused ["chat.commands.a-verb-the-client-knows-answers-it-and-a-word-it-does-not-know-is-passed-on"],
+    scenario_neither_safety_gate_would_have_stopped_a_recorded_line => neither_safety_gate_would_have_stopped_a_recorded_line ["chat.speech.neither-safety-gate-would-have-stopped-a-line-the-recordings-carry"],
+    scenario_emote_is_drawn_as_name_then_text => emote_is_drawn_as_name_then_text ["chat.emote.is-drawn-as-name-then-text"],
+    scenario_speech_earshot_and_squelch_both_gate => speech_earshot_and_squelch_both_gate ["chat.speech.earshot-and-squelch-both-gate"],
+    scenario_talk_focus_has_one_authoritative_value => talk_focus_has_one_authoritative_value ["chat.talk-focus.one-authoritative-value"],
 }
 
 // =============================================================================================
@@ -2390,11 +2101,6 @@ pub fn every_spelling_of_the_emote_command_sends_the_same_thing() {
     );
 }
 
-#[test]
-fn scenario_every_spelling_of_the_emote_command_sends_the_same_thing() {
-    scenario("every_spelling_of_the_emote_command_sends_the_same_thing");
-}
-
 /// An emote with nothing in it is silently accepted -- not refused, not sent -- and costs the
 /// player nothing: the next line he sends takes the place in the order that one would have had.
 pub fn an_empty_emote_is_silent_and_costs_no_place_in_the_order() {
@@ -2452,11 +2158,6 @@ pub fn an_empty_emote_is_silent_and_costs_no_place_in_the_order() {
     );
 }
 
-#[test]
-fn scenario_an_empty_emote_is_silent_and_costs_no_place_in_the_order() {
-    scenario("an_empty_emote_is_silent_and_costs_no_place_in_the_order");
-}
-
 // =============================================================================================
 // chat.log.a-shard-line-still-carries-its-newline-at-the-model-boundary
 // =============================================================================================
@@ -2495,11 +2196,6 @@ pub fn a_shard_line_still_carries_its_newline_at_the_model() {
         "chat.log.a-shard-line-still-carries-its-newline-at-the-model-boundary",
         move |_| holds,
     );
-}
-
-#[test]
-fn scenario_a_shard_line_still_carries_its_newline_at_the_model() {
-    scenario("a_shard_line_still_carries_its_newline_at_the_model");
 }
 
 // =============================================================================================
@@ -2586,11 +2282,6 @@ pub fn a_composed_room_line_still_carries_its_markup() {
     );
 }
 
-#[test]
-fn scenario_a_composed_room_line_still_carries_its_markup() {
-    scenario("a_composed_room_line_still_carries_its_markup");
-}
-
 // =============================================================================================
 // chat.squelch.a-populated-list-is-read-whole-and-keeps-the-kind-of-each-entry
 // =============================================================================================
@@ -2656,11 +2347,6 @@ pub fn a_populated_squelch_list_is_read_whole() {
         "chat.squelch.a-populated-list-is-read-whole-and-keeps-the-kind-of-each-entry",
         move |_| read_whole && unchanged,
     );
-}
-
-#[test]
-fn scenario_a_populated_squelch_list_is_read_whole() {
-    scenario("a_populated_squelch_list_is_read_whole");
 }
 
 // =============================================================================================
@@ -2772,11 +2458,6 @@ pub fn the_squelch_row_is_a_toggle_and_names_the_speaker() {
     );
 }
 
-#[test]
-fn scenario_the_squelch_row_is_a_toggle_and_names_the_speaker() {
-    scenario("the_squelch_row_is_a_toggle_and_names_the_speaker");
-}
-
 /// Menu eligibility follows the current named player while an active Tell keeps its target.
 pub fn target_menu_and_activation_require_the_current_named_player() {
     use dereth_client_model::weenie::bitfield;
@@ -2855,12 +2536,6 @@ pub fn target_menu_and_activation_require_the_current_named_player() {
     });
 }
 
-/// Behaviour: chat.target-menu.requires-current-named-player
-#[test]
-fn scenario_target_menu_and_activation_require_the_current_named_player() {
-    scenario("target_menu_and_activation_require_the_current_named_player");
-}
-
 /// Who the player is talking to follows what he has selected, while that is near him -- and is
 /// let go of when it is not.
 pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
@@ -2921,11 +2596,6 @@ pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
         "chat.talk-to-menu.the-chat-target-follows-what-is-selected-while-it-is-near",
         move |_| knows_the_player && nothing_yet && named && not_near && adopted && kept && let_go,
     );
-}
-
-#[test]
-fn scenario_the_chat_target_follows_what_is_selected_while_it_is_near() {
-    scenario("the_chat_target_follows_what_is_selected_while_it_is_near");
 }
 
 /// A line typed to "Tell to <name>" goes to the chat target the talk-to menu names, not to what
@@ -2997,11 +2667,6 @@ pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
     );
 }
 
-#[test]
-fn scenario_a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
-    scenario("a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection");
-}
-
 /// The channel rows of the talk-to menu follow the chat-room service and the player's own options,
 /// and the two rows that are not channels are never touched by either.
 pub fn the_channel_rows_follow_the_service_and_the_options() {
@@ -3055,11 +2720,6 @@ pub fn the_channel_rows_follow_the_service_and_the_options() {
     );
 }
 
-#[test]
-fn scenario_the_channel_rows_follow_the_service_and_the_options() {
-    scenario("the_channel_rows_follow_the_service_and_the_options");
-}
-
 /// Every recorded login asks the client to use the chat-room service -- so a client whose channel
 /// rows are shut is not one the shard said no to.
 ///
@@ -3096,11 +2756,6 @@ pub fn every_recorded_login_asks_for_the_room_service() {
     );
 }
 
-#[test]
-fn scenario_every_recorded_login_asks_for_the_room_service() {
-    scenario("every_recorded_login_asks_for_the_room_service");
-}
-
 // =============================================================================================
 // How a spoken line and a private message are put together
 // =============================================================================================
@@ -3134,11 +2789,6 @@ pub fn the_newlines_are_trimmed_from_both_ends() {
     );
 }
 
-#[test]
-fn scenario_the_newlines_are_trimmed_from_both_ends() {
-    scenario("the_newlines_are_trimmed_from_both_ends");
-}
-
 /// A spoken line is the speaker's name, then the client's own verb, then what he said in quotes --
 /// and the player's own line comes back to him in a different form again.
 pub fn a_spoken_line_is_the_name_the_verb_and_the_words() {
@@ -3166,11 +2816,6 @@ pub fn a_spoken_line_is_the_name_the_verb_and_the_words() {
         "chat.speech.a-spoken-line-is-the-name-the-verb-and-the-words-in-quotes",
         move |_| remote && echo && clickable && no_player_yet,
     );
-}
-
-#[test]
-fn scenario_a_spoken_line_is_the_name_the_verb_and_the_words() {
-    scenario("a_spoken_line_is_the_name_the_verb_and_the_words");
 }
 
 /// A private message is drawn only when it was addressed to the player, one he sent to himself is
@@ -3211,11 +2856,6 @@ pub fn a_private_message_is_drawn_only_when_it_was_for_you() {
     );
 }
 
-#[test]
-fn scenario_a_private_message_is_drawn_only_when_it_was_for_you() {
-    scenario("a_private_message_is_drawn_only_when_it_was_for_you");
-}
-
 /// A line spoken with a range on it has no form of its own for the player's own words: his own
 /// line comes back to him as any other speaker's would, with his name clickable.
 pub fn a_line_with_a_range_on_it_has_no_echo_of_your_own() {
@@ -3234,11 +2874,6 @@ pub fn a_line_with_a_range_on_it_has_no_echo_of_your_own() {
     );
 }
 
-#[test]
-fn scenario_a_line_with_a_range_on_it_has_no_echo_of_your_own() {
-    scenario("a_line_with_a_range_on_it_has_no_echo_of_your_own");
-}
-
 /// Only somebody who is a player gets a clickable name, and the range of who counts as one is
 /// exclusive at both ends -- an error of one either way is a name that silently cannot be clicked,
 /// or a creature that can.
@@ -3255,11 +2890,6 @@ pub fn only_a_player_has_a_clickable_name() {
         "chat.speech.only-a-player-has-a-clickable-name-and-the-range-is-exclusive-at-both-ends",
         move |_| holds,
     );
-}
-
-#[test]
-fn scenario_only_a_player_has_a_clickable_name() {
-    scenario("only_a_player_has_a_clickable_name");
 }
 
 /// Every overheard line the recordings carry, drawn with the client's own verb and quotes --
@@ -3351,11 +2981,6 @@ pub fn every_recorded_spoken_line_is_drawn_with_the_verb() {
         "chat.speech.every-recorded-spoken-line-is-drawn-with-the-clients-own-verb-and-quotes",
         move |_| every && both,
     );
-}
-
-#[test]
-fn scenario_every_recorded_spoken_line_is_drawn_with_the_verb() {
-    scenario("every_recorded_spoken_line_is_drawn_with_the_verb");
 }
 
 // =============================================================================================
@@ -3533,11 +3158,6 @@ pub fn every_recorded_spoken_line_is_rebuilt_byte_for_byte() {
     );
 }
 
-#[test]
-fn scenario_every_recorded_spoken_line_is_rebuilt_byte_for_byte() {
-    scenario("every_recorded_spoken_line_is_rebuilt_byte_for_byte");
-}
-
 /// Every private message the recorded client sent is rebuilt from the same line typed into this
 /// client, byte for byte -- the whole path, from the characters a player pressed to the blob.
 pub fn every_recorded_tell_is_rebuilt_from_a_typed_line() {
@@ -3583,11 +3203,6 @@ pub fn every_recorded_tell_is_rebuilt_from_a_typed_line() {
     );
 }
 
-#[test]
-fn scenario_every_recorded_tell_is_rebuilt_from_a_typed_line() {
-    scenario("every_recorded_tell_is_rebuilt_from_a_typed_line");
-}
-
 /// A typed private message reaches the wire with the **words first** and the name after, and the
 /// words are encoded in the bytes the recorded client used for the same text.
 pub fn a_typed_tell_goes_out_with_the_words_first() {
@@ -3629,11 +3244,6 @@ pub fn a_typed_tell_goes_out_with_the_words_first() {
         "chat.tell.a-typed-private-message-goes-out-with-the-words-first-and-the-name-after",
         move |_| composed && words_first && name_after,
     );
-}
-
-#[test]
-fn scenario_a_typed_tell_goes_out_with_the_words_first() {
-    scenario("a_typed_tell_goes_out_with_the_words_first");
 }
 
 /// All ten ways of writing a private message reach the wire, and the three verbs behind them are
@@ -3708,11 +3318,6 @@ pub fn every_way_of_writing_a_private_message_reaches_the_wire() {
     );
 }
 
-#[test]
-fn scenario_every_way_of_writing_a_private_message_reaches_the_wire() {
-    scenario("every_way_of_writing_a_private_message_reaches_the_wire");
-}
-
 /// The name a private message goes out to is the name the line asked for, in the shard's own
 /// bytes, and nobody else's name is anywhere in the blob. The oracle is every speaker the
 /// recordings carry: each name is taken off the wire, typed back into a line, and required to come
@@ -3779,11 +3384,6 @@ pub fn the_name_on_the_wire_is_the_one_the_line_asked_for() {
         "chat.tell.the-name-on-the-wire-is-the-one-the-line-asked-for-and-no-other",
         move |_| every && several && counted,
     );
-}
-
-#[test]
-fn scenario_the_name_on_the_wire_is_the_one_the_line_asked_for() {
-    scenario("the_name_on_the_wire_is_the_one_the_line_asked_for");
 }
 
 /// A reply goes to the id the client stored when somebody wrote to it, and to nothing at all when
@@ -3928,11 +3528,6 @@ pub fn a_reply_goes_to_whoever_last_wrote_to_you() {
     );
 }
 
-#[test]
-fn scenario_a_reply_goes_to_whoever_last_wrote_to_you() {
-    scenario("a_reply_goes_to_whoever_last_wrote_to_you");
-}
-
 /// The mark a shard puts in front of the names on an account is taken off before the name goes out,
 /// and nothing else is. The oracle is every name the recordings' own character listings carry:
 /// the marked ones lose the mark, the unmarked ones are untouched, and the line that repeats a
@@ -3984,11 +3579,6 @@ pub fn the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out() {
         "chat.tell.the-mark-a-shard-puts-in-front-of-a-name-is-taken-off-before-it-goes-out",
         move |_| both_halves && all,
     );
-}
-
-#[test]
-fn scenario_the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out() {
-    scenario("the_mark_in_front_of_a_name_is_taken_off_before_it_goes_out");
 }
 
 /// A private message the client will not send says so in the client's own words, on the feedback
@@ -4068,11 +3658,6 @@ pub fn every_refusal_is_the_clients_own_words() {
     );
 }
 
-#[test]
-fn scenario_every_refusal_is_the_clients_own_words() {
-    scenario("every_refusal_is_the_clients_own_words");
-}
-
 /// A verb the client knows is answered by the client, and a word that is not a verb at all is
 /// passed to the shard untouched. Four verbs that once fell through to the refusal are checked
 /// from the other side, so that "nothing falls through" is a measurement and not a deletion, and
@@ -4144,11 +3729,6 @@ pub fn a_verb_the_client_knows_is_not_refused() {
     );
 }
 
-#[test]
-fn scenario_a_verb_the_client_knows_is_not_refused() {
-    scenario("a_verb_the_client_knows_is_not_refused");
-}
-
 /// Neither safety gate would have stopped a line the recordings carry -- and the same two gates do
 /// stop lines that are known bad, which is what makes the zero a measurement rather than an
 /// instrument that has never answered anything else.
@@ -4210,11 +3790,6 @@ pub fn neither_safety_gate_would_have_stopped_a_recorded_line() {
     );
 }
 
-#[test]
-fn scenario_neither_safety_gate_would_have_stopped_a_recorded_line() {
-    scenario("neither_safety_gate_would_have_stopped_a_recorded_line");
-}
-
 // -------------------------------------------------------------------------------------------
 // 2. chat.emote.is-drawn-as-name-then-text
 // -------------------------------------------------------------------------------------------
@@ -4255,11 +3830,6 @@ pub fn emote_is_drawn_as_name_then_text() {
                 && v.hud().stats.speech_lines_composed == 0;
             drawn && typed && speech_dropped && v.hud().stats.emote_lines_composed == 2
         });
-}
-
-#[test]
-fn scenario_emote_is_drawn_as_name_then_text() {
-    scenario("emote_is_drawn_as_name_then_text");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -4359,11 +3929,6 @@ pub fn speech_earshot_and_squelch_both_gate() {
     });
 }
 
-#[test]
-fn scenario_speech_earshot_and_squelch_both_gate() {
-    scenario("speech_earshot_and_squelch_both_gate");
-}
-
 // -------------------------------------------------------------------------------------------
 // 18. chat.talk-focus.one-authoritative-value
 // -------------------------------------------------------------------------------------------
@@ -4385,9 +3950,4 @@ pub fn talk_focus_has_one_authoritative_value() {
                     Some(Request::Talk(m)) if m.message == "after fallback"
                 )
         });
-}
-
-#[test]
-fn scenario_talk_focus_has_one_authoritative_value() {
-    scenario("talk_focus_has_one_authoritative_value");
 }

@@ -22,268 +22,6 @@ use dereth_protocol::types::weeniedesc::header as pwd_header;
 use dereth_protocol::types::{ContentProfile, PublicWeenieDesc};
 use dereth_testkit::{Given, HeadlessClient, Inbound, Player, ScenarioView};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "vendor_transactions_preserve_uncompleted_basket_rows",
-        &["vendor.baskets.completed-rows-leave-uncompleted-rows-remain"],
-        vendor_transactions_preserve_uncompleted_basket_rows,
-    ),
-    (
-        "a_confirmed_use_prints_the_same_line",
-        &["use.confirmation.prints-the-same-line-and-the-material-name"],
-        a_confirmed_use_prints_the_same_line,
-    ),
-    (
-        "the_trade_window_follows_the_shards_lists",
-        &["trade.window.follows-the-shards-own-two-lists"],
-        the_trade_window_follows_the_shards_lists,
-    ),
-    (
-        "a_stale_trade_window_accepts_nothing",
-        &["trade.controls.a-stale-window-accepts-an-empty-trade"],
-        a_stale_trade_window_accepts_nothing,
-    ),
-    (
-        "a_dropped_item_leaves_the_shortcut_bar",
-        &["shortcut.bar.drops-an-item-that-leaves-your-pack"],
-        a_dropped_item_leaves_the_shortcut_bar,
-    ),
-    (
-        "a_refusal_answers_for_the_item_we_asked_about",
-        &["inventory.refusal.answers-for-the-item-the-client-asked-about"],
-        a_refusal_answers_for_the_item_we_asked_about,
-    ),
-    // -- the ground container ---------------------------------------------------------------------
-    (
-        "a_pickup_follows_the_pack_the_player_has_open",
-        &["container.ground.a-pickup-goes-into-whichever-pack-the-player-has-open"],
-        a_pickup_follows_the_pack_the_player_has_open,
-    ),
-    (
-        "a_second_ground_container_closes_the_first",
-        &["container.ground.a-second-one-closes-the-first-and-tells-the-shard"],
-        a_second_ground_container_closes_the_first,
-    ),
-    (
-        "the_contents_reply_fills_the_ground_panel",
-        &["container.ground.the-contents-reply-fills-the-panel-unless-it-answers-a-pickup"],
-        the_contents_reply_fills_the_ground_panel,
-    ),
-    (
-        "opening_a_ground_container_takes_no_lock",
-        &["container.ground.opening-one-takes-no-inventory-lock"],
-        opening_a_ground_container_takes_no_lock,
-    ),
-    (
-        "the_contents_reply_frees_a_waiting_request",
-        &["container.ground.the-contents-reply-frees-a-waiting-request-unless-it-is-a-pickup"],
-        the_contents_reply_frees_a_waiting_request,
-    ),
-    (
-        "your_own_pack_opens_where_it_hangs",
-        &["container.own-pack.opens-where-it-is-and-is-not-the-ground-container"],
-        your_own_pack_opens_where_it_hangs,
-    ),
-    (
-        "double_clicking_a_player_starts_a_trade",
-        &["trade.open.double-clicking-another-player-starts-negotiations"],
-        double_clicking_a_player_starts_a_trade,
-    ),
-    (
-        "a_player_killer_altar_asks_first",
-        &["use.confirmation.a-player-killer-altar-asks-before-anything-is-sent"],
-        a_player_killer_altar_asks_first,
-    ),
-    (
-        "every_refusal_keeps_its_own_reason",
-        &["use.refusal.each-refusal-is-named-rather-than-collapsed-into-one"],
-        every_refusal_keeps_its_own_reason,
-    ),
-    // -- the drag-split ---------------------------------------------------------------------------
-    (
-        "a_split_leaves_the_source_at_its_new_count",
-        &["inventory.split.the-source-stack-shows-its-new-count-once-the-shard-answers"],
-        a_split_leaves_the_source_at_its_new_count,
-    ),
-    (
-        "a_second_split_waits_for_the_first_answer",
-        &["inventory.split.until-that-answer-arrives-every-later-request-is-refused"],
-        a_second_split_waits_for_the_first_answer,
-    ),
-    (
-        "a_whole_stack_drop_is_a_move",
-        &["inventory.split.dragging-a-whole-stack-is-a-move-and-not-a-split"],
-        a_whole_stack_drop_is_a_move,
-    ),
-    (
-        "a_stale_or_oversized_stack_count_is_ignored",
-        &["inventory.stack-size.a-stale-or-oversized-update-is-ignored"],
-        a_stale_or_oversized_stack_count_is_ignored,
-    ),
-    // -- the vendor -------------------------------------------------------------------------------
-    (
-        "the_shards_message_opens_the_shop",
-        &["vendor.shop.the-shards-own-message-opens-the-shop-and-replaces-it"],
-        the_shards_message_opens_the_shop,
-    ),
-    (
-        "the_button_and_the_basket_each_buy_once",
-        &["vendor.buy.the-button-and-the-basket-each-send-one-purchase"],
-        the_button_and_the_basket_each_buy_once,
-    ),
-    (
-        "the_quantity_only_moves_a_stackable_row",
-        &["vendor.buy.the-quantity-slider-only-moves-a-stackable-row"],
-        the_quantity_only_moves_a_stackable_row,
-    ),
-    (
-        "a_broke_or_full_player_buys_nothing",
-        &["vendor.buy.a-player-with-no-money-or-no-room-is-refused-and-sends-nothing"],
-        a_broke_or_full_player_buys_nothing,
-    ),
-    (
-        "the_sell_list_marks_what_is_in_it",
-        &["vendor.sell.the-list-marks-what-is-in-it-and-the-close-button-asks-first"],
-        the_sell_list_marks_what_is_in_it,
-    ),
-    (
-        "selling_the_whole_list_sends_one_message",
-        &["vendor.sell.selling-the-whole-list-sends-one-message-and-clears-the-marks"],
-        selling_the_whole_list_sends_one_message,
-    ),
-    (
-        "an_unwanted_item_is_refused_in_the_shops_words",
-        &["vendor.sell.an-item-the-vendor-will-not-take-is-refused-in-its-own-words"],
-        an_unwanted_item_is_refused_in_the_shops_words,
-    ),
-    (
-        "a_shop_and_a_ground_container_cannot_share",
-        &["vendor.window.the-shop-and-the-ground-container-cannot-both-be-open"],
-        a_shop_and_a_ground_container_cannot_share,
-    ),
-    // -- the trade removal family -----------------------------------------------------------------
-    (
-        "a_refusal_is_about_one_item_and_does_not_outlive_the_trade",
-        &["trade.removal.a-later-confirmation-puts-the-id-back-and-a-reset-forgets-every-refusal"],
-        a_refusal_is_about_one_item_and_does_not_outlive_the_trade,
-    ),
-    // -- where in a list a drop lands -------------------------------------------------------------
-    (
-        "a_drop_lands_at_the_place_the_player_aimed_at",
-        &["inventory.place.a-drop-lands-at-the-place-the-player-aimed-at"],
-        a_drop_lands_at_the_place_the_player_aimed_at,
-    ),
-    (
-        "moving_a_thing_up_its_own_list_does_not_shift_it_one_further",
-        &["inventory.place.moving-a-thing-up-its-own-list-does-not-shift-it-one-further"],
-        moving_a_thing_up_its_own_list_does_not_shift_it_one_further,
-    ),
-    (
-        "a_drop_that_would_change_nothing_is_refused_and_takes_no_lock",
-        &["inventory.place.a-drop-that-would-change-nothing-is-refused-and-takes-no-lock"],
-        a_drop_that_would_change_nothing_is_refused_and_takes_no_lock,
-    ),
-    (
-        "a_plain_thing_under_the_pointer_is_a_place_and_a_pack_is_a_destination",
-        &["inventory.place.a-plain-thing-under-the-pointer-is-a-place-and-a-pack-is-a-destination"],
-        a_plain_thing_under_the_pointer_is_a_place_and_a_pack_is_a_destination,
-    ),
-    (
-        "a_dragged_pack_is_looked_up_among_the_packs",
-        &["inventory.place.a-dragged-pack-is-looked-up-among-the-packs"],
-        a_dragged_pack_is_looked_up_among_the_packs,
-    ),
-    (
-        "a_merge_is_answered_before_any_place_is_worked_out",
-        &["inventory.place.a-merge-is-answered-before-any-place-is-worked-out"],
-        a_merge_is_answered_before_any_place_is_worked_out,
-    ),
-    (
-        "a_container_with_no_room_refuses_in_the_clients_own_words",
-        &["inventory.place.a-container-with-no-room-refuses-in-the-clients-own-words"],
-        a_container_with_no_room_refuses_in_the_clients_own_words,
-    ),
-    (
-        "the_lock_and_the_grey_are_both_released_by_the_shards_own_answer",
-        &["inventory.place.the-lock-and-the-grey-are-both-released-by-the-shards-own-answer"],
-        the_lock_and_the_grey_are_both_released_by_the_shards_own_answer,
-    ),
-    (
-        "a_refused_drop_takes_the_grey_back_off_the_icon",
-        &["inventory.place.a-refused-drop-takes-the-grey-back-off-the-icon"],
-        a_refused_drop_takes_the_grey_back_off_the_icon,
-    ),
-    // -- the hint a slot shows under a carried icon -----------------------------------------------
-    (
-        "which_hint_a_slot_shows_for_what_is_carried_over_it",
-        &["inventory.drag-hint.which-hint-a-slot-shows-for-what-is-carried-over-it"],
-        which_hint_a_slot_shows_for_what_is_carried_over_it,
-    ),
-    (
-        "the_lists_that_take_no_drop_show_no_hint_rather_than_a_refusal",
-        &["inventory.drag-hint.the-lists-that-take-no-drop-show-no-hint-rather-than-a-refusal"],
-        the_lists_that_take_no_drop_show_no_hint_rather_than_a_refusal,
-    ),
-    (
-        "setting_the_same_hint_twice_raises_nothing",
-        &["inventory.drag-hint.setting-the-same-hint-twice-raises-nothing"],
-        setting_the_same_hint_twice_raises_nothing,
-    ),
-    (
-        "every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it",
-        &["inventory.body.every-recorded-placement-can-be-asked-for-and-the-shards-answer-closes-it"],
-        every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it,
-    ),
-    (
-        "the_figures_own_picture_is_not_one_of_the_places_on_it",
-        &["inventory.body.the-figures-own-picture-is-not-one-of-the-places-on-it"],
-        the_figures_own_picture_is_not_one_of_the_places_on_it,
-    ),
-    (
-        "what_can_be_worn_and_what_can_be_wielded_overlap_on_one_place_only",
-        &["inventory.body.what-can-be-worn-and-what-can-be-wielded-overlap-on-one-place-only"],
-        what_can_be_worn_and_what_can_be_wielded_overlap_on_one_place_only,
-    ),
-    (
-        "every_recorded_equip_let_go_on_the_picture_asks_with_its_whole_list_of_places",
-        &["inventory.body.every-recorded-equip-let-go-on-the-picture-asks-with-its-whole-list-of-places"],
-        every_recorded_equip_let_go_on_the_picture_asks_with_its_whole_list_of_places,
-    ),
-    (
-        "something_that_could_be_worn_or_wielded_is_still_worn_on_the_picture",
-        &["inventory.body.something-that-could-be-worn-or-wielded-is-still-worn-on-the-picture"],
-        something_that_could_be_worn_or_wielded_is_still_worn_on_the_picture,
-    ),
-    (
-        "a_place_refuses_in_silence_where_the_picture_refuses_in_words",
-        &["inventory.body.a-place-refuses-in-silence-where-the-picture-refuses-in-words"],
-        a_place_refuses_in_silence_where_the_picture_refuses_in_words,
-    ),
-    (
-        "use_progress_notice",
-        &["use.progress-notice.names-the-object"],
-        use_progress_notice,
-    ),
-    (
-        "trade_drop_sends_add_to_trade",
-        &["trade.drop.sends-add-to-trade-and-marks-the-item"],
-        trade_drop_sends_add_to_trade,
-    ),
-    (
-        "ground_container_contents_become_a_pickup",
-        &["container.ground.contents-become-a-pickup"],
-        ground_container_contents_become_a_pickup,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 /// The notice channel the strip across the top of the viewport draws.
 const BUBBLE: u32 = 0x1A;
@@ -937,29 +675,56 @@ pub fn a_refusal_answers_for_the_item_we_asked_about() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_a_confirmed_use_prints_the_same_line() {
-    scenario("a_confirmed_use_prints_the_same_line");
-}
-
-#[test]
-fn scenario_the_trade_window_follows_the_shards_lists() {
-    scenario("the_trade_window_follows_the_shards_lists");
-}
-
-#[test]
-fn scenario_a_stale_trade_window_accepts_nothing() {
-    scenario("a_stale_trade_window_accepts_nothing");
-}
-
-#[test]
-fn scenario_a_dropped_item_leaves_the_shortcut_bar() {
-    scenario("a_dropped_item_leaves_the_shortcut_bar");
-}
-
-#[test]
-fn scenario_a_refusal_answers_for_the_item_we_asked_about() {
-    scenario("a_refusal_answers_for_the_item_we_asked_about");
+dereth_testkit::scenarios! {
+    scenario_a_confirmed_use_prints_the_same_line => a_confirmed_use_prints_the_same_line ["use.confirmation.prints-the-same-line-and-the-material-name"],
+    scenario_the_trade_window_follows_the_shards_lists => the_trade_window_follows_the_shards_lists ["trade.window.follows-the-shards-own-two-lists"],
+    scenario_a_stale_trade_window_accepts_nothing => a_stale_trade_window_accepts_nothing ["trade.controls.a-stale-window-accepts-an-empty-trade"],
+    scenario_a_dropped_item_leaves_the_shortcut_bar => a_dropped_item_leaves_the_shortcut_bar ["shortcut.bar.drops-an-item-that-leaves-your-pack"],
+    scenario_a_refusal_answers_for_the_item_we_asked_about => a_refusal_answers_for_the_item_we_asked_about ["inventory.refusal.answers-for-the-item-the-client-asked-about"],
+    scenario_a_pickup_follows_the_pack_the_player_has_open => a_pickup_follows_the_pack_the_player_has_open ["container.ground.a-pickup-goes-into-whichever-pack-the-player-has-open"],
+    scenario_a_second_ground_container_closes_the_first => a_second_ground_container_closes_the_first ["container.ground.a-second-one-closes-the-first-and-tells-the-shard"],
+    scenario_the_contents_reply_fills_the_ground_panel => the_contents_reply_fills_the_ground_panel ["container.ground.the-contents-reply-fills-the-panel-unless-it-answers-a-pickup"],
+    scenario_opening_a_ground_container_takes_no_lock => opening_a_ground_container_takes_no_lock ["container.ground.opening-one-takes-no-inventory-lock"],
+    scenario_the_contents_reply_frees_a_waiting_request => the_contents_reply_frees_a_waiting_request ["container.ground.the-contents-reply-frees-a-waiting-request-unless-it-is-a-pickup"],
+    scenario_your_own_pack_opens_where_it_hangs => your_own_pack_opens_where_it_hangs ["container.own-pack.opens-where-it-is-and-is-not-the-ground-container"],
+    scenario_double_clicking_a_player_starts_a_trade => double_clicking_a_player_starts_a_trade ["trade.open.double-clicking-another-player-starts-negotiations"],
+    scenario_a_player_killer_altar_asks_first => a_player_killer_altar_asks_first ["use.confirmation.a-player-killer-altar-asks-before-anything-is-sent"],
+    scenario_every_refusal_keeps_its_own_reason => every_refusal_keeps_its_own_reason ["use.refusal.each-refusal-is-named-rather-than-collapsed-into-one"],
+    scenario_a_split_leaves_the_source_at_its_new_count => a_split_leaves_the_source_at_its_new_count ["inventory.split.the-source-stack-shows-its-new-count-once-the-shard-answers"],
+    scenario_a_second_split_waits_for_the_first_answer => a_second_split_waits_for_the_first_answer ["inventory.split.until-that-answer-arrives-every-later-request-is-refused"],
+    scenario_a_whole_stack_drop_is_a_move => a_whole_stack_drop_is_a_move ["inventory.split.dragging-a-whole-stack-is-a-move-and-not-a-split"],
+    scenario_a_stale_or_oversized_stack_count_is_ignored => a_stale_or_oversized_stack_count_is_ignored ["inventory.stack-size.a-stale-or-oversized-update-is-ignored"],
+    scenario_the_shards_message_opens_the_shop => the_shards_message_opens_the_shop ["vendor.shop.the-shards-own-message-opens-the-shop-and-replaces-it"],
+    scenario_the_button_and_the_basket_each_buy_once => the_button_and_the_basket_each_buy_once ["vendor.buy.the-button-and-the-basket-each-send-one-purchase"],
+    scenario_the_quantity_only_moves_a_stackable_row => the_quantity_only_moves_a_stackable_row ["vendor.buy.the-quantity-slider-only-moves-a-stackable-row"],
+    scenario_a_broke_or_full_player_buys_nothing => a_broke_or_full_player_buys_nothing ["vendor.buy.a-player-with-no-money-or-no-room-is-refused-and-sends-nothing"],
+    scenario_the_sell_list_marks_what_is_in_it => the_sell_list_marks_what_is_in_it ["vendor.sell.the-list-marks-what-is-in-it-and-the-close-button-asks-first"],
+    scenario_selling_the_whole_list_sends_one_message => selling_the_whole_list_sends_one_message ["vendor.sell.selling-the-whole-list-sends-one-message-and-clears-the-marks"],
+    scenario_an_unwanted_item_is_refused_in_the_shops_words => an_unwanted_item_is_refused_in_the_shops_words ["vendor.sell.an-item-the-vendor-will-not-take-is-refused-in-its-own-words"],
+    scenario_a_shop_and_a_ground_container_cannot_share => a_shop_and_a_ground_container_cannot_share ["vendor.window.the-shop-and-the-ground-container-cannot-both-be-open"],
+    scenario_a_refusal_is_about_one_item_and_does_not_outlive_the_trade => a_refusal_is_about_one_item_and_does_not_outlive_the_trade ["trade.removal.a-later-confirmation-puts-the-id-back-and-a-reset-forgets-every-refusal"],
+    scenario_a_drop_lands_at_the_place_the_player_aimed_at => a_drop_lands_at_the_place_the_player_aimed_at ["inventory.place.a-drop-lands-at-the-place-the-player-aimed-at"],
+    scenario_moving_a_thing_up_its_own_list_does_not_shift_it_one_further => moving_a_thing_up_its_own_list_does_not_shift_it_one_further ["inventory.place.moving-a-thing-up-its-own-list-does-not-shift-it-one-further"],
+    scenario_a_drop_that_would_change_nothing_is_refused_and_takes_no_lock => a_drop_that_would_change_nothing_is_refused_and_takes_no_lock ["inventory.place.a-drop-that-would-change-nothing-is-refused-and-takes-no-lock"],
+    scenario_a_plain_thing_under_the_pointer_is_a_place_and_a_pack_is_a_destination => a_plain_thing_under_the_pointer_is_a_place_and_a_pack_is_a_destination ["inventory.place.a-plain-thing-under-the-pointer-is-a-place-and-a-pack-is-a-destination"],
+    scenario_a_dragged_pack_is_looked_up_among_the_packs => a_dragged_pack_is_looked_up_among_the_packs ["inventory.place.a-dragged-pack-is-looked-up-among-the-packs"],
+    scenario_a_merge_is_answered_before_any_place_is_worked_out => a_merge_is_answered_before_any_place_is_worked_out ["inventory.place.a-merge-is-answered-before-any-place-is-worked-out"],
+    scenario_a_container_with_no_room_refuses_in_the_clients_own_words => a_container_with_no_room_refuses_in_the_clients_own_words ["inventory.place.a-container-with-no-room-refuses-in-the-clients-own-words"],
+    scenario_the_lock_and_the_grey_are_both_released_by_the_shards_own_answer => the_lock_and_the_grey_are_both_released_by_the_shards_own_answer ["inventory.place.the-lock-and-the-grey-are-both-released-by-the-shards-own-answer"],
+    scenario_a_refused_drop_takes_the_grey_back_off_the_icon => a_refused_drop_takes_the_grey_back_off_the_icon ["inventory.place.a-refused-drop-takes-the-grey-back-off-the-icon"],
+    scenario_which_hint_a_slot_shows_for_what_is_carried_over_it => which_hint_a_slot_shows_for_what_is_carried_over_it ["inventory.drag-hint.which-hint-a-slot-shows-for-what-is-carried-over-it"],
+    scenario_the_lists_that_take_no_drop_show_no_hint_rather_than_a_refusal => the_lists_that_take_no_drop_show_no_hint_rather_than_a_refusal ["inventory.drag-hint.the-lists-that-take-no-drop-show-no-hint-rather-than-a-refusal"],
+    scenario_setting_the_same_hint_twice_raises_nothing => setting_the_same_hint_twice_raises_nothing ["inventory.drag-hint.setting-the-same-hint-twice-raises-nothing"],
+    scenario_every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it => every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it ["inventory.body.every-recorded-placement-can-be-asked-for-and-the-shards-answer-closes-it"],
+    scenario_the_figures_own_picture_is_not_one_of_the_places_on_it => the_figures_own_picture_is_not_one_of_the_places_on_it ["inventory.body.the-figures-own-picture-is-not-one-of-the-places-on-it"],
+    scenario_what_can_be_worn_and_what_can_be_wielded_overlap_on_one_place_only => what_can_be_worn_and_what_can_be_wielded_overlap_on_one_place_only ["inventory.body.what-can-be-worn-and-what-can-be-wielded-overlap-on-one-place-only"],
+    scenario_every_recorded_equip_let_go_on_the_picture_asks_with_its_whole_list_of_places => every_recorded_equip_let_go_on_the_picture_asks_with_its_whole_list_of_places ["inventory.body.every-recorded-equip-let-go-on-the-picture-asks-with-its-whole-list-of-places"],
+    scenario_something_that_could_be_worn_or_wielded_is_still_worn_on_the_picture => something_that_could_be_worn_or_wielded_is_still_worn_on_the_picture ["inventory.body.something-that-could-be-worn-or-wielded-is-still-worn-on-the-picture"],
+    scenario_a_place_refuses_in_silence_where_the_picture_refuses_in_words => a_place_refuses_in_silence_where_the_picture_refuses_in_words ["inventory.body.a-place-refuses-in-silence-where-the-picture-refuses-in-words"],
+    scenario_use_progress_notice => use_progress_notice ["use.progress-notice.names-the-object"],
+    scenario_trade_drop_sends_add_to_trade => trade_drop_sends_add_to_trade ["trade.drop.sends-add-to-trade-and-marks-the-item"],
+    scenario_ground_container_contents_become_a_pickup => ground_container_contents_become_a_pickup ["container.ground.contents-become-a-pickup"],
+    scenario_vendor_transactions_preserve_uncompleted_basket_rows => vendor_transactions_preserve_uncompleted_basket_rows ["vendor.baskets.completed-rows-leave-uncompleted-rows-remain"],
 }
 
 // =============================================================================================
@@ -1617,51 +1382,6 @@ pub fn every_refusal_keeps_its_own_reason() {
     );
 }
 
-#[test]
-fn scenario_a_pickup_follows_the_pack_the_player_has_open() {
-    scenario("a_pickup_follows_the_pack_the_player_has_open");
-}
-
-#[test]
-fn scenario_a_second_ground_container_closes_the_first() {
-    scenario("a_second_ground_container_closes_the_first");
-}
-
-#[test]
-fn scenario_the_contents_reply_fills_the_ground_panel() {
-    scenario("the_contents_reply_fills_the_ground_panel");
-}
-
-#[test]
-fn scenario_opening_a_ground_container_takes_no_lock() {
-    scenario("opening_a_ground_container_takes_no_lock");
-}
-
-#[test]
-fn scenario_the_contents_reply_frees_a_waiting_request() {
-    scenario("the_contents_reply_frees_a_waiting_request");
-}
-
-#[test]
-fn scenario_your_own_pack_opens_where_it_hangs() {
-    scenario("your_own_pack_opens_where_it_hangs");
-}
-
-#[test]
-fn scenario_double_clicking_a_player_starts_a_trade() {
-    scenario("double_clicking_a_player_starts_a_trade");
-}
-
-#[test]
-fn scenario_a_player_killer_altar_asks_first() {
-    scenario("a_player_killer_altar_asks_first");
-}
-
-#[test]
-fn scenario_every_refusal_keeps_its_own_reason() {
-    scenario("every_refusal_keeps_its_own_reason");
-}
-
 // =============================================================================================
 // The drag-split: what the stack it came off looks like, and what the player may do next.
 // =============================================================================================
@@ -1983,26 +1703,6 @@ pub fn a_stale_or_oversized_stack_count_is_ignored() {
                 && and_the_next_one_lands
         },
     );
-}
-
-#[test]
-fn scenario_a_split_leaves_the_source_at_its_new_count() {
-    scenario("a_split_leaves_the_source_at_its_new_count");
-}
-
-#[test]
-fn scenario_a_second_split_waits_for_the_first_answer() {
-    scenario("a_second_split_waits_for_the_first_answer");
-}
-
-#[test]
-fn scenario_a_whole_stack_drop_is_a_move() {
-    scenario("a_whole_stack_drop_is_a_move");
-}
-
-#[test]
-fn scenario_a_stale_or_oversized_stack_count_is_ignored() {
-    scenario("a_stale_or_oversized_stack_count_is_ignored");
 }
 
 // =============================================================================================
@@ -2590,46 +2290,6 @@ pub fn a_shop_and_a_ground_container_cannot_share() {
     );
 }
 
-#[test]
-fn scenario_the_shards_message_opens_the_shop() {
-    scenario("the_shards_message_opens_the_shop");
-}
-
-#[test]
-fn scenario_the_button_and_the_basket_each_buy_once() {
-    scenario("the_button_and_the_basket_each_buy_once");
-}
-
-#[test]
-fn scenario_the_quantity_only_moves_a_stackable_row() {
-    scenario("the_quantity_only_moves_a_stackable_row");
-}
-
-#[test]
-fn scenario_a_broke_or_full_player_buys_nothing() {
-    scenario("a_broke_or_full_player_buys_nothing");
-}
-
-#[test]
-fn scenario_the_sell_list_marks_what_is_in_it() {
-    scenario("the_sell_list_marks_what_is_in_it");
-}
-
-#[test]
-fn scenario_selling_the_whole_list_sends_one_message() {
-    scenario("selling_the_whole_list_sends_one_message");
-}
-
-#[test]
-fn scenario_an_unwanted_item_is_refused_in_the_shops_words() {
-    scenario("an_unwanted_item_is_refused_in_the_shops_words");
-}
-
-#[test]
-fn scenario_a_shop_and_a_ground_container_cannot_share() {
-    scenario("a_shop_and_a_ground_container_cannot_share");
-}
-
 // ---------------------------------------------------------------------------------------------
 // trade.removal.a-later-confirmation-puts-the-id-back-and-a-reset-forgets-every-refusal
 //
@@ -2767,11 +2427,6 @@ pub fn a_refusal_is_about_one_item_and_does_not_outlive_the_trade() {
         "trade.removal.a-later-confirmation-puts-the-id-back-and-a-reset-forgets-every-refusal",
         move |_| refused && put_back && cleared == vec![true, true],
     );
-}
-
-#[test]
-fn scenario_a_refusal_is_about_one_item_and_does_not_outlive_the_trade() {
-    scenario("a_refusal_is_about_one_item_and_does_not_outlive_the_trade");
 }
 
 // =============================================================================================
@@ -3305,51 +2960,6 @@ pub fn a_refused_drop_takes_the_grey_back_off_the_icon() {
     );
 }
 
-#[test]
-fn scenario_a_drop_lands_at_the_place_the_player_aimed_at() {
-    scenario("a_drop_lands_at_the_place_the_player_aimed_at");
-}
-
-#[test]
-fn scenario_moving_a_thing_up_its_own_list_does_not_shift_it_one_further() {
-    scenario("moving_a_thing_up_its_own_list_does_not_shift_it_one_further");
-}
-
-#[test]
-fn scenario_a_drop_that_would_change_nothing_is_refused_and_takes_no_lock() {
-    scenario("a_drop_that_would_change_nothing_is_refused_and_takes_no_lock");
-}
-
-#[test]
-fn scenario_a_plain_thing_under_the_pointer_is_a_place_and_a_pack_is_a_destination() {
-    scenario("a_plain_thing_under_the_pointer_is_a_place_and_a_pack_is_a_destination");
-}
-
-#[test]
-fn scenario_a_dragged_pack_is_looked_up_among_the_packs() {
-    scenario("a_dragged_pack_is_looked_up_among_the_packs");
-}
-
-#[test]
-fn scenario_a_merge_is_answered_before_any_place_is_worked_out() {
-    scenario("a_merge_is_answered_before_any_place_is_worked_out");
-}
-
-#[test]
-fn scenario_a_container_with_no_room_refuses_in_the_clients_own_words() {
-    scenario("a_container_with_no_room_refuses_in_the_clients_own_words");
-}
-
-#[test]
-fn scenario_the_lock_and_the_grey_are_both_released_by_the_shards_own_answer() {
-    scenario("the_lock_and_the_grey_are_both_released_by_the_shards_own_answer");
-}
-
-#[test]
-fn scenario_a_refused_drop_takes_the_grey_back_off_the_icon() {
-    scenario("a_refused_drop_takes_the_grey_back_off_the_icon");
-}
-
 // =============================================================================================
 // Which hint a list slot shows for what is being carried over it.
 //
@@ -3649,21 +3259,6 @@ pub fn setting_the_same_hint_twice_raises_nothing() {
     );
 }
 
-#[test]
-fn scenario_which_hint_a_slot_shows_for_what_is_carried_over_it() {
-    scenario("which_hint_a_slot_shows_for_what_is_carried_over_it");
-}
-
-#[test]
-fn scenario_the_lists_that_take_no_drop_show_no_hint_rather_than_a_refusal() {
-    scenario("the_lists_that_take_no_drop_show_no_hint_rather_than_a_refusal");
-}
-
-#[test]
-fn scenario_setting_the_same_hint_twice_raises_nothing() {
-    scenario("setting_the_same_hint_twice_raises_nothing");
-}
-
 // =============================================================================================
 // Every place a recorded character's clothes are worn in, asked for again.
 //
@@ -3818,11 +3413,6 @@ pub fn every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it
         "inventory.body.every-recorded-placement-can-be-asked-for-and-the-shards-answer-closes-it",
         move |_| the_recording_dresses_him && all_nine && every_one_holds,
     );
-}
-
-#[test]
-fn scenario_every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it() {
-    scenario("every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it");
 }
 
 // =============================================================================================
@@ -4155,31 +3745,6 @@ pub fn a_place_refuses_in_silence_where_the_picture_refuses_in_words() {
     );
 }
 
-#[test]
-fn scenario_the_figures_own_picture_is_not_one_of_the_places_on_it() {
-    scenario("the_figures_own_picture_is_not_one_of_the_places_on_it");
-}
-
-#[test]
-fn scenario_what_can_be_worn_and_what_can_be_wielded_overlap_on_one_place_only() {
-    scenario("what_can_be_worn_and_what_can_be_wielded_overlap_on_one_place_only");
-}
-
-#[test]
-fn scenario_every_recorded_equip_let_go_on_the_picture_asks_with_its_whole_list_of_places() {
-    scenario("every_recorded_equip_let_go_on_the_picture_asks_with_its_whole_list_of_places");
-}
-
-#[test]
-fn scenario_something_that_could_be_worn_or_wielded_is_still_worn_on_the_picture() {
-    scenario("something_that_could_be_worn_or_wielded_is_still_worn_on_the_picture");
-}
-
-#[test]
-fn scenario_a_place_refuses_in_silence_where_the_picture_refuses_in_words() {
-    scenario("a_place_refuses_in_silence_where_the_picture_refuses_in_words");
-}
-
 // -------------------------------------------------------------------------------------------
 // 1. use.progress-notice.names-the-object
 // -------------------------------------------------------------------------------------------
@@ -4223,11 +3788,6 @@ pub fn use_progress_notice() {
         .assert_behaviour("use.progress-notice.names-the-object", |v| {
             bubble_lines(v) == ["Using the Chest", "Approaching Ulgrim the Unpleasant"]
         });
-}
-
-#[test]
-fn scenario_use_progress_notice() {
-    scenario("use_progress_notice");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -4293,11 +3853,6 @@ pub fn trade_drop_sends_add_to_trade() {
     });
 }
 
-#[test]
-fn scenario_trade_drop_sends_add_to_trade() {
-    scenario("trade_drop_sends_add_to_trade");
-}
-
 // -------------------------------------------------------------------------------------------
 // 9. container.ground.contents-become-a-pickup
 // -------------------------------------------------------------------------------------------
@@ -4350,11 +3905,6 @@ pub fn ground_container_contents_become_a_pickup() {
             opened && used_the_corpse && picked_up
         },
     );
-}
-
-#[test]
-fn scenario_ground_container_contents_become_a_pickup() {
-    scenario("ground_container_contents_become_a_pickup");
 }
 
 fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarget {
@@ -4456,11 +4006,6 @@ pub fn vendor_transactions_preserve_uncompleted_basket_rows() {
                 && v.world().shop.buy_list.is_empty()
         },
     );
-}
-
-#[test]
-fn scenario_vendor_transactions_preserve_uncompleted_basket_rows() {
-    scenario("vendor_transactions_preserve_uncompleted_basket_rows");
 }
 
 /// Behaviour: vendor.baskets.completed-rows-leave-uncompleted-rows-remain

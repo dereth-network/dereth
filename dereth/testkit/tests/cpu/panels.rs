@@ -11,47 +11,6 @@
 
 use dereth_testkit::HeadlessClient;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "every_house_message_the_shard_can_send_reaches_a_receiver",
-        &["house.messages.every-house-message-the-shard-can-send-reaches-a-receiver"],
-        every_house_message_the_shard_can_send_reaches_a_receiver,
-    ),
-    (
-        "every_highlighted_property_is_answered_by_the_table_its_flag_names",
-        &["examine.enchanted.every-property-the-pane-highlights-is-answered-by-the-table-its-flag-names"],
-        every_highlighted_property_is_answered_by_the_table_its_flag_names,
-    ),
-    (
-        "every_clearing_message_the_shard_can_send_reaches_a_receiver",
-        &["qualities.remove.every-one-of-the-sixteen-clearing-messages-reaches-a-receiver"],
-        every_clearing_message_the_shard_can_send_reaches_a_receiver,
-    ),
-    (
-        "every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero",
-        &["qualities.remove.each-kind-is-deleted-rather-than-set-back-to-its-own-zero"],
-        every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero,
-    ),
-    (
-        "a_clearing_older_than_the_change_it_would_undo_is_refused",
-        &["qualities.remove.one-older-than-the-change-it-would-undo-is-refused"],
-        a_clearing_older_than_the_change_it_would_undo_is_refused,
-    ),
-    (
-        "a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror",
-        &["qualities.remove.one-naming-another-body-reaches-it-and-moves-no-mark-of-its-own"],
-        a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// **The denominator is the point.** Every message about housing a shard can send this client is
 /// delivered to both consumers as a real session event and the client is asked whether either of
 /// them took an arm -- which is the only thing that tells a decoder that works from a receiver
@@ -124,9 +83,13 @@ pub fn every_house_message_the_shard_can_send_reaches_a_receiver() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_every_house_message_the_shard_can_send_reaches_a_receiver() {
-    scenario("every_house_message_the_shard_can_send_reaches_a_receiver");
+dereth_testkit::scenarios! {
+    scenario_every_house_message_the_shard_can_send_reaches_a_receiver => every_house_message_the_shard_can_send_reaches_a_receiver ["house.messages.every-house-message-the-shard-can-send-reaches-a-receiver"],
+    scenario_every_highlighted_property_is_answered_by_the_table_its_flag_names => every_highlighted_property_is_answered_by_the_table_its_flag_names ["examine.enchanted.every-property-the-pane-highlights-is-answered-by-the-table-its-flag-names"],
+    scenario_every_clearing_message_the_shard_can_send_reaches_a_receiver => every_clearing_message_the_shard_can_send_reaches_a_receiver ["qualities.remove.every-one-of-the-sixteen-clearing-messages-reaches-a-receiver"],
+    scenario_every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero => every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero ["qualities.remove.each-kind-is-deleted-rather-than-set-back-to-its-own-zero"],
+    scenario_a_clearing_older_than_the_change_it_would_undo_is_refused => a_clearing_older_than_the_change_it_would_undo_is_refused ["qualities.remove.one-older-than-the-change-it-would-undo-is-refused"],
+    scenario_a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror => a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror ["qualities.remove.one-naming-another-body-reaches-it-and-moves-no-mark-of-its-own"],
 }
 
 /// **The key list is falsifiable.** The assessment pane walks its own list of properties worth
@@ -173,11 +136,6 @@ pub fn every_highlighted_property_is_answered_by_the_table_its_flag_names() {
         },
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_every_highlighted_property_is_answered_by_the_table_its_flag_names() {
-    scenario("every_highlighted_property_is_answered_by_the_table_its_flag_names");
 }
 
 // =============================================================================================
@@ -588,11 +546,6 @@ pub fn every_clearing_message_the_shard_can_send_reaches_a_receiver() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_every_clearing_message_the_shard_can_send_reaches_a_receiver() {
-    scenario("every_clearing_message_the_shard_can_send_reaches_a_receiver");
-}
-
 /// **Each of the eight kinds: the quality is gone afterwards, and gone is not zero.**
 ///
 /// The value is seeded through the store the login path fills and then removed **through the
@@ -693,11 +646,6 @@ pub fn every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero() {
-    scenario("every_kind_of_clearing_deletes_the_key_and_absent_is_not_zero");
-}
-
 /// **A stale clearing is refused, by the counter the matching update consumes.**
 ///
 /// The removal path updates the object's property-sequence gate **before** deleting the value,
@@ -752,11 +700,6 @@ pub fn a_clearing_older_than_the_change_it_would_undo_is_refused() {
         },
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_a_clearing_older_than_the_change_it_would_undo_is_refused() {
-    scenario("a_clearing_older_than_the_change_it_would_undo_is_refused");
 }
 
 /// **A public clearing reaches the object it names, and the `PublicWeenieDesc` mirror does not
@@ -891,9 +834,4 @@ pub fn a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror() {
         },
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror() {
-    scenario("a_public_clearing_reaches_the_object_it_names_and_runs_no_mirror");
 }

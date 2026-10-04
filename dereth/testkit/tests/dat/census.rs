@@ -9,26 +9,40 @@ use super::{
     chat, combat, frame, inventory, login, magic, net, objects, panels, shell, social, ui, world,
 };
 
-/// Every scenario file of this tier: the module's stem, which is also the file's and the registry
-/// subject it holds, and the scenarios it lists.
-///
-/// Assembled from the per-subject files rather than written out here, so that adding a scenario is
-/// one edit in the file it belongs to. A file that forgot to list its own scenario shows up as a
-/// shortfall in the census and not as a silent gap.
+/// Every declaration scope in this tier, including existing nested modules.
+/// The compiled slices carry their exact module and wrapper identities. Omitting
+/// an owning scope leaves a named registry gap; registering it twice is rejected.
 static FILES: &[ScenarioFile] = &[
-    ("chat", chat::ALL),
-    ("combat", combat::ALL),
-    ("frame", frame::ALL),
-    ("inventory", inventory::ALL),
-    ("login", login::ALL),
-    ("magic", magic::ALL),
-    ("net", net::ALL),
-    ("objects", objects::ALL),
-    ("panels", panels::ALL),
-    ("shell", shell::ALL),
-    ("social", social::ALL),
-    ("ui", ui::ALL),
-    ("world", world::ALL),
+    chat::SCENARIOS,
+    combat::SCENARIOS,
+    frame::SCENARIOS,
+    inventory::SCENARIOS,
+    inventory::shop::SCENARIOS,
+    inventory::trade_window::SCENARIOS,
+    inventory::pickup::SCENARIOS,
+    inventory::give::SCENARIOS,
+    inventory::use_refusal::SCENARIOS,
+    inventory::delivery::SCENARIOS,
+    inventory::confirm::SCENARIOS,
+    inventory::equip::SCENARIOS,
+    inventory::split::SCENARIOS,
+    inventory::burden::SCENARIOS,
+    inventory::slots::SCENARIOS,
+    inventory::icons::SCENARIOS,
+    inventory::overlays::SCENARIOS,
+    inventory::clicks::SCENARIOS,
+    inventory::death::SCENARIOS,
+    login::SCENARIOS,
+    magic::SCENARIOS,
+    net::SCENARIOS,
+    objects::SCENARIOS,
+    panels::SCENARIOS,
+    shell::SCENARIOS,
+    shell::chargen::SCENARIOS,
+    social::SCENARIOS,
+    ui::SCENARIOS,
+    world::SCENARIOS,
+    world::motion::SCENARIOS,
 ];
 
 #[test]
@@ -39,8 +53,5 @@ fn every_documented_dat_behaviour_is_asserted_by_a_scenario() {
 /// **Every scenario in the table has a test of its own, and that test goes through the check.**
 #[test]
 fn every_scenario_has_a_test_that_checks_its_declaration() {
-    tier_census::assert_every_scenario_is_run(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/dat/"),
-        FILES,
-    );
+    tier_census::assert_every_scenario_is_run(FILES);
 }

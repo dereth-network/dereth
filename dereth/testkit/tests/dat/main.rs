@@ -1,3 +1,5 @@
+#![recursion_limit = "1024"]
+
 //! DAT-tier scenarios for `dereth-testkit`: each one opens the retail dats under `$DERETH_TEST_DAT_DIR`
 //! and builds a whole headless client over them.
 //!

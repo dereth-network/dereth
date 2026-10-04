@@ -11,57 +11,6 @@
 use dereth_client::pump::window_proc::{placement, Placement, Rect, ScreenMetrics, WS_POPUP};
 use dereth_testkit::HeadlessClient;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "a_window_has_its_frame_and_a_full_screen_one_has_none",
-        &["window.full-screen.windowed-has-a-frame-and-full-screen-has-none"],
-        a_window_has_its_frame_and_a_full_screen_one_has_none,
-    ),
-    (
-        "a_window_is_the_asked_for_picture_plus_its_frame_centred",
-        &["window.full-screen.windowed-is-the-picture-the-player-asked-for-plus-its-frame-centred"],
-        a_window_is_the_asked_for_picture_plus_its_frame_centred,
-    ),
-    (
-        "a_window_too_big_for_the_desktop_is_pulled_back_onto_it",
-        &["window.full-screen.a-window-too-big-for-the-desktop-is-pulled-back-onto-it"],
-        a_window_too_big_for_the_desktop_is_pulled_back_onto_it,
-    ),
-    (
-        "full_screen_fills_the_monitor_the_window_is_on",
-        &["window.full-screen.it-fills-the-monitor-the-window-is-on-and-not-the-resolution-that-was-asked-for"],
-        full_screen_fills_the_monitor_the_window_is_on,
-    ),
-    (
-        "full_screen_never_asks_to_float_over_everything_else",
-        &["window.full-screen.it-never-floats-over-the-players-other-windows"],
-        full_screen_never_asks_to_float_over_everything_else,
-    ),
-    (
-        "a_press_outside_the_view_is_refused_though_it_is_inside_the_window",
-        &["viewport.a-press-outside-the-view-is-refused-though-it-is-inside-the-window"],
-        a_press_outside_the_view_is_refused_though_it_is_inside_the_window,
-    ),
-    (
-        "the_armed_point_is_measured_from_the_views_own_corner",
-        &["viewport.the-armed-point-is-measured-from-the-views-own-corner"],
-        the_armed_point_is_measured_from_the_views_own_corner,
-    ),
-    (
-        "a_world_press_is_measured_against_the_view_the_frame_pushed_in",
-        &["viewport.a-world-press-is-measured-against-the-view-the-frame-pushed-in"],
-        a_world_press_is_measured_against_the_view_the_frame_pushed_in,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 // The desktop's own frame bits, by the names a player would use for them. They are the host's
 // numbers and not this client's, which is why they are written out here rather than imported: a
 // caption bar, a system menu, a minimise button, a resize grip and a maximise button.
@@ -147,9 +96,15 @@ pub fn a_window_has_its_frame_and_a_full_screen_one_has_none() {
     );
 }
 
-#[test]
-fn scenario_a_window_has_its_frame_and_a_full_screen_one_has_none() {
-    scenario("a_window_has_its_frame_and_a_full_screen_one_has_none");
+dereth_testkit::scenarios! {
+    scenario_a_window_has_its_frame_and_a_full_screen_one_has_none => a_window_has_its_frame_and_a_full_screen_one_has_none ["window.full-screen.windowed-has-a-frame-and-full-screen-has-none"],
+    scenario_a_window_is_the_asked_for_picture_plus_its_frame_centred => a_window_is_the_asked_for_picture_plus_its_frame_centred ["window.full-screen.windowed-is-the-picture-the-player-asked-for-plus-its-frame-centred"],
+    scenario_a_window_too_big_for_the_desktop_is_pulled_back_onto_it => a_window_too_big_for_the_desktop_is_pulled_back_onto_it ["window.full-screen.a-window-too-big-for-the-desktop-is-pulled-back-onto-it"],
+    scenario_full_screen_fills_the_monitor_the_window_is_on => full_screen_fills_the_monitor_the_window_is_on ["window.full-screen.it-fills-the-monitor-the-window-is-on-and-not-the-resolution-that-was-asked-for"],
+    scenario_full_screen_never_asks_to_float_over_everything_else => full_screen_never_asks_to_float_over_everything_else ["window.full-screen.it-never-floats-over-the-players-other-windows"],
+    scenario_a_press_outside_the_view_is_refused_though_it_is_inside_the_window => a_press_outside_the_view_is_refused_though_it_is_inside_the_window ["viewport.a-press-outside-the-view-is-refused-though-it-is-inside-the-window"],
+    scenario_the_armed_point_is_measured_from_the_views_own_corner => the_armed_point_is_measured_from_the_views_own_corner ["viewport.the-armed-point-is-measured-from-the-views-own-corner"],
+    scenario_a_world_press_is_measured_against_the_view_the_frame_pushed_in => a_world_press_is_measured_against_the_view_the_frame_pushed_in ["viewport.a-world-press-is-measured-against-the-view-the-frame-pushed-in"],
 }
 
 // =============================================================================================
@@ -177,11 +132,6 @@ pub fn a_window_is_the_asked_for_picture_plus_its_frame_centred() {
         "window.full-screen.windowed-is-the-picture-the-player-asked-for-plus-its-frame-centred",
         move |_| outer && centred && elsewhere,
     );
-}
-
-#[test]
-fn scenario_a_window_is_the_asked_for_picture_plus_its_frame_centred() {
-    scenario("a_window_is_the_asked_for_picture_plus_its_frame_centred");
 }
 
 // =============================================================================================
@@ -260,11 +210,6 @@ pub fn a_window_too_big_for_the_desktop_is_pulled_back_onto_it() {
     );
 }
 
-#[test]
-fn scenario_a_window_too_big_for_the_desktop_is_pulled_back_onto_it() {
-    scenario("a_window_too_big_for_the_desktop_is_pulled_back_onto_it");
-}
-
 // =============================================================================================
 // window.full-screen.it-fills-the-monitor-the-window-is-on-and-not-the-resolution-that-was-asked-for
 // =============================================================================================
@@ -304,11 +249,6 @@ pub fn full_screen_fills_the_monitor_the_window_is_on() {
     c.assert_behaviour("window.full-screen.it-fills-the-monitor-the-window-is-on-and-not-the-resolution-that-was-asked-for", move |_| {
         fills && covers_the_task_bar && second
     });
-}
-
-#[test]
-fn scenario_full_screen_fills_the_monitor_the_window_is_on() {
-    scenario("full_screen_fills_the_monitor_the_window_is_on");
 }
 
 // =============================================================================================
@@ -355,11 +295,6 @@ pub fn full_screen_never_asks_to_float_over_everything_else() {
         "window.full-screen.it-never-floats-over-the-players-other-windows",
         move |_| whole_matrix && !floated,
     );
-}
-
-#[test]
-fn scenario_full_screen_never_asks_to_float_over_everything_else() {
-    scenario("full_screen_never_asks_to_float_over_everything_else");
 }
 
 // =============================================================================================
@@ -447,11 +382,6 @@ pub fn a_press_outside_the_view_is_refused_though_it_is_inside_the_window() {
     );
 }
 
-#[test]
-fn scenario_a_press_outside_the_view_is_refused_though_it_is_inside_the_window() {
-    scenario("a_press_outside_the_view_is_refused_though_it_is_inside_the_window");
-}
-
 // =============================================================================================
 // viewport.the-armed-point-is-measured-from-the-views-own-corner
 // =============================================================================================
@@ -473,11 +403,6 @@ pub fn the_armed_point_is_measured_from_the_views_own_corner() {
         "viewport.the-armed-point-is-measured-from-the-views-own-corner",
         move |_| from_the_views_corner && from_the_windows_corner,
     );
-}
-
-#[test]
-fn scenario_the_armed_point_is_measured_from_the_views_own_corner() {
-    scenario("the_armed_point_is_measured_from_the_views_own_corner");
 }
 
 // =============================================================================================
@@ -518,9 +443,4 @@ pub fn a_world_press_is_measured_against_the_view_the_frame_pushed_in() {
         "viewport.a-world-press-is-measured-against-the-view-the-frame-pushed-in",
         move |_| armed_at_the_views_point && nothing_armed && the_window_is_the_view,
     );
-}
-
-#[test]
-fn scenario_a_world_press_is_measured_against_the_view_the_frame_pushed_in() {
-    scenario("a_world_press_is_measured_against_the_view_the_frame_pushed_in");
 }

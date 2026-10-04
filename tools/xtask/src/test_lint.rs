@@ -231,46 +231,7 @@ fn rel(ws: &Path, p: &Path) -> String {
 /// The scenario names each scenario module declares in its `ALL` table, as durable paths
 /// `<package>::<target>::<module>::<name>`, each with the file that declares it.
 fn scenarios(inv: &Inventory) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    for f in &inv.files {
-        let toks = &f.toks;
-        for k in 0..toks.len() {
-            if !(toks[k].kind == TokKind::Ident && toks[k].text == "ALL") {
-                continue;
-            }
-            // `ALL: <type> = &[ .. ];`
-            let Some(eq) = toks[k..]
-                .iter()
-                .position(|t| t.text == "=" || t.text == ";")
-            else {
-                continue;
-            };
-            let eq = k + eq;
-            if toks[eq].text != "=" {
-                continue;
-            }
-            let Some(open) = toks[eq..].iter().position(|t| t.text == "[") else {
-                continue;
-            };
-            let open = eq + open;
-            let close = close_of(toks, open);
-            let mut j = open + 1;
-            while j < close {
-                if toks[j].text == "(" {
-                    let c = close_of(toks, j);
-                    if let Some(name) = toks[j + 1..c].iter().find(|t| t.kind == TokKind::Str) {
-                        let mut path = vec![f.package.clone(), f.target.clone()];
-                        path.extend(f.module.iter().cloned());
-                        path.push(unquote(&name.text));
-                        out.insert(path.join("::"), f.file.clone());
-                    }
-                    j = c;
-                }
-                j += 1;
-            }
-        }
-    }
-    out
+    inv.scenarios.iter().cloned().collect()
 }
 
 /// The stem a module file is named by: its file stem, or its directory's name for a `mod.rs`.
@@ -338,6 +299,16 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
     let module_re = Regex::new(MODULE_NAME).map_err(|e| e.to_string())?;
     let fn_re = Regex::new(FN_NAME).map_err(|e| e.to_string())?;
     out.extend(declaration_findings(&inv));
+    out.extend(
+        inv.scenario_errors
+            .iter()
+            .map(|(file, line, error)| Finding {
+                path: file.clone(),
+                line: *line,
+                rule: "invalid scenario declaration".into(),
+                what: error.clone(),
+            }),
+    );
 
     // Names: module files of integration tests.
     for f in &inv.files {
@@ -377,7 +348,10 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
             && is_integration(&f.target)
             && !in_fixture_dir(&f.file)
             && with_tests.contains(f.file.as_str())
-            && !(f.module.len() == 1 && is_subject_module(&f.package, &f.module[0]))
+            && !f
+                .module
+                .first()
+                .is_some_and(|name| is_subject_module(&f.package, name))
         {
             *modules_per_target
                 .entry((&f.package, &f.target))
@@ -719,14 +693,17 @@ mod tests {
     }
 
     #[test]
-    fn a_scenario_table_entry_is_a_station() {
+    fn a_scenario_declaration_is_a_station() {
         let dir = std::env::temp_dir().join("xtask-test-lint-scenarios");
         std::fs::create_dir_all(&dir).expect("temp dir");
         let root = dir.join("main.rs");
         std::fs::write(&root, "mod chat;\n").expect("write");
         std::fs::write(
             dir.join("chat.rs"),
-            "pub static ALL: &[(&str, &[&str], fn())] = &[\n    (\"a_line_is_drawn\", &[\"chat.x.y\"], a_line_is_drawn),\n    (\"another\", &[], another),\n];\n",
+            r#"dereth_testkit::scenarios! {
+                scenario_a_line_is_drawn => a_line_is_drawn ["chat.x.y"],
+                scenario_another => another ["chat.x.z"],
+            }"#,
         )
         .expect("write");
         let inv = testsrc::read(
@@ -757,6 +734,52 @@ mod tests {
             got,
             BTreeSet::from(["chat".to_owned(), "rendering".to_owned()])
         );
+    }
+
+    #[test]
+    fn subject_descendants_do_not_turn_other_root_modules_into_areas() {
+        let dir = std::env::temp_dir().join("xtask-test-lint-subject-descendants");
+        let subjects = dir.join(REGISTRY_DIR);
+        let tier = dir.join("tests/cpu");
+        std::fs::create_dir_all(&subjects).expect("registry directory");
+        std::fs::create_dir_all(tier.join("chat")).expect("subject directory");
+        std::fs::write(subjects.join("chat.rs"), "").expect("registered subject");
+        let manifest = |package: &str| {
+            format!(
+                "[package]\nname = \"{package}\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\
+                 [[test]]\nname = \"cpu\"\npath = \"tests/cpu/main.rs\"\n"
+            )
+        };
+        std::fs::write(dir.join("Cargo.toml"), manifest(SCENARIO_PACKAGE)).expect("manifest");
+        std::fs::write(tier.join("main.rs"), "mod chat;\nmod checks;\n").expect("tier root");
+        let test = "//! Behaviour: none (area layout fixture)\n#[test]\nfn a_line_is_drawn() {}\n";
+        std::fs::write(tier.join("checks.rs"), test).expect("ordinary root module");
+        let mut children = String::new();
+        for index in 0..=AREA_THRESHOLD {
+            let name = format!("messages_{index}");
+            children.push_str(&format!("mod {name};\n"));
+            std::fs::write(tier.join("chat").join(format!("{name}.rs")), test)
+                .expect("subject child");
+        }
+        std::fs::write(tier.join("chat.rs"), children).expect("subject parent");
+        let area_findings = || {
+            scan(&dir)
+                .expect("scan fixture")
+                .into_iter()
+                .filter(|finding| finding.rule == "module outside an area")
+                .map(|finding| finding.what)
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            area_findings().is_empty(),
+            "children remain in their subject"
+        );
+        std::fs::remove_file(subjects.join("chat.rs")).expect("remove subject registration");
+        assert!(area_findings().contains(&"checks".to_owned()));
+        std::fs::write(subjects.join("chat.rs"), "").expect("restore subject registration");
+        std::fs::write(dir.join("Cargo.toml"), manifest("ordinary-tests")).expect("other package");
+        assert!(area_findings().contains(&"checks".to_owned()));
+        std::fs::remove_dir_all(&dir).expect("remove fixture");
     }
 
     #[test]

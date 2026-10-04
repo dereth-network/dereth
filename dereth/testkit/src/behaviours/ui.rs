@@ -28,7 +28,7 @@ pub static ROWS: &[Behaviour] = &[
                and laid out, with its scrolling panes and their scrollbars present.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O118"),
-        station: "dereth-testkit::dat::ui::scenario_every_wizard_page_lays_out",
+        station: "dereth-testkit::dat::shell::chargen::scenario_every_wizard_page_lays_out",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1101,7 +1101,7 @@ pub static ROWS: &[Behaviour] = &[
                wizard marks the name as entered, which is what it refuses to finish without.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O87-NAME"),
-        station: "dereth-testkit::dat::ui::scenario_the_name_field_of_the_wizard_takes_a_typed_name",
+        station: "dereth-testkit::dat::shell::chargen::scenario_the_name_field_of_the_wizard_takes_a_typed_name",
         tier: Tier::Dat,
     },
     behaviour! {

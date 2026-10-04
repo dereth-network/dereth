@@ -15,42 +15,6 @@ use dereth_ui::factory::ty;
 use dereth_ui::focus::{action, InputEvent};
 use dereth_ui::{ElemHandle, ElementId, ElementType, InputPump, UiSystem};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "a_copy_reaches_the_host_clipboard_once",
-        &["clipboard.copy.hands-the-selection-to-the-host-once"],
-        a_copy_reaches_the_host_clipboard_once,
-    ),
-    (
-        "the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest",
-        &["notice.the-strip-takes-the-clients-own-channel-and-the-chat-windows-take-the-rest"],
-        the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest,
-    ),
-    (
-        "a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows",
-        &["notice.a-line-still-waiting-when-the-character-logs-off-goes-with-the-windows"],
-        a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows,
-    ),
-    (
-        "the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in",
-        &["dates.the-shape-is-the-shipped-runtimes-own-and-the-zone-is-something-handed-in"],
-        the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in,
-    ),
-    (
-        "a_pane_draws_in_whatever_zone_it_is_handed_row_by_row",
-        &["dates.a-pane-draws-in-whatever-zone-it-is-handed-row-by-row"],
-        a_pane_draws_in_whatever_zone_it_is_handed_row_by_row,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// No dats: every element below is built from a description written here.
 #[derive(Debug)]
 struct NoAssets;
@@ -231,9 +195,12 @@ pub fn a_copy_reaches_the_host_clipboard_once() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_a_copy_reaches_the_host_clipboard_once() {
-    scenario("a_copy_reaches_the_host_clipboard_once");
+dereth_testkit::scenarios! {
+    scenario_a_copy_reaches_the_host_clipboard_once => a_copy_reaches_the_host_clipboard_once ["clipboard.copy.hands-the-selection-to-the-host-once"],
+    scenario_the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest => the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest ["notice.the-strip-takes-the-clients-own-channel-and-the-chat-windows-take-the-rest"],
+    scenario_a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows => a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows ["notice.a-line-still-waiting-when-the-character-logs-off-goes-with-the-windows"],
+    scenario_the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in => the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in ["dates.the-shape-is-the-shipped-runtimes-own-and-the-zone-is-something-handed-in"],
+    scenario_a_pane_draws_in_whatever_zone_it_is_handed_row_by_row => a_pane_draws_in_whatever_zone_it_is_handed_row_by_row ["dates.a-pane-draws-in-whatever-zone-it-is-handed-row-by-row"],
 }
 
 // =============================================================================================
@@ -312,11 +279,6 @@ pub fn the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest() {
     );
 }
 
-#[test]
-fn scenario_the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest() {
-    scenario("the_strip_takes_the_clients_own_channel_and_the_windows_take_the_rest");
-}
-
 // =============================================================================================
 // notice.a-line-still-waiting-when-the-character-logs-off-goes-with-the-windows
 // =============================================================================================
@@ -343,11 +305,6 @@ pub fn a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows() 
         "notice.a-line-still-waiting-when-the-character-logs-off-goes-with-the-windows",
         move |_| one_is_waiting && the_queue_is_empty && the_strip_is_empty && it_was_counted,
     );
-}
-
-#[test]
-fn scenario_a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows() {
-    scenario("a_line_still_waiting_when_the_character_logs_off_goes_with_the_windows");
 }
 
 // =============================================================================================
@@ -445,11 +402,6 @@ pub fn the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in() {
     );
 }
 
-#[test]
-fn scenario_the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in() {
-    scenario("the_shape_is_the_shipped_runtimes_own_and_the_zone_is_handed_in");
-}
-
 // =============================================================================================
 // dates.a-pane-draws-in-whatever-zone-it-is-handed-row-by-row
 // =============================================================================================
@@ -511,9 +463,4 @@ pub fn a_pane_draws_in_whatever_zone_it_is_handed_row_by_row() {
         "dates.a-pane-draws-in-whatever-zone-it-is-handed-row-by-row",
         move |_| every_row_follows && three_at_once,
     );
-}
-
-#[test]
-fn scenario_a_pane_draws_in_whatever_zone_it_is_handed_row_by_row() {
-    scenario("a_pane_draws_in_whatever_zone_it_is_handed_row_by_row");
 }

@@ -1,3 +1,5 @@
+#![recursion_limit = "1024"]
+
 //! CPU-tier scenarios for `dereth-testkit`: no retail dats, no graphics device, no window.
 //!
 //! One test binary per crate per tier. The recorded captures under `fixtures/packet-captures` are

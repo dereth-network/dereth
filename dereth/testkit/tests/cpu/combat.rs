@@ -23,37 +23,6 @@ use dereth_protocol::types::qualities::base_flags;
 use dereth_protocol::Message as _;
 use dereth_testkit::{HeadlessClient, Inbound};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "readiness_comes_from_the_combat_table",
-        &["melee.readiness.comes-from-the-combat-table-the-login-carried"],
-        readiness_comes_from_the_combat_table,
-    ),
-    (
-        "a_melee_attack_swings_and_repeats",
-        &["melee.attack.swings-when-the-power-bar-fills-and-repeats"],
-        a_melee_attack_swings_and_repeats,
-    ),
-    (
-        "leaving_combat_reaches_the_shard",
-        &["combat.mode.the-toggle-out-of-combat-reaches-the-shard"],
-        leaving_combat_reaches_the_shard,
-    ),
-    (
-        "leaving_a_mode_is_judged_by_the_mode_being_left",
-        &["combat.mode.whether-the-player-may-change-is-decided-by-the-mode-he-is-leaving"],
-        leaving_a_mode_is_judged_by_the_mode_being_left,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 const PLAYER: ObjectId = ObjectId(0x5000_0476);
 const MONSTER: ObjectId = ObjectId(0x8000_0777);
 /// The combat table the character's login description carries.
@@ -434,22 +403,9 @@ pub fn leaving_a_mode_is_judged_by_the_mode_being_left() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_readiness_comes_from_the_combat_table() {
-    scenario("readiness_comes_from_the_combat_table");
-}
-
-#[test]
-fn scenario_a_melee_attack_swings_and_repeats() {
-    scenario("a_melee_attack_swings_and_repeats");
-}
-
-#[test]
-fn scenario_leaving_combat_reaches_the_shard() {
-    scenario("leaving_combat_reaches_the_shard");
-}
-
-#[test]
-fn scenario_leaving_a_mode_is_judged_by_the_mode_being_left() {
-    scenario("leaving_a_mode_is_judged_by_the_mode_being_left");
+dereth_testkit::scenarios! {
+    scenario_readiness_comes_from_the_combat_table => readiness_comes_from_the_combat_table ["melee.readiness.comes-from-the-combat-table-the-login-carried"],
+    scenario_a_melee_attack_swings_and_repeats => a_melee_attack_swings_and_repeats ["melee.attack.swings-when-the-power-bar-fills-and-repeats"],
+    scenario_leaving_combat_reaches_the_shard => leaving_combat_reaches_the_shard ["combat.mode.the-toggle-out-of-combat-reaches-the-shard"],
+    scenario_leaving_a_mode_is_judged_by_the_mode_being_left => leaving_a_mode_is_judged_by_the_mode_being_left ["combat.mode.whether-the-player-may-change-is-decided-by-the-mode-he-is-leaving"],
 }

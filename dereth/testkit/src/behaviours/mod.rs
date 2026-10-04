@@ -124,7 +124,7 @@ impl Tier {
     }
 }
 
-/// The package whose scenarios assert most rows; a station in it is a scenario's test.
+/// The package whose scenario wrappers assert most rows. It also holds ordinary tests.
 pub const SCENARIO_PACKAGE: &str = "dereth-testkit";
 
 /// One documented behaviour of the client.
@@ -154,14 +154,19 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
-    /// Whether a scenario of this crate asserts the row, rather than a crate's own test.
+    /// Whether a named scenario wrapper of this crate owns the row.
     #[must_use]
     pub fn is_scenario(&self) -> bool {
         self.station
             .strip_prefix(SCENARIO_PACKAGE)
             .and_then(|r| r.strip_prefix("::"))
             .and_then(|r| r.strip_prefix(self.tier.binary()))
-            .is_some_and(|r| r.starts_with("::"))
+            .is_some_and(|r| {
+                r.starts_with("::")
+                    && r.rsplit("::")
+                        .next()
+                        .is_some_and(|name| name.starts_with("scenario_"))
+            })
     }
 }
 
@@ -573,8 +578,10 @@ mod tests {
                 b.station
             );
             assert!(
-                b.is_scenario() || !b.station.starts_with(SCENARIO_PACKAGE),
-                "{:?} is asserted by a scenario of another tier than its own",
+                b.station
+                    .strip_prefix("dereth-testkit::")
+                    .is_none_or(|rest| { rest.split("::").next() == Some(b.tier.binary()) }),
+                "{:?} is asserted by a testkit test of another tier than its own",
                 b.id
             );
             assert!(
@@ -633,6 +640,31 @@ mod tests {
             declared, listed,
             "a subject module is declared but not listed in SUBJECTS"
         );
+    }
+
+    #[test]
+    fn ordinary_testkit_tests_are_not_scenario_wrappers() {
+        let row = Behaviour {
+            station: "dereth-testkit::dat::chat::scenario_example",
+            tier: Tier::Dat,
+            ..*all().next().expect("registry has rows")
+        };
+        assert!(row.is_scenario());
+        assert!(!Behaviour {
+            station: "dereth-testkit::dat::chat::ordinary_example",
+            ..row
+        }
+        .is_scenario());
+        assert!(!Behaviour {
+            tier: Tier::Cpu,
+            ..row
+        }
+        .is_scenario());
+        assert!(!Behaviour {
+            station: "another-crate::dat::chat::scenario_example",
+            ..row
+        }
+        .is_scenario());
     }
 
     /// **The first twenty behaviours the registry documented** are still documented, and each is

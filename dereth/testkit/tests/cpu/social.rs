@@ -20,97 +20,6 @@ use dereth_protocol::social::{
 use dereth_testkit::{HeadlessClient, Inbound, Player};
 use dereth_ui_screens::view::GameView as _;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "any_front_end_answers_the_servers_question_the_same_way",
-        &["confirmation.any-front-end-answers-the-servers-question-the-same-way"],
-        any_front_end_answers_the_servers_question_the_same_way,
-    ),
-    (
-        "fellowship_membership_moves_the_cycle_and_the_tab",
-        &["fellowship.membership.moves-the-tab-target-cycle-and-the-chat-tab"],
-        fellowship_membership_moves_the_cycle_and_the_tab,
-    ),
-    (
-        "the_allegiance_tree_is_walked_from_the_player_outwards",
-        &["allegiance.roster.is-walked-from-the-player-outwards-and-titled-by-rank"],
-        the_allegiance_tree_is_walked_from_the_player_outwards,
-    ),
-    (
-        "the_tabs_request_writes_the_one_talk_focus_mask",
-        &["allegiance.channels.the-panels-request-writes-the-one-talk-focus-mask"],
-        the_tabs_request_writes_the_one_talk_focus_mask,
-    ),
-    (
-        "a_roster_the_shard_really_sent_is_read_whole",
-        &["allegiance.roster.a-roster-the-shard-really-sent-is-read-whole"],
-        a_roster_the_shard_really_sent_is_read_whole,
-    ),
-    (
-        "a_confirmed_question_sends_the_oath_or_the_break",
-        &["allegiance.buttons.a-confirmed-question-is-what-sends-the-oath-or-the-break"],
-        a_confirmed_question_sends_the_oath_or_the_break,
-    ),
-    (
-        "the_recorded_fellowship_story_becomes_the_lines_the_player_read",
-        &["fellowship.lines.the-recorded-story-becomes-the-lines-the-player-read"],
-        the_recorded_fellowship_story_becomes_the_lines_the_player_read,
-    ),
-    (
-        "a_fellowship_refusal_code_prints_its_own_line_or_nothing",
-        &["fellowship.lines.a-refusal-code-prints-its-own-line-or-nothing-at-all"],
-        a_fellowship_refusal_code_prints_its_own_line_or_nothing,
-    ),
-    (
-        "a_fellow_is_known_as_one_on_the_radar",
-        &["fellowship.membership.colours-a-fellow-on-the-radar"],
-        a_fellow_is_known_as_one_on_the_radar,
-    ),
-    (
-        "a_fellowship_invitation_reaches_the_tab_that_asks",
-        &["fellowship.invitation.reaches-the-tab-that-asks-the-player"],
-        a_fellowship_invitation_reaches_the_tab_that_asks,
-    ),
-    (
-        "a_populated_friends_list_is_read_whole_and_written_back",
-        &["friends.update.a-populated-list-is-read-whole-and-written-back-unchanged"],
-        a_populated_friends_list_is_read_whole_and_written_back,
-    ),
-    (
-        "adding_a_friend_by_name_sends_the_name",
-        &["friends.commands.adding-by-name-sends-the-name-the-player-typed"],
-        adding_a_friend_by_name_sends_the_name,
-    ),
-    (
-        "removing_a_friend_by_name_names_who_it_is",
-        &["friends.commands.removing-by-name-names-who-it-is-or-sends-nothing"],
-        removing_a_friend_by_name_names_who_it_is,
-    ),
-    (
-        "listing_friends_is_local_and_in_the_tabs_order",
-        &["friends.commands.listing-is-local-and-in-the-order-the-tab-shows"],
-        listing_friends_is_local_and_in_the_tabs_order,
-    ),
-    (
-        "the_old_friends_form_goes_out_on_the_other_queue",
-        &["friends.commands.the-old-form-goes-out-on-the-other-queue"],
-        the_old_friends_form_goes_out_on_the_other_queue,
-    ),
-    (
-        "allegiance_login_becomes_a_chat_line",
-        &["allegiance.member-login.becomes-a-chat-line"],
-        allegiance_login_becomes_a_chat_line,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 const FELLOW: ObjectId = ObjectId(0x5000_0002);
 const STRANGER: ObjectId = ObjectId(0x5000_0003);
@@ -399,9 +308,23 @@ pub fn fellowship_membership_moves_the_cycle_and_the_tab() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_fellowship_membership_moves_the_cycle_and_the_tab() {
-    scenario("fellowship_membership_moves_the_cycle_and_the_tab");
+dereth_testkit::scenarios! {
+    scenario_fellowship_membership_moves_the_cycle_and_the_tab => fellowship_membership_moves_the_cycle_and_the_tab ["fellowship.membership.moves-the-tab-target-cycle-and-the-chat-tab"],
+    scenario_the_allegiance_tree_is_walked_from_the_player_outwards => the_allegiance_tree_is_walked_from_the_player_outwards ["allegiance.roster.is-walked-from-the-player-outwards-and-titled-by-rank"],
+    scenario_the_tabs_request_writes_the_one_talk_focus_mask => the_tabs_request_writes_the_one_talk_focus_mask ["allegiance.channels.the-panels-request-writes-the-one-talk-focus-mask"],
+    scenario_a_roster_the_shard_really_sent_is_read_whole => a_roster_the_shard_really_sent_is_read_whole ["allegiance.roster.a-roster-the-shard-really-sent-is-read-whole"],
+    scenario_a_confirmed_question_sends_the_oath_or_the_break => a_confirmed_question_sends_the_oath_or_the_break ["allegiance.buttons.a-confirmed-question-is-what-sends-the-oath-or-the-break"],
+    scenario_the_recorded_fellowship_story_becomes_the_lines_the_player_read => the_recorded_fellowship_story_becomes_the_lines_the_player_read ["fellowship.lines.the-recorded-story-becomes-the-lines-the-player-read"],
+    scenario_a_fellowship_refusal_code_prints_its_own_line_or_nothing => a_fellowship_refusal_code_prints_its_own_line_or_nothing ["fellowship.lines.a-refusal-code-prints-its-own-line-or-nothing-at-all"],
+    scenario_a_fellow_is_known_as_one_on_the_radar => a_fellow_is_known_as_one_on_the_radar ["fellowship.membership.colours-a-fellow-on-the-radar"],
+    scenario_a_fellowship_invitation_reaches_the_tab_that_asks => a_fellowship_invitation_reaches_the_tab_that_asks ["fellowship.invitation.reaches-the-tab-that-asks-the-player"],
+    scenario_a_populated_friends_list_is_read_whole_and_written_back => a_populated_friends_list_is_read_whole_and_written_back ["friends.update.a-populated-list-is-read-whole-and-written-back-unchanged"],
+    scenario_adding_a_friend_by_name_sends_the_name => adding_a_friend_by_name_sends_the_name ["friends.commands.adding-by-name-sends-the-name-the-player-typed"],
+    scenario_removing_a_friend_by_name_names_who_it_is => removing_a_friend_by_name_names_who_it_is ["friends.commands.removing-by-name-names-who-it-is-or-sends-nothing"],
+    scenario_listing_friends_is_local_and_in_the_tabs_order => listing_friends_is_local_and_in_the_tabs_order ["friends.commands.listing-is-local-and-in-the-order-the-tab-shows"],
+    scenario_the_old_friends_form_goes_out_on_the_other_queue => the_old_friends_form_goes_out_on_the_other_queue ["friends.commands.the-old-form-goes-out-on-the-other-queue"],
+    scenario_allegiance_login_becomes_a_chat_line => allegiance_login_becomes_a_chat_line ["allegiance.member-login.becomes-a-chat-line"],
+    scenario_any_front_end_answers_the_servers_question_the_same_way => any_front_end_answers_the_servers_question_the_same_way ["confirmation.any-front-end-answers-the-servers-question-the-same-way"],
 }
 
 // =============================================================================================
@@ -499,11 +422,6 @@ pub fn the_allegiance_tree_is_walked_from_the_player_outwards() {
     );
 }
 
-#[test]
-fn scenario_the_allegiance_tree_is_walked_from_the_player_outwards() {
-    scenario("the_allegiance_tree_is_walked_from_the_player_outwards");
-}
-
 // =============================================================================================
 // allegiance.channels.the-panels-request-writes-the-one-talk-focus-mask
 // =============================================================================================
@@ -557,11 +475,6 @@ pub fn the_tabs_request_writes_the_one_talk_focus_mask() {
         "allegiance.channels.the-panels-request-writes-the-one-talk-focus-mask",
         move |_| off_to_start && written && told && closes_again,
     );
-}
-
-#[test]
-fn scenario_the_tabs_request_writes_the_one_talk_focus_mask() {
-    scenario("the_tabs_request_writes_the_one_talk_focus_mask");
 }
 
 // =============================================================================================
@@ -657,11 +570,6 @@ pub fn a_roster_the_shard_really_sent_is_read_whole() {
     );
 }
 
-#[test]
-fn scenario_a_roster_the_shard_really_sent_is_read_whole() {
-    scenario("a_roster_the_shard_really_sent_is_read_whole");
-}
-
 // =============================================================================================
 // allegiance.buttons.a-confirmed-question-is-what-sends-the-oath-or-the-break
 // =============================================================================================
@@ -717,11 +625,6 @@ pub fn a_confirmed_question_sends_the_oath_or_the_break() {
         "allegiance.buttons.a-confirmed-question-is-what-sends-the-oath-or-the-break",
         move |_| swear && kick && nobody && named && broke,
     );
-}
-
-#[test]
-fn scenario_a_confirmed_question_sends_the_oath_or_the_break() {
-    scenario("a_confirmed_question_sends_the_oath_or_the_break");
 }
 
 // =============================================================================================
@@ -872,11 +775,6 @@ pub fn the_recorded_fellowship_story_becomes_the_lines_the_player_read() {
     );
 }
 
-#[test]
-fn scenario_the_recorded_fellowship_story_becomes_the_lines_the_player_read() {
-    scenario("the_recorded_fellowship_story_becomes_the_lines_the_player_read");
-}
-
 /// Every refusal code the recordings carry, each through its own arm -- or its own silence.
 pub fn a_fellowship_refusal_code_prints_its_own_line_or_nothing() {
     use std::collections::BTreeMap;
@@ -1012,11 +910,6 @@ fn refusal_code(session: &'static str, idx: usize, op: u32) -> u32 {
     }
 }
 
-#[test]
-fn scenario_a_fellowship_refusal_code_prints_its_own_line_or_nothing() {
-    scenario("a_fellowship_refusal_code_prints_its_own_line_or_nothing");
-}
-
 // =============================================================================================
 // fellowship.membership.colours-a-fellow-on-the-radar
 // fellowship.invitation.reaches-the-tab-that-asks-the-player
@@ -1051,11 +944,6 @@ pub fn a_fellow_is_known_as_one_on_the_radar() {
     );
 }
 
-#[test]
-fn scenario_a_fellow_is_known_as_one_on_the_radar() {
-    scenario("a_fellow_is_known_as_one_on_the_radar");
-}
-
 /// An invitation to join a fellowship reaches the tab's own queue rather than the drop for
 /// questions about parts of the interface that are not there.
 pub fn a_fellowship_invitation_reaches_the_tab_that_asks() {
@@ -1078,11 +966,6 @@ pub fn a_fellowship_invitation_reaches_the_tab_that_asks() {
         "fellowship.invitation.reaches-the-tab-that-asks-the-player",
         move |_| nothing_asked && raised && not_dropped,
     );
-}
-
-#[test]
-fn scenario_a_fellowship_invitation_reaches_the_tab_that_asks() {
-    scenario("a_fellowship_invitation_reaches_the_tab_that_asks");
 }
 
 // =============================================================================================
@@ -1215,11 +1098,6 @@ pub fn a_populated_friends_list_is_read_whole_and_written_back() {
     );
 }
 
-#[test]
-fn scenario_a_populated_friends_list_is_read_whole_and_written_back() {
-    scenario("a_populated_friends_list_is_read_whole_and_written_back");
-}
-
 /// The bytes the add-a-friend message carries for `name`: the name and nothing else.
 fn add_friend_bytes(name: &str) -> Vec<u8> {
     let mut blob = vec![0x18, 0x00, 0x00, 0x00];
@@ -1257,11 +1135,6 @@ pub fn adding_a_friend_by_name_sends_the_name() {
         "friends.commands.adding-by-name-sends-the-name-the-player-typed",
         move |_| nothing_asked && sent && ran && alias && trimmed,
     );
-}
-
-#[test]
-fn scenario_adding_a_friend_by_name_sends_the_name() {
-    scenario("adding_a_friend_by_name_sends_the_name");
 }
 
 /// The remove command takes a name and sends who that person is -- or sends nothing.
@@ -1305,11 +1178,6 @@ pub fn removing_a_friend_by_name_names_who_it_is() {
         "friends.commands.removing-by-name-names-who-it-is-or-sends-nothing",
         move |_| nobody && named && counted && cleared && said_so && emptied,
     );
-}
-
-#[test]
-fn scenario_removing_a_friend_by_name_names_who_it_is() {
-    scenario("removing_a_friend_by_name_names_who_it_is");
 }
 
 /// Listing the friends prints and sends nothing, in the order the tab shows them.
@@ -1383,11 +1251,6 @@ pub fn listing_friends_is_local_and_in_the_tabs_order() {
     );
 }
 
-#[test]
-fn scenario_listing_friends_is_local_and_in_the_tabs_order() {
-    scenario("listing_friends_is_local_and_in_the_tabs_order");
-}
-
 /// One spelling of the command is not a game action and goes out on the other queue.
 pub fn the_old_friends_form_goes_out_on_the_other_queue() {
     let mut c = HeadlessClient::model();
@@ -1404,11 +1267,6 @@ pub fn the_old_friends_form_goes_out_on_the_other_queue() {
         "friends.commands.the-old-form-goes-out-on-the-other-queue",
         move |_| sent && counted,
     );
-}
-
-#[test]
-fn scenario_the_old_friends_form_goes_out_on_the_other_queue() {
-    scenario("the_old_friends_form_goes_out_on_the_other_queue");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -1490,11 +1348,6 @@ pub fn allegiance_login_becomes_a_chat_line() {
             && v.hud().stats.allegiance_logins == 3
             && v.hud().stats.allegiance_logins_announced == 2
     });
-}
-
-#[test]
-fn scenario_allegiance_login_becomes_a_chat_line() {
-    scenario("allegiance_login_becomes_a_chat_line");
 }
 
 // =============================================================================================
@@ -1618,9 +1471,4 @@ pub fn any_front_end_answers_the_servers_question_the_same_way() {
                 && boxes.shown.is_empty()
         },
     );
-}
-
-#[test]
-fn scenario_any_front_end_answers_the_servers_question_the_same_way() {
-    scenario("any_front_end_answers_the_servers_question_the_same_way");
 }

@@ -31,52 +31,6 @@ fn endpoint(records: &[Datagram], account: &str) -> ClientNetwork {
     dereth_testkit::replay::recorded_endpoint_as(records, account, "unused")
 }
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "a_whole_client_with_no_device_or_window",
-        &["headless.a-whole-client-with-no-device-or-window"],
-        a_whole_client_with_no_device_or_window,
-    ),
-    (
-        "any_front_end_logs_the_character_off_when_it_quits",
-        &["logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops"],
-        any_front_end_logs_the_character_off_when_it_quits,
-    ),
-    (
-        "any_front_end_tells_the_server_the_character_arrived",
-        &["login.arrival.any-front-end-tells-the-server-the-character-arrived"],
-        any_front_end_tells_the_server_the_character_arrived,
-    ),
-    (
-        "a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it",
-        &["login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it"],
-        a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it,
-    ),
-    (
-        "entering_the_world_reaches_the_hud_from_the_wizard",
-        &["login.enter-world.reaches-the-hud-from-the-wizard-as-well-as-from-character-select"],
-        entering_the_world_reaches_the_hud_from_the_wizard,
-    ),
-    (
-        "every_front_end_follows_one_game_flow",
-        &["login.phase.every-front-end-follows-one-game-flow"],
-        every_front_end_follows_one_game_flow,
-    ),
-    (
-        "two_bodies_cannot_share_one_id",
-        &["login.player-identity.two-bodies-cannot-share-one-id"],
-        two_bodies_cannot_share_one_id,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// What the null presentation was asked to do.
 fn counts(v: &ScenarioView<'_>) -> NullPresentationCounts {
     v.expect_app()
@@ -126,9 +80,14 @@ pub fn a_whole_client_with_no_device_or_window() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_a_whole_client_with_no_device_or_window() {
-    scenario("a_whole_client_with_no_device_or_window");
+dereth_testkit::scenarios! {
+    scenario_a_whole_client_with_no_device_or_window => a_whole_client_with_no_device_or_window ["headless.a-whole-client-with-no-device-or-window"],
+    scenario_entering_the_world_reaches_the_hud_from_the_wizard => entering_the_world_reaches_the_hud_from_the_wizard ["login.enter-world.reaches-the-hud-from-the-wizard-as-well-as-from-character-select"],
+    scenario_two_bodies_cannot_share_one_id => two_bodies_cannot_share_one_id ["login.player-identity.two-bodies-cannot-share-one-id"],
+    scenario_any_front_end_tells_the_server_the_character_arrived => any_front_end_tells_the_server_the_character_arrived ["login.arrival.any-front-end-tells-the-server-the-character-arrived"],
+    scenario_any_front_end_logs_the_character_off_when_it_quits => any_front_end_logs_the_character_off_when_it_quits ["logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops"],
+    scenario_every_front_end_follows_one_game_flow => every_front_end_follows_one_game_flow ["login.phase.every-front-end-follows-one-game-flow"],
+    scenario_a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it => a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it ["login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it"],
 }
 
 // -------------------------------------------------------------------------------------------
@@ -219,11 +178,6 @@ pub fn entering_the_world_reaches_the_hud_from_the_wizard() {
         "login.enter-world.reaches-the-hud-from-the-wizard-as-well-as-from-character-select",
         move |_| from_the_wizard && from_character_select && nothing_else_switches && it_stays_put,
     );
-}
-
-#[test]
-fn scenario_entering_the_world_reaches_the_hud_from_the_wizard() {
-    scenario("entering_the_world_reaches_the_hud_from_the_wizard");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -405,11 +359,6 @@ pub fn two_bodies_cannot_share_one_id() {
                 && the_local_body_survives
         },
     );
-}
-
-#[test]
-fn scenario_two_bodies_cannot_share_one_id() {
-    scenario("two_bodies_cannot_share_one_id");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -621,11 +570,6 @@ pub fn any_front_end_tells_the_server_the_character_arrived() {
     );
 }
 
-#[test]
-fn scenario_any_front_end_tells_the_server_the_character_arrived() {
-    scenario("any_front_end_tells_the_server_the_character_arrived");
-}
-
 /// `UiRequest::Quit` from a front end with no epilogue screen of its own: the log-off goes out,
 /// and then the loop ends.
 pub fn any_front_end_logs_the_character_off_when_it_quits() {
@@ -645,11 +589,6 @@ pub fn any_front_end_logs_the_character_off_when_it_quits() {
     dereth_testkit::behaviours::note_asserted(
         "logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops",
     );
-}
-
-#[test]
-fn scenario_any_front_end_logs_the_character_off_when_it_quits() {
-    scenario("any_front_end_logs_the_character_off_when_it_quits");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -698,11 +637,6 @@ pub fn every_front_end_follows_one_game_flow() {
     dereth_testkit::behaviours::note_asserted("login.phase.every-front-end-follows-one-game-flow");
 }
 
-#[test]
-fn scenario_every_front_end_follows_one_game_flow() {
-    scenario("every_front_end_follows_one_game_flow");
-}
-
 /// The runtime resolves why the session ended, so a front end that resolves nothing still shows
 /// the server's own reason for a boot.
 pub fn a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it() {
@@ -740,9 +674,4 @@ pub fn a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it() {
     dereth_testkit::behaviours::note_asserted(
         "login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it",
     );
-}
-
-#[test]
-fn scenario_a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it() {
-    scenario("a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it");
 }

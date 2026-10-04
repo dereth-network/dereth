@@ -22,182 +22,6 @@ use dereth_ui_screens::panels::allegiance::{
 };
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "the_allegiance_tab_is_bound_and_empty_without_an_allegiance",
-        &["allegiance.panel.the-shipped-vassal-list-is-bound-and-empty-without-an-allegiance"],
-        the_allegiance_tab_is_bound_and_empty_without_an_allegiance,
-    ),
-    (
-        "a_roster_fills_the_shipped_vassal_list",
-        &["allegiance.panel.a-roster-fills-the-shipped-vassal-list-and-is-replaced-whole"],
-        a_roster_fills_the_shipped_vassal_list,
-    ),
-    (
-        "an_online_relative_opens_that_allegiance_channel",
-        &["allegiance.channels.an-online-patron-monarch-or-vassal-opens-that-channel"],
-        an_online_relative_opens_that_allegiance_channel,
-    ),
-    (
-        "a_monarch_is_shown_no_monarch_and_no_patron_row",
-        &["allegiance.panel.a-monarch-has-no-monarch-row-and-no-patron-row"],
-        a_monarch_is_shown_no_monarch_and_no_patron_row,
-    ),
-    (
-        "the_patron_row_shows_the_players_own_tithed_experience",
-        &["allegiance.panel.the-visible-patron-row-shows-the-players-own-tithed-experience"],
-        the_patron_row_shows_the_players_own_tithed_experience,
-    ),
-    (
-        "a_member_with_no_title_for_his_sex_is_drawn_by_name",
-        &["allegiance.panel.a-member-whose-gender-carries-no-title-is-drawn-by-bare-name"],
-        a_member_with_no_title_for_his_sex_is_drawn_by_name,
-    ),
-    (
-        "both_followers_numbers_come_from_the_answers_header",
-        &["allegiance.panel.the-followers-numbers-come-from-the-profile-header"],
-        both_followers_numbers_come_from_the_answers_header,
-    ),
-    (
-        "a_login_notification_leaves_the_tab_alone",
-        &["allegiance.roster.a-login-notification-redraws-nothing"],
-        a_login_notification_leaves_the_tab_alone,
-    ),
-    (
-        "opening_the_tab_asks_the_shard_and_closing_it_unasks",
-        &["allegiance.subscription.the-tab-asks-the-shard-on-the-way-up-and-unasks-on-the-way-down"],
-        opening_the_tab_asks_the_shard_and_closing_it_unasks,
-    ),
-    (
-        "a_tab_left_open_asks_once_and_not_once_a_frame",
-        &["allegiance.subscription.is-an-edge-and-not-a-poll"],
-        a_tab_left_open_asks_once_and_not_once_a_frame,
-    ),
-    (
-        "the_opening_ask_is_withheld_without_a_player",
-        &["allegiance.subscription.the-opening-ask-is-withheld-without-a-player"],
-        the_opening_ask_is_withheld_without_a_player,
-    ),
-    (
-        "the_answer_to_the_ask_fills_the_tab",
-        &["allegiance.subscription.the-answer-fills-the-tab-and-provokes-no-second-ask"],
-        the_answer_to_the_ask_fills_the_tab,
-    ),
-    (
-        "the_roster_the_shard_really_sent_reaches_the_list",
-        &["allegiance.panel.the-roster-the-shard-really-sent-reaches-the-list"],
-        the_roster_the_shard_really_sent_reaches_the_list,
-    ),
-    (
-        "breaking_asks_a_question_and_sends_nothing",
-        &["allegiance.buttons.breaking-asks-a-question-and-sends-nothing-by-itself"],
-        breaking_asks_a_question_and_sends_nothing,
-    ),
-    (
-        "picking_a_vassal_arms_the_kick_button",
-        &["allegiance.buttons.picking-a-vassal-arms-the-kick-button-from-the-rows-own-id"],
-        picking_a_vassal_arms_the_kick_button,
-    ),
-    (
-        "swear_is_dark_while_the_player_has_a_patron",
-        &["allegiance.buttons.swear-is-dark-while-the-player-already-has-a-patron"],
-        swear_is_dark_while_the_player_has_a_patron,
-    ),
-    (
-        "every_typed_allegiance_command_sends_its_own_message",
-        &["allegiance.commands.every-typed-allegiance-command-sends-its-own-message"],
-        every_typed_allegiance_command_sends_its_own_message,
-    ),
-    (
-        "a_refused_allegiance_line_prints_and_sends_nothing",
-        &["allegiance.commands.a-refused-line-is-printed-where-the-player-reads-it-and-sends-nothing"],
-        a_refused_allegiance_line_prints_and_sends_nothing,
-    ),
-    (
-        "listening_is_an_option_and_broadcasting_is_a_channel",
-        &["allegiance.commands.listening-is-a-local-option-and-broadcasting-is-a-channel"],
-        listening_is_an_option_and_broadcasting_is_a_channel,
-    ),
-    (
-        "the_fellowship_lines_reach_the_live_chat_log",
-        &["fellowship.lines.reach-the-live-chat-log-in-the-colour-of-a-broadcast"],
-        the_fellowship_lines_reach_the_live_chat_log,
-    ),
-    (
-        "the_social_page_opening_is_not_the_fellowship_tab_opening",
-        &["fellowship.subscription.the-social-page-opening-is-not-the-tab-opening"],
-        the_social_page_opening_is_not_the_fellowship_tab_opening,
-    ),
-    (
-        "a_membership_list_draws_a_roster_with_names_stats_and_meters",
-        &["fellowship.panel.a-membership-list-draws-a-roster-with-names-stats-and-meters"],
-        a_membership_list_draws_a_roster_with_names_stats_and_meters,
-    ),
-    (
-        "disband_is_offered_only_to_the_leader",
-        &["fellowship.buttons.disband-is-offered-only-to-the-leader"],
-        disband_is_offered_only_to_the_leader,
-    ),
-    (
-        "a_leader_who_leaves_hands_the_lead_on_first",
-        &["fellowship.buttons.a-leader-who-leaves-hands-the-lead-on-first"],
-        a_leader_who_leaves_hands_the_lead_on_first,
-    ),
-    (
-        "opening_the_fellowship_changes_the_tab_first",
-        &["fellowship.buttons.opening-the-fellowship-changes-the-tab-before-the-shard-answers"],
-        opening_the_fellowship_changes_the_tab_first,
-    ),
-    (
-        "picking_a_row_then_dismissing_names_that_fellow",
-        &["fellowship.buttons.picking-a-row-then-dismissing-names-that-fellow"],
-        picking_a_row_then_dismissing_names_that_fellow,
-    ),
-    (
-        "recruit_follows_the_world_selection",
-        &["fellowship.buttons.recruit-follows-the-world-selection-and-not-the-list"],
-        recruit_follows_the_world_selection,
-    ),
-    (
-        "the_name_box_gates_create_and_the_tick_box_is_the_source",
-        &["fellowship.create.the-name-box-gates-the-button-and-the-tick-box-is-the-source"],
-        the_name_box_gates_create_and_the_tick_box_is_the_source,
-    ),
-    (
-        "the_friends_tab_lists_what_the_shard_sent_it",
-        &["friends.panel.the-tab-lists-the-friends-the-shard-sent-with-the-online-ones-first"],
-        the_friends_tab_lists_what_the_shard_sent_it,
-    ),
-    (
-        "each_kind_of_friends_change_moves_the_list",
-        &["friends.update.each-kind-of-change-moves-the-list-on-its-own"],
-        each_kind_of_friends_change_moves_the_list,
-    ),
-    (
-        "picking_a_friend_arms_remove_and_the_press_names_him",
-        &["friends.buttons.picking-a-row-arms-remove-and-the-press-names-that-friend"],
-        picking_a_friend_arms_remove_and_the_press_names_him,
-    ),
-    (
-        "tell_follows_whether_the_friend_is_online",
-        &["friends.buttons.tell-follows-whether-the-friend-is-online"],
-        tell_follows_whether_the_friend_is_online,
-    ),
-    (
-        "typing_a_name_arms_add_and_the_press_sends_it_alone",
-        &["friends.buttons.typing-a-name-arms-add-and-the-press-sends-the-name-alone"],
-        typing_a_name_arms_add_and_the_press_sends_it_alone,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 const ME: ObjectId = ObjectId(0x5000_0001);
 const BOB: ObjectId = ObjectId(0x5000_0009);
 const CID: ObjectId = ObjectId(0x5000_000B);
@@ -353,9 +177,40 @@ pub fn the_allegiance_tab_is_bound_and_empty_without_an_allegiance() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_allegiance_tab_is_bound_and_empty_without_an_allegiance() {
-    scenario("the_allegiance_tab_is_bound_and_empty_without_an_allegiance");
+dereth_testkit::scenarios! {
+    scenario_the_allegiance_tab_is_bound_and_empty_without_an_allegiance => the_allegiance_tab_is_bound_and_empty_without_an_allegiance ["allegiance.panel.the-shipped-vassal-list-is-bound-and-empty-without-an-allegiance"],
+    scenario_a_roster_fills_the_shipped_vassal_list => a_roster_fills_the_shipped_vassal_list ["allegiance.panel.a-roster-fills-the-shipped-vassal-list-and-is-replaced-whole"],
+    scenario_an_online_relative_opens_that_allegiance_channel => an_online_relative_opens_that_allegiance_channel ["allegiance.channels.an-online-patron-monarch-or-vassal-opens-that-channel"],
+    scenario_a_monarch_is_shown_no_monarch_and_no_patron_row => a_monarch_is_shown_no_monarch_and_no_patron_row ["allegiance.panel.a-monarch-has-no-monarch-row-and-no-patron-row"],
+    scenario_the_patron_row_shows_the_players_own_tithed_experience => the_patron_row_shows_the_players_own_tithed_experience ["allegiance.panel.the-visible-patron-row-shows-the-players-own-tithed-experience"],
+    scenario_a_member_with_no_title_for_his_sex_is_drawn_by_name => a_member_with_no_title_for_his_sex_is_drawn_by_name ["allegiance.panel.a-member-whose-gender-carries-no-title-is-drawn-by-bare-name"],
+    scenario_both_followers_numbers_come_from_the_answers_header => both_followers_numbers_come_from_the_answers_header ["allegiance.panel.the-followers-numbers-come-from-the-profile-header"],
+    scenario_a_login_notification_leaves_the_tab_alone => a_login_notification_leaves_the_tab_alone ["allegiance.roster.a-login-notification-redraws-nothing"],
+    scenario_opening_the_tab_asks_the_shard_and_closing_it_unasks => opening_the_tab_asks_the_shard_and_closing_it_unasks ["allegiance.subscription.the-tab-asks-the-shard-on-the-way-up-and-unasks-on-the-way-down"],
+    scenario_a_tab_left_open_asks_once_and_not_once_a_frame => a_tab_left_open_asks_once_and_not_once_a_frame ["allegiance.subscription.is-an-edge-and-not-a-poll"],
+    scenario_the_opening_ask_is_withheld_without_a_player => the_opening_ask_is_withheld_without_a_player ["allegiance.subscription.the-opening-ask-is-withheld-without-a-player"],
+    scenario_the_answer_to_the_ask_fills_the_tab => the_answer_to_the_ask_fills_the_tab ["allegiance.subscription.the-answer-fills-the-tab-and-provokes-no-second-ask"],
+    scenario_the_roster_the_shard_really_sent_reaches_the_list => the_roster_the_shard_really_sent_reaches_the_list ["allegiance.panel.the-roster-the-shard-really-sent-reaches-the-list"],
+    scenario_breaking_asks_a_question_and_sends_nothing => breaking_asks_a_question_and_sends_nothing ["allegiance.buttons.breaking-asks-a-question-and-sends-nothing-by-itself"],
+    scenario_picking_a_vassal_arms_the_kick_button => picking_a_vassal_arms_the_kick_button ["allegiance.buttons.picking-a-vassal-arms-the-kick-button-from-the-rows-own-id"],
+    scenario_swear_is_dark_while_the_player_has_a_patron => swear_is_dark_while_the_player_has_a_patron ["allegiance.buttons.swear-is-dark-while-the-player-already-has-a-patron"],
+    scenario_every_typed_allegiance_command_sends_its_own_message => every_typed_allegiance_command_sends_its_own_message ["allegiance.commands.every-typed-allegiance-command-sends-its-own-message"],
+    scenario_a_refused_allegiance_line_prints_and_sends_nothing => a_refused_allegiance_line_prints_and_sends_nothing ["allegiance.commands.a-refused-line-is-printed-where-the-player-reads-it-and-sends-nothing"],
+    scenario_listening_is_an_option_and_broadcasting_is_a_channel => listening_is_an_option_and_broadcasting_is_a_channel ["allegiance.commands.listening-is-a-local-option-and-broadcasting-is-a-channel"],
+    scenario_the_fellowship_lines_reach_the_live_chat_log => the_fellowship_lines_reach_the_live_chat_log ["fellowship.lines.reach-the-live-chat-log-in-the-colour-of-a-broadcast"],
+    scenario_the_social_page_opening_is_not_the_fellowship_tab_opening => the_social_page_opening_is_not_the_fellowship_tab_opening ["fellowship.subscription.the-social-page-opening-is-not-the-tab-opening"],
+    scenario_a_membership_list_draws_a_roster_with_names_stats_and_meters => a_membership_list_draws_a_roster_with_names_stats_and_meters ["fellowship.panel.a-membership-list-draws-a-roster-with-names-stats-and-meters"],
+    scenario_disband_is_offered_only_to_the_leader => disband_is_offered_only_to_the_leader ["fellowship.buttons.disband-is-offered-only-to-the-leader"],
+    scenario_a_leader_who_leaves_hands_the_lead_on_first => a_leader_who_leaves_hands_the_lead_on_first ["fellowship.buttons.a-leader-who-leaves-hands-the-lead-on-first"],
+    scenario_opening_the_fellowship_changes_the_tab_first => opening_the_fellowship_changes_the_tab_first ["fellowship.buttons.opening-the-fellowship-changes-the-tab-before-the-shard-answers"],
+    scenario_picking_a_row_then_dismissing_names_that_fellow => picking_a_row_then_dismissing_names_that_fellow ["fellowship.buttons.picking-a-row-then-dismissing-names-that-fellow"],
+    scenario_recruit_follows_the_world_selection => recruit_follows_the_world_selection ["fellowship.buttons.recruit-follows-the-world-selection-and-not-the-list"],
+    scenario_the_name_box_gates_create_and_the_tick_box_is_the_source => the_name_box_gates_create_and_the_tick_box_is_the_source ["fellowship.create.the-name-box-gates-the-button-and-the-tick-box-is-the-source"],
+    scenario_the_friends_tab_lists_what_the_shard_sent_it => the_friends_tab_lists_what_the_shard_sent_it ["friends.panel.the-tab-lists-the-friends-the-shard-sent-with-the-online-ones-first"],
+    scenario_each_kind_of_friends_change_moves_the_list => each_kind_of_friends_change_moves_the_list ["friends.update.each-kind-of-change-moves-the-list-on-its-own"],
+    scenario_picking_a_friend_arms_remove_and_the_press_names_him => picking_a_friend_arms_remove_and_the_press_names_him ["friends.buttons.picking-a-row-arms-remove-and-the-press-names-that-friend"],
+    scenario_tell_follows_whether_the_friend_is_online => tell_follows_whether_the_friend_is_online ["friends.buttons.tell-follows-whether-the-friend-is-online"],
+    scenario_typing_a_name_arms_add_and_the_press_sends_it_alone => typing_a_name_arms_add_and_the_press_sends_it_alone ["friends.buttons.typing-a-name-arms-add-and-the-press-sends-the-name-alone"],
 }
 
 // =============================================================================================
@@ -440,11 +295,6 @@ pub fn a_roster_fills_the_shipped_vassal_list() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_a_roster_fills_the_shipped_vassal_list() {
-    scenario("a_roster_fills_the_shipped_vassal_list");
-}
-
 // =============================================================================================
 // 3. allegiance.channels.an-online-patron-monarch-or-vassal-opens-that-channel
 // =============================================================================================
@@ -510,11 +360,6 @@ pub fn an_online_relative_opens_that_allegiance_channel() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_an_online_relative_opens_that_allegiance_channel() {
-    scenario("an_online_relative_opens_that_allegiance_channel");
-}
-
 // =============================================================================================
 // 4. allegiance.panel.a-monarch-has-no-monarch-row-and-no-patron-row
 // =============================================================================================
@@ -565,11 +410,6 @@ pub fn a_monarch_is_shown_no_monarch_and_no_patron_row() {
         move |_| walked && only_vassals && hidden,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_a_monarch_is_shown_no_monarch_and_no_patron_row() {
-    scenario("a_monarch_is_shown_no_monarch_and_no_patron_row");
 }
 
 // =============================================================================================
@@ -716,11 +556,6 @@ pub fn the_patron_row_shows_the_players_own_tithed_experience() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_patron_row_shows_the_players_own_tithed_experience() {
-    scenario("the_patron_row_shows_the_players_own_tithed_experience");
-}
-
 // =============================================================================================
 // 6. allegiance.panel.a-member-whose-gender-carries-no-title-is-drawn-by-bare-name
 // =============================================================================================
@@ -783,11 +618,6 @@ pub fn a_member_with_no_title_for_his_sex_is_drawn_by_name() {
         },
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_a_member_with_no_title_for_his_sex_is_drawn_by_name() {
-    scenario("a_member_with_no_title_for_his_sex_is_drawn_by_name");
 }
 
 // =============================================================================================
@@ -876,11 +706,6 @@ pub fn both_followers_numbers_come_from_the_answers_header() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_both_followers_numbers_come_from_the_answers_header() {
-    scenario("both_followers_numbers_come_from_the_answers_header");
-}
-
 /// Being told a member logged in or out leaves the tab exactly as the last full answer left it.
 pub fn a_login_notification_leaves_the_tab_alone() {
     let (mut c, _, _, _) = the_recorded_roster();
@@ -916,11 +741,6 @@ pub fn a_login_notification_leaves_the_tab_alone() {
         move |_| after == before && still,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_a_login_notification_leaves_the_tab_alone() {
-    scenario("a_login_notification_leaves_the_tab_alone");
 }
 
 // =============================================================================================
@@ -1065,11 +885,6 @@ pub fn opening_the_tab_asks_the_shard_and_closing_it_unasks() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_opening_the_tab_asks_the_shard_and_closing_it_unasks() {
-    scenario("opening_the_tab_asks_the_shard_and_closing_it_unasks");
-}
-
 /// A tab left open asks once, not once a frame -- on a sixty-frame second the difference would be
 /// sixty game actions a second going to the shard for nothing.
 pub fn a_tab_left_open_asks_once_and_not_once_a_frame() {
@@ -1089,11 +904,6 @@ pub fn a_tab_left_open_asks_once_and_not_once_a_frame() {
         move |_| once_on_opening && silent,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_a_tab_left_open_asks_once_and_not_once_a_frame() {
-    scenario("a_tab_left_open_asks_once_and_not_once_a_frame");
 }
 
 /// The asymmetry is the client's own and is kept rather than tidied: the opening ask is withheld
@@ -1122,11 +932,6 @@ pub fn the_opening_ask_is_withheld_without_a_player() {
         move |_| bring_up && opened && silent_on_opening && asks_on_closing,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_the_opening_ask_is_withheld_without_a_player() {
-    scenario("the_opening_ask_is_withheld_without_a_player");
 }
 
 /// The answer to the ask fills the tab with no further step, and does not itself provoke another
@@ -1186,11 +991,6 @@ pub fn the_answer_to_the_ask_fills_the_tab() {
         move |_| asked && empty_until_answered && filled && no_second_ask,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_the_answer_to_the_ask_fills_the_tab() {
-    scenario("the_answer_to_the_ask_fills_the_tab");
 }
 
 // =============================================================================================
@@ -1283,11 +1083,6 @@ pub fn the_roster_the_shard_really_sent_reaches_the_list() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_roster_the_shard_really_sent_reaches_the_list() {
-    scenario("the_roster_the_shard_really_sent_reaches_the_list");
-}
-
 /// Pressing Break asks a question and sends nothing: one misclick must not cost an allegiance.
 pub fn breaking_asks_a_question_and_sends_nothing() {
     use dereth_ui_screens::panels::allegiance::{BREAK_BUTTON, KICK_BUTTON, SWEAR_BUTTON};
@@ -1322,11 +1117,6 @@ pub fn breaking_asks_a_question_and_sends_nothing() {
         move |_| lit && asked && sent_nothing,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_breaking_asks_a_question_and_sends_nothing() {
-    scenario("breaking_asks_a_question_and_sends_nothing");
 }
 
 /// Every oath or break the client put in its outbox after `from`. Nothing is sent: these are the
@@ -1398,11 +1188,6 @@ pub fn picking_a_vassal_arms_the_kick_button() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_picking_a_vassal_arms_the_kick_button() {
-    scenario("picking_a_vassal_arms_the_kick_button");
-}
-
 /// Swear is dark while the player already has a patron, and a dark button raises nothing at all.
 pub fn swear_is_dark_while_the_player_has_a_patron() {
     use dereth_ui_screens::panels::allegiance::SWEAR_BUTTON;
@@ -1431,11 +1216,6 @@ pub fn swear_is_dark_while_the_player_has_a_patron() {
         move |_| dark && silent,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_swear_is_dark_while_the_player_has_a_patron() {
-    scenario("swear_is_dark_while_the_player_has_a_patron");
 }
 
 // =============================================================================================
@@ -1901,11 +1681,6 @@ pub fn every_typed_allegiance_command_sends_its_own_message() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_every_typed_allegiance_command_sends_its_own_message() {
-    scenario("every_typed_allegiance_command_sends_its_own_message");
-}
-
 /// A mistyped line is answered and sends nothing -- an arm that sent on every line would satisfy
 /// the table above and empty a monarch's officer list on a typo.
 pub fn a_refused_allegiance_line_prints_and_sends_nothing() {
@@ -1978,11 +1753,6 @@ pub fn a_refused_allegiance_line_prints_and_sends_nothing() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_a_refused_allegiance_line_prints_and_sends_nothing() {
-    scenario("a_refused_allegiance_line_prints_and_sends_nothing");
-}
-
 /// The two lines in this family that are not allegiance messages at all.
 pub fn listening_is_an_option_and_broadcasting_is_a_channel() {
     let mut c = a_client_to_type_at();
@@ -2028,11 +1798,6 @@ pub fn listening_is_an_option_and_broadcasting_is_a_channel() {
         move |_| option_lines && already && short && long,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_listening_is_an_option_and_broadcasting_is_a_channel() {
-    scenario("listening_is_an_option_and_broadcasting_is_a_channel");
 }
 
 // =============================================================================================
@@ -2122,11 +1887,6 @@ pub fn the_fellowship_lines_reach_the_live_chat_log() {
         move |_| nothing_said_yet && colours == vec![BROADCAST_GREEN; 4] && composed,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_the_fellowship_lines_reach_the_live_chat_log() {
-    scenario("the_fellowship_lines_reach_the_live_chat_log");
 }
 
 // =============================================================================================
@@ -2360,11 +2120,6 @@ pub fn the_social_page_opening_is_not_the_fellowship_tab_opening() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_social_page_opening_is_not_the_fellowship_tab_opening() {
-    scenario("the_social_page_opening_is_not_the_fellowship_tab_opening");
-}
-
 /// The membership list fills the tab with rows a player can read.
 pub fn a_membership_list_draws_a_roster_with_names_stats_and_meters() {
     let mut c = a_client_with_three_players();
@@ -2435,11 +2190,6 @@ pub fn a_membership_list_draws_a_roster_with_names_stats_and_meters() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_a_membership_list_draws_a_roster_with_names_stats_and_meters() {
-    scenario("a_membership_list_draws_a_roster_with_names_stats_and_meters");
-}
-
 /// Only the leader may disband, and a dark button swallows the press.
 pub fn disband_is_offered_only_to_the_leader() {
     let mut c = a_client_with_three_players();
@@ -2483,11 +2233,6 @@ pub fn disband_is_offered_only_to_the_leader() {
         move |_| dark && swallowed && lit && sent,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_disband_is_offered_only_to_the_leader() {
-    scenario("disband_is_offered_only_to_the_leader");
 }
 
 /// A leader who leaves hands the lead on first; a plain member does not.
@@ -2549,11 +2294,6 @@ pub fn a_leader_who_leaves_hands_the_lead_on_first() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_a_leader_who_leaves_hands_the_lead_on_first() {
-    scenario("a_leader_who_leaves_hands_the_lead_on_first");
-}
-
 /// Opening the fellowship flips the flag on the press and sends the new value.
 pub fn opening_the_fellowship_changes_the_tab_first() {
     let mut c = a_client_with_three_players();
@@ -2588,11 +2328,6 @@ pub fn opening_the_fellowship_changes_the_tab_first() {
         move |_| closed_to_start && lit && sent && flipped,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_opening_the_fellowship_changes_the_tab_first() {
-    scenario("opening_the_fellowship_changes_the_tab_first");
 }
 
 /// Picking a row then dismissing names the fellow whose row was picked.
@@ -2651,11 +2386,6 @@ pub fn picking_a_row_then_dismissing_names_that_fellow() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_picking_a_row_then_dismissing_names_that_fellow() {
-    scenario("picking_a_row_then_dismissing_names_that_fellow");
-}
-
 /// Recruit follows the world selection, and only for somebody who is not already in.
 pub fn recruit_follows_the_world_selection() {
     let mut c = a_client_with_three_players();
@@ -2706,11 +2436,6 @@ pub fn recruit_follows_the_world_selection() {
         move |_| nothing_selected && member_refused && offered && sent,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_recruit_follows_the_world_selection() {
-    scenario("recruit_follows_the_world_selection");
 }
 
 /// The bytes a create would put on the wire, with `share_xp` as given.
@@ -2799,11 +2524,6 @@ pub fn the_name_box_gates_create_and_the_tick_box_is_the_source() {
         },
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_the_name_box_gates_create_and_the_tick_box_is_the_source() {
-    scenario("the_name_box_gates_create_and_the_tick_box_is_the_source");
 }
 
 // =============================================================================================
@@ -3017,11 +2737,6 @@ pub fn the_friends_tab_lists_what_the_shard_sent_it() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_friends_tab_lists_what_the_shard_sent_it() {
-    scenario("the_friends_tab_lists_what_the_shard_sent_it");
-}
-
 /// Each kind of change the shard sends does its own thing to the list.
 pub fn each_kind_of_friends_change_moves_the_list() {
     let mut c = a_client_with_the_friends_tab_open();
@@ -3087,11 +2802,6 @@ pub fn each_kind_of_friends_change_moves_the_list() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_each_kind_of_friends_change_moves_the_list() {
-    scenario("each_kind_of_friends_change_moves_the_list");
-}
-
 /// Picking a row arms Remove, and pressing it names the friend whose row was picked.
 pub fn picking_a_friend_arms_remove_and_the_press_names_him() {
     let mut c = a_client_with_the_friends_tab_open();
@@ -3144,11 +2854,6 @@ pub fn picking_a_friend_arms_remove_and_the_press_names_him() {
         move |_| before && picked && armed && named,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_picking_a_friend_arms_remove_and_the_press_names_him() {
-    scenario("picking_a_friend_arms_remove_and_the_press_names_him");
 }
 
 /// Every friends message the client put in its outbox after `from`.
@@ -3211,11 +2916,6 @@ pub fn tell_follows_whether_the_friend_is_online() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_tell_follows_whether_the_friend_is_online() {
-    scenario("tell_follows_whether_the_friend_is_online");
-}
-
 /// Typing a name arms Add, and the press sends the name and nothing else.
 pub fn typing_a_name_arms_add_and_the_press_sends_it_alone() {
     let mut c = a_client_with_the_friends_tab_open();
@@ -3275,9 +2975,4 @@ pub fn typing_a_name_arms_add_and_the_press_sends_it_alone() {
         move |_| dark_on_empty && lit && sent && cleared && dark_again,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_typing_a_name_arms_add_and_the_press_sends_it_alone() {
-    scenario("typing_a_name_arms_add_and_the_press_sends_it_alone");
 }

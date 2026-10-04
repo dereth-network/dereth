@@ -22,164 +22,6 @@ use dereth_protocol::types::PositionWire;
 use dereth_protocol::{Message as _, Opcode};
 use dereth_testkit::HeadlessClient;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "the_descriptors_word_wins_over_the_scan",
-        &["objects.create.the-shards-state-word-wins-over-the-geometry-scan"],
-        the_descriptors_word_wins_over_the_scan,
-    ),
-    (
-        "every_recorded_state_change_reaches_its_body",
-        &["object.set-state.every-recorded-change-reaches-the-body-it-names"],
-        every_recorded_state_change_reaches_its_body,
-    ),
-    (
-        "a_hidden_body_stops_being_a_target",
-        &["object.set-state.a-body-the-shard-hides-stops-being-a-target-and-comes-back-in-place"],
-        a_hidden_body_stops_being_a_target,
-    ),
-    (
-        "a_new_animation_table_alone_reaches_the_body",
-        &["objects.description.a-new-animation-table-alone-reaches-the-body"],
-        a_new_animation_table_alone_reaches_the_body,
-    ),
-    (
-        "a_holder_holds_only_where_its_body_has_a_place",
-        &["objects.parent.a-holder-holds-only-at-a-place-its-own-body-has"],
-        a_holder_holds_only_where_its_body_has_a_place,
-    ),
-    (
-        "a_held_object_has_no_body_of_its_own",
-        &["objects.held-object.has-no-body-and-leaves-the-cell-with-its-holder"],
-        a_held_object_has_no_body_of_its_own,
-    ),
-    (
-        "an_older_teleport_puts_the_position_stamp_back",
-        &["objects.position.an-older-teleport-generation-puts-the-position-stamp-back"],
-        an_older_teleport_puts_the_position_stamp_back,
-    ),
-    (
-        "an_unloaded_body_is_rescued_by_a_position",
-        &["objects.unloaded-cell.a-body-is-rescued-by-the-next-position-the-shard-sends"],
-        an_unloaded_body_is_rescued_by_a_position,
-    ),
-    (
-        "the_split_box_is_not_resurrected_by_a_rebuild",
-        &["selection.split-box.is-not-resurrected-by-a-screen-rebuild"],
-        the_split_box_is_not_resurrected_by_a_rebuild,
-    ),
-    (
-        "the_selection_read_out_follows_one_change_once",
-        &["selection.read-out.follows-one-selection-change-once"],
-        the_selection_read_out_follows_one_change_once,
-    ),
-    // The three messages the shard sends on every login, and what a selection asks it.
-    (
-        "the_shards_first_word_opens_a_box_the_player_can_dismiss",
-        &["shard-message.pop-up.the-first-thing-the-shard-says-opens-a-box-the-player-can-dismiss"],
-        the_shards_first_word_opens_a_box_the_player_can_dismiss,
-    ),
-    (
-        "three_prompts_in_a_burst_are_three_boxes_at_once",
-        &["shard-message.pop-up.three-in-one-burst-are-three-boxes-at-once"],
-        three_prompts_in_a_burst_are_three_boxes_at_once,
-    ),
-    (
-        "the_shards_house_answer_redraws_the_house_tab",
-        &["shard-message.house-status.the-shards-answer-redraws-the-house-tab-every-time"],
-        the_shards_house_answer_redraws_the_house_tab,
-    ),
-    (
-        "the_fellowship_done_marker_is_consumed_and_changes_nothing",
-        &["shard-message.fellowship-update-done.is-consumed-and-changes-nothing-else"],
-        the_fellowship_done_marker_is_consumed_and_changes_nothing,
-    ),
-    (
-        "none_of_the_three_reaches_no_receiver",
-        &["shard-message.the-three-the-shard-sends-on-every-login-all-reach-a-receiver"],
-        none_of_the_three_reaches_no_receiver,
-    ),
-    (
-        "selecting_a_creature_asks_about_its_health_once",
-        &["selection.query.selecting-a-creature-asks-the-shard-about-its-health-once"],
-        selecting_a_creature_asks_about_its_health_once,
-    ),
-    (
-        "selecting_a_stack_asks_nothing",
-        &["selection.query.selecting-a-pile-of-things-asks-the-shard-nothing"],
-        selecting_a_stack_asks_nothing,
-    ),
-    (
-        "what_is_asked_has_four_outcomes_and_not_two",
-        &["selection.query.what-the-client-asks-about-a-selected-thing-has-four-outcomes"],
-        what_is_asked_has_four_outcomes_and_not_two,
-    ),
-    (
-        "a_pile_that_shrinks_to_one_asks_again",
-        &["selection.query.a-pile-that-shrinks-to-one-asks-again-with-no-selection-change"],
-        a_pile_that_shrinks_to_one_asks_again,
-    ),
-    (
-        "the_shards_answer_fills_the_selected_things_health_bar",
-        &["selection.meters.the-shards-answer-fills-the-selected-things-health-bar"],
-        the_shards_answer_fills_the_selected_things_health_bar,
-    ),
-    (
-        "a_magic_answer_fills_the_bar_only_when_it_succeeded",
-        &["selection.meters.an-answer-about-a-things-magic-fills-its-bar-only-when-it-succeeded"],
-        a_magic_answer_fills_the_bar_only_when_it_succeeded,
-    ),
-    (
-        "a_new_selection_clears_only_the_bar_that_was_showing",
-        &["selection.query.a-new-selection-clears-only-the-bar-that-was-showing"],
-        a_new_selection_clears_only_the_bar_that_was_showing,
-    ),
-    // Held objects: the holding frame, parent events, placement and picking.
-    (
-        "an_out_of_range_holding_part_uses_the_holders_frame",
-        &["objects.held-frame.an-out-of-range-part-uses-the-holders-own-frame"],
-        an_out_of_range_holding_part_uses_the_holders_frame,
-    ),
-    (
-        "a_new_parent_event_attaches_the_child_in_wire_order",
-        &["objects.parent.a-new-parent-event-attaches-the-child-in-wire-order"],
-        a_new_parent_event_attaches_the_child_in_wire_order,
-    ),
-    (
-        "old_and_incomplete_parent_events_change_nothing",
-        &["objects.parent.an-old-or-incomplete-parent-event-changes-nothing"],
-        old_and_incomplete_parent_events_change_nothing,
-    ),
-    (
-        "a_position_report_releases_an_object_from_its_parent",
-        &["objects.position.a-position-report-releases-an-object-from-its-parent"],
-        a_position_report_releases_an_object_from_its_parent,
-    ),
-    (
-        "a_server_named_placement_draws_its_own_frames",
-        &["objects.placement.a-server-named-placement-draws-its-own-frames"],
-        a_server_named_placement_draws_its_own_frames,
-    ),
-    (
-        "a_pick_sweep_uses_the_placement_the_shard_named",
-        &["objects.pick.a-sweep-uses-the-placement-the-shard-named"],
-        a_pick_sweep_uses_the_placement_the_shard_named,
-    ),
-    (
-        "a_held_object_is_pickable_and_a_contained_object_is_not",
-        &["objects.held-object.is-a-pick-candidate-while-a-contained-object-is-not"],
-        a_held_object_is_pickable_and_a_contained_object_is_not,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 /// The retail data files. An `expect`, never a skip: a scenario that quietly passes on a machine
 /// with no data files is a test that passes by skipping.
 fn store() -> Arc<RetailDatStore> {
@@ -324,9 +166,36 @@ pub fn the_descriptors_word_wins_over_the_scan() {
     );
 }
 
-#[test]
-fn scenario_the_descriptors_word_wins_over_the_scan() {
-    scenario("the_descriptors_word_wins_over_the_scan");
+dereth_testkit::scenarios! {
+    scenario_the_descriptors_word_wins_over_the_scan => the_descriptors_word_wins_over_the_scan ["objects.create.the-shards-state-word-wins-over-the-geometry-scan"],
+    scenario_every_recorded_state_change_reaches_its_body => every_recorded_state_change_reaches_its_body ["object.set-state.every-recorded-change-reaches-the-body-it-names"],
+    scenario_a_hidden_body_stops_being_a_target => a_hidden_body_stops_being_a_target ["object.set-state.a-body-the-shard-hides-stops-being-a-target-and-comes-back-in-place"],
+    scenario_a_new_animation_table_alone_reaches_the_body => a_new_animation_table_alone_reaches_the_body ["objects.description.a-new-animation-table-alone-reaches-the-body"],
+    scenario_a_holder_holds_only_where_its_body_has_a_place => a_holder_holds_only_where_its_body_has_a_place ["objects.parent.a-holder-holds-only-at-a-place-its-own-body-has"],
+    scenario_a_held_object_has_no_body_of_its_own => a_held_object_has_no_body_of_its_own ["objects.held-object.has-no-body-and-leaves-the-cell-with-its-holder"],
+    scenario_an_older_teleport_puts_the_position_stamp_back => an_older_teleport_puts_the_position_stamp_back ["objects.position.an-older-teleport-generation-puts-the-position-stamp-back"],
+    scenario_an_unloaded_body_is_rescued_by_a_position => an_unloaded_body_is_rescued_by_a_position ["objects.unloaded-cell.a-body-is-rescued-by-the-next-position-the-shard-sends"],
+    scenario_the_split_box_is_not_resurrected_by_a_rebuild => the_split_box_is_not_resurrected_by_a_rebuild ["selection.split-box.is-not-resurrected-by-a-screen-rebuild"],
+    scenario_the_selection_read_out_follows_one_change_once => the_selection_read_out_follows_one_change_once ["selection.read-out.follows-one-selection-change-once"],
+    scenario_the_shards_first_word_opens_a_box_the_player_can_dismiss => the_shards_first_word_opens_a_box_the_player_can_dismiss ["shard-message.pop-up.the-first-thing-the-shard-says-opens-a-box-the-player-can-dismiss"],
+    scenario_three_prompts_in_a_burst_are_three_boxes_at_once => three_prompts_in_a_burst_are_three_boxes_at_once ["shard-message.pop-up.three-in-one-burst-are-three-boxes-at-once"],
+    scenario_the_shards_house_answer_redraws_the_house_tab => the_shards_house_answer_redraws_the_house_tab ["shard-message.house-status.the-shards-answer-redraws-the-house-tab-every-time"],
+    scenario_the_fellowship_done_marker_is_consumed_and_changes_nothing => the_fellowship_done_marker_is_consumed_and_changes_nothing ["shard-message.fellowship-update-done.is-consumed-and-changes-nothing-else"],
+    scenario_none_of_the_three_reaches_no_receiver => none_of_the_three_reaches_no_receiver ["shard-message.the-three-the-shard-sends-on-every-login-all-reach-a-receiver"],
+    scenario_selecting_a_creature_asks_about_its_health_once => selecting_a_creature_asks_about_its_health_once ["selection.query.selecting-a-creature-asks-the-shard-about-its-health-once"],
+    scenario_selecting_a_stack_asks_nothing => selecting_a_stack_asks_nothing ["selection.query.selecting-a-pile-of-things-asks-the-shard-nothing"],
+    scenario_what_is_asked_has_four_outcomes_and_not_two => what_is_asked_has_four_outcomes_and_not_two ["selection.query.what-the-client-asks-about-a-selected-thing-has-four-outcomes"],
+    scenario_a_pile_that_shrinks_to_one_asks_again => a_pile_that_shrinks_to_one_asks_again ["selection.query.a-pile-that-shrinks-to-one-asks-again-with-no-selection-change"],
+    scenario_the_shards_answer_fills_the_selected_things_health_bar => the_shards_answer_fills_the_selected_things_health_bar ["selection.meters.the-shards-answer-fills-the-selected-things-health-bar"],
+    scenario_a_magic_answer_fills_the_bar_only_when_it_succeeded => a_magic_answer_fills_the_bar_only_when_it_succeeded ["selection.meters.an-answer-about-a-things-magic-fills-its-bar-only-when-it-succeeded"],
+    scenario_a_new_selection_clears_only_the_bar_that_was_showing => a_new_selection_clears_only_the_bar_that_was_showing ["selection.query.a-new-selection-clears-only-the-bar-that-was-showing"],
+    scenario_an_out_of_range_holding_part_uses_the_holders_frame => an_out_of_range_holding_part_uses_the_holders_frame ["objects.held-frame.an-out-of-range-part-uses-the-holders-own-frame"],
+    scenario_a_new_parent_event_attaches_the_child_in_wire_order => a_new_parent_event_attaches_the_child_in_wire_order ["objects.parent.a-new-parent-event-attaches-the-child-in-wire-order"],
+    scenario_old_and_incomplete_parent_events_change_nothing => old_and_incomplete_parent_events_change_nothing ["objects.parent.an-old-or-incomplete-parent-event-changes-nothing"],
+    scenario_a_position_report_releases_an_object_from_its_parent => a_position_report_releases_an_object_from_its_parent ["objects.position.a-position-report-releases-an-object-from-its-parent"],
+    scenario_a_server_named_placement_draws_its_own_frames => a_server_named_placement_draws_its_own_frames ["objects.placement.a-server-named-placement-draws-its-own-frames"],
+    scenario_a_pick_sweep_uses_the_placement_the_shard_named => a_pick_sweep_uses_the_placement_the_shard_named ["objects.pick.a-sweep-uses-the-placement-the-shard-named"],
+    scenario_a_held_object_is_pickable_and_a_contained_object_is_not => a_held_object_is_pickable_and_a_contained_object_is_not ["objects.held-object.is-a-pick-candidate-while-a-contained-object-is-not"],
 }
 
 // =============================================================================================
@@ -462,11 +331,6 @@ pub fn every_recorded_state_change_reaches_its_body() {
                 && the_physics_side_agrees
         },
     );
-}
-
-#[test]
-fn scenario_every_recorded_state_change_reaches_its_body() {
-    scenario("every_recorded_state_change_reaches_its_body");
 }
 
 // =============================================================================================
@@ -668,11 +532,6 @@ pub fn a_hidden_body_stops_being_a_target() {
     );
 }
 
-#[test]
-fn scenario_a_hidden_body_stops_being_a_target() {
-    scenario("a_hidden_body_stops_being_a_target");
-}
-
 // =============================================================================================
 // objects.description.a-new-animation-table-alone-reaches-the-body
 // =============================================================================================
@@ -785,11 +644,6 @@ pub fn a_new_animation_table_alone_reaches_the_body() {
     );
 }
 
-#[test]
-fn scenario_a_new_animation_table_alone_reaches_the_body() {
-    scenario("a_new_animation_table_alone_reaches_the_body");
-}
-
 // =============================================================================================
 // objects.parent.a-holder-holds-only-where-its-body-has-a-place
 // =============================================================================================
@@ -898,11 +752,6 @@ pub fn a_holder_holds_only_where_its_body_has_a_place() {
                 && a_refused_one_does_not
         },
     );
-}
-
-#[test]
-fn scenario_a_holder_holds_only_where_its_body_has_a_place() {
-    scenario("a_holder_holds_only_where_its_body_has_a_place");
 }
 
 // =============================================================================================
@@ -1019,11 +868,6 @@ pub fn a_held_object_has_no_body_of_its_own() {
                 && the_child_has_none
         },
     );
-}
-
-#[test]
-fn scenario_a_held_object_has_no_body_of_its_own() {
-    scenario("a_held_object_has_no_body_of_its_own");
 }
 
 // =============================================================================================
@@ -1284,11 +1128,6 @@ pub fn an_older_teleport_puts_the_position_stamp_back() {
         "objects.position.an-older-teleport-generation-puts-the-position-stamp-back",
         move |_| rollback && exactly_once && force_is_the_players && wraps,
     );
-}
-
-#[test]
-fn scenario_an_older_teleport_puts_the_position_stamp_back() {
-    scenario("an_older_teleport_puts_the_position_stamp_back");
 }
 
 // =============================================================================================
@@ -1689,11 +1528,6 @@ pub fn an_unloaded_body_is_rescued_by_a_position() {
     );
 }
 
-#[test]
-fn scenario_an_unloaded_body_is_rescued_by_a_position() {
-    scenario("an_unloaded_body_is_rescued_by_a_position");
-}
-
 // =============================================================================================
 // The toolbar's selection: one selection change is one edge
 // =============================================================================================
@@ -1935,11 +1769,6 @@ pub fn the_split_box_is_not_resurrected_by_a_rebuild() {
     );
 }
 
-#[test]
-fn scenario_the_split_box_is_not_resurrected_by_a_rebuild() {
-    scenario("the_split_box_is_not_resurrected_by_a_rebuild");
-}
-
 // =============================================================================================
 // selection.read-out.follows-one-selection-change-once
 // =============================================================================================
@@ -2037,11 +1866,6 @@ pub fn the_selection_read_out_follows_one_change_once() {
     );
 }
 
-#[test]
-fn scenario_the_selection_read_out_follows_one_change_once() {
-    scenario("the_selection_read_out_follows_one_change_once");
-}
-
 // ===========================================================================================
 // The three the shard sends on every login
 // ===========================================================================================
@@ -2124,11 +1948,6 @@ pub fn the_shards_first_word_opens_a_box_the_player_can_dismiss() {
     s.client.shutdown();
 }
 
-#[test]
-fn scenario_the_shards_first_word_opens_a_box_the_player_can_dismiss() {
-    scenario("the_shards_first_word_opens_a_box_the_player_can_dismiss");
-}
-
 /// Three prompts in one burst are three boxes on screen at once, not one with two waiting.
 pub fn three_prompts_in_a_burst_are_three_boxes_at_once() {
     let mut s = shell_support::Station::new();
@@ -2158,11 +1977,6 @@ pub fn three_prompts_in_a_burst_are_three_boxes_at_once() {
         move |_| sent == 3 && arrived && together,
     );
     s.client.shutdown();
-}
-
-#[test]
-fn scenario_three_prompts_in_a_burst_are_three_boxes_at_once() {
-    scenario("three_prompts_in_a_burst_are_three_boxes_at_once");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -2221,11 +2035,6 @@ pub fn the_shards_house_answer_redraws_the_house_tab() {
     s.client.shutdown();
 }
 
-#[test]
-fn scenario_the_shards_house_answer_redraws_the_house_tab() {
-    scenario("the_shards_house_answer_redraws_the_house_tab");
-}
-
 // -------------------------------------------------------------------------------------------
 // shard-message.fellowship-update-done.*
 // -------------------------------------------------------------------------------------------
@@ -2269,11 +2078,6 @@ pub fn the_fellowship_done_marker_is_consumed_and_changes_nothing() {
         move |_| n >= 2 && consumed && changed_nothing,
     );
     s.client.shutdown();
-}
-
-#[test]
-fn scenario_the_fellowship_done_marker_is_consumed_and_changes_nothing() {
-    scenario("the_fellowship_done_marker_is_consumed_and_changes_nothing");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -2320,11 +2124,6 @@ pub fn none_of_the_three_reaches_no_receiver() {
         move |_| arrived && received && unannounced,
     );
     s.client.shutdown();
-}
-
-#[test]
-fn scenario_none_of_the_three_reaches_no_receiver() {
-    scenario("none_of_the_three_reaches_no_receiver");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -2680,11 +2479,6 @@ pub fn selecting_a_creature_asks_about_its_health_once() {
     );
 }
 
-#[test]
-fn scenario_selecting_a_creature_asks_about_its_health_once() {
-    scenario("selecting_a_creature_asks_about_its_health_once");
-}
-
 /// Selecting a pile of things asks the shard nothing at all.
 ///
 /// The negative half, without which a build that asks unconditionally satisfies the claim above.
@@ -2709,11 +2503,6 @@ pub fn selecting_a_stack_asks_nothing() {
         "selection.query.selecting-a-pile-of-things-asks-the-shard-nothing",
         move |_| really_a_stack && idle && owned && asked_nothing && silent && reached,
     );
-}
-
-#[test]
-fn scenario_selecting_a_stack_asks_nothing() {
-    scenario("selecting_a_stack_asks_nothing");
 }
 
 /// What the client asks about a selected thing has four outcomes and not two.
@@ -2809,11 +2598,6 @@ pub fn what_is_asked_has_four_outcomes_and_not_two() {
     );
 }
 
-#[test]
-fn scenario_what_is_asked_has_four_outcomes_and_not_two() {
-    scenario("what_is_asked_has_four_outcomes_and_not_two");
-}
-
 /// A pile that shrinks to one asks again, with no selection having changed.
 pub fn a_pile_that_shrinks_to_one_asks_again() {
     use dereth_client_model::qualities::{StatKey, StatType, StatValue};
@@ -2861,11 +2645,6 @@ pub fn a_pile_that_shrinks_to_one_asks_again() {
                 && asked_once
         },
     );
-}
-
-#[test]
-fn scenario_a_pile_that_shrinks_to_one_asks_again() {
-    scenario("a_pile_that_shrinks_to_one_asks_again");
 }
 
 /// The shard's answer fills the selected thing's health bar, and only its own.
@@ -2919,11 +2698,6 @@ pub fn the_shards_answer_fills_the_selected_things_health_bar() {
                 && cleared
         },
     );
-}
-
-#[test]
-fn scenario_the_shards_answer_fills_the_selected_things_health_bar() {
-    scenario("the_shards_answer_fills_the_selected_things_health_bar");
 }
 
 /// An answer about a thing's magic fills its bar only when the shard says it succeeded.
@@ -2983,11 +2757,6 @@ pub fn a_magic_answer_fills_the_bar_only_when_it_succeeded() {
     );
 }
 
-#[test]
-fn scenario_a_magic_answer_fills_the_bar_only_when_it_succeeded() {
-    scenario("a_magic_answer_fills_the_bar_only_when_it_succeeded");
-}
-
 /// A new selection tells the shard to stop reporting about the old one -- for each bar that was
 /// actually showing, and for no other.
 ///
@@ -3037,11 +2806,6 @@ pub fn a_new_selection_clears_only_the_bar_that_was_showing() {
                 && one_clear
         },
     );
-}
-
-#[test]
-fn scenario_a_new_selection_clears_only_the_bar_that_was_showing() {
-    scenario("a_new_selection_clears_only_the_bar_that_was_showing");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -3871,39 +3635,4 @@ pub fn a_held_object_is_pickable_and_a_contained_object_is_not() {
         "objects.held-object.is-a-pick-candidate-while-a-contained-object-is-not",
         move |_| picked,
     );
-}
-
-#[test]
-fn scenario_an_out_of_range_holding_part_uses_the_holders_frame() {
-    scenario("an_out_of_range_holding_part_uses_the_holders_frame");
-}
-
-#[test]
-fn scenario_a_new_parent_event_attaches_the_child_in_wire_order() {
-    scenario("a_new_parent_event_attaches_the_child_in_wire_order");
-}
-
-#[test]
-fn scenario_old_and_incomplete_parent_events_change_nothing() {
-    scenario("old_and_incomplete_parent_events_change_nothing");
-}
-
-#[test]
-fn scenario_a_position_report_releases_an_object_from_its_parent() {
-    scenario("a_position_report_releases_an_object_from_its_parent");
-}
-
-#[test]
-fn scenario_a_server_named_placement_draws_its_own_frames() {
-    scenario("a_server_named_placement_draws_its_own_frames");
-}
-
-#[test]
-fn scenario_a_pick_sweep_uses_the_placement_the_shard_named() {
-    scenario("a_pick_sweep_uses_the_placement_the_shard_named");
-}
-
-#[test]
-fn scenario_a_held_object_is_pickable_and_a_contained_object_is_not() {
-    scenario("a_held_object_is_pickable_and_a_contained_object_is_not");
 }

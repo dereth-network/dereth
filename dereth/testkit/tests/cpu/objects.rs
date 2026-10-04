@@ -20,102 +20,6 @@ use dereth_protocol::types::{AnimPartChange, ContentProfile, ObjDesc, Origin, Po
 use dereth_protocol::Opcode;
 use dereth_testkit::{HeadlessClient, Inbound};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "what_the_client_will_let_you_attack",
-        &["selection.attackable.the-clients-own-test-is-more-than-is-it-a-creature"],
-        what_the_client_will_let_you_attack,
-    ),
-    (
-        "a_dangling_reference_is_asked_about_once",
-        &["objects.dangling-reference.is-asked-about-once-and-then-dropped"],
-        a_dangling_reference_is_asked_about_once,
-    ),
-    (
-        "position_generations_follow_the_shard",
-        &["objects.position.teleport-and-force-stamps-follow-the-shards-generations"],
-        position_generations_follow_the_shard,
-    ),
-    (
-        "the_panels_poll_rather_than_wait",
-        &["objects.panels.poll-the-world-rather-than-waiting-for-a-notice"],
-        the_panels_poll_rather_than_wait,
-    ),
-    (
-        "an_unreceived_message_names_itself_once",
-        &["diagnostics.unreceived-message.names-itself-once-with-its-site"],
-        an_unreceived_message_names_itself_once,
-    ),
-    (
-        "a_second_create_carries_the_new_word",
-        &["object.create.a-second-create-carries-the-new-word-to-the-one-table"],
-        a_second_create_carries_the_new_word,
-    ),
-    (
-        "a_state_change_that_is_not_newer_is_refused",
-        &["object.set-state.the-stamp-gate-refuses-a-change-that-is-not-newer"],
-        a_state_change_that_is_not_newer_is_refused,
-    ),
-    (
-        "a_removal_detaches_the_item_and_defers_the_deletion",
-        &["objects.deletion.the-shards-remove-detaches-the-item-and-defers-the-rest"],
-        a_removal_detaches_the_item_and_defers_the_deletion,
-    ),
-    (
-        "the_housekeeping_deadlines_are_strict",
-        &["objects.maintenance.every-deadline-is-strict-and-a-child-that-left-is-spared"],
-        the_housekeeping_deadlines_are_strict,
-    ),
-    (
-        "a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped",
-        &["objects.replacement.a-newer-instance-wins-and-the-old-ones-traffic-is-dropped"],
-        a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped,
-    ),
-    (
-        "an_ordered_reply_waits_for_the_object_it_is_about",
-        &["objects.ordered-replies.wait-for-an-object-that-has-not-arrived-yet"],
-        an_ordered_reply_waits_for_the_object_it_is_about,
-    ),
-    (
-        "ordered_replies_arrive_in_the_shards_own_order",
-        &["objects.ordered-replies.arrive-in-the-order-the-shard-stamped-them"],
-        ordered_replies_arrive_in_the_shards_own_order,
-    ),
-    (
-        "every_recorded_reply_reaches_a_consumer",
-        &["objects.ordered-replies.every-recorded-reply-reaches-a-consumer"],
-        every_recorded_reply_reaches_a_consumer,
-    ),
-    (
-        "the_panels_and_the_scroll_take_the_shards_values",
-        &["objects.ordered-replies.the-panels-and-the-scroll-take-the-shards-own-values"],
-        the_panels_and_the_scroll_take_the_shards_values,
-    ),
-    (
-        "the_world_is_torn_down_when_the_character_leaves",
-        &["session.end.the-world-the-character-left-is-torn-down"],
-        the_world_is_torn_down_when_the_character_leaves,
-    ),
-    (
-        "force_objdesc_leaves_on_the_control_queue",
-        &["objects.force-objdesc.leaves-on-the-control-queue"],
-        force_objdesc_leaves_on_the_control_queue,
-    ),
-    (
-        "set_state_moves_the_visible_list",
-        &["object.set-state.visible-list-follows"],
-        set_state_moves_the_visible_list,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 // =============================================================================================
 // 1. objects.dangling-reference.is-asked-about-once-and-then-dropped
 // =============================================================================================
@@ -577,24 +481,24 @@ pub fn an_unreceived_message_names_itself_once() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_a_dangling_reference_is_asked_about_once() {
-    scenario("a_dangling_reference_is_asked_about_once");
-}
-
-#[test]
-fn scenario_position_generations_follow_the_shard() {
-    scenario("position_generations_follow_the_shard");
-}
-
-#[test]
-fn scenario_the_panels_poll_rather_than_wait() {
-    scenario("the_panels_poll_rather_than_wait");
-}
-
-#[test]
-fn scenario_an_unreceived_message_names_itself_once() {
-    scenario("an_unreceived_message_names_itself_once");
+dereth_testkit::scenarios! {
+    scenario_a_dangling_reference_is_asked_about_once => a_dangling_reference_is_asked_about_once ["objects.dangling-reference.is-asked-about-once-and-then-dropped"],
+    scenario_position_generations_follow_the_shard => position_generations_follow_the_shard ["objects.position.teleport-and-force-stamps-follow-the-shards-generations"],
+    scenario_the_panels_poll_rather_than_wait => the_panels_poll_rather_than_wait ["objects.panels.poll-the-world-rather-than-waiting-for-a-notice"],
+    scenario_an_unreceived_message_names_itself_once => an_unreceived_message_names_itself_once ["diagnostics.unreceived-message.names-itself-once-with-its-site"],
+    scenario_a_second_create_carries_the_new_word => a_second_create_carries_the_new_word ["object.create.a-second-create-carries-the-new-word-to-the-one-table"],
+    scenario_a_state_change_that_is_not_newer_is_refused => a_state_change_that_is_not_newer_is_refused ["object.set-state.the-stamp-gate-refuses-a-change-that-is-not-newer"],
+    scenario_a_removal_detaches_the_item_and_defers_the_deletion => a_removal_detaches_the_item_and_defers_the_deletion ["objects.deletion.the-shards-remove-detaches-the-item-and-defers-the-rest"],
+    scenario_the_housekeeping_deadlines_are_strict => the_housekeeping_deadlines_are_strict ["objects.maintenance.every-deadline-is-strict-and-a-child-that-left-is-spared"],
+    scenario_a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped => a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped ["objects.replacement.a-newer-instance-wins-and-the-old-ones-traffic-is-dropped"],
+    scenario_an_ordered_reply_waits_for_the_object_it_is_about => an_ordered_reply_waits_for_the_object_it_is_about ["objects.ordered-replies.wait-for-an-object-that-has-not-arrived-yet"],
+    scenario_ordered_replies_arrive_in_the_shards_own_order => ordered_replies_arrive_in_the_shards_own_order ["objects.ordered-replies.arrive-in-the-order-the-shard-stamped-them"],
+    scenario_every_recorded_reply_reaches_a_consumer => every_recorded_reply_reaches_a_consumer ["objects.ordered-replies.every-recorded-reply-reaches-a-consumer"],
+    scenario_the_panels_and_the_scroll_take_the_shards_values => the_panels_and_the_scroll_take_the_shards_values ["objects.ordered-replies.the-panels-and-the-scroll-take-the-shards-own-values"],
+    scenario_the_world_is_torn_down_when_the_character_leaves => the_world_is_torn_down_when_the_character_leaves ["session.end.the-world-the-character-left-is-torn-down"],
+    scenario_what_the_client_will_let_you_attack => what_the_client_will_let_you_attack ["selection.attackable.the-clients-own-test-is-more-than-is-it-a-creature"],
+    scenario_force_objdesc_leaves_on_the_control_queue => force_objdesc_leaves_on_the_control_queue ["objects.force-objdesc.leaves-on-the-control-queue"],
+    scenario_set_state_moves_the_visible_list => set_state_moves_the_visible_list ["object.set-state.visible-list-follows"],
 }
 
 // =============================================================================================
@@ -1353,31 +1257,6 @@ pub fn a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped() {
                 && only_once
         },
     );
-}
-
-#[test]
-fn scenario_a_second_create_carries_the_new_word() {
-    scenario("a_second_create_carries_the_new_word");
-}
-
-#[test]
-fn scenario_a_state_change_that_is_not_newer_is_refused() {
-    scenario("a_state_change_that_is_not_newer_is_refused");
-}
-
-#[test]
-fn scenario_a_removal_detaches_the_item_and_defers_the_deletion() {
-    scenario("a_removal_detaches_the_item_and_defers_the_deletion");
-}
-
-#[test]
-fn scenario_the_housekeeping_deadlines_are_strict() {
-    scenario("the_housekeeping_deadlines_are_strict");
-}
-
-#[test]
-fn scenario_a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped() {
-    scenario("a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped");
 }
 
 // =============================================================================================
@@ -2205,31 +2084,6 @@ pub fn the_world_is_torn_down_when_the_character_leaves() {
     );
 }
 
-#[test]
-fn scenario_an_ordered_reply_waits_for_the_object_it_is_about() {
-    scenario("an_ordered_reply_waits_for_the_object_it_is_about");
-}
-
-#[test]
-fn scenario_ordered_replies_arrive_in_the_shards_own_order() {
-    scenario("ordered_replies_arrive_in_the_shards_own_order");
-}
-
-#[test]
-fn scenario_every_recorded_reply_reaches_a_consumer() {
-    scenario("every_recorded_reply_reaches_a_consumer");
-}
-
-#[test]
-fn scenario_the_panels_and_the_scroll_take_the_shards_values() {
-    scenario("the_panels_and_the_scroll_take_the_shards_values");
-}
-
-#[test]
-fn scenario_the_world_is_torn_down_when_the_character_leaves() {
-    scenario("the_world_is_torn_down_when_the_character_leaves");
-}
-
 // -------------------------------------------------------------------------------------------
 // selection.attackable.the-clients-own-test-is-more-than-is-it-a-creature
 // -------------------------------------------------------------------------------------------
@@ -2331,11 +2185,6 @@ pub fn what_the_client_will_let_you_attack() {
     );
 }
 
-#[test]
-fn scenario_what_the_client_will_let_you_attack() {
-    scenario("what_the_client_will_let_you_attack");
-}
-
 // -------------------------------------------------------------------------------------------
 // 5. objects.force-objdesc.leaves-on-the-control-queue
 // -------------------------------------------------------------------------------------------
@@ -2368,11 +2217,6 @@ pub fn force_objdesc_leaves_on_the_control_queue() {
             .collect();
         asked == [ORPHAN] && v.outbound_opcodes() == [FORCE_OBJDESC]
     });
-}
-
-#[test]
-fn scenario_force_objdesc_leaves_on_the_control_queue() {
-    scenario("force_objdesc_leaves_on_the_control_queue");
 }
 
 // -------------------------------------------------------------------------------------------
@@ -2430,9 +2274,4 @@ pub fn set_state_moves_the_visible_list() {
             && v.objects().stats.state_events == 2
             && v.objects().stats.state_events_without_physics == 0
     });
-}
-
-#[test]
-fn scenario_set_state_moves_the_visible_list() {
-    scenario("set_state_moves_the_visible_list");
 }

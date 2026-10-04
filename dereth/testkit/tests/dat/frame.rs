@@ -13,42 +13,6 @@ use dereth_client::frame::FrameStep;
 use dereth_testkit::adapters_shell::{build_app, AppSpec};
 use dereth_testkit::{ClientSpec, HeadlessClient};
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "the_frame_runs_its_steps_in_order",
-        &["frame.fourteen-steps-in-order-every-frame"],
-        the_frame_runs_its_steps_in_order,
-    ),
-    (
-        "a_quit_request_stops_the_frame_early",
-        &["frame.quit.a-quit-request-stops-the-frame-where-the-message-queue-is-drained"],
-        a_quit_request_stops_the_frame_early,
-    ),
-    (
-        "a_bounded_run_draws_what_it_was_asked_for",
-        &["frame.run.a-bounded-run-draws-exactly-the-frames-it-was-asked-for"],
-        a_bounded_run_draws_what_it_was_asked_for,
-    ),
-    (
-        "the_shutdown_waits_for_the_drawing_to_finish",
-        &["frame.shutdown.the-last-step-waits-for-the-drawing-to-finish"],
-        the_shutdown_waits_for_the_drawing_to_finish,
-    ),
-    (
-        "an_owned_frame_outlives_the_live_one",
-        &["frame.snapshot.an-owned-frame-agrees-with-the-live-one-and-outlives-it"],
-        an_owned_frame_outlives_the_live_one,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 // -------------------------------------------------------------------------------------------
 // 11. frame.fourteen-steps-in-order-every-frame
 // -------------------------------------------------------------------------------------------
@@ -67,9 +31,12 @@ pub fn the_frame_runs_its_steps_in_order() {
     c.shutdown();
 }
 
-#[test]
-fn scenario_the_frame_runs_its_steps_in_order() {
-    scenario("the_frame_runs_its_steps_in_order");
+dereth_testkit::scenarios! {
+    scenario_the_frame_runs_its_steps_in_order => the_frame_runs_its_steps_in_order ["frame.fourteen-steps-in-order-every-frame"],
+    scenario_a_quit_request_stops_the_frame_early => a_quit_request_stops_the_frame_early ["frame.quit.a-quit-request-stops-the-frame-where-the-message-queue-is-drained"],
+    scenario_a_bounded_run_draws_what_it_was_asked_for => a_bounded_run_draws_what_it_was_asked_for ["frame.run.a-bounded-run-draws-exactly-the-frames-it-was-asked-for"],
+    scenario_the_shutdown_waits_for_the_drawing_to_finish => the_shutdown_waits_for_the_drawing_to_finish ["frame.shutdown.the-last-step-waits-for-the-drawing-to-finish"],
+    scenario_an_owned_frame_outlives_the_live_one => an_owned_frame_outlives_the_live_one ["frame.snapshot.an-owned-frame-agrees-with-the-live-one-and-outlives-it"],
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -120,11 +87,6 @@ pub fn a_quit_request_stops_the_frame_early() {
     );
 }
 
-#[test]
-fn scenario_a_quit_request_stops_the_frame_early() {
-    scenario("a_quit_request_stops_the_frame_early");
-}
-
 /// Told to run three frames, the client's own loop runs three and stops.
 pub fn a_bounded_run_draws_what_it_was_asked_for() {
     use dereth_client::app::AppState;
@@ -145,11 +107,6 @@ pub fn a_bounded_run_draws_what_it_was_asked_for() {
         "frame.run.a-bounded-run-draws-exactly-the-frames-it-was-asked-for",
         move |_| ran == WANT && drawn == WANT && state == AppState::ShuttingDown,
     );
-}
-
-#[test]
-fn scenario_a_bounded_run_draws_what_it_was_asked_for() {
-    scenario("a_bounded_run_draws_what_it_was_asked_for");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -189,11 +146,6 @@ pub fn the_shutdown_waits_for_the_drawing_to_finish() {
     );
 }
 
-#[test]
-fn scenario_the_shutdown_waits_for_the_drawing_to_finish() {
-    scenario("the_shutdown_waits_for_the_drawing_to_finish");
-}
-
 /// The frame taken away as a value says what the live one says, and survives it.
 pub fn an_owned_frame_outlives_the_live_one() {
     use dereth_client_contract::GameView as _;
@@ -228,9 +180,4 @@ pub fn an_owned_frame_outlives_the_live_one() {
         move |_| agrees && still_readable && frames == 3,
     );
     c.shutdown();
-}
-
-#[test]
-fn scenario_an_owned_frame_outlives_the_live_one() {
-    scenario("an_owned_frame_outlives_the_live_one");
 }

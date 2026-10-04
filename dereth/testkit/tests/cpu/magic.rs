@@ -14,57 +14,6 @@ use dereth_testkit::{HeadlessClient, Inbound, Player};
 use dereth_ui_screens::hud::indicators;
 use dereth_ui_screens::view::GameView as _;
 
-/// Every scenario in this file, for the census: the name, **the behaviour ids the
-/// scenario asserts**, and the function.
-pub static ALL: &[dereth_testkit::behaviours::Scenario] = &[
-    (
-        "a_favorite_removal_reaches_the_packed_copy",
-        &["spellbar.favorite.removal-reaches-the-copy-a-relog-reads"],
-        a_favorite_removal_reaches_the_packed_copy,
-    ),
-    (
-        "deleting_a_spell_predicts_nothing",
-        &["spellbook.delete.asks-the-shard-and-predicts-nothing"],
-        deleting_a_spell_predicts_nothing,
-    ),
-    (
-        "a_learned_spell_appears_without_a_relog",
-        &["spellbook.learned-spell.appears-without-a-relog"],
-        a_learned_spell_appears_without_a_relog,
-    ),
-    (
-        "the_vitae_lamp_lights_only_for_a_penalty",
-        &["vitae.lamp.lights-only-for-a-real-penalty"],
-        the_vitae_lamp_lights_only_for_a_penalty,
-    ),
-    (
-        "the_component_tally_follows_the_pack",
-        &["spell-components.the-pack-is-counted-as-the-player-fills-it"],
-        the_component_tally_follows_the_pack,
-    ),
-    (
-        "the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall",
-        &["spell-components.what-the-player-asks-to-keep-reaches-the-shard-and-the-vendor"],
-        the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall,
-    ),
-    (
-        "a_purge_leaves_the_permanent_enchantments",
-        &["enchantments.a-purge-takes-the-timed-ones-and-leaves-the-permanent"],
-        a_purge_leaves_the_permanent_enchantments,
-    ),
-    (
-        "spell_favorite_moves_model_and_wire",
-        &["spellbar.favorite.model-and-wire-move-together"],
-        spell_favorite_moves_model_and_wire,
-    ),
-];
-
-/// Run one of this file's scenarios under a recorder, and check that the behaviour ids it
-/// asserted are exactly the ones its [`ALL`] entry declares.
-fn scenario(name: &str) {
-    dereth_testkit::behaviours::run_scenario(ALL, name);
-}
-
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 
 // =============================================================================================
@@ -867,39 +816,15 @@ pub fn a_purge_leaves_the_permanent_enchantments() {
 
 // -------------------------------------------------------------------------------------------
 
-#[test]
-fn scenario_a_favorite_removal_reaches_the_packed_copy() {
-    scenario("a_favorite_removal_reaches_the_packed_copy");
-}
-
-#[test]
-fn scenario_deleting_a_spell_predicts_nothing() {
-    scenario("deleting_a_spell_predicts_nothing");
-}
-
-#[test]
-fn scenario_a_learned_spell_appears_without_a_relog() {
-    scenario("a_learned_spell_appears_without_a_relog");
-}
-
-#[test]
-fn scenario_the_vitae_lamp_lights_only_for_a_penalty() {
-    scenario("the_vitae_lamp_lights_only_for_a_penalty");
-}
-
-#[test]
-fn scenario_the_component_tally_follows_the_pack() {
-    scenario("the_component_tally_follows_the_pack");
-}
-
-#[test]
-fn scenario_the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall() {
-    scenario("the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall");
-}
-
-#[test]
-fn scenario_a_purge_leaves_the_permanent_enchantments() {
-    scenario("a_purge_leaves_the_permanent_enchantments");
+dereth_testkit::scenarios! {
+    scenario_a_favorite_removal_reaches_the_packed_copy => a_favorite_removal_reaches_the_packed_copy ["spellbar.favorite.removal-reaches-the-copy-a-relog-reads"],
+    scenario_deleting_a_spell_predicts_nothing => deleting_a_spell_predicts_nothing ["spellbook.delete.asks-the-shard-and-predicts-nothing"],
+    scenario_a_learned_spell_appears_without_a_relog => a_learned_spell_appears_without_a_relog ["spellbook.learned-spell.appears-without-a-relog"],
+    scenario_the_vitae_lamp_lights_only_for_a_penalty => the_vitae_lamp_lights_only_for_a_penalty ["vitae.lamp.lights-only-for-a-real-penalty"],
+    scenario_the_component_tally_follows_the_pack => the_component_tally_follows_the_pack ["spell-components.the-pack-is-counted-as-the-player-fills-it"],
+    scenario_the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall => the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall ["spell-components.what-the-player-asks-to-keep-reaches-the-shard-and-the-vendor"],
+    scenario_a_purge_leaves_the_permanent_enchantments => a_purge_leaves_the_permanent_enchantments ["enchantments.a-purge-takes-the-timed-ones-and-leaves-the-permanent"],
+    scenario_spell_favorite_moves_model_and_wire => spell_favorite_moves_model_and_wire ["spellbar.favorite.model-and-wire-move-together"],
 }
 
 // -------------------------------------------------------------------------------------------
@@ -938,9 +863,4 @@ pub fn spell_favorite_moves_model_and_wire() {
         );
         drawn && sent
     });
-}
-
-#[test]
-fn scenario_spell_favorite_moves_model_and_wire() {
-    scenario("spell_favorite_moves_model_and_wire");
 }
