@@ -318,6 +318,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "chargen.classic.pages-show-world-choices-and-bounded-help",
+        says: "Classic creation pages show distinct world colors, complete clothing on its first visit without rerolling later visits, project edits into the preview, and keep help scrolling within measured text. Repeated hairstyle icons use numbered choices, the named first template is shown once for later data, attribute thumbs are transparent and the name entry has a visible frame.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-CREATION-CONTROLS"),
+        station: "dereth-classic-ui::lib::panels::pregame::tests::both_worlds_project_real_keys_face_pixels_preview_resources_and_results",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chargen.classic.preview-light-faces-camera",
+        says: "The creation preview's directional light illuminates the surface facing its camera from above.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-CREATION-LIGHT"),
+        station: "dereth-classic-ui::lib::previews::tests::creation_light_faces_the_preview_camera",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chargen.dialogs.a-people-the-account-cannot-play-is-refused-in-a-message-box",
         says: "Choosing a people the account has not bought the right to play raises a box saying \
                so -- one with a single button and nothing to answer -- and the people is refused \
@@ -603,6 +621,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "chargen.palette.samples-follow-entry-layout",
+        says: "Creation color choices use representative entries from the decoded palette layout, preserving distinct eye, hair and skin choices in both supported layouts.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CREATION-PALETTE-LAYOUT"),
+        station: "dereth-chargen::dat::color_choices_sample_the_decoded_palette_layout",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.preview.the-portal-space-plays-at-forty-frames-a-second-inside-its-viewport",
         says: "The portal tunnel's animation starts on its first frame and moves on at forty \
                frames for every second that passes, so half a second after it starts it is twenty \
@@ -620,15 +647,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O70-SLIDERS"),
         station: "dereth-testkit::dat::shell::scenario_the_six_attribute_sliders_are_named_and_sit_at_their_values",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "chargen.palette.samples-follow-entry-layout",
-        says: "Creation color choices use representative entries from the decoded palette layout, preserving distinct eye, hair and skin choices in both supported layouts.",
-        since: THIS_CLIENT,
-        divergence: "CD-015",
-        evidence: Evidence::Private("AC-EVID-CREATION-PALETTE-LAYOUT"),
-        station: "dereth-chargen::dat::color_choices_sample_the_decoded_palette_layout",
         tier: Tier::Dat,
     },
     behaviour! {

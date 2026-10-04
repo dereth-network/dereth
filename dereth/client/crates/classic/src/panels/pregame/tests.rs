@@ -1280,7 +1280,7 @@ fn later_appearance_choices_and_clothing_palette_order_are_reachable() {
     });
 }
 
-/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+/// Behaviour: chargen.classic.pages-show-world-choices-and-bounded-help
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
@@ -1429,6 +1429,176 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
                 Ok(Rc::clone(&data)),
                 dereth_primitives::LocalTime(0.0),
             );
+            // Exercise the visible controls before summary has completed unset choices.
+            p.event(
+                ControlEvent::Select {
+                    id: "heritage".into(),
+                    index: 0,
+                },
+                &c,
+            );
+            p.event(
+                ControlEvent::Select {
+                    id: "sex".into(),
+                    index: 0,
+                },
+                &c,
+            );
+            p.enter_page("clothing");
+            assert!(
+                p.state.shirt_style >= 0
+                    && p.state.trousers_style >= 0
+                    && p.state.footwear_style >= 0
+            );
+            let before = p.state.get_char_gen_result();
+            let next_draw = p.state.rng.crt.clone().next_u16();
+            p.enter_page("appearance");
+            p.enter_page("clothing");
+            assert_eq!(p.state.get_char_gen_result(), before);
+            assert_eq!(p.state.rng.crt.clone().next_u16(), next_draw);
+            let colors = p.view(&data).clothing_colors(&data, 1);
+            assert!(colors.len() > 1);
+            let descriptor = |p: &Pregame| {
+                let a = p.frame(&c).previews[0].appearance.clone().unwrap();
+                let mut palettes = dereth_scene::preview::PaletteSetCache::default();
+                dereth_scene::preview::chargen_objdesc(
+                    &a.tables.chargen,
+                    &a.state,
+                    &a.tables.clothing,
+                    a.state.get_setup_id(&a.tables.chargen),
+                    &mut |id| palettes.palettes(&store, id),
+                )
+                .0
+            };
+            p.event(ControlEvent::Activate("color-pick-1-0".into()), &c);
+            let first = descriptor(&p);
+            p.event(ControlEvent::Activate("color-pick-1-1".into()), &c);
+            assert_eq!(p.state.shirt_color, 1);
+            assert_ne!(
+                first,
+                descriptor(&p),
+                "a clothing color changes the actual preview descriptor"
+            );
+            p.enter_page("appearance");
+            let frame = p.frame(&c);
+            let eyes: std::collections::BTreeSet<_> = frame
+                .screen
+                .commands
+                .iter()
+                .filter_map(|cmd| match cmd {
+                    crate::Command::Fill { y: 339, color, .. } => Some(*color),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                eyes.len() >= 4,
+                "visible eye choices keep different world colors"
+            );
+            let repeated_icons = {
+                let mut icons = std::collections::BTreeSet::new();
+                p.view(&data)
+                    .sex(&data)
+                    .hair_styles
+                    .iter()
+                    .any(|s| !icons.insert(s.icon))
+            };
+            if repeated_icons {
+                assert!(frame.screen.commands.iter().any(|cmd| matches!(cmd,
+                    crate::Command::TextBox { text, rect: [586, 407, _, _], .. } if text == "1")));
+            }
+            for page in [
+                "heritage",
+                "sex",
+                "appearance",
+                "clothing",
+                "profession",
+                "attributes",
+                "skills",
+                "name-summary",
+            ] {
+                p.enter_page(page);
+                let frame = p.frame(&c);
+                let scroll = frame
+                    .controls
+                    .iter()
+                    .find(|v| v.id == "help-scroll")
+                    .expect(page);
+                let ControlKind::ScrollBar {
+                    max, page: height, ..
+                } = scroll.kind
+                else {
+                    panic!("help scrollbar")
+                };
+                assert!((0..1200).contains(&max), "{old} {page}: {max}");
+                let help = frame
+                    .screen
+                    .commands
+                    .iter()
+                    .find_map(|cmd| match cmd {
+                        crate::Command::TextBox {
+                            text,
+                            clip: Some([383, 64, 784, _]),
+                            ..
+                        } => Some(text),
+                        _ => None,
+                    })
+                    .expect("help text");
+                let measured = canvas
+                    .font_metrics()
+                    .text_height("16-7", help, 401)
+                    .unwrap();
+                assert_eq!(
+                    max,
+                    (measured - height).max(0),
+                    "{old} {page}: measured content"
+                );
+                p.help_scroll = i32::MAX;
+                let bottom = p.frame(&c);
+                let scroll = bottom
+                    .controls
+                    .iter()
+                    .find(|v| v.id == "help-scroll")
+                    .unwrap();
+                assert!(matches!(scroll.kind,ControlKind::ScrollBar {value,..} if value == max));
+                assert!(height == 70 || height == 98);
+                p.help_scroll = 0;
+            }
+            p.enter_page("profession");
+            let frame = p.frame(&c);
+            assert_eq!(data.separate_custom, old);
+            let upper_name = if old {
+                "Custom Character"
+            } else {
+                "Adventurer"
+            };
+            assert!(frame
+                .screen
+                .commands
+                .iter()
+                .any(|cmd| matches!(cmd, crate::Command::TextBox {text,..} if text == upper_name)));
+            p.event(
+                ControlEvent::Select {
+                    id: "profession".into(),
+                    index: 0,
+                },
+                &c,
+            );
+            assert_eq!(p.state.template, i32::from(!old));
+            p.event(
+                ControlEvent::Select {
+                    id: "custom".into(),
+                    index: 0,
+                },
+                &c,
+            );
+            assert_eq!(p.state.template, 0);
+            p.enter_page("attributes");
+            let frame = p.frame(&c);
+            assert!(frame.screen.commands.iter().any(|cmd| matches!(cmd, crate::Command::Image {did,color_key:Some([0,0,0]),..} if did=="060002C8")));
+            p.enter_page("name-summary");
+            assert!(p.frame(&c).screen.commands.iter().any(
+                |cmd| matches!(cmd, crate::Command::Image {did,x:383,y:180,..} if did=="060002B7")
+            ));
             for (hi, h) in data.heritages.iter().enumerate() {
                 p.event(
                     ControlEvent::Select {

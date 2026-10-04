@@ -393,6 +393,9 @@ impl Pregame {
         }
         if page == "clothing" {
             self.zoom_face = false;
+            if let Ok(d) = &self.data {
+                self.state.prepare_clothing(&d.tables);
+            }
         }
         if page == "name-summary" {
             if let Ok(d) = &self.data {
@@ -655,17 +658,16 @@ impl Pregame {
         }
     }
     fn help(&self, f: &mut PanelFrame, d: &CreationData, did: u32) {
-        if let Some(t) = d.help_text.get(&did.to_string()) {
+        self.help_key(f, d, &did.to_string());
+    }
+    fn help_key(&self, f: &mut PanelFrame, d: &CreationData, key: &str) {
+        if let Some(t) = d.help_text.get(key) {
             let height = if matches!(self.page, "appearance" | "attributes") {
                 70
             } else {
                 98
             };
-            let full = d
-                .text_heights
-                .get(&did.to_string())
-                .copied()
-                .unwrap_or(2000);
+            let full = d.text_heights.get(key).copied().unwrap_or(height);
             let offset = self.help_scroll.min((full - height).max(0));
             f.text_box(
                 rect(383, 64 - offset, 401, full.max(height)),
@@ -965,7 +967,11 @@ impl Pregame {
         match self.page {
             "heritage" => {
                 title(&mut f, "Heritage Group");
-                self.help(&mut f, d, heritage.description);
+                if heritage.description != 0 {
+                    self.help(&mut f, d, heritage.description);
+                } else {
+                    self.help_key(&mut f, d, &format!("heritage-{}", heritage.key));
+                }
                 text(&mut f, rect(451, 256, 300, 20), "Available Heritage Groups");
                 plate_list(
                     &self.resources.fonts,
@@ -994,7 +1000,11 @@ impl Pregame {
             "profession" => {
                 title(&mut f, "Profession");
                 if let Some(t) = sex.templates.get(state.template) {
-                    self.help(&mut f, d, t.resource);
+                    if t.resource != 0 {
+                        self.help(&mut f, d, t.resource);
+                    } else {
+                        self.help_key(&mut f, d, &format!("profession-{}", state.template));
+                    }
                 }
                 self.profession_frame(&mut f, d);
             }
@@ -1052,7 +1062,7 @@ impl Pregame {
                         &format!("{:08X}", 0x06000000 + skins[2]),
                         rect(382 + 335 * state.attrs[i] / 100, y, 25, 25),
                         false,
-                        false,
+                        true,
                     );
                     f.slider(
                         format!("attr-{i}"),
@@ -1100,6 +1110,7 @@ impl Pregame {
                 title(&mut f, "Name and Summary");
 
                 text(&mut f, rect(385, 162, 150, 18), "Character Name");
+                f.image("060002B7", rect(383, 180, 136, 29), false, false);
                 f.edit(
                     "name",
                     rect(385, 182, 132, 25),
@@ -1415,7 +1426,10 @@ impl Panel for Pregame {
                                 self.custom_selected = false;
                             }
                             "profession" => {
-                                self.state.choose_template(&d.tables, i32_from(index));
+                                self.state.choose_template(
+                                    &d.tables,
+                                    i32_from(index + usize::from(!d.separate_custom)),
+                                );
                                 self.custom_selected = false;
                             }
                             "custom" => {

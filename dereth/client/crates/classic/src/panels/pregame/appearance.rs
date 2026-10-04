@@ -1,5 +1,6 @@
 use super::*;
 use crate::int::{i32_from, u32_from};
+use dereth_chargen::palette::{PaletteLayout, PaletteSample};
 use dereth_primitives::num::to_i32_f64;
 
 fn color(c: [u8; 4]) -> u32 {
@@ -48,15 +49,17 @@ fn combined_palette(d: &CreationData, state: &SelectionView<'_>) -> Vec<[u8; 4]>
     result
 }
 /// One entry of each palette in a palette set, in the set's order.
-fn set_entry(d: &CreationData, set: u32, entry: usize) -> Vec<[u8; 4]> {
+fn set_entry(d: &CreationData, set: u32, sample: PaletteSample) -> Vec<[u8; 4]> {
     d.appearance
         .palette_sets
         .get(&format!("{set:08X}"))
         .map_or_else(Vec::new, |ids| {
             ids.iter()
                 .filter_map(|&id| {
-                    palette(d, id)
-                        .and_then(|v| v.get(if v.len() == 2048 { entry * 8 } else { entry }))
+                    palette(d, id).and_then(|v| {
+                        let layout = PaletteLayout::from_entry_count(v.len())?;
+                        v.get(sample.index(layout))
+                    })
                 })
                 .copied()
                 .collect()
@@ -64,7 +67,12 @@ fn set_entry(d: &CreationData, set: u32, entry: usize) -> Vec<[u8; 4]> {
 }
 /// The palette entry a clothing slot's colour swatches and shade bar are drawn from: headgear,
 /// shirt, trousers, footwear.
-const CLOTHING_ENTRY: [usize; 4] = [0xFD, 0x31, 0x44, 0xA4];
+const CLOTHING_SAMPLE: [PaletteSample; 4] = [
+    PaletteSample::Headgear,
+    PaletteSample::Shirt,
+    PaletteSample::Trousers,
+    PaletteSample::Footwear,
+];
 /// The shade sliders' tracks: headgear, shirt, trousers, footwear.
 const CLOTHING_TRACK: [&str; 4] = ["06000502", "06000504", "06000503", "06000505"];
 // A colour swatch interpolates representative palette entries across its width.
@@ -72,11 +80,11 @@ fn gradient(
     f: &mut PanelFrame,
     d: &CreationData,
     set: u32,
-    entry: usize,
+    sample: PaletteSample,
     r: crate::widgets::Rect,
     vertical: bool,
 ) {
-    let colors = set_entry(d, set, entry);
+    let colors = set_entry(d, set, sample);
     if colors.is_empty() {
         return;
     }
@@ -135,7 +143,7 @@ impl Pregame {
                 },
             );
             let colors = state.clothing_colors(d, i);
-            let entry = CLOTHING_ENTRY[i];
+            let entry = CLOTHING_SAMPLE[i];
             let strip = rect(520, y + 20, 4 * SWATCH, SWATCH);
             let max = (i32_from(colors.len()) * SWATCH - strip.w).max(0);
             let offset = self.color_scroll[i].min(max);
@@ -299,7 +307,7 @@ impl Pregame {
                 381,
                 319,
                 sex.skin_palette,
-                12,
+                PaletteSample::Skin,
                 state.skin_shade,
             ),
             (
@@ -308,7 +316,7 @@ impl Pregame {
                 381,
                 461,
                 sex.hair_colors.get(state.hair_color).copied().unwrap_or(0),
-                30,
+                PaletteSample::Hair,
                 state.hair_shade,
             ),
         ] {
@@ -342,7 +350,7 @@ impl Pregame {
             .enumerate()
         {
             let r = rect(381 + i32_from(cell) * 32, 407, 32, 32);
-            gradient(f, d, set, 30, r, true);
+            gradient(f, d, set, PaletteSample::Hair, r, true);
             if i == state.hair_color {
                 f.image("06000506", r, false, true);
             }
@@ -369,7 +377,10 @@ impl Pregame {
             .enumerate()
         {
             let r = rect(586 + i32_from(cell) * 32, 339, 32, 32);
-            if let Some(c) = palette(d, id).and_then(|p| p.get(35)) {
+            if let Some(c) = palette(d, id).and_then(|p| {
+                let layout = PaletteLayout::from_entry_count(p.len())?;
+                p.get(PaletteSample::Eyes.index(layout))
+            }) {
                 f.fill(r, color(*c));
             }
             if i == state.eye_color {
@@ -386,6 +397,11 @@ impl Pregame {
             1,
         );
         f.label(586, 387, "Hairstyle", "16-7", COLOR, None);
+        let mut icons = std::collections::BTreeSet::new();
+        let numbered = sex
+            .hair_styles
+            .iter()
+            .any(|style| !icons.insert(style.icon));
         let rows = i32_from(sex.hair_styles.len().div_ceil(4));
         let max = (rows * 48 - 96).max(0);
         let first = usize::try_from(self.hair_scroll.min(max) / 48).unwrap_or(0) * 4;
@@ -403,7 +419,27 @@ impl Pregame {
                 48,
                 48,
             );
-            f.image(&format!("world:{:08X}", hair.icon), r, false, false);
+            if numbered {
+                f.fill(
+                    r,
+                    if i == state.hair_style {
+                        0xff493921
+                    } else {
+                        0xff17120d
+                    },
+                );
+                f.text_box(
+                    r,
+                    (i + 1).to_string(),
+                    "20-8",
+                    COLOR,
+                    TextAlign::Center,
+                    false,
+                    None,
+                );
+            } else {
+                f.image(&format!("world:{:08X}", hair.icon), r, false, false);
+            }
             if i == state.hair_style {
                 f.image("06000F51", r, false, true);
             }
@@ -460,7 +496,7 @@ mod tests {
             ("04000011", [50, 60, 70, 255]),
         ] {
             let mut p = vec![[0, 0, 0, 255]; 256];
-            p[CLOTHING_ENTRY[1]] = shade;
+            p[PaletteSample::Shirt.index(PaletteLayout::Indexed256)] = shade;
             d.appearance.palettes.insert(id.into(), p);
         }
         let d = std::rc::Rc::new(d);

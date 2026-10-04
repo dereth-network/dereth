@@ -134,7 +134,13 @@ impl Pregame {
         const ROW: i32 = 60;
         let state = self.view(d);
         let templates = &state.sex(d).templates;
-        let chosen = |i: usize| !self.custom_selected && state.template == i && i < templates.len();
+        let first = usize::from(!d.separate_custom);
+        let custom_chosen = if d.separate_custom {
+            self.custom_selected
+        } else {
+            state.template == 0
+        };
+        let chosen = |i: usize| !custom_chosen && state.template == i && i < templates.len();
         f.fill(rect(508, 288, 254, 214), 0xff00_0000);
         f.fill(rect(388, 283, 84, 124), 0xff00_0000);
         if let Some(t) = templates.get(state.template) {
@@ -154,7 +160,7 @@ impl Pregame {
             ControlKind::HitList {
                 row_count: usize::from(!templates.is_empty()),
                 row_height: ROW,
-                selected: (self.custom_selected).then_some(0),
+                selected: custom_chosen.then_some(0),
                 offset: 0,
             },
             true,
@@ -165,15 +171,19 @@ impl Pregame {
                 f,
                 custom,
                 custom.y,
-                "Custom Character",
+                if d.separate_custom {
+                    "Custom Character"
+                } else {
+                    &t.name
+                },
                 t.icon,
-                self.custom_selected,
-                true,
+                custom_chosen,
+                d.separate_custom,
             );
         }
         text(f, rect(510, 270, 250, 18), "...or start with a profession:");
         let bounds = rect(510, 290, 250, 210);
-        let count = templates.len();
+        let count = templates.len().saturating_sub(first);
         let max = (i32_from(count) * ROW - bounds.h).max(0);
         let offset = self.profession_scroll.min(max);
         f.control(
@@ -182,14 +192,15 @@ impl Pregame {
             ControlKind::HitList {
                 row_count: count,
                 row_height: ROW,
-                selected: (!self.custom_selected && self.state.template >= 0)
-                    .then_some(state.template),
+                selected: (!custom_chosen)
+                    .then(|| state.template.checked_sub(first))
+                    .flatten(),
                 offset,
             },
             true,
         );
-        for (i, t) in templates.iter().enumerate() {
-            let y = bounds.y + i32_from(i) * ROW - offset;
+        for (i, t) in templates.iter().enumerate().skip(first) {
+            let y = bounds.y + i32_from(i - first) * ROW - offset;
             if y + ROW > bounds.y && y < bounds.y + bounds.h {
                 profession_row(
                     &self.resources.fonts,

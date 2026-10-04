@@ -518,11 +518,23 @@ impl Panel for Stats {
             );
             if self.skills && !credits {
                 if let Some(adv) = game.skill_advancement(id) {
-                    image(&mut f, 0x060011a6, rect(6, 321, 228, 15), None, true, false);
+                    image(
+                        &mut f,
+                        0x060011a6,
+                        rect(6, 321 + dy, 228, 15),
+                        None,
+                        true,
+                        false,
+                    );
                     image(
                         &mut f,
                         0x06000f8a,
-                        rect(6, 321, to_i32(228.0 * adv.meter_fill().clamp(0.0, 1.0)), 15),
+                        rect(
+                            6,
+                            321 + dy,
+                            to_i32(228.0 * adv.meter_fill().clamp(0.0, 1.0)),
+                            15,
+                        ),
                         None,
                         true,
                         false,
@@ -857,5 +869,68 @@ mod tests {
                 ))
             },
         );
+    }
+    /// Behaviour: stats.classic.skill-cost-meter-follows-stretched-footer
+    #[test]
+    fn skill_cost_meter_tracks_the_stretched_footer() {
+        let view = View {
+            skills: vec![SkillEntry {
+                id: 1,
+                name: "Skill".into(),
+                icon: None,
+                min_level: 0,
+                sac: 2,
+                level: 100,
+                effective: 100,
+                vitae: 0,
+            }],
+            vitae: None,
+        };
+        context(&view, |base| {
+            let mut panel = Stats::new(true);
+            panel.selected = Some((1, false));
+            for (size, stretched) in [
+                ((800, 600), false),
+                ((1024, 768), true),
+                ((1280, 960), true),
+            ] {
+                let c = Context {
+                    layout: crate::panels::Layout {
+                        size,
+                        stretched,
+                        chat_expanded: false,
+                    },
+                    ..*base
+                };
+                let frame = panel.frame(&c);
+                let y = frame
+                    .screen
+                    .commands
+                    .iter()
+                    .find_map(|cmd| match cmd {
+                        crate::Command::TextBox { text, rect, .. }
+                            if text == "XP cost to raise skill:" =>
+                        {
+                            Some(rect[1])
+                        }
+                        _ => None,
+                    })
+                    .unwrap();
+                for did in ["060011A6", "06000F8A"] {
+                    let image_y = frame
+                        .screen
+                        .commands
+                        .iter()
+                        .rev()
+                        .find_map(|cmd| match cmd {
+                            crate::Command::Image { did: found, y, .. } if found == did => Some(*y),
+                            _ => None,
+                        })
+                        .unwrap();
+                    assert_eq!(image_y, y - 2);
+                }
+                assert_eq!(y, c.layout.side_height() as i32 - 39);
+            }
+        });
     }
 }

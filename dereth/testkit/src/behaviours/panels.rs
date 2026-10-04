@@ -2063,6 +2063,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "stats.classic.skill-cost-meter-follows-stretched-footer",
+        says: "The skill advancement meter and its caption stay on the same footer row when the Classic interface is stretched.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-SKILL-METER"),
+        station: "dereth-classic-ui::lib::panels::game::stats::tests::skill_cost_meter_tracks_the_stretched_footer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "stats.presentation.preserves-display-variants-and-fractional-vitae",
         says: "The character panels share stat and title facts while preserving their skill \
                grouping and text conventions. Fractional loss of strength is rounded before \

@@ -325,12 +325,8 @@ impl Previews {
                     present.preview_set_camera_position(id, camera);
                     present.preview_set_camera_direction_degrees(id, Vec3::new(-5., 0., 0.));
                     present.preview_set_heading(id, 0, *heading);
-                    present.preview_set_light(
-                        id,
-                        PreviewLight::Directional,
-                        1.65,
-                        Vec3::new(0.5, -1.5, 0.5),
-                    );
+                    let (intensity, direction) = creation_light();
+                    present.preview_set_light(id, PreviewLight::Directional, intensity, direction);
                 }
             }
             present.preview_use_time(id, dt);
@@ -507,6 +503,10 @@ fn animation_level(progress: f32) -> i32 {
     table[usize::try_from(to_i32(progress.clamp(0., 1.) * 99.)).unwrap_or(0)]
 }
 
+fn creation_light() -> (f32, Vec3) {
+    (2.0, Vec3::new(0.3, 1.9, 0.65))
+}
+
 fn space_id(kind: PreviewKind) -> Option<PreviewSpace> {
     match kind {
         PreviewKind::CharGen => Some(PreviewSpace::CharGen),
@@ -549,6 +549,15 @@ fn fov_of_focal(focal: f32, height: i32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Behaviour: chargen.classic.preview-light-faces-camera
+    #[test]
+    fn creation_light_faces_the_preview_camera() {
+        let (intensity, direction) = creation_light();
+        let camera_normal = Vec3::new(0., -1., 0.);
+        let facing_light = -direction.dot(camera_normal) / direction.magnitude();
+        assert!(facing_light * intensity > 1.5);
+        assert!(direction.z > 0., "the light falls from above");
+    }
     #[test]
     fn equipment_blink_follows_the_legacy_counter_without_inventing_a_reset() {
         let mut state = DollLighting::default();

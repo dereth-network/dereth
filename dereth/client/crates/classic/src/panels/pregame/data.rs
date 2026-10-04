@@ -86,6 +86,8 @@ pub struct AppearanceData {
 #[derive(Debug, Clone)]
 pub struct CreationData {
     pub tables: Rc<CreationTables>,
+    /// Whether the world supplies a separate custom-build presentation.
+    pub separate_custom: bool,
     pub appearance: AppearanceData,
     pub heritages: Vec<Heritage>,
     pub areas: Vec<Area>,
@@ -112,6 +114,9 @@ impl CreationData {
     fn project(tables: Rc<CreationTables>, store: Option<&dereth_dat::RetailDatStore>) -> Self {
         let mut out = Self {
             tables: Rc::clone(&tables),
+            separate_custom: store.is_none_or(|s| {
+                s.container_era_of(DataId(0x0e000002)) == dereth_dat::ContainerEra::PreTod
+            }),
             appearance: Default::default(),
             heritages: vec![],
             areas: tables
@@ -291,22 +296,64 @@ impl CreationData {
                 }
             }
         }
+        if let Some(store) = store.filter(|_| !out.separate_custom) {
+            use dereth_text::string_table::{render_token, DatStringResolver};
+            let strings = DatStringResolver::new(std::sync::Arc::new(store.clone()));
+            for heritage in &out.heritages {
+                if let Some(text) =
+                    dereth_presentation::creation::heritage_description_token(heritage.key)
+                        .and_then(|token| render_token(&strings, DataId(0x23000002), token, &[]))
+                {
+                    out.help_text
+                        .insert(format!("heritage-{}", heritage.key), text);
+                }
+            }
+            for template in 0..7 {
+                if let Some(text) =
+                    dereth_presentation::creation::profession_description_token(template)
+                        .and_then(|token| render_token(&strings, DataId(0x23000002), token, &[]))
+                {
+                    out.help_text.insert(format!("profession-{template}"), text);
+                }
+            }
+        }
         out
     }
-    /// Credits are interface text, independent of the active world tables.
+    /// Interface instructions and credits remain available when the world has no legacy text records.
     pub fn read_chrome(
         &mut self,
         art: &crate::art::ClassicArt,
         fonts: &crate::renderer::FontMetrics,
     ) {
-        for id in [0x3100_0020, 0x3100_0022] {
+        if self.help_ids.is_empty() {
+            self.help_ids = vec![
+                0x3100001f, 0x31000013, 0x31000014, 0x31000015, 0x31000016, 0x31000017, 0x31000018,
+                0x31000019,
+            ];
+        }
+        for id in self
+            .help_ids
+            .iter()
+            .copied()
+            .chain([0x31000020, 0x31000022])
+        {
+            if self.help_text.contains_key(&id.to_string()) {
+                continue;
+            }
             if let Some(bytes) = art.portal().get(id) {
                 if let Ok(text) = dereth_classic_dat::creation::decode_string(id, &bytes) {
-                    if let Some(height) = fonts.text_height("16-7", &text, 400) {
-                        self.text_heights.insert(id.to_string(), height);
-                    }
                     self.help_text.insert(id.to_string(), text);
                 }
+            }
+        }
+        for (key, text) in &self.help_text {
+            let width = if [0x31000020u32.to_string(), 0x31000022u32.to_string()].contains(key) {
+                400
+            } else {
+                401
+            };
+            if let Some(height) = fonts.text_height("16-7", text, width) {
+                self.text_heights.insert(key.clone(), height);
             }
         }
     }

@@ -177,6 +177,13 @@ impl CharGenState {
         }
     }
 
+    /// Complete an unvisited clothing page without changing choices made on an earlier visit.
+    pub fn prepare_clothing(&mut self, tables: &CreationTables) {
+        if self.shirt_style == -1 {
+            self.randomize_clothing(&tables.chargen, self.policy == CreationPolicy::Classic);
+        }
+    }
+
     /// Fill choices not yet made before presenting a summary, without rerolling complete choices.
     pub fn prepare_summary(&mut self, tables: &CreationTables) {
         if self.policy == CreationPolicy::Classic {
@@ -366,9 +373,7 @@ impl CharGenState {
             self.randomize_appearance(&tables.chargen, false);
         }
         self.frozen[2] = true;
-        if self.shirt_style == -1 {
-            self.randomize_clothing(&tables.chargen, true);
-        }
+        self.prepare_clothing(tables);
     }
 
     /// Three complementary pairs assigned without replacement, then constrained by shared locks
