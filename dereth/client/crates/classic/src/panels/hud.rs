@@ -1167,40 +1167,11 @@ impl Default for Radar {
 }
 /// An object's radar colour index, which the selection indicator shares.
 pub(crate) fn blip_color(e: &RadarEntry) -> u8 {
-    if e.blip_color != 0 {
-        return e.blip_color;
-    }
-    let bits = e.bitfield;
-    if bits & 0x40000 != 0 {
-        return 4;
-    }
-    if bits & 0x4000 != 0 {
-        return 1;
-    }
-    if bits & 0x200 != 0 {
-        return 8;
-    }
-    if bits & 0x10 != 0 && e.is_attackable && !e.is_player {
-        return 2;
-    }
-    if e.is_player {
-        if e.is_fellow || e.is_fellowship_leader {
-            return 10;
-        }
-        if bits & 0x100000 != 0 && bits & 0x40 == 0 {
-            return 9;
-        }
-        if e.is_pk {
-            return 5;
-        }
-        if e.is_pk_lite {
-            return 6;
-        }
-        if bits & 0x200000 != 0 {
-            return 2;
-        }
-    }
-    3
+    dereth_client_contract::radar::color_role(
+        Some(e),
+        dereth_client_contract::options::interface::Interface::Classic,
+    )
+    .index()
 }
 fn palette(index: u8, bright: bool) -> u32 {
     let [r, g, b]: [u32; 3] = match index {
@@ -1220,7 +1191,7 @@ fn palette(index: u8, bright: bool) -> u32 {
         if bright {
             v
         } else {
-            u32::try_from(to_i32(v as f32 * 0.65)).unwrap_or(0)
+            u32::try_from(to_i32(v as f32 * dereth_client_contract::radar::DIM_FACTOR)).unwrap_or(0)
         }
     };
     0xff000000 | dim(r) << 16 | dim(g) << 8 | dim(b)
@@ -1230,48 +1201,36 @@ impl Radar {
         if c.game.radar_blank() {
             return vec![];
         }
-        let range: f32 = if c.game.player_outside() { 75.0 } else { 25.0 };
-        let radius = if self.size == 80 { 32 } else { 50 };
-        let center = self.size / 2;
+        use dereth_client_contract::{options::interface::Interface, radar as shared};
+        let range = shared::radar_range(c.game.player_outside());
+        let geometry = shared::Geometry {
+            radius: if self.size == 80 { 32 } else { 50 },
+            center: ((self.size / 2) as f32, (self.size / 2) as f32),
+        };
+        let viewer = Some(shared::Viewer {
+            pk: c.game.pk_status() == PkStatus::Pk,
+            pk_lite: c.game.pk_status() == PkStatus::PkLite,
+        });
         c.game
             .radar_objects()
             .iter()
-            .filter(|e| {
-                !e.is_self && e.in_world && e.bitfield & 0x80 == 0 && matches!(e.radar_enum, 2..=4)
-            })
             .filter_map(|e| {
-                let (x, y, z) = e.player_space;
-                if !x.is_finite()
-                    || !y.is_finite()
-                    || dereth_primitives::num::math::hypotf(x, y) >= range - 1.0
-                {
-                    return None;
-                }
-                let bright = z.abs() < 5.0;
-                let shape = if !e.is_player {
-                    1
-                } else if e.is_fellow {
-                    if e.is_fellowship_leader {
-                        5
-                    } else {
-                        6
-                    }
-                } else if e.is_allegiance_member {
-                    2
-                } else if (e.is_pk && c.game.pk_status() == PkStatus::Pk)
-                    || (e.is_pk_lite && c.game.pk_status() == PkStatus::PkLite)
-                {
-                    3
-                } else {
-                    1
+                let projected = shared::project(e, geometry, range, Interface::Classic)?;
+                let shape = match shared::shape_role(Some(e), viewer, Interface::Classic) {
+                    shared::ShapeRole::Hidden => return None,
+                    shared::ShapeRole::Ordinary => 1,
+                    shared::ShapeRole::Allegiance => 2,
+                    shared::ShapeRole::Threat => 3,
+                    shared::ShapeRole::FellowshipLeader => 5,
+                    shared::ShapeRole::Fellowship => 6,
                 };
                 Some(Blip {
                     object: e.id,
-                    x: center + to_i32(x * radius as f32 / range),
-                    y: center - to_i32(y * radius as f32 / range),
-                    color: palette(blip_color(e), bright),
+                    x: projected.x,
+                    y: projected.y,
+                    color: palette(blip_color(e), projected.bright),
                     shape,
-                    bright,
+                    bright: projected.bright,
                 })
             })
             .collect()
@@ -2175,6 +2134,74 @@ mod tests {
         assert_eq!(r.toolbar, rect(331, 390, 309, 90));
         assert_eq!(regions(800, 600).radar, rect(588, 28, 120, 120));
     }
+    /// Behaviour: radar.shared-roles-and-projection-variants
+    #[test]
+    fn classic_radar_uses_shared_roles_with_its_own_pixels_and_selection_color() {
+        let mut e = row(2, -1.0, 0.0);
+        e.player_space.1 = 1.0;
+        e.bitfield = 0x8000_4000;
+        assert_eq!(blip_color(&e), 1);
+        let g = World {
+            outside: true,
+            rows: vec![e],
+            ..Default::default()
+        };
+        with_context(&g, |c| {
+            let mut radar = Radar::default();
+            let rows = radar.blips(c);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(
+                (rows[0].x, rows[0].y, rows[0].color, rows[0].shape),
+                (60, 60, 0xff40a9ff, 1)
+            );
+            let frame = radar.frame(c);
+            assert!(frame.screen.commands.iter().any(|cmd| matches!(
+                cmd,
+                Command::Fill {
+                    x: 60,
+                    y: 60,
+                    color: 0xff40a9ff,
+                    ..
+                }
+            )));
+            assert_eq!(
+                radar.event(
+                    ControlEvent::Pointer {
+                        x: 60,
+                        y: 60,
+                        pressed: true
+                    },
+                    c
+                ),
+                vec![PanelAction::Game(UiRequest::Select(ObjectId(2)))]
+            );
+        });
+        e.blip_color = 99;
+        assert_eq!(blip_color(&e), 99);
+        assert_eq!(palette(blip_color(&e), true), 0xff000000);
+        e.bitfield |= 0x80;
+        assert_eq!(blip_color(&e), 3);
+        let g = World {
+            outside: true,
+            rows: vec![e],
+            ..Default::default()
+        };
+        with_context(&g, |c| {
+            let mut radar = Radar::default();
+            assert!(radar.blips(c).is_empty());
+            assert!(radar
+                .event(
+                    ControlEvent::Pointer {
+                        x: 60,
+                        y: 60,
+                        pressed: true
+                    },
+                    c
+                )
+                .is_empty());
+        });
+    }
+
     #[test]
     fn radar_excludes_boundary_hidden_self_and_unshowable_rows() {
         let mut g = World {

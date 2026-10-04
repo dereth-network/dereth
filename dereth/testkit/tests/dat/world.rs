@@ -6377,9 +6377,7 @@ fn scenario_the_map_is_redrawn_once_every_five_seconds() {
 /// does not say where to put them" would be the same failure: the map element carries the note
 /// element, the note layout and the marker box the page reads out of it.
 pub fn every_shipped_town_is_on_the_map_where_the_table_says() {
-    use dereth_ui_screens::mapradar::map::{
-        child, MapNote, MAP_NOTES, MAP_PAGE, SHIPPED_NOTE_BINDING,
-    };
+    use dereth_ui_screens::mapradar::map::{child, notes, MapNote, MAP_PAGE, SHIPPED_NOTE_BINDING};
 
     let (ui, g) = world_support::shipped_map_page();
     let root = g.root().expect("the gameplay root");
@@ -6394,15 +6392,14 @@ pub fn every_shipped_town_is_on_the_map_where_the_table_says() {
         && g.map.page.is_some();
 
     let got = world_support::map_notes(&ui, &g);
-    let want: Vec<world_support::TownNote> = MAP_NOTES
-        .iter()
-        .map(|m: &MapNote| world_support::TownNote {
+    let want: Vec<world_support::TownNote> = notes(dereth_primitives::EraId::Eor)
+        .map(|m: MapNote| world_support::TownNote {
             // A box is inclusive, so a note `w` wide runs from `x` to `x + w - 1`.
             box_: (m.x, m.y, m.x + m.w - 1, m.y + m.h - 1),
             tip: Some(m.name.to_owned()),
         })
         .collect();
-    let all_there = got.len() == MAP_NOTES.len() && got == want;
+    let all_there = got.len() == 53 && got == want;
 
     // Every town is a child of the map picture, which is what puts its place in the same space
     // the player's own dot and the marker box are expressed in.

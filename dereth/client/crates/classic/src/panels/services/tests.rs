@@ -4,6 +4,7 @@ use dereth_client_contract::view::{AllegianceAction, BookPageView, BookView, Tra
 #[derive(Debug, Default)]
 struct View {
     no_selection: bool,
+    coords: Option<(f32, f32)>,
     now: f64,
     pings: u64,
     book: Option<BookView>,
@@ -25,6 +26,12 @@ struct View {
     oath_cost: Option<u32>,
 }
 impl GameView for View {
+    fn player_coords(&self) -> Option<(f32, f32)> {
+        self.coords
+    }
+    fn player_outside(&self) -> bool {
+        self.coords.is_some()
+    }
     fn oath_xp_cost(&self) -> Option<u32> {
         self.oath_cost
     }
@@ -1385,4 +1392,92 @@ fn a_taller_options_page_shows_more_of_its_list_and_keeps_its_buttons_at_the_foo
     assert_eq!(tall.view.h, 264 + 200);
     assert_eq!(tall.buttons_y, 497);
     assert!(tall.max_scroll(1000) < page.max_scroll(1000));
+}
+
+/// Behaviour: map.regions.follow-world-profile
+#[test]
+fn map_rollovers_follow_profile_and_never_reuse_a_stale_hover() {
+    use dereth_primitives::EraId;
+    let mut v = View::default();
+    let mut panel = make("map").unwrap();
+    for (profile, count) in [
+        (EraId::Eor, 53),
+        (EraId::Infiltration, 50),
+        (EraId::Eor, 53),
+    ] {
+        v.era = Some(dereth_client_contract::EraView {
+            era: profile,
+            ..Default::default()
+        });
+        assert_eq!(
+            dereth_client_contract::panels::map::notes(profile).count(),
+            count
+        );
+        for (x, y, name) in [
+            (78, 71, "Fiun Outpost"),
+            (72, 100, "Sanamar"),
+            (63, 83, "Silyun"),
+        ] {
+            event(
+                &mut *panel,
+                ControlEvent::Pointer {
+                    x,
+                    y,
+                    pressed: false,
+                },
+                &v,
+            );
+            let text = with_context(&v, |c| texts(&panel.frame(c)));
+            assert_eq!(text.iter().any(|t| t == name), profile == EraId::Eor);
+        }
+        for (x, expected) in [
+            (198, profile == EraId::Eor),
+            (205, profile == EraId::Infiltration),
+        ] {
+            event(
+                &mut *panel,
+                ControlEvent::Pointer {
+                    x,
+                    y: 206,
+                    pressed: false,
+                },
+                &v,
+            );
+            assert_eq!(
+                with_context(&v, |c| texts(&panel.frame(c)))
+                    .iter()
+                    .any(|t| t == "Yanshi"),
+                expected
+            );
+        }
+    }
+    event(
+        &mut *panel,
+        ControlEvent::Pointer {
+            x: 78,
+            y: 71,
+            pressed: false,
+        },
+        &v,
+    );
+    assert!(with_context(&v, |c| texts(&panel.frame(c)))
+        .iter()
+        .any(|t| t == "Fiun Outpost"));
+    v.era.as_mut().unwrap().era = EraId::Infiltration;
+    assert!(!with_context(&v, |c| texts(&panel.frame(c)))
+        .iter()
+        .any(|t| t == "Fiun Outpost"));
+}
+
+/// Behaviour: map.coordinates.zero-has-no-hemisphere
+#[test]
+fn map_frame_formats_zero_and_tiny_signed_coordinates() {
+    let mut v = View {
+        coords: Some((0.0, -0.0)),
+        ..Default::default()
+    };
+    let panel = make("map").unwrap();
+    assert!(with_context(&v, |c| texts(&panel.frame(c))).contains(&"0.0, 0.0".into()));
+    v.coords = Some((-0.001, 0.001));
+    assert!(with_context(&v, |c| texts(&panel.frame(c))).contains(&"0.0S, 0.0E".into()));
 }

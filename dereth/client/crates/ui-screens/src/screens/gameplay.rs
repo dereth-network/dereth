@@ -730,14 +730,15 @@ pub struct GamePlayScreen {
     pub radar: RadarChildren,
     /// `MapPanel`'s children —
     pub map: MapChildren,
-    /// The 53 location notes the map panel creates under the map image, in
-    /// [`crate::mapradar::map::MAP_NOTES`] order.
+    /// The location notes the map panel creates under the map image, in
+    /// [`crate::mapradar::map::notes`] order.
     ///
     /// Held rather than discarded for the reason retail's set-up holds nothing: retail never
     /// touches a note again, but this build has to be able to *show* that it made them, and a
     /// station that re-derives them by walking the map image's children cannot tell a note from the
     /// player icon.
     pub map_notes: Vec<ElemHandle>,
+    map_profile: Option<dereth_primitives::EraId>,
     /// The client's own change guards: the text is set only when it differs. Kept
     /// per element so a redundant write is not counted as a write, the way the radar keeps
     /// `last_coords`.
@@ -2991,7 +2992,7 @@ impl GamePlayScreen {
     /// crate pairs a page id with a class. The five ids are unique in the shipped layout, so the
     /// recursive walk finds the same elements retail's set-up would.
     ///
-    /// **The note loop.** The 53 location notes are created from the layout named by attribute
+    /// **The note loop.** Location notes are created from the layout named by attribute
     /// `0x48` and the element enum at `0x47`; both attributes are in the shipped layout
     /// (`0x47 = 0x100001F0`, `0x48 = 0x21000026`), the loop is
     /// [`crate::mapradar::map::create_map_notes`], and the notes are not cosmetic: their tooltips
@@ -3006,6 +3007,7 @@ impl GamePlayScreen {
         self.map.house_icon = find(ui, child::HOUSE_LOCATION_ICON);
         self.map.map_image = find(ui, child::MAP_IMAGE);
         self.map_notes.clear();
+        self.map_profile = Some(dereth_primitives::EraId::Eor);
         if let Some(m) = self.map.map_image {
             let a = |name| attr_int(ui, m, name).unwrap_or(0);
             self.map.marker_area = crate::mapradar::map::MarkerArea {
@@ -3015,15 +3017,33 @@ impl GamePlayScreen {
                 y1: a(attr::MARKER_AREA_Y1),
             };
             // The set-up's own next statement: read enum attribute `0x47` and data-id attribute
-            // `0x48`, load that layout, then add 53 map notes. It reads both
+            // `0x48`, load that layout, then add the map notes. It reads both
             // attributes off the map image, which is why it is inside this block and not beside it.
-            self.map_notes = crate::mapradar::map::create_map_notes(ui, m);
+            self.map_notes =
+                crate::mapradar::map::create_map_notes(ui, m, dereth_primitives::EraId::Eor);
         }
         // Hiding the house icon is not in retail's set-up; the icon comes up however the layout
         // left it and the first update decides. A zeroed house position is not valid, so the first
         // pass hides it.
         self.last_map_date_time = None;
         self.last_map_coords = None;
+    }
+
+    /// Rebuild location rollovers when world content changes, independently of feature flags.
+    pub fn refresh_map_profile(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
+        let profile = dereth_client_contract::panels::map::profile(view);
+        if self.map_profile == Some(profile) {
+            return false;
+        }
+        self.map_profile = Some(profile);
+        for note in self.map_notes.drain(..) {
+            ui.clear_tooltip(note);
+            ui.remove_and_delete_root(note);
+        }
+        if let Some(map) = self.map.map_image {
+            self.map_notes = crate::mapradar::map::create_map_notes(ui, map, profile);
+        }
+        true
     }
 
     /// The map panel's update, throttled by the caller.
@@ -3060,7 +3080,7 @@ impl GamePlayScreen {
         // Next update = now + 5.0 — the client, the first thing
         // `Update` does, before it has looked at a single element.
         self.next_map_update = ui.now.0 + f64::from(UPDATE_INTERVAL_SECONDS);
-        let mut wrote = false;
+        let mut wrote = self.refresh_map_profile(ui, view);
 
         // 1. The date. Ungated.
         if let Some(h) = self.map.date_time_text {

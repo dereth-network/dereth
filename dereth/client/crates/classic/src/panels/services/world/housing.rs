@@ -53,8 +53,8 @@ pub(super) fn house(c: &Context<'_>) -> PanelFrame {
                 rect(10, 190, 280, 20),
                 format!(
                     "{}, {}",
-                    coord((y - 1024) as f32 * 0.1 + 0.5, "N", "S"),
-                    coord((x - 1024) as f32 * 0.1 + 0.5, "E", "W")
+                    coord((y - 1024) as f32 * 0.1 + 0.5, 'N', 'S'),
+                    coord((x - 1024) as f32 * 0.1 + 0.5, 'E', 'W')
                 ),
                 "15-6",
             );

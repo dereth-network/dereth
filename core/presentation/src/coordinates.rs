@@ -24,8 +24,18 @@ pub struct Coordinates {
 /// formatting string supplies the N/S or E/W letter, so only the magnitude is numeric input.
 #[must_use]
 pub fn format_coordinate(v: f32, positive: char, negative: char) -> String {
-    let letter = if v < 0.0 { negative } else { positive };
-    format!("{:.1}{letter}", v.abs())
+    let letter = if v == 0.0 {
+        None
+    } else if v < 0.0 {
+        Some(negative)
+    } else {
+        Some(positive)
+    };
+    let mut text = format!("{:.1}", v.abs());
+    if let Some(letter) = letter {
+        text.push(letter);
+    }
+    text
 }
 
 /// The coordinate update. `coords` is the player-coordinates query's `(x, y)`; the
@@ -62,5 +72,15 @@ mod tests {
             update_coordinates((-3.15_f32, -12.0)).combined,
             "3.2S, 12.0W"
         );
+    }
+    /// Behaviour: map.coordinates.zero-has-no-hemisphere
+    #[test]
+    fn zero_components_have_no_hemisphere_and_tiny_values_keep_sign() {
+        let c = update_coordinates((0.0, -0.0));
+        assert_eq!(c.combined, "0.0, 0.0");
+        assert_eq!(c.y_field, "0.0");
+        assert_eq!(c.x_field, "0.0");
+        assert_eq!(update_coordinates((0.001, -0.001)).combined, "0.0N, 0.0W");
+        assert_eq!(update_coordinates((-0.001, 0.001)).combined, "0.0S, 0.0E");
     }
 }

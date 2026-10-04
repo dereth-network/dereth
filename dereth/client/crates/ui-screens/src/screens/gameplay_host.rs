@@ -649,6 +649,7 @@ fn frame(
     out.toolbar = screen.update_toolbar_selection(ui, view);
     out.radar = screen.update_radar(ui, view);
     out.indicators = screen.update_indicators(ui, view);
+    screen.refresh_map_profile(ui, view);
     // The era's features, before any page could be opened this frame.
     let _ = screen.apply_era(ui, view.era_features());
     // Driven from the same place every other window on the screen is. It runs

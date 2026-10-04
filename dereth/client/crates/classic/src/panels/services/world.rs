@@ -2,7 +2,9 @@ use super::*;
 use dereth_primitives::num::to_i32;
 
 mod housing;
-mod map_regions;
+use dereth_client_contract::panels::map::{self as shared_map, MapNote};
+use dereth_presentation::coordinates::format_coordinate as coord;
+use dereth_primitives::EraId;
 mod minigame;
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     match id {
@@ -95,20 +97,7 @@ impl Panel for Link {
 struct MapHouse {
     house: bool,
     queried: bool,
-    hover: Option<usize>,
-}
-fn coord(v: f32, positive: &str, negative: &str) -> String {
-    format!(
-        "{:.1}{}",
-        v.abs(),
-        if v > 0.0 {
-            positive
-        } else if v < 0.0 {
-            negative
-        } else {
-            ""
-        }
-    )
+    hover: Option<(EraId, MapNote)>,
 }
 fn marker(lx: i32, ly: i32) -> (i32, i32) {
     (lx * 245 / 2048 + 28, (2047 - ly) * 245 / 2048 + 44)
@@ -146,11 +135,14 @@ impl Panel for MapHouse {
                 "14-5",
                 0xff080808,
             );
-            if let Some(i) = self.hover {
+            if let Some((_, note)) = self
+                .hover
+                .filter(|(profile, _)| *profile == shared_map::profile(c.game))
+            {
                 label_color(
                     &mut f,
                     rect(120, 300, 140, 20),
-                    map_regions::REGIONS[i].4,
+                    note.name,
                     "15-6",
                     0xff080808,
                 );
@@ -164,7 +156,7 @@ impl Panel for MapHouse {
                     label_color(
                         &mut f,
                         rect(30, 300, 90, 20),
-                        format!("{}, {}", coord(north, "N", "S"), coord(east, "E", "W")),
+                        format!("{}, {}", coord(north, 'N', 'S'), coord(east, 'E', 'W')),
                         "15-6",
                         0xff080808,
                     );
@@ -204,7 +196,8 @@ impl Panel for MapHouse {
         if let ControlEvent::Pointer { x, y, pressed } = e {
             let y = y - 25;
             if !self.house {
-                self.hover = map_region(x, y);
+                let profile = shared_map::profile(c.game);
+                self.hover = map_region(x, y, profile).map(|note| (profile, note));
                 if pressed && c.map_teleport_allowed {
                     if let Some((lx, ly)) = map_destination(x, y) {
                         return vec![PanelAction::Host(HostAction::MapTeleport { lx, ly })];
@@ -229,10 +222,10 @@ impl Panel for MapHouse {
     }
 }
 
-fn map_region(x: i32, y: i32) -> Option<usize> {
-    map_regions::REGIONS
-        .iter()
-        .rposition(|&(rx, ry, w, h, _)| x >= rx && x < rx + w && y >= ry && y < ry + h)
+fn map_region(x: i32, y: i32, profile: EraId) -> Option<MapNote> {
+    shared_map::notes(profile)
+        .rev()
+        .find(|note| note.contains(x - 22, y - 33))
 }
 fn map_destination(x: i32, y: i32) -> Option<(u32, u32)> {
     if !(28..273).contains(&x) || !(44..289).contains(&y) {
@@ -257,12 +250,11 @@ mod tests {
         }
     }
     #[test]
-    fn map_hover_has_fifty_named_regions_and_excludes_right_bottom_edges() {
-        assert_eq!(map_regions::REGIONS.len(), 50);
-        let (x, y, w, h, name) = map_regions::REGIONS[0];
-        assert_eq!(name, "Aerlinthe Island");
-        assert_eq!(map_region(x, y), Some(0));
-        assert_ne!(map_region(x + w, y + h), Some(0));
+    fn map_hover_has_profile_regions_and_excludes_right_bottom_edges() {
+        assert_eq!(shared_map::notes(EraId::Infiltration).count(), 50);
+        let note = map_region(200, 53, EraId::Infiltration).unwrap();
+        assert_eq!(note.name, "Aerlinthe Island");
+        assert_eq!(map_region(211, 65, EraId::Infiltration), None);
     }
     #[test]
     fn map_markers_follow_integer_projection_and_inverted_north() {
@@ -271,7 +263,7 @@ mod tests {
     }
     #[test]
     fn zero_coordinate_has_no_hemisphere() {
-        assert_eq!(coord(0.0, "N", "S"), "0.0");
-        assert_eq!(coord(-12.25, "N", "S"), "12.2S");
+        assert_eq!(coord(0.0, 'N', 'S'), "0.0");
+        assert_eq!(coord(-12.25, 'N', 'S'), "12.2S");
     }
 }

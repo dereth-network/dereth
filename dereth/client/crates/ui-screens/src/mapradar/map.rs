@@ -1,9 +1,7 @@
-//! `MapPanel` — the world map, its 53 compiled-in markers, and the marker placement rule.
+//! The world map, its profile-selected markers, and the marker placement rule.
 //!
-//! The map's 53 markers are compiled-in data, not dat data, and must be shipped with the client.
-//! They live in the client's static location table, 53 rows
-//! of 20 bytes (`ulong X, Y, Width, Height; wchar_t* Name`), and the names are wide-string
-//! literals built into the client that are **not** localised.
+//! Marker rectangles and literal names come from the shared world-profile location table.
+//! Artwork and marker placement remain local to the panel.
 //!
 //! **There is no dungeon map.** `MapPanel` renders one image and hides the player marker
 //! whenever the player is not outside; indoors the only positional feedback is the
@@ -13,95 +11,8 @@ use dereth_primitives::num::to_i32_f64;
 use dereth_primitives::DataId;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
-/// One row of the client's location table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MapNote {
-    /// Position in the map image's own pixel space.
-    pub x: i32,
-    pub y: i32,
-    /// The size [`add_map_note`] gives the note element — a resize to `(Width, Height)`, not a
-    /// hit rectangle read by anything else. See [`MAP_NOTES`].
-    pub w: i32,
-    pub h: i32,
-    pub name: &'static str,
-}
-
-const fn n(x: i32, y: i32, w: i32, h: i32, name: &'static str) -> MapNote {
-    MapNote { x, y, w, h, name }
-}
-
-/// The 53 location markers, in table order.
-///
-/// The client calls once per row: each note is created as a
-/// child of the map element from the layout named by attribute `0x48`, **moved to `(X, Y)`,
-/// resized to `(Width, Height)`**, and given a tooltip built from `Name` as a literal
-/// `StringInfo`.
-///
-/// It is **not** "moved to `(X, Y)`, shown". What it does:
-///
-/// Note creation moves the element to the row's `(X, Y)`, resizes it to
-/// `(Width, Height)`, then sets its tooltip from the row's name.
-///
-/// There is **no visibility write** anywhere in the client's map-note add — the note comes up
-/// however the layout left it, which in the shipped `0x21000026` is a visible `Button` wrapped
-/// round a **hidden** frame child ([`NOTE_REST_STATE`]). That is why the four
-/// `(Width, Height)` pairs in this table matter: they
-/// are the note element's **size**, not a hit rectangle a separate tester reads.
-pub const MAP_NOTES: [MapNote; 53] = [
-    n(178, 20, 11, 12, "Aerlinthe Island"),
-    n(18, 74, 5, 5, "Ahurenga"),
-    n(141, 166, 7, 6, "Al-Arqas"),
-    n(129, 121, 7, 6, "Al-Jalima"),
-    n(190, 88, 9, 8, "Arwic"),
-    n(19, 201, 7, 6, "Ayan Baqur"),
-    n(200, 190, 7, 6, "Baishi"),
-    n(184, 53, 5, 5, "Bandit Castle"),
-    n(34, 84, 5, 5, "Bluespire"),
-    n(44, 235, 5, 5, "Candeth Keep"),
-    n(180, 97, 9, 8, "Cragstone"),
-    n(91, 102, 5, 5, "Danby's Outpost"),
-    n(211, 138, 9, 8, "Dryreach"),
-    n(199, 106, 9, 8, "Eastham"),
-    n(56, 13, 5, 5, "Fiun Outpost"),
-    n(37, 127, 9, 8, "Fort Tethana"),
-    n(156, 94, 9, 8, "Glenden Wood"),
-    n(43, 79, 5, 5, "Greenspire"),
-    n(224, 177, 7, 6, "Hebian-to"),
-    n(164, 77, 9, 8, "Holtburg"),
-    n(182, 230, 7, 6, "Kara"),
-    n(155, 185, 7, 6, "Khayyaban"),
-    n(224, 218, 7, 6, "Kryst"),
-    n(212, 195, 7, 6, "Lin"),
-    n(159, 224, 5, 5, "Linvak Tukal"),
-    n(185, 126, 9, 8, "Lytelthorpe"),
-    n(235, 220, 7, 6, "MacNiall's Freehold"),
-    n(223, 203, 7, 6, "Mayoi"),
-    n(141, 53, 5, 5, "Mt Esper-Crater Village"),
-    n(224, 191, 7, 6, "Nanto"),
-    n(142, 46, 5, 5, "Neydisa"),
-    n(240, 128, 5, 5, "Oolutanga's Refuge"),
-    n(74, 79, 5, 5, "Plateau Village"),
-    n(148, 218, 7, 6, "Qalaba'r"),
-    n(26, 83, 5, 5, "Redspire"),
-    n(193, 114, 9, 8, "Rithwic"),
-    n(146, 133, 7, 6, "Samsur"),
-    n(50, 42, 5, 5, "Sanamar"),
-    n(195, 163, 7, 6, "Sawato"),
-    n(213, 171, 7, 6, "Shoushi"),
-    n(41, 25, 5, 5, "Silyun"),
-    n(6, 239, 15, 16, "Singularity Caul Island"),
-    n(100, 48, 5, 5, "Stonehold"),
-    n(32, 76, 5, 5, "Timaru"),
-    n(239, 163, 7, 6, "Tou-Tou"),
-    n(131, 148, 7, 6, "Tufa"),
-    n(112, 244, 5, 5, "Ulgrim's Island"),
-    n(159, 160, 7, 6, "Uziz"),
-    n(63, 203, 7, 6, "Wai Jhou"),
-    n(144, 181, 7, 6, "Xarabydun"),
-    n(175, 145, 7, 6, "Yanshi"),
-    n(121, 156, 7, 6, "Yaraq"),
-    n(123, 112, 7, 6, "Zaikhal"),
-];
+pub use dereth_client_contract::panels::map::{notes, MapNote};
+use dereth_primitives::EraId;
 
 /// A location row is `ulong X, Y, Width, Height; wchar_t* Name` = 20 bytes.
 pub const LOCATION_ROLLOVER_INFO_SIZE: usize = 20;
@@ -270,18 +181,18 @@ pub const NOTE_REST_STATE: u32 = 1;
 /// See [`NOTE_REST_STATE`] — the hovered note.
 pub const NOTE_ROLLOVER_STATE: u32 = 2;
 
-/// The client's note loop — the 53 [`add_map_note`] calls, in table order.
+/// The client's note loop — the selected [`add_map_note`] calls, in table order.
 ///
 /// Read element enum `0x47` and layout data id `0x48` from the map. Load that id
-/// as a layout (database type `0x23`); failure skips all 53 notes. Otherwise create
+/// as a layout (database type `0x23`); failure skips all notes. Otherwise create
 /// each note in table order and release the layout after the loop.
 ///
 /// Without this loop the map page has an image, a dot and no town on it; this is the caller of
 /// the table and the placement rule.
 ///
-/// Returns the notes it created, in [`MAP_NOTES`] order. An empty vector is one of the client's
+/// Returns the notes it created, in [`notes`] order. An empty vector is one of the client's
 /// two skip arms: the map image carries neither attribute, or the layout will not load.
-pub fn create_map_notes(ui: &mut UiSystem, map: ElemHandle) -> Vec<ElemHandle> {
+pub fn create_map_notes(ui: &mut UiSystem, map: ElemHandle, profile: EraId) -> Vec<ElemHandle> {
     let Some(element) = crate::bind::attr_enum(ui, map, attr::NOTE_ELEMENT_ENUM) else {
         return Vec::new();
     };
@@ -289,9 +200,8 @@ pub fn create_map_notes(ui: &mut UiSystem, map: ElemHandle) -> Vec<ElemHandle> {
         return Vec::new();
     };
     let element = ElementId(element);
-    MAP_NOTES
-        .iter()
-        .filter_map(|n| add_map_note(ui, map, layout, element, *n))
+    notes(profile)
+        .filter_map(|n| add_map_note(ui, map, layout, element, n))
         .collect()
 }
 
@@ -316,7 +226,7 @@ pub fn create_map_notes(ui: &mut UiSystem, map: ElemHandle) -> Vec<ElemHandle> {
 ///
 /// * **there is no zoom, no scroll and no pan.** The page has no such message arm, the map image has no
 ///   scroll attributes, and the image is one 257x267 blit ([`graphic::MAP_IMAGE`]).
-/// * **there is no "place your own marker".** The only markers are the 53 compiled-in notes and
+/// * **there is no "place your own marker".** The only markers are the profile-selected notes and
 ///   the two icons; nothing writes a note at run time.
 /// * **the hover behaviour is the note's own, not the page's**: the tooltip [`add_map_note`] sets,
 ///   and the rollover frame the button element's mouse-over handler raises through
@@ -388,16 +298,6 @@ pub fn house_marker_coords(lx: i32, ly: i32) -> (f32, f32) {
     }
 }
 
-/// The landblock coordinate-to-gid conversion, inlined into the map panel. Valid for
-/// `0 <= x, y < 0x7F8`.
-/// ```text
-/// gid = ((y & 7) + 1 + (x & 7) * 8) | (((x & ~7) << 5) | (y >> 3)) << 16
-/// ```
-#[must_use]
-pub fn lcoord_to_gid(x: u32, y: u32) -> u32 {
-    ((y & 7) + 1 + (x & 7) * 8) | ((((x & !7) << 5) | (y >> 3)) << 16)
-}
-
 /// The map panel's update is throttled: the next update is due at `now + 5.0`.
 pub const UPDATE_INTERVAL_SECONDS: f32 = 5.0;
 
@@ -451,19 +351,23 @@ pub const OUTDOORS_GATES: [&str; 3] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn n(x: i32, y: i32, w: i32, h: i32, name: &'static str) -> MapNote {
+        MapNote { x, y, w, h, name }
+    }
 
     /// Oracle: the 53-row location table dumped from the client. Row count, the first and last
     /// rows, and the alphabetical ordering are all checked.
     #[test]
     fn there_are_exactly_fifty_three_markers_in_the_dumped_order() {
-        assert_eq!(MAP_NOTES.len(), 53);
-        assert_eq!(MAP_NOTES[0], n(178, 20, 11, 12, "Aerlinthe Island"));
-        assert_eq!(MAP_NOTES[26], n(235, 220, 7, 6, "MacNiall's Freehold"));
-        assert_eq!(MAP_NOTES[27], n(223, 203, 7, 6, "Mayoi"));
-        assert_eq!(MAP_NOTES[52], n(123, 112, 7, 6, "Zaikhal"));
+        let map_notes: Vec<_> = notes(EraId::Eor).collect();
+        assert_eq!(map_notes.len(), 53);
+        assert_eq!(map_notes[0], n(178, 20, 11, 12, "Aerlinthe Island"));
+        assert_eq!(map_notes[26], n(235, 220, 7, 6, "MacNiall's Freehold"));
+        assert_eq!(map_notes[27], n(223, 203, 7, 6, "Mayoi"));
+        assert_eq!(map_notes[52], n(123, 112, 7, 6, "Zaikhal"));
         // The dumped table is in name order, which is how the two-column layout in §2.1 splits
         // 0..26 into the left column and 27..52 into the right.
-        let names: Vec<&str> = MAP_NOTES.iter().map(|m| m.name).collect();
+        let names: Vec<&str> = map_notes.iter().map(|m| m.name).collect();
         let mut sorted = names.clone();
         sorted.sort_unstable();
         assert_eq!(names, sorted, "the location table is stored in name order");
@@ -476,7 +380,7 @@ mod tests {
     fn the_marker_rectangles_come_in_the_four_dumped_sizes() {
         use std::collections::BTreeMap;
         let mut hist: BTreeMap<(i32, i32), usize> = BTreeMap::new();
-        for m in MAP_NOTES {
+        for m in notes(EraId::Eor) {
             *hist.entry((m.w, m.h)).or_default() += 1;
         }
         assert_eq!(
@@ -490,7 +394,7 @@ mod tests {
             ])
         );
         // Every marker is inside the 256-pixel map image.
-        for m in MAP_NOTES {
+        for m in notes(EraId::Eor) {
             assert!(
                 (0..256).contains(&m.x) && (0..256).contains(&m.y),
                 "{}",
@@ -626,19 +530,6 @@ mod tests {
         assert_eq!(OUTDOORS_GATES[0], "date: never gated");
         assert_eq!(OUTDOORS_GATES[1], "coordinates: outdoors only");
         assert_eq!(OUTDOORS_GATES[2], "player marker: outdoors only");
-    }
-
-    /// Oracle: §2.3's, evaluated rather than restated (the
-    /// brief's §5 rule about worked examples).
-    #[test]
-    fn lcoord_to_gid_packs_the_landblock_the_documented_way() {
-        // x = 0xA9, y = 0xB4: block (0xA8, 0xB0) with cell index ((4)+1+(1)*8) = 13 = 0x0D.
-        // high = ((0xA8 << 5) | (0xB4 >> 3)) = 0x1500 | 0x16 = 0x1516.
-        assert_eq!(lcoord_to_gid(0xA9, 0xB4), 0x1516_000D);
-        // The origin block's first cell is 1, never 0.
-        assert_eq!(lcoord_to_gid(0, 0), 0x0000_0001);
-        // Within a block the index runs 1..=64.
-        assert_eq!(lcoord_to_gid(7, 7), 0x0000_0040);
     }
 
     /// Oracle: §2.3's throttle and its two fixed prefixes, and §2.4's "there is no dungeon map".

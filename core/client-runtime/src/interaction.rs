@@ -5041,11 +5041,14 @@ impl Interaction {
                 }
                 // The map teleport of a privileged player: the middle of the outdoor block.
                 UiRequest::MapTeleport { x, y } => {
-                    if x < 0x7f8 && y < 0x7f8 {
-                        let cell =
-                            ((y & 7) + 1 + (x & 7) * 8) | ((((x & !7) << 5) | (y >> 3)) << 16);
+                    let cell = i32::try_from(x)
+                        .ok()
+                        .zip(i32::try_from(y).ok())
+                        .map(|(x, y)| dereth_physics::landdefs::lcoord_to_gid(x, y))
+                        .filter(|cell| cell.0 != 0);
+                    if let Some(cell) = cell {
                         let mut destination = dereth_protocol::types::space::PositionWire {
-                            objcell_id: cell,
+                            objcell_id: cell.0,
                             ..Default::default()
                         };
                         destination.frame.origin.x = 10.;
@@ -10944,6 +10947,42 @@ fn chat_real_time() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: map.teleport.refuses-invalid-coordinates
+    #[test]
+    fn map_teleport_uses_bounded_landscape_cells_and_preserves_destination() {
+        let mut world = dereth_client_model::World::new();
+        let mut interaction = Interaction::new();
+        for (x, y, expected) in [
+            (0, 0, Some(1)),
+            (7, 7, Some(0x40)),
+            (0xa9, 0xb4, Some(0x1516_000d)),
+            (0x7f8, 0, None),
+            (0, 0x7f8, None),
+            (u32::MAX, 0, None),
+            (0, u32::MAX, None),
+        ] {
+            interaction.queue(vec![], vec![UiRequest::MapTeleport { x, y }]);
+            assert!(interaction
+                .run_ui_requests(&mut world, false, ServerTime(1.0))
+                .is_empty());
+            let requests = interaction.take_pending_requests();
+            if let Some(cell) = expected {
+                let [Request::AdvocateTeleport(request)] = requests.as_slice() else {
+                    panic!("{requests:?}")
+                };
+                assert_eq!(request.destination.objcell_id, cell);
+                assert_eq!(
+                    request.destination.frame.origin,
+                    dereth_primitives::Vec3::new(10.0, 10.0, 0.0).into()
+                );
+                assert_eq!(request.destination.frame.orientation.w, 1.0);
+                assert!(request.target_name.is_empty());
+            } else {
+                assert!(requests.is_empty(), "{x}, {y}");
+            }
+        }
+    }
 
     /// Behaviour: chat.target-sweep
     #[test]

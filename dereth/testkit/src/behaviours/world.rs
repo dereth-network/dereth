@@ -36,6 +36,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "map.coordinates.zero-has-no-hemisphere",
+        says: "Map and radar coordinates omit hemisphere letters at exactly zero, including negative zero, while tiny nonzero values retain their direction.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MAP-ZERO-COORDINATE"),
+        station: "dereth-presentation::lib::coordinates::tests::zero_components_have_no_hemisphere_and_tiny_values_keep_sign",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "map.page.a-freshly-opened-map-highlights-no-town-at-all",
         says: "A map page the player has just opened shows every town resting: no frame is drawn \
                round any of them, each is inside the map picture, and the frame each one carries \
@@ -122,6 +130,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P1-158-DOT"),
         station: "dereth-testkit::dat::world::scenario_the_players_dot_is_where_the_arithmetic_puts_it",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "map.regions.follow-world-profile",
+        says: "Both interfaces show the connected world profile's map regions and Yanshi position, independently of interface artwork.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MAP-WORLD-PROFILE"),
+        station: "dereth-client-contract::lib::panels::map::tests::profiles_select_regions_and_yanshi_position",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "map.teleport.refuses-invalid-coordinates",
+        says: "A map teleport sends the bounded landscape cell with the fixed destination origin and heading, and sends nothing for invalid coordinates.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-MAP-TELEPORT-CELLS"),
+        station: "dereth-client-runtime::lib::interaction::tests::map_teleport_uses_bounded_landscape_cells_and_preserves_destination",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "map.window.a-second-look-at-an-unchanged-world-writes-nothing",
@@ -1238,6 +1262,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O423-CULL"),
         station: "dereth-testkit::dat::world::scenario_what_the_radar_shows_stops_one_short_of_its_range",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "radar.shared-roles-and-projection-variants",
+        says: "Radar interfaces share object visibility and relationship roles while preserving their palette, shape, range-boundary and projection conventions; hidden objects use the default selection color.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-RADAR-PRESENTATION"),
+        station: "dereth-client-contract::lib::radar::tests::roles_and_projection_preserve_interface_conventions",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "scenery.animation.a-delayed-effect-still-happens-when-the-frame-empties-the-queue",

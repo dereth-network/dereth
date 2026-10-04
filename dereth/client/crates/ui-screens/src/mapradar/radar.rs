@@ -9,6 +9,7 @@ use dereth_primitives::num::math;
 use dereth_primitives::num::to_i32;
 
 use crate::view::RadarEntry;
+use dereth_client_contract::{options::interface::Interface, radar as shared};
 
 // -------------------------------------------------------------------------------------------
 // The palette
@@ -133,11 +134,7 @@ pub use dereth_client_contract::radar::radar_enum;
 /// reason.
 #[must_use]
 pub fn inq_showable_on_radar(o: &RadarEntry) -> bool {
-    o.in_world
-        && matches!(
-            o.radar_enum,
-            radar_enum::SHOW_MOVEMENT | radar_enum::SHOW_ATTACKING | radar_enum::SHOW_ALWAYS
-        )
+    shared::showable(o)
 }
 
 // -------------------------------------------------------------------------------------------
@@ -147,54 +144,19 @@ pub fn inq_showable_on_radar(o: &RadarEntry) -> bool {
 /// The radar panel's blip colour, in the client's exact decision order.
 #[must_use]
 pub fn get_blip_color(o: Option<&RadarEntry>) -> RadarColor {
-    let Some(o) = o else { return semantic::DEFAULT };
-    if o.bitfield & bitfield::HIDDEN != 0 {
-        return semantic::DEFAULT;
+    match shared::color_role(o, Interface::Retail).index() {
+        1 => BLUE,
+        2 => GOLD,
+        3 => WHITE,
+        4 => PURPLE,
+        5 => RED,
+        6 => PINK,
+        7 => GREEN,
+        8 => YELLOW,
+        9 => CYAN,
+        10 => BRIGHT_GREEN,
+        _ => semantic::DEFAULT,
     }
-    if o.blip_color != 0 {
-        return match o.blip_color {
-            1 => BLUE,
-            2 => GOLD,
-            3 => WHITE,
-            4 => PURPLE,
-            5 => RED,
-            6 => PINK,
-            7 => GREEN,
-            8 => YELLOW,
-            9 => CYAN,
-            10 => BRIGHT_GREEN,
-            _ => semantic::DEFAULT,
-        };
-    }
-    if o.bitfield & bitfield::PORTAL != 0 {
-        return semantic::PORTAL;
-    }
-    if o.bitfield & bitfield::VENDOR != 0 {
-        return semantic::VENDOR;
-    }
-    if o.bitfield & bitfield::CREATURE != 0 && o.is_attackable && !o.is_player {
-        return semantic::CREATURE;
-    }
-    if !o.is_player {
-        return semantic::DEFAULT;
-    }
-    let mut base = semantic::DEFAULT;
-    if o.bitfield & bitfield::ADMIN != 0 && o.bitfield & bitfield::NOT_ADMIN == 0 {
-        base = semantic::ADMIN;
-    } else if o.is_pk {
-        base = semantic::PLAYER_KILLER;
-    } else if o.is_pk_lite {
-        base = semantic::PK_LITE;
-    } else if o.bitfield & bitfield::PLAYER_CREATURE != 0 {
-        base = semantic::CREATURE;
-    }
-    if o.is_fellowship_leader {
-        return semantic::FELLOWSHIP_LEADER;
-    }
-    if o.is_fellow {
-        return semantic::FELLOWSHIP;
-    }
-    base
 }
 
 // -------------------------------------------------------------------------------------------
@@ -287,30 +249,18 @@ pub fn selected_pixels() -> Vec<(i32, i32)> {
 /// `player` is the player's own entry, or `None` before `PlayerDescReceived`.
 #[must_use]
 pub fn get_blip_shape(o: Option<&RadarEntry>, player: Option<&RadarEntry>) -> BlipShape {
-    let Some(o) = o else { return BlipShape::Undef };
-    if o.bitfield & bitfield::HIDDEN != 0 {
-        return BlipShape::Undef;
+    let viewer = player.map(|p| shared::Viewer {
+        pk: p.is_pk,
+        pk_lite: p.is_pk_lite,
+    });
+    match shared::shape_role(o, viewer, Interface::Retail) {
+        shared::ShapeRole::Hidden => BlipShape::Undef,
+        shared::ShapeRole::Ordinary => BlipShape::Default,
+        shared::ShapeRole::Allegiance => BlipShape::AllegianceMember,
+        shared::ShapeRole::Threat => BlipShape::Threat,
+        shared::ShapeRole::FellowshipLeader => BlipShape::FellowshipLeader,
+        shared::ShapeRole::Fellowship => BlipShape::Fellowship,
     }
-    if o.is_fellow {
-        // Literally the fellowship shape minus the is-leader flag, i.e. 6 - 1 = 5.
-        return if o.is_fellowship_leader {
-            BlipShape::FellowshipLeader
-        } else {
-            BlipShape::Fellowship
-        };
-    }
-    if let Some(p) = player {
-        if o.is_allegiance_member {
-            return BlipShape::AllegianceMember;
-        }
-        if o.is_pk && p.is_pk {
-            return BlipShape::Threat;
-        }
-        if o.is_pk_lite && p.is_pk_lite {
-            return BlipShape::Threat;
-        }
-    }
-    BlipShape::Default
 }
 
 // -------------------------------------------------------------------------------------------
@@ -329,12 +279,12 @@ pub use dereth_client_contract::radar::radar_range;
 /// step runs at most every 25 ms.
 pub const UPDATE_INTERVAL_SECONDS: f32 = 0.025;
 
+/// See [`DIM_HEIGHT`].
+pub use shared::DIM_FACTOR;
 /// The vertical threshold above and below which a blip is dimmed, and the factor it is dimmed by.
 ///
 /// "Objects more than **5.0 units** above or below the player are drawn at **65 %** brightness."
-pub const DIM_HEIGHT: f32 = 5.0;
-/// See [`DIM_HEIGHT`].
-pub const DIM_FACTOR: f32 = 0.65;
+pub use shared::DIM_HEIGHT;
 
 /// The mouse-over test radius, squared: `dist² < 0x25`, i.e. strictly inside 6 pixels.
 pub const HOVER_DIST_SQ: i32 = 0x25;
@@ -367,13 +317,7 @@ impl Blip {
 }
 
 /// The radar geometry read from the layout during panel initialization.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RadarGeometry {
-    /// Attribute `0x1000002D` — the blip field radius in pixels.
-    pub radius: i32,
-    /// Attributes `0x1000002E`/`0x1000002F`/`0x10000030`, assembled into the centre point.
-    pub center: (f32, f32),
-}
+pub use shared::Geometry as RadarGeometry;
 
 /// The whole loop, minus the surface writes.
 ///
@@ -396,56 +340,18 @@ pub fn draw_objects(
     if radar_blank {
         return out;
     }
-    let range_sq = (range - 1.0) * (range - 1.0);
-    #[allow(clippy::cast_precision_loss)]
-    let scale = geom.radius as f32 / range;
     for (i, o) in objects.iter().enumerate() {
-        if !o.in_world {
+        let Some(projected) = shared::project(o, geom, range, Interface::Retail) else {
             continue;
-        }
-        // The client's two rejections, which happen before an object is ever
-        // a radar-info record. Our seam carries one flat list rather than the client's pair of
-        // (object table, radar info list), so the two live here — but they are the
-        // list-building rules, not drawing rules, and `blips_are_only_the_showable_objects` is what
-        // holds them to that.
-        //
-        // 1. the object is not the local player — **our own** object is never a blip
-        //     (other players are). What marks it is the green cross the radar draws
-        //     at the centre; see [`center_marker_fills`].
-        //  2. showable on radar — see [`inq_showable_on_radar`].
-        if o.is_self || !inq_showable_on_radar(o) {
-            continue;
-        }
-        let (px, py, pz) = o.player_space;
-        if px * px + py * py >= range_sq {
-            continue;
-        }
-        let sx = to_i32(px * scale + geom.center.0);
-        let sy = to_i32(geom.center.1 - py * scale);
-        let cx = to_i32(geom.center.0);
-        let cy = to_i32(geom.center.1);
-        if sx < cx - geom.radius || sx > cx + geom.radius {
-            continue;
-        }
-        if sy < cy - geom.radius || sy > cy + geom.radius {
-            continue;
-        }
+        };
         let shape = get_blip_shape(Some(o), player);
-        if shape == BlipShape::Undef {
-            // A hidden object gets the undefined shape and is skipped when drawing.
-            continue;
-        }
         out.push(Blip {
             index: i,
-            x: sx,
-            y: sy,
+            x: projected.x,
+            y: projected.y,
             color: get_blip_color(Some(o)),
             shape,
-            dim: if pz.abs() < DIM_HEIGHT {
-                1.0
-            } else {
-                DIM_FACTOR
-            },
+            dim: if projected.bright { 1.0 } else { DIM_FACTOR },
             selected: selected == Some(o.id),
         });
     }
@@ -729,6 +635,36 @@ mod tests {
             in_world: true,
             ..Default::default()
         }
+    }
+
+    /// Behaviour: radar.shared-roles-and-projection-variants
+    #[test]
+    fn modern_radar_uses_shared_roles_with_its_own_pixels_and_picking() {
+        let mut entry = obj(0x8000_4000);
+        entry.id = ObjectId(2);
+        entry.radar_enum = 4;
+        entry.player_space = (-1.0, 1.0, 0.0);
+        let geometry = RadarGeometry {
+            radius: 50,
+            center: (60.0, 60.0),
+        };
+        let rows = draw_objects(&[entry], None, geometry, 75.0, None, false);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (rows[0].x, rows[0].y, rows[0].color.hex, rows[0].shape),
+            (59, 59, 0xffffff, BlipShape::Default)
+        );
+        assert_eq!(object_under_mouse(&rows, (59, 59)), Some(0));
+        entry.blip_color = 1;
+        let rows = draw_objects(&[entry], None, geometry, 75.0, None, false);
+        let fills = blip_fills(&rows[0]);
+        assert_eq!(fills[0], dereth_ui::UiFill::point(59, 59, 0xff3fa8ff));
+        entry.blip_color = 99;
+        assert_eq!(get_blip_color(Some(&entry)).hex, 0xffffff);
+        entry.bitfield |= 0x80;
+        let rows = draw_objects(&[entry], None, geometry, 75.0, None, false);
+        assert!(rows.is_empty());
+        assert_eq!(object_under_mouse(&rows, (59, 59)), None);
     }
 
     /// Oracle: the ten base-colour RGB values and thirteen semantic aliases, including the three

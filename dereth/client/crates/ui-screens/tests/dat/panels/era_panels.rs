@@ -818,3 +818,112 @@ fn character_options_restore_controls_and_refresh_complete_captions_on_feature_c
         }
     }
 }
+
+#[derive(Debug)]
+struct MapWorld {
+    era: EraView,
+    coords: (f32, f32),
+}
+impl GameView for MapWorld {
+    fn era(&self) -> Option<&EraView> {
+        Some(&self.era)
+    }
+    fn era_features(&self) -> dereth_primitives::EraFeatures {
+        EraId::Eor.features()
+    }
+    fn player_coords(&self) -> Option<(f32, f32)> {
+        Some(self.coords)
+    }
+    fn player_outside(&self) -> bool {
+        true
+    }
+}
+
+/// Behaviour: map.regions.follow-world-profile
+#[test]
+fn map_notes_rebuild_for_profile_changes_with_identical_features_and_snapshot_views() {
+    let (mut ui, _flow, store) =
+        crate::common::layout::load((800, 600), RegistrationOrder::BeforeResolver);
+    ui.assets = Some(store);
+    let mut s = GamePlayScreen::default();
+    s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
+        .expect("gameplay layout");
+    pump(&mut ui, &mut s);
+    let mut w = MapWorld {
+        era: EraView::default(),
+        coords: (0.0, 0.0),
+    };
+    let mut old = Vec::new();
+    for (profile, count, yanshi) in [
+        (EraId::Infiltration, 50, 179),
+        (EraId::Eor, 53, 175),
+        (EraId::Infiltration, 50, 179),
+    ] {
+        let old_tooltip = s
+            .map_notes
+            .iter()
+            .find(|h| ui.node(**h).unwrap().tooltip_text.as_deref() == Some("Fiun Outpost"))
+            .copied()
+            .map(|note| {
+                ui.start_tooltip_at_mouse(note, 10.0)
+                    .expect("live note tooltip")
+            });
+        w.era.era = profile;
+        let snap = dereth_client_contract::GameSnapshot::from_view(&w);
+        s.apply_era(&mut ui, w.era_features());
+        assert!(s.refresh_map_profile(&mut ui, &snap));
+        assert_eq!(s.map_notes.len(), count);
+        if let Some(tooltip) = old_tooltip {
+            assert!(
+                ui.node(tooltip).is_none(),
+                "removed region tooltip cannot survive"
+            );
+        }
+        assert!(
+            old.iter().all(|h| ui.node(*h).is_none()),
+            "old rollover elements must be destroyed"
+        );
+        let rows: Vec<_> = s
+            .map_notes
+            .iter()
+            .map(|h| {
+                let node = ui.node(*h).unwrap();
+                (node.tooltip_text.as_deref().unwrap(), node.region.box_)
+            })
+            .collect();
+        for name in ["Fiun Outpost", "Sanamar", "Silyun"] {
+            assert_eq!(rows.iter().any(|(n, _)| *n == name), profile == EraId::Eor);
+        }
+        let (_, rect) = rows.iter().find(|(n, _)| *n == "Yanshi").unwrap();
+        assert_eq!(
+            (rect.x0, rect.y0, rect.width(), rect.height()),
+            (yanshi, 145, 7, 6)
+        );
+        old = s.map_notes.clone();
+        assert!(!s.refresh_map_profile(&mut ui, &w));
+        assert_eq!(s.map_notes, old);
+    }
+}
+
+/// Behaviour: map.coordinates.zero-has-no-hemisphere
+#[test]
+fn map_coordinate_widget_uses_empty_zero_suffix_and_preserves_tiny_signs() {
+    let (mut ui, mut s) = screen();
+    let mut w = MapWorld {
+        era: EraView::default(),
+        coords: (0.0, -0.0),
+    };
+    let text = s.map.coordinate_text.unwrap();
+    s.update_map(&mut ui, &w);
+    assert_eq!(
+        ui.text_element_mut(text).unwrap().glyphs.inq_text(false),
+        "0.0, 0.0"
+    );
+    w.coords = (-0.001, 0.001);
+    let snap = dereth_client_contract::GameSnapshot::from_view(&w);
+    s.update_map(&mut ui, &snap);
+    assert_eq!(
+        ui.text_element_mut(text).unwrap().glyphs.inq_text(false),
+        "0.0S, 0.0E"
+    );
+}
