@@ -155,9 +155,7 @@ fn every_row_the_retail_interface_does_not_use_has_no_default_key() {
     let f = shipped();
     let gm = MasterInputMap::read(&f.keymap_gm).expect("keymap 0x14000000 must decode");
     let mut dm = MasterInputMap::read(&f.keymap_default).expect("DefaultMap must decode");
-    if let Some(own) = dereth_input::dereth::default_map(&dm) {
-        dm.merge(&own, true);
-    }
+    dm.create_input_map(dereth_input::dereth::INPUT_MAP);
     let unused: Vec<_> = ROWS
         .iter()
         .filter(|r| r.not_used(Interface::Retail).is_some())

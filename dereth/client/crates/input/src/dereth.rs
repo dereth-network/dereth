@@ -1,31 +1,27 @@
 //! This client's own actions in the input layer ([`dereth_client_contract::actions::dereth`]):
-//! the input map they sit in, their rows in the action map, and their default keys.
+//! their map, toggle types, classes and names.
 //!
-//! The shipped action map and key maps have no row for an action the retail client did not have,
-//! so these are added beside them when the manager starts: the action map learns each action's
-//! toggle type and class in [`INPUT_MAP`], and the shipped defaults gain each action's default key
-//! there. The map is live for the whole run at the lowest priority, so a key the player binds
-//! to anything else in a game map still wins, and a focused text box's barrier still stops it.
+//! The shipped action map has no row for these actions, so the manager registers them beside
+//! the shipped rows in [`INPUT_MAP`]. They have no default keys. The map is live for the whole
+//! run at the lowest priority, and a focused text box's barrier still stops its bindings.
 
 use crate::actionmap::{ActionMap, ActionMapValue, ToggleType};
-use crate::keymap::{InputMap, MasterInputMap};
+use crate::keymap::MasterInputMap;
 use crate::spec::{ControlChord, ControlCode};
 use crate::{ActionId, InputMapId};
 
 /// The input map this client's own actions are bound in.
 pub const INPUT_MAP: InputMapId = InputMapId(0x2000_0000);
 
-/// One of this client's actions: its id, its toggle type, its action class (the key page's tab:
-/// 1 movement, 3 interface, 7 character settings), the name the key page shows for it, and the
-/// key it has by default, as a keyboard scan code. The shipped string table has no name for it,
-/// so the name is this client's own.
+/// One of this client's actions: its id, toggle type, action class (the key page's tab:
+/// 1 movement, 3 interface, 7 character settings), and name. The shipped string table has no
+/// name for it, so the name is this client's own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DerethAction {
     pub action: u32,
     pub toggle: ToggleType,
     pub class: u32,
     pub name: &'static str,
-    pub default_key: Option<u16>,
 }
 
 /// The action-class tabs of the key page these actions are listed on.
@@ -56,7 +52,6 @@ pub const ACTIONS: &[DerethAction] = {
             toggle: ToggleType::OneShot,
             class,
             name,
-            default_key: None,
         }
     }
     &[
@@ -161,23 +156,6 @@ pub fn keyboard_chord(map: &MasterInputMap, scan: u16) -> Option<ControlChord> {
         scan,
     );
     Some(ControlChord::new(control, 0, template.activation))
-}
-
-/// The default keys of this client's actions, as a key map over the same keyboard as `shipped`
-/// ([`keyboard_chord`]). `None` when the shipped map binds no key on a keyboard.
-#[must_use]
-pub fn default_map(shipped: &MasterInputMap) -> Option<MasterInputMap> {
-    let mut map = MasterInputMap {
-        devices: shipped.devices.clone(),
-        ..MasterInputMap::default()
-    };
-    let mut section = InputMap::new(INPUT_MAP);
-    for a in ACTIONS {
-        let Some(key) = a.default_key else { continue };
-        section.add_mapping(keyboard_chord(shipped, key)?, ActionId(a.action));
-    }
-    map.sections.push(section);
-    Some(map)
 }
 
 #[cfg(test)]

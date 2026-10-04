@@ -338,11 +338,8 @@ impl InputManager {
         let user = user_file.and_then(|text| MasterInputMap::from_keymap_text(text).ok());
         let gm = MasterInputMap::read(gm_default_map)?;
         let mut dm = MasterInputMap::read(default_map)?;
-        // This client's own actions' default keys go in with the shipped defaults, so a restore
-        // puts them back and a row's defaults list them.
-        if let Some(own) = dereth::default_map(&dm) {
-            dm.merge(&own, true);
-        }
+        // Keep the registered client-action section in the saved map even when it has no keys.
+        dm.create_input_map(dereth::INPUT_MAP);
         let merged = scheme::over_defaults(user.as_ref(), &[&gm, &dm], Some(&self.action_map));
         self.keymap.clear();
         self.keymap.merge(&merged, true);
