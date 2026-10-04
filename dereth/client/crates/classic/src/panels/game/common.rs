@@ -103,20 +103,7 @@ pub fn list_hits(
         true,
     );
 }
-pub fn number(value: impl ToString) -> String {
-    let value = value.to_string();
-    let (sign, digits) = value
-        .strip_prefix('-')
-        .map_or(("", value.as_str()), |v| ("-", v));
-    let mut result = String::from(sign);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
-    }
-    result
-}
+pub use dereth_client_contract::panels::numfmt::exact_number as number;
 pub fn panel_backdrop(frame: &mut PanelFrame, height: i32) {
     image(
         frame,

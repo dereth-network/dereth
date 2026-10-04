@@ -246,12 +246,7 @@ pub fn burden_penalty_percent(load: f32) -> i32 {
 /// A number as every integer variable on the sheet renders it: the shipped digit grouping.
 #[must_use]
 pub fn num(v: impl Into<i128>) -> String {
-    let v: i128 = v.into();
-    dereth_client_contract::panels::numfmt::number(i64::try_from(v).unwrap_or(if v < 0 {
-        i64::MIN
-    } else {
-        i64::MAX
-    }))
+    dereth_client_contract::panels::numfmt::language_number(v)
 }
 
 /// One row composed out of the string tables: its token and its named values in, the rendered

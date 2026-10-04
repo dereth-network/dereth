@@ -108,6 +108,10 @@ pub fn group(v: i64, g: &Grouping) -> String {
         }
     }
     let digits: String = reversed.chars().rev().collect();
+    group_digits(&digits, v < 0, g)
+}
+
+fn group_digits(digits: &str, negative: bool, g: &Grouping) -> String {
     let mut out = String::with_capacity(digits.len() * 2);
     let size = usize::try_from(g.size).unwrap_or(0);
     for (i, c) in digits.chars().enumerate() {
@@ -117,7 +121,7 @@ pub fn group(v: i64, g: &Grouping) -> String {
         }
         out.push(c);
     }
-    if v < 0 {
+    if negative {
         // The negative-number format is a `%s` template, not a bare sign.
         if g.negative_format.contains("%s") {
             return g.negative_format.replace("%s", &out);
@@ -125,6 +129,26 @@ pub fn group(v: i64, g: &Grouping) -> String {
         return format!("-{out}");
     }
     out
+}
+
+/// Group the exact decimal digits, including values outside floating-point integer precision.
+#[must_use]
+pub fn group_exact(v: impl Into<i128>, g: &Grouping) -> String {
+    let v = v.into();
+    group_digits(&v.unsigned_abs().to_string(), v < 0, g)
+}
+
+/// Exact integer text with fixed three-digit comma grouping and a leading minus sign.
+#[must_use]
+pub fn exact_number(v: impl Into<i128>) -> String {
+    group_exact(v, &fallback())
+}
+
+/// An integer text variable, saturated to the signed range before language formatting.
+#[must_use]
+pub fn language_number(v: impl Into<i128>) -> String {
+    let v = v.into();
+    number(i64::try_from(v).unwrap_or(if v < 0 { i64::MIN } else { i64::MAX }))
 }
 
 /// [`group`] against the [`shipped`] rule — what every integer variable in the two stat panels
@@ -138,4 +162,69 @@ pub fn number(v: i64) -> String {
 /// read the language-info record out of its asset environment.
 pub fn set_shipped(g: Grouping) {
     SHIPPED.with(|c| *c.borrow_mut() = Some(g));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Behaviour: skills.numbers.the-experience-numbers-are-grouped-with-the-shipped-separator
+    #[test]
+    fn exact_integer_digits_remain_distinct_from_language_rounding() {
+        assert_eq!(exact_number(0), "0");
+        assert_eq!(exact_number(999), "999");
+        assert_eq!(exact_number(-1000), "-1,000");
+        assert_eq!(exact_number(i64::MIN), "-9,223,372,036,854,775,808");
+        assert_eq!(exact_number(u64::MAX), "18,446,744,073,709,551,615");
+        assert_eq!(
+            exact_number(9_007_199_254_740_991_i64),
+            "9,007,199,254,740,991"
+        );
+        assert_eq!(
+            exact_number(9_007_199_254_740_993_i64),
+            "9,007,199,254,740,993"
+        );
+        assert_eq!(
+            group(9_007_199_254_740_991, &fallback()),
+            "9,007,199,254,740,992"
+        );
+        assert_eq!(
+            group(9_007_199_254_740_993, &fallback()),
+            "9,007,199,254,740,992"
+        );
+    }
+
+    /// Behaviour: skills.numbers.the-experience-numbers-are-grouped-with-the-shipped-separator
+    #[test]
+    fn digit_grouping_applies_separator_and_negative_template_to_both_number_paths() {
+        let mut rule = Grouping {
+            size: 2,
+            separator: "::".into(),
+            negative_format: "(%s)".into(),
+        };
+        assert_eq!(group_exact(-1_234_567, &rule), "(1::23::45::67)");
+        assert_eq!(group(-1_234_567, &rule), "(1::23::45::67)");
+        for size in [0, -1] {
+            rule.size = size;
+            assert_eq!(group_exact(-1_234_567, &rule), "(1234567)");
+            assert_eq!(group(-1_234_567, &rule), "(1234567)");
+        }
+        rule.negative_format = "missing placeholder".into();
+        assert_eq!(group_exact(-1234, &rule), "-1234");
+        assert_eq!(group(-1234, &rule), "-1234");
+    }
+
+    /// Behaviour: skills.numbers.the-experience-numbers-are-grouped-with-the-shipped-separator
+    #[test]
+    fn language_variables_saturate_before_formatting_without_affecting_exact_numbers() {
+        set_shipped(Grouping {
+            size: 3,
+            separator: "_".into(),
+            negative_format: "[%s]".into(),
+        });
+        assert_eq!(language_number(i128::MAX), "9_223_372_036_854_776_028");
+        assert_eq!(language_number(i128::MIN), "[9_223_372_036_854_776_028]");
+        assert_eq!(exact_number(-1234), "-1,234");
+        clear_cache();
+    }
 }
