@@ -91,33 +91,34 @@ pub fn classic_set_dir(dat_dir: &Path, classic_dat_dir: Option<&Path>) -> Option
     }
 }
 
-/// The world's files, chosen by the era the world plays from what the folders hold.
+/// The world's files, chosen by the dat set the world is drawn from (`world_set`) from what the
+/// folders hold.
 ///
 /// `dat_dir` holds the later set (`client_portal.dat`, `client_cell_1.dat`,
 /// `client_local_English.dat`, and `client_highres.dat` when there) and may hold the set from before
 /// Throne of Destiny (`portal.dat`, `cell.dat`) too: the names never collide. `classic_dat_dir`, when
 /// given, is where to look for the older set instead ([`classic_set_dir`]).
 ///
-/// - An era before Throne of Destiny draws its world from the older set, with the later files
+/// - A world drawn from the files before Throne of Destiny draws from the older set, with the later files
 ///   beside it answering the later interface and every record the older ones lack
 ///   ([`RetailDatStore::open_pre_tod_with_later`]). With no later files, the older set alone.
-/// - Any other era, and no era at all, draws the later world, with the older `portal.dat` beside
+/// - A world drawn from the later files, and one with no set named, draws the later world, with the older `portal.dat` beside
 ///   it for the classic interface and the older grounds, skies and object looks when one is found
 ///   ([`RetailDatStore::with_legacy_portal`]). An older portal that will not open is reported and
 ///   left out: the world still opens, and what needs it is refused as it is with none.
-/// - With no era, a `dat_dir` holding only the older set opens that set.
+/// - With no set named, a `dat_dir` holding only the older set opens that set.
 ///
 /// # Errors
 /// [`DataFilesError`] as [`open_data_files`].
 pub fn open_world_files(
     dat_dir: &Path,
     classic_dat_dir: Option<&Path>,
-    era: Option<dereth_primitives::EraId>,
+    world_set: Option<dereth_dat::ContainerEra>,
 ) -> Result<RetailDatStore, DataFilesError> {
     let later = dereth_dat::holds_retail_dats(dat_dir);
     let classic = classic_set_dir(dat_dir, classic_dat_dir);
-    let pre_tod_world = match era {
-        Some(era) => era.container_era() == dereth_dat::ContainerEra::PreTod,
+    let pre_tod_world = match world_set {
+        Some(set) => set == dereth_dat::ContainerEra::PreTod,
         None => !later && classic.is_some(),
     };
     if pre_tod_world {
@@ -165,8 +166,39 @@ pub fn open_world_files(
 /// # Errors
 /// [`DataFilesError`] as [`open_data_files`].
 pub fn open_store(cfg: &crate::config::Config) -> Result<RetailDatStore, DataFilesError> {
-    let store = open_world_files(&cfg.dat_dir, cfg.classic_dat_dir.as_deref(), cfg.era)?;
+    let set = world_set(cfg);
+    let store = open_world_files(&cfg.dat_dir, cfg.classic_dat_dir.as_deref(), set)?;
     Ok(crate::world_overlay::lay_over(store, cfg))
+}
+
+/// The dat set the world is drawn from: the one its overlay was made against when the overlay
+/// folder holds one, else `--world-base`, else the era's ([`dereth_primitives::EraId::container_era`]);
+/// `None` when nothing names one. The era is only the default: a world made outside Dereth may
+/// play an early era over the later files.
+#[must_use]
+pub fn world_set(cfg: &crate::config::Config) -> Option<dereth_dat::ContainerEra> {
+    let from_overlay = crate::world_overlay::folder(cfg).and_then(|d| d.base_era());
+    if let (Some(o), Some(b)) = (from_overlay, cfg.world_base) {
+        if o != b {
+            tracing::warn!(
+                "the world's overlay was made against the {} files, not the {} ones --world-base \
+                 names; the overlay's are read",
+                set_name(o),
+                set_name(b)
+            );
+        }
+    }
+    from_overlay
+        .or(cfg.world_base)
+        .or_else(|| cfg.era.map(dereth_primitives::EraId::container_era))
+}
+
+/// A dat set's name as `--world-base` spells it.
+fn set_name(set: dereth_dat::ContainerEra) -> &'static str {
+    match set {
+        dereth_dat::ContainerEra::Tod => "modern",
+        dereth_dat::ContainerEra::PreTod => "classic",
+    }
 }
 
 /// Resolve the two-level enum-id map lookup for any group.
@@ -276,9 +308,8 @@ mod tests {
         }
     }
 
-    const EOR: Option<dereth_primitives::EraId> = Some(dereth_primitives::EraId::Eor);
-    const INFILTRATION: Option<dereth_primitives::EraId> =
-        Some(dereth_primitives::EraId::Infiltration);
+    const EOR: Option<dereth_dat::ContainerEra> = Some(dereth_dat::ContainerEra::Tod);
+    const INFILTRATION: Option<dereth_dat::ContainerEra> = Some(dereth_dat::ContainerEra::PreTod);
 
     fn both(world: dereth_dat::ContainerEra) -> Available {
         Available {
@@ -385,6 +416,55 @@ mod tests {
         assert_eq!(classic_set_dir(&one, Some(empty.path())), Some(one.clone()));
         let store = open_world_files(&one, Some(empty.path()), None).expect("both sets");
         assert_eq!(available(&store), both(dereth_dat::ContainerEra::Tod));
+    }
+
+    /// Behaviour: none (tooling: which data files open from the folders given)
+    #[test]
+    fn the_overlays_base_names_the_worlds_set_over_the_switch_and_the_era() {
+        use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+        let scratch = dereth_dat::testing::ScratchDir::new("world-set").expect("scratch");
+        let mut cfg = crate::config::Config {
+            connect: false,
+            era: Some(dereth_primitives::EraId::Infiltration),
+            ..crate::config::Config::default()
+        };
+        assert_eq!(
+            world_set(&cfg),
+            Some(dereth_dat::ContainerEra::PreTod),
+            "the era's"
+        );
+        cfg.world_base = Some(dereth_dat::ContainerEra::Tod);
+        assert_eq!(
+            world_set(&cfg),
+            Some(dereth_dat::ContainerEra::Tod),
+            "the switch's"
+        );
+        // An overlay made against `portal.dat` names the older set, whatever the switch says.
+        let base_path = scratch.path().join("portal.dat");
+        {
+            let mut w = dereth_dat::write::DatWriter::create(&base_path, 0x400, 1, 0, 0x400 * 17)
+                .expect("a base");
+            w.save(DataId(0x0600_0001), b"x", 1, 1, 1)
+                .expect("a record");
+        }
+        let base = dereth_dat::DatFile::open(&base_path).expect("the base");
+        let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+        let mut w = OverlayWriter::open_or_create(
+            &dir.container(dereth_dat::RetailDat::Portal),
+            &base,
+            "portal.dat",
+            "a world",
+            1,
+        )
+        .expect("the overlay");
+        w.flush(1).expect("flushed");
+        drop(w);
+        cfg.overlay_dat_dir = Some(dir.path().to_path_buf());
+        assert_eq!(
+            world_set(&cfg),
+            Some(dereth_dat::ContainerEra::PreTod),
+            "the overlay's"
+        );
     }
 
     // Oracle: the retail `DidMapper 0x25000000` and the four mappers it names. These are the ids the client

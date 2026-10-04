@@ -239,6 +239,7 @@ pub static REGISTRY: &[Codec] = &[
     c!(admin::AdminSendAdminGetServerVersion),
     c!(admin::DddEndDdd),
     c!(admin::DddPatchtimePending),
+    c!(admin::DddOverlayManifest),
     c!(admin::CharacterRemoveFromPlayerConsentList),
     c!(admin::CharacterAddPlayerPermission),
     c!(admin::CharacterRemovePlayerPermission),

@@ -400,6 +400,9 @@ pub struct DddPatcher {
     manifest_tombstones: BTreeMap<(DatTarget, u32), Vec<(u32, u32)>>,
     /// The world keys whose overlays the player refuses.
     blocklist: BTreeSet<String>,
+    /// The files whose overlay carries the world's own iteration list, by the manifest: their
+    /// records are the world's whatever iteration the base has of them.
+    exact: BTreeSet<DatTarget>,
     phase: DddPhase,
     writers: BTreeMap<DatTarget, OverlayWriter>,
     /// The missing iterations.
@@ -437,6 +440,7 @@ impl DddPatcher {
             expected: BTreeMap::new(),
             manifest_tombstones: BTreeMap::new(),
             blocklist: BTreeSet::new(),
+            exact: BTreeSet::new(),
             phase: DddPhase::Idle,
             writers: BTreeMap::new(),
             revisions: Vec::new(),
@@ -548,6 +552,9 @@ impl DddPatcher {
                     dereth_dat::overlay::hex(&have)
                 ));
                 break;
+            }
+            if f.exact_iterations {
+                self.exact.insert(t);
             }
             for r in &f.records {
                 self.expected.insert((t, r.id), r.sha256);
@@ -879,6 +886,7 @@ impl DddPatcher {
         let iteration = m.iteration;
         let date = entry_date(crate::platform::clock::system_unix_time());
         let run_time = self.phase == DddPhase::RunTime;
+        let exact = self.exact.contains(&target);
         let Some(base) = self.target.as_ref().and_then(|t| t.base(target)).cloned() else {
             return DataOutcome::Refused(DddRefusal::OverlayRefused(
                 "there is no overlay folder for this world".into(),
@@ -886,15 +894,19 @@ impl DddPatcher {
         };
         match self.writer(target) {
             Err(e) => DataOutcome::Refused(DddRefusal::Write(e.to_string())),
-            Ok(w) => match w
-                .save(&base, id, &payload, version, iteration, date)
-                .and_then(|s| {
-                    // A run-time answer has no end of patch behind it to write the manifest.
-                    if run_time {
-                        w.flush(date)?;
-                    }
-                    Ok(s)
-                }) {
+            Ok(w) => match if exact {
+                // The world numbers its iterations its own way: its record is its own.
+                w.put(id, &payload, version, iteration, date)
+            } else {
+                w.save(&base, id, &payload, version, iteration, date)
+            }
+            .and_then(|s| {
+                // A run-time answer has no end of patch behind it to write the manifest.
+                if run_time {
+                    w.flush(date)?;
+                }
+                Ok(s)
+            }) {
                 Ok(SaveOutcome::RefusedOlderIteration) => {
                     DataOutcome::RefusedOlderIteration { id, target }
                 }
@@ -996,10 +1008,7 @@ impl DddPatcher {
     /// Open the file's overlay writer, once.
     fn writer(&mut self, target: DatTarget) -> Result<&mut OverlayWriter, DatError> {
         if !self.writers.contains_key(&target) {
-            let t = self
-                .target
-                .as_ref()
-                .ok_or(DatError::NotFound(DataId(0)))?;
+            let t = self.target.as_ref().ok_or(DatError::NotFound(DataId(0)))?;
             let (base, name) = t.bases.get(&target).ok_or(DatError::NotFound(DataId(0)))?;
             let date = entry_date(crate::platform::clock::system_unix_time());
             let w = match OverlayWriter::open_or_create(
@@ -1017,6 +1026,16 @@ impl DddPatcher {
                     return Err(DatError::Io(std::io::Error::other(why)));
                 }
             };
+            let mut w = w;
+            // A world with its own iteration list starts from the base's: the iterations of the
+            // records the client already holds.
+            if self.exact.contains(&target) && !w.manifest().exact_iterations {
+                let have = w.iterations()?;
+                let mut all = dereth_dat::overlay::base_iterations(base);
+                all.extend(have);
+                w.set_exact_iterations(&all, date)?;
+                w.flush(date)?;
+            }
             self.writers.insert(target, w);
         }
         Ok(self

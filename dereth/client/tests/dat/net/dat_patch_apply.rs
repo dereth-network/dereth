@@ -1356,6 +1356,7 @@ fn manifest(
             base_name: "client_local_English.dat".into(),
             base_fingerprint: dereth_dat::overlay::fingerprint(s.base_local()),
             base_iterations: 0,
+            exact_iterations: false,
             revisions: vec![iteration],
             records: records
                 .iter()

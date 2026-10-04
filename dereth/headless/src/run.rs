@@ -37,8 +37,10 @@ pub struct Options {
     /// `--classic-dat-dir`: where the files from before Throne of Destiny are when they are not
     /// beside [`Self::dat_dir`]'s.
     pub classic_dat_dir: Option<PathBuf>,
-    /// `--era`: the era the world plays, which chooses the set that draws it.
+    /// `--era`: the era the world plays, which by default chooses the set that draws it.
     pub era: Option<dereth_client_sdk::primitives::EraId>,
+    /// `--world-base`: the set that draws the world, over the era's.
+    pub world_base: Option<dereth_client_sdk::primitives::ContainerEra>,
     /// `fixtures/packet-captures/`, the directory `login <session>` resolves a slug in.
     pub captures_dir: PathBuf,
     /// The null presentation's extent, which is what the UI shell lays out against.
@@ -65,6 +67,7 @@ impl Default for Options {
             dat_dir: dereth_client_sdk::runtime::config::default_dat_dir(),
             classic_dat_dir: None,
             era: None,
+            world_base: None,
             captures_dir: default_captures_dir(),
             width: 800,
             height: 600,
@@ -168,6 +171,7 @@ impl<'a> Run<'a> {
             dat_dir: opts.dat_dir.clone(),
             classic_dat_dir: opts.classic_dat_dir.clone(),
             era: opts.era,
+            world_base: opts.world_base,
             preferences_file: opts.preferences_file.clone(),
             width: opts.width,
             height: opts.height,

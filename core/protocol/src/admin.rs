@@ -926,7 +926,10 @@ pub struct OverlayFileManifest {
     pub base_name: String,
     pub base_fingerprint: [u8; 32],
     pub base_iterations: u32,
-    /// The overlay's revisions.
+    /// The overlay's iteration list is the world's whole list, reported as it is, rather than
+    /// revisions over the base's (a world that numbers its iterations its own way).
+    pub exact_iterations: bool,
+    /// The overlay's revisions (with `exact_iterations`, the world's whole list).
     pub revisions: Vec<u32>,
     pub records: Vec<OverlayRecord>,
     pub tombstones: Vec<OverlayTombstone>,
@@ -959,6 +962,7 @@ impl Message for DddOverlayManifest {
                 base_name: r.pstring()?,
                 base_fingerprint: read_hash(r)?,
                 base_iterations: r.u32()?,
+                exact_iterations: r.u32()? & 1 != 0,
                 revisions: r.packed_list(Reader::u32)?,
                 records: r.packed_list(|r| {
                     Ok(OverlayRecord {
@@ -993,6 +997,7 @@ impl Message for DddOverlayManifest {
             w.pstring(&f.base_name)?;
             w.bytes(&f.base_fingerprint);
             w.u32(f.base_iterations);
+            w.u32(u32::from(f.exact_iterations));
             w.packed_list(&f.revisions, |w, v| {
                 w.u32(*v);
                 Ok(())
@@ -1205,6 +1210,7 @@ mod tests {
                 base_name: "client_cell_1.dat".into(),
                 base_fingerprint: [3; 32],
                 base_iterations: 982,
+                exact_iterations: false,
                 revisions: vec![983],
                 records: vec![OverlayRecord {
                     id: 0xA9B4_0100,

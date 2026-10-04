@@ -16,7 +16,10 @@
 //! record:
 //!
 //! - `0xFFFF0001`, the overlay's iterations: the revisions it has applied. The file's iterations
-//!   as read through the overlay are the base file's and these together.
+//!   as read through the overlay are the base file's and these together, or, for an overlay that
+//!   carries its world's own iteration list ([`ContainerManifest::exact_iterations`]), these
+//!   alone: a world made outside Dereth names its iterations as its own files do, and a client
+//!   reports exactly those.
 //! - `0xFFFF0002`, the tombstones ([`Tombstone`]): a record id, or a family of ids under a mask,
 //!   that the world has deleted, with the revision that deleted it.
 //! - `0xFFFF0003`, the manifest ([`ContainerManifest`]): which world the overlay belongs to, which
@@ -140,6 +143,9 @@ pub struct ContainerManifest {
     pub base_fingerprint: [u8; 32],
     /// How many iterations the base file carries.
     pub base_iterations: u32,
+    /// Whether the overlay's iteration list is the world's whole list, reported as it is, rather
+    /// than revisions over the base's.
+    pub exact_iterations: bool,
     /// The SHA-256 of every record the overlay holds, by id.
     pub hashes: BTreeMap<u32, [u8; 32]>,
 }
@@ -174,6 +180,7 @@ impl ContainerManifest {
         put_str(&mut out, &self.base_name);
         out.extend_from_slice(&self.base_fingerprint);
         out.extend_from_slice(&self.base_iterations.to_le_bytes());
+        out.extend_from_slice(&u32::from(self.exact_iterations).to_le_bytes());
         #[allow(clippy::cast_possible_truncation)]
         out.extend_from_slice(&(self.hashes.len() as u32).to_le_bytes());
         for (id, h) in &self.hashes {
@@ -198,6 +205,7 @@ impl ContainerManifest {
         let base_name = get_str(&mut c)?;
         let base_fingerprint = get_hash(&mut c)?;
         let base_iterations = c.u32()?;
+        let exact_iterations = c.u32()? & 1 != 0;
         let n = c.u32()?;
         let mut hashes = BTreeMap::new();
         for _ in 0..n {
@@ -210,6 +218,7 @@ impl ContainerManifest {
             base_name,
             base_fingerprint,
             base_iterations,
+            exact_iterations,
             hashes,
         })
     }
@@ -309,9 +318,11 @@ pub struct Layer {
     file: DatFile,
     tombstones: Vec<Tombstone>,
     single: BTreeSet<u32>,
-    families: Vec<(u32, u32)>,
+    /// The family deletions, by mask: the masked ids each deletes.
+    families: BTreeMap<u32, BTreeSet<u32>>,
     manifest: ContainerManifest,
     iterations: Vec<u32>,
+    own_iterations: Vec<u32>,
     len: usize,
 }
 
@@ -356,8 +367,12 @@ impl Layer {
             Err(e) => return Err(e.into()),
         };
         let own = overlay.iteration_list().unwrap_or_default();
-        let mut iterations = base_iterations(base);
-        iterations.extend(own);
+        let mut iterations = if manifest.exact_iterations {
+            Vec::new()
+        } else {
+            base_iterations(base)
+        };
+        iterations.extend(own.iter().copied());
         iterations.sort_unstable();
         iterations.dedup();
         let single = tombstones
@@ -365,11 +380,10 @@ impl Layer {
             .filter(|t| t.mask == 0)
             .map(|t| t.id)
             .collect();
-        let families = tombstones
-            .iter()
-            .filter(|t| t.mask != 0)
-            .map(|t| (t.id & t.mask, t.mask))
-            .collect();
+        let mut families: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+        for t in tombstones.iter().filter(|t| t.mask != 0) {
+            families.entry(t.mask).or_default().insert(t.id & t.mask);
+        }
         let mut me = Self {
             path,
             file: overlay,
@@ -378,6 +392,7 @@ impl Layer {
             families,
             manifest,
             iterations,
+            own_iterations: own,
             len: 0,
         };
         let kept = base
@@ -413,7 +428,11 @@ impl Layer {
     #[must_use]
     pub fn hides(&self, id: DataId) -> bool {
         let id = id.raw();
-        self.single.contains(&id) || self.families.iter().any(|(t, m)| id & m == *t)
+        self.single.contains(&id)
+            || self
+                .families
+                .iter()
+                .any(|(mask, targets)| targets.contains(&(id & mask)))
     }
 
     /// Whether the overlay holds or deletes `id`.
@@ -442,6 +461,12 @@ impl Layer {
     #[must_use]
     pub fn iterations(&self) -> &[u32] {
         &self.iterations
+    }
+
+    /// The overlay's own revisions, ascending.
+    #[must_use]
+    pub fn own_iterations(&self) -> &[u32] {
+        &self.own_iterations
     }
 
     /// The overlay's deletions.
@@ -538,6 +563,25 @@ impl OverlayDir {
             let f = DatFile::open(&self.container(*t)).ok()?;
             let m = ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()?;
             Some(m.world_key)
+        })
+    }
+
+    /// The dat set the folder's overlay was made against, from the first container's base file
+    /// name: the files before Throne of Destiny for `portal.dat` or `cell.dat`, the later files
+    /// otherwise. `None` for a folder with no container yet.
+    #[must_use]
+    pub fn base_era(&self) -> Option<ContainerEra> {
+        RetailDat::ALL.iter().find_map(|t| {
+            let f = DatFile::open(&self.container(*t)).ok()?;
+            let m = ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()?;
+            let older = crate::PreTodDat::ALL
+                .iter()
+                .any(|d| d.file_name().eq_ignore_ascii_case(&m.base_name));
+            Some(if older {
+                ContainerEra::PreTod
+            } else {
+                ContainerEra::Tod
+            })
         })
     }
 
@@ -644,6 +688,7 @@ impl OverlayWriter {
             base_name: base_name.to_owned(),
             base_fingerprint: fp,
             base_iterations: base_iterations(&base).len() as u32,
+            exact_iterations: false,
             hashes: BTreeMap::new(),
         };
         let mut me = Self {
@@ -710,6 +755,45 @@ impl OverlayWriter {
         Ok(out)
     }
 
+    /// Put a world record in the overlay as the world's own files carry it, whatever the base's
+    /// iteration of it: what the decompose tool writes.
+    ///
+    /// # Errors
+    /// [`DatError::NotFound`] for a reserved id, and the writer's errors.
+    pub fn put(
+        &mut self,
+        id: DataId,
+        payload: &[u8],
+        version: u16,
+        iteration: u32,
+        date: u32,
+    ) -> Result<SaveOutcome, DatError> {
+        if is_reserved(id) {
+            return Err(DatError::NotFound(id));
+        }
+        // An overlay record of an older iteration than one already there is still the world's.
+        self.writer.delete_data(id, 0)?;
+        let out = self.writer.save(id, payload, version, iteration, date)?;
+        self.manifest.hashes.insert(id.raw(), record_hash(payload));
+        self.dirty = true;
+        Ok(out)
+    }
+
+    /// Make the overlay's iteration list the world's whole list, `iterations`, reported as it is.
+    ///
+    /// # Errors
+    /// The writer's errors.
+    pub fn set_exact_iterations(&mut self, iterations: &[u32], date: u32) -> Result<(), DatError> {
+        let mut set = iterations.to_vec();
+        set.sort_unstable();
+        set.dedup();
+        self.writer
+            .save(ITERATION_LIST, &crate::iteration::encode(&set), 1, 0, date)?;
+        self.manifest.exact_iterations = true;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Delete `id` (or, with a `mask`, its whole family) in revision `iteration`: the overlay's
     /// own copies go, and a tombstone hides the base's. Answers how many of the overlay's own
     /// records went.
@@ -722,7 +806,14 @@ impl OverlayWriter {
         } else {
             let target = id.raw() & mask;
             let mut n = 0;
-            for candidate in self.writer.ids_in_range(0, u32::MAX)? {
+            // A mask of high bits names one run of ids.
+            let contiguous = mask.leading_ones() + mask.trailing_zeros() == 32;
+            let (lo, hi) = if contiguous {
+                (target, target | !mask)
+            } else {
+                (0, u32::MAX)
+            };
+            for candidate in self.writer.ids_in_range(lo, hi)? {
                 if candidate & mask == target
                     && !is_reserved(DataId(candidate))
                     && self.writer.delete_data(DataId(candidate), 0)?
@@ -826,6 +917,7 @@ mod tests {
             base_name: "client_portal.dat".into(),
             base_fingerprint: [7; 32],
             base_iterations: 2072,
+            exact_iterations: true,
             hashes: BTreeMap::new(),
         };
         m.hashes.insert(0x0600_0001, record_hash(b"x"));

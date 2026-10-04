@@ -25,8 +25,9 @@ dereth-headless -- the dere client with no window and no graphics device
                        be beside them
   --classic-dat-dir <dir>  where portal.dat and cell.dat are when they are not beside the
                        retail dats
-  --era <name>         the era the world plays (eor, infiltration); it chooses which set
-                       draws the world
+  --era <name>         the era the world plays (eor, infiltration); by default it chooses
+                       which set draws the world
+  --world-base <set>   the set that draws the world, over the era's: modern or classic
   --captures <dir>     the recorded sessions `login` resolves a name in
   --size <w>x<h>       the null presentation's extent (default: 800x600)
   --account <name>     the name the replay endpoint is built with
@@ -84,6 +85,16 @@ fn real_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
             }
             "--classic-dat-dir" => {
                 opts.classic_dat_dir = Some(PathBuf::from(value("--classic-dat-dir")?));
+            }
+            "--world-base" => {
+                let v = value("--world-base")?;
+                opts.world_base = Some(match v.to_ascii_lowercase().as_str() {
+                    "modern" => dereth_client_sdk::primitives::ContainerEra::Tod,
+                    "classic" => dereth_client_sdk::primitives::ContainerEra::PreTod,
+                    _ => {
+                        return Err(format!("unknown --world-base {v:?} (modern or classic)").into())
+                    }
+                });
             }
             "--era" => {
                 let v = value("--era")?;

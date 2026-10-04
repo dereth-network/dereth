@@ -268,6 +268,10 @@ pub struct Config {
     /// world are available whenever an older set is found, wherever it is. `None`: look in
     /// [`Self::dat_dir`] alone.
     pub classic_dat_dir: Option<PathBuf>,
+    /// `--world-base <modern|classic>`: which dat set the world is drawn from when the world's
+    /// overlay does not say (its containers name their base files, and win over this): the later
+    /// files (`modern`) or the files from before Throne of Destiny (`classic`). `None`: the era's.
+    pub world_base: Option<dereth_primitives::ContainerEra>,
     /// `--overlay-dat-dir <dir>`: the folder this world's overlay is kept in for the run (the
     /// records the world adds, replaces and deletes over the locked data files, which a patch from
     /// the server writes and nothing else does). Only where the overlay is follows from it.
@@ -514,6 +518,7 @@ impl Default for Config {
             object_visuals: None,
             classic_dat_dir: None,
             overlay_dat_dir: None,
+            world_base: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
         }
@@ -672,6 +677,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // Where the world's overlay is kept.
     Switch {
         long: "overlay-dat-dir",
+        short: None,
+        arity: Arity::Required,
+    },
+    // Which dat set the world is drawn from, when its overlay does not say.
+    Switch {
+        long: "world-base",
         short: None,
         arity: Arity::Required,
     },
@@ -1422,6 +1433,17 @@ impl Config {
             "dat-dir" => self.dat_dir = PathBuf::from(v),
             "classic-dat-dir" => self.classic_dat_dir = Some(PathBuf::from(v)),
             "overlay-dat-dir" => self.overlay_dat_dir = Some(PathBuf::from(v)),
+            "world-base" => {
+                self.world_base = Some(match v.trim().to_ascii_lowercase().as_str() {
+                    "modern" => dereth_primitives::ContainerEra::Tod,
+                    "classic" => dereth_primitives::ContainerEra::PreTod,
+                    _ => {
+                        return Err(ConfigError::new(format!(
+                            "unknown --world-base {v:?} (modern or classic)"
+                        )))
+                    }
+                });
+            }
             "object-visuals" => {
                 let style = dereth_client_contract::options::landscape::parse(v)
                     .ok_or_else(|| {
@@ -2033,6 +2055,11 @@ mod tests {
         assert_eq!(parse(&[]).expect("parses").classic_dat_dir, None);
         let c = parse(&["--overlay-dat-dir", "worlds/one"]).expect("parses");
         assert_eq!(c.overlay_dat_dir, Some(PathBuf::from("worlds/one")));
+        let c = parse(&["--world-base", "Modern"]).expect("parses");
+        assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::Tod));
+        let c = parse(&["--world-base", "classic"]).expect("parses");
+        assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::PreTod));
+        assert!(parse(&["--world-base", "eor"]).is_err());
         for retired in ["--world-dat-dir", "--legacy-dat-dir"] {
             assert!(parse(&[retired, "x"]).is_err(), "{retired}");
         }
