@@ -458,6 +458,25 @@ pub const SECTIONS: &[Section] = &[
                      world's cell records). Off, such a client missing the overlay is refused.",
                 )
             },
+            Key {
+                unset: "60000",
+                ..e(
+                    "records_per_minute",
+                    "RecordsPerMinute",
+                    "How many patch records a minute a client that keeps overlays is sent, at most 32 a\n\
+                     world tick. 0 keeps ACE's 1,000 a minute shared by every session; a retail client\n\
+                     always has ACE's.",
+                )
+            },
+            Key {
+                unset: "1048576",
+                ..e(
+                    "bytes_per_second",
+                    "BytesPerSecond",
+                    "The most patch bytes a second such a client is sent, so its 128 KiB receive buffer\n\
+                     does not overflow between the frames it reads it in.",
+                )
+            },
         ],
     },
     Section {

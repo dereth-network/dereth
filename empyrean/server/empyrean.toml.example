@@ -365,6 +365,17 @@ path = ""
 # world's cell records). Off, such a client missing the overlay is refused.
 patching = true
 
+# default: 60000 (Empyrean only)
+# How many patch records a minute a client that keeps overlays is sent, at most 32 a
+# world tick. 0 keeps ACE's 1,000 a minute shared by every session; a retail client
+# always has ACE's.
+records_per_minute = 60000
+
+# default: 1048576 (Empyrean only)
+# The most patch bytes a second such a client is sent, so its 128 KiB receive buffer
+# does not overflow between the frames it reads it in.
+bytes_per_second = 1048576
+
 # ----------------------------------------------------------------------------------------------
 [era]
 # The era the world plays. Every era speaks the end-of-retail client protocol; the era

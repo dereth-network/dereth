@@ -340,3 +340,42 @@ fn a_february_2005_world_with_an_overlay_patches_a_client_that_keeps_overlays() 
     let got: Vec<u32> = ts.received_raw(id).iter().map(|m| m.opcode).collect();
     assert!(!got.contains(&0xF7DC), "not booted: {got:04X?}");
 }
+
+/// A client that keeps overlays is sent its records at the overlay's rate (`[dat_overlay]
+/// records_per_minute`, a thousand a second by default), not ACE's thousand a minute: 600 records
+/// all arrive within ACE's five seconds' pause and one more second.
+#[test]
+fn a_client_that_keeps_overlays_is_sent_its_records_at_the_overlays_rate() {
+    let scratch = dereth_dat::testing::ScratchDir::new("server-overlay-rate").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    let base_dir = dereth_dat::testing::dat_dir();
+    let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
+    let portal = base.portal().base();
+    let revision = revision(&portal);
+    let mut w = OverlayWriter::open_or_create(
+        &dir.container(RetailDat::Portal),
+        &portal,
+        "client_portal.dat",
+        WORLD,
+        1,
+    )
+    .expect("the portal overlay");
+    for n in 0..600u32 {
+        w.save(
+            &portal,
+            DataId(0x0600_F000 + n),
+            &n.to_le_bytes(),
+            1,
+            revision,
+            1,
+        )
+        .expect("added");
+    }
+    w.add_iteration(revision, 1).expect("the revision");
+    w.flush(1).expect("flushed");
+    drop(w);
+    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Tod);
+    let (mut ts, id) = exchange(&dats, &response(&base, true));
+    ts.run_until(6.0, |ts| ts.received::<DddData>(id).len() >= 600);
+    assert_eq!(ts.received::<DddData>(id).len(), 600);
+}

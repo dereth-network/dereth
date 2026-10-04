@@ -97,6 +97,8 @@ fn every_kept_key_parses() {
         [dat_overlay]
         path = "overlays/world"
         patching = false
+        records_per_minute = 1234
+        bytes_per_second = 5678
         "#,
     );
     assert!(
@@ -108,6 +110,8 @@ fn every_kept_key_parses() {
         (c.dat_overlay.path.as_str(), c.dat_overlay.patching),
         ("overlays/world", false)
     );
+    assert_eq!(c.dat_overlay.records_per_minute, 1234);
+    assert_eq!(c.dat_overlay.bytes_per_second, 5678);
     assert!(MasterConfiguration::default().dat_overlay.patching);
     let s = &c.server;
     assert_eq!(s.world_name, "Kept World");

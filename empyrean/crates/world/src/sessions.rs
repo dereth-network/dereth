@@ -85,6 +85,15 @@ pub struct SessionData {
     pub ddd_data_queue: Option<VecDeque<(u32, DatDatabaseType)>>,
     // ACE: Session.LastPassTime
     pub last_pass_time: DotNetDateTime,
+    /// Not ACE (V437): the patch records a minute this session is sent, for a client that keeps
+    /// overlays; 0 is ACE's shared limit.
+    pub overlay_records_per_minute: u32,
+    /// Not ACE (V437): that session's own limiter.
+    pub overlay_rate_limiter: Option<RateLimiter>,
+    /// Not ACE (V437): the patch bytes a second that session is sent, and the tenth of a second
+    /// being counted: when it began and the bytes sent in it.
+    pub overlay_bytes_per_second: u32,
+    pub overlay_window: (DotNetDateTime, u64),
 }
 
 impl Default for SessionData {
@@ -109,6 +118,10 @@ impl Default for SessionData {
             begin_ddd_sent_time: DotNetDateTime::MIN_VALUE,
             ddd_data_queue: None,
             last_pass_time: DotNetDateTime::MIN_VALUE,
+            overlay_records_per_minute: 0,
+            overlay_rate_limiter: None,
+            overlay_bytes_per_second: 0,
+            overlay_window: (DotNetDateTime::MIN_VALUE, 0),
         }
     }
 }
@@ -366,6 +379,15 @@ pub fn process_ddd_queue(w: &mut World, session: SessionId) {
     }
 
     let clock = SnapshotClock(w.now);
+    // DIVERGE (V437): a client that keeps overlays has a limiter of its own, at its configured
+    // rate, and may take several records a tick.
+    if w.sessions
+        .get(session)
+        .is_some_and(|s| s.overlay_records_per_minute > 0)
+    {
+        process_overlay_ddd_queue(w, session, &clock);
+        return;
+    }
     let limiter = w
         .sessions
         .ddd_data_queue_rate_limiter
@@ -396,6 +418,68 @@ pub fn process_ddd_queue(w: &mut World, session: SessionId) {
         enqueue_send(w, session, msg);
         if let Some(limiter) = w.sessions.ddd_data_queue_rate_limiter.as_mut() {
             limiter.register_event(&clock);
+        }
+    }
+}
+
+/// Not ACE (V437): the most patch records one world tick sends one client that keeps overlays.
+/// Every queued record is a whole message the transport fragments into the session's packets at
+/// its next send; a handful a tick keeps one patching session from taking a whole tick from the
+/// world (sessions share the world thread), and the rate bounds what the socket is handed.
+pub const OVERLAY_RECORDS_PER_TICK: usize = 32;
+
+/// `ProcessDDDQueue` for a client that keeps overlays: after ACE's pause behind `BeginDDD`, up to
+/// [`OVERLAY_RECORDS_PER_TICK`] records a tick, at the session's own rate and within its bytes a
+/// second (counted a tenth of a second at a time, so no burst outruns the client's receive
+/// buffer).
+fn process_overlay_ddd_queue(w: &mut World, session: SessionId, clock: &SnapshotClock) {
+    let now = w.now.utc;
+    let Some(s) = w.sessions.get_mut(session) else {
+        return;
+    };
+    if s.begin_ddd_sent_time != DotNetDateTime::MIN_VALUE
+        && now < s.begin_ddd_sent_time.add_seconds(5.0)
+    {
+        return;
+    }
+    s.begin_ddd_sent_time = DotNetDateTime::MIN_VALUE;
+    let rate = i32::try_from(s.overlay_records_per_minute).unwrap_or(i32::MAX);
+    for _ in 0..OVERLAY_RECORDS_PER_TICK {
+        let Some(s) = w.sessions.get_mut(session) else {
+            return;
+        };
+        let limiter = s
+            .overlay_rate_limiter
+            .get_or_insert_with(|| RateLimiter::new(rate, TimeSpan::from_minutes(1.0), clock));
+        if limiter.get_seconds_to_wait_before_next_event(clock) > 0.0 {
+            return;
+        }
+        if s.overlay_window.0 == DotNetDateTime::MIN_VALUE
+            || now >= s.overlay_window.0.add_seconds(0.1)
+        {
+            s.overlay_window = (now, 0);
+        }
+        let budget = u64::from(s.overlay_bytes_per_second.max(1)).div_ceil(10);
+        if s.overlay_window.1 >= budget {
+            return;
+        }
+        let Some((dat_file_id, dat_database_type)) =
+            s.ddd_data_queue.as_mut().and_then(VecDeque::pop_front)
+        else {
+            return;
+        };
+        let msg = game_message_ddd_data_message(w, dat_file_id, dat_database_type);
+        let sent = msg.data.len() as u64;
+        if let Some(s) = w.sessions.get_mut(session) {
+            s.overlay_window.1 += sent;
+        }
+        enqueue_send(w, session, msg);
+        if let Some(limiter) = w
+            .sessions
+            .get_mut(session)
+            .and_then(|s| s.overlay_rate_limiter.as_mut())
+        {
+            limiter.register_event(clock);
         }
     }
 }

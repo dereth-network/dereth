@@ -429,9 +429,18 @@ pub fn ddd_interrogation_response_with(
         };
         enqueue_send(w, session, patch_status_message);
         let now = w.now.utc;
+        // DIVERGE (V437): a client that keeps overlays is sent its records at the overlay's rate.
+        let overlay = &empyrean_common::config_manager::ConfigManager::config().dat_overlay;
+        let (rate, bytes) = if overlay_patching {
+            (overlay.records_per_minute, overlay.bytes_per_second)
+        } else {
+            (0, 0)
+        };
         if let Some(s) = w.sessions.get_mut(session) {
             s.begin_ddd_sent_time = now;
             s.begin_ddd_sent = true;
+            s.overlay_records_per_minute = rate;
+            s.overlay_bytes_per_second = bytes;
         }
 
         log::info!(
