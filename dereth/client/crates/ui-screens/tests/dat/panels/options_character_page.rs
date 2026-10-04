@@ -777,6 +777,7 @@ mod defaults {
     // -------------------------------------------------------------------------------------------
 
     /// Behaviour: options.character-page.restore-defaults-writes-every-row-from-its-default
+    /// Behaviour: options.character-page.defaults-follow-the-late-player-view
     /// The page's restore-defaults is **unconditional**: every row, changed or not,
     /// has its current value set to its default, is refreshed, and is applied.
     ///
@@ -800,13 +801,12 @@ mod defaults {
             set: Rc::new(RefCell::new(Vec::new())),
             defaults: Some(Rc::clone(&defaults)),
         };
-        // Re-bind so reads a default-option producer at bind time, which is
-        // the only moment it does.
-        let page = s.character_options.page.expect("bound");
-        s.character_options = dereth_ui_screens::options::character::character_settings_post_init(
-            &mut ui, page, &module,
-        )
-        .expect("the page rebuilds");
+        assert_eq!(
+            s.character_options.defaults_seen, 0,
+            "the actual screen binds before the player arrives"
+        );
+        // Exercise the actual late-view update rather than rebuilding the page with a test view.
+        s.update_character_options(&mut ui, &module);
         assert_eq!(s.character_options.rows.len(), 50);
         assert_eq!(
             s.character_options.defaults_seen, 50,
@@ -856,6 +856,16 @@ mod defaults {
             dereth_ui_screens::bind::attr_bool(&ui, g, 0x0E),
             Some(false)
         );
+        defaults.borrow_mut().clear();
+        s.character_options
+            .on_player_option_changed(&mut ui, &module);
+        ui.requests.clear();
+        assert_eq!(press(&mut ui, &mut s, &module, b[2].0), vec![50]);
+        assert!(ui
+            .requests
+            .take()
+            .iter()
+            .all(|r| matches!(r, UiRequest::SetPlayerOption(_, false))));
     }
 
     // -------------------------------------------------------------------------------------------

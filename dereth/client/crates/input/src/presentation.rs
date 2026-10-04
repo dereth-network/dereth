@@ -1,4 +1,4 @@
-//! The one set of key bindings both interfaces' key pages list.
+//! The shared catalog of key bindings used by both interfaces.
 //!
 //! Every action a player can bind is a row here: the input map it is bound in, the group it
 //! belongs to, where the classic interface's page lists it and under what label, and whether it
@@ -34,7 +34,7 @@ pub mod map {
     pub const OWN: u32 = crate::dereth::INPUT_MAP.0;
 }
 
-/// What a row is about. Both pages list the same rows; each orders them its own way.
+/// What a row is about. Each page filters and orders the shared catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Group {
     Movement,
@@ -137,6 +137,22 @@ impl Row {
     #[must_use]
     pub const fn input_map(&self) -> InputMapId {
         InputMapId(self.map)
+    }
+
+    /// Whether the keyboard editor lists this action. Hidden actions remain bindable.
+    #[must_use]
+    pub fn shown(&self, interface: Interface) -> bool {
+        self.not_used(interface).is_none()
+            && !(interface == Interface::Retail
+                && matches!(
+                    self.action_name,
+                    "ToggleInvertMouseLook"
+                        | "ToggleMuteOnLosingFocus"
+                        | "TogglePerformancePanel"
+                        | "ToggleTradePanel"
+                        | "ToggleSpellResearchPanel"
+                        | "MovementHoldSidestep"
+                ))
     }
 
     /// Why the row does nothing in `interface`, when it does nothing there.

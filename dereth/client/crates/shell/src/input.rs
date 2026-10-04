@@ -865,6 +865,21 @@ impl InputShell {
             .map(|name| name.to_string_lossy().into_owned())
     }
 
+    /// The keyboard page's label, without changing the file used for persistence.
+    #[must_use]
+    pub fn keymap_display_name(&self) -> Option<String> {
+        let file = self
+            .keymap_file_name()
+            .unwrap_or_else(|| DEFAULT_KEYMAP_FILE.into());
+        if file.eq_ignore_ascii_case(DEFAULT_KEYMAP_FILE)
+            || file.eq_ignore_ascii_case("acclient.keymap")
+        {
+            Some("Default".into())
+        } else {
+            scheme_name(&file, MODERN_SLUG).or(Some(file))
+        }
+    }
+
     /// The names of one interface's saved key maps (`<name>-<slug>.keymap`) in the folder,
     /// sorted.
     pub fn scheme_names(&self, slug: &str) -> Result<Vec<String>, dereth_input::InputError> {
@@ -2277,6 +2292,30 @@ mod tests {
                 .any(|entry| entry.callback == shell.session_callback),
             "the new session survives the old retirement"
         );
+    }
+
+    /// Behaviour: options.key-bindings.default-file-has-a-friendly-label
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn default_keymap_label_keeps_real_filenames_and_named_schemes() {
+        let mut input = InputShell::new(&store(), None).unwrap();
+        assert_eq!(input.keymap_display_name().as_deref(), Some("Default"));
+        assert_eq!(input.keymap_file_name(), None);
+        assert_eq!(input.keymap_path(), None);
+        for (file, label) in [
+            ("dereth-modern.keymap", "Default"),
+            ("acclient.keymap", "Default"),
+            ("Quest-modern.keymap", "Quest"),
+            ("custom.keymap", "custom.keymap"),
+        ] {
+            input.keymap_path = Some(std::path::PathBuf::from(file));
+            assert_eq!(input.keymap_display_name().as_deref(), Some(label));
+            assert_eq!(input.keymap_file_name().as_deref(), Some(file));
+            assert_eq!(input.keymap_path(), Some(std::path::Path::new(file)));
+        }
     }
 
     /// Behaviour: keymap.storage.saved-maps-remain-specific-to-their-interface

@@ -180,6 +180,9 @@ impl Clipboard for EmptyClipboard {
 impl Shell for TestShell {
     type Hud = TestHud;
     type Present = dyn Presentation;
+    fn set_display(&mut self, display: (i32, i32)) {
+        self.ui.set_display(display);
+    }
     fn in_gameplay(&self) -> bool {
         self.in_world
     }
@@ -686,6 +689,55 @@ fn app_installs_the_chat_target_sweep_with_classic_or_no_interface() {
         assert_eq!(shell.ui.desktop.is_open("hud"), !no_ui);
         app.shutdown(&mut shell);
     }
+}
+
+/// Behaviour: options.classic.resolution-follows-the-live-display
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn classic_resolution_label_tracks_the_world_resize_after_pregame() {
+    let (mut app, mut shell) = fixture();
+    dereth_client_contract::options::store::init();
+    app.use_forced_resolution = false;
+    app.register_display_modes();
+    shell.ui.start(&mut app.ui_context()).unwrap();
+    assert_eq!(
+        shell.ui.settings.resolutions[shell.ui.settings.resolution],
+        (800, 600)
+    );
+    shell.in_world = true;
+    app.cfg.width = 1024;
+    app.cfg.height = 768;
+    app.applied_resolution = (800, 600);
+    assert!(app.frame(&mut shell));
+    assert_eq!(app.present.size(), (1024, 768));
+    let view = app.hud.view(&app.objects);
+    let c = Context {
+        game: &view,
+        pregame: &app.host_state,
+        keyboard: &shell.ui.keyboard,
+        settings: &shell.ui.settings,
+        map_teleport_allowed: false,
+        classic: &shell.ui.classic,
+    };
+    let mut panel = crate::panels::factory("sound-graphics").unwrap();
+    panel.event(ControlEvent::Tick, &c);
+    let frame = panel.frame(&c);
+    let row = frame
+        .controls
+        .iter()
+        .find(|c| c.id == "row:Display.Resolution")
+        .unwrap();
+    let crate::panels::ControlKind::Choice { options, selected } = &row.kind else {
+        panic!()
+    };
+    assert_eq!(options[*selected], "1024 x 768");
+    assert!(
+        !app.resolution.pending(),
+        "ordinary login resize does not start a confirmation"
+    );
 }
 
 /// Behaviour: presentation.resolution.shared-transaction

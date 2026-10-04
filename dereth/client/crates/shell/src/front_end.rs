@@ -2134,10 +2134,8 @@ impl<H: Host> Ui<'_, '_, H> {
                 .action_map
                 .entries()
                 .filter(|(map, action, _)| {
-                    dereth_input::presentation::find(*map, *action).is_some_and(|r| {
-                        r.not_used(dereth_input::presentation::Interface::Retail)
-                            .is_none()
-                    })
+                    dereth_input::presentation::find(*map, *action)
+                        .is_some_and(|r| r.shown(dereth_input::presentation::Interface::Retail))
                 })
                 .count();
             stats.init_calls += 1;
@@ -2145,9 +2143,7 @@ impl<H: Host> Ui<'_, '_, H> {
             stats.bindable_actions = bindable;
             stats.headers = headers;
             stats.failures = failures;
-            let name = input
-                .modern_scheme_in_use()
-                .or_else(|| input.keymap_file_name());
+            let name = input.keymap_display_name();
             page(&mut shell.ui, &mut input.manager, K::RefreshFileName(name));
             // A denominator, not a bare number: `0` and `0 of 306` read the same in a log and only
             // one of them is a bug.
@@ -2270,7 +2266,7 @@ impl<H: Host> Ui<'_, '_, H> {
                             {
                                 tracing::warn!("save keymap preference failed: {error}");
                             }
-                            let label = input.modern_scheme_in_use().or(Some(name));
+                            let label = input.keymap_display_name();
                             page(&mut shell.ui, &mut input.manager, K::RefreshFileName(label));
                         }
                     }
@@ -2292,7 +2288,7 @@ impl<H: Host> Ui<'_, '_, H> {
                             {
                                 tracing::warn!("save keymap preference failed: {error}");
                             }
-                            let label = input.modern_scheme_in_use().or(Some(name));
+                            let label = input.keymap_display_name();
                             page(&mut shell.ui, &mut input.manager, K::RefreshFileName(label));
                         }
                     }

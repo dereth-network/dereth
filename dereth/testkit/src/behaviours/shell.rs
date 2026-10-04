@@ -1341,6 +1341,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.character-page.defaults-follow-the-late-player-view",
+        says: "Character Defaults uses the player defaults once the player view arrives, even when the page was built before login.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-CHARACTER-DEFAULTS"),
+        station: "dereth-ui-screens::dat::panels::options_character_page::defaults::restore_defaults_writes_every_row_from_get_default_option_value",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.character-page.each-row-shows-the-bit-the-shard-sent-for-it",
         says: "Every row of the character options page shows what the shard actually sent for \
                that character rather than an empty page, each row reading its own setting and no \
@@ -1481,6 +1490,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-17-FILTER"),
         station: "dereth-testkit::dat::shell::scenario_ticking_a_filter_reaches_the_window_and_sends_nothing",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "options.classic.resolution-follows-the-live-display",
+        says: "The classic resolution choice follows the actual display resize on entering the world without starting a confirmation or changing unrelated settings.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-UI-CLASSIC-RESOLUTION"),
+        station: "dereth-classic-ui::lib::runtime::chat_tests::classic_resolution_label_tracks_the_world_resize_after_pregame",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1750,12 +1768,48 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.key-bindings.classic-wheel-covers-binding-columns",
+        says: "The mouse wheel scrolls the classic keyboard list over action names and every binding column, and slots remain clickable.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-UI-CLASSIC-KEY-WHEEL"),
+        station: "dereth-classic-ui::lib::panels::pregame::tests::the_real_keyboard_list_scrolls_over_names_and_each_binding_column",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "options.key-bindings.default-file-has-a-friendly-label",
+        says: "The default key map is labelled Default; named schemes keep their names and the actual persistence filename is unchanged.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-UI-KEY-DEFAULT"),
+        station: "dereth-client-shell::lib::input::tests::default_keymap_label_keeps_real_filenames_and_named_schemes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.key-bindings.every-section-is-titled-in-words",
         says: "Every heading down the key-bindings page is a word a player would read -- Movement \
                and the rest -- and not the token the client looks that word up by.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-43-TITLES"),
         station: "dereth-testkit::dat::shell::scenario_every_section_is_titled_in_words",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "options.key-bindings.modern-hides-six-rows-without-removing-actions",
+        says: "The modern keyboard editor omits six optional action rows while keeping their actions and saved bindings available.",
+        since: THIS_CLIENT,
+        divergence: "CD-022",
+        evidence: Evidence::Private("AC-EVID-UI-KEY-ROWS"),
+        station: "dereth-ui-screens::dat::panels::options_key_bindings::modern_omits_only_the_six_requested_rows_and_keeps_their_bindable_actions",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "options.key-bindings.own-action-conflicts-use-the-row-caption",
+        says: "A conflict with a saved binding to this client's own action names that action in the overwrite prompt, even when the editor does not list its row.",
+        since: THIS_CLIENT,
+        divergence: "CD-019",
+        evidence: Evidence::Private("AC-EVID-R2-OWN-KEYS"),
+        station: "dereth-ui-screens::dat::panels::options_key_bindings::own_action_conflicts_show_the_action_name_in_the_actual_overwrite_dialog",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1821,15 +1875,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P1-43-PROMPTS"),
         station: "dereth-testkit::dat::shell::scenario_the_questions_about_a_key_in_use_are_the_shipped_sentences",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "options.key-bindings.this-clients-own-actions-are-listed-by-name",
-        says: "The retail interface's key page lists this client's own actions (the performance                panel, hold sidestep, the trade and spell-research windows and the character                settings the classic interface had keys for) under their own names, in a section                headed Dereth on the movement, interface and character-settings tabs, with the                keys the key map gives them.",
-        since: THIS_CLIENT,
-        divergence: "CD-019",
-        evidence: Evidence::Private("AC-EVID-R2-OWN-KEYS"),
-        station: "dereth-ui-screens::dat::panels::options_key_bindings::this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_their_own",
         tier: Tier::Dat,
     },
     behaviour! {

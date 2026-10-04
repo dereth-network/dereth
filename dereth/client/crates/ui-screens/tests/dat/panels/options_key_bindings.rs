@@ -219,12 +219,12 @@ fn the_page_draws_a_row_per_bindable_action_with_the_keys_the_merged_map_reports
     // the classic interface answers, with Disable Most Weather Effects.
     assert_eq!(
         p.rows.len(),
-        dereth_input::presentation::ROWS.len() - 5,
+        dereth_input::presentation::ROWS.len() - 11,
         "one row per listed (map, action)"
     );
     assert_eq!(
         bindable,
-        p.rows.len() + 10 - 1 + 5,
+        p.rows.len() + 10 - 1 + 11,
         "of the {bindable} bindable entries"
     );
     assert_eq!(
@@ -794,7 +794,7 @@ fn the_gameplay_screen_builds_the_key_binding_page() {
         .count();
     assert_eq!(
         n,
-        dereth_input::presentation::ROWS.len() - 5,
+        dereth_input::presentation::ROWS.len() - 11,
         "one row per listed (map, action), of the {bindable} bindable"
     );
     assert_eq!(s.key_bindings.failures, 0);
@@ -1437,48 +1437,63 @@ mod defaults {
     }
 }
 
-/// Behaviour: options.key-bindings.this-clients-own-actions-are-listed-by-name
+/// Behaviour: options.key-bindings.own-action-conflicts-use-the-row-caption
 #[test]
-fn this_clients_own_actions_have_rows_under_their_own_names_in_a_section_of_their_own() {
-    let (mut ui, m, p) = page();
+fn own_action_conflicts_show_the_action_name_in_the_actual_overwrite_dialog() {
+    let (mut ui, mut m, mut p) = page();
     let own = dereth_input::dereth::INPUT_MAP;
-    // Each this interface acts on: the classic interface's own settings' keys are not listed.
-    for a in dereth_input::dereth::ACTIONS.iter().filter(|a| {
-        dereth_input::presentation::find(own, ActionId(a.action)).is_some_and(|r| {
-            r.not_used(dereth_input::presentation::Interface::Retail)
-                .is_none()
-        })
-    }) {
-        let i = p
-            .row_of(own, ActionId(a.action))
-            .unwrap_or_else(|| panic!("{} has a row", a.name));
-        assert_eq!(p.rows[i].label, a.name);
-        assert!(!a.name.is_empty());
+    let action = ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL);
+    m.bind_action(keyboard(DIK_F7), action, own);
+    let i = p.row_of(MOVEMENT, MOVE_FORWARD).unwrap();
+    let button = p.rows[i].key_buttons[0];
+    p.on_element_message(&mut ui, &mut m, &click(button));
+    assert!(matches!(
+        p.rows[i].key_hit(&mut ui, &mut m, released(DIK_F7), "+"),
+        Capture::NeedsConfirmation { .. }
+    ));
+    let context = p.rows[i].dialog_context(RowDialog::Overwrite).unwrap();
+    let dialog = ui.dialogs.open_on(DIALOG_QUEUE).unwrap();
+    assert_eq!(dialog.context, context);
+    let Some(dereth_ui::PropertyValue::String(text)) = dialog
+        .data
+        .get(dereth_ui::props::attr::DIALOG_COUNTDOWN_TEXT)
+    else {
+        panic!("dialog text")
+    };
+    assert!(text.contains("Performance Panel"), "{text}");
+    assert!(text.contains("F7"), "{text}");
+    assert!(!p.rows[i].close_dialog(&mut ui, &mut m, context, false, "+"));
+    assert!(m
+        .find_keys_for_action(action, own)
+        .contains(&keyboard(DIK_F7)));
+}
+
+/// Behaviour: options.key-bindings.modern-hides-six-rows-without-removing-actions
+#[test]
+fn modern_omits_only_the_six_requested_rows_and_keeps_their_bindable_actions() {
+    let (_, m, p) = page();
+    let hidden = [
+        "ToggleInvertMouseLook",
+        "ToggleMuteOnLosingFocus",
+        "TogglePerformancePanel",
+        "ToggleTradePanel",
+        "ToggleSpellResearchPanel",
+        "MovementHoldSidestep",
+    ];
+    for name in hidden {
+        let action = dereth_client_contract::actions::names::action_for_enum_name(name).unwrap();
+        let map = dereth_input::dereth::INPUT_MAP;
+        assert!(m.action_map.is_user_bindable(map, action), "{name}");
+        assert!(p.row_of(map, action).is_none(), "{name}");
+        assert!(dereth_input::presentation::find(map, action)
+            .unwrap()
+            .shown(dereth_input::presentation::Interface::Classic));
     }
-    // The performance panel's row shows the keys the key map gives it.
-    let perf = p
-        .row_of(
-            own,
-            ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL),
-        )
-        .expect("a row");
-    assert_eq!(
-        p.rows[perf].current,
-        m.find_keys_for_action(
-            ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL),
-            own
-        )
-    );
-    // Each tab that lists them heads them "Dereth".
-    let headed = p
-        .header_elements
+    assert_eq!(p.rows.len(), 297);
+    assert!(p
+        .rows
         .iter()
-        .filter(|&&h| {
-            ui.text_element_mut(h)
-                .is_some_and(|t| t.glyphs.inq_text(false) == dereth_input::dereth::SECTION_NAME)
-        })
-        .count();
-    assert_eq!(headed, 3, "movement, interface and character settings");
+        .all(|r| r.input_map != dereth_input::dereth::INPUT_MAP));
 }
 
 /// The page lists the rows of the shared set this interface acts on and no others: none of the
@@ -1493,8 +1508,9 @@ fn the_key_page_lists_the_shared_rows_this_interface_acts_on_and_no_others() {
     use dereth_input::presentation::{find, Interface};
     let (mut ui, m, p) = page();
     assert!(
-        p.rows.iter().all(|r| find(r.input_map, r.action)
-            .is_some_and(|row| row.not_used(Interface::Retail).is_none())),
+        p.rows
+            .iter()
+            .all(|r| find(r.input_map, r.action).is_some_and(|row| row.shown(Interface::Retail))),
         "every row acts here"
     );
     for h in p.header_elements.clone() {

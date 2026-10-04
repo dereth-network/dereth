@@ -1157,23 +1157,32 @@ pub const fn dialog_kind(which: RowDialog) -> dereth_ui::dialog::DialogKind {
     }
 }
 
-/// The client's **first** id, resolved — one conflicting action's
-/// own name, which is the value every `ACTION` variable in this control carries.
-///
-/// `descrip_values` returns the two *string ids* the client hands the option build; the row's
-/// label comes from resolving the first against the row's string table, never from printing
-/// the id.
-///
-/// The client abandons the whole dialog when it cannot resolve the key's description; both
-/// failure branches return without making the dialog. Here an unresolvable
-/// name becomes the empty string instead, which is what
-/// writes for a variable the caller never named — a dialog with a gap in it is closer to the
-/// player's situation than no dialog at all, and is stated rather than hidden.
+/// The same action caption used by rows and overwrite prompts.
+fn action_description(
+    ui: &UiSystem,
+    m: &InputManager,
+    map: InputMapId,
+    action: ActionId,
+) -> (String, String) {
+    if map == dereth_input::dereth::INPUT_MAP {
+        if let Some(name) = dereth_input::dereth::name(action) {
+            return (name.to_owned(), String::new());
+        }
+    }
+    if let Some(caption) = presentation::retail_caption(map, action) {
+        return (caption.to_owned(), String::new());
+    }
+    let table = dereth_primitives::DataId(m.action_map.string_table);
+    let (name, tip) = m.action_map.descrip_values(map, action);
+    (
+        ui.resolve_string(table, name).unwrap_or_default(),
+        ui.resolve_string(table, tip).unwrap_or_default(),
+    )
+}
+
 #[must_use]
 fn conflict_action_name(ui: &UiSystem, m: &InputManager, c: &Conflict) -> String {
-    let table = dereth_primitives::DataId(m.action_map.string_table);
-    let (name_id, _) = m.action_map.descrip_values(c.input_map, c.action);
-    ui.resolve_string(table, name_id).unwrap_or_default()
+    action_description(ui, m, c.input_map, c.action).0
 }
 
 /// The client's prompt — the shipped row, with its variables.
@@ -1881,7 +1890,7 @@ impl KeyBindingPage {
                 continue;
             };
             let class = presentation::retail_class(map, action).unwrap_or(v.action_class);
-            if row.not_used(Interface::Retail).is_some() {
+            if !row.shown(Interface::Retail) {
                 continue;
             }
             let ci = match groups.iter().position(|(c, _)| *c == class) {
@@ -1992,23 +2001,7 @@ impl KeyBindingPage {
             self.failures += 1;
             return;
         };
-        let (name_id, tip_id) = m.action_map.descrip_values(map, action);
-        let table = dereth_primitives::DataId(m.action_map.string_table);
-        // This client's own actions have no row in the string table: their names are its own;
-        // so has Disable Most Weather Effects, which goes by its Character Options page's words.
-        let (name, tip) = match (
-            dereth_input::dereth::name(action),
-            presentation::retail_caption(map, action),
-        ) {
-            (Some(own), _) if map == dereth_input::dereth::INPUT_MAP => {
-                (own.to_owned(), String::new())
-            }
-            (_, Some(caption)) => (caption.to_owned(), String::new()),
-            _ => (
-                ui.resolve_string(table, name_id).unwrap_or_default(),
-                ui.resolve_string(table, tip_id).unwrap_or_default(),
-            ),
-        };
+        let (name, tip) = action_description(ui, m, map, action);
         set_literal(ui, h, &name);
         // Initialization takes the defaults as its fifth argument and fills the current list
         // itself from `find_keys_for_action` on the *merged* map. The two lists are different

@@ -767,20 +767,14 @@ impl ControlHost {
         if self.choice.is_some() {
             return input;
         }
-        let scrolls = |c: &&Control| {
+        if self.control_at(x, y).is_some_and(|c| {
             matches!(
                 c.kind,
                 ControlKind::List { .. }
                     | ControlKind::HitList { .. }
                     | ControlKind::ScrollBar { vertical: true, .. }
             )
-        };
-        if self
-            .controls
-            .iter()
-            .filter(scrolls)
-            .any(|c| c.rect.contains(x, y))
-        {
+        }) {
             return input;
         }
         let mut bars = self.controls.iter().filter(|c| {

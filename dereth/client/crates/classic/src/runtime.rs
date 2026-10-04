@@ -1698,6 +1698,10 @@ impl ClassicUi {
         self.pending_size = Some((size.0.max(1).unsigned_abs(), size.1.max(1).unsigned_abs()));
         self.screen.width = size.0.max(1).unsigned_abs();
         self.screen.height = size.1.max(1).unsigned_abs();
+        if let Some(host) = &mut self.settings_host {
+            host.resolution_readback((self.screen.width, self.screen.height), false);
+            self.settings.resolution = host.snapshot().resolution;
+        }
     }
     /// The classic interface's step of the frame: the game's notices to its windows, its windows'
     /// input, and what they ask for, carried out through the context.

@@ -1348,3 +1348,47 @@ fn special_heritage_skip_route_starts_with_body_framing_and_keeps_explicit_zoom(
         }
     });
 }
+
+/// Behaviour: options.key-bindings.classic-wheel-covers-binding-columns
+#[test]
+fn the_real_keyboard_list_scrolls_over_names_and_each_binding_column() {
+    context(|base| {
+        let mut keyboard = base.keyboard.clone();
+        keyboard.bindings = (0..50)
+            .map(|i| KeyBinding {
+                action: 5,
+                map: 4,
+                label: format!("Action {i}"),
+                keys: vec!["W".into()],
+            })
+            .collect();
+        let c = Context {
+            keyboard: &keyboard,
+            ..*base
+        };
+        for x in [150, 340, 490, 650] {
+            let mut panel = Pregame::new("keyboard", Ok(std::rc::Rc::new(data())));
+            let mut host = crate::control_host::ControlHost::default();
+            host.sync(&panel.frame(&c));
+            let events = host.handle(crate::widgets::Input::Wheel {
+                x,
+                y: 300,
+                delta: 2,
+            });
+            assert!(!events.is_empty(), "column {x}");
+            for e in events {
+                panel.event(e, &c);
+            }
+            assert_eq!(panel.keyboard_scroll, 34, "column {x}");
+            host.sync(&panel.frame(&c));
+            host.handle(crate::widgets::Input::PointerDown { x: 340, y: 210 });
+            for e in host.handle(crate::widgets::Input::PointerUp { x: 340, y: 210 }) {
+                panel.event(e, &c);
+            }
+            assert_eq!(
+                panel.page, "key-edit",
+                "scrolling did not disable slot capture"
+            );
+        }
+    });
+}

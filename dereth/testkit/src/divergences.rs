@@ -172,8 +172,8 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-019",
         title: "Every key that can be bound does something",
-        change: "Show Cloak works, and this client's own actions are listed on the retail key \
-                 page and answered by the retail interface.",
+        change: "Show Cloak works, and this client's own saved bindings are answered by the retail \
+                 interface and named in key-conflict prompts.",
         why: "A key that can be bound works when it is bound.",
     },
     Divergence {

@@ -438,8 +438,7 @@ impl CharacterSettingsPage {
         let current = view.player_option(option);
         self.values_seen += 1;
         // The checkbox option control's player option write's second line — the default is the
-        // module's default option value, read once at bind time and
-        // never again.
+        // module's default option value, refreshed with subsequent player-view reads.
         let default = view.player_option_default(option);
         self.defaults_seen += usize::from(default.is_some());
         let lt = label_token(option);
@@ -515,11 +514,20 @@ impl CharacterSettingsPage {
         requests_out.emit(UiRequest::SetPlayerOption(r.option, r.current));
     }
 
+    fn refresh_defaults(&mut self, view: &dyn GameView) {
+        self.defaults_seen = 0;
+        for row in &mut self.rows {
+            row.default = view.player_option_default(row.option);
+            self.defaults_seen += usize::from(row.default.is_some());
+        }
+    }
+
     /// Re-read every row from the module.
     ///
     /// Returns how many moved, which is the observable half of the read: a `save_current_values`
     /// that silently did nothing and one that re-read 50 identical values are otherwise the same.
     pub fn save_current_values(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
+        self.refresh_defaults(view);
         let mut moved = 0;
         for i in 0..self.rows.len() {
             let v = view.player_option(self.rows[i].option);
@@ -556,6 +564,7 @@ impl CharacterSettingsPage {
     /// would have reached, one frame late, the same as the five panel-bound boxes in
     /// [`super::toggle::PanelOptionBoxes::refresh`]. Returns how many rows moved.
     pub fn on_player_option_changed(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
+        self.refresh_defaults(view);
         let mut moved = 0;
         for i in 0..self.rows.len() {
             if let Some(caption) =
