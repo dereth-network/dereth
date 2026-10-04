@@ -6,6 +6,7 @@
 //! binding table in [`super::catalogue`] has eight, so eight buttons are bound; [`SpellFilter`] carries nine level bits so a spell of level 9 can still be admitted when
 //! the bit is set from elsewhere.
 
+use dereth_client_contract::spellbook::{level_mask, school_mask};
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 
 /// `Dialog` — layout enum 2, the one every root lives in.
@@ -113,10 +114,11 @@ impl SpellFilter {
     /// level are selected.
     #[must_use]
     pub fn accepts(&self, s: SpellRow) -> bool {
-        let school_on = self.schools & (1 << (s.school as u8)) != 0;
-        let level_on =
-            (1..=MAX_LEVEL_BIT).contains(&s.level) && self.levels & (1 << (s.level - 1)) != 0;
-        school_on && level_on
+        dereth_client_contract::spellbook::accepts(
+            self.to_player_module(),
+            s.school.magic_school(),
+            s.level,
+        )
     }
 
     /// Apply the filter to a spellbook.
@@ -202,28 +204,14 @@ impl SpellFilter {
     /// button ids have.
     #[must_use]
     pub const fn from_player_module(filters: u32) -> Self {
-        let elemental = (filters & 0b1111) as u8;
-        let void = if filters & 0x2000 != 0 {
-            1 << (School::Void as u8)
-        } else {
-            0
-        };
-        Self {
-            schools: elemental | void,
-            levels: ((filters >> 4) & ((1 << MAX_LEVEL_BIT) - 1)) as u16,
-        }
+        let (schools, levels) = dereth_client_contract::spellbook::filter_sets(filters);
+        Self { schools, levels }
     }
 
     /// The inverse, for a test and for a future write-back.
     #[must_use]
     pub const fn to_player_module(self) -> u32 {
-        let elemental = (self.schools & 0b1111) as u32;
-        let void = if self.schools & (1 << (School::Void as u8)) != 0 {
-            0x2000
-        } else {
-            0
-        };
-        elemental | void | ((self.levels as u32) << 4)
+        dereth_client_contract::spellbook::filter_mask(self.schools, self.levels)
     }
 }
 
@@ -293,24 +281,21 @@ pub const BUTTON_OFF: u32 = 1;
 
 /// The client's if-chain, as a table: `(element id, player-module filter bit)`.
 ///
-/// This is the **third** independent statement of the same bit map — [`SpellFilter::
-/// from_player_module`] has it, the "is filtered out" test has it, and the filter update has it — and
-/// all three agree, including Void's discontinuity at `0x2000`. A test below asserts that this
-/// table and `SpellFilter` cannot drift apart.
+/// Element ids stay local; persisted school and level bits come from the shared spell filter.
 pub const FILTER_BUTTONS: [(u32, u32); 13] = [
-    (0x1000_0298, 0x0001), // Creature
-    (0x1000_0299, 0x0002), // Item
-    (0x1000_029A, 0x0004), // Life
-    (0x1000_029B, 0x0008), // War
-    (0x1000_05C0, 0x2000), // Void
-    (0x1000_029C, 0x0010), // level 1
-    (0x1000_029D, 0x0020),
-    (0x1000_029E, 0x0040),
-    (0x1000_029F, 0x0080),
-    (0x1000_02A0, 0x0100),
-    (0x1000_02A1, 0x0200),
-    (0x1000_02A2, 0x0400),
-    (0x1000_054E, 0x0800), // level 8
+    (0x1000_0298, school_mask(4)), // Creature
+    (0x1000_0299, school_mask(3)), // Item
+    (0x1000_029A, school_mask(2)), // Life
+    (0x1000_029B, school_mask(1)), // War
+    (0x1000_05C0, school_mask(5)), // Void
+    (0x1000_029C, level_mask(1)),  // level 1
+    (0x1000_029D, level_mask(2)),
+    (0x1000_029E, level_mask(3)),
+    (0x1000_029F, level_mask(4)),
+    (0x1000_02A0, level_mask(5)),
+    (0x1000_02A1, level_mask(6)),
+    (0x1000_02A2, level_mask(7)),
+    (0x1000_054E, level_mask(8)), // level 8
 ];
 
 /// The client's `0x100002A5` arm — the DELETE button.

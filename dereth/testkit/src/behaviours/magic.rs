@@ -769,6 +769,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "spell-examine.text.school-and-surviving-components",
+        says: "Spell examination names all five schools and formats mana, duration and range. Its description includes only components with metadata and an icon, in formula order, with the shared newline and indentation rules.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SPELL-EXAMINATION-TEXT"),
+        station: "dereth-classic-ui::lib::panels::game::examine::spell_tests::a_classic_spell_examination_shows_void_and_only_surviving_component_text",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "spellbar.caption.selecting-a-spell-or-a-wand-names-it",
         says: "The spell bar's caption is empty while nothing is selected and no wand is held, and \
                pressing a spell on the bar writes that spell's name into it, following each new \
@@ -788,6 +796,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-P1164-CAST-BUTTON"),
         station: "dereth-ui-screens::dat::magic::spell_bar_caption_and_ring::cast_button::cast_button_a_targeted_spell_walks_its_three_arms",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "spellbar.cast.empty-selection-refuses-once",
+        says: "An explicit cast with no selected spell says You must select a spell to cast once on the local refusal channel and sends no cast. An empty quickslot remains silent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SPELL-EMPTY-SELECTION"),
+        station: "dereth-client::cpu::magic::spell_casting::an_explicit_empty_bar_cast_is_one_local_line_and_no_wire_request",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "spellbar.click.a-press-selects-a-clipped-row-and-refuses-foreign-or-empty-rows",
@@ -843,6 +859,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-F9-REMOVE"),
         station: "dereth-testkit::cpu::magic::scenario_a_favorite_removal_reaches_the_packed_copy",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "spellbar.icons.raw-power-background",
+        says: "Spell icon backgrounds use the first formula component's raw power before the displayed level is collapsed. The classic artwork retains its supported backgrounds and leaves later unsupported powers without a background.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SPELL-ICON-POWER"),
+        station: "dereth-client::dat::inventory::icon_composite::spell_bar_backgrounds_use_runtime_raw_power_before_display_level_collapse",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "spellbar.keys.a-real-key-press-moves-the-selection-the-ring-and-the-scroll",

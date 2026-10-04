@@ -294,24 +294,14 @@ pub mod icon_background {
     /// computes the row.
     #[must_use]
     pub const fn spell_tint_index(bitfield: u32) -> u32 {
-        if bitfield & SPELL_REVERSED != 0 {
-            1
-        } else {
-            2
-        }
+        dereth_presentation::spell::SpellIconLayers::new(0, bitfield).tint_key()
     }
 
     /// `if (bitfield & 0x2000) 4; else if (bitfield & 8) 3; else none` — **in that order**, and the
     /// order is the client's: a fellowship spell that is also self-targeted takes row 4.
     #[must_use]
     pub const fn spell_overlay_index(bitfield: u32) -> Option<u32> {
-        if bitfield & SPELL_FELLOWSHIP != 0 {
-            Some(4)
-        } else if bitfield & SPELL_SELF_TARGETED != 0 {
-            Some(3)
-        } else {
-            None
-        }
+        dereth_presentation::spell::SpellIconLayers::new(0, bitfield).badge_key()
     }
 }
 
@@ -359,8 +349,8 @@ pub fn object_recipe(
 
 /// The spell-icon composite, as a recipe.
 ///
-/// `level` is the power level of the spell's power component, which reaches this crate as
-/// [`crate::view::SpellEntry::level`]; `bitfield` is the spell's bitfield.
+/// `power` is the first component's power, which reaches this crate as
+/// [`crate::view::SpellEntry::icon_power`]; `bitfield` is the spell's bitfield.
 ///
 /// **The background is not optional in the client** — the spell-icon composite blits it with no null
 /// guard at all, so a spell whose power level names no row would blit through a null pointer. It
@@ -369,23 +359,22 @@ pub fn object_recipe(
 #[must_use]
 pub fn spell_recipe(
     ui: &UiSystem,
-    level: u32,
+    power: u32,
     icon: Option<DataId>,
     bitfield: u32,
 ) -> dereth_ui::region::IconRecipe {
+    let layers = dereth_presentation::spell::SpellIconLayers::new(power, bitfield);
     dereth_ui::region::IconRecipe::Spell {
         background: ui
             .env()
             .cloned()
-            .and_then(|e| e.did_by_enum(icon_background::SPELL_BACKGROUND_GROUP, level)),
+            .and_then(|e| e.did_by_enum(icon_background::SPELL_BACKGROUND_GROUP, layers.power)),
         icon: icon.filter(|x| x.0 != 0),
-        tint: ui.env().cloned().and_then(|e| {
-            e.did_by_enum(
-                icon_background::SPELL_OVERLAY_GROUP,
-                icon_background::spell_tint_index(bitfield),
-            )
-        }),
-        overlay: icon_background::spell_overlay_index(bitfield).and_then(|i| {
+        tint: ui
+            .env()
+            .cloned()
+            .and_then(|e| e.did_by_enum(icon_background::SPELL_OVERLAY_GROUP, layers.tint_key())),
+        overlay: layers.badge_key().and_then(|i| {
             ui.env()
                 .cloned()
                 .and_then(|e| e.did_by_enum(icon_background::SPELL_OVERLAY_GROUP, i))
@@ -2670,7 +2659,7 @@ impl ItemListWidget {
                 e.id,
                 e.icon,
                 &e.name,
-                Some(spell_recipe(ui, e.level, e.icon, e.bitfield)),
+                Some(spell_recipe(ui, e.icon_power, e.icon, e.bitfield)),
             );
             ui.set_visible(s.handle, true);
             filled += 1;

@@ -21,4 +21,5 @@ pub mod appraisal;
 pub mod character;
 pub mod coordinates;
 pub mod journal;
+pub mod spell;
 pub mod target;

@@ -464,6 +464,8 @@ pub struct SpellEntry {
     pub school: u32,
     /// The spell level by retail's rough heuristic — 1…9, or 0 when the power component is unrecognised.
     pub level: u32,
+    /// The first component's power, before the display-level collapse, used by icon composition.
+    pub icon_power: u32,
     /// The spell's display order.
     pub display_order: i32,
     /// The spell's bitfield.
@@ -522,10 +524,10 @@ pub struct SpellExamineView {
     pub range: f32,
     /// The spell icon id returned by the magic system.
     pub icon: Option<DataId>,
-    /// The spell's power level and its bitfield, which the spell icon is composed from (the
-    /// level's background, the reversed wash and the fellowship or self badge), as the
-    /// spellbook composes it.
+    /// The spell's collapsed display level, as in the spellbook.
     pub level: u32,
+    /// The first component's raw power used by the icon background.
+    pub icon_power: u32,
     pub bitfield: u32,
     /// One entry per slot counted, **in formula
     /// order**; `None` where the spell-component lookup missed, which is the client's first skip.
@@ -2747,7 +2749,7 @@ pub trait GameView: std::fmt::Debug {
     ///
     /// This is *not* [`Self::spellbook`]`.contains`, and the difference is the whole reason it
     /// exists. `spellbook()` is the book **joined to the `SpellTable`**, so a spell the character
-    /// knows whose id has no table row is absent from it. The spell-cast submenu update
+    /// knows whose id has no table row is absent from it. The runtime
     /// prunes a favourite that fails the known-spell test **and tells the shard**
     /// (`0x01E4`), so answering that question with the join would put an unrequested edit on the
     /// wire for a spell whose only problem is missing metadata.

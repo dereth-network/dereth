@@ -1,0 +1,149 @@
+use super::*;
+use crate::panels::Context;
+
+struct Fonts;
+impl dereth_classic_dat::fonts::FontSource for Fonts {
+    fn rasterize(
+        &self,
+        _: &dereth_classic_dat::fonts::FontSpec,
+    ) -> std::result::Result<dereth_classic_dat::fonts::FontAtlas, String> {
+        Ok(Default::default())
+    }
+}
+/// Behaviour: spellbar.icons.raw-power-background
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "requires retail DATs")]
+fn runtime_spell_power_reaches_classic_rows_and_supported_background_pixels() {
+    let store = dereth_dat::testing::open_store_or_fail();
+    let path = std::path::PathBuf::from(
+        std::env::var_os("DERETH_CLASSIC_PORTAL").expect("classic portal"),
+    );
+    let art = Arc::new(
+        ClassicArt::new(
+            dereth_classic_dat::ClassicPortal::open(&path).unwrap(),
+            &Fonts,
+        )
+        .unwrap(),
+    );
+    let mut canvas = Canvas::new(art, (300, 362)).unwrap();
+    let mut hud = dereth_client_runtime::hud::Hud::new();
+    let objects = dereth_client_runtime::objects::ObjectStream::new();
+    hud.load_tables(&store, &objects.world);
+    let ids: Vec<_> = [0x6e, 0x70, 0xc0, 0xc1]
+        .into_iter()
+        .map(|component| {
+            *hud.spell_table
+                .as_ref()
+                .unwrap()
+                .spells
+                .iter()
+                .find(|(_, b)| {
+                    dereth_client_contract::spellbook::power_component(b.raw_comps[0], b.comp_key)
+                        == component
+                        && b.icon != 0
+                })
+                .unwrap()
+                .0
+        })
+        .collect();
+    hud.spells = ids.iter().map(|id| hud.spell_entry(*id).unwrap()).collect();
+    let view = hud.view(&objects);
+    let ctx = Context {
+        game: &view,
+        pregame: &Default::default(),
+        keyboard: &Default::default(),
+        settings: &Default::default(),
+        map_teleport_allowed: false,
+        classic: &Default::default(),
+    };
+    let panel = crate::panels::factory("spellbook").unwrap();
+    let frame = panel.frame(&ctx);
+    canvas.load_runtime_images(&frame.screen, &store).unwrap();
+    let commands: Vec<_> = frame
+        .screen
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            Command::SpellIcon {
+                icon,
+                power,
+                bitfield,
+                ..
+            } => Some((*icon, *power, *bitfield)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(commands.len(), 4);
+    for (entry, (power, level, background)) in hud.spells.iter().zip([
+        (7, 6, Some(0x060013f6)),
+        (8, 7, Some(0x06001f63)),
+        (9, 7, None),
+        (10, 8, None),
+    ]) {
+        assert_eq!((entry.icon_power, entry.level), (power, level));
+        let &(icon, sent_power, _) = commands
+            .iter()
+            .find(|(icon, _, _)| Some(dereth_primitives::DataId(*icon)) == entry.icon)
+            .unwrap();
+        // Multiple spells may share their base icon, so check the power-bearing command too.
+        assert!(
+            commands.iter().any(|(id, p, _)| *id == icon && *p == power),
+            "{sent_power} lost raw power {power}"
+        );
+        let raw = canvas
+            .read_pixels(
+                &canvas
+                    .manifest
+                    .image(&format!("{icon:08X}"))
+                    .unwrap()
+                    .rgba_file,
+            )
+            .unwrap();
+        let composed = canvas.spell_pixels(icon, power, 0).unwrap();
+        let expected = background
+            .map(|id| canvas.read_pixels(&format!("{id:08X}")).unwrap())
+            .unwrap_or_else(|| vec![0; 32 * 32 * 4]);
+        let black: Vec<_> = raw
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p[0] < 8 && p[1] < 4 && p[2] < 8)
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            !black.is_empty(),
+            "base icon has transparent surrounding pixels"
+        );
+        for i in black {
+            assert_eq!(
+                &composed[i * 4..i * 4 + 4],
+                &[
+                    expected[i * 4 + 2],
+                    expected[i * 4 + 1],
+                    expected[i * 4],
+                    expected[i * 4 + 3]
+                ]
+            );
+        }
+    }
+    let spell_screen = Screen {
+        width: frame.screen.width,
+        height: frame.screen.height,
+        commands: frame
+            .screen
+            .commands
+            .into_iter()
+            .filter(|command| matches!(command, Command::SpellIcon { .. }))
+            .collect(),
+    };
+    canvas.resize((spell_screen.width, spell_screen.height));
+    let mut present = dereth_client_runtime::present::NullPresentation::new(
+        spell_screen.width,
+        spell_screen.height,
+    );
+    canvas
+        .compose(&mut present, &spell_screen, &|_| None)
+        .unwrap();
+    assert!(present.counts().overlay_uploads >= 4);
+}

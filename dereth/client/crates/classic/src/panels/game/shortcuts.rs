@@ -4,6 +4,9 @@ use super::super::*;
 use super::common::*;
 use super::items::entry;
 use crate::int::{i32_from, u32_from};
+use dereth_client_contract::spellbook::{
+    drawable_favorites, readiness, FavoritePlan, SelectionMove, SpellReadiness, SpellSelection,
+};
 use dereth_client_contract::view::MagicNotice;
 #[derive(Debug, Default)]
 pub struct Shortcuts;
@@ -159,7 +162,7 @@ impl Favorites {
         id.strip_prefix("spell:")?
             .parse::<usize>()
             .ok()
-            .and_then(|i| g.spell_tab(self.tab).get(i).copied())
+            .and_then(|i| drawable_favorites(g, self.tab).get(i).copied())
     }
     fn change_tab(&mut self, tab: usize) {
         self.tab_state[self.tab] = (self.selected, self.endowment, self.offset);
@@ -178,37 +181,30 @@ impl Favorites {
             LastSpellTab => self.change_tab(count - 1),
             CastCurrentSpell => return self.event(ControlEvent::Activate("cast".into()), ctx),
             CastQuickslotSpell { slot } => {
-                if let Some(spell) = g.spell_tab(self.tab).get(slot).copied() {
+                if let Some(spell) = drawable_favorites(g, self.tab).get(slot).copied() {
                     self.selected = Some(spell);
                     self.endowment = false;
                     return self.event(ControlEvent::Activate("cast".into()), ctx);
                 }
             }
             PrevSpellSelection | NextSpellSelection | FirstSpellSelection | LastSpellSelection => {
-                let mut choices = Vec::new();
-                if let Some((object, spell)) = g.endowment() {
-                    choices.push((Some(object), spell));
-                }
-                choices.extend(g.spell_tab(self.tab).iter().map(|spell| (None, *spell)));
-                if choices.is_empty() {
-                    return vec![];
-                }
-                let current = self
-                    .choice(g)
-                    .and_then(|choice| choices.iter().position(|v| *v == choice))
-                    .unwrap_or(0);
-                let next = match notice {
-                    PrevSpellSelection => (current + choices.len() - 1) % choices.len(),
-                    NextSpellSelection => (current + 1) % choices.len(),
-                    FirstSpellSelection => 0,
-                    LastSpellSelection => choices.len() - 1,
+                let rows = drawable_favorites(g, self.tab);
+                let movement = match notice {
+                    PrevSpellSelection => SelectionMove::Previous,
+                    NextSpellSelection => SelectionMove::Next,
+                    FirstSpellSelection => SelectionMove::First,
+                    LastSpellSelection => SelectionMove::Last,
                     _ => unreachable!(),
                 };
-                let (object, spell) = choices[next];
-                self.endowment = object.is_some();
-                self.selected = object.is_none().then_some(spell);
-                if object.is_none() {
-                    let index = next - usize::from(g.endowment().is_some());
+                let Some(next) = self
+                    .selection(g)
+                    .moved(&rows, g.endowment().is_some(), movement)
+                else {
+                    return vec![];
+                };
+                self.endowment = next.endowment;
+                self.selected = (next.spell != 0).then_some(next.spell);
+                if let Some(index) = rows.iter().position(|id| *id == next.spell) {
                     let visible = layout(self.width(), g.endowment().is_some()).2 as usize / 32;
                     if index < self.offset {
                         self.offset = index;
@@ -220,16 +216,23 @@ impl Favorites {
         }
         vec![]
     }
+    fn selection(&self, g: &dyn GameView) -> SpellSelection {
+        let spell = self
+            .selected
+            .filter(|id| g.spell_tab(self.tab).contains(id))
+            .unwrap_or(0);
+        SpellSelection {
+            spell,
+            endowment: g.endowment().is_some() && (self.endowment || spell == 0),
+        }
+    }
     fn choice(&self, g: &dyn GameView) -> Option<(Option<ObjectId>, u32)> {
-        if self.endowment {
-            return g.endowment().map(|(o, s)| (Some(o), s));
+        let selection = self.selection(g);
+        if selection.spell != 0 {
+            Some((None, selection.spell))
+        } else {
+            g.endowment().map(|(o, s)| (Some(o), s))
         }
-        if let Some(s) = self.selected.filter(|s| g.spell_tab(self.tab).contains(s)) {
-            return Some((None, s));
-        }
-        g.endowment()
-            .map(|(o, s)| (Some(o), s))
-            .or_else(|| g.spell_tab(self.tab).first().copied().map(|s| (None, s)))
     }
     fn cast_label(&self, g: &dyn GameView) -> (String, bool) {
         let Some((object, spell)) = self.choice(g) else {
@@ -248,28 +251,22 @@ impl Favorites {
             .or_else(|| g.spell(spell).map(|s| s.name))
             .unwrap_or_default();
         let target = g.selected_object();
-        let (verb, subject, self_target, compatible) = if let Some(o) = object {
-            (
-                "USE",
-                format!("the {name}"),
-                g.item_useable_self_target(o),
-                g.item_target_compatible(o),
-            )
+        let (verb, subject) = if object.is_some() {
+            ("USE", format!("the {name}"))
         } else {
-            (
-                "CAST",
-                name,
-                g.spell_is_untargeted(spell) || g.spell(spell).is_some_and(|s| s.bitfield & 8 != 0),
-                g.spell_target_compatible(spell),
-            )
+            ("CAST", name)
         };
-        if self_target {
+        let ready = readiness(g, if object.is_some() { 0 } else { spell }, object);
+        if ready == SpellReadiness::Missing {
+            return (String::new(), false);
+        }
+        if ready == SpellReadiness::Ready {
             return (format!("{verb} {subject}"), true);
         }
-        if target.is_none() {
+        if ready == SpellReadiness::NeedsTarget {
             return (format!("You must select a target for\n{subject}"), false);
         }
-        if !compatible {
+        if ready == SpellReadiness::Incompatible {
             return (
                 format!("You must select an appropriate\ntarget for {subject}"),
                 false,
@@ -352,7 +349,7 @@ impl Panel for Favorites {
             false,
         );
         let (left, x, width) = layout(self.width(), g.endowment().is_some());
-        let rows = g.spell_tab(self.tab);
+        let rows = drawable_favorites(g, self.tab);
         let visible = width as usize / 32;
         let offset = self.offset.min((rows.len() + 1).saturating_sub(visible));
         if let Some((object, spell)) = g.endowment() {
@@ -371,7 +368,7 @@ impl Panel for Favorites {
                 spell_icon(
                     &mut f,
                     s.icon,
-                    s.level,
+                    s.icon_power,
                     s.bitfield,
                     rect(left, 24, 32, 32),
                     None,
@@ -415,7 +412,7 @@ impl Panel for Favorites {
                 spell_icon(
                     &mut f,
                     s.icon,
-                    s.level,
+                    s.icon_power,
                     s.bitfield,
                     rect(x + i32_from(i) * 32, 24, 32, 32),
                     None,
@@ -498,26 +495,22 @@ impl Panel for Favorites {
                 if let Some(spell) = id[6..]
                     .parse::<usize>()
                     .ok()
-                    .and_then(|i| g.spell_tab(self.tab).get(i).copied())
+                    .and_then(|i| drawable_favorites(g, self.tab).get(i).copied())
                 {
                     self.selected = Some(spell);
                     self.endowment = false;
                 }
             }
             ControlEvent::Activate(id) if id == "cast" => {
-                if let Some((object, spell_id)) = self.choice(g) {
-                    return vec![PanelAction::Game(if let Some(object) = object {
-                        UiRequest::Use(object)
-                    } else {
-                        UiRequest::CastSpell { spell_id }
-                    })];
-                }
+                return vec![PanelAction::Game(
+                    self.selection(g).cast(g.endowment().map(|(item, _)| item)),
+                )];
             }
             ControlEvent::DragStart { id, .. } if id.starts_with("spell:") => {
                 if let Some(spell) = id[6..]
                     .parse::<usize>()
                     .ok()
-                    .and_then(|i| g.spell_tab(self.tab).get(i).copied())
+                    .and_then(|i| drawable_favorites(g, self.tab).get(i).copied())
                 {
                     self.selected = None;
                     self.endowment = false;
@@ -538,22 +531,19 @@ impl Panel for Favorites {
             } if id.starts_with("tab:") => {
                 if let Some(tab) = id[4..].parse::<usize>().ok().filter(|t| *t < tab_count(g)) {
                     if g.is_spell_known(spell_id) {
-                        let spells = g.spell_tab(tab);
-                        let mut actions = vec![];
-                        let mut index = i32_from(spells.len());
-                        if spells.contains(&spell_id) {
-                            index -= 1;
-                            actions.push(PanelAction::Game(UiRequest::RemoveSpellFavorite {
-                                spell_id,
-                                tab,
-                            }));
-                        }
-                        actions.push(PanelAction::Game(UiRequest::AddSpellFavorite {
+                        if let Some(plan) = FavoritePlan::new(
+                            g.spell_tab(tab),
+                            &drawable_favorites(g, tab),
                             spell_id,
-                            index,
-                            tab,
-                        }));
-                        return actions;
+                            -1,
+                            true,
+                        ) {
+                            return plan
+                                .requests(spell_id, tab)
+                                .into_iter()
+                                .map(PanelAction::Game)
+                                .collect();
+                        }
                     }
                 }
             }
@@ -563,24 +553,20 @@ impl Panel for Favorites {
                 ..
             } if id.starts_with("spell:") => {
                 if let Ok(index) = id[6..].parse::<i32>() {
-                    let mut index = index.clamp(0, i32_from(g.spell_tab(self.tab).len()));
+                    let rows = drawable_favorites(g, self.tab);
+                    let index = index.clamp(0, i32_from(rows.len()));
                     if g.is_spell_known(spell_id) {
-                        let mut actions = vec![];
-                        if let Some(old) = g.spell_tab(self.tab).iter().position(|s| *s == spell_id)
-                        {
-                            if i32_from(old) < index {
-                                index -= 1;
-                            }
-                            actions.push(PanelAction::Game(UiRequest::RemoveSpellFavorite {
-                                spell_id,
-                                tab: self.tab,
-                            }));
-                        }
-                        actions.push(PanelAction::Game(UiRequest::AddSpellFavorite {
-                            spell_id,
-                            index,
-                            tab: self.tab,
-                        }));
+                        let Some(plan) =
+                            FavoritePlan::new(g.spell_tab(self.tab), &rows, spell_id, index, true)
+                        else {
+                            return vec![];
+                        };
+                        let index = plan.index;
+                        let actions = plan
+                            .requests(spell_id, self.tab)
+                            .into_iter()
+                            .map(PanelAction::Game)
+                            .collect();
                         self.selected = Some(spell_id);
                         self.endowment = false;
                         let visible = layout(self.width(), g.endowment().is_some()).2 as usize / 32;
@@ -606,6 +592,26 @@ mod magic_tests {
     #[derive(Debug)]
     struct World;
     impl GameView for World {
+        fn spellbook(&self) -> &[dereth_client_contract::SpellEntry] {
+            static SPELLS: std::sync::OnceLock<Vec<dereth_client_contract::SpellEntry>> =
+                std::sync::OnceLock::new();
+            SPELLS.get_or_init(|| {
+                [11, 12, 20]
+                    .into_iter()
+                    .map(|id| dereth_client_contract::SpellEntry {
+                        id,
+                        name: format!("Spell {id}"),
+                        icon: None,
+                        school: 1,
+                        level: 1,
+                        icon_power: 1,
+                        display_order: 0,
+                        bitfield: 0,
+                    })
+                    .collect()
+            })
+        }
+
         fn spell_tab(&self, tab: usize) -> &[u32] {
             if tab == 0 {
                 &[11, 12]
@@ -648,7 +654,10 @@ mod magic_tests {
             map_teleport_allowed: false,
             classic: &classic,
         };
-        let mut panel = Favorites::default();
+        let mut panel = Favorites {
+            selected: Some(11),
+            ..Default::default()
+        };
         assert!(!panel.cast_label(ctx.game).1);
         assert_eq!(
             panel.magic(MagicNotice::CastCurrentSpell, &ctx),
@@ -782,7 +791,7 @@ mod magic_tests {
             ),
             [PanelAction::Game(UiRequest::AddSpellFavorite {
                 spell_id: 11,
-                index: 1,
+                index: 2,
                 tab: 1
             })]
         );
@@ -815,5 +824,108 @@ mod magic_tests {
             .iter()
             .filter(|c| c.id.starts_with("spell:"))
             .all(|c| c.slot));
+    }
+    fn with_game(run: impl FnOnce(&Context<'_>), game: &dyn GameView) {
+        run(&Context {
+            game,
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            map_teleport_allowed: false,
+            classic: &Default::default(),
+        });
+    }
+    /// Behaviour: spellbar.quickslots.empty-padding-never-casts
+    #[test]
+    fn mixed_favorites_use_drawable_quickslot_pointer_and_append_positions() {
+        #[derive(Debug)]
+        struct Mixed;
+        impl GameView for Mixed {
+            fn spellbook(&self) -> &[dereth_client_contract::SpellEntry] {
+                World.spellbook()
+            }
+            fn spell_tab(&self, _: usize) -> &[u32] {
+                &[900, 901, 11, 12]
+            }
+            fn is_spell_known(&self, id: u32) -> bool {
+                id != 900
+            }
+        }
+        with_game(
+            |ctx| {
+                let mut p = Favorites::default();
+                assert_eq!(
+                    p.magic(MagicNotice::CastQuickslotSpell { slot: 0 }, ctx),
+                    [PanelAction::Game(UiRequest::CastSpell { spell_id: 11 })]
+                );
+                assert!(p
+                    .magic(MagicNotice::CastQuickslotSpell { slot: 2 }, ctx)
+                    .is_empty());
+                assert_eq!(p.spell_at("spell:1", ctx.game), Some(12));
+                assert_eq!(
+                    p.event(
+                        ControlEvent::Drop {
+                            id: "tab:1".into(),
+                            payload: DragPayload::Spell(20),
+                            slot: 0
+                        },
+                        ctx
+                    ),
+                    [PanelAction::Game(UiRequest::AddSpellFavorite {
+                        spell_id: 20,
+                        index: 3,
+                        tab: 1
+                    })]
+                );
+                assert_eq!(
+                    p.event(
+                        ControlEvent::Drop {
+                            id: "tab:1".into(),
+                            payload: DragPayload::Spell(11),
+                            slot: 0
+                        },
+                        ctx
+                    ),
+                    [
+                        PanelAction::Game(UiRequest::RemoveSpellFavorite {
+                            spell_id: 11,
+                            tab: 1
+                        }),
+                        PanelAction::Game(UiRequest::AddSpellFavorite {
+                            spell_id: 11,
+                            index: 2,
+                            tab: 1
+                        })
+                    ]
+                );
+            },
+            &Mixed,
+        );
+    }
+    /// Behaviour: spellbar.cast.empty-selection-refuses-once
+    #[test]
+    fn empty_or_removed_selection_refuses_once_and_empty_quickslots_are_silent() {
+        with_game(
+            |ctx| {
+                let mut p = Favorites {
+                    selected: Some(11),
+                    ..Default::default()
+                };
+                assert!(!p.cast_label(ctx.game).1);
+                assert_eq!(
+                    p.magic(MagicNotice::CastCurrentSpell, ctx),
+                    [PanelAction::Game(UiRequest::DisplayChatText {
+                        channel: 0x1a,
+                        text: "You must select a spell to cast".into(),
+                    })]
+                );
+                p.selected = None;
+                assert_eq!(p.magic(MagicNotice::CastCurrentSpell, ctx).len(), 1);
+                assert!(p
+                    .magic(MagicNotice::CastQuickslotSpell { slot: 0 }, ctx)
+                    .is_empty());
+            },
+            &dereth_client_contract::EmptyGameView,
+        );
     }
 }

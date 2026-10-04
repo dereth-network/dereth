@@ -49,6 +49,7 @@ fn env() -> (UiSystem, RemainingPanels, View) {
                 icon: Some(DataId(0x0600_13A5)),
                 school: 4,
                 level: 1,
+                icon_power: 1,
                 display_order: i32::try_from(id).expect("a small id"),
                 bitfield: 0,
             })

@@ -108,7 +108,7 @@ pub enum Command {
     },
     SpellIcon {
         icon: u32,
-        level: u32,
+        power: u32,
         bitfield: u32,
         x: i32,
         y: i32,

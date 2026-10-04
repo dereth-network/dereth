@@ -461,7 +461,8 @@ impl GameSnapshot {
         let spell_ids = spellbook
             .iter()
             .map(|s| s.id)
-            .chain(spell_tabs.iter().flatten().copied());
+            .chain(spell_tabs.iter().flatten().copied())
+            .chain(view.endowment().map(|(_, spell)| spell));
         for sid in spell_ids {
             spells.entry(sid).or_insert_with(|| SpellSnapshot {
                 entry: view.spell(sid),
@@ -1006,5 +1007,61 @@ mod tests {
         };
         assert_eq!(snap.player(), None);
         assert_eq!(snap.character_name(), None);
+    }
+    /// Behaviour: spellbar.caption.selecting-a-spell-or-a-wand-names-it
+    #[test]
+    fn an_unlearned_endowment_keeps_its_spell_and_quiet_target_facts_in_a_snapshot() {
+        #[derive(Debug)]
+        struct Wand;
+        impl GameView for Wand {
+            fn endowment(&self) -> Option<(ObjectId, u32)> {
+                Some((ObjectId(2), 99))
+            }
+            fn selected_object(&self) -> Option<ObjectId> {
+                Some(ObjectId(3))
+            }
+            fn name(&self, _: ObjectId) -> Option<&str> {
+                Some("Wand")
+            }
+            fn item_target_compatible(&self, _: ObjectId) -> bool {
+                true
+            }
+            fn spell_target_compatible(&self, _: u32) -> bool {
+                true
+            }
+            fn spell(&self, id: u32) -> Option<crate::SpellEntry> {
+                (id == 99).then(|| crate::SpellEntry {
+                    id,
+                    name: "Endowed spell".into(),
+                    icon: None,
+                    school: 3,
+                    level: 8,
+                    icon_power: 10,
+                    display_order: 0,
+                    bitfield: 0,
+                })
+            }
+            fn spell_examine(&self, _: u32) -> Option<crate::SpellExamineView> {
+                Some(crate::SpellExamineView {
+                    name: "Endowed spell".into(),
+                    level: 8,
+                    icon_power: 10,
+                    ..Default::default()
+                })
+            }
+        }
+        let snapshot = GameSnapshot::from_view(&Wand);
+        assert!(!snapshot.is_spell_known(99));
+        assert_eq!(snapshot.spell(99), Wand.spell(99));
+        assert_eq!(snapshot.spell_examine(99), Wand.spell_examine(99));
+        assert!(snapshot.spell_target_compatible(99));
+        assert_eq!(
+            crate::spellbook::readiness(&snapshot, 0, Some(ObjectId(2))),
+            crate::spellbook::SpellReadiness::ReadyOnTarget
+        );
+        assert_eq!(
+            crate::spellbook::readiness(&snapshot, 99, None),
+            crate::spellbook::SpellReadiness::ReadyOnTarget
+        );
     }
 }

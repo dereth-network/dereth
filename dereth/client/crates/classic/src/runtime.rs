@@ -2505,7 +2505,7 @@ impl ClassicUi {
                         if let Some(icon) = spell.icon {
                             self.cursor_commands.push(crate::Command::SpellIcon {
                                 icon: icon.0,
-                                level: spell.level,
+                                power: spell.icon_power,
                                 bitfield: spell.bitfield,
                                 x,
                                 y,
@@ -3220,3 +3220,7 @@ mod chat_filter_tests {
 #[cfg(test)]
 #[path = "../tests/chat_adapter.rs"]
 mod chat_tests;
+
+#[cfg(test)]
+#[path = "../tests/spell_adapter.rs"]
+mod spell_tests;

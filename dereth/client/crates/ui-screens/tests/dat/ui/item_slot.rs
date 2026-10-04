@@ -49,6 +49,7 @@ fn real_item_assignment_spell_clear_and_reused_arena_never_leak_an_old_item_iden
         icon: None,
         school: 1,
         level: 1,
+        icon_power: 1,
         display_order: 0,
         bitfield: 0,
     };

@@ -266,7 +266,7 @@ pub struct Canvas {
     item_icons: std::collections::HashMap<crate::item_art::Recipe, TextureSlot>,
     /// Palette-indexed images by image and palette.
     indexed: BTreeMap<String, Vec<(Palette, TextureSlot)>>,
-    /// Composed spell icons by icon, level and flags.
+    /// Composed spell icons by icon, raw power and flags.
     spells: BTreeMap<(u32, u32, u32), TextureSlot>,
     size: (u32, u32),
     white: Option<TextureSlot>,
@@ -484,13 +484,27 @@ impl Canvas {
         &mut self,
         gpu: &mut P,
         icon: u32,
-        level: u32,
+        power: u32,
         bits: u32,
     ) -> Result<TextureSlot> {
-        let key = (icon, level, bits);
+        let key = (icon, power, bits);
         if let Some(slot) = self.spells.get(&key) {
             return Ok(*slot);
         }
+        let pixels = self.spell_pixels(icon, power, bits)?;
+        let slot = self.upload(
+            gpu,
+            &TextureData {
+                width: 32,
+                height: 32,
+                format: TextureFormat::Bgra8,
+                levels: vec![pixels],
+            },
+        )?;
+        self.spells.insert(key, slot);
+        Ok(slot)
+    }
+    fn spell_pixels(&self, icon: u32, power: u32, bits: u32) -> Result<Vec<u8>> {
         let read = |id: u32| -> Result<Vec<u8>> {
             let asset = self
                 .manifest
@@ -501,14 +515,11 @@ impl Canvas {
             }
             self.read_pixels(&asset.rgba_file)
         };
-        let background = match level {
-            1 => 0x060013f4,
-            2 => 0x060013f5,
-            3 => 0x060013f6,
-            4 => 0x060013f7,
-            5 => 0x060013f8,
-            6 => 0x060013f9,
-            7 => 0x06001f63,
+        let layers = dereth_presentation::spell::SpellIconLayers::new(power, bits);
+        let background = match layers.power {
+            1..=6 => 0x060013f3 + layers.power,
+            7 => 0x060013f6,
+            8 => 0x06001f63,
             _ => 0,
         };
         let mut pixels = if background == 0 {
@@ -517,7 +528,7 @@ impl Canvas {
             read(background)?
         };
         let raw = read(icon)?;
-        let reverse = if bits & 0x10 != 0 {
+        let reverse = if layers.reversed {
             Some(read(0x060013f2)?)
         } else {
             None
@@ -534,12 +545,10 @@ impl Canvas {
                 p.copy_from_slice(source);
             }
         }
-        let badge = if bits & 0x2000 != 0 {
-            Some(0x060030d7)
-        } else if bits & 8 != 0 {
-            Some(0x060013f3)
-        } else {
-            None
+        let badge = match layers.badge {
+            Some(dereth_presentation::spell::SpellBadge::Fellowship) => Some(0x060030d7),
+            Some(dereth_presentation::spell::SpellBadge::SelfTargeted) => Some(0x060013f3),
+            None => None,
         };
         if let Some(badge) = badge {
             let badge = read(badge)?;
@@ -557,17 +566,7 @@ impl Canvas {
         for p in pixels.as_chunks_mut::<4>().0 {
             p.swap(0, 2);
         }
-        let slot = self.upload(
-            gpu,
-            &TextureData {
-                width: 32,
-                height: 32,
-                format: TextureFormat::Bgra8,
-                levels: vec![pixels],
-            },
-        )?;
-        self.spells.insert(key, slot);
-        Ok(slot)
+        Ok(pixels)
     }
     pub fn new(art: Arc<ClassicArt>, size: (u32, u32)) -> Result<Self> {
         if size.0 == 0 || size.1 == 0 || size.0 > 8192 || size.1 > 8192 {
@@ -863,7 +862,7 @@ impl Canvas {
                 }
                 Command::SpellIcon {
                     icon,
-                    level,
+                    power,
                     bitfield,
                     ..
                 } => {
@@ -875,7 +874,7 @@ impl Canvas {
                         0xffffffff,
                         self.size,
                     );
-                    self.spell_texture(gpu, *icon, *level, *bitfield)?
+                    self.spell_texture(gpu, *icon, *power, *bitfield)?
                 }
                 Command::TextBox { .. } | Command::RichTextBox { .. } => {
                     unreachable!("text boxes expanded")
@@ -1425,3 +1424,7 @@ mod layout_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/spell_icons.rs"]
+mod spell_tests;

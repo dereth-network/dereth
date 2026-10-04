@@ -136,6 +136,7 @@ mod tests {
             icon: None,
             school,
             level,
+            icon_power: level,
             display_order: id as i32,
             bitfield: 0,
         }
@@ -181,7 +182,7 @@ mod tests {
         assert!(magic::visible_spell(&spell(1, 5, 1), 0x2000 | 0x10));
         assert!(!magic::visible_spell(&spell(1, 5, 1), 0x0f | 0x10));
         assert!(magic::visible_spell(&spell(1, 1, 8), 8 | 0x800));
-        assert!(!magic::visible_spell(&spell(1, 1, 9), 0xffffffff));
+        assert!(magic::visible_spell(&spell(1, 1, 9), 0xffffffff));
     }
     #[test]
     fn filter_checkbox_preserves_unrelated_bits() {
@@ -495,7 +496,7 @@ mod tests {
     #[test]
     fn moving_existing_favorite_emits_remove_then_insert() {
         let w = World {
-            spells: vec![spell(17, 1, 1)],
+            spells: vec![spell(17, 1, 1), spell(18, 1, 1), spell(19, 1, 1)],
             favorites: vec![17, 18, 19],
             ..Default::default()
         };
@@ -722,6 +723,7 @@ mod tests {
     fn favorite_drag_removes_only_the_source_tab_at_pickup() {
         let world = World {
             favorites: vec![42, 43],
+            spells: vec![spell(42, 1, 1), spell(43, 1, 1)],
             ..Default::default()
         };
         with_context(&world, |ctx| {

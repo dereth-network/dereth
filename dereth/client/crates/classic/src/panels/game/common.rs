@@ -185,7 +185,7 @@ pub fn scrollbar(
 pub fn spell_icon(
     f: &mut PanelFrame,
     icon: Option<DataId>,
-    level: u32,
+    power: u32,
     bitfield: u32,
     r: Rect,
     clip: Option<[i32; 4]>,
@@ -193,7 +193,7 @@ pub fn spell_icon(
     if let Some(icon) = icon {
         f.screen.commands.push(crate::Command::SpellIcon {
             icon: icon.0,
-            level,
+            power,
             bitfield,
             x: r.x,
             y: r.y,

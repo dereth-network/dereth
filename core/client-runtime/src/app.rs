@@ -2375,6 +2375,9 @@ impl<S: Shell> App<S> {
             self.pump.done();
         }
         shell.service_dialogs(&mut UiContext::new(self), now);
+        for request in self.hud.unknown_spell_favorites(&self.objects.world) {
+            let _ = self.run_request(request, now, &mut |_| {});
+        }
         // Communication notices affect command routing, so the existing subscriber receives
         // them before shell input, not in the late display-only power-bar batch below. If a mode
         // is queued, this is still the outgoing live subscriber; the new `post_init` reads globals.

@@ -365,6 +365,7 @@ pub fn a_spellbook_click_reveals_and_selects() {
             icon: Some(DataId(0x0600_13A5)),
             school: 4,
             level: 1,
+            icon_power: 1,
             display_order: i32::try_from(id).expect("a small id"),
             bitfield: 0,
         })
@@ -621,7 +622,7 @@ pub fn a_removed_spell_leaves_the_book_the_bar_and_the_copy() {
     c.tick(1);
     let panels_followed = !c.view().hud().panels.spellbook.shown.contains(&doomed)
         && !bar_rows(&c, 0).contains(&doomed)
-        && c.view().hud().panels.spellcasting.favorites_pruned == 1;
+        && c.view().interaction().stats.spell_favorites_changed == 1;
 
     let pruned: Vec<(u32, i32)> = c.view().outbound()[outbound_before..]
         .iter()
@@ -666,7 +667,7 @@ pub fn the_bar_keeps_a_spell_the_table_cannot_draw() {
     let still_a_favourite =
         c.view().world().player_system.spell_tabs[0].contains(&KNOWN_BUT_UNDRAWABLE);
     let not_drawn = !bar_rows(&c, 0).contains(&KNOWN_BUT_UNDRAWABLE);
-    let not_pruned = c.view().hud().panels.spellcasting.favorites_pruned == 0;
+    let not_pruned = c.view().interaction().stats.spell_favorites_changed == 0;
     let nothing_sent = !c.view().outbound()[outbound_before..].iter().any(
         |r| matches!(r, Request::RemoveSpellFavorite(m) if m.spell_id == KNOWN_BUT_UNDRAWABLE),
     );
@@ -3599,6 +3600,7 @@ mod examine {
             icon: Some(DataId(b.icon)),
             school: b.school,
             level: 1,
+            icon_power: 1,
             display_order: i32::try_from(order).expect("a small order"),
             bitfield: 0,
         }
@@ -5113,6 +5115,7 @@ mod book {
             icon: Some(DataId(0x0600_1000 + id)),
             school,
             level,
+            icon_power: level,
             display_order,
             bitfield: 0,
         }
@@ -6702,6 +6705,7 @@ mod bar {
                     icon: Some(DataId(0x0600_13A5)),
                     school: 4,
                     level: 1,
+                    icon_power: 1,
                     display_order: i32::try_from(*id).expect("a small id"),
                     bitfield: 0,
                 })

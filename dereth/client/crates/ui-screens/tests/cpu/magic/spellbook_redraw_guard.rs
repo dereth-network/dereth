@@ -46,6 +46,7 @@ fn entry(
         icon: Some(DataId(0x0600_1000 + id)),
         school,
         level,
+        icon_power: level,
         display_order,
         bitfield,
     }

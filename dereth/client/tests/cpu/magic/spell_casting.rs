@@ -940,8 +940,13 @@ fn the_spell_bars_cast_button_raises_the_request_and_the_endowment_wins() {
 
     let mut p = SpellcastingPanel::default();
     p.sub_menus = vec![Default::default(); 8];
-    // Arm 3: nothing selected -> nothing at all. Not a request, not a refusal.
-    assert_eq!(p.cast(&mut ui), None);
+    // An explicit empty cast is local feedback, without a spell request.
+    let refusal = UiRequest::DisplayChatText {
+        channel: 0x1a,
+        text: "You must select a spell to cast".into(),
+    };
+    assert_eq!(p.cast(&mut ui), Some(refusal.clone()));
+    assert_eq!(ui.requests.take(), vec![refusal]);
     assert_eq!(p.casts, 0);
 
     // Arm 3 -> arm 1: a selected spell casts.
@@ -1024,6 +1029,32 @@ fn a_click_on_the_spell_bar_puts_a_cast_on_the_wire() {
     };
     assert_eq!((m.target, m.spell_id), (TARGET, FLAME_BOLT));
     assert_eq!(inter.stats.spells_cast, 1);
+}
+
+/// Behaviour: spellbar.cast.empty-selection-refuses-once
+#[test]
+fn an_explicit_empty_bar_cast_is_one_local_line_and_no_wire_request() {
+    let mut ui = dereth_ui::UiSystem::new((800, 600));
+    let mut panel = dereth_ui_screens::panels::spellcasting::SpellcastingPanel::default();
+    panel.cast_current_spell(&mut ui);
+    let mut world = World::new();
+    let mut interaction = Interaction::default();
+    interaction.queue(Vec::new(), ui.requests.take());
+    assert!(interaction
+        .run_ui_requests(&mut world, false, ServerTime(0.0))
+        .is_empty());
+    assert!(interaction.pending_requests().is_empty());
+    assert_eq!(interaction.stats.panel_notice_strings, 1);
+    assert_eq!(
+        world
+            .scroll
+            .pending()
+            .iter()
+            .map(|line| (line.chat_type, line.body.as_str()))
+            .collect::<Vec<_>>(),
+        [(0x1a, "You must select a spell to cast")]
+    );
+    assert_eq!(interaction.stats.spells_cast, 0);
 }
 
 #[derive(Debug)]

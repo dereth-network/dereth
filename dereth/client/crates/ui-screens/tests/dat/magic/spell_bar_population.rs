@@ -47,6 +47,7 @@ fn env() -> (UiSystem, RemainingPanels, View, ElemHandle) {
                 icon: Some(DataId(0x0600_13A5)),
                 school: 4,
                 level: 1,
+                icon_power: 1,
                 display_order: 41 - i32::try_from(id).expect("a small id"),
                 bitfield: 0,
             })
@@ -333,16 +334,10 @@ fn quickslots_index_filtered_ui_rows_and_empty_padding_never_casts() {
     let (mut ui, mut panels, mut view, root) = env();
     view.tabs[0] = vec![999, 8, 3, 8];
     panels.update(&mut ui, &view);
-    assert_eq!(
-        ui.requests.take(),
-        vec![UiRequest::RemoveSpellFavorite {
-            spell_id: 999,
-            tab: 0
-        }],
-        "the unknown favourite is pruned, and told to the shard"
+    assert!(
+        ui.requests.take().is_empty(),
+        "the projection does not own favorite removal"
     );
-    // ...and only once: this projection re-runs every frame where retail's ran on a notice and
-    // unlinked the node in place, so a host that has not drained the queue is not told twice.
     panels.update(&mut ui, &view);
     assert!(
         ui.requests.take().is_empty(),
@@ -420,4 +415,31 @@ fn quickslots_index_filtered_ui_rows_and_empty_padding_never_casts() {
     panels.update(&mut ui, &view);
     assert!(!panels.spellcasting.sub_menus[0].endowment_selected);
     assert_rings(&ui, &panels, 0, 8);
+}
+
+/// Behaviour: spellbar.cast.empty-selection-refuses-once
+#[test]
+fn the_bound_bar_refuses_an_explicit_empty_cast_once_but_empty_quickslots_stay_silent() {
+    let (mut ui, mut panels, mut view, _) = env();
+    view.tabs.iter_mut().for_each(Vec::clear);
+    panels.spellcasting.update(&mut ui, &view);
+    panels.spellcasting.set_selected(&mut ui, 0, 0);
+    panels.spellcasting.update_endowment(&mut ui, &view);
+    ui.requests.clear();
+    ui.notice_inbox.emit(MagicNotice::CastCurrentSpell);
+    panels.update(&mut ui, &view);
+    assert_eq!(
+        ui.requests.take(),
+        [UiRequest::DisplayChatText {
+            channel: 0x1a,
+            text: "You must select a spell to cast".into()
+        }]
+    );
+    ui.notice_inbox
+        .emit(MagicNotice::CastQuickslotSpell { slot: 0 });
+    ui.notice_inbox
+        .emit(MagicNotice::CastQuickslotSpell { slot: 999 });
+    panels.update(&mut ui, &view);
+    assert!(ui.requests.take().is_empty());
+    assert_eq!(panels.spellcasting.casts, 0);
 }

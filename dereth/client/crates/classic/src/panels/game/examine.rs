@@ -4,6 +4,7 @@ use super::super::*;
 use super::common::*;
 use crate::int::i32_from;
 use dereth_client_contract::view::AppraisalView;
+use dereth_presentation::spell;
 #[derive(Debug, Default)]
 pub struct Examine {
     object: Option<ObjectId>,
@@ -12,10 +13,6 @@ pub struct Examine {
     inscription_dirty: bool,
     inscription_focus: bool,
     scroll: i32,
-}
-/// A duration's whole units, truncated; a negative duration shows as zero.
-fn whole(units: f64) -> u64 {
-    u64::try_from(dereth_primitives::num::to_i64_f64(units)).unwrap_or(0)
 }
 fn separator(f: &mut PanelFrame, y: i32) {
     image(f, 0x060012c5, rect(4, y, 275, 8), None, true, false);
@@ -105,7 +102,7 @@ impl Panel for Examine {
                     spell_icon(
                         &mut f,
                         s.icon,
-                        entry.level,
+                        entry.icon_power,
                         entry.bitfield,
                         rect(245, 30, 32, 32),
                         None,
@@ -114,16 +111,7 @@ impl Panel for Examine {
                 text(
                     &mut f,
                     rect(9, 35, 235, 20),
-                    format!(
-                        "School: {}",
-                        match s.school {
-                            1 => "War Magic",
-                            2 => "Life Magic",
-                            3 => "Item Enchantment",
-                            4 => "Creature Enchantment",
-                            _ => "",
-                        }
-                    ),
+                    format!("School: {}", spell::school_name(s.school)),
                     "16-7",
                     CREAM,
                     1,
@@ -136,30 +124,18 @@ impl Panel for Examine {
                 text(
                     &mut f,
                     rect(9, 76, 137, 20),
-                    format!(
-                        "Mana: {}{}",
-                        s.base_mana.max(0),
-                        if s.mana_mod > 0 {
-                            format!(" + {} per target", s.mana_mod)
-                        } else {
-                            String::new()
-                        }
-                    ),
+                    spell::mana_text(s.base_mana, s.mana_mod),
                     "15-6",
                     CREAM,
                     0,
                     false,
                     None,
                 );
-                if s.duration > 0. {
+                if let Some(duration) = spell::duration_text(s.duration) {
                     text(
                         &mut f,
                         rect(150, 76, 146, 20),
-                        if s.duration >= 60. {
-                            format!("Duration: {} min.", whole(s.duration / 60.))
-                        } else {
-                            format!("Duration: {} sec.", whole(s.duration))
-                        },
+                        duration,
                         "15-6",
                         CREAM,
                         2,
@@ -167,11 +143,11 @@ impl Panel for Examine {
                         None,
                     );
                 }
-                if s.range != 0. {
+                if let Some(range) = spell::range_text(s.range) {
                     text(
                         &mut f,
                         rect(9, 93, 137, 20),
-                        format!("Range: {:.1} yds.", s.range / 0.9144),
+                        range,
                         "15-6",
                         CREAM,
                         0,
@@ -183,7 +159,13 @@ impl Panel for Examine {
                     &mut f,
                     rect(9, 121, 266, 170),
                     vec![crate::TextRun {
-                        text: s.description,
+                        text: spell::display_text(
+                            &s.description,
+                            &spell::surviving_components(&s.components)
+                                .into_iter()
+                                .map(|(c, _)| c.name)
+                                .collect::<Vec<_>>(),
+                        ),
                         color: CREAM,
                     }],
                     "15-6",
@@ -633,5 +615,87 @@ fn tile_icon(f: &mut PanelFrame, g: &dyn GameView, object: ObjectId, x: i32, y: 
             height: 32,
             clip: None,
         });
+    }
+}
+
+#[cfg(test)]
+mod spell_tests {
+    use super::*;
+    #[derive(Debug)]
+    struct Spell(&'static str);
+    impl GameView for Spell {
+        fn spell_examine(&self, _: u32) -> Option<dereth_client_contract::SpellExamineView> {
+            use dereth_client_contract::{SpellExamineComponent, SpellExamineView};
+            Some(SpellExamineView {
+                name: "Void spell".into(),
+                description: self.0.into(),
+                school: 5,
+                base_mana: -1,
+                mana_mod: 2,
+                duration: 119.9,
+                range: 0.9144,
+                components: vec![
+                    None,
+                    Some(SpellExamineComponent {
+                        name: "Hidden".into(),
+                        ..Default::default()
+                    }),
+                    Some(SpellExamineComponent {
+                        name: "Lead Scarab".into(),
+                        icon: Some(DataId(1)),
+                        ..Default::default()
+                    }),
+                ],
+                ..Default::default()
+            })
+        }
+    }
+    /// Behaviour: spell-examine.text.school-and-surviving-components
+    #[test]
+    fn a_classic_spell_examination_shows_void_and_only_surviving_component_text() {
+        for (description, expected) in [
+            ("x", "x\nCOMPONENTS:\n     Lead Scarab"),
+            ("😀", "😀\n\nCOMPONENTS:\n     Lead Scarab"),
+        ] {
+            let game = Spell(description);
+            let ctx = Context {
+                game: &game,
+                pregame: &Default::default(),
+                keyboard: &Default::default(),
+                settings: &Default::default(),
+                map_teleport_allowed: false,
+                classic: &Default::default(),
+            };
+            let mut p = Examine::default();
+            p.set_spell(1);
+            let frame = p.frame(&ctx);
+            let texts: Vec<&str> = frame
+                .screen
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    crate::Command::TextBox { text, .. } | crate::Command::Text { text, .. } => {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert!(texts.contains(&"School: Void Magic"));
+            assert!(texts.contains(&"Mana: 0 + 2 per target"));
+            assert!(texts.contains(&"Duration: 1 min."));
+            assert!(texts.contains(&"Range: 1.0 yds."));
+            let description = frame
+                .screen
+                .commands
+                .iter()
+                .find_map(|c| match c {
+                    crate::Command::RichTextBox { runs, .. } => {
+                        Some(runs.iter().map(|r| r.text.as_str()).collect::<String>())
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(description, expected);
+        }
     }
 }

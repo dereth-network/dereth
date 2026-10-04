@@ -12,7 +12,7 @@ use dereth_input::{
 use std::sync::Arc;
 
 #[derive(Debug, Default)]
-struct TestHud {
+pub(super) struct TestHud {
     model: Hud,
     panels: ClassicHudPanels,
 }
@@ -37,13 +37,13 @@ impl ClassicHudSlot for TestHud {
         &mut self.panels
     }
 }
-struct TestShell {
+pub(super) struct TestShell {
     ui: ClassicUi,
     events: Vec<HostEvent>,
     open_edit: bool,
     world_inputs: bool,
     arm_target: bool,
-    no_ui: bool,
+    pub(super) no_ui: bool,
     nearby: Option<dereth_primitives::ObjectId>,
 }
 struct EmptyClipboard;
@@ -157,7 +157,7 @@ impl dereth_classic_dat::fonts::FontSource for Fonts {
         Ok(Default::default())
     }
 }
-fn fixture() -> (App<TestShell>, TestShell) {
+pub(super) fn fixture() -> (App<TestShell>, TestShell) {
     let store = Arc::new(dereth_dat::testing::open_store().expect("retail DATs"));
     let path = std::path::PathBuf::from(
         std::env::var_os("DERETH_CLASSIC_PORTAL").expect("classic portal"),
@@ -233,7 +233,7 @@ fn click(x: f64, y: f64) -> Vec<HostEvent> {
         },
     ]
 }
-fn batch(app: &mut App<TestShell>, shell: &mut TestShell, events: Vec<HostEvent>) {
+pub(super) fn batch(app: &mut App<TestShell>, shell: &mut TestShell, events: Vec<HostEvent>) {
     shell.events = events;
     assert!(app.frame(shell));
     assert!(shell.events.is_empty());

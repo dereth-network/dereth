@@ -81,6 +81,7 @@ fn env() -> (UiSystem, RemainingPanels, View, ElemHandle) {
             icon: Some(BOOK_ICON),
             school: 4,
             level: 1,
+            icon_power: 1,
             display_order: i32::try_from(id).expect("a small id"),
             bitfield: 0,
         })
@@ -92,6 +93,7 @@ fn env() -> (UiSystem, RemainingPanels, View, ElemHandle) {
         icon: Some(DataId(0x0600_13B0)),
         school: 1,
         level: 6,
+        icon_power: 6,
         display_order: 0,
         bitfield: 0,
     });
@@ -618,6 +620,7 @@ mod cast_button {
             icon: Some(DataId(0x0600_13A5)),
             school: 4,
             level: 1,
+            icon_power: 1,
             display_order: i32::try_from(id).expect("a small id"),
             bitfield,
         }
@@ -872,6 +875,21 @@ mod cast_button {
                 true
             ),
             "a compatible selection appends the target's name"
+        );
+
+        let snapshot = dereth_client_contract::snapshot::GameSnapshot::from_view(&view);
+        panels.spellcasting.update_endowment(&mut ui, &snapshot);
+        assert_eq!(
+            read(&ui, &panels),
+            (
+                cast_button::ENABLED,
+                Some(format!("USE the {caption} on {TARGET_NAME}")),
+                true
+            )
+        );
+        assert!(
+            ui.requests.take().is_empty(),
+            "quiet readiness emits no refusal"
         );
 
         view.item_ok = false;

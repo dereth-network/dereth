@@ -658,9 +658,9 @@ fn magic_controls_and_favorite_navigation_follow_independent_profile_facts() {
     assert_eq!(available(&ui, root, eighth), (false, false));
     assert!(!bar.add_favorite(&mut ui, &w, 7, 777, -1, true));
     assert_eq!(w.spell_tab(7), &[777]);
-    assert_eq!(
-        bar.favorites_pruned, 0,
-        "the hidden bank is retained even if unknown"
+    assert!(
+        ui.requests.take().is_empty(),
+        "projection never removes hidden favorites"
     );
     for which in [spellcasting::TabJump::Next, spellcasting::TabJump::Prev] {
         let panel = ui

@@ -1347,7 +1347,7 @@ fn every_spell_in_the_captures_book_draws_a_spell_background_row() {
         let recipe = s.icon_recipe(ui).expect("a spell slot carries a composite");
         assert_eq!(
             recipe,
-            spell_recipe(ui, e.level, e.icon, e.bitfield),
+            spell_recipe(ui, e.icon_power, e.icon, e.bitfield),
             "spell {spell} draws the wrong recipe"
         );
         let IconRecipe::Spell {
@@ -1480,3 +1480,54 @@ fn clearing_a_slot_puts_the_empty_frame_back_over_the_composite_with_no_help() {
 /// crate uses; this keeps the import honest rather than `#[allow(unused)]`.
 #[allow(dead_code)]
 fn _type_check(_: &ItemSlot) {}
+
+/// Behaviour: spellbar.icons.raw-power-background
+#[test]
+fn spell_bar_backgrounds_use_runtime_raw_power_before_display_level_collapse() {
+    let store = open_store();
+    let mut hud = dereth_client::hud::Hud::new();
+    let mut objects = dereth_client::objects::ObjectStream::new();
+    hud.load_tables(&store, &objects.world);
+    let ids: Vec<_> = [0x6e, 0x70, 0xc0, 0xc1]
+        .into_iter()
+        .map(|component| {
+            *hud.spell_table
+                .as_ref()
+                .unwrap()
+                .spells
+                .iter()
+                .find(|(_, b)| {
+                    dereth_client_contract::spellbook::power_component(b.raw_comps[0], b.comp_key)
+                        == component
+                        && b.icon != 0
+                })
+                .unwrap()
+                .0
+        })
+        .collect();
+    hud.spells = ids.iter().map(|id| hud.spell_entry(*id).unwrap()).collect();
+    objects.world.player_system.spell_tabs[0] = ids;
+    let (mut ui, screen) = shipped_gameplay();
+    let mut bar = dereth_ui_screens::panels::spellcasting::SpellcastingPanel::default();
+    bar.post_init(&mut ui, screen.roots()[0]);
+    bar.update(&mut ui, &hud.view(&objects));
+    for (i, (power, level, background)) in [
+        (7, 6, 0x060013f6),
+        (8, 7, 0x06001f63),
+        (9, 7, 0x060013f6),
+        (10, 8, 0x060067a6),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let entry = &hud.spells[i];
+        assert_eq!((entry.icon_power, entry.level), (power, level));
+        let recipe = bar.lists[0].as_ref().unwrap().slots[i]
+            .icon_recipe(&ui)
+            .unwrap();
+        assert!(
+            matches!(recipe, IconRecipe::Spell { background: Some(id), .. } if id == DataId(background)),
+            "{recipe:?}"
+        );
+    }
+}

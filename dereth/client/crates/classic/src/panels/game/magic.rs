@@ -2,37 +2,32 @@
 use super::super::*;
 use super::common::*;
 use crate::int::{i32_from, u32_from};
+use dereth_client_contract::spellbook::{level_mask, school_mask};
 use dereth_client_contract::view::{ComponentRow, SpellEntry};
 use dereth_primitives::num::to_i32;
 
 const FILTERS: [(&str, u32, i32, i32); 11] = [
-    ("Creature", 1, 10, 277),
-    ("Life", 4, 10, 297),
-    ("Item", 2, 10, 317),
-    ("War", 8, 10, 337),
-    ("1", 0x10, 110, 277),
-    ("2", 0x20, 110, 297),
-    ("3", 0x40, 110, 317),
-    ("4", 0x80, 110, 337),
-    ("5", 0x100, 210, 297),
-    ("6", 0x200, 210, 317),
-    ("7", 0x400, 210, 337),
+    ("Creature", school_mask(4), 10, 277),
+    ("Life", school_mask(2), 10, 297),
+    ("Item", school_mask(3), 10, 317),
+    ("War", school_mask(1), 10, 337),
+    ("1", level_mask(1), 110, 277),
+    ("2", level_mask(2), 110, 297),
+    ("3", level_mask(3), 110, 317),
+    ("4", level_mask(4), 110, 337),
+    ("5", level_mask(5), 210, 297),
+    ("6", level_mask(6), 210, 317),
+    ("7", level_mask(7), 210, 337),
 ];
 /// The filters of the schools and levels a world after the classic interface has: Void magic and
 /// the eighth level, on a row below the others.
-const LATER_FILTERS: [(&str, u32, i32, i32); 2] =
-    [("Void", 0x2000, 10, 357), ("8", 0x800, 210, 357)];
+const LATER_FILTERS: [(&str, u32, i32, i32); 2] = [
+    ("Void", school_mask(5), 10, 357),
+    ("8", level_mask(8), 210, 357),
+];
 
 pub fn visible_spell(s: &SpellEntry, mask: u32) -> bool {
-    let school = match s.school {
-        1 => 8,
-        2 => 4,
-        3 => 2,
-        4 => 1,
-        5 => 0x2000,
-        _ => return false,
-    };
-    (1..=8).contains(&s.level) && mask & school != 0 && mask & (0x10 << (s.level - 1)) != 0
+    dereth_client_contract::spellbook::accepts(mask, s.school, s.level)
 }
 fn spells(game: &dyn GameView) -> Vec<&SpellEntry> {
     let mut v: Vec<_> = game
@@ -279,7 +274,7 @@ impl Panel for Spellbook {
                     spell_icon(
                         &mut f,
                         s.icon,
-                        s.level,
+                        s.icon_power,
                         s.bitfield,
                         rect(0, y, 32, 32),
                         Some(clip),
@@ -545,7 +540,7 @@ impl Panel for Effects {
                     spell_icon(
                         &mut f,
                         e.icon,
-                        s.level,
+                        s.icon_power,
                         s.bitfield,
                         rect(0, y, 32, 32),
                         Some(clip),

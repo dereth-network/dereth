@@ -51,6 +51,7 @@ fn env() -> (UiSystem, RemainingPanels, View, ElemHandle) {
                 icon: Some(DataId(0x0600_13A5)),
                 school: 4,
                 level: 1,
+                icon_power: 1,
                 display_order: i32::try_from(id).expect("a small id"),
                 bitfield: 0,
             })
@@ -462,4 +463,45 @@ fn delete_asks_first_and_only_a_yes_puts_anything_on_the_wire() {
             "delete_spell removes nothing itself"
         );
     }
+}
+
+/// Behaviour: spellbar.transfer.a-double-click-or-a-drag-from-the-book-adds-the-spell-to-the-open-tab
+#[test]
+fn append_counts_drawable_rows_and_duplicate_refusal_reads_the_raw_bank() {
+    let (mut ui, mut panels, mut view, _) = env();
+    view.tabs[0] = vec![900, 901, 1, 2];
+    panels.spellcasting.update(&mut ui, &view);
+    ui.requests.clear();
+    assert!(!panels
+        .spellcasting
+        .add_favorite(&mut ui, &view, 0, 901, -1, false));
+    assert!(ui.requests.take().is_empty());
+    assert!(panels
+        .spellcasting
+        .add_favorite(&mut ui, &view, 0, 3, -1, false));
+    assert_eq!(
+        ui.requests.take(),
+        [UiRequest::AddSpellFavorite {
+            spell_id: 3,
+            index: 3,
+            tab: 0
+        }]
+    );
+    assert!(panels
+        .spellcasting
+        .add_favorite(&mut ui, &view, 0, 1, -1, true));
+    assert_eq!(
+        ui.requests.take(),
+        [
+            UiRequest::RemoveSpellFavorite {
+                spell_id: 1,
+                tab: 0
+            },
+            UiRequest::AddSpellFavorite {
+                spell_id: 1,
+                index: 2,
+                tab: 0
+            }
+        ]
+    );
 }

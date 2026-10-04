@@ -1897,6 +1897,40 @@ impl Hud {
         book.keys().filter_map(|id| self.spell_entry(*id)).collect()
     }
 
+    /// Unknown favorites are removed from visible banks only, after the player's book is authoritative.
+    pub fn unknown_spell_favorites(
+        &self,
+        world: &dereth_client_model::World,
+    ) -> Vec<dereth_client_contract::UiRequest> {
+        let Some(q) = self.player_desc(world) else {
+            return Vec::new();
+        };
+        let count =
+            dereth_client_contract::era::EraUiFacts::for_profile(self.era.era).spell_favorite_tabs;
+        world
+            .player_system
+            .spell_tabs
+            .iter()
+            .take(count)
+            .enumerate()
+            .flat_map(|(tab, ids)| {
+                ids.iter()
+                    .copied()
+                    .filter(|id| {
+                        !q.spell_book
+                            .as_ref()
+                            .is_some_and(|book| book.contains_key(id))
+                    })
+                    .map(
+                        move |spell_id| dereth_client_contract::UiRequest::RemoveSpellFavorite {
+                            spell_id,
+                            tab,
+                        },
+                    )
+            })
+            .collect()
+    }
+
     /// One `SpellTable` row as a [`SpellEntry`] —
     /// with the four derivations [`Self::build_spells`] needs.
     ///
@@ -1909,6 +1943,7 @@ impl Hud {
         use dereth_client_model::magic::{scarab_power_level, spell_level_by_rough_heuristic};
         // Retail's spell add drops an id the spell table does not know, and so does this `?`.
         let b = self.spell_table.as_ref()?.spells.get(&id)?;
+        let icon_power = scarab_power_level(power_component(b.raw_comps[0], b.comp_key));
         Some(SpellEntry {
             id,
             name: b.name.clone(),
@@ -1917,10 +1952,8 @@ impl Hud {
             // The level heuristic reads the **first** formula slot after the power component is
             // selected, which keeps slot positions;
             // `SpellBase::comps` drops the zero slots, so the raw slot is used.
-            level: spell_level_by_rough_heuristic(scarab_power_level(power_component(
-                b.raw_comps[0],
-                b.comp_key,
-            ))),
+            level: spell_level_by_rough_heuristic(icon_power),
+            icon_power,
             display_order: b.display_order,
             // Preserve the full spell bitfield: icon composition reads
             // `Reversed (0x10)` for the wash and `FellowshipSpell (0x2000)` /
@@ -6348,6 +6381,12 @@ impl GameView for HudView<'_> {
                         base.raw_comps[0],
                         base.comp_key,
                     ),
+                ),
+            ),
+            icon_power: dereth_client_model::magic::scarab_power_level(
+                dereth_client_contract::spellbook::power_component(
+                    base.raw_comps[0],
+                    base.comp_key,
                 ),
             ),
             bitfield: base.bitfield,

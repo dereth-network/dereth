@@ -727,6 +727,7 @@ fn classic_favorites_hide_an_unavailable_current_bank_before_the_next_input() {
     #[derive(Debug)]
     struct View {
         era: EraView,
+        spells: Vec<SpellEntry>,
     }
     impl GameView for View {
         fn era(&self) -> Option<&EraView> {
@@ -741,29 +742,34 @@ fn classic_favorites_hide_an_unavailable_current_bank_before_the_next_input() {
                 &[]
             }
         }
+        fn spellbook(&self) -> &[SpellEntry] {
+            &self.spells
+        }
         fn spell(&self, id: u32) -> Option<SpellEntry> {
-            Some(SpellEntry {
-                id,
-                name: if id == 777 {
-                    "HiddenBank"
-                } else {
-                    "VisibleBank"
-                }
-                .into(),
-                icon: None,
-                school: 1,
-                level: 1,
-                display_order: 0,
-                bitfield: 0,
-            })
+            self.spells.iter().find(|spell| spell.id == id).cloned()
         }
     }
     let mut view = View {
         era: EraView::default(),
+        spells: [(111, "VisibleBank"), (777, "HiddenBank")]
+            .into_iter()
+            .map(|(id, name)| SpellEntry {
+                id,
+                name: name.into(),
+                icon: None,
+                school: 1,
+                level: 1,
+                icon_power: 1,
+                display_order: 0,
+                bitfield: 0,
+            })
+            .collect(),
     };
     let mut panel = dereth_classic_ui::panels::game::make("spell-favorites").unwrap();
     era_context(&view, |c| {
+        panel.event(ControlEvent::Activate("spell:0".into()), c);
         panel.event(ControlEvent::Activate("tab:7".into()), c);
+        panel.event(ControlEvent::Activate("spell:0".into()), c);
         assert!(format!("{:?}", panel.frame(c)).contains("HiddenBank"));
     });
     view.era.era = dereth_primitives::EraId::Infiltration;

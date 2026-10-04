@@ -26,6 +26,7 @@ impl GameView for Book {
             school: 1,
             icon: Some(DataId(0x0600_1386)),
             level: 1,
+            icon_power: 1,
             bitfield: 0x10,
             components: vec![
                 Some(SpellExamineComponent {

@@ -306,10 +306,6 @@ pub struct SpellcastingPanel {
     pub lists: Vec<Option<ItemListWidget>>,
     /// Snapshot guard for PlayerDesc/PlayerModule spell changes; never reorder the favorites.
     last_tabs: Vec<Option<Vec<SpellEntry>>>,
-    /// Favourites [`Self::update`]'s is-spell-known sweep has already asked the host to remove,
-    /// per tab — see that method for why the ask has to be remembered here and cannot be
-    /// remembered in the module, which this crate does not own.
-    pruned: Vec<Vec<u32>>,
     /// The endowed item's id.
     pub endowment_item: Option<ObjectId>,
     /// The endowed item's spell id.
@@ -323,10 +319,6 @@ pub struct SpellcastingPanel {
     /// kind of denominator as [`Self::casts`], and the one that separates "the drop was refused"
     /// from "the drop never arrived".
     pub favorites_added: u32,
-    /// How many favourites [`Self::update`]'s is-spell-known sweep took off a tab: the counter
-    /// that separates "the spell is hidden because the join dropped it"
-    /// from "the spell was pruned and the shard was told", which look identical on screen.
-    pub favorites_pruned: u32,
 }
 
 impl SpellcastingPanel {
@@ -371,7 +363,6 @@ impl SpellcastingPanel {
         self.sub_menus = (0..SUB_MENUS).map(|_| SubMenu::default()).collect();
         self.lists = (0..SUB_MENUS).map(|_| None).collect();
         self.last_tabs = vec![None; SUB_MENUS];
-        self.pruned = vec![Vec::new(); SUB_MENUS];
         self.endowment_item = None;
         self.endowment_spell = 0;
         self.endowment_present = false;
@@ -393,35 +384,7 @@ impl SpellcastingPanel {
         }
     }
 
-    /// The sub-menu's update from the player module: flush, refill in favorite-list
-    /// order, restore the selected ID, then refresh shortcut numerals. The production frame
-    /// observes the existing player snapshot instead of repeating this on unchanged frames.
-    ///
-    /// The current GameView spellbook is known spells joined with SpellTable metadata. This
-    /// projects favorites present in that join; a known ID without metadata still has no row,
-    /// because neither a fabricated icon nor a fabricated name is substituted.
-    ///
-    /// ## The prune
-    ///
-    /// Between the flush and the refill, retail walks the favourites list and **deletes every
-    /// entry the character does not know**, telling the shard about each one:
-    ///
-    /// Start an empty removal list and walk the favorite spell ids. Keep spells known by
-    /// the player; for unknown spells, allocate an eight-byte `(id, next)` node and link it
-    /// into the removal list. After the walk, free those nodes while removing each spell
-    /// from the player module, sending `0x01E4`.
-    ///
-    /// It is collected first and removed second because the removal unlinks the very node the
-    /// walk is standing on. That removal is the player-module removal **plus**
-    /// the `RemoveSpellFavorite` request — so this is where
-    /// a spell deleted from the book leaves the bar *persistently*, and it is the only writer of
-    /// that edit. Without it the bar hides the dead favourite (the join drops it) while
-    /// `client_packed_module` keeps re-packing it into the next `0x01A1`, and the row comes back on
-    /// the next login.
-    ///
-    /// The predicate is [`GameView::is_spell_known`] and **not** the `book` join below, for the
-    /// reason that method's own documentation gives: the join is narrower than the spellbook, and
-    /// the difference would be an unrequested `0x01E4` for a spell the player still has.
+    /// Project the visible favorite banks into drawable rows. Unknown favorites are pruned by the runtime.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
         let count = view.era_ui().spell_favorite_tabs;
         let era_changed = self.visible_tabs != Some(count);
@@ -439,32 +402,6 @@ impl SpellcastingPanel {
             view.spellbook().iter().map(|s| (s.id, s)).collect();
         let mut changed = era_changed;
         for tab in 0..self.lists.len().min(count) {
-            // The update-from-player-module's first pass, ahead of the refill and ahead of the
-            // unchanged-rows shortcut: a tab whose *rows* are unchanged (both entries were
-            // already invisible) can still owe the shard a removal.
-            let ids = view.spell_tab(tab);
-            // Retail unlinks the node *inside* this call, so it asks once and the next call
-            // cannot see the entry again. Here the module belongs to the host and the ask is a
-            // queued `UiRequest`, while this projection re-runs every frame — so the ask is
-            // remembered until the id really leaves the tab. Without that, a frame that ran
-            // before the host drained the queue would put a second `0x01E4` on the wire, and so
-            // would every frame after it.
-            if let Some(asked) = self.pruned.get_mut(tab) {
-                asked.retain(|id| ids.contains(id));
-            }
-            for id in ids {
-                if view.is_spell_known(*id) {
-                    continue;
-                }
-                match self.pruned.get_mut(tab) {
-                    Some(asked) if asked.contains(id) => continue,
-                    Some(asked) => asked.push(*id),
-                    None => {}
-                }
-                ui.requests
-                    .emit(UiRequest::RemoveSpellFavorite { spell_id: *id, tab });
-                self.favorites_pruned += 1;
-            }
             let rows: Vec<_> = view
                 .spell_tab(tab)
                 .iter()
@@ -618,37 +555,27 @@ impl SpellcastingPanel {
         view: &dyn GameView,
         tab: usize,
         spell_id: u32,
-        mut index: i32,
+        index: i32,
         move_allowed: bool,
     ) -> bool {
         if tab >= self.sub_menus.len().min(view.era_ui().spell_favorite_tabs) {
             return false;
         }
-        if !move_allowed && view.spell_tab(tab).contains(&spell_id) {
+        let Some(plan) = dereth_client_contract::spellbook::FavoritePlan::new(
+            view.spell_tab(tab),
+            &self.list_contents(tab),
+            spell_id,
+            index,
+            move_allowed,
+        ) else {
             return false;
-        }
-        if spell_id == 0 {
-            return false;
-        }
-        // The spell count before anything moves — the client keeps it as a counter, this reads
-        // the rows it counts (the refill sets it to exactly this).
-        let mut num_spells = self.list_contents(tab).len();
-        if let Some(old) = self.remove_spell_from_menu(ui, tab, spell_id) {
-            num_spells -= 1;
-            if i32::try_from(old).unwrap_or(i32::MAX) < index {
-                index -= 1;
-            }
-        }
-        // The insert and the count increment. The row itself follows from the model:
-        // the next `update` rebuilds the tab out of `GameView::spell_tab`, which is what the host
-        // will have written by then. The client inserts directly because it owns the module.
-        num_spells += 1;
-        if index == -1 {
-            index = i32::try_from(num_spells).unwrap_or(i32::MAX);
+        };
+        if plan.remove {
+            self.remove_spell_from_menu(ui, tab, spell_id);
         }
         ui.requests.emit(UiRequest::AddSpellFavorite {
             spell_id,
-            index,
+            index: plan.index,
             tab,
         });
         self.set_selected(ui, tab, spell_id);
@@ -898,7 +825,7 @@ impl SpellcastingPanel {
         if let Some(h) = self.endowment_underlay {
             let recipe = base
                 .as_ref()
-                .map(|b| crate::items::widget::spell_recipe(ui, b.level, b.icon, b.bitfield));
+                .map(|b| crate::items::widget::spell_recipe(ui, b.icon_power, b.icon, b.bitfield));
             if let Some(n) = ui.node_mut(h) {
                 n.region.image = None; // Cleared first.
                 if let Some(r) = recipe {
@@ -1077,19 +1004,19 @@ impl SpellcastingPanel {
     ) -> bool {
         use cast_button::sprintf1;
         let selected = self.sub_menus.get(tab).map_or(0, |s| s.selected_spell);
+        use dereth_client_contract::spellbook::{readiness, SpellReadiness};
+        let ready = readiness(view, selected, self.endowment_item);
         let target = view.selected_object().filter(|t| t.0 != 0);
         let mut enabled = false;
         let tip: Option<String> = if selected != 0 {
             // A spell-table miss writes nothing at all.
             view.spell(selected).map(|b| {
                 let name = b.name;
-                if view.spell_is_untargeted(selected)
-                    || b.bitfield & crate::items::widget::icon_background::SPELL_SELF_TARGETED != 0
-                {
+                if ready == SpellReadiness::Ready {
                     enabled = true;
                     sprintf1(cast_button::CAST, &name)
                 } else if let Some(t) = target {
-                    if view.spell_target_compatible(selected) {
+                    if ready == SpellReadiness::ReadyOnTarget {
                         enabled = true;
                         let mut s = sprintf1(cast_button::CAST, &name);
                         if let Some(n) = view.name(t) {
@@ -1114,11 +1041,11 @@ impl SpellcastingPanel {
             let caption = view
                 .spell(self.endowment_spell)
                 .map_or(String::new(), |b| format!("{item_name} ({})", b.name));
-            Some(if view.item_useable_self_target(item) {
+            Some(if ready == SpellReadiness::Ready {
                 enabled = true;
                 sprintf1(cast_button::USE_THE, &caption)
             } else if let Some(t) = target {
-                if view.item_target_compatible(item) {
+                if ready == SpellReadiness::ReadyOnTarget {
                     enabled = true;
                     let mut s = sprintf1(cast_button::USE_THE, &caption);
                     if let Some(n) = view.name(t) {
@@ -1184,8 +1111,7 @@ impl SpellcastingPanel {
     /// even though a spell id is sitting in the sub-menu.
     ///
     /// Retail's zero-spell arm shows the literal `"You must select a spell to cast"` (a plain
-    /// literal, not a string-table entry) as a type-`0x1A` string. **This build does not show it
-    /// yet:** the request is simply not raised and [`Self::casts`] does not move. The tooltip
+    /// literal, not a string-table entry) as a type-`0x1A` string. The tooltip
     /// update's own `"Select a spell to cast"` is a *tooltip* and is not it.
     ///
     /// Returns the request it raised, if any — also emitted through the UI's request queue
@@ -1198,20 +1124,15 @@ impl SpellcastingPanel {
             .sub_menus
             .get(tab)
             .is_some_and(|s| s.endowment_selected);
-        if endowment_selected {
-            if let Some(item) = self.endowment_item {
-                // Use the endowed item.
-                let r = UiRequest::Use(item);
-                ui.requests.emit(r.clone());
-                return Some(r);
-            }
+        let r = dereth_client_contract::spellbook::SpellSelection {
+            spell: spell_id,
+            endowment: endowment_selected,
         }
-        if spell_id == 0 {
-            return None;
+        .cast(self.endowment_item);
+        if matches!(r, UiRequest::CastSpell { .. }) {
+            self.casts += 1;
         }
-        let r = UiRequest::CastSpell { spell_id };
         ui.requests.emit(r.clone());
-        self.casts += 1;
         Some(r)
     }
 
@@ -1554,44 +1475,16 @@ impl SpellcastingPanel {
     pub fn step_spell_selection(&mut self, ui: &mut UiSystem, next: bool) -> bool {
         let tab = self.open_sub_menu_index(ui);
         let contents = self.list_contents(tab);
-        let n = contents.len();
-        if n == 0 {
-            return self.select_endowment(ui, tab);
-        }
-        if self
-            .sub_menus
-            .get(tab)
-            .is_some_and(|s| s.endowment_selected)
-        {
-            let i = if next { 0 } else { n - 1 };
-            return self.select_spell_from_index(ui, tab, i);
-        }
-        let selected = self.sub_menus.get(tab).map_or(0, |s| s.selected_spell);
-        let mut idx = 0usize;
-        for (j, id) in contents.iter().enumerate() {
-            if *id != selected {
-                continue;
-            }
+        self.move_selection(
+            ui,
+            tab,
+            &contents,
             if next {
-                if j + 1 == n {
-                    if self.endowment_present {
-                        return self.select_endowment(ui, tab);
-                    }
-                    idx = 0;
-                } else {
-                    idx = j + 1;
-                }
-            } else if j == 0 {
-                if self.endowment_present {
-                    return self.select_endowment(ui, tab);
-                }
-                idx = n - 1;
+                dereth_client_contract::spellbook::SelectionMove::Next
             } else {
-                idx = j - 1;
-            }
-            break;
-        }
-        self.select_spell_from_index(ui, tab, idx)
+                dereth_client_contract::spellbook::SelectionMove::Previous
+            },
+        )
     }
 
     /// The spellcasting panel's first and last spell selection notices.
@@ -1603,19 +1496,44 @@ impl SpellcastingPanel {
     pub fn jump_spell_selection(&mut self, ui: &mut UiSystem, last: bool) -> bool {
         let tab = self.open_sub_menu_index(ui);
         let contents = self.list_contents(tab);
-        if last {
-            if !contents.is_empty() {
-                return self.select_spell_from_index(ui, tab, contents.len() - 1);
-            }
-            return self.select_endowment(ui, tab);
-        }
-        if self.endowment_present {
-            return self.select_endowment(ui, tab);
-        }
-        if contents.is_empty() {
+        self.move_selection(
+            ui,
+            tab,
+            &contents,
+            if last {
+                dereth_client_contract::spellbook::SelectionMove::Last
+            } else {
+                dereth_client_contract::spellbook::SelectionMove::First
+            },
+        )
+    }
+
+    fn move_selection(
+        &mut self,
+        ui: &mut UiSystem,
+        tab: usize,
+        rows: &[u32],
+        movement: dereth_client_contract::spellbook::SelectionMove,
+    ) -> bool {
+        let selection = self.sub_menus.get(tab).map_or(
+            dereth_client_contract::spellbook::SpellSelection::default(),
+            |s| dereth_client_contract::spellbook::SpellSelection {
+                spell: s.selected_spell,
+                endowment: s.endowment_selected,
+            },
+        );
+        let Some(next) = selection.moved(rows, self.endowment_present, movement) else {
             return false;
+        };
+        if next.endowment {
+            self.select_endowment(ui, tab)
+        } else {
+            self.select_spell_from_index(
+                ui,
+                tab,
+                rows.iter().position(|id| *id == next.spell).unwrap_or(0),
+            )
         }
-        self.select_spell_from_index(ui, tab, 0)
     }
 
     /// The arm all four selection handlers share: set the endowment-selected flag, then select
