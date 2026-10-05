@@ -36,7 +36,7 @@ use empyrean_net::SessionId;
 use empyrean_world::dispatch::Class;
 use empyrean_world::entity::salvage_results::SalvageResults;
 use empyrean_world::entity::tinker_log::TinkerLog;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::managers::{recipe_manager as rm, recipe_manager_new as rmn};
 use empyrean_world::sessions::SessionData;
@@ -134,17 +134,7 @@ fn dats() -> Arc<DatManager> {
         .expect("fake dats")
 }
 
-/// `GuidManager.Initialize` over an empty shard.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// A world over the synthetic dats and `content`, with ACE's default settings and a dynamic guid
 /// allocator.

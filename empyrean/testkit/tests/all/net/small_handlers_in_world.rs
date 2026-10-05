@@ -29,7 +29,7 @@ use empyrean_entity::{ObjectGuid, Position};
 use empyrean_net::SessionId;
 use empyrean_store::models::shard::Character;
 use empyrean_testkit::{land, ClientId, ClientStatus, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::{player_manager, property_manager, world_manager};
 use empyrean_world::network::handlers::{
     ddd_handler, friends_old_handler, get_server_version_handler,
@@ -70,16 +70,7 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
         .expect("fake dats")
 }
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// Alpha, standing in the middle of `HOME`.
 fn seeded() -> TestServer {

@@ -25,7 +25,7 @@ use empyrean_entity::{ObjectGuid, Position};
 use empyrean_net::{SessionId, SessionState};
 use empyrean_testkit::land::{self, TEST_SETUP};
 use empyrean_testkit::{ClientId, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::landblock_manager;
 use empyrean_world::managers::recipe_manager as rm;
 use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
@@ -248,17 +248,7 @@ fn content() -> MemContent {
         .recipe(iron)
 }
 
-/// `GuidManager.Initialize` over an empty shard.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn at(x: f32, y: f32) -> Position {
     Position::from_components(LB | 0x0001, x, y, 0.0, 0.0, 0.0, 0.0, 1.0, false)

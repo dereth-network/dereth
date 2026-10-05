@@ -455,4 +455,4 @@ fn giving_an_item_to_an_npc_runs_its_give_or_refuse_emote() {
 
 pub(crate) use crate::support::messages::{exchange, first};
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

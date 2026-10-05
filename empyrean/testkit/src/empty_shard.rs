@@ -1,8 +1,10 @@
-//! An empty persisted GUID range for isolated worlds.
+//! A persisted GUID range with nothing in it, for worlds that start without a database.
 use empyrean_world::managers::guid_manager::ShardGuidQueries;
 
-/// `GuidManager.Initialize` over an empty shard.
-pub(crate) struct EmptyShard;
+/// `GuidManager.Initialize` over an empty shard: no GUID is in use in any range, and there are no
+/// gaps to recycle, so every range starts at its minimum.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EmptyShard;
 
 impl ShardGuidQueries for EmptyShard {
     fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {

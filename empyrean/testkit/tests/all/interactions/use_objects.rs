@@ -887,4 +887,4 @@ fn a_vendor_is_used_through_use_item() {
 
 pub(crate) use crate::support::messages::{first, is_age_update, kinds, Got};
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

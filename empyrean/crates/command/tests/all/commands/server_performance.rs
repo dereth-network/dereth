@@ -12,20 +12,10 @@ use empyrean_command::handlers::admin_stat_commands as ast;
 use empyrean_common::clock::VirtualClock;
 use empyrean_common::dotnet::format;
 use empyrean_testkit::TestServer;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::server_performance_monitor::{self as perf, MonitorType};
 
-/// An empty shard for `GuidManager.Initialize` (which `serverstatus`'s guid report reads).
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// The console lines one console command wrote.
 fn console(ts: &mut TestServer, handler: CommandHandler, parameters: &[&str]) -> Vec<String> {

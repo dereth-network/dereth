@@ -25,7 +25,7 @@ use empyrean_entity::models::PropertiesCreateList;
 use empyrean_entity::ObjectGuid;
 use empyrean_world::dispatch::{self, Class};
 use empyrean_world::factories::world_object_factory as factory;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::world_objects::container;
 use empyrean_world::world_objects::world_object::{CtorEnv, WorldObject};
 use empyrean_world::world_objects::{
@@ -241,17 +241,7 @@ fn content() -> MemContent {
         })
 }
 
-/// `GuidManager.Initialize` over an empty shard.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 pub(crate) fn world() -> World {
     let now = ClockSnapshot {

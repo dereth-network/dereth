@@ -524,4 +524,4 @@ fn an_admin_deletes_an_online_character() {
     );
 }
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

@@ -1,6 +1,5 @@
 pub(crate) mod command_characters;
 pub(crate) mod creature_and_item_world;
-pub(crate) mod empty_shard;
 pub(crate) mod event_world;
 pub(crate) mod inventory_action_world;
 pub(crate) mod login_fixture;

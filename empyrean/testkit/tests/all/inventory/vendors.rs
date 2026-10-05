@@ -641,4 +641,4 @@ fn a_vendor_out_of_reach_closed_or_out_of_its_value_range_is_refused() {
 
 pub(crate) use crate::support::messages::{exchange, first, Got};
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

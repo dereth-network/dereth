@@ -52,12 +52,14 @@ use empyrean_world::managers::{
 use empyrean_world::world::AuthHandle;
 use empyrean_world::World;
 
+pub use empty_shard::EmptyShard;
 pub use empyrean_net::testing::{ClientStatus, TestClient};
 
 #[cfg(feature = "captures")]
 pub mod capture_replay;
 pub mod dats;
 pub mod decode;
+mod empty_shard;
 pub mod land;
 #[cfg(feature = "soak")]
 pub mod soak;

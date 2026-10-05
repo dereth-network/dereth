@@ -670,4 +670,4 @@ fn a_cancelled_shutdown_says_so_and_stops_the_countdown() {
     ]);
 }
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

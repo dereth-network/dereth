@@ -888,4 +888,4 @@ pub(crate) fn find_by_wcid(w: &World, wcid: u32) -> Option<ObjectGuid> {
 
 pub(crate) use crate::support::messages::{exchange, first, got, kinds, Got};
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

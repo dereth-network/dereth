@@ -41,7 +41,7 @@ use empyrean_world::entity::damage_history::DamageHistory;
 use empyrean_world::entity::spell::Spell;
 use empyrean_world::entity::spell_projectile_type::ProjectileSpellType;
 use empyrean_world::entity::timers::{self, TimersState};
-use empyrean_world::managers::guid_manager::{self as gm, ShardGuidQueries};
+use empyrean_world::managers::guid_manager as gm;
 use empyrean_world::managers::landblock_manager as lm;
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
@@ -254,17 +254,7 @@ fn projectile_script_intensity_matches_ace() {
 
 // ------------------------------------------------------------------------------------ fixture
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 const LB: u32 = 0xA9B4_0000;
 const PLAYER: ObjectGuid = ObjectGuid::new(0x5000_0001);

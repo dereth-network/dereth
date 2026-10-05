@@ -1067,17 +1067,9 @@ fn virtual_bodies_attuned_unique_trade_name() {
 
 #[test]
 fn destroy_marks_once_and_stamps_release_time() {
-    struct NoShard;
-    impl empyrean_world::managers::guid_manager::ShardGuidQueries for NoShard {
-        fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-            u32::MAX
-        }
-        fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-            Vec::new()
-        }
-    }
+    use empyrean_testkit::EmptyShard;
     let mut w = world();
-    empyrean_world::managers::guid_manager::initialize(&mut w, &mut NoShard);
+    empyrean_world::managers::guid_manager::initialize(&mut w, &mut EmptyShard);
     let o = build(&w, weenie(60, WeenieType::Generic));
     let this = o.guid;
     w.objects.insert(o).expect("fresh");

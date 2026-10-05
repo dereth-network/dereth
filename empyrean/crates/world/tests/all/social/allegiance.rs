@@ -51,7 +51,7 @@ use empyrean_world::entity::allegiance_node::NodeRef;
 use empyrean_world::entity::i_player::IPlayer;
 use empyrean_world::entity::offline_player::OfflinePlayer;
 use empyrean_world::managers::allegiance_manager;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::player_manager::{self, OnlinePlayer, OrdinalIgnoreCase};
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
@@ -94,16 +94,7 @@ const CONFIRMATION_DONE: u32 = 0x0276;
 const INFO_RESPONSE: u32 = 0x027C;
 const PRIVATE_UPDATE_INT: u32 = 0x02CD;
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn account(account_id: u32, name: &str) -> Account {
     Account {

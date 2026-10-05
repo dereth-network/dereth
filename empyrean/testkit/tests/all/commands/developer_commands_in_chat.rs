@@ -1212,4 +1212,4 @@ Visible players to Alpha Admin: "
     assert!(reply[2].0.starts_with("Physics : 0x"), "{:?}", reply[2].0);
 }
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

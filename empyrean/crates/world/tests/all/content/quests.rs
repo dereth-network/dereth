@@ -31,7 +31,7 @@ use empyrean_net::SessionId;
 use empyrean_store::models::shard::{Character, CharacterPropertiesContractRegistry};
 use empyrean_store::MemShard;
 use empyrean_world::dispatch::Class;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::managers::quest_manager::{self as qm, QuestManager, QuestOwner};
 use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
@@ -269,16 +269,7 @@ fn dats() -> Arc<empyrean_dat::DatManager> {
         .expect("fake dats")
 }
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// A world on synthetic content with ACE's default server properties, one session S whose
 /// player is PLAYER (with an empty Character), a non-player creature CHICKEN and a creature RAT.

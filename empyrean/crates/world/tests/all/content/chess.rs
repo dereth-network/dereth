@@ -1198,17 +1198,7 @@ mod lifecycle {
 
     const LB: u16 = 0xA9B4;
 
-    struct EmptyShard;
-
-    impl empyrean_world::managers::guid_manager::ShardGuidQueries for EmptyShard {
-        fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-            u32::MAX
-        }
-
-        fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-            Vec::new()
-        }
-    }
+    use empyrean_testkit::EmptyShard;
 
     /// A world with the twelve legacy piece weenies, flat land and a loaded landblock.
     fn legacy_world() -> World {

@@ -33,7 +33,7 @@ use empyrean_entity::models::{PropertiesAttribute, PropertiesAttribute2nd, Prope
 use empyrean_entity::{ObjectGuid, Position};
 use empyrean_store::models::shard::Character;
 use empyrean_testkit::{land, ClientId, ClientStatus, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::player_manager;
 use empyrean_world::world_objects::player_location;
 
@@ -196,16 +196,7 @@ fn seed(
         .add_character_in_parallel(&mut biota, &mut [], &character));
 }
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// Alpha (listens to no global room) and Bravo (listens to General) 4 m apart at `HOME`; Charlie
 /// (listens to General and Trade) in the far landblock; Delta (offline) anywhere.

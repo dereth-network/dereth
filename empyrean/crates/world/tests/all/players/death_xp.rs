@@ -36,7 +36,7 @@ use empyrean_world::entity::death_item::{DeathItem, DeathItemCategory, DeathItem
 use empyrean_world::entity::death_message::string_format;
 use empyrean_world::entity::strings;
 use empyrean_world::entity::timers::TimersState;
-use empyrean_world::managers::guid_manager::{self as gm, ShardGuidQueries};
+use empyrean_world::managers::guid_manager as gm;
 use empyrean_world::managers::landblock_manager as lm;
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::network::game_event::game_event_type::GameEventType;
@@ -53,17 +53,7 @@ use empyrean_world::World;
 
 // ------------------------------------------------------------------------------------ harness
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 const S1: SessionId = SessionId {
     client_id: 1,

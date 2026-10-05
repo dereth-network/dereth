@@ -46,7 +46,7 @@ use empyrean_entity::enums::AccessLevel;
 use empyrean_entity::ObjectGuid;
 use empyrean_net::{NetConfig, ServerNet};
 use empyrean_store::shard_database::CharacterQuery;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::server_performance_monitor::{
     self as perf, CumulativeEventHistoryType, MonitorType,
 };
@@ -277,17 +277,7 @@ fn fnv1a(mut h: u64, bytes: &[u8]) -> u64 {
     h
 }
 
-/// `GuidManager.Initialize` over the empty shard the run starts with.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use crate::EmptyShard;
 
 /// The retail dats (`DERETH_TEST_DAT_DIR`).
 ///

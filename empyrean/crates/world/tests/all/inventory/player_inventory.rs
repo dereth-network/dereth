@@ -28,7 +28,7 @@ use empyrean_world::entity::items_to_receive::ItemsToReceive;
 use empyrean_world::entity::put_item_in_container_event::PutItemInContainerEvent;
 use empyrean_world::entity::unique_table::UniqueTable;
 use empyrean_world::factories::world_object_factory as factory;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
 use empyrean_world::sessions::SessionData;
@@ -163,17 +163,7 @@ fn content() -> MemContent {
         )
 }
 
-/// `GuidManager.Initialize` over an empty shard.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// A world on synthetic content with ACE's default server properties, one session S whose
 /// player is PLAYER (strength 100, empty-handed, burden 0).

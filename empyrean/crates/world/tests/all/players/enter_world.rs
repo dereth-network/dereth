@@ -1124,7 +1124,7 @@ mod real_content {
     use empyrean_content::PackContent;
     use empyrean_dat::{DatManager, RealDats};
     use empyrean_testkit::{ClientId, TestServer};
-    use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+    use empyrean_world::managers::guid_manager;
     use empyrean_world::managers::world_manager::WorldStatusState;
     use empyrean_world::physics::phys_ext;
 
@@ -1151,16 +1151,7 @@ mod real_content {
         })
     }
 
-    struct EmptyShard;
-
-    impl ShardGuidQueries for EmptyShard {
-        fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-            u32::MAX
-        }
-        fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-            Vec::new()
-        }
-    }
+    use empyrean_testkit::EmptyShard;
 
     /// One message of a recorded session: direction, queue, blob sequence and payload (opcode
     /// included).

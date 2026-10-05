@@ -31,7 +31,7 @@ pub(crate) use empyrean_entity::{ObjectGuid, Position};
 pub(crate) use empyrean_net::{SessionId, SessionState};
 pub(crate) use empyrean_testkit::land::{self, TEST_SETUP};
 pub(crate) use empyrean_testkit::{ClientId, TestServer};
-pub(crate) use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+pub(crate) use empyrean_world::managers::guid_manager;
 pub(crate) use empyrean_world::managers::landblock_manager;
 pub(crate) use empyrean_world::world_objects::world_object::CtorEnv;
 pub(crate) use empyrean_world::world_objects::{container, player_fellowship, player_trade};
@@ -110,17 +110,7 @@ pub(crate) fn content() -> MemContent {
         )
 }
 
-/// `GuidManager.Initialize` over an empty shard.
-pub(crate) struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+pub(crate) use empyrean_testkit::EmptyShard;
 
 pub(crate) fn at(x: f32, y: f32) -> Position {
     Position::from_components(LB | 0x0001, x, y, 0.0, 0.0, 0.0, 0.0, 1.0, false)

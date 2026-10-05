@@ -38,7 +38,7 @@ use empyrean_store::adapter::BiotaConverter;
 use empyrean_world::factories::player_factory::{self, CreateResult, CreatedPlayer};
 use empyrean_world::factories::player_factory_ex;
 use empyrean_world::factories::starter_gear_factory;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::world_manager::{self as wm, WorldStatusState};
 use empyrean_world::network::game_messages::game_message;
 use empyrean_world::network::managers::inbound_message_manager::{
@@ -388,17 +388,7 @@ fn content() -> MemContent {
         })
 }
 
-/// `GuidManager.Initialize` over an empty shard: no guid in use, no gaps.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn world() -> World {
     let now = ClockSnapshot {

@@ -38,7 +38,7 @@ use empyrean_entity::{ObjectGuid, Position};
 use empyrean_net::SessionId;
 use empyrean_store::models::shard::Character;
 use empyrean_testkit::{land, ClientId, ClientStatus, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::player_manager;
 use empyrean_world::physics::phys_ext;
 use empyrean_world::world_objects::kinds::KindData;
@@ -215,16 +215,7 @@ fn seed(ts: &TestServer, account: &str, guid: u32, name: &str, at: Position) {
         .add_character_in_parallel(&mut biota, &mut [], &character));
 }
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// A server with the accounts `alpha` (at `HOME` 100, 100) and `bravo` (4 m east), one
 /// character each, `PlayerManager` loaded.

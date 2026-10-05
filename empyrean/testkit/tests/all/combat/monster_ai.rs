@@ -28,7 +28,7 @@ use empyrean_net::SessionState;
 use empyrean_testkit::{dats, land, ClientId, TestServer};
 use empyrean_world::dispatch::Class;
 use empyrean_world::entity::damage_history::DamageHistory;
-use empyrean_world::managers::guid_manager::{self as gm, ShardGuidQueries};
+use empyrean_world::managers::guid_manager as gm;
 use empyrean_world::managers::landblock_manager as lm;
 use empyrean_world::network::motion::movement_data::Motion;
 use empyrean_world::physics::phys_ext;
@@ -40,17 +40,7 @@ use empyrean_world::world_objects::{
 };
 use empyrean_world::World;
 
-pub(crate) struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+pub(crate) use empyrean_testkit::EmptyShard;
 
 pub(crate) const LB: u32 = 0xA9B4_0000;
 pub(crate) const MT: u32 = 0x0900_0310;

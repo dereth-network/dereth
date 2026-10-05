@@ -26,7 +26,7 @@ use empyrean_world::dispatch::{self, Class};
 use empyrean_world::entity::actions::delay_manager;
 use empyrean_world::entity::timers::TimersState;
 use empyrean_world::factories::world_object_factory as factory;
-use empyrean_world::managers::guid_manager::{self as gm, ShardGuidQueries};
+use empyrean_world::managers::guid_manager as gm;
 use empyrean_world::managers::landblock_manager as lm;
 use empyrean_world::managers::property_manager as pm;
 use empyrean_world::network::game_event::game_event_type::GameEventType;
@@ -184,16 +184,7 @@ const TORCH: u32 = 17; // a generic object (GenericObject.ActOnUse plays its Use
 const BOX: u32 = 18; // a plain container
 const SHIRT: u32 = 19; // clothing: no ActOnUse override
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn weenie(wcid: u32, name: &str, weenie_type: WeenieType) -> ContentWeenie {
     ContentWeenie::new(wcid, name, weenie_type)

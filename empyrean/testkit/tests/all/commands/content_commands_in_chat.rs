@@ -33,7 +33,7 @@ use empyrean_entity::models::{PropertiesAttribute, PropertiesAttribute2nd, Prope
 use empyrean_entity::{ObjectGuid, Position};
 use empyrean_store::models::shard::Character;
 use empyrean_testkit::{land, ClientId, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::{player_manager, property_manager};
 
 /// A landblock the fixture dump has no instances in.
@@ -145,16 +145,7 @@ fn world_database(dir: &Path) -> (PackContent, Arc<ContentOverlay>) {
     (db, overlay)
 }
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn seed(ts: &TestServer, account: &str, guid: u32, name: &str, at: Position) {
     let account_id = ts

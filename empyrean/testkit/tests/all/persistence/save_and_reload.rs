@@ -28,7 +28,7 @@ use empyrean_store::adapter::biota_converter::BiotaConverter;
 use empyrean_store::{ShardHandle, SqliteShard};
 use empyrean_testkit::land;
 use empyrean_testkit::{ClientId, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::player_manager;
 use empyrean_world::managers::world_manager::WorldStatusState;
 use empyrean_world::physics::phys_ext;
@@ -53,16 +53,7 @@ enum Backend {
     Sqlite,
 }
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn dats() -> Arc<empyrean_dat::DatManager> {
     empyrean_testkit::dats::with_stat_tables(FakeDats::new())

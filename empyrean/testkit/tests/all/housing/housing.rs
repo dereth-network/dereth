@@ -32,7 +32,7 @@ use empyrean_entity::{Biota, ObjectGuid};
 use empyrean_net::SessionState;
 use empyrean_testkit::land;
 use empyrean_testkit::{ClientId, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::world_manager::WorldStatusState;
 use empyrean_world::managers::{house_manager, player_manager};
 use empyrean_world::physics::phys_ext;
@@ -81,16 +81,7 @@ const HOUSE_DATA: u32 = 0x0225;
 const HOUSE_STATUS: u32 = 0x0226;
 const UPDATE_RESTRICTIONS: u32 = 0x0248;
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn thing(wcid: u32, class_name: &str, name: &str, weenie_type: WeenieType) -> Weenie {
     Weenie::new(wcid, class_name, weenie_type)

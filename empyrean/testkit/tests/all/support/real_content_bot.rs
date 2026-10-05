@@ -121,17 +121,7 @@ pub(crate) mod real {
         })
     }
 
-    /// `GuidManager.Initialize` over the empty shard the server starts with.
-    pub(crate) struct EmptyShard;
-
-    impl ShardGuidQueries for EmptyShard {
-        fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-            u32::MAX
-        }
-        fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-            Vec::new()
-        }
-    }
+    pub(crate) use empyrean_testkit::EmptyShard;
 
     // ---- the wire -----------------------------------------------------------------------------
 

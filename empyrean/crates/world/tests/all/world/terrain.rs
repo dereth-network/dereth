@@ -24,24 +24,14 @@ use empyrean_entity::{LandblockId, ObjectGuid};
 use empyrean_testkit::land;
 use empyrean_world::entity::landblock;
 use empyrean_world::entity::timers::TimersState;
-use empyrean_world::managers::guid_manager::{self as gm, ShardGuidQueries};
+use empyrean_world::managers::guid_manager as gm;
 use empyrean_world::managers::landblock_manager as lm;
 use empyrean_world::managers::world_manager::{self as wm, NoWire, WorldHost};
 use empyrean_world::physics::phys_ext;
 use empyrean_world::world_objects::world_object::WorldObject;
 use empyrean_world::World;
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 const LB: u16 = 0xA9B4;
 const ENCOUNTER_WCID: u32 = 2002;

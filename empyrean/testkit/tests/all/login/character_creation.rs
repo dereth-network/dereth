@@ -90,4 +90,4 @@ fn a_character_is_created_over_the_wire_then_its_name_is_taken() {
     assert_eq!(ts.client(id).status(), ClientStatus::Connected);
 }
 
-pub(crate) use crate::support::empty_shard::EmptyShard;
+pub(crate) use empyrean_testkit::EmptyShard;

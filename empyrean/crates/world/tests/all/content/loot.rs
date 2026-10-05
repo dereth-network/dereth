@@ -709,17 +709,7 @@ fn coin_world() -> World {
     w
 }
 
-struct EmptyShard;
-
-impl empyrean_world::managers::guid_manager::ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 /// Pyreals: the wcid needs no draw, the coinstack's constructor draws its heartbeat, then
 /// `MutateCoins` draws the stack size in the tier's range; value and burden follow the stack.

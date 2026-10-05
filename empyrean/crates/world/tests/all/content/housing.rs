@@ -20,7 +20,7 @@ use empyrean_entity::{ObjectGuid, Position};
 use empyrean_testkit::{land, TestServer};
 use empyrean_world::entity::player_house::PlayerHouse;
 use empyrean_world::factories::world_object_factory as factory;
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::{house_manager, landblock_manager};
 use empyrean_world::network::structure::house_payment::HousePayment;
 use empyrean_world::world_objects::world_object::{CtorEnv, WorldObject};
@@ -427,17 +427,7 @@ fn rent_queue_orders_by_rent_due_then_house_guid() {
 
 // ------------------------------------------------------------------ offline copies
 
-/// `GuidManager.Initialize` over an empty shard.
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 const LB: u16 = 0xA9B5;
 const CELL: u32 = 0xA9B5_0019;

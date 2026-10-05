@@ -19,7 +19,7 @@ use empyrean_entity::{ObjectGuid, Position};
 use empyrean_net::{SessionId, SessionState};
 use empyrean_testkit::land::{self, TEST_SETUP};
 use empyrean_testkit::{ClientId, TestServer};
-use empyrean_world::managers::guid_manager::{self, ShardGuidQueries};
+use empyrean_world::managers::guid_manager;
 use empyrean_world::managers::player_manager::OnlinePlayer;
 use empyrean_world::managers::{landblock_manager, property_manager};
 use empyrean_world::world_objects::world_object::CtorEnv;
@@ -29,16 +29,7 @@ const PLAYER_WCID: u32 = 1;
 const ALPHA: u32 = 0x5000_0001;
 const BRAVO: u32 = 0x5000_0002;
 
-struct EmptyShard;
-
-impl ShardGuidQueries for EmptyShard {
-    fn get_max_guid_found_in_range(&mut self, _min: u32, _max: u32) -> u32 {
-        u32::MAX
-    }
-    fn get_sequence_gaps(&mut self, _min: u32, _limit: u32) -> Vec<(u32, u32)> {
-        Vec::new()
-    }
-}
+use empyrean_testkit::EmptyShard;
 
 fn server() -> TestServer {
     server_with(|c| c)
