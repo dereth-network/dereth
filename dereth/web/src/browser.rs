@@ -88,16 +88,22 @@ pub fn start(filter: &str) {
         .try_init();
 }
 
-/// Open the player's data files through the worker and describe each.
+/// Open the player's data files through the worker for a world of `era` (the name a server's
+/// status gives it; empty when none is named), and describe each. The era decides which set is
+/// the world's ([`dats::plan`]).
 ///
 /// # Errors
 /// The first required file that is missing or will not open.
 #[wasm_bindgen(js_name = openDats)]
-pub fn open_dats() -> Result<String, JsError> {
-    let (store, reports) = dats::open_store(|index| {
-        let index = u32::try_from(index).ok()?;
-        dat_present(index).then_some(BrowserFile(index))
-    })
+pub fn open_dats(era: &str) -> Result<String, JsError> {
+    let world_set = crate::play::announced_era(era).map(dereth_primitives::EraId::container_era);
+    let (store, reports) = dats::open_store(
+        |index| {
+            let index = u32::try_from(index).ok()?;
+            dat_present(index).then_some(BrowserFile(index))
+        },
+        world_set,
+    )
     .map_err(|e| JsError::new(&e.to_string()))?;
     STORE.with(|s| *s.borrow_mut() = Some(Arc::new(store)));
     Ok(dats::describe(&reports))

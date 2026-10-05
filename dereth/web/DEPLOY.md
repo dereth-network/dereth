@@ -74,13 +74,25 @@ Chrome shares Edge's engine but has not been run itself.
 ## The player's data files
 
 Every player uses their own Asheron's Call data files (`client_portal.dat`, `client_cell_1.dat`,
-`client_local_English.dat`, `client_highres.dat`), read in their own browser:
+`client_local_English.dat`, `client_highres.dat`), read in their own browser. A player may add the
+two files of a set from before Throne of Destiny (`portal.dat`, `cell.dat`), as on the desktop: the
+classic interface draws from that `portal.dat`, and a world of an era before Throne of Destiny (the
+`era` its status names, or `?era=`) is drawn from that set, with the later files beside it. The files
+are:
 - picked once and kept in the browser's private storage (the origin-private file system), then
   opened from there on later visits;
 - or picked from disk for one visit.
 
-They are never uploaded, and a deployment never hosts them. The dev runner's `--dat-dir` stands in
-for this on a developer's machine, on loopback only.
+They are never uploaded, and a deployment never hosts them. The dev runner's `--dat-dir` (and
+`--classic-dat-dir`) stands in for this on a developer's machine, on loopback only.
+
+## The classic interface
+
+The player chooses it as on the desktop (the Interface option, or `[UI] Interface=Classic` in the
+client's preferences), and needs the older `portal.dat` among the picked files. Its text is drawn
+with the browser's own fonts (Times New Roman, Arial and Courier New, or their metric-compatible
+free equivalents Liberation Serif, Sans and Mono, or Tinos, Arimo and Cousine, else the browser's
+generic serif, sans-serif and monospace), so a host serves no fonts and needs no header for them.
 
 ## Connecting to a server
 
@@ -120,13 +132,14 @@ data source in the browser's local storage.
 ## Developing
 
 ```text
-cargo xtask web [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--server <url | host:port>]
+cargo xtask web [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <url | host:port>]
 ```
 
 - **What it does:** builds the client and serves `www/` on `127.0.0.1` only, and prints the page's
   address.
-- **`--dat-dir`:** serves the four retail data files from that folder to the page, with byte
-  ranges, and the printed address selects them (`?dats=http`).
+- **`--dat-dir`:** serves the retail data files from that folder to the page, with byte ranges,
+  and the printed address selects them (`?dats=http`): the four later files, and `portal.dat` and
+  `cell.dat` when the folder holds them. **`--classic-dat-dir`** names another folder for those two.
 - **`--server`:** fills the page's server. A `ws://` or `wss://` URL is used as it is. A
   `host:port` builds and starts `dereth-web-relay` for it on `127.0.0.1:9180`, and stops it on
   Ctrl-C.

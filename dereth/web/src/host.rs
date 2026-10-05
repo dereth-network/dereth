@@ -1,6 +1,7 @@
 //! The browser as the client shell's host: the canvas as the window, the page's events as the host
-//! events, the browser's clock and time zone, the page's clipboard, a URL opened in a new tab, and
-//! the page's audio worklet as the sound output. The cursor is the page's to draw
+//! events, the browser's clock and time zone, the page's clipboard, a URL opened in a new tab, the
+//! page's audio worklet as the sound output, and the browser's fonts for the classic interface's
+//! text. The cursor is the page's to draw
 //! ([`crate::play::Play::cursor_change`]), so the shell's cursor images are never installed here.
 
 // The sound output: a pull the worker posts to the page.
@@ -11,6 +12,8 @@ pub mod clipboard;
 pub mod clock;
 // The modal error box, which a page shows as a log line.
 pub mod dialog;
+// The classic interface's text, drawn with the browser's fonts.
+pub mod fonts;
 // The canvas as the window, and the events the page queues on it.
 pub mod window;
 
@@ -63,6 +66,19 @@ impl Host for WebHost {
 
     fn cursor_images(_window: Option<isize>) -> Box<dyn CursorImages> {
         Box::new(PortableCursors)
+    }
+
+    /// The browser's fonts, drawn in the worker's own canvas. The host build, which has no
+    /// canvas, has none.
+    fn classic_fonts() -> Option<std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            Some(std::sync::Arc::new(fonts::PageFonts))
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            None
+        }
     }
 }
 

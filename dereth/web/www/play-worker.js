@@ -4,7 +4,7 @@
 // one client frame per animation frame, and hands the client the page's input events.
 
 import init, * as dereth from './pkg/dereth_web.js';
-import { openFiles } from './datfiles.js';
+import { openFiles, openStore } from './datfiles.js';
 
 const log = (text) => postMessage({ log: String(text) });
 const params = new URLSearchParams(location.search);
@@ -77,6 +77,8 @@ globalThis.derethSettingsSave = (bytes) => {
 };
 
 let datsOpen = false;
+// The era the store was opened for: a later start for another era opens it again.
+let storeEra = null;
 
 async function start(msg) {
   marks.start = performance.now();
@@ -86,13 +88,24 @@ async function start(msg) {
   if (refused) throw new Error(refused);
   // A second start (after the client ended) keeps the data files and the settings file open.
   if (!datsOpen) {
-    const opened = await openFiles(msg.dats, dereth);
-    if (!opened.open) {
+    if (!(await openFiles(msg.dats))) {
       throw new Error(msg.dats.mode === 'opfs' && !msg.dats.files?.length
         ? 'This browser has no copy of the data files yet: pick them and keep a copy.'
-        : 'The data files did not open: pick the four client_*.dat files.');
+        : 'The data files did not open: pick the four client_*.dat files (and portal.dat and cell.dat for the classic interface).');
     }
     datsOpen = true;
+  }
+  const era = msg.era || '';
+  if (storeEra !== era) {
+    try {
+      openStore(dereth, era);
+    } catch (e) {
+      // The files picked are not enough for this world: the form offers the picker again.
+      datsOpen = false;
+      storeEra = null;
+      throw new Error(`The data files did not open: ${e?.message ?? e}`);
+    }
+    storeEra = era;
     log(`WebAssembly memory with the data files open: ${memoryMiB().toFixed(0)} MiB`);
   }
   marks.dats = performance.now();
@@ -101,7 +114,7 @@ async function start(msg) {
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   play = await dereth.WebPlay.create(
     canvas, msg.width, msg.height, msg.account, msg.password, sequence,
-    params.get('gpu') === 'webgl', msg.era || '', msg.features || '',
+    params.get('gpu') === 'webgl', era, msg.features || '',
   );
   marks.up = performance.now();
   log(`client up on ${play.backend()} in ${(marks.up - marks.dats).toFixed(0)} ms`);

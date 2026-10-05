@@ -139,27 +139,32 @@ impl RetailDatStore {
     ///
     /// A file is missing, does not open, or is in the later layout.
     pub fn open_classic_dir(dir: &Path) -> Result<Self, DatError> {
-        let open = |dat: ClassicDat| -> Result<Arc<DatFile>, DatError> {
-            let path = dat.in_dir(dir);
-            let file = shared::open(&path)?;
-            if file.era() != ContainerEra::Classic {
-                return Err(DatError::UnexpectedContainerEra {
-                    path,
-                    found: file.era(),
-                    expected: ContainerEra::Classic,
-                });
-            }
-            Ok(file)
-        };
-        let portal = open(ClassicDat::Portal)?;
-        let cell = open(ClassicDat::Cell)?;
+        let open = |dat: ClassicDat| shared::open(&dat.in_dir(dir));
+        let mut store = Self::classic_of(open(ClassicDat::Portal)?, open(ClassicDat::Cell)?)?;
+        store.client_dir = Some(dir.to_path_buf());
+        Ok(store)
+    }
+
+    /// [`Self::open_classic_dir`] over the two files already open (`portal.dat`, `cell.dat`),
+    /// wherever they were read from.
+    ///
+    /// # Errors
+    ///
+    /// A file is in the later layout.
+    pub fn open_classic_with(portal: DatFile, cell: DatFile) -> Result<Self, DatError> {
+        Self::classic_of(Arc::new(portal), Arc::new(cell))
+    }
+
+    fn classic_of(portal: Arc<DatFile>, cell: Arc<DatFile>) -> Result<Self, DatError> {
+        let portal = in_layout(portal, ContainerEra::Classic)?;
+        let cell = in_layout(cell, ContainerEra::Classic)?;
         Ok(Self {
             local: Arc::clone(&portal),
             portal,
             cell,
             highres: OnceLock::new(),
             companions: DatCompanions::default(),
-            client_dir: Some(dir.to_path_buf()),
+            client_dir: None,
             overlay: None,
         })
     }
@@ -176,25 +181,58 @@ impl RetailDatStore {
     ///
     /// A file is missing, does not open, or is in the other layout.
     pub fn open_classic_with_modern(dir: &Path, later_dir: &Path) -> Result<Self, DatError> {
-        let mut store = Self::open_classic_dir(dir)?;
-        let later = |dat: ModernDat| -> Result<Arc<DatFile>, DatError> {
-            let path = dat.in_dir(later_dir);
-            let file = shared::open(&path)?;
-            if file.era() != ContainerEra::Modern {
-                return Err(DatError::UnexpectedContainerEra {
-                    path,
-                    found: file.era(),
-                    expected: ContainerEra::Modern,
-                });
-            }
-            Ok(file)
-        };
-        store.local = later(ModernDat::Local)?;
-        store.companions.modern_portal = Some(later(ModernDat::Portal)?);
+        let later = |dat: ModernDat| shared::open(&dat.in_dir(later_dir));
         // The later interiors, for drawing only; a folder without them still opens.
-        store.companions.cell = later(ModernDat::Cell).ok();
-        store.client_dir = None;
-        Ok(store)
+        let cell = later(ModernDat::Cell)
+            .and_then(|f| in_layout(f, ContainerEra::Modern))
+            .ok();
+        Self::open_classic_dir(dir)?.beside_modern(
+            later(ModernDat::Portal)?,
+            later(ModernDat::Local)?,
+            cell,
+        )
+    }
+
+    /// [`Self::open_classic_with_modern`] for an older store already open: the later
+    /// `client_portal.dat` and `client_local_English.dat`, and the later `client_cell_1.dat` when
+    /// there is one, already open, wherever they were read from.
+    ///
+    /// # Errors
+    ///
+    /// A file is in the other layout.
+    pub fn with_modern_interface(
+        self,
+        portal: DatFile,
+        local: DatFile,
+        cell: Option<DatFile>,
+    ) -> Result<Self, DatError> {
+        self.beside_modern(
+            Arc::new(portal),
+            Arc::new(local),
+            cell.map(Arc::new)
+                .map(|f| in_layout(f, ContainerEra::Modern))
+                .transpose()?,
+        )
+    }
+
+    fn beside_modern(
+        mut self,
+        portal: Arc<DatFile>,
+        local: Arc<DatFile>,
+        cell: Option<Arc<DatFile>>,
+    ) -> Result<Self, DatError> {
+        if self.era() != ContainerEra::Classic {
+            return Err(DatError::UnexpectedContainerEra {
+                path: self.portal.path().to_path_buf(),
+                found: self.era(),
+                expected: ContainerEra::Classic,
+            });
+        }
+        self.local = in_layout(local, ContainerEra::Modern)?;
+        self.companions.modern_portal = Some(in_layout(portal, ContainerEra::Modern)?);
+        self.companions.cell = cell;
+        self.client_dir = None;
+        Ok(self)
     }
 
     /// The container layout of the store's world files: the portal file's, which [`Self::open_dir`]
@@ -293,21 +331,35 @@ impl RetailDatStore {
     /// # Errors
     ///
     /// The file is missing, does not open, or is in the later layout.
-    pub fn with_classic_portal(mut self, dir: &Path) -> Result<Self, DatError> {
-        let path = ClassicDat::Portal.in_dir(dir);
-        let file = shared::open(&path)?;
-        if file.era() != ContainerEra::Classic {
-            return Err(DatError::UnexpectedContainerEra {
-                path,
-                found: file.era(),
-                expected: ContainerEra::Classic,
-            });
-        }
-        self.companions.classic_portal = Some(file);
+    pub fn with_classic_portal(self, dir: &Path) -> Result<Self, DatError> {
+        let portal = shared::open(&ClassicDat::Portal.in_dir(dir))?;
         // The older interiors beside it, for drawing only, when the folder holds them.
-        self.companions.cell = shared::open(&ClassicDat::Cell.in_dir(dir))
-            .ok()
-            .filter(|f| f.era() == ContainerEra::Classic);
+        let cell = shared::open(&ClassicDat::Cell.in_dir(dir)).ok();
+        self.beside_classic(portal, cell)
+    }
+
+    /// [`Self::with_classic_portal`] over files already open: the older `portal.dat`, and its
+    /// `cell.dat` when there is one, wherever they were read from. A `cell.dat` in the later layout
+    /// is left out, as a folder's is.
+    ///
+    /// # Errors
+    ///
+    /// The portal is in the later layout.
+    pub fn with_classic_files(
+        self,
+        portal: DatFile,
+        cell: Option<DatFile>,
+    ) -> Result<Self, DatError> {
+        self.beside_classic(Arc::new(portal), cell.map(Arc::new))
+    }
+
+    fn beside_classic(
+        mut self,
+        portal: Arc<DatFile>,
+        cell: Option<Arc<DatFile>>,
+    ) -> Result<Self, DatError> {
+        self.companions.classic_portal = Some(in_layout(portal, ContainerEra::Classic)?);
+        self.companions.cell = cell.filter(|f| f.era() == ContainerEra::Classic);
         Ok(self)
     }
 
@@ -779,6 +831,19 @@ impl RetailDatStore {
             && self.highres.get().is_none_or(|h| {
                 h.header().data_set == PORTAL_DATFILE && h.header().data_subset == HIRES_SUBSET
             })
+    }
+}
+
+/// `file` when it is in the `expected` layout; else the error naming it.
+fn in_layout(file: Arc<DatFile>, expected: ContainerEra) -> Result<Arc<DatFile>, DatError> {
+    if file.era() == expected {
+        Ok(file)
+    } else {
+        Err(DatError::UnexpectedContainerEra {
+            path: file.path().to_path_buf(),
+            found: file.era(),
+            expected,
+        })
     }
 }
 

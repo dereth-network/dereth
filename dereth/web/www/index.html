@@ -35,11 +35,12 @@
     <p class="sub">Asheron's Call, in this browser. Your data files are read on this machine and never uploaded.</p>
     <label for="source">Data files</label>
     <select id="source">
-      <option value="store">Pick the four client_*.dat files and keep a copy in this browser</option>
+      <option value="store">Pick the client_*.dat files and keep a copy in this browser</option>
       <option value="opfs">The copy already in this browser</option>
-      <option value="files">Pick the four files for this visit only</option>
+      <option value="files">Pick the files for this visit only</option>
     </select>
-    <input id="files" type="file" multiple accept=".dat">
+    <input id="files" type="file" multiple accept=".dat"
+           title="The four client_*.dat files; add portal.dat and cell.dat from before Throne of Destiny for the classic interface and the early worlds">
     <label for="server">Server</label>
     <input id="server" type="text" value="ws://127.0.0.1:9180/" spellcheck="false"
            title="The server's wss:// URL, its status address (https://…/status), or ws://127.0.0.1:9180/ for dereth-web-relay">

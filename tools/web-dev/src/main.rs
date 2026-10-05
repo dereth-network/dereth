@@ -7,19 +7,21 @@
 //! the web relay.
 //!
 //! **Must never** listen anywhere but loopback: it serves the player's own retail data files with
-//! `--dat-dir`, and those never leave this machine. It is a developer convenience, not a
+//! `--dat-dir` and `--classic-dat-dir`, and those never leave this machine. It is a developer convenience, not a
 //! deployment tool (the web client's `DEPLOY.md` is that).
 //!
 //! ```text
-//! dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--server <url | host:port>]
+//! dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <url | host:port>]
 //! ```
 //!
 //! - It builds `dereth-web` for `wasm32-unknown-unknown` (the `web-release` profile, or `release`
 //!   with `--dev`, which keeps function names for stack traces), runs the bindgen step into `www/pkg/`,
 //!   and serves `www/` at `http://127.0.0.1:<port>/`. `--build-only` stops after the build, for a
 //!   deployment.
-//! - With `--dat-dir`, it also serves the four retail data files from that folder at
-//!   `/dats/<name>`, with byte ranges, for the worker's development reader.
+//! - With `--dat-dir`, it also serves the retail data files from that folder at `/dats/<name>`,
+//!   with byte ranges, for the worker's development reader: the four of the later set, and
+//!   `portal.dat` and `cell.dat` from before Throne of Destiny when the folder holds them.
+//!   `--classic-dat-dir` names another folder for those two, as the desktop client's switch does.
 //! - With `--server`, it prints the page's address with the server filled in: a `ws://` or `wss://`
 //!   URL is an Empyrean's WebSocket endpoint and is used as it is; a `host:port` is a server that
 //!   speaks only UDP, for which it builds and starts `dereth-web-relay` on `127.0.0.1:9180`.
@@ -33,9 +35,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 
-/// Whether `name` is one of the retail data files the worker's development reader asks for.
+/// Whether `name` is one of the retail data files the worker's development reader asks for: one of
+/// the later set's four.
 fn is_dat_name(name: &str) -> bool {
     dereth_dat::ModernDat::ALL
+        .iter()
+        .any(|d| d.file_name() == name)
+}
+
+/// Whether `name` is one of the two files of the set from before Throne of Destiny.
+fn is_classic_dat_name(name: &str) -> bool {
+    dereth_dat::ClassicDat::ALL
         .iter()
         .any(|d| d.file_name() == name)
 }
@@ -58,12 +68,13 @@ struct Options {
     serve: bool,
     port: u16,
     dat_dir: Option<PathBuf>,
+    classic_dat_dir: Option<PathBuf>,
     server: Option<Server>,
 }
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--server <ws(s)://url | host:port>]"
+        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>]"
     );
     std::process::exit(2);
 }
@@ -75,6 +86,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         serve: true,
         port: 8080,
         dat_dir: None,
+        classic_dat_dir: None,
         server: None,
     };
     let mut it = args.iter();
@@ -86,6 +98,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             "--build-only" => o.serve = false,
             "--port" => o.port = value()?.parse().map_err(|e| format!("{a}: {e}"))?,
             "--dat-dir" => o.dat_dir = Some(PathBuf::from(value()?)),
+            "--classic-dat-dir" => o.classic_dat_dir = Some(PathBuf::from(value()?)),
             "--server" => o.server = Some(server(value()?)?),
             other => return Err(format!("unknown argument {other}")),
         }
@@ -116,6 +129,14 @@ fn workspace() -> PathBuf {
         .parent()
         .and_then(Path::parent)
         .map_or_else(|| manifest.join("../.."), Path::to_path_buf)
+}
+
+/// Where cargo puts what it builds: `CARGO_TARGET_DIR` when it is set (relative to the workspace,
+/// as cargo reads it), else the workspace's `target`.
+fn target_dir(ws: &Path) -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR")
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| ws.join("target"), |d| ws.join(d))
 }
 
 fn run(cmd: &mut Command) -> Result<(), String> {
@@ -175,9 +196,10 @@ fn build(ws: &Path, dev: bool) -> Result<(), String> {
         "--config",
         &target_rustflags(&remap_flags()),
     ]))?;
-    let wasm = ws.join(format!(
-        "target/wasm32-unknown-unknown/{profile}/dereth_web.wasm"
-    ));
+    let wasm = target_dir(ws)
+        .join("wasm32-unknown-unknown")
+        .join(profile)
+        .join("dereth_web.wasm");
     let out = ws.join("dereth").join("web").join("www").join("pkg");
     let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
     bindgen
@@ -202,10 +224,9 @@ fn start_relay(ws: &Path, server: &str) -> Result<Child, String> {
         "-p",
         "dereth-web-relay",
     ]))?;
-    let exe = ws.join(format!(
-        "target/release/dereth-web-relay{}",
-        std::env::consts::EXE_SUFFIX
-    ));
+    let exe = target_dir(ws)
+        .join("release")
+        .join(format!("dereth-web-relay{}", std::env::consts::EXE_SUFFIX));
     Command::new(&exe)
         .args(["--server", server, "--listen", RELAY_LISTEN])
         .spawn()
@@ -253,14 +274,28 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
+/// The folders the data files are served from: the later set's, and the older set's when it is
+/// another.
+#[derive(Debug, Clone, Default)]
+struct DatDirs {
+    later: Option<PathBuf>,
+    classic: Option<PathBuf>,
+}
+
 /// What a request path names: a file under `www/`, or one of the data files. `None` for anything
 /// else, and for a data file when no folder was given.
-fn resolve(www: &Path, dat_dir: Option<&Path>, path: &str) -> Option<PathBuf> {
+fn resolve(www: &Path, dats: &DatDirs, path: &str) -> Option<PathBuf> {
     let path = path.split('?').next().unwrap_or("");
     if let Some(name) = path.strip_prefix("/dats/") {
-        return is_dat_name(name)
-            .then(|| dat_dir.map(|d| d.join(name)))
-            .flatten();
+        // A file the folder does not hold is not found, so the page reads it as absent.
+        let dir = if is_dat_name(name) {
+            dats.later.as_ref()
+        } else if is_classic_dat_name(name) {
+            dats.classic.as_ref().or(dats.later.as_ref())
+        } else {
+            None
+        };
+        return dir.map(|d| d.join(name)).filter(|p| p.is_file());
     }
     let rel = if path == "/" {
         "index.html"
@@ -312,7 +347,7 @@ fn respond(
     stream.flush()
 }
 
-fn serve_one(mut stream: TcpStream, www: &Path, dat_dir: Option<&Path>) -> std::io::Result<()> {
+fn serve_one(mut stream: TcpStream, www: &Path, dats: &DatDirs) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request = String::new();
     reader.read_line(&mut request)?;
@@ -344,7 +379,7 @@ fn serve_one(mut stream: TcpStream, www: &Path, dat_dir: Option<&Path>) -> std::
     if method != "GET" && !head_only {
         return respond(&mut stream, "405 Method Not Allowed", &[], b"");
     }
-    let Some(target) = resolve(www, dat_dir, path) else {
+    let Some(target) = resolve(www, dats, path) else {
         return respond(&mut stream, "404 Not Found", &[], b"not found\n");
     };
     if !path.starts_with("/dats/") {
@@ -386,11 +421,13 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--server <ws(s)://url | host:port>]\n\n\
+            "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>]\n\n\
              Builds the web client into dereth/web/www/pkg and serves dereth/web/www on 127.0.0.1\n\
-             (--build-only stops after the build). --dat-dir serves the four retail\n\
-             data files from that folder to the page; --server fills the page's server: a ws:// or wss://\n\
-             URL as it is, a host:port through dereth-web-relay on {RELAY_LISTEN}."
+             (--build-only stops after the build). --dat-dir serves the retail data files from\n\
+             that folder to the page (the four client_*.dat files, and portal.dat and cell.dat from\n\
+             before Throne of Destiny when it holds them; --classic-dat-dir names another folder for\n\
+             those two); --server fills the page's server: a ws:// or wss:// URL as it is, a\n\
+             host:port through dereth-web-relay on {RELAY_LISTEN}."
         );
         return;
     }
@@ -417,12 +454,19 @@ fn main() {
         println!("built {}", www.join("pkg").display());
         return;
     }
-    let dat_dir = options.dat_dir.as_ref().map(|d| {
+    let canonical = |flag: &str, d: &PathBuf| {
         d.canonicalize().unwrap_or_else(|e| {
-            eprintln!("--dat-dir {}: {e}", d.display());
+            eprintln!("{flag} {}: {e}", d.display());
             std::process::exit(1);
         })
-    });
+    };
+    let dats = DatDirs {
+        later: options.dat_dir.as_ref().map(|d| canonical("--dat-dir", d)),
+        classic: options
+            .classic_dat_dir
+            .as_ref()
+            .map(|d| canonical("--classic-dat-dir", d)),
+    };
 
     let relay: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
     let url = match &options.server {
@@ -464,19 +508,23 @@ fn main() {
     let www = www.canonicalize().expect("www");
     println!(
         "serving {}{}",
-        page_url(options.port, dat_dir.is_some(), url.as_deref()),
-        options
-            .dat_dir
-            .as_ref()
-            .map_or_else(String::new, |d| format!(
-                " with the data files in {}",
-                d.display()
-            ))
+        page_url(
+            options.port,
+            dats.later.is_some() || dats.classic.is_some(),
+            url.as_deref()
+        ),
+        [
+            ("data files", options.dat_dir.as_ref()),
+            ("older data files", options.classic_dat_dir.as_ref()),
+        ]
+        .iter()
+        .filter_map(|(what, d)| d.map(|d| format!(" with the {what} in {}", d.display())))
+        .collect::<String>()
     );
     for stream in listener.incoming().flatten() {
-        let (www, dat_dir) = (www.clone(), dat_dir.clone());
+        let (www, dats) = (www.clone(), dats.clone());
         std::thread::spawn(move || {
-            let _ = serve_one(stream, &www, dat_dir.as_deref());
+            let _ = serve_one(stream, &www, &dats);
         });
     }
 }
@@ -496,9 +544,13 @@ mod tests {
             o.server,
             Some(Server::Url("wss://play.example.org/ws".to_owned()))
         );
-        let o = parse_args(&args("--server localhost:9000 --dev --port 8081")).unwrap();
+        let o = parse_args(&args(
+            "--server localhost:9000 --dev --port 8081 --classic-dat-dir old",
+        ))
+        .unwrap();
         assert_eq!(o.server, Some(Server::Udp("localhost:9000".to_owned())));
         assert!(o.dev && o.port == 8081);
+        assert_eq!(o.classic_dat_dir, Some(PathBuf::from("old")));
         assert!(parse_args(&args("--server play.example.org")).is_err());
         assert!(parse_args(&args("--listen 0.0.0.0:8080")).is_err());
     }
@@ -524,14 +576,40 @@ mod tests {
         std::fs::write(portal.in_dir(&dats), "d").unwrap();
         std::fs::write(dats.join("other.dat"), "x").unwrap();
         let www = www.canonicalize().unwrap();
-        assert!(resolve(&www, None, "/").is_some());
-        assert!(resolve(&www, None, "/index.html?x=1").is_some());
-        assert!(resolve(&www, None, "/../secret.txt").is_none());
+        let none = DatDirs::default();
+        let later = DatDirs {
+            later: Some(dats.clone()),
+            classic: None,
+        };
+        assert!(resolve(&www, &none, "/").is_some());
+        assert!(resolve(&www, &none, "/index.html?x=1").is_some());
+        assert!(resolve(&www, &none, "/../secret.txt").is_none());
         let url = format!("/dats/{}", portal.file_name());
-        assert!(resolve(&www, None, &url).is_none(), "no folder given");
-        assert!(resolve(&www, Some(&dats), &url).is_some());
-        assert!(resolve(&www, Some(&dats), "/dats/other.dat").is_none());
-        assert!(resolve(&www, Some(&dats), "/dats/../secret.txt").is_none());
+        assert!(resolve(&www, &none, &url).is_none(), "no folder given");
+        assert!(resolve(&www, &later, &url).is_some());
+        assert!(resolve(&www, &later, "/dats/other.dat").is_none());
+        assert!(resolve(&www, &later, "/dats/../secret.txt").is_none());
+        // The older set's two files: from their own folder when one is named, else beside the
+        // later ones, and only when they are there.
+        let older = dereth_dat::ClassicDat::Portal;
+        let older_url = format!("/dats/{}", older.file_name());
+        assert!(
+            resolve(&www, &later, &older_url).is_none(),
+            "not beside them"
+        );
+        let classic = root.join("classic");
+        std::fs::create_dir_all(&classic).unwrap();
+        std::fs::write(older.in_dir(&classic), "o").unwrap();
+        let both = DatDirs {
+            later: Some(dats.clone()),
+            classic: Some(classic.clone()),
+        };
+        assert_eq!(
+            resolve(&www, &both, &older_url),
+            Some(older.in_dir(&classic))
+        );
+        std::fs::write(older.in_dir(&dats), "o").unwrap();
+        assert_eq!(resolve(&www, &later, &older_url), Some(older.in_dir(&dats)));
         let _ = std::fs::remove_dir_all(&root);
     }
 

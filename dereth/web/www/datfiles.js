@@ -1,12 +1,18 @@
 // The player's data files, as the module reads them: a positional read the module calls
 // synchronously, over one of three sources (the dev server's ranged reads, files the player picked,
 // or the copy in the origin's private file system). The worker that loads the module imports it.
+//
+// The four files of the later set, then the two of the set from before Throne of Destiny
+// (`portal.dat` and `cell.dat`), which the classic interface and the early worlds draw from. The
+// module's numbering is this order.
 
 const NAMES = [
   'client_portal.dat',
   'client_cell_1.dat',
   'client_local_English.dat',
   'client_highres.dat',
+  'portal.dat',
+  'cell.dat',
 ];
 
 const log = (text) => postMessage({ log: String(text) });
@@ -15,7 +21,7 @@ const log = (text) => postMessage({ log: String(text) });
 
 // A reader is `{ size, read(offset, length) -> Uint8Array }`; the read may return fewer bytes only
 // at the end of the file.
-let readers = [null, null, null, null];
+let readers = NAMES.map(() => null);
 const stats = { calls: 0, rawReads: 0, rawBytes: 0 };
 
 // Pages keep the many small reads of a directory walk or a block chain from each becoming a
@@ -162,7 +168,9 @@ globalThis.derethDatRead = (file, offset, buf) => {
   return true;
 };
 
-export async function openFiles(msg, dereth) {
+// Reach the files `msg` names. `true` when there is a world to open: the later set's portal, or the
+// older set's.
+export async function openFiles(msg) {
   const t0 = performance.now();
   if (msg.mode === 'http') {
     readers = NAMES.map((n) => {
@@ -178,15 +186,20 @@ export async function openFiles(msg, dereth) {
     if (msg.files) await opfsImport(msg.files);
     readers = (await opfsReaders()).map((r) => r && paged(counted(r)));
   }
-  const t1 = performance.now();
-  log(`dats: ${msg.mode}, ${readers.filter(Boolean).length} of 4 present`);
-  if (!readers[0]) return { open: false, ms: t1 - t0 };
-  const report = dereth.openDats();
-  const t2 = performance.now();
+  const present = NAMES.filter((_, i) => readers[i]);
+  log(`dats: ${msg.mode}, ${present.length} of ${NAMES.length} present (${present.join(', ')}); ` +
+    `${(performance.now() - t0).toFixed(0)} ms to reach them`);
+  return readers[0] !== null || readers[4] !== null;
+}
+
+// Open the files the world of `era` is drawn from (the name a server's status gives it; empty when
+// none is named) as the module's store. Throws when a file the world needs is missing.
+export function openStore(dereth, era) {
+  const t0 = performance.now();
+  const calls = stats.calls;
+  const report = dereth.openDats(era);
   log(report.trimEnd());
-  log(`opened in ${(t2 - t1).toFixed(0)} ms (+${(t1 - t0).toFixed(0)} ms to reach the files): ` +
-    `${stats.calls} reads from the module, ${stats.rawReads} from storage, ` +
-    `${(stats.rawBytes / 1048576).toFixed(1)} MiB`);
-  return { open: readers[0] !== null, ms: t2 - t0 };
+  log(`opened in ${(performance.now() - t0).toFixed(0)} ms: ${stats.calls - calls} reads from the ` +
+    `module, ${stats.rawReads} from storage in all, ${(stats.rawBytes / 1048576).toFixed(1)} MiB`);
 }
 

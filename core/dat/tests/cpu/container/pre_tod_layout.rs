@@ -673,3 +673,128 @@ fn read_iterations_answers_both_layouts_and_refuses_what_is_not_a_dat() {
     assert!(DatFile::read_iterations(&junk).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Files already open, wherever they were read from, make the stores a folder makes: an older
+/// world alone, an older world with the later interface beside it, and a later world with the
+/// older portal beside it. A file in the other layout is refused as it is from a folder.
+#[test]
+fn files_already_open_make_the_stores_a_folder_makes() {
+    use dereth_dat::write::DatWriter;
+    let dir = std::env::temp_dir().join(format!("dereth-pre-tod-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let (portal, records) = two_level(0x400, 2112);
+    let (cell, _) = two_level(0x100, 1593);
+    let shared = DataId(records[2].0);
+    let only_later = DataId(0x3900_0001);
+    let string_table = DataId(0x2300_0001);
+    {
+        let mut p = DatWriter::create(
+            &ModernDat::Portal.in_dir(&dir),
+            0x400,
+            1,
+            0,
+            0x400 + 0x400 * 32,
+        )
+        .expect("create");
+        p.save(only_later, b"later only", 1, 1, 1).expect("save");
+        p.save(shared, b"later copy", 1, 1, 1).expect("save");
+        DatWriter::create(
+            &ModernDat::Cell.in_dir(&dir),
+            0x100,
+            2,
+            1,
+            0x400 + 0x100 * 16,
+        )
+        .expect("create");
+        let mut l = DatWriter::create(
+            &ModernDat::Local.in_dir(&dir),
+            0x400,
+            3,
+            1,
+            0x400 + 0x400 * 16,
+        )
+        .expect("create");
+        l.save(string_table, b"strings", 1, 1, 1).expect("save");
+    }
+    let held = |name: &str, bytes: Vec<u8>| {
+        DatFile::from_storage(name.into(), Box::new(bytes)).expect("opens")
+    };
+    let later = |dat: ModernDat| {
+        held(
+            dat.file_name(),
+            std::fs::read(dat.in_dir(&dir)).expect("read"),
+        )
+    };
+
+    // An older world alone.
+    let older = RetailDatStore::open_classic_with(
+        held("portal.dat", portal.clone()),
+        held("cell.dat", cell.clone()),
+    )
+    .expect("opens");
+    assert_eq!(older.era(), ContainerEra::Classic);
+    assert_eq!(older.read_portal(shared).expect("reads"), records[2].1);
+    assert!(!older.has_modern_interface());
+
+    // The later interface beside it.
+    let both = older
+        .clone()
+        .with_modern_interface(
+            later(ModernDat::Portal),
+            later(ModernDat::Local),
+            Some(later(ModernDat::Cell)),
+        )
+        .expect("attaches");
+    assert!(both.has_modern_interface());
+    assert_eq!(both.read_portal(shared).expect("reads"), records[2].1);
+    assert_eq!(both.read_portal(only_later).expect("reads"), b"later only");
+    assert_eq!(both.local().read(string_table).expect("reads"), b"strings");
+    assert_eq!(both.era_of(only_later), ContainerEra::Modern);
+
+    // A later world with the older portal beside it; a cell file in the later layout is left out.
+    let world = RetailDatStore::open_with(
+        later(ModernDat::Portal),
+        later(ModernDat::Cell),
+        later(ModernDat::Local),
+        None,
+    )
+    .with_classic_files(
+        held("portal.dat", portal.clone()),
+        Some(later(ModernDat::Cell)),
+    )
+    .expect("attaches");
+    assert_eq!(world.read_portal(shared).expect("reads"), b"later copy");
+    let legacy = world.classic_files().expect("the legacy files");
+    assert_eq!(legacy.read_portal(shared).expect("reads"), records[2].1);
+    assert!(world.interior_files(ContainerEra::Classic).is_none());
+
+    // The wrong layout is refused each way.
+    let refused = |r: Result<RetailDatStore, DatError>, expected: ContainerEra| match r {
+        Err(DatError::UnexpectedContainerEra { expected: e, .. }) => assert_eq!(e, expected),
+        other => panic!("{:?}", other.map(|s| s.era())),
+    };
+    refused(
+        RetailDatStore::open_classic_with(later(ModernDat::Portal), held("cell.dat", cell)),
+        ContainerEra::Classic,
+    );
+    refused(
+        older.with_modern_interface(
+            held("portal.dat", portal.clone()),
+            later(ModernDat::Local),
+            None,
+        ),
+        ContainerEra::Modern,
+    );
+    refused(
+        RetailDatStore::open_with(
+            later(ModernDat::Portal),
+            later(ModernDat::Cell),
+            later(ModernDat::Local),
+            None,
+        )
+        .with_classic_files(later(ModernDat::Portal), None),
+        ContainerEra::Classic,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
