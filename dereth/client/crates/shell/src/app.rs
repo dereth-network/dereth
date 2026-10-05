@@ -9,6 +9,9 @@
 //! The main loop is tiny: connect once, then run one frame at a time until a frame asks to stop.
 //! [`App::run`] is that loop and [`App::frame`] is one frame of it.
 
+#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+use dereth_scene::world_scene::SceneReads;
+
 pub use dereth_client_runtime::app::*;
 
 use dereth_primitives::{AssetSource, DataId};
@@ -512,6 +515,343 @@ impl<H: Host> App<H> {
             world: self.core.world.as_mut()?,
             draw,
         })
+    }
+}
+
+#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+impl<H: Host> App<H> {
+    /// Report the static scene immediately after its load completes.
+    pub fn log_load_report(&self, scene: dereth_client_runtime::scene::SceneConfig) {
+        let descriptors = (
+            self.renderer().descriptor_usage(),
+            self.renderer().descriptor_stats(),
+        );
+        if let Some(world) = self.world_scene() {
+            let s = world.draw.stats;
+            tracing::info!(target: "dereth_client",
+                "landblock 0x{:04X}, {} blocks, {} terrain surfaces",
+                scene.landblock,
+                s.blocks_meshed,
+                s.terrain_surfaces
+            );
+            tracing::debug!(target: "dereth_client",
+                "{} scenery + {} buildings + {} statics, {} batches ({} untextured), \
+                 {} triangles, {} KiB of dynamic upload per frame",
+                s.scenery_objects,
+                s.buildings,
+                s.static_objects,
+                s.object_batches,
+                s.object_batches_untextured,
+                s.object_triangles,
+                s.upload_bytes / 1024
+            );
+            // "The sky is not black" is a claim about a number, so it is printed.
+            let (year, day, t) = world.game_time();
+            let l = world.landscape_lighting();
+            let sky = world.draw.stats.sky_stats;
+            tracing::debug!(target: "dereth_client",
+                "year {year} day {day}, time of day {t:.3}; sky {}/{} gfx ids drawable, {} live ({} pass 0, {} pass 1), {} batches, {} triangles, {} missing",
+                sky.gfx_ids_drawable,
+                sky.gfx_ids,
+                sky.live_objects,
+                sky.pass0_objects,
+                sky.pass1_objects,
+                sky.batches,
+                sky.triangles,
+                sky.missing_geometry
+            );
+            // The descriptor allocator reuses freed slots, so what is worth printing is the
+            // allocator's own view. `live` is what is held right now, `high_water` the largest
+            // `live` ever reached, and `frontier` how much fresh heap space was ever taken --
+            // `frontier` well below `high_water + free` is the reuse working.
+            let (d, ds) = descriptors;
+            tracing::debug!(target: "dereth_client",
+                "{} object/sky texture(s) + {} merged land surfaces; descriptors live {} / high water {} / frontier {} of {} (free {}, pending {}), {} reuses, {} exhaustions",
+                s.textures_uploaded,
+                s.terrain_surfaces,
+                d.live,
+                d.high_water,
+                d.frontier,
+                d.capacity,
+                d.free,
+                d.pending,
+                ds.reuses,
+                ds.exhaustions
+            );
+            tracing::debug!(target: "dereth_client",
+                "ambient {:.3} {:?}, sunlight {:?} (|v| = dir_bright = {:.3}) {:?}",
+                l.ambient_level,
+                l.ambient_color,
+                l.sunlight,
+                l.sunlight.magnitude(),
+                l.sunlight_color
+            );
+            let (cells, inside) = world.env_cell_counts();
+            tracing::debug!(target: "dereth_client",
+                "{cells} interior cell(s) baked for drawing, {inside} batch(es) in \
+                 the viewer's own cell"
+            );
+            if let Some(c) = world.character.as_ref() {
+                tracing::debug!(target: "dereth_client",
+                    "{} interior cell(s) resident for physics ({:?})",
+                    c.land().resident_cells(),
+                    c.land().cell_stats()
+                );
+                tracing::debug!(target: "dereth_client",
+                    "character at {:?} in cell {:#010X}, {} drawable parts, \
+                     {} batches, {} triangles",
+                    c.position().frame.origin,
+                    c.position().cell.0,
+                    s.character_parts,
+                    s.character_batches,
+                    s.character_triangles
+                );
+            }
+        }
+    }
+
+    /// Report frame, UI, model, input and audio counters before capture and shutdown.
+    pub fn log_run_report(&mut self, frames: u64, cfg_connect: bool, want_ui: bool) {
+        tracing::info!(target: "dereth_client", "{frames} frame(s) drawn");
+
+        if cfg_connect {
+            // What the server actually put in the world, and what was drawn.
+            let s = self.objects().stats;
+            tracing::info!(target: "dereth_client",
+                "objects -- {} created, {} merged, {} recreated, {} removed, \
+                 {} stale instances; {} position updates ({} stale), {} movement buffers \
+                 ({} undecodable)",
+                s.creates,
+                s.merges,
+                s.recreates,
+                s.removes,
+                s.stale_instances,
+                s.position_updates,
+                s.stale_positions,
+                s.movement_updates,
+                s.movement_undecodable
+            );
+            if let Some(world) = self.world_scene() {
+                let w = world.draw.stats;
+                tracing::info!(target: "dereth_client",
+                    "{} object(s) drawn from {} setup(s), {} animated, {} batches, \
+                     {} triangles",
+                    w.server_objects,
+                    w.server_object_setups,
+                    w.server_objects_animated,
+                    w.server_object_batches,
+                    w.server_object_triangles
+                );
+            }
+        }
+
+        // The shell's report line: what it did, in the numbers the tests assert on.
+        if let Some(shell) = self.ui() {
+            let s = shell.stats;
+            tracing::info!(target: "dereth_client",
+                "UI -- {} mode switch(es) {:?}, {} create failure(s), \
+                 {} unregistered request(s), {} request(s) handled, {} unowned",
+                s.mode_switches,
+                shell.transitions(),
+                s.screen_create_failures,
+                s.unregistered_mode_requests,
+                s.requests_handled,
+                s.requests_ignored
+            );
+        }
+        // The HUD's report line: what it read out of the server and what it did with it.
+        {
+            let h = self.hud();
+            let s = h.stats;
+            tracing::info!(target: "dereth_client",
+                "HUD -- {} player description(s), {} placement row(s) decoded, \
+                 {} window visibility/ies applied, {} vital update(s) ({} unstorable), \
+                 {} chat line(s) shown ({} filtered out), {} undecodable; \
+                 {} vitals / {} toolbar / {} radar write(s), coords {:?}",
+                s.player_desc_applied,
+                s.placements_decoded,
+                s.placements_applied,
+                s.vital_updates,
+                s.vital_updates_unstorable,
+                s.chat_lines,
+                s.chat_lines_dropped,
+                s.undecodable,
+                s.vitals_written,
+                s.toolbar_written,
+                s.radar_written,
+                h.coords
+            );
+            for (id, row) in &h.placements.rows {
+                tracing::debug!(target: "dereth_client", "HUD placement window {id}: {row:?}");
+            }
+            // The housing subsystem's whole round trip in one line. If the client never sends
+            // `0x021E House_QueryHouse`, the shard never sends either answer, and every counter below
+            // stays 0 exactly like a shard with nothing to say. A live run that ends with
+            // `0 status / 0 data` means the *request* did not go out, which is a different bug from an
+            // unreceived answer.
+            tracing::info!(target: "dereth_client",
+                "house -- {} status / {} data answer(s) to the login QueryHouse, \
+                 {} rent-time ({} applied) / {} rent-payment ({} applied) update(s), \
+                 {} restriction update(s) ({} applied)",
+                s.house_status_notices,
+                s.house_data_notices,
+                s.house_rent_time_updates,
+                s.house_rent_time_applied,
+                s.house_rent_payment_updates,
+                s.house_rent_payment_applied,
+                s.house_restriction_updates,
+                s.house_restrictions_applied
+            );
+            // The slumlord window's own round trip, beside the login one, because the
+            // two are about different houses and fail in different ways. A `0 profile(s)` after using
+            // a slumlord means either the use never went out or the shard refused it; a non-zero
+            // profile count with `0 opened` would mean the receiver ran and the panel did not.
+            tracing::info!(target: "dereth_client",
+                "slumlord -- {} house profile(s) received, {} window open(s), \
+                 {} payment request(s), {} lord re-quer(ies)",
+                s.house_profile_notices,
+                self.hud().panels.slumlord.opens,
+                self.interaction().stats.house_payments_sent,
+                self.interaction().stats.house_lord_queries
+            );
+        }
+        {
+            // The world's overlay over the locked data files: where it is, and how many reads its
+            // own records and its deletions answered since the files were last opened.
+            let s = &self.core.store;
+            let files = [
+                ("portal", Some(s.portal())),
+                ("cell", Some(s.cell())),
+                ("local", Some(s.local())),
+                ("highres", s.highres()),
+            ];
+            let read: Vec<String> = files
+                .iter()
+                .filter_map(|(name, f)| {
+                    let l = (*f)?.layer()?;
+                    let (served, hidden) = l.reads();
+                    Some(format!(
+                        "{name} {} record(s), {} deletion(s), {served} read(s) answered, {hidden} hidden",
+                        l.records().count(),
+                        l.tombstones().len()
+                    ))
+                })
+                .collect();
+            tracing::info!(target: "dereth_client",
+                "overlay -- {}{}",
+                s.overlay_dir()
+                    .map_or_else(|| "none".to_owned(), |d| d.path().display().to_string()),
+                if read.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", read.join("; "))
+                }
+            );
+        }
+        {
+            // The era the client plays and the systems it takes the world to lack (the server's
+            // announcement over the era's table), and what the screens last took away for them.
+            let h = self.hud();
+            let lacks = |f: dereth_primitives::EraFeatures| {
+                f.iter()
+                    .filter(|(_, on)| !on)
+                    .map(|(name, _)| name)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            tracing::info!(target: "dereth_client",
+                "era -- {} ({}), {} system(s) announced; the world lacks [{}]; the screens hide [{}]",
+                h.era.era,
+                if h.era.era_announced {
+                    "announced"
+                } else {
+                    "from the data files"
+                },
+                h.era.announced_features.iter().count(),
+                lacks(h.era.features()),
+                h.panels
+                    .era
+                    .applied()
+                    .map_or_else(|| "nothing yet".to_owned(), lacks)
+            );
+        }
+        if want_ui {
+            let t = self.renderer_mut().ui_stats;
+            tracing::info!(target: "dereth_client",
+                "UI draw -- {} quad(s), {} image(s) uploaded, {} decode failure(s), \
+                 {} skipped, {} clipped away",
+                t.quads_drawn,
+                t.uploaded,
+                t.decode_failures,
+                t.skipped_draws,
+                t.clipped_away
+            );
+            // Every UI image is one SRV slot, and a screen gives its slots back when `use_new_mode` destroys it: `freed` is what the screens released
+            // and `unknown` is a double release, which must be zero. The gameplay screen alone is 114
+            // images, so this is the number that says whether the heap is bounded or merely large.
+            let d = self.renderer().descriptor_usage();
+            let ds = self.renderer().descriptor_stats();
+            let r = self.ui_release_report();
+            tracing::info!(target: "dereth_client",
+                "UI textures hold {} descriptor slot(s); heap live {} / high water {} / frontier {} of {} (free {}), {} reuse(s), {} exhaustion(s); screens released {} (still linked {}, unknown {})",
+                self.renderer().ui_texture_count(),
+                d.live,
+                d.high_water,
+                d.frontier,
+                d.capacity,
+                d.free,
+                ds.reuses,
+                ds.exhaustions,
+                r.freed,
+                r.still_linked,
+                r.unknown
+            );
+        }
+        {
+            let (offered, handled, no_scan, actions) =
+                self.input_manager_mut().map_or((0, 0, 0, 0), |i| {
+                    (
+                        i.stats.messages_offered,
+                        i.stats.messages_handled,
+                        i.stats.keyboard_without_scan_code,
+                        i.stats.actions_fired,
+                    )
+                });
+            tracing::info!(target: "dereth_client",
+                "input -- {offered} message(s) offered, {handled} handled, \
+                 {no_scan} without a scan code, {actions} action(s)"
+            );
+        }
+        if let Some(audio) = self.audio_mut() {
+            tracing::info!(target: "dereth_client",
+                "audio -- device {}, {} wave(s) created, {} decode failure(s), \
+                 {} sound(s) started, {} voice(s) still playing, {} under-run(s), \
+                 {} block(s) submitted, {} movie track(s), peak {:.4}",
+                if audio.has_device() { "up" } else { "silent" },
+                audio.stats.waves_created,
+                audio.stats.wave_decode_failures,
+                audio.stats.sounds_started,
+                audio.active_voices(),
+                audio
+                    .stats
+                    .underruns
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                audio
+                    .stats
+                    .blocks_filled
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                audio.stats.movie_tracks_started,
+                audio.peak_output()
+            );
+            let w = audio.world_stats();
+            tracing::info!(target: "dereth_client",
+                "world audio -- {} hook sound(s), {} unplayable; {} server sound(s), {} unplayable",
+                w.triggers,
+                w.trigger_misses,
+                w.server_sounds,
+                w.server_sound_misses
+            );
+        }
     }
 }
 

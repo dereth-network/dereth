@@ -41,7 +41,7 @@ dereth-client-sdk = { workspace = true, features = ["test-support"] }
 pollster.workspace = true
 
 [features]
-# Tier switch only: the few lib tests that read the retail data run with it and are ignored
+# Tier switch only: the native device integration test runs with it and is ignored
 # without it.
 retail-dats = []
 
@@ -58,3 +58,7 @@ web-sys = { workspace = true, features = ["OffscreenCanvas"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "play"
+path = "tests/play.rs"
