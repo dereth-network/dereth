@@ -19,8 +19,9 @@
 //! a double click on a laid component takes it out, Test sends the formula as
 //! [`UiRequest::TestSpellFormula`] and Clear empties it. A confirmed successful test clears its
 //! matching formula. Test and Clear wait for a component.
-//! What the test teaches reaches the spellbook as any learned spell does; the page is told
-//! nothing.
+//! What the test teaches reaches the spellbook as any learned spell does, and a spell learned
+//! while the page is open brings the Spells tab up on it, as the research-era client showed its
+//! spellbook page on every spell learned.
 //!
 //! A world without spell research has no Create Spell tab (a window left open on it moves to
 //! the Spells tab), and the other two tabs take back the whole strip.
@@ -119,6 +120,9 @@ pub struct ResearchPanel {
     /// The formula being laid.
     pub formula: Formula,
     success_seen: u64,
+    /// The spell-learned receipt last seen; `None` until the first update, so a spell learned
+    /// before the window was bound moves no tab.
+    learned_seen: Option<u64>,
     /// The magic window: the tabbed panel the tab is registered with.
     window: Option<ElemHandle>,
     /// The three tabs, in strip order; the last is Create Spell.
@@ -540,6 +544,15 @@ impl ResearchPanel {
         }
         let has = view.era_features().spell_research;
         let mut wrote = false;
+        let learned = view.last_learned_spell().map_or(0, |(serial, _)| serial);
+        if self.learned_seen.is_some_and(|seen| seen != learned)
+            && window_panel(ui, window).and_then(|p| p.open_tab) == Some(TAB)
+        {
+            // The spellbook selects the spell itself; this brings its tab up.
+            ui.broadcast_element_message(self.tabs[0], msgid::MOUSE_CLICK, 0, 0);
+            wrote = true;
+        }
+        self.learned_seen = Some(learned);
         if self.shown != Some(has) {
             self.shown = Some(has);
             self.show_tab(ui, window, has);

@@ -21,11 +21,15 @@ struct World {
     era: EraView,
     components: Vec<ComponentRow>,
     success: Option<dereth_client_contract::research::ResearchSuccess>,
+    learned: Option<(u64, u32)>,
 }
 
 impl GameView for World {
     fn research_success(&self) -> Option<dereth_client_contract::research::ResearchSuccess> {
         self.success.clone()
+    }
+    fn last_learned_spell(&self) -> Option<(u64, u32)> {
+        self.learned
     }
     fn era(&self) -> Option<&EraView> {
         Some(&self.era)
@@ -71,6 +75,7 @@ fn world(research: bool) -> World {
         era,
         components,
         success: None,
+        learned: None,
     }
 }
 
@@ -519,4 +524,31 @@ fn successful_test_clears_only_its_matching_formula_and_redraws_the_buttons() {
         "receipt is consumed only once"
     );
     assert!(!disabled(&ui, test));
+}
+
+/// Behaviour: presentation.era.a-spell-learned-on-the-create-spell-page-brings-up-the-spells-tab
+#[test]
+fn a_spell_learned_while_the_create_spell_page_is_open_brings_up_the_spells_tab() {
+    let (mut ui, mut screen) = screen();
+    let (window, mut page) = magic_window(&mut ui, &screen);
+    let mut view = world(true);
+    // A spell learned before the page was bound moves nothing.
+    view.learned = Some((4, 1));
+    page.update(&mut ui, &view);
+    open_page(&mut ui, &mut screen, &mut page, &view);
+    page.update(&mut ui, &view);
+    assert_eq!(open_tab(&ui, window), Some(research::TAB));
+    view.learned = Some((5, 157));
+    page.update(&mut ui, &view);
+    pump(&mut ui, &mut screen, &mut page, &view);
+    assert_eq!(
+        open_tab(&ui, window),
+        Some(research::SHIPPED_TABS[0]),
+        "the Spells tab is up"
+    );
+    // On the Spells tab another spell learned leaves the window as it is.
+    view.learned = Some((6, 158));
+    page.update(&mut ui, &view);
+    pump(&mut ui, &mut screen, &mut page, &view);
+    assert_eq!(open_tab(&ui, window), Some(research::SHIPPED_TABS[0]));
 }
