@@ -1638,6 +1638,9 @@ impl Toolbar {
     }
 
     fn drive(&mut self) {
+        // The frame seeds the shared stack quantity from the selection before any interface
+        // draws, as the client's own frame does.
+        self.objects.world.refresh_stack_split();
         let serial = self.serial;
         let screen = self.shell.flow.current_mut().expect("the game screen");
         let any: &mut dyn std::any::Any = &mut **screen;
