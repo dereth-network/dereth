@@ -16,26 +16,34 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ### Added
 
-- Worlds built on the February 2005 data files (Infiltration) play: the client logs in, draws
-  their palette-shifted ground, objects, clothing and portal tunnel, casts and logs out as on an
-  end-of-retail world. Data files from 1999 to 2017 are read.
-- The screens follow the world's era and the systems it announces: what it lacks (Contracts,
-  Titles, the journal, luminance, cloak and trinket slots, House) is left out, and the tabs and
-  panel buttons left close up without a gap. The launcher shows the world's era.
-- Terrain Mode (Palette Shift, Legacy Blend, Modern Blend) and Sky Mode (Legacy Software, Legacy
-  Hardware, Modern) draw any world's ground and sky in another era's style, given the older data
-  files.
-- Object Mode draws the world's objects, buildings, rooms and bodies, the paper doll included, in
-  another era's look, switched live.
-- Landscape Detail Textures lays the fine ground texture over nearby land, as the clients of 2005
-  to 2012 did. Off at first.
-- The classic interface, the game's interface from before its 2005 redesign, is a choice on the
+- **Every era of the game's data, 1999 to 2017, is read**, and worlds built on the February 2005
+  data files (Infiltration) play: the client logs in, draws their palette-shifted ground, objects,
+  clothing and portal tunnel, casts and logs out as on an end-of-retail world.
+- **The classic interface**, the game's interface from before its 2005 redesign, is a choice on the
   options page (Interface), switched live at the character screen or in the world. It needs the
   early-2005 data files. On later worlds it shows their systems in its own style: titles,
-  contracts, the journal, Friends and Squelch pages, the cloak, trinket and aetheria slots, and the
-  eighth-level and Void spells.
+  contracts, the journal, Friends and Squelch pages, the eighth-level and Void spells, and the
+  cloak, trinket and aetheria slots, which open from an Accessories button beside the shield.
+- **The web client plays in the classic interface too**, with the early-2005 files picked beside
+  the later ones.
+- The screens follow the world's era and the systems it announces: what it lacks (Contracts,
+  Titles, the journal, luminance, cloak and trinket slots, House) is left out, and the tabs and
+  panel buttons left close up without a gap. On a February 2005 world, character creation uses
+  that world's own texts and shows a dot on the map for each starting town.
+- The launcher lists the community's worlds, with each world's era and emulator, and keeps a
+  Modern and a Classic data set, each with its own default.
+- A world can keep its own changes to the data files: the client keeps them in a separate overlay
+  for that world and never alters the installed files. One data folder (`--dat-dir`) holds both the
+  later and the early-2005 sets; `--classic-dat-dir` names another folder for the early set.
+- Terrain Mode (Palette Shift, Legacy Blend, Modern Blend) and Sky Mode (Legacy Software, Legacy
+  Hardware, Modern) draw any world's ground and sky in another era's style, given the older data
+  files. Object Mode draws the world's objects, buildings, rooms and bodies, the paper doll
+  included, in another era's look, switched live.
+- Landscape Detail Textures lays the fine ground texture over nearby land, as the clients of 2005
+  to 2012 did. Off at first.
 - Spell research, on a world that has it: the magic window's Create Spell tab, in both interfaces,
-  takes up to eight carried components, by double-click or drag, and Test casts the formula.
+  takes up to eight carried components, by double-click or drag, and Test casts the formula. A
+  spell learned there brings up the spellbook.
 - The character screen shows the world's message in both interfaces: in the modern interface, an
   Announcements window beside Create Character, scrolled with the wheel.
 - A performance panel over either interface shows the frame rate, frame times and where each
@@ -58,6 +66,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
   interface acts on and offers both interfaces' defaults, and a cleared key stays cleared at the
   next start. The classic defaults are the game's 2004 key map, and classic keys held with Shift,
   Ctrl or Alt work.
+- Multiple Pass Alpha softens the edges of cut-out textures such as leaves, and particles and
+  translucent objects are drawn in their true order by distance.
+- Detail levels are measured from the eye the frame is drawn from, and Degrade Distance applies on
+  every world.
 - The modern interface's 3D view fills any screen, however wide.
 - The chat font's face and size are chosen on the modern interface's Chat Options page.
 - Use Mouse Turning Settings sets the mouse-turning preset; it no longer restores the defaults or
@@ -67,6 +79,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
   first or last word keeps the line's quote.
 - A crash log is kept only for a run that goes wrong, without the login, and only the newest 20
   are kept. `DERETH_SETTINGS_DIR` names the settings folder outright.
+- `--world-dat-dir`, `--legacy-dat-dir` and the `LegacyDatDir` setting are gone: one `--dat-dir`
+  holds every set.
 
 ### Fixed
 
@@ -75,6 +89,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Components carried at log-in are listed in the Components tab whatever order they arrive in.
 - Component icons, in the magic window and a spell's examination, have black outlines instead of
   white, and an examined spell shows its icon composed as the spellbook does.
+- Scenery and buildings draw each part at its own scale.
+- Logging off releases the world, its objects and its sounds, so the next login starts clean.
 - With mouse turning on, the body stops turning when the mouse stops under mouse look, and when
   the mouse-look button is let go.
 - Switching back to the modern interface brings it up on the screen the game is at, with the paper
@@ -84,7 +100,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
   fraction of the time it took; the copy key copies the chat log's selection; a drag in the 3D
   view picks up only what is under the pointer; a salvaging tool opens the salvage window;
   inverted mouse look reverses every step; holding the run key walks; tells read "Name tells
-  you"; the wheel scrolls the window under the pointer.
+  you"; the wheel scrolls every list and the window under the pointer; the startup screen's text
+  is centred.
 - On a February 2005 world, objects without a detail record of their own (Holtburg's cottage
   stairs, doors, beams) draw their own models, and the portal tunnel is no longer black; drawn in
   the later look, a room's furniture keeps its detail up close.
