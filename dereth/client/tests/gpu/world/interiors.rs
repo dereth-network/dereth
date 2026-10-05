@@ -469,7 +469,6 @@ fn a_body_inside_a_holtburg_building_is_stopped_by_its_walls() {
         let mut in_solid = 0usize;
         let mut deepest = 0.0f32;
         let mut clear = 0usize;
-        let mut clear_confined = 0usize;
         let mut clear_not_out = 0usize;
         let mut blocked = 0usize;
         let mut open = 0usize;
@@ -598,9 +597,6 @@ fn a_body_inside_a_holtburg_building_is_stopped_by_its_walls() {
                         "CLEAREXIT skew={skew_deg} room={:08X} q={quarter} exit_at={exit_at:.3} moved={moved:.3} left={} end={:08X} end_outdoors={out}",
                         room.0, t.left_building, cell.0
                     );
-                        if conf {
-                            clear_confined += 1;
-                        }
                     }
                     Fate::Blocked(..) => blocked += 1,
                     Fate::Open => open += 1,
@@ -650,7 +646,6 @@ clear_ahead_at_all={ahead_full_any}/{trials}",
             confined,
             in_solid,
             clear,
-            clear_confined,
             clear_not_out,
             clear_held_named,
             never_out,
@@ -1331,8 +1326,6 @@ struct Pass {
     confined: usize,
     in_solid: usize,
     clear: usize,
-    #[allow(dead_code)] // printed by the summary line; kept so the old metric stays visible
-    clear_confined: usize,
     clear_not_out: usize,
     /// Which clear-exit headings never got out.
     clear_held_named: Vec<String>,

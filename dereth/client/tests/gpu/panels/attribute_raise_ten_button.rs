@@ -466,29 +466,6 @@ struct Station {
     sent: Vec<SentAction>,
 }
 
-/// What the live tree says about one footer button, for the transcript.
-fn dump_button(app: &mut App, label: &str, h: ElemHandle) {
-    let (ui, _) = gameplay_screen(app);
-    let n = ui.node(h).expect("alive");
-    eprintln!(
-        "footer {label}: id={:#x} state={} inst0x0D={:?} merged0x0D={:?} has_state1={} has_state13={} \
-         visible={} mouse_visible={} box={:?}",
-        n.element_id().0,
-        n.state.0,
-        n.instance_properties.get_bool(statmgmt::ATTR_DISABLED),
-        n.merged_properties().get_bool(statmgmt::ATTR_DISABLED),
-        n.desc.access_state(dereth_ui::StateId(1)).is_some(),
-        n.desc.access_state(dereth_ui::StateId(0x0D)).is_some(),
-        n.region.flags.visible,
-        n.is_mouse_visible,
-        ui.screen_box(h),
-    );
-    eprintln!(
-        "footer {label}: behaviour_in_slot={}",
-        n.behaviour.is_some()
-    );
-}
-
 fn run_station(app: &mut App, panel: ElementId, row: ElemHandle, xp: i64) -> Station {
     set_available_xp(app, xp);
     assert_eq!(
@@ -498,9 +475,6 @@ fn run_station(app: &mut App, panel: ElementId, row: ElemHandle, xp: i64) -> Sta
     );
     press_row(app, row);
     let button = footer_child(app, panel, statmgmt::child::BUTTON_10);
-    let one = footer_child(app, panel, statmgmt::child::BUTTON);
-    dump_button(app, "+1 ", one);
-    dump_button(app, "+10", button);
     let disabled_attr = disabled_attr(app, button);
     let state = node_state(app, button);
     let _ = wire_actions(app);
@@ -602,7 +576,6 @@ fn the_strength_plus_ten_lights_with_enough_experience_and_a_real_press_sends_th
     let row = attribute_row(&app, 1, false);
     press_row(&mut app, row);
     let fc = app.hud().panels.attributes.footer_content.clone();
-    eprintln!("+10 footer: {fc:?}");
     assert_eq!(
         fc.title, "Strength: 145 (+15)",
         "the title matches the screenshot"
@@ -616,9 +589,6 @@ fn the_strength_plus_ten_lights_with_enough_experience_and_a_real_press_sends_th
         "the unassigned experience matches the screenshot"
     );
     let button = footer_child(&mut app, attributes::PANEL, statmgmt::child::BUTTON_10);
-    let one = footer_child(&mut app, attributes::PANEL, statmgmt::child::BUTTON);
-    dump_button(&mut app, "+1 ", one);
-    dump_button(&mut app, "+10", button);
     assert_eq!(
         disabled_attr(&mut app, button),
         Some(false),
@@ -714,21 +684,14 @@ fn the_plus_ten_in_state_1_draws_differently_from_state_0xd() {
             .filter(|c| c[0] > 16 || c[1] > 16 || c[2] > 16)
             .count()
     };
-    eprintln!(
-        "+10 shots: +10 box {bx:?} pixels={} changed_between_states={} nonblack_state1={} nonblack_state0xd={}; +1 box {b1x:?} nonblack={}",
-        pa.len(), changed, nonblack(&pa), nonblack(&pb), nonblack(&p1)
-    );
-    // Print a few sample colours from the centre row of each.
-    let mid = |p: &[[u8; 4]]| {
-        let n = (bx.x1 - bx.x0) as usize;
-        let r = (bx.y1 - bx.y0) as usize / 2;
-        p[r * n..r * n + n].to_vec()
-    };
-    eprintln!("+10 state1  centre row: {:?}", mid(&pa));
-    eprintln!("+10 state0xd centre row: {:?}", mid(&pb));
     assert!(
         changed > 0,
-        "state 1 and state 0xD of the +10 button draw identical pixels"
+        "state 1 and state 0xD of the +10 button draw identical pixels: +10 box {bx:?}, {} \
+         pixels, {} and {} non-black; +1 box {b1x:?}, {} non-black",
+        pa.len(),
+        nonblack(&pa),
+        nonblack(&pb),
+        nonblack(&p1)
     );
 }
 
