@@ -92,8 +92,7 @@ impl SceneDraw {
                         self.build_part_meshes(store, gpu, &array, false)?
                     };
                     let m = Arc::new(built);
-                    self.host_meshes
-                        .insert((setup, from_look), Arc::clone(&m));
+                    self.host_meshes.insert((setup, from_look), Arc::clone(&m));
                     m
                 }
             };
@@ -104,9 +103,7 @@ impl SceneDraw {
                 h.part_levels = vec![0; n];
                 // The placed parts in the renderer's space, until the first level refresh.
                 h.part_draw_pos = (0..n)
-                    .map(|k| {
-                        h.driver.part_array.parts.get(k).map_or(h.frame, |p| p.pos)
-                    })
+                    .map(|k| h.driver.part_array.parts.get(k).map_or(h.frame, |p| p.pos))
                     .map(|f| Frame::new(f.origin.add(shift), f.rotation))
                     .collect();
                 h.part_cypt = vec![0.0; n];

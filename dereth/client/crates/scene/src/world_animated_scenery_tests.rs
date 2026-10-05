@@ -83,7 +83,10 @@ fn the_butterfly_west_of_shoushi_is_a_live_object_whose_wings_move_from_frame_to
             .enumerate()
             .find(|(_, p)| p.setup == BUTTERFLY && p.cell == BUTTERFLY_CELL)
             .unwrap_or_else(|| panic!("{name}: the butterfly in land cell 0xD655001B is not live"));
-        assert!(p.animated, "{name}: the butterfly's setup names a default animation");
+        assert!(
+            p.animated,
+            "{name}: the butterfly's setup names a default animation"
+        );
         assert!(
             !items.iter().any(|it| it.0 == BUTTERFLY),
             "{name}: the butterfly is baked as well as live"
@@ -91,16 +94,23 @@ fn the_butterfly_west_of_shoushi_is_a_live_object_whose_wings_move_from_frame_to
 
         let assets: Arc<dyn dereth_animation::data::AnimAssets> =
             Arc::new(DatAnimAssets::new(Arc::clone(&store)));
-        let mut host = EmitterHost::spawn(&assets, p, slot, (0xD6 as f32 * 192.0, 0x55 as f32 * 192.0))
-            .unwrap_or_else(|| panic!("{name}: the butterfly's setup loads"));
+        let mut host =
+            EmitterHost::spawn(&assets, p, slot, (0xD6 as f32 * 192.0, 0x55 as f32 * 192.0))
+                .unwrap_or_else(|| panic!("{name}: the butterfly's setup loads"));
         assert_eq!(pose(&host).len(), 2, "{name}: two wings");
 
         // The first tick starts the clock; nothing has had time to move.
-        assert!(!host.animate(0.0), "{name}: the first tick advances nothing");
+        assert!(
+            !host.animate(0.0),
+            "{name}: the first tick advances nothing"
+        );
         let start = pose(&host);
         // Half a second later the wings are elsewhere: at 30 frames a second that is fifteen
         // frames into the flight, which bobs the butterfly tens of centimetres.
-        assert!(host.animate(0.5), "{name}: half a second advances the animation");
+        assert!(
+            host.animate(0.5),
+            "{name}: half a second advances the animation"
+        );
         let half = pose(&host);
         assert!(
             moved(&start, &half) > 0.05,
@@ -113,7 +123,10 @@ fn the_butterfly_west_of_shoushi_is_a_live_object_whose_wings_move_from_frame_to
         let mut still = 0;
         for _ in 0..250 {
             t += 0.04;
-            assert!(host.animate(t), "{name}: a 25th of a second advances it at {t}");
+            assert!(
+                host.animate(t),
+                "{name}: a 25th of a second advances it at {t}"
+            );
             let now = pose(&host);
             if moved(&last, &now) < 1e-5 {
                 still += 1;
@@ -128,12 +141,27 @@ fn the_butterfly_west_of_shoushi_is_a_live_object_whose_wings_move_from_frame_to
         // A frame shorter than the physics quantum is carried into the next one, and a gap over
         // two seconds restarts the clock without moving anything.
         let before = pose(&host);
-        assert!(!host.animate(t + 0.01), "{name}: a hundredth of a second is carried");
-        assert!(moved(&before, &pose(&host)) < 1e-6, "{name}: and moves nothing");
-        assert!(host.animate(t + 0.04), "{name}: the carried time is spent on the next frame");
+        assert!(
+            !host.animate(t + 0.01),
+            "{name}: a hundredth of a second is carried"
+        );
+        assert!(
+            moved(&before, &pose(&host)) < 1e-6,
+            "{name}: and moves nothing"
+        );
+        assert!(
+            host.animate(t + 0.04),
+            "{name}: the carried time is spent on the next frame"
+        );
         let before = pose(&host);
-        assert!(!host.animate(t + 3.0), "{name}: a three-second gap advances nothing");
-        assert!(moved(&before, &pose(&host)) < 1e-6, "{name}: and moves nothing");
+        assert!(
+            !host.animate(t + 3.0),
+            "{name}: a three-second gap advances nothing"
+        );
+        assert!(
+            moved(&before, &pose(&host)) < 1e-6,
+            "{name}: and moves nothing"
+        );
     }
 }
 
