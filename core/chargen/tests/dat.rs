@@ -415,3 +415,83 @@ fn color_choices_sample_the_decoded_palette_layout() {
         assert_eq!(shades.len(), set.palette_ids.len());
     }
 }
+
+/// Behaviour: chargen.random.classic-random-picks-only-aluvian-gharundim-or-sho
+#[test]
+fn classic_random_heritage_on_the_final_world_is_aluvian_gharundim_or_sho() {
+    let t = tables(false);
+    assert!(
+        t.heritage_keys().len() > 3,
+        "the final world carries more heritages than the three"
+    );
+    let classic = dereth_chargen::CLASSIC_RANDOM_HERITAGES;
+    let mut seen = std::collections::BTreeSet::new();
+    for seed in 1..=60u32 {
+        for entry in [CreationEntry::Normal, CreationEntry::Quick] {
+            let mut state = CharGenState::with_policy(CreationPolicy::Classic);
+            state.rng = CharGenRng::new(i32::try_from(seed).unwrap(), seed);
+            state.begin_creation(&t, entry, true);
+            assert!(
+                classic.contains(&state.heritage_group),
+                "seed {seed} {entry:?} opened on heritage {}",
+                state.heritage_group
+            );
+            seen.insert(state.heritage_group);
+            for _ in 0..4 {
+                state.randomize_page(&t, CreationRandom::Heritage, true);
+                assert!(
+                    classic.contains(&state.heritage_group),
+                    "seed {seed} Random gave heritage {}",
+                    state.heritage_group
+                );
+                seen.insert(state.heritage_group);
+            }
+            // An explicit pick of another heritage stays possible, and Random leaves it again.
+            assert!(state.choose_heritage(&t, dereth_chargen::HERITAGE_GEAR_KNIGHT));
+            state.randomize_page(&t, CreationRandom::Heritage, true);
+            assert!(classic.contains(&state.heritage_group));
+        }
+    }
+    assert_eq!(
+        seen.into_iter().collect::<Vec<_>>(),
+        classic,
+        "all three are reached"
+    );
+}
+
+/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+#[test]
+fn modern_random_heritage_never_rolls_a_heritage_the_world_lacks() {
+    let t = tables(true);
+    assert_eq!(
+        t.heritage_keys(),
+        [1, 2, 3],
+        "the earlier world has no Viamontian"
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    for seed in 1..=60 {
+        let mut state = CharGenState::with_policy(CreationPolicy::Modern);
+        state.rng = CharGenRng::new(seed, 1);
+        state.begin_creation(&t, CreationEntry::Normal, true);
+        assert!(
+            t.chargen
+                .heritage_groups
+                .contains_key(&state.heritage_group),
+            "seed {seed} opened on heritage {}",
+            state.heritage_group
+        );
+        seen.insert(state.heritage_group);
+        for _ in 0..4 {
+            state.randomize_page(&t, CreationRandom::Heritage, true);
+            assert!(
+                t.chargen
+                    .heritage_groups
+                    .contains_key(&state.heritage_group),
+                "seed {seed} Random gave heritage {}",
+                state.heritage_group
+            );
+            seen.insert(state.heritage_group);
+        }
+    }
+    assert_eq!(seen.into_iter().collect::<Vec<_>>(), [1, 2, 3]);
+}

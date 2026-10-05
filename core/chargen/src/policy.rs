@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// The heritages the classic creation screens' Random chooses among: Aluvian, Gharu'ndim, Sho.
+pub const CLASSIC_RANDOM_HERITAGES: [u32; 3] = [1, 2, 3];
+
 /// Decoded creation rules and the clothing tables those rules reference.
 #[derive(Debug)]
 pub struct CreationTables {
@@ -271,8 +274,20 @@ impl CharGenState {
         self.set_gender(&tables.chargen, key);
     }
 
+    /// The classic Random draws among Aluvian, Gharu'ndim and Sho, in the world's order, whatever
+    /// else the world defines; a world with none of the three draws among all of its heritages.
     fn classic_random_heritage(&mut self, tables: &CreationTables) {
-        let keys = tables.heritage_keys();
+        let classic: Vec<u32> = tables
+            .heritage_keys()
+            .iter()
+            .copied()
+            .filter(|k| CLASSIC_RANDOM_HERITAGES.contains(k))
+            .collect();
+        let keys = if classic.is_empty() {
+            tables.heritage_keys()
+        } else {
+            classic.as_slice()
+        };
         if keys.is_empty() {
             return;
         }

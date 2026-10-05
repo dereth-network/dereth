@@ -36,7 +36,9 @@ use dereth_primitives::DataId;
 
 pub mod palette;
 mod policy;
-pub use policy::{CreationEntry, CreationPolicy, CreationRandom, CreationTables};
+pub use policy::{
+    CreationEntry, CreationPolicy, CreationRandom, CreationTables, CLASSIC_RANDOM_HERITAGES,
+};
 pub mod texts;
 pub use texts::CreationTexts;
 
@@ -551,9 +553,8 @@ impl CharGenState {
     /// opens on Aluvian.
     pub fn randomize_character(&mut self, cg: &CharGen, skills: &SkillTable, tod: bool) {
         self.reset(cg, skills);
-        let hi = if tod { 4 } else { 3 };
-        let heritage = self.rng.roll_dice(1, hi);
-        self.set_heritage_group(cg, skills, u32::try_from(heritage).unwrap_or(1));
+        let heritage = self.roll_heritage(cg, tod);
+        self.set_heritage_group(cg, skills, heritage);
         let gender = self.rng.roll_dice(1, 2);
         self.set_gender(cg, u32::try_from(gender).unwrap_or(1));
         self.randomize_appearance(cg, false);
@@ -572,9 +573,31 @@ impl CharGenState {
     /// nothing else: **the `ran2` stream**. Because the heritage write re-rolls the start area from
     /// the CRT stream, one click here moves both generators.
     pub fn randomize_heritage_group(&mut self, cg: &CharGen, skills: &SkillTable, tod: bool) {
-        let hi = if tod { 4 } else { 3 };
-        let heritage = self.rng.roll_dice(1, hi);
-        self.set_heritage_group(cg, skills, u32::try_from(heritage).unwrap_or(1));
+        let heritage = self.roll_heritage(cg, tod);
+        self.set_heritage_group(cg, skills, heritage);
+    }
+
+    /// The heritage roll both random heritage arms share: one `ran2` die over Aluvian, Gharu'ndim
+    /// and Sho, plus Viamontian with Throne of Destiny.
+    ///
+    /// The die covers only the ones the connected world defines, so a world without Viamontian
+    /// never rolls it whatever the account holds. With every candidate present, as on the final
+    /// world, the roll and its result are the client's own; with none, the whole range is rolled.
+    fn roll_heritage(&mut self, cg: &CharGen, tod: bool) -> u32 {
+        let hi: u32 = if tod { 4 } else { 3 };
+        let keys: Vec<u32> = (1..=hi)
+            .filter(|k| cg.heritage_groups.contains_key(k))
+            .collect();
+        if keys.is_empty() {
+            let roll = self.rng.roll_dice(1, i32::try_from(hi).unwrap_or(3));
+            return u32::try_from(roll).unwrap_or(1);
+        }
+        let roll = self.rng.roll_dice(1, len_i32(keys.len()));
+        usize::try_from(roll - 1)
+            .ok()
+            .and_then(|i| keys.get(i))
+            .copied()
+            .unwrap_or(keys[0])
     }
 
     /// The char-gen state's randomize start area -- **the CRT stream**.

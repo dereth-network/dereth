@@ -667,6 +667,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.random.classic-random-picks-only-aluvian-gharundim-or-sho",
+        says: "On any world, every random heritage the classic creation screens make -- the \
+               opening roll, quick creation and the Random button -- is Aluvian, Gharu'ndim or \
+               Sho. A world's other heritages are still there to choose by hand.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-OCT06-CLASSIC-RANDOM-HERITAGE"),
+        station: "dereth-chargen::dat::classic_random_heritage_on_the_final_world_is_aluvian_gharundim_or_sho",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.random.on-the-last-page-it-warns-first-and-only-a-yes-re-rolls-the-whole-character",
         says: "The random button on the last page throws the whole character away, so it asks \
                first and changes nothing while the question is up. Answering yes rolls a fresh \
