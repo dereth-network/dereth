@@ -122,7 +122,8 @@ pub const GATES: &[Gate] = &[
         name: "object-model",
         title: "Object model + gameplay",
         // The pure rules `dereth-client-model` re-exports live in `dereth-rules`.
-        crates: &["dereth-rules", "dereth-client-model"],
+        // Character creation's rules are tested against both eras' creation tables in the dats.
+        crates: &["dereth-rules", "dereth-client-model", "dereth-chargen"],
         harnesses: &[],
     },
     Gate {
@@ -174,12 +175,15 @@ pub const GATES: &[Gate] = &[
         // gate of their own; their dat-reading lib tests run here, under `retail-dats`. Nor have
         // the application's two halves, `dereth-scene` and `dereth-client-shell`: their modules'
         // unit tests moved out of `dereth-client` with them and run here, on the same device.
+        // `dereth-headless`'s `dat` binary replays a recorded session through a real `App` with
+        // no window and no device.
         crates: &[
             "dereth-client",
             "dereth-scene",
             "dereth-client-shell",
             "dereth-client-runtime",
             "dereth-world-data",
+            "dereth-headless",
         ],
         harnesses: &[],
     },
@@ -190,6 +194,15 @@ pub const GATES: &[Gate] = &[
         // retail dats: its `dat` binary is the end-to-end claim that the behaviour rows hold, so
         // the data tier runs it. Its `cpu` binary and lib tests need no dats.
         crates: &["dereth-testkit"],
+        harnesses: &[],
+    },
+    Gate {
+        name: "classic",
+        title: "The classic interface",
+        // The classic interface's unit tests read the retail dats and the classic portal
+        // (`DERETH_CLASSIC_PORTAL`), and so does `dereth-classic-dat`'s `dat` binary. None of
+        // them holds a device.
+        crates: &["dereth-classic-ui", "dereth-classic-dat"],
         harnesses: &[],
     },
 ];
@@ -278,7 +291,11 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         | "xtask"
         | "dereth-client-runtime"
         | "dereth-testkit"
-        | "dereth-world-data" => &["retail-dats"],
+        | "dereth-world-data"
+        | "dereth-chargen"
+        | "dereth-headless"
+        | "dereth-classic-ui"
+        | "dereth-classic-dat" => &["retail-dats"],
         _ => &[],
     }
 }
@@ -667,7 +684,7 @@ mod tests {
     /// The gate catalogue is what this unit measured.
     #[test]
     fn the_gate_catalogue_is_what_this_unit_measured() {
-        assert_eq!(GATES.len(), 16, "sixteen areas");
+        assert_eq!(GATES.len(), 17, "seventeen areas");
         let harnesses: usize = GATES.iter().map(|g| g.harnesses.len()).sum();
         assert_eq!(harnesses, 0, "every oracle is a crate's own test tier");
         let retail_harnesses: Vec<&str> = GATES
@@ -830,6 +847,72 @@ mod tests {
             }
         }
         names
+    }
+
+    /// **Every crate with a `retail-dats` tier is in a gate, which passes it the feature.** A crate
+    /// left out of both has its retail-dat tests run by no tier at all: tier 0 builds them ignored
+    /// and tier 1 never names the crate. The manifests are read, not restated.
+    #[test]
+    fn every_crate_with_a_retail_dats_tier_is_gated_with_its_features() {
+        // The browser client's one retail-dat test draws on a graphics device, which tier 1 does
+        // not have; the clipboard's feature selects no test.
+        const NOT_IN_TIER_ONE: &[&str] = &["dereth-web", "dereth-clipboard"];
+        let ws = crate::util::workspace_root();
+        let root = std::fs::read_to_string(ws.join("Cargo.toml")).unwrap();
+        let members = root
+            .split_once("members = [")
+            .and_then(|(_, rest)| rest.split_once(']'))
+            .expect("[workspace] members")
+            .0;
+        let mut tiered = Vec::new();
+        for dir in members
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with('"'))
+            .map(|l| l.trim_end_matches(',').trim_matches('"'))
+        {
+            let manifest = std::fs::read_to_string(ws.join(dir).join("Cargo.toml")).unwrap();
+            if !manifest
+                .lines()
+                .any(|l| l.trim().starts_with("retail-dats ="))
+            {
+                continue;
+            }
+            let name = manifest
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("name = "))
+                .expect("[package] name")
+                .trim_matches('"')
+                .to_owned();
+            tiered.push(name);
+        }
+        assert!(
+            tiered.iter().any(|k| k == "dereth-classic-ui"),
+            "the manifests were read: {tiered:?}"
+        );
+        for krate in tiered
+            .iter()
+            .filter(|k| !NOT_IN_TIER_ONE.contains(&k.as_str()))
+        {
+            assert!(
+                GATES.iter().any(|g| g.crates.contains(&krate.as_str())),
+                "{krate} declares a retail-dats tier and is in no gate"
+            );
+            assert!(
+                tier_features(krate).contains(&"retail-dats"),
+                "{krate} is gated without its retail-dats feature"
+            );
+        }
+        for krate in NOT_IN_TIER_ONE {
+            assert!(
+                tiered.iter().any(|k| k == krate),
+                "{krate} no longer declares retail-dats; drop it from the exceptions"
+            );
+            assert!(
+                !GATES.iter().any(|g| g.crates.contains(krate)),
+                "{krate} is gated; drop it from the exceptions"
+            );
+        }
     }
 
     /// The split names every test binary these crates declare.
