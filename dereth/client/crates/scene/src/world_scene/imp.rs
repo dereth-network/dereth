@@ -2180,7 +2180,7 @@ struct LandContext {
     ground_store: Option<RetailDatStore>,
     /// The terrain types the ground's land surface has a picture for, one bit each. A vertex
     /// of any other type is drawn as its neighbours are
-    /// ([`dereth_world_render::land::fill`]).
+    /// ([`dereth_terrain::land::fill`]).
     drawn: u32,
     tex_merge: dereth_assets::region::TexMerge,
     /// The ground's palette-shift land surface (an older dat set's software region), whose
@@ -2320,7 +2320,7 @@ struct GroundChoice {
     /// The files its pictures are read from; `None` for the world's.
     files: Option<RetailDatStore>,
     /// The terrain types it draws with a picture of its own
-    /// ([`dereth_world_render::land::fill::drawn_terrain_types`]).
+    /// ([`dereth_terrain::land::fill::drawn_terrain_types`]).
     drawn: u32,
 }
 

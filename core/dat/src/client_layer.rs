@@ -14,7 +14,7 @@
 //! [`DatFile::base`] leaves it out, so the data-patch path, which reports iterations and writes
 //! against base files, never sees it. Only the client lays one; a server opens its files without.
 //!
-//! [`write`] makes one, the same bytes for the same records.
+//! [`write()`] makes one, the same bytes for the same records.
 
 use std::collections::BTreeMap;
 use std::path::Path;

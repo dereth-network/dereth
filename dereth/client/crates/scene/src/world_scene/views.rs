@@ -130,7 +130,7 @@ impl SceneDraw {
     /// The viewer-space cone's `CY`, its first plane.
     ///
     /// The viewpoint update's Y axis is the viewer frame's forward column, which is exactly what
-    /// [`dereth_world_render::math::get_vector_heading`] answers, so the camera's forward vector
+    /// [`dereth_primitives::frame::get_vector_heading`] answers, so the camera's forward vector
     /// has one producer here as it does there.
     pub(super) fn viewer_near_plane(&self, ws: &WorldState) -> dereth_world_render::Plane {
         let f = ws.camera.frame();

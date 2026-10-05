@@ -38,7 +38,6 @@ pub mod position;
 /// Recording values and parsers supplied with bytes by their host.
 pub mod recording;
 pub mod stamper;
-/// Fixture and mock transport support for tests and corpus tools.
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 

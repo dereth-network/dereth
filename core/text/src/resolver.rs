@@ -19,8 +19,9 @@ use dereth_primitives::DataId;
 ///
 /// So the two methods an implementor writes are the **raw** ones, which hand back the row exactly
 /// as the dat stores it, and the two a caller uses are provided here and run
-/// [`crate::unescape`] over the answer. **Do not override [`StringResolver::resolve`] or
-/// [`StringResolver::resolve_variants`]**; overriding one is the only way back to the defect.
+/// [`dereth_assets::escape::unescape`] over the answer. **Do not override
+/// [`StringResolver::resolve`] or [`StringResolver::resolve_variants`]**; overriding one is the
+/// only way back to the defect.
 pub trait StringResolver: std::fmt::Debug {
     /// `StringTable`'s `(table DataID, string id)` → variant 0, the singular/default form,
     /// **escaped** — byte for byte what the row holds in the dat.

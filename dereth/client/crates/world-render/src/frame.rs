@@ -53,8 +53,9 @@ pub enum BlockStep {
 
 /// The landscape draw's step sequence.
 ///
-/// `blocks` is [`crate::land::order::block_draw_order`]'s output — already outermost-first — and
-/// `visible` says which of them survived the landscape draw's block visibility check.
+/// `blocks` is [`dereth_terrain::land::order::block_draw_order`]'s output — already
+/// outermost-first — and `visible` says which of them survived the landscape draw's block
+/// visibility check.
 #[must_use]
 pub fn outdoor_steps(
     blocks: &[u32],

@@ -564,8 +564,8 @@ mod imp {
         }
     }
 
-    /// [`dereth_scene::world_scene::OBJECT_VERTEX_STRIDE`], the FVF `0x152` layout every graphics-object mesh
-    /// in this crate is built in (the sky's included: `build_meshes` is one bake).
+    /// [`crate::world_scene::OBJECT_VERTEX_STRIDE`], the FVF `0x152` layout every graphics-object
+    /// mesh in this crate is built in (the sky's included: `build_meshes` is one bake).
     const LAND_VERTEX_STRIDE: usize = crate::world_scene::OBJECT_VERTEX_STRIDE;
 
     /// Every graphics-object or setup id any day group of this region can ask for: each `SkyObject`'s

@@ -811,7 +811,7 @@ impl PaletteComposition {
 
 /// Build `plan`'s composite with the device's compositor, making each source it names
 /// resident on first use. A missing alpha map drops its overlay and a missing texture is the
-/// debug colour, exactly as [`dereth_world_render::land::merge::execute_merge_plan`] does, so the
+/// debug colour, exactly as [`dereth_terrain::land::merge::execute_merge_plan`] does, so the
 /// result is bit-identical to the CPU composite.
 pub(super) fn merge_on_device(
     gpu: &mut Gpu,

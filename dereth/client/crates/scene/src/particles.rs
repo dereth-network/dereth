@@ -80,7 +80,7 @@ pub(crate) struct ParticleGfx {
 ///   (the graphics-object record stores no material, which is why [`dereth_assets::GfxObj`]
 ///   has no such field). The absent-material path binds the default material and selects
 ///   the vertex as the diffuse and ambient colour source, so both come
-///   from the vertex colour — which [`dereth_scene::world_scene::build_meshes`] writes white.
+///   from the vertex colour — which [`crate::world_scene::build_meshes`] writes white.
 /// * Past zero it uses a cloned material. Its initialization clears the lighting values and then
 ///   writes ones to the diffuse and ambient components:
 ///   **Diffuse and Ambient white, Specular and Emissive zero**. The material path then

@@ -1275,7 +1275,7 @@ mod imp {
         /// loading fills the array from `degrades[i].gfxobj_id`. The part's own id, on the player
         /// body (setup `0x02000001`), is level **1** for 16 of its 34 parts — baking from it would
         /// draw the doll with 417 triangles where the same body in the world, built level by level
-        /// by [`dereth_scene::world_scene::WorldScene`], draws 772: a lower-detail model one step down the
+        /// by [`crate::world_scene::WorldScene`], draws 772: a lower-detail model one step down the
         /// ladder rather than its bottom level.
         ///
         /// The world path's degrade guard is **not** applied here: `draws_at_near_band` asks `get_degrade` with `degrades_disabled = 0`, which for

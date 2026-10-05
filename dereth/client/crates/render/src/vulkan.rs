@@ -297,6 +297,8 @@ pub struct Gpu {
     texture_sets: Vec<Option<vk::DescriptorSet>>,
     /// Live texture resources, keyed by slot. An entry lives exactly as long as [`TextureTable`]
     /// says something still links to it.
+    ///
+    /// [`TextureTable`]: dereth_render_cpu::descriptor::TextureTable
     // ORDER-OK: keyed by slot and only ever looked up, never iterated for anything the rendered
     // result depends on.
     textures: HashMap<u32, Texture>,

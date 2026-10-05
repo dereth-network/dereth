@@ -187,6 +187,8 @@ pub struct Gpu {
     legacy_tables: std::cell::Cell<[Option<u64>; 4]>,
     /// Live texture resources, keyed by the descriptor slot that views them. An entry lives exactly
     /// as long as [`TextureTable`] says something still links to it.
+    ///
+    /// [`TextureTable`]: dereth_render_cpu::descriptor::TextureTable
     // ORDER-OK: keyed by descriptor slot and only ever looked up, never iterated for anything the
     // rendered result depends on.
     textures: HashMap<u32, ID3D12Resource>,

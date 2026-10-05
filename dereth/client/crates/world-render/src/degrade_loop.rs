@@ -10,7 +10,7 @@
 //!
 //! which value the loop settled at on 2013 hardware was never measured.
 //! [`DegradeGovernor::pinned`] is what every test and every golden image must use, and
-//! [`crate::consts::PINNED_DEG_MUL`] is the value it pins to.
+//! [`dereth_terrain::consts::PINNED_DEG_MUL`] is the value it pins to.
 //!
 //! **How a rebuild keeps a capture reproducible.** The loop's only input is the frame-rate meter's
 //! answer, and the meter measures *whatever clock it is pushed*. The client's `--headless` steps

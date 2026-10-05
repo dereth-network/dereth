@@ -21,6 +21,8 @@
 //!
 //! The canvas draws grey coverage, without the Windows font system's hinting, so the glyphs are
 //! slightly softer than the desktop's and an advance can differ from it by a pixel.
+//!
+//! [`FontAtlas`]: dereth_classic_dat::fonts::FontAtlas
 
 use dereth_classic_dat::fonts::FontSpec;
 

@@ -233,8 +233,8 @@ impl BakeCache {
     /// A graphics object's drawing sphere,
     /// memoised exactly as [`Self::sort_center`] is.
     ///
-    /// It goes through [`dereth_client_runtime::object_physics::drawing_sphere`] — the **one** transcription of
-    /// the sphere at the root of the drawing tree — rather than repeating
+    /// It goes through [`dereth_world_data::setup::drawing_sphere`] — the **one** transcription
+    /// of the sphere at the root of the drawing tree — rather than repeating
     /// `drawing_bsp.nodes[0].sphere` here. The collision setup in `object_physics` and the
     /// selection ray in `pick.rs` read it too: one fork with three readers, so a wrong
     /// answer is wrong in all three places at once and a mutation of it reddens all three.

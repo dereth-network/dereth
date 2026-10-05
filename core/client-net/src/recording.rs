@@ -40,14 +40,14 @@ pub fn connection_sequence_number(records: &[Datagram]) -> Option<u32> {
 
 /// Every enter-world in a recording, in order: the whole-blob fragments of the client's
 /// datagrams, each blob once however many times it was retransmitted, read by
-/// [`entries`](crate::client_session::recording::entries). Both messages
+/// [`entries`]. Both messages
 /// an enter-world is made of fit in one fragment, so no reassembly is needed.
 ///
 /// `c2s` yields `(index, datagram)` for the client-to-server datagrams only, in capture order; the
 /// index is whatever the caller uses to find its place again.
 ///
 /// # Panics
-/// As [`entries`](crate::client_session::recording::entries): an enter-world request with no answer, or an answer with no request.
+/// As [`entries`]: an enter-world request with no answer, or an answer with no request.
 pub fn recorded_enter_world_requests<'a>(
     c2s: impl IntoIterator<Item = (usize, &'a [u8])>,
 ) -> Vec<RecordedEntry> {

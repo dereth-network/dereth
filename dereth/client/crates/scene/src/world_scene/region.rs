@@ -99,7 +99,7 @@ pub fn style_region(store: &RetailDatStore, style: RegionStyle) -> Result<StyleS
 /// the last (the same names and map colours at the same indices, later regions adding to the
 /// end), and the road bits mean the same, so any land surface reads any world's cells as they
 /// are. A type the land surface has no picture for is filled from its neighbours
-/// ([`dereth_world_render::land::fill`]).
+/// ([`dereth_terrain::land::fill`]).
 ///
 /// # Errors
 /// As [`style_region`].

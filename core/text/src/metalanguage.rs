@@ -417,7 +417,7 @@ fn collapse_spaces(s: &str) -> String {
 /// item-name machinery — see the module header.
 ///
 /// `fragments` and `values` are **escaped**, as the dat stores them, and so is the answer: the
-/// caller applies [`crate::unescape`] afterwards, exactly where
+/// caller applies [`dereth_assets::escape::unescape`] afterwards, exactly where
 /// the string info's outer query does.
 #[must_use]
 pub fn render(fragments: &[String], values: &[String]) -> String {

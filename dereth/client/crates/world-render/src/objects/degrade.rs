@@ -89,7 +89,7 @@ pub struct DegradeGlobals {
 
 impl Default for DegradeGlobals {
     /// The shipped initial values, with `deg_mul` **pinned** to
-    /// [`crate::consts::PINNED_DEG_MUL`] rather than left to the feedback loop.
+    /// [`dereth_terrain::consts::PINNED_DEG_MUL`] rather than left to the feedback loop.
     /// which value 2013 hardware settled at was never measured, so every test
     /// and every golden image must say what it pinned.
     fn default() -> Self {
