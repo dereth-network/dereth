@@ -1439,30 +1439,58 @@ mod recorded_content_real {
     //! ACE: Source/ACE.Server/Managers/WorldManager.cs::DoPlayerEnterWorld
     use crate::support::real_content_bot::real::*;
 
-    /// Successful melee attacks train the weapon skill (`Proficiency.OnSuccessUse`).
+    /// (ResistanceAtLastCheck, pp) of the character's Heavy Weapons.
+    fn heavy_weapons(l: &Loop) -> (u32, u32) {
+        l.ts.world
+            .objects
+            .get(l.g)
+            .and_then(|o| o.biota.properties_skill.as_ref())
+            .and_then(|s| s.get(&empyrean_entity::enums::Skill::HeavyWeapons))
+            .map(|k| (k.resistance_at_last_check, k.pp))
+            .expect("Heavy Weapons")
+    }
+
+    fn set_unassigned_experience(l: &mut Loop, xp: i64) {
+        l.ts.world
+            .objects
+            .get_mut(l.g)
+            .expect("the character")
+            .set_property(
+                empyrean_entity::enums::PropertyInt64::AvailableExperience,
+                xp,
+            );
+    }
+
+    /// Successful melee attacks train the weapon skill (`Proficiency.OnSuccessUse`): ACE records
+    /// the difficulty and raises the skill by the pp it grants, spent from unassigned experience.
     #[test]
-    #[ignore = "Weapon skills do not yet gain experience from successful hits"]
     fn melee_hits_train_the_weapon_skill() {
         let mut l = create_and_enter();
         pick_up_and_wield(&mut l);
-        // (ResistanceAtLastCheck, pp): ACE records the difficulty and raises the skill by the pp it grants
-        let heavy = |l: &Loop| {
-            l.ts.world
-                .objects
-                .get(l.g)
-                .and_then(|o| o.biota.properties_skill.as_ref())
-                .and_then(|s| s.get(&empyrean_entity::enums::Skill::HeavyWeapons))
-                .map(|k| (k.resistance_at_last_check, k.pp))
-                .expect("Heavy Weapons")
-        };
-        let before = heavy(&l);
+        set_unassigned_experience(&mut l, 10_000);
+        let before = heavy_weapons(&l);
         let drudge = create_a_drudge(&mut l);
         fight(&mut l, drudge);
-        let after = heavy(&l);
+        let after = heavy_weapons(&l);
         assert!(
             after.0 > 0 && after.1 > before.1,
             "Heavy Weapons use recorded and trained: {before:?} -> {after:?}"
         );
+    }
+
+    /// ACE-BUG: the proficiency experience is queued, so the skill raise that should spend it runs
+    /// first; a character with no unassigned experience records the use but its skill gains none.
+    #[test]
+    fn a_hit_without_unassigned_experience_records_the_use_but_raises_nothing() {
+        let mut l = create_and_enter();
+        pick_up_and_wield(&mut l);
+        set_unassigned_experience(&mut l, 0);
+        let before = heavy_weapons(&l);
+        let drudge = create_a_drudge(&mut l);
+        fight(&mut l, drudge);
+        let after = heavy_weapons(&l);
+        assert!(after.0 > 0, "the use is recorded: {before:?} -> {after:?}");
+        assert_eq!(after.1, before.1, "the skill's pp is unchanged");
     }
 
     /// The selected drudge's health bar follows its damage: after the QueryHealth answer, each hit

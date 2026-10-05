@@ -179,6 +179,9 @@ pub fn on_success_use(w: &mut World, player: ObjectGuid, skill: CreatureSkill, d
         );
 
         // send PP to player as skill XP, which gets spent from the CP sent
+        // ACE-BUG: `GrantXP` queues the experience on the player's actor, so the raise below runs
+        // before it arrives and spends only what was already unassigned; a player with less
+        // unassigned experience than `pp` gets the experience but no skill raise.
         if pp > 0 {
             player_skills::handle_action_raise_skill(w, player, skill.skill, pp);
         }
