@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-web"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "dereth-classic-dat",
  "dereth-client-contract",

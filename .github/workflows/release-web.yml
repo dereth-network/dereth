@@ -1,0 +1,200 @@
+name: Release the web client
+
+# Builds, checks and drafts a release of the web client, the Dereth client in a browser. A pushed
+# `dereth-web-v<version>` tag builds the bundle and creates a DRAFT GitHub release, which a
+# maintainer reviews and publishes by hand. Running it by hand (workflow_dispatch) is a dry run:
+# the same build and checks, the release files kept as a workflow artifact for 7 days, nothing
+# published.
+#
+# The web client carries Dereth's version (the client's and the launcher's), and its tag must
+# name it. The release files are `cargo xtask package web`'s, the same command a contributor runs
+# locally (dereth/web/DEPLOY.md): the bundle `dereth-web-<version>.zip`, its manifest `web.json`,
+# and `SHA256SUMS`. A host or the launcher finds the newest web client by listing the repository's
+# releases and taking the newest published `dereth-web-v<version>` one (a pre-release excepted),
+# then reads its `web.json`. The CI workflow builds the bundle on every push.
+#
+# The release's description starts with Dereth's notes for the version, which
+# `cargo xtask release-notes dereth` writes from the tagged tree.
+
+on:
+  push:
+    tags: ['dereth-web-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-web-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Where the release files are downloaded from: this repository.
+  DERETH_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
+
+jobs:
+  package:
+    name: package the web client
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The build number is the commit count, and the notes read the previous tags.
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the WebAssembly target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target wasm32-unknown-unknown
+          rustup override set "$toolchain"
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: The tag names the version the web client carries, on main
+        id: version
+        run: |
+          version=$(cargo xtask version dereth)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "dereth-web-v$version" ]; then
+              echo "::error::$GITHUB_REF_NAME does not name the version the tree carries ($version)"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "the web client $version"
+      - name: cargo xtask package web
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask package web --tag "$GITHUB_REF_NAME" --out dist
+          else
+            cargo xtask package web --out dist
+          fi
+      - name: The bundle opens and its manifest matches it
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          mkdir ../smoke
+          unzip -q "dereth-web-$VERSION.zip" -d ../smoke
+          cd "../smoke/dereth-web-$VERSION"
+          python3 - "$VERSION" <<'EOF'
+          import hashlib, json, os, sys
+          m = json.load(open("../../dist/web.json"))
+          assert m["schema"] == 1 and m["product"] == "dereth-web" and m["version"] == sys.argv[1], m
+          listed = {f["path"] for f in m["files"]}
+          present = {os.path.relpath(os.path.join(d, n)).replace(os.sep, "/") for d, _, ns in os.walk(".") for n in ns}
+          assert listed == present, (listed ^ present)
+          for f in m["files"]:
+              data = open(f["path"], "rb").read()
+              assert len(data) == f["size"] and hashlib.sha256(data).hexdigest() == f["sha256"], f["path"]
+          print(f"{len(listed)} files, {m['size']} bytes, as the manifest says")
+          EOF
+      - name: The release notes, from CHANGES.md and the commits since the previous release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask release-notes dereth --version "$VERSION" --out dist-notes/release-notes.md
+          else
+            cargo xtask release-notes dereth --out dist-notes/release-notes.md
+          fi
+          cat dist-notes/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-web-${{ steps.version.outputs.version }}
+          path: |
+            dist/*.zip
+            dist/web.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-web
+          path: dist-notes/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-web-${{ needs.package.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes-web
+          path: notes
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.package.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          cp ../notes/release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
+          The Dereth client $VERSION for web browsers: static files to serve from any web host (\`dereth/web/DEPLOY.md\` says how, and which headers to send).
+
+          | file | what |
+          |---|---|
+          | \`dereth-web-$VERSION.zip\` | the page, its scripts and the WebAssembly module, under \`dereth-web-$VERSION/\` |
+          | \`web.json\` | the release's manifest: version, commit, and every file's size and SHA-256, for hosts and tools that update themselves |
+
+          **No game data is included**: each player's browser reads the data files of their own Asheron's Call install, on their own machine.
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              web.json) label="Web client manifest (JSON)" ;;
+              "dereth-web-$VERSION.zip") label="Dereth · web client (static files)" ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
+          PRE=""
+          # A pre-release version carries a suffix (`0.2.0-rc.1`).
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          # Never the repository's "Latest" release: that stays the launcher's and the server's,
+          # which people download by hand. Consumers of the web client list the releases instead.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
+            --title "Dereth $VERSION for the web" --notes-file ../notes.md \
+            "${assets[@]}"

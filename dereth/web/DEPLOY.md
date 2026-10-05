@@ -16,15 +16,113 @@ the bindings into `www/pkg/`. It needs the target installed once
 
 | File | Bytes | Gzipped |
 |---|---:|---:|
-| `pkg/dereth_web_bg.wasm` | about 10.0 MB | about 3.5 MB |
-| `pkg/dereth_web.js` | about 130 kB | about 22 kB |
-| `index.html`, `play.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 31 kB | about 12 kB |
+| `pkg/dereth_web_bg.wasm` | about 12.6 MB | about 4.4 MB |
+| `pkg/dereth_web.js` | about 135 kB | about 22 kB |
+| `index.html`, `play.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 33 kB | about 12 kB |
 
 The build names the standard library's and the registry's sources `/rustc` and `/cargo` in the
 module, so it carries no path from the building machine.
 
 `cargo xtask web` without `--build-only` also serves the result on `http://127.0.0.1:8080/` for
-development. See [Developing](#developing).
+development. See [Developing](#developing). A release is built differently, from a tagged
+commit; see [Releases](#releases).
+
+## Releases
+
+Each release of the web client is a GitHub release of this repository, tagged
+`dereth-web-v<version>`. The web client is the Dereth client in a browser, so it carries Dereth's
+version: the one the client and the launcher carry, which `cargo xtask release dereth <version>`
+sets for all three. A version is released for the web under its own tag, from the same commit as
+Dereth's release of it or later.
+
+A release carries three files:
+
+| File | What |
+|---|---|
+| `dereth-web-<version>.zip` | the files to serve, under one folder `dereth-web-<version>/`: exactly the files listed in [Build](#build) and `_headers` |
+| `web.json` | the release's manifest (below) |
+| `SHA256SUMS` | the SHA-256 of both, for `sha256sum -c` |
+
+**`web.json`** is the machine-readable description of the release:
+
+```json
+{
+  "schema": 1,
+  "product": "dereth-web",
+  "version": "0.1.3",
+  "tag": "dereth-web-v0.1.3",
+  "prerelease": false,
+  "commit": "<the full commit id>",
+  "commit_time": "2026-10-05T07:00:00Z",
+  "build_number": "<the commit count>",
+  "source_url": "https://github.com/dereth-network/dereth",
+  "entry": "index.html",
+  "archive": {
+    "file": "dereth-web-0.1.3.zip",
+    "root": "dereth-web-0.1.3",
+    "size": 4411007,
+    "sha256": "<hex>",
+    "url": "https://github.com/dereth-network/dereth/releases/download/dereth-web-v0.1.3/dereth-web-0.1.3.zip"
+  },
+  "size": 12807592,
+  "files": [
+    { "path": "index.html", "size": 3785, "sha256": "<hex>" },
+    { "path": "pkg/dereth_web_bg.wasm", "size": 12638359, "sha256": "<hex>" }
+  ]
+}
+```
+
+`files` lists every file of the bundle (paths below `root`), and nothing else is in the archive.
+A consumer refuses a `schema` it does not know; fields may be added without changing it.
+
+### Updating a host from the releases
+
+A host, the launcher, or any other tool finds the newest web client like this:
+
+1. List the repository's releases: `GET https://api.github.com/repos/dereth-network/dereth/releases`
+   (newest first; page with `?per_page=100&page=2` and on).
+2. Take the first that is published (`"draft": false`), is not a pre-release
+   (`"prerelease": false`, unless the host wants pre-releases), and whose `tag_name` starts with
+   `dereth-web-v`. The repository's other releases (`dereth-v…`, `empyrean-v…`) are other
+   products, and a web release is never marked as the repository's "Latest", so
+   `releases/latest` does not find it.
+3. Download its `web.json` asset (`browser_download_url`) and compare `version` with the one
+   being served. A host keeps the `web.json` it last installed beside the files for that.
+4. If it is newer, download `archive.url`, check its size and SHA-256 against `archive`, unpack
+   it, check each file against `files`, and swap the folder being served for the new one in one
+   step (a rename or a symbolic link), so no visitor is served half of each. Keep `pkg/` on a
+   short cache (see [Headers](#headers)).
+
+For example, with `curl` and `jq`:
+
+```text
+curl -s "https://api.github.com/repos/dereth-network/dereth/releases?per_page=100" \
+  | jq -r '[.[] | select(.draft == false and .prerelease == false
+                  and (.tag_name | startswith("dereth-web-v")))][0]
+           | .assets[] | select(.name == "web.json") | .browser_download_url'
+```
+
+A release never carries game data: the bundle is built from an allowlist, and the packaging
+refuses any file named like or holding the game's data files, a database or a world, any file
+outside the list, any oversized file, and a module or script that names the building machine's
+folders. Players' data files stay in their own browsers.
+
+### Making a release
+
+The owner of the repository runs releases:
+
+1. Release the version for Dereth as usual (`cargo xtask release dereth <version>`), or pick a
+   commit on `main` that carries a version not yet released for the web.
+2. Tag it `dereth-web-v<version>` and push the tag. The `Release the web client` workflow builds
+   the bundle (`cargo xtask package web --tag <tag>`), checks it against its manifest, and drafts
+   the release with Dereth's notes for the version.
+3. Review the draft and publish it. Hosts that follow the releases pick it up.
+
+Running the workflow by hand is a dry run: the same build and checks, the files kept as a
+workflow artifact for a week. Locally, `cargo xtask package web` writes the same three files into
+`target/package/dereth-web-<version>/` (`--out` names another folder; `--no-build` packages what
+`cargo xtask web --build-only` last built). The CI workflow builds the bundle on every push, so a
+broken web build is seen before a release.
 
 ## Headers
 

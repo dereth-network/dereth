@@ -60,3 +60,43 @@ jobs:
         env:
           CARGO_NET_OFFLINE: 'true'
         run: cargo xtask ci tier0
+
+  # The web client's WebAssembly build. Tier 0 builds and tests its platform-neutral half on every
+  # platform; this builds the half only a browser runs, lints it, and makes the release bundle the
+  # release workflow makes, with its deny scan and manifest. No game data: the bundle never holds
+  # any, and nothing here reads any.
+  web:
+    name: web (wasm32)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The build number in the manifest is the commit count.
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the WebAssembly target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup override set "$toolchain"
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Clippy over the browser half
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo clippy --locked -p dereth-web --target wasm32-unknown-unknown -- -D warnings
+      - name: cargo xtask package web (the module, the deny scan, the manifest)
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: cargo xtask package web --out dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dereth-web
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7

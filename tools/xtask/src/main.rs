@@ -110,6 +110,10 @@ Release and packaging:
                             Linux AppImage), with the client inside it, checked and scanned, and
                             signed for the launcher's updater (latest.json) when
                             TAURI_SIGNING_PRIVATE_KEY is set (dereth/launcher/RELEASING.md)
+  package web [--out <dir>] [--tag <tag>] [--no-build] [--allow-dirty]
+                            the web client's release files: builds the module, stages the page's
+                            allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
+                            web.json (the update manifest) and SHA256SUMS (dereth/web/DEPLOY.md)
   release empyrean|dereth <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 and a host package, tag empyrean-v<version> or

@@ -38,6 +38,7 @@ mod notice;
 mod sign;
 mod targets;
 pub mod version;
+pub mod web;
 
 #[cfg(test)]
 mod dereth_tests;
@@ -342,7 +343,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
     let mut it = args.iter();
     match it.next().map(String::as_str) {
         Some("empyrean") => {}
-        _ => return Err(format!("{USAGE}\n{}", dereth::USAGE)),
+        _ => return Err(format!("{USAGE}\n{}\n{}", dereth::USAGE, web::USAGE)),
     }
     let mut o = Options::default();
     while let Some(a) = it.next() {
@@ -371,6 +372,9 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
 pub fn package(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("dereth") {
         return dereth::package(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("web") {
+        return web::package(&args[1..]);
     }
     let options = match parse_options(args) {
         Ok(o) => o,
