@@ -143,15 +143,39 @@ async function opfsImport(files) {
   }
 }
 
+// The access handles the stored files are read through. A file takes one such handle at a time, so
+// they are closed before the files are reached again (another connection in the same page), or
+// opening them, or storing over them, would be refused.
+let held = [];
+function releaseHeld() {
+  for (const h of held) {
+    try {
+      h.close();
+    } catch {
+      // already closed
+    }
+  }
+  held = [];
+}
+
 async function opfsReaders() {
   const dir = await opfsDir();
   const out = [];
   for (const name of NAMES) {
+    let fh;
     try {
-      const fh = await dir.getFileHandle(name);
-      out.push(opfsReader(await fh.createSyncAccessHandle()));
+      fh = await dir.getFileHandle(name);
     } catch {
       out.push(null);
+      continue;
+    }
+    try {
+      const h = await fh.createSyncAccessHandle();
+      held.push(h);
+      out.push(opfsReader(h));
+    } catch (e) {
+      // Held by another page of this site: the file is there, but this page cannot read it.
+      throw new Error(`${name} is open in another tab of this page; close it and try again (${e?.name ?? e})`);
     }
   }
   return out;
@@ -172,6 +196,7 @@ globalThis.derethDatRead = (file, offset, buf) => {
 // older set's.
 export async function openFiles(msg) {
   const t0 = performance.now();
+  releaseHeld();
   if (msg.mode === 'http') {
     readers = NAMES.map((n) => {
       const r = httpReader(n);
