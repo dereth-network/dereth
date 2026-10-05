@@ -26,7 +26,7 @@ pub const DIALOG_BOXES: InputMapId = InputMapId(0x00000009);
 pub const SCROLLABLE: InputMapId = InputMapId(0x0000000A);
 /// `DebugConsole`.
 pub const DEBUG_CONSOLE: InputMapId = InputMapId(0x0000000B);
-/// `ProfilerUI`.
+/// Profiler input map.
 pub const PROFILER: InputMapId = InputMapId(0x0000000C);
 /// `UIDebugger`.
 pub const UI_DEBUGGER: InputMapId = InputMapId(0x0000000D);
