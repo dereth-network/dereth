@@ -1987,10 +1987,10 @@ fn player_stats_agree_with_dereth_client_model() {
 
 /// The server keeps ACE's formulas for retired skills (minimum level 0, second attribute weight 0),
 /// which disagree with the client's formula; unreachable, because retired skills cannot be trained.
-/// Run with `--ignored` to list the disagreements.
+/// That is the whole of the disagreement: every one left is a retired skill, every retired skill
+/// the vectors carry shows it, and the count is the vectors' own.
 #[test]
-#[ignore = "retired skills keep ACE's formulas; unreachable"]
-fn retired_skills_agree_with_dereth_client_model() {
+fn only_the_retired_skills_disagree_with_dereth_client_model() {
     let d = client_stat_disagreements();
     let mut by: BTreeMap<&str, (usize, String)> = BTreeMap::new();
     for (cat, detail) in &d {
@@ -2001,12 +2001,28 @@ fn retired_skills_agree_with_dereth_client_model() {
         .iter()
         .map(|(c, (n, ex))| format!("{c}: {n} (e.g. {ex})"))
         .collect();
-    assert!(
-        d.is_empty(),
+    let categories: Vec<&str> = by.keys().copied().collect();
+    assert_eq!(
+        categories,
+        ["retired skill (ACE formula Y = 0, MinLevel 0)"],
         "{} disagreements:\n  {}",
         d.len(),
         shown.join("\n  ")
     );
+    let skills: std::collections::BTreeSet<u32> = d
+        .iter()
+        .map(|(_, detail)| {
+            let rest = &detail[detail.find(" skill ").expect("a skill row") + 7..];
+            rest[..rest.find(' ').expect("the skill id ends")]
+                .parse()
+                .expect("a skill id")
+        })
+        .collect();
+    let retired: std::collections::BTreeSet<u32> = u32s(&table_case().output["retired_added"])
+        .into_iter()
+        .collect();
+    assert_eq!(skills, retired);
+    assert_eq!(d.len(), 1733, "{}", shown.join("\n  "));
 }
 
 /// The `WorldObject` view the shared inquiries read (`world_objects/quality_read.rs`): the stored
