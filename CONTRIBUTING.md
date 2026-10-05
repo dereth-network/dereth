@@ -37,7 +37,7 @@ A crate's integration tests are one binary per tier (`cpu`, `dat`, `gpu`); [READ
 explains them.
 
 **Your own retail data.** The game's data files and `world.pack` are never part of this repository
-and never shipped with it; the tests that need them read your copies through three variables that only
+and never shipped with it; the tests that need them read your copies through variables that only
 tests read (no program does):
 
 - `DERETH_TEST_DAT_DIR`: the folder holding `client_portal.dat`, `client_cell_1.dat`,
@@ -49,6 +49,19 @@ tests read (no program does):
   [empyrean/SETUP.md](empyrean/SETUP.md); default: `world.pack` at the top of the checkout).
 - `EMPYREAN_WORLD_SQL`: ACE's world-database dump, for the importer's real-dump tests (default: the
   pinned release in the per-user cache that `cargo run -p empyrean-import -- fetch` downloads it into).
+
+The tests of the older eras read four more, also with no default unless noted:
+
+- `DERETH_TEST_PRETOD_DAT_DIR`: the February 2005 `portal.dat` and `cell.dat`, from before Throne of
+  Destiny.
+- `DERETH_TEST_DAT_CAPTURES_DIR`: older data files, one folder per capture date (`1999-10-09/`, …),
+  each holding that date's `portal.dat` and `cell.dat` or `client_*.dat`.
+- `DERETH_CLASSIC_PORTAL`: a `portal.dat` from before Throne of Destiny (the February 2005 one does),
+  which the classic interface's tests draw from.
+- `EMPYREAN_TEST_INFILTRATION_PACK`: a `world.pack` for the Infiltration era, built with
+  `cargo run -p empyrean-import -- fetch --world 16py --pack --out world.pack.infiltration` (default:
+  `world.pack.infiltration` at the top of the checkout). Without it, `ci tier1` reports the
+  real-content rows that read it as NO-ORACLE.
 
 **Test data in the tree.** `fixtures/` holds the shared recordings, the packet captures and the
 message corpus reassembled from them, which the client's and the server's tests both read.

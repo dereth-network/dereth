@@ -261,7 +261,22 @@ pub fn server_hygiene() -> i32 {
 /// `world.pack` as the real-content tests find it: `EMPYREAN_TEST_WORLD_PACK`, else `world.pack`
 /// in this workspace, else in the main checkout's when this checkout is a linked git worktree.
 pub fn world_pack() -> Option<PathBuf> {
-    if let Some(v) = std::env::var_os("EMPYREAN_TEST_WORLD_PACK").filter(|v| !v.is_empty()) {
+    content_pack(WORLD_PACK_VAR, "world.pack")
+}
+
+/// The Infiltration-era pack as the real-content tests find it: `EMPYREAN_TEST_INFILTRATION_PACK`,
+/// else `world.pack.infiltration` in this workspace or the main checkout's.
+pub fn infiltration_pack() -> Option<PathBuf> {
+    content_pack(INFILTRATION_PACK_VAR, "world.pack.infiltration")
+}
+
+const WORLD_PACK_VAR: &str = "EMPYREAN_TEST_WORLD_PACK";
+const INFILTRATION_PACK_VAR: &str = "EMPYREAN_TEST_INFILTRATION_PACK";
+
+/// `$var` when it is set (and then only if it names a file), else `name` in this workspace, else
+/// in the main checkout's.
+fn content_pack(var: &str, name: &str) -> Option<PathBuf> {
+    if let Some(v) = std::env::var_os(var).filter(|v| !v.is_empty()) {
         let p = PathBuf::from(v);
         return p.is_file().then_some(p);
     }
@@ -269,7 +284,7 @@ pub fn world_pack() -> Option<PathBuf> {
     bases.extend(main_workspace());
     bases
         .into_iter()
-        .map(|b| b.join("world.pack"))
+        .map(|b| b.join(name))
         .find(|p| p.is_file())
 }
 
@@ -299,64 +314,76 @@ fn main_workspace() -> Option<PathBuf> {
     Some(main.join(below))
 }
 
-/// The server's real-content tier (tier 1): the tests that read the retail dats and `world.pack`,
-/// each input passed to cargo explicitly. An absent input is an oracle nobody consulted, so every
-/// row reports NO-ORACLE naming the variable, and nothing is built.
+/// The server's real-content tier (tier 1): the tests that read the retail dats, `world.pack` and
+/// (for the February 2005 era's tests) the Infiltration pack, each input passed to cargo
+/// explicitly. An absent input is an oracle nobody consulted, so every row that reads it reports
+/// NO-ORACLE naming the variable, and nothing is built for that row.
 pub fn real_content(profile: Profile, dats: Option<&Path>) -> Vec<Report> {
-    const TIERS: &[(&str, &[&str])] = &[
-        ("empyrean-world", &[]),
-        ("empyrean-testkit", &["--test", "all"]),
-        ("empyrean-server", &["--test", "all"]),
+    // Each crate, its extra arguments, and whether its tests read the Infiltration pack.
+    const TIERS: &[(&str, &[&str], bool)] = &[
+        ("empyrean-world", &[], true),
+        ("empyrean-testkit", &["--test", "all"], true),
+        ("empyrean-server", &["--test", "all"], false),
     ];
     let pack = world_pack();
-    let mut missing = Vec::new();
-    if dats.is_none() {
-        missing.push("the retail dats (set DERETH_TEST_DAT_DIR)");
-    }
-    if pack.is_none() {
-        missing.push("world.pack (set EMPYREAN_TEST_WORLD_PACK)");
-    }
-    let (Some(dats), Some(pack)) = (dats, pack) else {
-        return TIERS
-            .iter()
-            .map(|(krate, _)| {
-                Report::new(
-                    format!("server real content: {krate}"),
-                    Outcome::NotRun(NotRun::OracleAbsent),
-                    format!("not found: {}", missing.join(", ")),
-                )
-            })
-            .collect();
-    };
-    println!(
-        "--- server real content: DERETH_TEST_DAT_DIR={} EMPYREAN_TEST_WORLD_PACK={}",
-        dats.display(),
-        pack.display()
-    );
+    let infiltration = infiltration_pack();
     let ws = workspace_root();
     TIERS
         .iter()
-        .map(|(krate, extra)| {
+        .map(|(krate, extra, needs_infiltration)| {
+            let name = format!("server real content: {krate}");
+            let mut missing = Vec::new();
+            if dats.is_none() {
+                missing.push("the retail dats (set DERETH_TEST_DAT_DIR)");
+            }
+            if pack.is_none() {
+                missing.push("world.pack (set EMPYREAN_TEST_WORLD_PACK)");
+            }
+            if *needs_infiltration && infiltration.is_none() {
+                missing.push("world.pack.infiltration (set EMPYREAN_TEST_INFILTRATION_PACK)");
+            }
+            let (Some(dats), Some(pack)) = (dats, &pack) else {
+                return no_oracle(name, &missing);
+            };
+            if !missing.is_empty() {
+                return no_oracle(name, &missing);
+            }
             let mut argv: Vec<&str> = vec!["test", "-q"];
             argv.extend_from_slice(profile.cargo_args());
             argv.extend_from_slice(&["-p", krate, "--features", "real-content"]);
             argv.extend_from_slice(extra);
+            println!(
+                "--- {name}: DERETH_TEST_DAT_DIR={} {WORLD_PACK_VAR}={}",
+                dats.display(),
+                pack.display()
+            );
             println!("$ cargo {}", argv.join(" "));
             let t0 = Instant::now();
-            let ok = std::process::Command::new("cargo")
-                .args(&argv)
+            let mut cmd = std::process::Command::new("cargo");
+            cmd.args(&argv)
                 .current_dir(&ws)
                 .env("DERETH_TEST_DAT_DIR", dats)
-                .env("EMPYREAN_TEST_WORLD_PACK", &pack)
-                .status()
-                .is_ok_and(|s| s.success());
+                .env(WORLD_PACK_VAR, pack);
+            if let Some(p) = &infiltration {
+                cmd.env(INFILTRATION_PACK_VAR, p);
+            }
+            let ok = cmd.status().is_ok_and(|s| s.success());
             Report::new(
-                format!("server real content: {krate}"),
+                name,
                 pass_fail(ok),
                 format!("{:.1}s", t0.elapsed().as_secs_f64()),
             )
         })
         .collect()
+}
+
+/// A row that could not run for want of `missing`.
+fn no_oracle(name: String, missing: &[&str]) -> Report {
+    Report::new(
+        name,
+        Outcome::NotRun(NotRun::OracleAbsent),
+        format!("not found: {}", missing.join(", ")),
+    )
 }
 
 /// The ACE-World release the server pins, read from the constant the importer's tests and its

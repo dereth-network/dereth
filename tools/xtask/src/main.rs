@@ -338,6 +338,14 @@ fn tier1(args: &[String], profile: Profile) -> i32 {
              EMPYREAN_TEST_WORLD_PACK to it."
         ),
     }
+    match server::infiltration_pack() {
+        Some(p) => println!("world.pack.infiltration found at {}", p.display()),
+        None => println!(
+            "world.pack.infiltration NOT found; the real-content rows that read the February 2005 \
+             era report NO-ORACLE. Build it with `cargo run -p empyrean-import -- fetch --world 16py \
+             --pack --out world.pack.infiltration`, or set EMPYREAN_TEST_INFILTRATION_PACK to it."
+        ),
+    }
     match server::world_sql() {
         Some(p) => println!("ACE's world dump found at {}", p.display()),
         None => println!(
