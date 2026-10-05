@@ -234,24 +234,6 @@ pub fn check_metadata(meta: &Value, ws: &Path, client_only: bool, f: &mut Findin
     }
 }
 
-fn walk(dir: &Path, skip: &[&str], out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries: Vec<_> = entries.flatten().collect();
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for e in entries {
-        let p = e.path();
-        if p.is_dir() {
-            if !skip.iter().any(|s| e.file_name() == **s) {
-                walk(&p, skip, out);
-            }
-        } else {
-            out.push(p);
-        }
-    }
-}
-
 fn rel(root: &Path, p: &Path) -> String {
     p.strip_prefix(root)
         .unwrap_or(p)
@@ -270,8 +252,7 @@ pub fn check_files(ws: &Path, client_only: bool, f: &mut Findings) {
                     .to_owned(),
             );
         }
-        let mut files = Vec::new();
-        walk(&server_dir, &["target", "fixtures"], &mut files);
+        let files = crate::util::source_files(&server_dir, &["fixtures"]);
         for p in files
             .iter()
             .filter(|p| p.file_name().is_some_and(|n| n == "Cargo.toml"))
@@ -293,8 +274,7 @@ pub fn check_files(ws: &Path, client_only: bool, f: &mut Findings) {
     }
     let mut hits = Vec::new();
     for top in MIT_DIRS {
-        let mut files = Vec::new();
-        walk(&ws.join(top), &["target"], &mut files);
+        let files = crate::util::source_files(&ws.join(top), &[]);
         for p in files {
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
             if ext != "rs" && ext != "toml" {

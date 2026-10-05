@@ -635,7 +635,7 @@ fn crate_sources(ws: &Path, krate: &str) -> Vec<(PathBuf, String)> {
     let root = crate::util::crate_dir(ws, krate);
     let mut files = Vec::new();
     for sub in ["src", "tests", "benches", "examples"] {
-        rust_files(&root.join(sub), &mut files);
+        files.extend(crate::util::rust_sources(&root.join(sub)));
     }
     files.sort();
     files
@@ -661,20 +661,6 @@ fn crate_src(ws: &Path, krate: &str) -> Vec<(PathBuf, String)> {
         .into_iter()
         .filter(|(p, _)| p.components().any(|c| c.as_os_str() == "src"))
         .collect()
-}
-
-fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            rust_files(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs") {
-            out.push(p);
-        }
-    }
 }
 
 /// The retired dat-directory variable, spelled in two halves so this file does not name it.
@@ -930,11 +916,8 @@ pub fn reports() -> Vec<Report> {
             Ok::<_, String>(all)
         });
     // Rule 8: every Rust file of the workspace, and every tracked text file in it.
-    let mut workspace_rs = Vec::new();
-    rust_files(&ws, &mut workspace_rs);
-    let workspace_rs: Vec<(PathBuf, String)> = workspace_rs
+    let workspace_rs: Vec<(PathBuf, String)> = crate::util::rust_sources(&ws)
         .into_iter()
-        .filter(|p| !p.components().any(|c| c.as_os_str() == "target"))
         .filter_map(|p| {
             let text = std::fs::read_to_string(&p).ok()?;
             Some((

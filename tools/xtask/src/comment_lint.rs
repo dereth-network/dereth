@@ -699,24 +699,6 @@ fn resolve_decls(file: &Path, decls: &[TestDecl]) -> Vec<PathBuf> {
     out
 }
 
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        if p.is_dir() {
-            if name == "target" || name.starts_with('.') {
-                continue;
-            }
-            walk(&p, out);
-        } else if name.ends_with(".rs") || name.ends_with(".toml") {
-            out.push(p);
-        }
-    }
-}
-
 fn normalise(p: &Path) -> String {
     let mut parts: Vec<String> = Vec::new();
     for c in p.components() {
@@ -810,8 +792,10 @@ pub fn scan_workspace(
     scope: Scope,
     targets: &BTreeSet<String>,
 ) -> (Vec<Finding>, usize) {
-    let mut files = Vec::new();
-    walk(root, &mut files);
+    let mut files: Vec<PathBuf> = crate::util::source_files(root, &[])
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|x| x == "rs" || x == "toml"))
+        .collect();
     files.sort();
     let rel = |p: &Path| normalise(p.strip_prefix(root).unwrap_or(p));
 

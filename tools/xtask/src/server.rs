@@ -219,8 +219,7 @@ pub fn hygiene_findings(ws: &Path) -> Vec<String> {
     let anchor = regex::Regex::new(r"(?m)^\s*//\s*ACE:").expect("a valid rule");
     const HEADER: &str = "Ported from ACE (ACEmulator),";
 
-    let mut files = Vec::new();
-    collect_rs(&ws.join("empyrean"), &mut files);
+    let mut files = crate::util::rust_sources(&ws.join("empyrean"));
     files.sort();
     let mut bad = Vec::new();
     for path in files {
@@ -247,23 +246,6 @@ pub fn hygiene_findings(ws: &Path) -> Vec<String> {
         }
     }
     bad
-}
-
-fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if p.file_name().is_some_and(|n| n == "target") {
-                continue;
-            }
-            collect_rs(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs") {
-            out.push(p);
-        }
-    }
 }
 
 /// `cargo xtask server-hygiene`.

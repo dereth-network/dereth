@@ -138,24 +138,6 @@ fn acknowledged() -> Vec<Ack> {
         .collect()
 }
 
-fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if name == "target" || name.starts_with('.') {
-                continue;
-            }
-            rust_files(&p, out);
-        } else if p.extension().and_then(|s| s.to_str()) == Some("rs") {
-            out.push(p);
-        }
-    }
-}
-
 /// The package name of the crate `path` is in: `<group>/<short>/...` under the workspace root (see
 /// [`crate::util::CRATE_GROUPS`]), or `?` for a path outside it.
 fn crate_of(path: &Path) -> String {
@@ -306,7 +288,7 @@ pub fn lint() -> i32 {
     let mut files = Vec::new();
     // `dereth/` holds the client's own crates (`dereth/client/crates/`) as well.
     for group in ["core", "dereth", "tools"] {
-        rust_files(&ws.join(group), &mut files);
+        files.extend(crate::util::rust_sources(&ws.join(group)));
     }
     files.sort();
 

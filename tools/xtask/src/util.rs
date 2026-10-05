@@ -145,6 +145,43 @@ pub fn workspace_root() -> PathBuf {
     dir
 }
 
+/// Every file under `dir`, recursively and in name order, for the rules that read the source.
+/// A `target` directory and any directory whose name starts with `.` (`.git`, a worktree nested
+/// in the checkout) are never entered; `also_skip` names more directories to leave out.
+pub fn source_files(dir: &Path, also_skip: &[&str]) -> Vec<PathBuf> {
+    fn walk(dir: &Path, also_skip: &[&str], out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for e in entries {
+            let p = e.path();
+            if p.is_dir() {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                if name == "target" || name.starts_with('.') || also_skip.contains(&&*name) {
+                    continue;
+                }
+                walk(&p, also_skip, out);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, also_skip, &mut out);
+    out
+}
+
+/// The `.rs` files among [`source_files`].
+pub fn rust_sources(dir: &Path) -> Vec<PathBuf> {
+    source_files(dir, &[])
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|x| x == "rs"))
+        .collect()
+}
+
 /// Cargo's target directory for the workspace, found the way cargo finds it: `cargo metadata`
 /// honours `CARGO_TARGET_DIR` and the `build.target-dir` setting. `target/` in the workspace when
 /// cargo cannot say.
