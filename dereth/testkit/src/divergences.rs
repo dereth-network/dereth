@@ -140,7 +140,7 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-014",
         title: "The objects of any world can take another era's look",
         change: "Object Mode draws any world's creatures, items, buildings and scenery in their \
-                 Legacy or Modern look, part by part, while collision and motion stay the world's.",
+                 Classic or Modern look, part by part, while collision and motion stay the world's.",
         why: "Which era's models a world is seen in is a presentation choice.",
     },
     Divergence {

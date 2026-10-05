@@ -1710,7 +1710,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "options.client-page.the-terrain-and-sky-modes-are-chosen-on-the-graphics-section",
         says: "The client options page ends its Graphics section with Terrain Mode, Sky Mode \
                and Object Mode: the first two offer World Default and three named styles, the \
-               third World Default, Legacy and Modern; picking one applies it at once, it is \
+               third World Default, Classic and Modern; picking one applies it at once, it is \
                still chosen after the settings are saved and read back, and Restore Defaults \
                puts all three back to World Default.",
         since: THIS_CLIENT,

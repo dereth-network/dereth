@@ -11,7 +11,7 @@
 //! The objects are the third: every object is drawn by its setup (the parts, how they are joined
 //! and how the world's motion data moves them), which stays the world's, and each part's model,
 //! surfaces, pictures and palettes, which can be the other era's. [`OBJECTS`] chooses: the
-//! files from before Throne of Destiny (Legacy) or the later ones (Modern).
+//! files from before Throne of Destiny (Classic) or the later ones (Modern).
 //!
 //! Three preferences choose, [`GROUND`], [`SKY`] and [`OBJECTS`], each holding a [`RegionStyle`] or
 //! [`WORLD_DEFAULT`] (the world's own). They are registered in the option value store beside the
@@ -32,7 +32,7 @@ pub const SKY: &str = crate::options::names::SKY;
 pub const OBJECTS: &str = crate::options::names::OBJECTS;
 
 /// The value all three preferences hold for "the world's own": the hardware region of a world from
-/// before Throne of Destiny (Legacy Blend and its sky), the one region of a later world (Modern).
+/// before Throne of Destiny (Classic Blend and its sky), the one region of a later world (Modern).
 pub const WORLD_DEFAULT: i32 = 0;
 
 /// One of the three regions a ground or a sky can be drawn from.
@@ -80,7 +80,7 @@ impl RegionStyle {
     pub const fn ground_label(self) -> &'static str {
         match self {
             Self::LegacySoftware => "Palette Shift",
-            Self::LegacyHardware => "Legacy Blend",
+            Self::LegacyHardware => "Classic Blend",
             Self::Late => "Modern Blend",
         }
     }
@@ -89,8 +89,8 @@ impl RegionStyle {
     #[must_use]
     pub const fn sky_label(self) -> &'static str {
         match self {
-            Self::LegacySoftware => "Legacy Software",
-            Self::LegacyHardware => "Legacy Hardware",
+            Self::LegacySoftware => "Classic Software",
+            Self::LegacyHardware => "Classic Hardware",
             Self::Late => "Modern",
         }
     }
@@ -208,7 +208,7 @@ impl Landscape {
             Self::Ground => style.ground_label(),
             Self::Sky => style.sky_label(),
             Self::Objects => match style {
-                RegionStyle::LegacySoftware | RegionStyle::LegacyHardware => "Legacy",
+                RegionStyle::LegacySoftware | RegionStyle::LegacyHardware => "Classic",
                 RegionStyle::Late => "Modern",
             },
         }
@@ -230,13 +230,13 @@ impl Landscape {
         match (self, style) {
             (_, None) => "World",
             (Self::Ground, Some(RegionStyle::LegacySoftware)) => "PaletteShift",
-            (Self::Ground, Some(RegionStyle::LegacyHardware)) => "LegacyBlend",
+            (Self::Ground, Some(RegionStyle::LegacyHardware)) => "ClassicBlend",
             (Self::Ground, Some(RegionStyle::Late)) => "ModernBlend",
-            (Self::Sky, Some(RegionStyle::LegacySoftware)) => "LegacySoftware",
-            (Self::Sky, Some(RegionStyle::LegacyHardware)) => "LegacyHardware",
+            (Self::Sky, Some(RegionStyle::LegacySoftware)) => "ClassicSoftware",
+            (Self::Sky, Some(RegionStyle::LegacyHardware)) => "ClassicHardware",
             (Self::Sky, Some(RegionStyle::Late)) => "Modern",
             (Self::Objects, Some(RegionStyle::LegacySoftware | RegionStyle::LegacyHardware)) => {
-                "Legacy"
+                "Classic"
             }
             (Self::Objects, Some(RegionStyle::Late)) => "Modern",
         }
@@ -250,9 +250,12 @@ pub const WORLD_DEFAULT_LABEL: &str = "World Default";
 /// `None` a value that names neither (which leaves the preference where it was).
 ///
 /// Every spelling of any of the three preferences is read for all three, in any case and with or
-/// without spaces: the file words, the option labels, and the three this client wrote before the
-/// styles had names. `legacy` is the older hardware region (the objects' one older look). Of those, `software` was the palette-shift region and `later` the end-of-retail ground,
-/// and `hardware` was the world's own hardware region, which is the world's default.
+/// without spaces: the file words, the option labels, the words and labels this client used
+/// before the older styles were named Classic (`LegacyBlend`, `Legacy Software`, `Legacy` and the
+/// rest), and the three it wrote before the styles had names. `classic` (and `legacy`) is the
+/// older hardware region (the objects' one older look). Of the three, `software` was the
+/// palette-shift region and `later` the end-of-retail ground, and `hardware` was the world's own
+/// hardware region, which is the world's default.
 #[must_use]
 pub fn parse(raw: &str) -> Option<Option<RegionStyle>> {
     let word: String = raw
@@ -262,8 +265,11 @@ pub fn parse(raw: &str) -> Option<Option<RegionStyle>> {
         .collect();
     Some(match word.as_str() {
         "world" | "worlddefault" | "default" | "hardware" => None,
-        "paletteshift" | "legacysoftware" | "software" => Some(RegionStyle::LegacySoftware),
-        "legacyblend" | "legacyhardware" | "legacy" => Some(RegionStyle::LegacyHardware),
+        "paletteshift" | "classicsoftware" | "legacysoftware" | "software" => {
+            Some(RegionStyle::LegacySoftware)
+        }
+        "classicblend" | "classichardware" | "classic" | "legacyblend" | "legacyhardware"
+        | "legacy" => Some(RegionStyle::LegacyHardware),
         "modernblend" | "modern" | "later" => Some(RegionStyle::Late),
         _ => return None,
     })
@@ -360,6 +366,7 @@ mod tests {
         assert_eq!(parse("hardware"), Some(None));
         assert_eq!(parse("World Default"), Some(None));
         assert_eq!(parse("tod"), None);
+        assert_eq!(parse_value(GROUND, "Classic Blend"), Some(2));
         assert_eq!(parse_value(GROUND, "Legacy Blend"), Some(2));
         assert_eq!(parse_value(SKY, "3"), Some(3));
         assert_eq!(parse_value(SKY, "7"), None);
@@ -381,8 +388,57 @@ mod tests {
         );
         assert_eq!(
             convert_to_string(SKY, &PrefValue::Int(1)).as_deref(),
-            Some("LegacySoftware")
+            Some("ClassicSoftware")
         );
+    }
+
+    /// The older styles are named Classic in every list and saved file; the words the client
+    /// saved before that still read as the same styles.
+    #[test]
+    fn the_older_styles_are_named_classic_and_their_earlier_legacy_words_still_read() {
+        let labels = |name| -> Vec<String> {
+            choice_rows(name)
+                .expect("rows")
+                .into_iter()
+                .map(|r| r.label)
+                .collect()
+        };
+        assert_eq!(
+            labels(SKY),
+            [
+                "World Default",
+                "Classic Software",
+                "Classic Hardware",
+                "Modern"
+            ]
+        );
+        for name in [GROUND, SKY, OBJECTS] {
+            for v in [0, 1, 2, 3] {
+                if let Some(text) = convert_to_string(name, &PrefValue::Int(v)) {
+                    assert!(!text.contains("Legacy"), "{name} {v} saves as {text}");
+                }
+            }
+            assert!(labels(name).iter().all(|l| !l.contains("Legacy")));
+        }
+        assert_eq!(
+            convert_to_string(GROUND, &PrefValue::Int(2)).as_deref(),
+            Some("ClassicBlend")
+        );
+        assert_eq!(
+            convert_to_string(SKY, &PrefValue::Int(2)).as_deref(),
+            Some("ClassicHardware")
+        );
+        for (name, old, v) in [
+            (GROUND, "LegacyBlend", 2),
+            (GROUND, "Legacy Blend", 2),
+            (SKY, "LegacySoftware", 1),
+            (SKY, "Legacy Software", 1),
+            (SKY, "LegacyHardware", 2),
+            (SKY, "Legacy Hardware", 2),
+            (OBJECTS, "Legacy", 2),
+        ] {
+            assert_eq!(parse_value(name, old), Some(v), "{name} {old}");
+        }
     }
 
     /// The list a front end shows: the world's own first, then the three in order.
@@ -395,7 +451,7 @@ mod tests {
             [
                 "World Default",
                 "Palette Shift",
-                "Legacy Blend",
+                "Classic Blend",
                 "Modern Blend"
             ]
         );
@@ -406,13 +462,13 @@ mod tests {
         assert!(choice_rows("Display.Resolution").is_none());
     }
 
-    /// The object mode lists the world's own, Legacy and Modern; it saves as one word per value
+    /// The object mode lists the world's own, Classic and Modern; it saves as one word per value
     /// and reads either older style as its one older look.
     #[test]
-    fn the_object_mode_offers_legacy_and_modern_and_reads_any_older_style_as_legacy() {
+    fn the_object_mode_offers_classic_and_modern_and_reads_any_older_style_as_classic() {
         let rows = choice_rows(OBJECTS).expect("rows");
         let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(labels, ["World Default", "Legacy", "Modern"]);
+        assert_eq!(labels, ["World Default", "Classic", "Modern"]);
         assert_eq!(rows.iter().map(|r| r.value).collect::<Vec<_>>(), [0, 2, 3]);
         for v in [0, 2, 3] {
             let text = convert_to_string(OBJECTS, &PrefValue::Int(v)).expect("the objects");
@@ -420,8 +476,9 @@ mod tests {
         }
         assert_eq!(
             convert_to_string(OBJECTS, &PrefValue::Int(2)).as_deref(),
-            Some("Legacy")
+            Some("Classic")
         );
+        assert_eq!(parse_value(OBJECTS, "classic"), Some(2));
         assert_eq!(parse_value(OBJECTS, "legacy"), Some(2));
         assert_eq!(parse_value(OBJECTS, "Legacy Software"), Some(2));
         assert_eq!(parse_value(OBJECTS, "1"), Some(2));

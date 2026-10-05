@@ -399,7 +399,7 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
     store::init();
     let mut app = client(
         dereth_dat::testing::dat_dir(),
-        vec![(3, "Render.Objects=Legacy".to_string())],
+        vec![(3, "Render.Objects=Classic".to_string())],
     );
     let before = app.objects().world.scroll.added;
     for _ in 0..4 {
@@ -431,7 +431,7 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
     store::init();
     let mut app = client(
         dereth_dat::testing::both_sets_dir(),
-        vec![(3, "Render.Objects=Legacy".to_string())],
+        vec![(3, "Render.Objects=Classic".to_string())],
     );
     for _ in 0..3 {
         assert!(app.frame());
@@ -649,7 +649,7 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
         ui: false,
         preferences_file: std::env::temp_dir().join("dereth-object-modes-not-created/prefs.ini"),
         dat_dir: dereth_dat::testing::both_sets_dir(),
-        set_at: vec![(3, "Render.Objects=Legacy".to_string())],
+        set_at: vec![(3, "Render.Objects=Classic".to_string())],
         object_identity_ms: Some(3),
         ..dereth_client_runtime::config::Config::default()
     };

@@ -579,7 +579,7 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
         [
             "World Default",
             "Palette Shift",
-            "Legacy Blend",
+            "Classic Blend",
             "Modern Blend"
         ]
     );
@@ -589,14 +589,14 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
         texts,
         [
             "World Default",
-            "Legacy Software",
-            "Legacy Hardware",
+            "Classic Software",
+            "Classic Hardware",
             "Modern"
         ]
     );
     let objects = control(&s.config_page, landscape::OBJECTS);
     let texts: Vec<String> = rows(&mut ui, objects).into_iter().map(|(t, _)| t).collect();
-    assert_eq!(texts, ["World Default", "Legacy", "Modern"]);
+    assert_eq!(texts, ["World Default", "Classic", "Modern"]);
     assert_eq!(
         store::inq_value(landscape::GROUND),
         Some(PrefValue::Int(landscape::WORLD_DEFAULT))

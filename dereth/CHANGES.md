@@ -42,8 +42,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - A world can keep its own changes to the data files: the client keeps them in a separate overlay
   for that world and never alters the installed files. One data folder (`--dat-dir`) holds both the
   later and the early-2005 sets; `--classic-dat-dir` names another folder for the early set.
-- Terrain Mode (Palette Shift, Legacy Blend, Modern Blend) and Sky Mode (Legacy Software, Legacy
-  Hardware, Modern) draw any world's ground and sky in another era's style, given the older data
+- Terrain Mode (Palette Shift, Classic Blend, Modern Blend) and Sky Mode (Classic Software,
+  Classic Hardware, Modern) draw any world's ground and sky in another era's style, given the older data
   files. Object Mode draws the world's objects, buildings, rooms and bodies, the paper doll
   included, in another era's look, switched live.
 - Landscape Detail Textures lays the fine ground texture over nearby land, as the clients of 2005

@@ -1072,7 +1072,7 @@ mod tests {
             [
                 ("World Default".into(), 0),
                 ("Palette Shift".into(), 1),
-                ("Legacy Blend".into(), 2),
+                ("Classic Blend".into(), 2),
                 ("Modern Blend".into(), 3)
             ]
         );

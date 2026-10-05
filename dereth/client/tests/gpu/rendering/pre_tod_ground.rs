@@ -1,4 +1,4 @@
-//! The ground of a world from before Throne of Destiny: Legacy Blend (its hardware region),
+//! The ground of a world from before Throne of Destiny: Classic Blend (its hardware region),
 //! Palette Shift (its software region) and Modern Blend (the end-of-retail ground).
 //!
 //! An older dat set carries two regions, and the clients of the time took the texture-merge one

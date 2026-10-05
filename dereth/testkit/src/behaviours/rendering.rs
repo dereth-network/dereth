@@ -626,7 +626,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "rendering.objects.an-object-mode-without-its-files-is-refused",
-        says: "Choosing the Legacy object mode without the older data files leaves the objects \
+        says: "Choosing the Classic object mode without the older data files leaves the objects \
                drawn as they were, puts the option back, and tells the player in the chat window \
                that the object mode requires legacy DATs.",
         since: THIS_CLIENT,

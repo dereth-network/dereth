@@ -1,4 +1,4 @@
-//! The ground and sky styles: Palette Shift, Legacy Blend and Modern Blend, and the three skies,
+//! The ground and sky styles: Palette Shift, Classic Blend and Modern Blend, and the three skies,
 //! on any world and switched while it is drawn.
 //!
 //! The region alone decides how the ground and the sky look; the cells give heights, terrain
@@ -117,7 +117,7 @@ fn moved(a: &[u8], b: &[u8]) -> usize {
 }
 
 /// Behaviour: rendering.terrain.a-ground-style-switch-rebuilds-the-ground-while-the-world-is-drawn
-/// The end-of-retail world, drawn with its own ground, is switched to Palette Shift, then Legacy
+/// The end-of-retail world, drawn with its own ground, is switched to Palette Shift, then Classic
 /// Blend, then back to its own, through the same per-frame preference poll the options page
 /// reaches. Each switch rebuilds every resident block with the new land surface (palette shift
 /// composes on the CPU, the other two texture-merge) and the ground's pixels change; switching
@@ -175,7 +175,7 @@ fn a_ground_switch_rebuilds_every_resident_block_and_switching_back_restores_the
     let legacy_moved = moved(&own_px, &legacy_px);
     assert!(
         legacy_moved > 10_000,
-        "Legacy Blend looks like the world's own: {legacy_moved}"
+        "Classic Blend looks like the world's own: {legacy_moved}"
     );
     assert!(moved(&palette_px, &legacy_px) > 10_000);
 
@@ -199,7 +199,7 @@ fn a_ground_switch_rebuilds_every_resident_block_and_switching_back_restores_the
         "a ground switch changed the scenery"
     );
     eprintln!(
-        "ground switch: Palette Shift moved {palette_moved}, Legacy Blend {legacy_moved} of {} \
+        "ground switch: Palette Shift moved {palette_moved}, Classic Blend {legacy_moved} of {} \
          bytes; back to the world's own moved 0",
         own_px.len()
     );
@@ -208,7 +208,7 @@ fn a_ground_switch_rebuilds_every_resident_block_and_switching_back_restores_the
 /// Behaviour: rendering.terrain.every-ground-and-sky-style-draws-the-end-of-retail-world
 /// Loaded with each of the three grounds and each of the three skies, the end-of-retail world is
 /// drawn every time with its own scenery, buildings and objects. Modern Blend and the Modern sky
-/// are the world's own and draw its own frame; Palette Shift palette-shifts and Legacy Blend
+/// are the world's own and draw its own frame; Palette Shift palette-shifts and Classic Blend
 /// texture-merges from the February 2005 files. The February 2005 hardware sky carries the same
 /// light as the end-of-retail sky, so the ground is lit alike under the two, and the software sky
 /// carries different light.
@@ -300,7 +300,7 @@ fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
 }
 
 /// Behaviour: rendering.terrain.a-style-without-its-files-is-refused-and-the-world-keeps-its-own
-/// With no older files beside the end-of-retail world, choosing Legacy Blend, Palette Shift or an
+/// With no older files beside the end-of-retail world, choosing Classic Blend, Palette Shift or an
 /// older sky is refused: the poll reports which files were wanted, the option goes back to the
 /// world's own, and the frame is the frame it was. A later world's own Modern Blend is always
 /// there.
@@ -356,7 +356,7 @@ fn a_style_without_its_files_is_refused_and_the_world_keeps_its_own() {
 /// The end-of-retail world uses Desolate Lands (type 31) at three vertices, two of them in block
 /// `0xF930`. The end-of-retail region names it; the February 2005 regions name 31 types and draw
 /// any other with a filler. With Modern Blend the block's ground is the region's own for every
-/// type; with Legacy Blend type 31 is not among the drawn types and those vertices are drawn as
+/// type; with Classic Blend type 31 is not among the drawn types and those vertices are drawn as
 /// their neighbours (Forest Floor and Barren Rock) are.
 #[test]
 fn a_terrain_type_the_ground_region_does_not_name_takes_its_neighbours_ground() {
@@ -446,7 +446,7 @@ fn client(dat_dir: std::path::PathBuf, set_at: Vec<(u64, String)>) -> dereth_cli
 }
 
 /// Behaviour: rendering.terrain.a-style-without-its-files-is-refused-and-the-world-keeps-its-own
-/// In the running client, choosing Legacy Blend and the Legacy Software sky on the end-of-retail
+/// In the running client, choosing Classic Blend and the Classic Software sky on the end-of-retail
 /// world with no older files beside it leaves the world's own ground and sky, puts the two options
 /// back to the world's own, and tells the player in the chat window: "This terrain mode requires
 /// legacy DATs" and "This sky requires legacy DATs".
@@ -457,8 +457,8 @@ fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() 
     let mut app = client(
         dereth_dat::testing::dat_dir(),
         vec![
-            (3, "Render.Ground=Legacy Blend".to_string()),
-            (3, "Render.Sky=LegacySoftware".to_string()),
+            (3, "Render.Ground=Classic Blend".to_string()),
+            (3, "Render.Sky=ClassicSoftware".to_string()),
         ],
     );
     let before = app.objects().world.scroll.added;
@@ -540,7 +540,7 @@ fn the_client_switches_the_ground_when_the_option_changes() {
 
 /// Behaviour: rendering.terrain.the-detail-textures-follow-the-drawn-ground-style
 /// With the landscape and environment detail textures on, every ground style draws them. They are
-/// taken from the drawn style's region when it names them (Legacy Blend: the February 2005
+/// taken from the drawn style's region when it names them (Classic Blend: the February 2005
 /// hardware region's, eight times a cell for the ground and three for buildings; Modern Blend: the
 /// end-of-retail region's, four and four), and from the world's own region when it does not
 /// (Palette Shift on the end-of-retail world: four and four). Palette Shift's ground moves when
