@@ -24,3 +24,8 @@
 version = "0.1.0"
 upgrades_from = "0.1.0"
 notes = "The first release: its database schemas are version 1."
+
+[[release]]
+version = "0.2.0"
+upgrades_from = "0.1.2"
+notes = "No database migration and no world pack rebuild. New optional sections: [era] (the default plays the end of retail, as before) and [dat_overlay]. A world on the February 2005 data files needs a pack built with empyrean-import --era infiltration."
