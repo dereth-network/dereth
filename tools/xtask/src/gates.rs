@@ -183,6 +183,15 @@ pub const GATES: &[Gate] = &[
         ],
         harnesses: &[],
     },
+    Gate {
+        name: "scenarios",
+        title: "The behaviour scenarios",
+        // `dereth-testkit`'s scenarios drive a real `App` through recorded sessions and the
+        // retail dats: its `dat` binary is the end-to-end claim that the behaviour rows hold, so
+        // the data tier runs it. Its `cpu` binary and lib tests need no dats.
+        crates: &["dereth-testkit"],
+        harnesses: &[],
+    },
 ];
 
 fn find(name: &str) -> Option<&'static Gate> {
@@ -268,6 +277,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         | "dereth-world-render"
         | "xtask"
         | "dereth-client-runtime"
+        | "dereth-testkit"
         | "dereth-world-data" => &["retail-dats"],
         _ => &[],
     }
@@ -301,6 +311,8 @@ fn serialised_gpu_split(krate: &str) -> Option<(&'static [&'static str], &'stati
     match krate {
         "dereth-client" => Some((&["--lib", "--bins"], &["cpu", "dat", "gpu"])),
         "dereth-render" => Some((&["--lib", "--examples"], &["cpu", "gpu"])),
+        // No `gpu` binary: split so its `dat` binary can be sharded like the client's.
+        "dereth-testkit" => Some((&["--lib"], &["cpu", "dat"])),
         _ => None,
     }
 }
@@ -322,9 +334,13 @@ fn serialised_gpu_split(krate: &str) -> Option<(&'static [&'static str], &'stati
 /// count from the host's cores (`DERETH_TEST_SHARDS` overrides it) and deals modules by their
 /// recorded time. `dereth-render`'s `gpu` binary is a handful of tests and stays one process.
 ///
-/// `dereth-testkit`'s `dat` binary is sharded by the sweep too, and is not here because
-/// `dereth-testkit` is in no gate -- it is test support (see `Cargo.toml`).
-const SHARDED_TIERS: &[(&str, &str)] = &[("dereth-client", "dat"), ("dereth-client", "gpu")];
+/// `dereth-testkit`'s `dat` binary is sharded the same way: its scenarios share the client's dat
+/// reading, and with it the same within-process heap defect.
+const SHARDED_TIERS: &[(&str, &str)] = &[
+    ("dereth-client", "dat"),
+    ("dereth-client", "gpu"),
+    ("dereth-testkit", "dat"),
+];
 
 /// How a gate runs the binaries that must not run their tests in parallel with themselves.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -452,7 +468,9 @@ fn test_invocations(
                 if *binary == "gpu" {
                     call.push("--".into());
                     call.push("--test-threads=1".into());
-                } else if *binary == "dat" && krate == "dereth-client" {
+                } else if *binary == "dat"
+                    && (krate == "dereth-client" || krate == "dereth-testkit")
+                {
                     // dereth-client's `dat` binary fail-fasts with STATUS_HEAP_CORRUPTION
                     // (0xC0000374) at libtest's default thread count (32 on the reference machine)
                     // and still crashed two runs in three at eight threads under load, so the cap
@@ -649,7 +667,7 @@ mod tests {
     /// The gate catalogue is what this unit measured.
     #[test]
     fn the_gate_catalogue_is_what_this_unit_measured() {
-        assert_eq!(GATES.len(), 15, "fifteen areas");
+        assert_eq!(GATES.len(), 16, "sixteen areas");
         let harnesses: usize = GATES.iter().map(|g| g.harnesses.len()).sum();
         assert_eq!(harnesses, 0, "every oracle is a crate's own test tier");
         let retail_harnesses: Vec<&str> = GATES
