@@ -141,7 +141,7 @@ impl Presentation for SimPresentation {
         store: &Arc<RetailDatStore>,
         cfg: SceneConfig,
         world: &mut Option<WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         let _ = self.device.load_world(store, cfg, world);
         let (ws, residency) = crate::world_build::load(store, &cfg)?;
         *world = Some(ws);
@@ -160,7 +160,7 @@ impl Presentation for SimPresentation {
         &mut self,
         store: &RetailDatStore,
         world: Option<&mut WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         let _ = self.device.stream_world(store, None);
         if let (Some(ws), Some(sim)) = (world, self.world.as_mut()) {
             sim.residency.stream(ws, store, &sim.cfg);
@@ -173,7 +173,7 @@ impl Presentation for SimPresentation {
         store: &Arc<RetailDatStore>,
         stream: &mut crate::objects::ObjectStream,
         world: Option<&mut WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         let _ = self.device.sync_objects(store, stream, None);
         if let (Some(ws), Some(sim)) = (world, self.world.as_ref()) {
             let Ok(()) = crate::world_objects::sync_objects(
@@ -193,7 +193,7 @@ impl Presentation for SimPresentation {
         store: &Arc<RetailDatStore>,
         stream: &mut crate::objects::ObjectStream,
         world: Option<&mut WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         let _ = self.device.prepare_object_dispatch(store, stream, None);
         if let (Some(ws), Some(sim)) = (world, self.world.as_ref()) {
             let Ok(()) = crate::world_objects::prepare_object_dispatch(
@@ -212,7 +212,7 @@ impl Presentation for SimPresentation {
         &mut self,
         store: &RetailDatStore,
         _world: Option<&mut WorldState>,
-    ) -> Result<crate::frame_events::RenderPrefWork, crate::landblock::WorldError> {
+    ) -> Result<crate::frame_events::RenderPrefWork, dereth_world_data::landblock::WorldError> {
         self.device.update_render_preferences(store, None)
     }
 

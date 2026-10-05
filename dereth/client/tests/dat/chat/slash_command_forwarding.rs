@@ -372,8 +372,7 @@ fn a_typed_pose_reaches_the_local_body_and_the_wire() {
     use dereth_protocol::objects::ItemCreateObject;
     use dereth_protocol::{Message, Opcode};
     use {
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-        dereth_client_runtime::scene::SceneConfig,
+        dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     /// long-solo-play's own character.

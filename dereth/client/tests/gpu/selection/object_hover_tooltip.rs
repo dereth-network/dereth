@@ -52,9 +52,7 @@ use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
 use dereth_ui::{ElemHandle, UiDrawCmd, UiSystem};
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// Recorded visible-state mask that un-hides the player at login; applied here with a fresh stamp.

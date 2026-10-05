@@ -59,7 +59,7 @@ fn station(
     cell: u32,
     gate: bool,
 ) -> (usize, Option<(i32, i32)>) {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock,
         start_cell: Some(CellId(cell)),
@@ -233,8 +233,7 @@ fn an_outdoor_viewer_still_re_centres() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
     let mut run = |gate: bool| -> (Option<(i32, i32)>, Option<(i32, i32)>) {
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             indoor_viewpoint_gate: gate,
             ..SceneConfig::default()
@@ -243,7 +242,7 @@ fn an_outdoor_viewer_still_re_centres() {
         scene
             .attach_character(&store, &region, &mut gpu)
             .expect("the body is created");
-        let home = dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
+        let home = dereth_world_data::landblock::DEFAULT_LANDBLOCK;
         let (hx, hy) = block_xy(home);
         let sim = |scene: &mut WorldScene, n: u32| {
             for i in 0..n {
@@ -320,8 +319,7 @@ fn the_gate_is_seen_outside_and_not_merely_indoors() {
     );
 
     let mut run = |gate: bool| -> Option<(i32, i32)> {
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: SEEN_OUTSIDE_BLOCK,
             start_cell: Some(CellId(SEEN_OUTSIDE_CELL)),
@@ -515,8 +513,7 @@ mod teleport_into_a_dungeon {
         cell: u32,
         base: SceneConfig,
     ) -> Arrival {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: from,
             start_cell: start_cell.map(CellId),

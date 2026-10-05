@@ -2,11 +2,11 @@ use dereth_client_contract::UiRequest;
 use dereth_client_model::inventory::requests::InventoryRequest;
 use dereth_client_model::inventory::use_object::{UseOutcome, UseResult};
 use dereth_client_model::inventory::SplitState;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{NullSink, RecordingRequests, RecordingSink, Request, World};
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_protocol::types::PublicWeenieDesc;
 use dereth_testkit::{ClientSpec, HeadlessClient, Player};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 /// The player these scenarios are of.
 const ME: ObjectId = ObjectId(0x5000_0001);

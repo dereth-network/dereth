@@ -1,7 +1,6 @@
-//! The landblock and region identities, re-exported from `dereth_world_data::landblock`, and the
-//! one item defined here: `block_shift`, which is the renderer's viewer-block-relative space.
+//! The renderer's viewer-block-relative coordinate offset.
 
-pub use dereth_world_data::landblock::*;
+use dereth_world_data::landblock::block_xy;
 
 /// Absolute world coordinates -> the renderer's viewer-block-relative space.
 ///

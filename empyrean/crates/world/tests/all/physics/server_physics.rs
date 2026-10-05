@@ -2346,13 +2346,13 @@ mod motion {
                     vec![AnimHook {
                         hook_type: 3,
                         direction: 0,
-                        data: HookData::Attack {
+                        data: HookData::Attack(dereth_primitives::records::AttackCone {
                             part_index: 7,
                             left: (0.0, 0.0),
                             right: (0.0, 0.0),
                             radius: 1.0,
                             height: 1.0,
-                        },
+                        }),
                     }]
                 } else {
                     Vec::new()
@@ -2502,7 +2502,7 @@ mod motion {
         assert!((frames[0].0 - 6.0 / 15.0).abs() < 1e-6, "{}", frames[0].0);
         assert!(matches!(
             frames[0].1.data,
-            HookData::Attack { part_index: 7, .. }
+            HookData::Attack(dereth_primitives::records::AttackCone { part_index: 7, .. })
         ));
         // C: ten 1 m frames, 10 m over 10 frames at 30 frames/s
         assert_eq!(mt::get_run_speed(&w, MT), 30.0);

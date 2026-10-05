@@ -5,7 +5,7 @@
 
 use dereth_primitives::CellId;
 
-use crate::landblock::DEFAULT_LANDBLOCK;
+use dereth_world_data::landblock::DEFAULT_LANDBLOCK;
 
 /// What the scene is built from. Every field has a command-line switch; the defaults put a
 /// fixed camera over Holtburg, which is what the headless capture regression-tests.

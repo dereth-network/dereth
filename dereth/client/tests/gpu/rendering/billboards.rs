@@ -548,7 +548,7 @@ fn a_mode_five_card_turns_as_the_camera_orbits_and_a_mode_one_static_never_does(
             moved += usize::from(a.draw_pos != b.draw_pos);
             if a.mode == DegradeMode::AxisZ {
                 // Mode 5 keeps the card upright: `l2g(draw_pos.rotation)`'s local Z stays (0,0,1).
-                let m = dereth_world_render::math::l2g(a.draw_pos.rotation).0;
+                let m = dereth_terrain::math::l2g(a.draw_pos.rotation).0;
                 assert!(
                     (m[8] - 1.0).abs() < 1e-3,
                     "a mode-5 card is not upright: {:?} m[8] = {}",

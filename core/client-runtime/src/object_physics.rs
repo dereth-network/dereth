@@ -61,11 +61,8 @@ fn with_hidden_collision_side_effects(
     incoming
 }
 
-/// A setup record's collision half with its parts, and the part-mesh bounds it reads. They live
-/// in `dereth_world_data::setup` and are re-exported here for existing callers.
-pub use dereth_world_data::setup::{
-    drawing_sphere, first_degrade_mode, gfx_bound_box, setup_geometry_with_parts,
-    setup_geometry_with_parts_at, simple_setup_geometry, SetupPartStats, PLACEMENT_FRAME_DEFAULT,
+use dereth_world_data::setup::{
+    setup_geometry_with_parts_at, simple_setup_geometry, SetupPartStats,
 };
 
 /// The gameplay-object facts used by cell-entry restrictions, built from the

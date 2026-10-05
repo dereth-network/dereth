@@ -34,7 +34,7 @@ fn default_dir() -> &'static str {
 fn render_the_recorded_pose_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),
@@ -142,7 +142,7 @@ fn shot(
     tag: &str,
 ) -> Option<()> {
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),

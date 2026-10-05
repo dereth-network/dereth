@@ -103,40 +103,38 @@ impl Previews {
                     &bytes,
                 )
                 .map_err(|e| e.to_string())?;
-                let pick =
-                    dereth_client_runtime::object_physics::drawing_sphere(&mesh).map(|sphere| {
-                        let polygons = mesh
-                            .polygons
-                            .iter()
-                            .filter_map(|p| {
-                                let vertices: Option<Vec<_>> = p
-                                    .vertex_ids
-                                    .iter()
-                                    .map(|id| {
-                                        mesh.vertex_array
-                                            .vertices
-                                            .get(*id as usize)
-                                            .map(|v| v.position)
-                                    })
-                                    .collect();
-                                let vertices = vertices?;
-                                if vertices.len() < 3 {
-                                    return None;
-                                }
-                                let plane =
-                                    dereth_physics::geom::Polygon::new(vertices.clone()).plane;
-                                Some(PickPolygon {
-                                    plane,
-                                    vertices,
-                                    sides_type: p.sides_type,
+                let pick = dereth_world_data::setup::drawing_sphere(&mesh).map(|sphere| {
+                    let polygons = mesh
+                        .polygons
+                        .iter()
+                        .filter_map(|p| {
+                            let vertices: Option<Vec<_>> = p
+                                .vertex_ids
+                                .iter()
+                                .map(|id| {
+                                    mesh.vertex_array
+                                        .vertices
+                                        .get(*id as usize)
+                                        .map(|v| v.position)
                                 })
+                                .collect();
+                            let vertices = vertices?;
+                            if vertices.len() < 3 {
+                                return None;
+                            }
+                            let plane = dereth_physics::geom::Polygon::new(vertices.clone()).plane;
+                            Some(PickPolygon {
+                                plane,
+                                vertices,
+                                sides_type: p.sides_type,
                             })
-                            .collect();
-                        PickMesh {
-                            sphere: (sphere.center, sphere.radius),
-                            polygons,
-                        }
-                    });
+                        })
+                        .collect();
+                    PickMesh {
+                        sphere: (sphere.center, sphere.radius),
+                        polygons,
+                    }
+                });
                 self.pick_meshes.insert(did, pick);
             }
         }

@@ -766,7 +766,7 @@ mod imp {
                 let Ok(g) = dereth_assets::GfxObj::decode_payload(id, &bytes) else {
                     continue;
                 };
-                let b = dereth_client_runtime::object_physics::gfx_bound_box(&g);
+                let b = dereth_world_data::setup::gfx_bound_box(&g);
                 let s = part.gfxobj_scale;
                 let local = dereth_physics::geom::BBox::new(
                     Vec3::new(b.min.x * s.x, b.min.y * s.y, b.min.z * s.z),
@@ -1054,7 +1054,7 @@ mod imp {
         /// Set the preview object's heading in degrees.
         pub fn set_heading(&mut self, i: usize, degrees: f32) {
             if let Some(o) = self.objects.get_mut(i) {
-                dereth_world_render::math::set_heading(&mut o.frame, degrees);
+                dereth_terrain::math::set_heading(&mut o.frame, degrees);
             }
         }
 

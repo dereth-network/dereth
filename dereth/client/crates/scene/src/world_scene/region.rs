@@ -112,7 +112,7 @@ pub(super) fn ground_for(
         return Ok(GroundChoice {
             ground: None,
             files: None,
-            drawn: dereth_world_render::land::fill::drawn_terrain_types(
+            drawn: dereth_terrain::land::fill::drawn_terrain_types(
                 &region.land_surf,
                 region.terrain_types.len(),
             ),
@@ -129,10 +129,8 @@ pub(super) fn ground_for(
     }
     // The types the style's own region names, which its land surface draws with pictures of
     // their own.
-    let drawn = dereth_world_render::land::fill::drawn_terrain_types(
-        &surf,
-        source.region.terrain_types.len(),
-    );
+    let drawn =
+        dereth_terrain::land::fill::drawn_terrain_types(&surf, source.region.terrain_types.len());
     if source.files.is_none() && surf == region.land_surf {
         return Ok(GroundChoice {
             ground: None,

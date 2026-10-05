@@ -61,6 +61,8 @@ tracing.workspace = true
 dereth-launch.workspace = true
 
 [dev-dependencies]
+dereth-terrain.workspace = true
+dereth-rules.workspace = true
 dereth-client-shell = { workspace = true, features = ["test-support"] }
 dereth-chargen.workspace = true
 dereth-client-contract.workspace = true

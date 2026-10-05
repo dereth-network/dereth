@@ -22,8 +22,7 @@ use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Position, Qu
 use dereth_world_data::env_cells::EnvCellLoader;
 use dereth_world_data::land_source::DatLandSource;
 use {
-    dereth_client_runtime::object_physics::setup_geometry_with_parts,
-    dereth_client_runtime::object_physics::SetupPartStats,
+    dereth_world_data::setup::setup_geometry_with_parts, dereth_world_data::setup::SetupPartStats,
 };
 
 use collision_probe::{in_the_room, inside_object};
@@ -357,7 +356,7 @@ fn doorway_pair(
 #[test]
 fn an_interior_doorway_presents_the_same_surface_to_both_faces() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));

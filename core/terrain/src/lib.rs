@@ -5,7 +5,7 @@
 //! **Depends on** `dereth-primitives` (the vocabulary, the arithmetic policy and the
 //! [`RenderBackend`](dereth_primitives::RenderBackend) seam the merge cache uploads through), the
 //! decoded world records of `dereth-assets` and the block window of `dereth-landscape`. **Used by**
-//! the world drawing (`dereth-world-render`), which re-exports every module here at its old path,
+//! the world drawing (`dereth-world-render`)
 //! and the client runtime's world builder (`dereth-client-runtime`), which places the same scenery
 //! and statics with no device.
 //!

@@ -359,7 +359,7 @@ impl World {
         id: ObjectId,
         phys: &SelectionPhysics,
     ) -> bool {
-        use crate::weenie::bitfield;
+        use dereth_rules::weenie::bitfield;
 
         let Some(w) = self.weenie(id) else {
             return true;
@@ -582,7 +582,7 @@ impl World {
         radar_radius: f32,
         out: &mut dyn NoticeSink,
     ) {
-        use crate::weenie::bitfield;
+        use dereth_rules::weenie::bitfield;
 
         // Selected id, else previous selected id. Both may be absent, and
         // the id is still used as `farther`'s tiebreak below even when the object is gone.

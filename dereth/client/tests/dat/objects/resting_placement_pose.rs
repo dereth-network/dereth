@@ -20,11 +20,10 @@ use {
     dereth_client_runtime::models::resolve_parts, dereth_client_runtime::models::PLACEMENT_DEFAULT,
     dereth_client_runtime::models::PLACEMENT_RESTING,
 };
-use {
-    dereth_client_runtime::object_physics::setup_geometry_with_parts,
-    dereth_client_runtime::object_physics::SetupPartStats,
-};
 use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
+use {
+    dereth_world_data::setup::setup_geometry_with_parts, dereth_world_data::setup::SetupPartStats,
+};
 
 /// Starter-area entry 0, "Holtburg": the training-academy block.
 const TRAINING_DUNGEON: u16 = 0x8602;

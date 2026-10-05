@@ -501,7 +501,7 @@ mod tests {
     /// sky is drawn, when the alpha-delay mask is zero, or while a detail surface is installed.
     #[test]
     fn the_alpha_lists_are_bypassed_for_the_sky_a_zero_mask_and_a_detail_surface() {
-        const SHIPPED: u32 = crate::consts::S_ALPHA_DELAY_MASK;
+        const SHIPPED: u32 = dereth_terrain::consts::S_ALPHA_DELAY_MASK;
         assert!(mesh_draw_defers(false, SHIPPED, false));
         assert!(!mesh_draw_defers(true, SHIPPED, false), "the sky");
         assert!(!mesh_draw_defers(false, 0, false), "a zero delay mask");
@@ -514,9 +514,9 @@ mod tests {
     /// The multipass arm defers and draws and the delay mask arm only defers.
     #[test]
     fn the_multipass_arm_defers_and_draws_and_the_delay_mask_arm_only_defers() {
-        const SHIPPED: u32 = crate::consts::S_ALPHA_DELAY_MASK; // 0x0E
-                                                                // At the shipped mask the two arms pick the SAME list, which is why the list alone cannot
-                                                                // measure this preference.
+        const SHIPPED: u32 = dereth_terrain::consts::S_ALPHA_DELAY_MASK; // 0x0E
+                                                                         // At the shipped mask the two arms pick the SAME list, which is why the list alone cannot
+                                                                         // measure this preference.
         assert_eq!(classify_subset(8, SHIPPED, false), Some(AlphaList::Clip));
         assert_eq!(classify_subset(8, SHIPPED, true), Some(AlphaList::Clip));
         // The pass count is what differs.
@@ -669,7 +669,7 @@ mod tests {
 
         // The alpha-delay mask is 0x0E in retail, i.e. all three kinds are
         // delayed and only mask 0 draws in place.
-        assert_eq!(crate::consts::S_ALPHA_DELAY_MASK, 0x0E);
+        assert_eq!(dereth_terrain::consts::S_ALPHA_DELAY_MASK, 0x0E);
         for (ty, want) in [
             (0x0000_0100u32, Some(AlphaList::Blend)), // Alpha
             (0x0000_0004, Some(AlphaList::Clip)),     // ClipMap

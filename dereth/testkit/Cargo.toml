@@ -21,6 +21,7 @@ default = []
 retail-dats = []
 
 [dependencies]
+dereth-rules.workspace = true
 dereth-desktop.workspace = true
 dereth-client-shell.workspace = true
 # The client. `App::with_platform(cfg, NullPresentation, Platform::headless(w, h))` is what the
@@ -65,6 +66,7 @@ dereth-client-net = { workspace = true, default-features = true, features = ["te
 dereth-transport.workspace = true
 
 [dev-dependencies]
+dereth-terrain.workspace = true
 dereth-scene.workspace = true
 dereth-world-data.workspace = true
 dereth-chargen.workspace = true

@@ -575,7 +575,9 @@ fn texture_samplers_real_dat_world_draw_observes_preference_without_reupload() {
     ignore = "reads the retail dats: --features retail-dats"
 )]
 fn real_dat_generated_terrain_uses_runtime_mips_without_changing_merge_or_ownership() {
-    use dereth_world_render::land::merge::{fill_temp_tex_buffer, MergeKey};
+    use {
+        dereth_terrain::land::merge::fill_temp_tex_buffer, dereth_terrain::land::merge::MergeKey,
+    };
     let store = store();
     let textures = TextureStore::new(&store);
     let region = load_region(&store).expect("retail region");

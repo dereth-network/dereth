@@ -685,7 +685,7 @@ fn app_installs_the_chat_target_sweep_with_classic_or_no_interface() {
         shell.nearby = Some(id);
         let mut peer = dereth_client_model::Weenie::new(id);
         peer.pwd.name = "Nearby Peer".into();
-        peer.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        peer.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
         app.probe_mut()
             .objects_mut()
             .world

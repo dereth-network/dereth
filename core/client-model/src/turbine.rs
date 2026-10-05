@@ -147,7 +147,7 @@ impl World {
                     return false;
                 };
                 // Predicate is ASCII-only; this byte-preserving spelling does not decode ACP.
-                if !is_message_safe(&dereth_protocol::cp1252::decode(&narrow))
+                if !is_message_safe(&dereth_primitives::text::cp1252::decode(&narrow))
                     || self.chat.is_squelched(sender, "", 1)
                 {
                     return true;
@@ -280,7 +280,7 @@ impl World {
         }
         // The send's wide-string conversion consumes the actual narrow command bytes.
         // The existing message String is their bijective byte spelling, NOT decoded ACP.
-        let Some(bytes) = dereth_protocol::cp1252::encode(text) else {
+        let Some(bytes) = dereth_primitives::text::cp1252::encode(text) else {
             return false;
         };
         let Some(text) = self

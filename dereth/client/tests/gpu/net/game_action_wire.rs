@@ -359,9 +359,9 @@ fn a_failed_send_leaves_no_hole_in_the_action_sequence() {
 fn seed_creature(w: &mut dereth_client_model::World, id: ObjectId) {
     let m = weenie(w, id);
     m.pwd.name = "Mosswart".into();
-    m.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+    m.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
     // `BF_ATTACKABLE`: attackability for a non-player, non-pet creature requires bit 4 of its
     // description flags, not only the creature type. In long-solo-play 44 of 97 creatures carry
     // the bit; the rest are non-combatant NPCs, which the predicate refuses.
-    m.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+    m.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
 }

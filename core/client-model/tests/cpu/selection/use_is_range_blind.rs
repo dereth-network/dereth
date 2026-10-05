@@ -8,12 +8,12 @@ use std::collections::BTreeSet;
 use corpus::Dir;
 use dereth_client_model::inventory::use_object::{ItemUses, UseOutcome, UseResult};
 use dereth_client_model::inventory::SplitState;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{RecordingRequests, RecordingSink, Request, World};
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_protocol::movement::{movement_type, MoveToArm, MovementParameters as WireParams};
 use dereth_protocol::types::PublicWeenieDesc;
 use dereth_protocol::{Message, Reader};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const USEABLE_REMOTE: u32 = 0x20;
 const USEABLE_NO: u32 = 0x01;

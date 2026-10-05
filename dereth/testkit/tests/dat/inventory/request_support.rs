@@ -111,7 +111,7 @@ impl DropHost {
 
     pub(super) fn a_creature(&mut self, id: ObjectId) -> ObjectId {
         let mut w = dereth_client_model::Weenie::new(id);
-        w.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        w.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
         w.pwd.name = "Ulgrim".to_owned();
         self.objects.world.tables.weenies.insert(id, w);
         id

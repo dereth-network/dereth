@@ -90,7 +90,7 @@ fn marker_green(p: &[u8; 4]) -> bool {
 fn the_library_draws_no_red_primitive() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let start = CellId(LIBRARY);
 
     // Stand where the offline client stands and face the marker, so that a marker that is drawn is

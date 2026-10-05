@@ -43,7 +43,7 @@
 //! runtime is the dat's, and the `NUMBERFMTA` pair below is the fallback used only when no asset
 //! source is installed, which is a headless-test condition and not a shipping one.
 
-pub use dereth_client_contract::panels::numfmt::*;
+pub use dereth_presentation::numfmt::*;
 
 /// Read the shipped language-info grouping rule out of `env` and memoise it for [`shipped`].
 ///

@@ -429,7 +429,7 @@ impl<'a, S: Shell> AppProbeMut<'a, S> {
         self,
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         cfg: crate::scene::SceneConfig,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         self.app.present.load_world(store, cfg, &mut self.app.world)
     }
 

@@ -140,7 +140,7 @@ pub(super) fn enchantment(
     key: u32,
     delta: f32,
 ) -> dereth_protocol::types::qualities::Enchantment {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
     dereth_protocol::types::qualities::Enchantment {
         id: u32::from(spell_id),
         category_word: 0,
@@ -170,7 +170,7 @@ fn oracle_takes(
     q: &mut dereth_client_model::Qualities,
     e: &dereth_protocol::types::qualities::Enchantment,
 ) {
-    let ge = dereth_client_model::enchant::Enchantment::from_wire(e, LocalTime(0.0));
+    let ge = dereth_rules::enchant::Enchantment::from_wire(e, LocalTime(0.0));
     assert!(
         q.enchantments.update_enchantment(ge),
         "the oracle's registry took the enchantment"
@@ -321,11 +321,9 @@ pub(super) fn the_footer_title_is_the_name_the_number_and_the_signed_change() {
             .map(|r| (r.skill, r.name.clone()))
             .expect("the recorded character has a trained skill with a row");
 
-        let raw =
-            i64::from(dereth_client_model::skills::inq_skill(&q, &t, skill, true).expect("raw"));
-        let gained = i64::from(
-            dereth_client_model::skills::inq_skill(&q, &t, skill, false).expect("enchanted"),
-        );
+        let raw = i64::from(dereth_rules::skills::inq_skill(&q, &t, skill, true).expect("raw"));
+        let gained =
+            i64::from(dereth_rules::skills::inq_skill(&q, &t, skill, false).expect("enchanted"));
         assert!(
             q.enchantments.vitae.is_none(),
             "the recorded character carries no vitae"
@@ -380,16 +378,14 @@ pub(super) fn the_footer_title_is_the_name_the_number_and_the_signed_change() {
     let mut q2 = q.clone();
     let e = enchantment(
         0x1234,
-        dereth_client_model::enchant::ench_type::SKILL,
+        dereth_rules::enchant::ench_type::SKILL,
         skill,
         -20.0,
     );
     oracle_takes(&mut q2, &e);
-    let raw2 =
-        i64::from(dereth_client_model::skills::inq_skill(&q2, &t, skill, true).expect("raw"));
-    let lost = i64::from(
-        dereth_client_model::skills::inq_skill(&q2, &t, skill, false).expect("enchanted"),
-    );
+    let raw2 = i64::from(dereth_rules::skills::inq_skill(&q2, &t, skill, true).expect("raw"));
+    let lost =
+        i64::from(dereth_rules::skills::inq_skill(&q2, &t, skill, false).expect("enchanted"));
     let down = lost - raw2;
     assert!(
         down < 0,
@@ -569,7 +565,7 @@ fn row_reads(c: &mut HeadlessClient, row: ElemHandle, want: &str, colour: u32) -
 /// **The gate.** Six attribute rows, one raised, one lowered, four untouched: each draws the
 /// number the character actually has, in the colour that says which of the three it is.
 pub(super) fn a_buffed_attribute_row_is_green_a_debuffed_one_red_and_the_rest_white() {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
 
     let mut c = a_recorded_character(SESSION);
     open_the_character_page(&mut c);
@@ -577,15 +573,14 @@ pub(super) fn a_buffed_attribute_row_is_green_a_debuffed_one_red_and_the_rest_wh
 
     // The premise: nothing on this character touches an attribute, so every row starts white.
     let plain = attributes::ATTRIBUTE_ROWS.iter().all(|(stat, _)| {
-        dereth_client_model::attributes::inq_attribute(&q, *stat, true)
-            == dereth_client_model::attributes::inq_attribute(&q, *stat, false)
+        dereth_rules::attributes::inq_attribute(&q, *stat, true)
+            == dereth_rules::attributes::inq_attribute(&q, *stat, false)
     });
     let strength = attribute_row(&c, 1, false);
     let (white, green, red) = value_colours(&mut c, strength);
     let mut started_plain = true;
     for (stat, _) in attributes::ATTRIBUTE_ROWS {
-        let eff =
-            dereth_client_model::attributes::inq_attribute(&q, stat, false).expect("enchanted");
+        let eff = dereth_rules::attributes::inq_attribute(&q, stat, false).expect("enchanted");
         let row = attribute_row(&c, stat, false);
         started_plain &= row_reads(&mut c, row, &eff.to_string(), white);
     }
@@ -602,11 +597,9 @@ pub(super) fn a_buffed_attribute_row_is_green_a_debuffed_one_red_and_the_rest_wh
     let mut all_six = true;
     let mut seen = [false; 3];
     for (stat, _) in attributes::ATTRIBUTE_ROWS {
-        let raw = i64::from(
-            dereth_client_model::attributes::inq_attribute(&q2, stat, true).expect("raw"),
-        );
+        let raw = i64::from(dereth_rules::attributes::inq_attribute(&q2, stat, true).expect("raw"));
         let eff = i64::from(
-            dereth_client_model::attributes::inq_attribute(&q2, stat, false).expect("enchanted"),
+            dereth_rules::attributes::inq_attribute(&q2, stat, false).expect("enchanted"),
         );
         let font = ladder(raw, eff);
         seen[font as usize] = true;
@@ -625,8 +618,8 @@ pub(super) fn a_buffed_attribute_row_is_green_a_debuffed_one_red_and_the_rest_wh
 /// A vital row is `current/maximum`, and the colour follows the **maximum**: a spell that raises
 /// the ceiling colours the row even though the current value did not move.
 pub(super) fn a_vital_row_is_current_over_maximum_and_colours_by_the_maximum() {
-    use dereth_client_model::attributes::{inq_attribute_2nd, vital};
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
+    use {dereth_rules::attributes::inq_attribute_2nd, dereth_rules::attributes::vital};
 
     let mut c = a_recorded_character(SESSION);
     open_the_character_page(&mut c);
@@ -680,7 +673,7 @@ pub(super) fn a_vital_row_is_current_over_maximum_and_colours_by_the_maximum() {
 /// A spell whose effect is a fraction is rounded to the nearest whole number **in the rows the
 /// player reads**, and casting the same spell again over itself refreshes the row.
 pub(super) fn a_fractional_enchantment_rounds_in_the_rows_the_player_reads() {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
 
     let mut c = a_recorded_character(SESSION);
     open_the_character_page(&mut c);
@@ -748,15 +741,15 @@ const AVAILABLE: u64 = 20_887_465;
 pub(super) fn ten_points_cost_the_distance_between_two_entries_of_the_shipped_table() {
     use dereth_client_model::advancement as adv;
     use dereth_client_model::qualities::Qualities;
-    use dereth_client_model::skills::Sac;
     use dereth_protocol::types::qualities::Skill;
+    use dereth_rules::skills::Sac;
 
     let mut c = HeadlessClient::new(ClientSpec::retail());
     let t: dereth_assets::tables::XpTable = table(&c, 0x0E00_0018);
 
-    let attribute = adv::max_attribute_level(&t) == 190
-        && adv::attribute_cost_to_raise(&t, RANK, SPENT, false) == 2_456
-        && adv::attribute_cost_to_raise_10(&t, RANK, SPENT, false) == 31_202;
+    let attribute = dereth_rules::advancement::max_attribute_level(&t) == 190
+        && dereth_rules::advancement::attribute_cost_to_raise(&t, RANK, SPENT, false) == 2_456
+        && dereth_rules::advancement::attribute_cost_to_raise_10(&t, RANK, SPENT, false) == 31_202;
 
     // The sibling arithmetic: any skill id, because what is read of the record is its class, its
     // level and what has been sunk into it.
@@ -785,7 +778,7 @@ pub(super) fn ten_points_cost_the_distance_between_two_entries_of_the_shipped_ta
         // The premise: ten ranks on and the table's end are different numbers, so a cost that
         // reached for the cap would be visible here.
         skill &= want != column[column.len() - 1] - column[30]
-            && adv::skill_cost_to_raise_10(&q, &t, id) == want;
+            && dereth_rules::advancement::skill_cost_to_raise_10(&q, &t, id) == want;
     }
 
     c.assert_behaviour(
@@ -803,8 +796,12 @@ pub(super) fn the_plus_ten_button_lights_when_the_unassigned_experience_covers_i
 
     let mut c = HeadlessClient::new(ClientSpec::retail());
     let t: dereth_assets::tables::XpTable = table(&c, 0x0E00_0018);
-    let cost_10 = u64::from(adv::attribute_cost_to_raise_10(&t, RANK, SPENT, false));
-    let cost_1 = u64::from(adv::attribute_cost_to_raise(&t, RANK, SPENT, false));
+    let cost_10 = u64::from(dereth_rules::advancement::attribute_cost_to_raise_10(
+        &t, RANK, SPENT, false,
+    ));
+    let cost_1 = u64::from(dereth_rules::advancement::attribute_cost_to_raise(
+        &t, RANK, SPENT, false,
+    ));
 
     let lit = Footer::enable_for(31_202, AVAILABLE) == button_state::ENABLED
         && Footer::enable_for(2_456, AVAILABLE) == button_state::ENABLED

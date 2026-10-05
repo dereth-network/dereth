@@ -127,7 +127,7 @@ fn door_edges(cam: &FreeCamera, vp: Viewport, fov_y: f32, aspect: f32) -> (Edge,
 fn settled_camera() -> (FreeCamera, dereth_client_runtime::camera::CameraManager) {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene

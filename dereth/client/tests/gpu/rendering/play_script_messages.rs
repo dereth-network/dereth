@@ -334,9 +334,11 @@ fn a_wire_play_script_type_reaches_a_visible_emitter() {
         .script_data
         .iter()
         .filter_map(|st| match &st.hook.data {
-            dereth_assets::hook::HookData::CreateParticle {
-                emitter_info_id, ..
-            } => {
+            dereth_assets::hook::HookData::CreateParticle(
+                dereth_primitives::records::HookCreateParticle {
+                    emitter_info_id, ..
+                },
+            ) => {
                 let b = store
                     .read_typed(DbType::ParticleEmitter, *emitter_info_id)
                     .expect("shipped emitter info");
@@ -885,9 +887,11 @@ fn a_played_script_type_gives_the_object_it_names_live_emitters() {
         .script_data
         .iter()
         .filter_map(|st| match &st.hook.data {
-            dereth_assets::hook::HookData::CreateParticle {
-                emitter_info_id, ..
-            } => Some(*emitter_info_id),
+            dereth_assets::hook::HookData::CreateParticle(
+                dereth_primitives::records::HookCreateParticle {
+                    emitter_info_id, ..
+                },
+            ) => Some(*emitter_info_id),
             _ => None,
         })
         .collect();

@@ -5,11 +5,12 @@
 //! `dereth-assets`, `dereth-world-data`, `dereth-landscape`, `dereth-terrain`, `dereth-physics`,
 //! `dereth-animation`),
 //! the wire (`dereth-transport`, `dereth-protocol`, `dereth-client-net`), the object model and
-//! contract (`dereth-client-model`, `dereth-client-contract`) and the sound engine
+//! contract (`dereth-client-model`, `dereth-client-contract`), shared rules (`dereth-rules`),
+//! display formatting (`dereth-presentation`) and the sound engine
 //! (`dereth-audio`). **Used by** the SDK (`dereth-client-sdk`), the client (`dereth-client`) and
 //! its test kit (`dereth-testkit`).
 //!
-//! **Must never** reach presentation, a device or a platform: its production tree holds no crate
+//! **Must never** reach drawing implementations, a device or a platform: its production tree holds no crate
 //! under `dereth/client/crates/` and none of `winit`, `windows`, `cpal` or `ash`, and its code
 //! names no drawing or UI crate (`cargo xtask seams`, `seam: client-runtime deps`, `seam:
 //! client-runtime code`). Nor does it name a key, a key map, an input map or a device message
@@ -38,10 +39,6 @@ pub mod report_gate;
 
 /// Measurements accumulated by the HUD and interaction owners.
 pub mod stats;
-
-/// An `AnimAssets` over the retail portal dat: where the animation runtime meets the assets.
-/// Lives in `dereth-world-data`; re-exported at its old path.
-pub use dereth_world_data::anim_assets;
 
 /// `ClientNetwork`: the UDP socket handed to `dereth_client_net::client_session`, and nothing else.
 pub mod net;
@@ -79,8 +76,7 @@ pub mod trace;
 /// `send_request`: the one place a `dereth_client_model::Request` becomes bytes on a session.
 pub mod requests;
 
-/// The landblock and region identities the landscape path is indexed by, and `WorldError`.
-/// Everything but `block_shift` lives in `dereth-world-data`.
+/// The renderer's viewer-block-relative coordinate offset.
 pub mod landblock;
 
 /// `StartsTrue`, the named `bool` whose zero value is `true`.
@@ -88,22 +84,16 @@ pub mod flags;
 
 // The object / character / physics chain.
 
-/// A `dereth_physics::LandSource` over the retail cell dat. Lives in `dereth-world-data`;
-/// re-exported at its old path.
-pub use dereth_world_data::land_source;
-/// The DDD data-cache patch path: receive a patch, validate it, put it in the world's overlay.
-pub mod ddd;
 /// The world's overlay folder: where it is, the blocklist, and laying it over the store.
 pub mod world_overlay;
-/// The interior cells of a landblock, wired onto both of their consumers. Lives in
-/// `dereth-world-data`; re-exported at its old path.
-pub use dereth_world_data::env_cells;
 /// The free camera and the character camera. The four functions that take a
 /// `crate::present::Scene` stay in `dereth_client_runtime::camera`, with the two tests whose oracle is
 /// `dereth_render::camera::view_from_frame`.
 pub mod camera;
 /// The embodied character.
 pub mod character;
+/// The DDD data-cache patch path: receive a patch, validate it, put it in the world's overlay.
+pub mod ddd;
 /// Combat input's jump callbacks: the charge and its release.
 pub mod jump;
 /// The objects the server puts in the world, made solid.

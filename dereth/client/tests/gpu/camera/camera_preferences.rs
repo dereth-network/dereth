@@ -37,7 +37,7 @@ fn the_profile_s_camera_preferences_reach_the_camera_manager() {
 
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = crate::common::dats();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let scene_config = SceneConfig {
         landblock: LANDBLOCK,
         camera: cfg.camera,

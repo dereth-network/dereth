@@ -6,8 +6,8 @@ use super::*;
 
 /// Running moves the body at run speed and is reported as walking with the run key held.
 pub fn running_reports_walk_with_the_run_hold_key() {
-    use dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
     use dereth_primitives::LocalTime;
+    use dereth_world_data::landblock::DEFAULT_LANDBLOCK;
     use {
         dereth_client_runtime::character::Character,
         dereth_client_runtime::character::CharacterInput,
@@ -27,8 +27,7 @@ pub fn running_reports_walk_with_the_run_hold_key() {
 
     c.assert_behaviour("movement.run.reports-walk-with-the-run-hold-key", |v| {
         let store = v.dat_store();
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let settled = |store: &_, region: &_| {
             let mut ch = Character::new(store, region, DEFAULT_LANDBLOCK, SPAWN)
                 .expect("the body is created");
@@ -117,7 +116,7 @@ pub fn enter_world_refuses_a_body_inside_a_building() {
         |v| {
             let store = Arc::clone(v.dat_store());
             let region =
-                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(&store).expect("the region decodes");
             let land =
                 Arc::new(DatLandSource::new(store, &region).expect("the height table validates"));
             land.load_block_cells(LandblockId(BLOCK));
@@ -931,7 +930,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
 
     const VICTIM: ObjectId = ObjectId(0x8000_1140);
     /// The block the local body starts in, and the only one the scene loads.
-    const HOME: u16 = dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
+    const HOME: u16 = dereth_world_data::landblock::DEFAULT_LANDBLOCK;
     /// Its neighbour along the y axis, which the scene may or may not load.
     const NEXT: u16 = HOME + 1;
     /// Where the body stands: two metres short of the seam, on a column where the terrain runs

@@ -120,7 +120,7 @@ fn door_shot(no_draw: bool, interior: bool) -> Shot {
         },
     )
     .expect("D3D12 WARP required");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let cfg = SceneConfig {
         landblock: BLOCK,
         time_of_day: Some(0.35),
@@ -313,7 +313,7 @@ fn a_continuous_villa_crossing_does_not_reuse_preclear_building_cells_after_dept
         },
     )
     .expect("D3D12 WARP required");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let doors = recorded_doors();
     assert!(
         doors.len() > 4,

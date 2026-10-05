@@ -70,7 +70,7 @@ fn world() -> World {
             // used from where you stand. See `use_is_range_blind`'s `USEABLE_REMOTE`.
             useability: Some(0x0000_0020),
             items_capacity: Some(10),
-            bitfield: dereth_client_model::weenie::bitfield::OPENABLE,
+            bitfield: dereth_rules::weenie::bitfield::OPENABLE,
             ..PublicWeenieDesc::default()
         },
     );

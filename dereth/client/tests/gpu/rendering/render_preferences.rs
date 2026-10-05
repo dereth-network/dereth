@@ -216,12 +216,12 @@ fn the_profile_s_render_preferences_reach_the_projection_and_the_device() {
     // --- the land texture shift, through the current
     // `dereth_world_render::land::merge::land_texture_scale_shift` helper.
     assert_eq!(
-        dereth_world_render::land::merge::land_texture_scale_shift(r.landscape_texture_detail),
+        dereth_terrain::land::merge::land_texture_scale_shift(r.landscape_texture_detail),
         0,
         "VeryHigh is full resolution"
     );
     assert_eq!(
-        dereth_world_render::land::merge::land_texture_scale_shift(2),
+        dereth_terrain::land::merge::land_texture_scale_shift(2),
         1,
         "and Medium, the default, halves it -- so the two are distinguishable"
     );

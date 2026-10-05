@@ -6,7 +6,7 @@
 
 use super::slots::{loc, SlotSide};
 use super::SplitState;
-use crate::weenie::item_type;
+use dereth_rules::weenie::item_type;
 
 /// Whether the object in the ready slot rules
 /// out a shield. Retail makes three checks:

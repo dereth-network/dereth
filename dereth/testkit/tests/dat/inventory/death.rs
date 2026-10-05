@@ -43,19 +43,19 @@ impl Death {
                 let me = w.tables.weenies.get_mut(ME).expect("seeded");
                 me.pwd.items_capacity = Some(102);
                 me.pwd.containers_capacity = Some(7);
-                me.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+                me.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
             }
             {
                 let p = w.tables.weenies.get_mut(PACK).expect("seeded");
                 p.pwd.items_capacity = Some(24);
-                p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+                p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
                 p.pwd.container_id = Some(ME);
             }
             {
                 let corpse = w.tables.weenies.get_mut(CORPSE).expect("seeded");
                 corpse.pwd.items_capacity = Some(24);
-                corpse.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE
-                    | dereth_client_model::weenie::bitfield::CORPSE;
+                corpse.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE
+                    | dereth_rules::weenie::bitfield::CORPSE;
             }
             w.tables
                 .weenies
@@ -241,10 +241,10 @@ fn wielded_sword() -> dereth_protocol::types::PublicWeenieDesc {
         header: header::WIELDER_ID | header::LOCATION | header::VALID_LOCATIONS,
         name: "decor sword".into(),
         icon_id: dereth_protocol::types::weeniedesc::ICON_BASE,
-        obj_type: dereth_client_model::weenie::item_type::MELEE_WEAPON,
+        obj_type: dereth_rules::weenie::item_type::MELEE_WEAPON,
         wielder_id: Some(ME),
-        location: Some(dereth_client_model::inventory::slots::loc::MELEE_WEAPON),
-        valid_locations: Some(dereth_client_model::inventory::slots::loc::MELEE_WEAPON),
+        location: Some(dereth_rules::slots::loc::MELEE_WEAPON),
+        valid_locations: Some(dereth_rules::slots::loc::MELEE_WEAPON),
         ..dereth_protocol::types::PublicWeenieDesc::default()
     }
 }
@@ -255,7 +255,7 @@ fn on_the_corpse() -> dereth_protocol::types::PublicWeenieDesc {
         header: header::CONTAINER_ID,
         name: "decor sword".into(),
         icon_id: dereth_protocol::types::weeniedesc::ICON_BASE,
-        obj_type: dereth_client_model::weenie::item_type::MELEE_WEAPON,
+        obj_type: dereth_rules::weenie::item_type::MELEE_WEAPON,
         container_id: Some(CORPSE),
         ..dereth_protocol::types::PublicWeenieDesc::default()
     }

@@ -275,7 +275,7 @@ pub(super) fn a_refusal_about_something_the_player_asked_for_names_it_and_says_w
             &mut req,
             &mut sink,
             id,
-            dereth_client_model::inventory::slots::loc::MELEE_WEAPON,
+            dereth_rules::slots::loc::MELEE_WEAPON,
             dereth_client_model::inventory::SplitState::default(),
             dereth_primitives::ServerTime(1.0),
             true,

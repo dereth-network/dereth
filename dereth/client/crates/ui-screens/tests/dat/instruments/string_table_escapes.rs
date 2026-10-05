@@ -38,7 +38,7 @@ fn print_shipped_string_table_escapes() {
                         continue;
                     }
                     let mut peek = it.clone();
-                    match peek.next().and_then(dereth_ui::text::un_escaped_char) {
+                    match peek.next().and_then(dereth_assets::escape::un_escaped_char) {
                         Some(u) => {
                             *by_escape.entry(u).or_default() += 1;
                             it = peek;

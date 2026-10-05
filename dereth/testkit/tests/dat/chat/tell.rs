@@ -37,7 +37,7 @@ fn select_a_named_player(c: &mut HeadlessClient, id: ObjectId, name: &str) {
         let w = c.world_mut();
         let mut wn = dereth_client_model::Weenie::new(id);
         wn.pwd.name = name.to_owned();
-        wn.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        wn.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
         w.tables.weenies.insert(id, wn);
         w.selected = Some(id);
     }
@@ -187,7 +187,7 @@ pub fn the_selected_players_name_fills_both_changing_rows() {
         .weenie_mut(selected)
         .expect("the selected fixture exists")
         .pwd
-        .bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+        .bitfield |= dereth_rules::weenie::bitfield::PLAYER;
     c.tick(1);
 
     // The rows are filled by the client's own once-a-second sweep rather than by the selection

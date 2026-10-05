@@ -23,7 +23,7 @@ const DOLL_FOOT_SLOT: ElementId = ElementId(0x1000_05B3);
 /// A player wearing a robe and carrying three things: one that clashes with the robe, one that
 /// does not, and one that can be worn nowhere.
 fn seed_a_dressed_player(w: &mut dereth_client_model::World) {
-    use dereth_client_model::inventory::slots::loc;
+    use dereth_rules::slots::loc;
 
     w.player = Some(DOLL_PLAYER);
     w.tables.inventories.insert(
@@ -40,7 +40,7 @@ fn seed_a_dressed_player(w: &mut dereth_client_model::World) {
         let p = w.tables.weenies.get_mut(DOLL_PLAYER).expect("seeded");
         p.pwd.items_capacity = Some(102);
         p.pwd.containers_capacity = Some(7);
-        p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     }
     for (id, valid, priority) in [
         (ROBE, loc::CHEST_WEAR, CLASH),
@@ -676,7 +676,7 @@ pub(super) fn every_place_on_the_figure_is_a_place_to_wear_and_no_cell_of_a_pack
 /// every drop with a wear would be the same fault turned around, which is why the pack half is
 /// asserted in the same scenario rather than trusted.
 pub(super) fn the_same_drag_is_a_wear_on_the_figure_and_a_move_into_a_pack() {
-    use dereth_client_model::inventory::slots::loc;
+    use dereth_rules::slots::loc;
 
     let wearable = HINT_DRAG_ITEMS[0];
 
@@ -1100,8 +1100,7 @@ pub(super) fn a_dressed_client_with_food() -> HeadlessClient {
 
 pub(super) fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarget {
     let (mask, side) =
-        dereth_client_model::inventory::slots::location_info_from_element_id(element)
-            .expect("equipment slot");
+        dereth_rules::slots::location_info_from_element_id(element).expect("equipment slot");
     dereth_client_contract::view::DropTarget::EquipLocation {
         mask,
         side: side as u32,

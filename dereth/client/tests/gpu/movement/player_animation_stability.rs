@@ -25,9 +25,8 @@ use {
     dereth_client_runtime::character::ALUVIAN_MALE_SCALE,
 };
 use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// The middle of Holtburg's own landblock, where the other embodied-body tests spawn.

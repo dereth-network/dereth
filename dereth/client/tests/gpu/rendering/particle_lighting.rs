@@ -176,7 +176,7 @@ fn walk(
     metres: f32,
     play: bool,
 ) -> (WorldScene, Vec3, Vec<u8>) {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
     scene
         .attach_character(store, &region, gpu)
@@ -378,9 +378,11 @@ fn the_fixture_is_what_this_file_claims() {
         .script_data
         .iter()
         .filter_map(|s| match &s.hook.data {
-            dereth_assets::hook::HookData::CreateParticle {
-                emitter_info_id, ..
-            } => Some(*emitter_info_id),
+            dereth_assets::hook::HookData::CreateParticle(
+                dereth_primitives::records::HookCreateParticle {
+                    emitter_info_id, ..
+                },
+            ) => Some(*emitter_info_id),
             _ => None,
         })
         .collect();

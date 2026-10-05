@@ -1939,8 +1939,7 @@ impl Hud {
                             material_name_of(names, id).unwrap_or_else(|| "Unknown".to_owned())
                         };
                         let skill = |id: u32| {
-                            dereth_client_contract::panels::examination::skill_to_string(id)
-                                .map(str::to_owned)
+                            dereth_presentation::appraisal::skill_to_string(id).map(str::to_owned)
                         };
                         // Resolved up front, because the call below needs `&mut World` and a
                         // closure reading `weenie()` would hold an immutable borrow across it.

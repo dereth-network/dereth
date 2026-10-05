@@ -9,7 +9,7 @@
 //! the lookup, not to the element** — which is why it lives on `dereth_text::StringResolver`'s
 //! contract in this rebuild rather than in any one host's resolver, and here, beside the string
 //! table itself, so that a lookup made with no UI (the error box a failed first connection shows)
-//! unescapes the same way. `dereth_text` and `dereth_ui::text` re-export both functions.
+//! unescapes the same way. Text services and UI callers use these functions directly.
 //!
 //! # The single-character unescape
 //!

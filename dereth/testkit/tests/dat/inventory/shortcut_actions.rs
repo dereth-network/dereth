@@ -28,12 +28,12 @@ fn seed_for_numerals(w: &mut dereth_client_model::World) {
         let p = w.tables.weenies.get_mut(NUM_PLAYER).expect("seeded");
         p.pwd.items_capacity = Some(102);
         p.pwd.containers_capacity = Some(7);
-        p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     }
     {
         let c = w.tables.weenies.get_mut(NUM_PACK).expect("seeded");
         c.pwd.items_capacity = Some(24);
-        c.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        c.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
         c.pwd.container_id = Some(NUM_PLAYER);
     }
     w.tables.inventories.insert(
@@ -833,7 +833,7 @@ pub(super) fn a_number_key_pressed_with_a_cursor_armed_finishes_that_gesture() {
 /// keys, or the gameplay screen hears each press twice and the second hearing of 8 finishes the
 /// gesture 8 itself started, on the kit.
 pub(super) fn a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
-    use dereth_client_model::weenie::item_type;
+    use dereth_rules::weenie::item_type;
     let mut c = HeadlessClient::new(ClientSpec::screen(dereth_ui::framework::mode::CHAR_GEN, 8));
     c.app_mut()
         .queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);

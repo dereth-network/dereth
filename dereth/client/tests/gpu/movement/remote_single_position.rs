@@ -38,7 +38,6 @@ use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client_model::range::ObjectRangeGeometry;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::character::PLAYER_OBJECT_ID;
 use dereth_client_runtime::object_range::SceneRangeGeometry;
@@ -55,6 +54,7 @@ use dereth_protocol::Message;
 use dereth_render::device::{DeviceConfig, Gpu};
 use {dereth_client_runtime::hud::ViewerFrame, dereth_client_shell::hud::Hud};
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 /// `0x02000001`, the Aluvian male setup — a creature body, which is what `SceneRangeGeometry`
 /// needs on both ends of its measurement and what gives the walk a real collision radius.
@@ -98,8 +98,7 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let scfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,

@@ -20,8 +20,8 @@ fn a_client_with_a_pack() -> HeadlessClient {
         me.pwd.name = "Alba".into();
         me.pwd.items_capacity = Some(24);
         me.pwd.containers_capacity = Some(7);
-        me.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER
-            | dereth_client_model::weenie::bitfield::OPENABLE;
+        me.pwd.bitfield |=
+            dereth_rules::weenie::bitfield::PLAYER | dereth_rules::weenie::bitfield::OPENABLE;
         w.tables.weenies.insert(OWNER, me);
         w.tables.inventories.insert(
             OWNER,

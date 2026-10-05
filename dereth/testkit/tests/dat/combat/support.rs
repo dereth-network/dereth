@@ -9,10 +9,7 @@ use dereth_input::spec::ControlChord;
 use dereth_input::{ActionId, InputMapId};
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_testkit::{ClientSpec, HeadlessClient};
-use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-};
+use {dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 /// The combat table every character is born carrying.
 const A_COMBAT_TABLE: u32 = 0x3000_0021;
@@ -74,8 +71,8 @@ pub fn world_in(mode: CombatMode, table: bool) -> dereth_client_model::World {
     let monster = ObjectId(0x8000_064D);
     let mut m = dereth_client_model::Weenie::new(monster);
     m.pwd.name = "Mosswart".into();
-    m.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-    m.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+    m.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+    m.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
     w.tables.weenies.insert(monster, m);
     w.set_selected_object(Some(monster), false, &mut dereth_client_model::NullSink);
     w.combat.combat_mode = mode;
@@ -253,12 +250,11 @@ pub fn a_melee_bench() -> AppBench {
         );
         let mut m = dereth_client_model::Weenie::new(MONSTER);
         m.pwd.name = "Mosswart".into();
-        m.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-        m.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+        m.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+        m.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
         w.tables.weenies.insert(MONSTER, m);
         w.set_selected_object(Some(MONSTER), false, &mut dereth_client_model::NullSink);
-        w.inventory_mask = dereth_client_model::inventory::slots::loc::MELEE_WEAPON
-            | dereth_client_model::inventory::slots::loc::HELD;
+        w.inventory_mask = dereth_rules::slots::loc::MELEE_WEAPON | dereth_rules::slots::loc::HELD;
         w.combat.combat_mode = CombatMode::Melee;
         // The window's slider at the top: the cap the bar must reach before the frame swings.
         w.combat.set_ui_requested_power_from_scrollbar(1000);

@@ -20,7 +20,7 @@ mod variant_tests;
 /// failure branch is unreachable and is expressed by the caller taking the `Option` route instead.
 #[must_use]
 pub fn insert_commas(v: i32) -> String {
-    dereth_client_contract::panels::numfmt::exact_number(v)
+    crate::numfmt::exact_number(v)
 }
 
 /// The examination panel's title text write.
@@ -154,12 +154,45 @@ pub fn info_region_color(success: bool, enchanted: Option<bool>) -> u8 {
     }
 }
 
-/// Every property the two highlighting blocks ask the enchantment-modifier reads about, with
-/// whether the question goes to the **float** table. `(key, is_float)`.
+/// Every property the two highlighting blocks ask the enchantment-mod queries about, with whether
+/// the question goes to the **float** table. `(key, is_float)`.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`], because `dereth_client_shell::hud`
-/// walks it to decide which resolved values to send.
-pub use dereth_client_contract::panels::examination::HIGHLIGHTED_PROPERTIES;
+/// This is a property of the blocks rather than of the profile, which is why it lives here: each
+/// entry is one enchantment-mod query inside the weapon-and-armour block or the armour-mods
+/// block. The bit
+/// pairs behind the keys are `dereth_client_model::appraisal`'s two tables and are not repeated here.
+///
+/// | key | float | the line it colours |
+/// |---|---|---|
+/// | `0x1C` | no | `Armor Level` |
+/// | `0x2C` | no | `Damage` / `Damage Bonus`, tried first |
+/// | `0x16` | yes | the same line's fallback, `DamageVariance` |
+/// | `0x3F` | yes | `Damage Modifier` |
+/// | `0x31` | no | `Speed` |
+/// | `0x3E` | yes | `Bonus to Attack Skill` |
+/// | `0x0D 0x0E 0x0F 0x11 0x10 0x12 0x13 0xA5` | yes | the eight resistances, in drawn order |
+pub const HIGHLIGHTED_PROPERTIES: &[(u32, bool)] = &[
+    (0x1C, false),
+    (0x2C, false),
+    (0x31, false),
+    (0x16, true),
+    // Three more enchantment-mod query sites, in two further blocks: the defence-mod block asks
+    // about `0x1D` (and only about `0x1D`; its other two lines push a literal `0`), and the caster
+    // block asks about `0x90` and `0x98`.
+    (0x1D, true),
+    (0x90, true),
+    (0x98, true),
+    (0x3E, true),
+    (0x3F, true),
+    (0x0D, true),
+    (0x0E, true),
+    (0x0F, true),
+    (0x11, true),
+    (0x10, true),
+    (0x12, true),
+    (0x13, true),
+    (0xA5, true),
+];
 
 /// The add-item-info colour argument for one line, from the profile's resolved enchantment bits.
 ///
@@ -242,12 +275,37 @@ pub mod equip {
     pub const CLOTHING: u32 = 0x0800_7FFF;
 }
 
-/// The skill system's attribute name read and the attribute2nd name read -- six
-/// wide literals each.
+/// The attribute names — six wide literals chosen by a switch,
+/// **not** a dat string.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`]: `dereth_client_shell::hud` names
-/// both when it composes an enchantment line.
-pub use dereth_client_contract::panels::examination::{attribute_name, vital_name};
+/// Indexed by `STypeAttribute` (`1..=6`); the order here is the switch's, which is *not* the order
+/// the creature pane draws them in. See `CREATURE_ATTRIBUTE_ROWS`.
+#[must_use]
+pub fn attribute_name(attribute: u32) -> Option<&'static str> {
+    Some(match attribute {
+        1 => "Strength",
+        2 => "Endurance",
+        3 => "Quickness",
+        4 => "Coordination",
+        5 => "Focus",
+        6 => "Self",
+        _ => return None,
+    })
+}
+
+/// The secondary-attribute names — the same shape, by `STypeAttribute2nd`.
+#[must_use]
+pub fn vital_name(vital: u32) -> Option<&'static str> {
+    Some(match vital {
+        1 => "Maximum Health",
+        2 => "Health",
+        3 => "Maximum Stamina",
+        4 => "Stamina",
+        5 => "Maximum Mana",
+        6 => "Mana",
+        _ => return None,
+    })
+}
 
 /// The creature pane's six attribute rows, **in drawn order**.
 ///
@@ -382,12 +440,78 @@ pub fn damage_type_to_string(mask: u32) -> String {
         .join("/")
 }
 
-/// The skill name read -- the 54-arm switch, in the client's order.
+/// The appraisal system's skill names — a 54-arm switch, in the order the literals sit in the
+/// binary.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`], because `dereth_client_shell::hud`
-/// is what resolves a spell's or an item's skill id to the identify panel's label. All 54 names
-/// are in the client's order.
-pub use dereth_client_contract::panels::examination::skill_to_string;
+/// **Not the `SkillTable`.** The dat table's `name` field is the skill panel's label; this switch
+/// is the appraisal panel's, and the two differ (the table calls 47 `Missile Weapons` too, but the
+/// switch is what the identify window reads and is what is transcribed). Recovered by following
+/// each of the 0x36 jump-table entries to its first literal — anything
+/// outside `1..=54` answers `false`, which skips the whole `Skill:` line.
+#[must_use]
+pub fn skill_to_string(skill: u32) -> Option<&'static str> {
+    const NAMES: [&str; 54] = [
+        "Axe",
+        "Bow",
+        "Crossbow",
+        "Dagger",
+        "Mace",
+        "Melee Defense",
+        "Missile Defense",
+        "Sling",
+        "Spear",
+        "Staff",
+        "Sword",
+        "Thrown Weapon",
+        "Unarmed Combat",
+        "Arcane Lore",
+        "Magic Defense",
+        "Mana Conversion",
+        "Spellcraft",
+        "Item Tinkering",
+        "Person Appraisal",
+        "Deception",
+        "Healing",
+        "Jump",
+        "Lockpick",
+        "Run",
+        "Awareness",
+        "Armor Repair",
+        "Creature Appraisal",
+        "Weapon Tinkering",
+        "Armor Tinkering",
+        "Magic Item Tinkering",
+        "Creature Enchantment",
+        "Item Enchantment",
+        "Life Magic",
+        "War Magic",
+        "Leadership",
+        "Loyalty",
+        "Fletching",
+        "Alchemy",
+        "Cooking",
+        "Salvaging",
+        "Two Handed Combat",
+        "Gearcraft",
+        "Void Magic",
+        "Heavy Weapons",
+        "Light Weapons",
+        "Finesse Weapons",
+        "Missile Weapons",
+        "None",
+        "Dual Wield",
+        "Recklessness",
+        "Sneak Attack",
+        "Dirty Fighting",
+        "Challenge",
+        "Summoning",
+    ];
+    usize::try_from(skill)
+        .ok()
+        .and_then(|i| i.checked_sub(1))
+        .and_then(|i| NAMES.get(i))
+        .copied()
+}
 
 /// The weapon-and-armour block's switch on int `0x161` — the parenthesised
 /// weapon family appended to the skill name. Ten literals, each with its **leading
@@ -1624,11 +1748,36 @@ pub fn set_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     out
 }
 
-/// The thirteen gear-rating terms, in drawn order.
+/// The gear-rating block's thirteen joined terms, in the order it **draws** them.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`]: `dereth_client_shell::hud` walks
-/// the table to read the thirteen properties off the qualities.
-pub use dereth_client_contract::panels::examination::GEAR_RATING_ROWS;
+/// `(property, label)`. The fourteen integer queries are made in the order
+/// `0x172 0x173 0x174 0x176 0x175 0x177 0x178 0x17A 0x179 0x17B 0x17F 0x180 0x184 0x185`, but
+/// the drawn order is the one below: the *"Nether Resist"* term is guarded by the slot `0x179`
+/// was read into, so those two swap back, and the four newest terms (overpower first, then
+/// player-killer damage) sit between *"Crit Dam Resist"* and *"Heal Boost"*.
+///
+/// The ACE names line up term for term: `370 GearDamage`, `371 GearDamageResist`, `372 GearCrit`,
+/// `374 GearCritDamage`, `373 GearCritResist`, `375 GearCritDamageResist`, `388 GearOverpower`,
+/// `389 GearOverpowerResist`, `383 GearPKDamageRating`, `384 GearPKDamageResistRating`,
+/// `376 GearHealingBoost`, `377 GearNetherResist`, `378 GearLifeResist`; `379 GearMaxHealth` is
+/// read too, and is a sentence of its own rather than a term.
+///
+/// The two overpower labels carry their `%` sign in the text itself: *"Overpower% 12"*.
+pub const GEAR_RATING_ROWS: [(u32, &str); 13] = [
+    (0x172, "Dam"),
+    (0x173, "Dam Resist"),
+    (0x174, "Crit"),
+    (0x176, "Crit Dam"),
+    (0x175, "Crit Resist"),
+    (0x177, "Crit Dam Resist"),
+    (0x184, "Overpower%"),
+    (0x185, "Overpower Reduction%"),
+    (0x17F, "PK Dam"),
+    (0x180, "PK Dam Resist"),
+    (0x178, "Heal Boost"),
+    (0x179, "Nether Resist"),
+    (0x17A, "Life Resist"),
+];
 
 /// The appraisal show ratings.
 ///
@@ -1921,7 +2070,7 @@ pub fn usage_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 /// can be.
 #[must_use]
 pub fn xp_to_string(v: u64) -> String {
-    dereth_client_contract::panels::numfmt::exact_number(v)
+    crate::numfmt::exact_number(v)
 }
 
 /// The item-level block -- the aetheria/cloak level pair and the cloak
@@ -2470,11 +2619,20 @@ pub fn lifespan_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     }]
 }
 
-/// The appraisal system's pluralized gem name read.
-///
-/// It lives in [`dereth_client_contract::panels::examination`], because the host supplies
-/// the singular name and `dereth_client_shell::hud` is the host.
-pub use dereth_client_contract::panels::examination::pluralized_gem_name;
+/// The pluralised gem name; the material mapper's singular name is
+/// supplied by the host. The client ignores a mapper miss and still applies its suffix.
+#[must_use]
+pub fn pluralized_gem_name(material: u32, name: &str) -> String {
+    match material {
+        0x26 => "Rubies".to_owned(),
+        0x0B | 0x18 | 0x1B | 0x1D | 0x20 | 0x25 | 0x28 | 0x2E | 0x24 | 0x2D => {
+            format!("pieces of {name}")
+        }
+        0x1A | 0x31 => format!("{name}es"),
+        0x1C => name.to_owned(),
+        _ => format!("{name}s"),
+    }
+}
 
 /// The description block's LongDesc-only rewrite. In particular,
 /// GearPlatingName is an override in this arm, not a replacement for an absent LongDesc.

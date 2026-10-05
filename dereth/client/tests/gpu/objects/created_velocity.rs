@@ -160,7 +160,7 @@ fn physics_scene(
         },
     )
     .expect("the recorded block loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region");
     scene
         .attach_character(store, &region, gpu)
         .expect("a physics owner");

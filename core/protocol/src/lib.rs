@@ -34,7 +34,7 @@ pub mod admin;
 pub mod archive;
 pub mod combat;
 pub mod comms;
-pub mod cp1252;
+
 pub mod error;
 pub mod events;
 pub mod items;

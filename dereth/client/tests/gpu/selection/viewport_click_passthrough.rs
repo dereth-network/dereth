@@ -59,9 +59,7 @@ use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
 use dereth_ui::{ElemHandle, UiSystem};
 use winit::event::MouseButton;
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const SCREEN: (u32, u32) = (800, 600);
 const TELEPORT_UNHIDE_STATE: u32 = 0x0040_0408;
@@ -406,7 +404,7 @@ fn seed_inventory(app: &mut App) {
     if let Some(p) = w.tables.weenies.get_mut(player) {
         p.pwd.items_capacity = Some(102);
         p.pwd.containers_capacity = Some(7);
-        p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     }
 }
 

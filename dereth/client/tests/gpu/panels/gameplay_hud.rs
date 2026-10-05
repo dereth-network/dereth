@@ -524,22 +524,10 @@ fn the_vitals_show_what_the_recorded_server_sent() {
         .map(|v| {
             let (cur, max) = v.stats();
             (
-                dereth_client_model::attributes::inq_attribute_2nd(
-                    &q,
-                    &table,
-                    cur,
-                    false,
-                    Some(&filter),
-                )
-                .expect("the capture carries a current value"),
-                dereth_client_model::attributes::inq_attribute_2nd(
-                    &q,
-                    &table,
-                    max,
-                    false,
-                    Some(&filter),
-                )
-                .expect("the capture carries a maximum"),
+                dereth_rules::attributes::inq_attribute_2nd(&q, &table, cur, false, Some(&filter))
+                    .expect("the capture carries a current value"),
+                dereth_rules::attributes::inq_attribute_2nd(&q, &table, max, false, Some(&filter))
+                    .expect("the capture carries a maximum"),
             )
         })
         .collect();

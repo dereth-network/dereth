@@ -395,7 +395,7 @@ fn a_terrain_type_the_ground_region_does_not_name_takes_its_neighbours_ground() 
         &lb_bytes,
     )
     .expect("decodes");
-    let filled = dereth_world_render::land::fill::fill_undrawn_terrain(&lb, drawn)
+    let filled = dereth_terrain::land::fill::fill_undrawn_terrain(&lb, drawn)
         .expect("block 0xF930 has type 31 to fill");
     let mut seen = Vec::new();
     for x in 0..9 {

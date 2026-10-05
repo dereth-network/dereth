@@ -3,7 +3,7 @@
 //!
 //! **Depends on** `dereth-primitives`, the container and decoders (`dereth-dat`, `dereth-assets`)
 //! and the two engines it feeds (`dereth-physics`, `dereth-animation`). **Used by** the client
-//! runtime (`dereth-client-runtime`, which re-exports each module at its old path), the SDK
+//! runtime (`dereth-client-runtime`), the SDK
 //! (`dereth-client-sdk`) and the server (`empyrean-dat`, `empyrean-world`).
 //!
 //! **Must never** draw, read input, own a frame loop or know about a network session: every module

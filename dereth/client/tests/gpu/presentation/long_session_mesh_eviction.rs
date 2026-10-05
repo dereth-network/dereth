@@ -246,7 +246,7 @@ fn replay(session: &str, store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> Replayed
             };
             let mut s = WorldScene::load(store, gpu, cfg).expect("the landscape loads");
             let region =
-                dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(store).expect("the region decodes");
             s.attach_character(store, &region, gpu)
                 .expect("the body is created");
             scene = Some(s);

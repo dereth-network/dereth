@@ -37,7 +37,6 @@ use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
 use dereth_client_model::selection::{CLOAKED_PS, REPORT_COLLISIONS_AS_ENVIRONMENT_PS};
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::character::PLAYER_OBJECT_ID;
 use dereth_client_runtime::objects::ObjectStream;
@@ -53,6 +52,7 @@ use {
     dereth_client_runtime::interaction::Interaction,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 /// `ItemSelectionCommands`, the map every one of the sixteen is bound in. The value only has to
 /// be a map; `on_actions` does not look at it, and which map dispatches these ids is the action
@@ -88,8 +88,7 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         // The cheapest scene that still produces a body. Nothing in this file touches terrain,
         // statics or collision: `use_time` reads exactly one thing off the scene for the selection
         // cycle -- `character.position()` -- and the geometry seam is fed from the object stream.

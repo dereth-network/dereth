@@ -166,7 +166,7 @@ impl CastBench {
         let base = table.spells.get(&SUBJECT).expect("the subject spell");
         assert_eq!(base.name, SPELL);
         let f = w.spell_formula(base);
-        let n = dereth_client_model::magic::num_spell_components(&f);
+        let n = dereth_rules::magic::num_spell_components(&f);
         f[..n].to_vec()
     }
 

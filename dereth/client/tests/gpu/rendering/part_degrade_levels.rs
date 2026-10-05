@@ -29,8 +29,8 @@ use dereth_primitives::{DataId, LocalTime, ObjectId, Vec3};
 use dereth_render::device::Gpu;
 use dereth_world_render::objects::degrade::get_degrade;
 use {
-    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region,
 };
 
 fn store() -> Arc<RetailDatStore> {
@@ -851,7 +851,7 @@ fn a_parts_level_zero_mesh_is_the_records_and_not_the_parts_own_id() {
 #[test]
 fn the_transcribed_constants_are_pinned_as_literals() {
     assert_eq!(
-        dereth_world_render::consts::S_R_DEGRADE_DISTANCE,
+        dereth_terrain::consts::S_R_DEGRADE_DISTANCE,
         50.0,
         "initial degradation distance"
     );

@@ -202,7 +202,7 @@ fn station_frame(store: &Arc<RetailDatStore>, detail: u32) -> Vec<u8> {
         ..SceneConfig::default()
     };
     scene_cfg.render.environment_texture_detail = detail;
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut scene = WorldScene::load(store, &mut gpu, scene_cfg).expect("the scene loads");
     scene
         .attach_character(store, &region, &mut gpu)

@@ -17,10 +17,7 @@ use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime};
 use dereth_protocol::movement::{InterpretedMotionState, MotionAction};
-use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-};
+use {dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 /// The human motion table, which every human uses.
 const HUMAN_MOTION_TABLE: DataId = DataId(0x0900_0001);

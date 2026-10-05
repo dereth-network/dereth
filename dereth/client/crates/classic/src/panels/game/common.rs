@@ -103,7 +103,7 @@ pub fn list_hits(
         true,
     );
 }
-pub use dereth_client_contract::panels::numfmt::exact_number as number;
+pub use dereth_presentation::numfmt::exact_number as number;
 pub fn panel_backdrop(frame: &mut PanelFrame, height: i32) {
     image(
         frame,

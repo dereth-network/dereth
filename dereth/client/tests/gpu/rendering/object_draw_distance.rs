@@ -17,7 +17,6 @@
 
 use dereth_assets::motion::GfxObjDegradeInfo;
 use dereth_assets::Decode;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
@@ -31,6 +30,7 @@ use {
     dereth_client_runtime::character::PLAYER_OBJECT_ID,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 800;
@@ -322,8 +322,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &std::sync::Arc<RetailDatStore>, mut gpu: Gpu, setup: u32) -> Self {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             land_radius: 3,

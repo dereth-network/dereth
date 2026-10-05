@@ -17,7 +17,7 @@ impl LandContext {
     ) -> Result<GeneratedBlock, WorldError> {
         // A terrain type the ground has no picture for takes its neighbours' for the surfaces
         // alone; the water stays the cells' own.
-        let filled = dereth_world_render::land::fill::fill_undrawn_terrain(lb, self.drawn);
+        let filled = dereth_terrain::land::fill::fill_undrawn_terrain(lb, self.drawn);
         let surface_lb = filled.as_ref().unwrap_or(lb);
         let mut mesh = generate_landblock_with_table(
             surface_lb,
@@ -29,7 +29,7 @@ impl LandContext {
             spec.dir,
         );
         if filled.is_some() {
-            (mesh.cell_water, mesh.water_type) = dereth_world_render::land::water::calc_water(
+            (mesh.cell_water, mesh.water_type) = dereth_terrain::land::water::calc_water(
                 &lb.terrain,
                 usize::from(mesh.side_cell_count),
             );
@@ -105,9 +105,8 @@ impl LandContext {
                                     "composing the landscape on the CPU from here on: {e}"
                                 );
                                 *gpu_merge = false;
-                                let img = dereth_world_render::land::merge::execute_merge_plan(
-                                    plan, sources,
-                                );
+                                let img =
+                                    dereth_terrain::land::merge::execute_merge_plan(plan, sources);
                                 let mut backend = TextureUploader {
                                     gpu: &mut *gpu,
                                     error: None,
@@ -155,10 +154,13 @@ impl LandContext {
         gpu: &mut Gpu,
         ps: &dereth_assets::region::PalShift,
         lb: &CellLandblock,
-        mesh: &dereth_world_render::land::mesh::LandblockMesh,
+        mesh: &dereth_terrain::land::mesh::LandblockMesh,
     ) -> Result<Vec<Option<TextureSlot>>, WorldError> {
-        use dereth_world_render::land::merge::{cell_rotation_keys, cell_x, cell_y};
-        use dereth_world_render::land::palshift;
+        use dereth_terrain::land::palshift;
+        use {
+            dereth_terrain::land::merge::cell_rotation_keys, dereth_terrain::land::merge::cell_x,
+            dereth_terrain::land::merge::cell_y,
+        };
         let ground_store = self.ground_store.clone();
         let store = ground_store.as_ref().unwrap_or(store);
         let lookup = dereth_assets::texture_lookup::TextureLookup::new(store, 0);
@@ -258,10 +260,10 @@ impl LandContext {
                 Some(s) => Arc::clone(s),
                 None => {
                     let plan =
-                        dereth_world_render::land::merge::merge_plan(tex_merge, *key, merge.shift);
+                        dereth_terrain::land::merge::merge_plan(tex_merge, *key, merge.shift);
                     // The texels a composite at this detail level would hold for a cell,
                     // before the distance reduction the splat draw leaves to the mips.
-                    let size = dereth_world_render::land::merge::merged_texture_size(
+                    let size = dereth_terrain::land::merge::merged_texture_size(
                         tex_merge.base_tex_size,
                         merge.shift,
                         1,
@@ -875,7 +877,7 @@ pub(super) fn splat_of(
         }
         let r = match src.image(id) {
             Some(img) => {
-                let shrunk = dereth_world_render::land::merge::source_at_scale(&img, size, tiling);
+                let shrunk = dereth_terrain::land::merge::source_at_scale(&img, size, tiling);
                 let img = shrunk.as_ref().unwrap_or(&img);
                 Some(
                     gpu.upload_imgtex_keyed(

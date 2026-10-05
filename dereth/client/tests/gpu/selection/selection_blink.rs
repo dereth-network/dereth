@@ -60,9 +60,7 @@ use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
 use dereth_ui_screens::hud::target::Projection;
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// The state word that closes the recorded login's hidden create.

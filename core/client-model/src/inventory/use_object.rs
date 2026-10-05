@@ -60,11 +60,11 @@
 
 use crate::inventory::requests::messages as request_messages;
 use crate::inventory::SplitState;
-use crate::weenie::{item_type, item_useable, Weenie};
 use crate::world::World;
 use crate::{Notice, NoticeSink, RequestSink};
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_protocol::types::ContentProfile;
+use {crate::weenie::item_useable, crate::weenie::Weenie, dereth_rules::weenie::item_type};
 
 /// Object-description bits used by result classification and item use.
 ///
@@ -99,8 +99,8 @@ pub mod use_bitfield {
 ///
 /// Each is "the item can go somewhere in this group and is currently in none of it".
 const AUTO_SORT_GROUPS: [u32; 3] = [
-    crate::inventory::slots::loc::ARMOR,
-    crate::inventory::slots::loc::CLOTHING,
+    dereth_rules::slots::loc::ARMOR,
+    dereth_rules::slots::loc::CLOTHING,
     // Neck, both wrists, both fingers, the trinket and the three sigils.
     0x7C0F_8000,
 ];
@@ -493,7 +493,7 @@ impl World {
             return UseResult::Nothing;
         };
         let container = w.pwd.container_id.unwrap_or_default();
-        let stuck = w.pwd.bitfield & crate::weenie::bitfield::STUCK != 0;
+        let stuck = w.pwd.bitfield & dereth_rules::weenie::bitfield::STUCK != 0;
         let mut general = false;
         if container.0 != 0 || stuck {
             general = self.ground_object.is_none_or(|g| container != g);
@@ -822,7 +822,7 @@ impl World {
             return messages::using_the("");
         };
         let name = self.notice_name(item);
-        if w.pwd.obj_type & crate::weenie::item_type::CREATURE != 0 {
+        if w.pwd.obj_type & dereth_rules::weenie::item_type::CREATURE != 0 {
             messages::approaching(&name)
         } else {
             messages::using_the(&name)
@@ -897,7 +897,7 @@ impl World {
         split: SplitState,
         now: ServerTime,
     ) -> bool {
-        use crate::inventory::slots::SlotSide;
+        use dereth_rules::slots::SlotSide;
         match result {
             UseResult::PlaceInBackpack => self.place_in_backpack(req, out, item, false, split, now),
             // **The double-click's own `auto_wield` arguments, which are not `AutoSort`'s.**
@@ -1016,7 +1016,7 @@ impl World {
             );
             return GroundObjectResult::NoRepresentation;
         };
-        if w.pwd.bitfield & crate::weenie::bitfield::OPENABLE == 0 {
+        if w.pwd.bitfield & dereth_rules::weenie::bitfield::OPENABLE == 0 {
             let creature = w.is_creature();
             if !creature {
                 // The client formats a literal of its own here. Measured live: the shard answers
@@ -1208,7 +1208,7 @@ impl World {
         req: &mut dyn RequestSink,
         out: &mut dyn NoticeSink,
         item: ObjectId,
-        side: crate::inventory::slots::SlotSide,
+        side: dereth_rules::slots::SlotSide,
         split: SplitState,
         now: ServerTime,
     ) -> bool {
@@ -1299,7 +1299,7 @@ impl World {
         let mut container = container;
         if container.0 != 0 && container != item {
             if let Some(c) = self.weenie(container) {
-                let openable = c.pwd.bitfield & crate::weenie::bitfield::OPENABLE != 0;
+                let openable = c.pwd.bitfield & dereth_rules::weenie::bitfield::OPENABLE != 0;
                 let tradeable = c.trade_state != 1;
                 let keep = (openable || Some(container) == self.player)
                     && tradeable
@@ -1505,7 +1505,7 @@ impl World {
         split: SplitState,
         now: ServerTime,
     ) -> bool {
-        use crate::weenie::{bitfield, PositionState};
+        use {crate::weenie::PositionState, dereth_rules::weenie::bitfield};
 
         if let Err(e) = self.ready_for_inventory_request() {
             self.refuse(out, false, e);
@@ -1571,7 +1571,7 @@ impl World {
                     return false;
                 }
                 // Type `0x10` (creature) — the give.
-                if ty == crate::weenie::item_type::CREATURE {
+                if ty == dereth_rules::weenie::item_type::CREATURE {
                     let amount = self.object_split_size(item, split);
                     return self
                         .attempt_give(req, out, item, target, amount, now, false)
@@ -1685,7 +1685,7 @@ impl World {
         if item == owner {
             return Err("You cannot place an object within itself!".to_owned());
         }
-        if container.pwd.bitfield & crate::weenie::bitfield::OPENABLE == 0
+        if container.pwd.bitfield & dereth_rules::weenie::bitfield::OPENABLE == 0
             && Some(owner) != self.player
         {
             return Err(format!("The {} is locked", self.notice_name(owner)));
@@ -1726,7 +1726,7 @@ impl World {
         if w.inq_type() == item_type::CREATURE {
             return Err("You cannot pick up creatures!".to_string());
         }
-        let stuck = w.pwd.bitfield & crate::weenie::bitfield::STUCK != 0;
+        let stuck = w.pwd.bitfield & dereth_rules::weenie::bitfield::STUCK != 0;
         let contained = w.pwd.container_id.unwrap_or_default().0 != 0;
         let wielded = w.pwd.wielder_id.unwrap_or_default().0 != 0;
         if stuck && !contained && !wielded {

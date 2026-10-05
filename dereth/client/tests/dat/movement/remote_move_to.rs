@@ -68,9 +68,7 @@ use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::movement::{MoveToArm, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::{Message, Opcode};
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 /// long-solo-play's own character.
 const PLAYER: ObjectId = ObjectId(0x5000_000a);

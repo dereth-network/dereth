@@ -523,8 +523,8 @@ fn a_player_with_coin(coin: Option<i32>) -> World {
     let mut wn = dereth_client_model::Weenie::new(player);
     wn.pwd = dereth_protocol::types::PublicWeenieDesc {
         name: "Lark".into(),
-        obj_type: dereth_client_model::weenie::item_type::CREATURE,
-        bitfield: dereth_client_model::weenie::bitfield::OPENABLE,
+        obj_type: dereth_rules::weenie::item_type::CREATURE,
+        bitfield: dereth_rules::weenie::bitfield::OPENABLE,
         items_capacity: Some(10),
         containers_capacity: Some(2),
         ..dereth_protocol::types::PublicWeenieDesc::default()

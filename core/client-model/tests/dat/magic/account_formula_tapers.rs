@@ -11,13 +11,15 @@ use std::sync::Arc;
 
 use dereth_assets::tables::{SpellBase, SpellTable};
 use dereth_assets::Decode;
-use dereth_client_model::magic::{
-    account_name_hash, num_spell_components, randomize_for_name, ComponentBase, ComponentCatalogue,
-    LOWEST_TAPER_ID, NUM_TAPERS,
-};
 use dereth_client_model::{RecordingRequests, RecordingSink, Request, World};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{AssetSource, DataId, ObjectId};
+use {
+    dereth_client_model::magic::account_name_hash, dereth_client_model::magic::randomize_for_name,
+    dereth_client_model::magic::ComponentBase, dereth_client_model::magic::ComponentCatalogue,
+    dereth_client_model::magic::LOWEST_TAPER_ID, dereth_client_model::magic::NUM_TAPERS,
+    dereth_rules::magic::num_spell_components,
+};
 
 // =================================================================================================
 // 0. The literals — every one re-read from the shipped table by station 0, never through the
@@ -412,7 +414,7 @@ fn world_with(account: &str) -> World {
     let mut me = dereth_client_model::weenie::Weenie::new(PLAYER);
     me.pwd = dereth_protocol::types::PublicWeenieDesc {
         name: "Lark".into(),
-        obj_type: dereth_client_model::weenie::item_type::CREATURE,
+        obj_type: dereth_rules::weenie::item_type::CREATURE,
         ..Default::default()
     };
     me.qualities = Some(dereth_client_model::qualities::Qualities::default());
@@ -504,7 +506,7 @@ fn give(w: &mut World, scids: &[u32]) {
         wn.pwd = dereth_protocol::types::PublicWeenieDesc {
             name: format!("component {scid}"),
             wcid: 1000 + *scid,
-            obj_type: dereth_client_model::weenie::item_type::SPELL_COMPONENTS,
+            obj_type: dereth_rules::weenie::item_type::SPELL_COMPONENTS,
             stack_size: Some(10),
             container_id: Some(PLAYER),
             ..Default::default()
@@ -617,7 +619,7 @@ fn the_cast_path_checks_the_accounts_components() {
 /// ACE's `SpellTable.ComputeHash` (`ACE.DatLoader/FileTypes/SpellTable.cs:32`), re-transcribed.
 fn ace_compute_hash(s: &str) -> u32 {
     let mut result: i64 = 0;
-    for b in dereth_protocol::cp1252::encode(s).expect("ASCII fixture names") {
+    for b in dereth_primitives::text::cp1252::encode(s).expect("ASCII fixture names") {
         let c = i64::from(b as i8);
         result = c + (result << 4);
         if result & 0xF000_0000 != 0 {

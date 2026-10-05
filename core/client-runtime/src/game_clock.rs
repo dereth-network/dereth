@@ -212,7 +212,7 @@ impl GameClock {
     pub fn date_time_strings(&self) -> Option<(String, String)> {
         let season = self.season_names.get(self.current_season)?;
         let time_of_day = self.time_of_day_names.get(self.current_time_of_day)?;
-        Some(dereth_client_contract::panels::map::date_time_strings(
+        Some(dereth_presentation::map::date_time_strings(
             season,
             self.current_day,
             self.current_year,
@@ -271,7 +271,8 @@ mod tests {
                 dereth_dat::testing::dat_dir().display()
             )
         });
-        let region = crate::landblock::load_region(&store).expect("the retail region decodes");
+        let region =
+            dereth_world_data::landblock::load_region(&store).expect("the retail region decodes");
         GameClock::new(&region)
     }
 

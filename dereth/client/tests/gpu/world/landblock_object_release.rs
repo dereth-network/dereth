@@ -27,9 +27,9 @@ use dereth_primitives::{
 use dereth_protocol::Message;
 use dereth_render::device::Gpu;
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene, dereth_scene::world_scene::WorldSceneRef,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_scene::world_scene::WorldSceneRef, dereth_world_data::landblock::block_xy,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// A realistic non-static state word, the one the corpus carries for an opened door; the same
@@ -337,7 +337,7 @@ fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -1367,8 +1367,8 @@ mod outdoor_objects {
     };
     use dereth_render::device::Gpu;
     use {
-        dereth_client_runtime::landblock::block_xy,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_scene::world_scene::WorldScene,
+        dereth_scene::world_scene::WorldScene, dereth_world_data::landblock::block_xy,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     /// STATIC_PS is state bit 0, the shared release filter's static-object exclusion.

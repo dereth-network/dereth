@@ -9,7 +9,7 @@ const DRAG_ICON: DataId = DataId(0x0600_1234);
 
 /// A player carrying one loose item and one side pack, and nothing else.
 fn seed_a_pack(w: &mut dereth_client_model::World) {
-    use dereth_client_model::weenie::{bitfield, item_type};
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     w.set_player(DRAG_PLAYER);
     let mut me = dereth_client_model::Weenie::new(DRAG_PLAYER);
@@ -870,7 +870,7 @@ const PLACE_ITEMS: [ObjectId; 5] = [
 /// Five, because a front-insert and a correct insert agree in a list holding one thing and agree
 /// at the head of any list: the cell aimed at below is the fourth, which is neither.
 fn seed_five_loose_things(w: &mut dereth_client_model::World) {
-    use dereth_client_model::weenie::bitfield;
+    use dereth_rules::weenie::bitfield;
 
     w.set_player(PLACE_PLAYER);
     let mut me = dereth_client_model::Weenie::new(PLACE_PLAYER);

@@ -6,7 +6,6 @@
 //! and world, objects created from synthetic object-create messages.
 #![cfg(gpu)]
 
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{DataId, LocalTime, ObjectId, Quat, Vec3};
 use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
@@ -17,6 +16,7 @@ use {
     dereth_client::app::App, dereth_client_runtime::config::Config,
     dereth_client_runtime::scene::SceneConfig,
 };
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const CREATURE: ObjectId = ObjectId(0x8300_0F01);
 const CORPSE: ObjectId = ObjectId(0x8300_0F02);

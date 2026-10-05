@@ -13,17 +13,27 @@ use dereth_assets::world::{CellLandblock, LandblockInfo, Scene};
 use dereth_assets::{decode_any, DecodedAsset};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, Vec3};
-use dereth_world_render::consts::{LAND_HEIGHT_TABLE_LEN, SIDE_VERTEX_COUNT, VERTEX_COUNT};
-use dereth_world_render::land::lighting::{calc_lighting, LandscapeLighting};
-use dereth_world_render::land::merge::{
-    alpha_map_index, cell_rotation_keys, find_road_alpha, find_terrain_alpha, get_road_code,
-    get_terrain, get_terrain_tex, MergeKey,
+use dereth_terrain::land::water::WaterType;
+use {
+    dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN, dereth_terrain::consts::SIDE_VERTEX_COUNT,
+    dereth_terrain::consts::VERTEX_COUNT,
 };
-use dereth_world_render::land::mesh::{
-    generate_landblock_with_table, height_table, sw_to_ne_cut, Direction,
+use {
+    dereth_terrain::land::lighting::calc_lighting,
+    dereth_terrain::land::lighting::LandscapeLighting,
 };
-use dereth_world_render::land::water::WaterType;
-use dereth_world_render::scenery::{generate_scenery, SceneryEnv};
+use {
+    dereth_terrain::land::merge::alpha_map_index, dereth_terrain::land::merge::cell_rotation_keys,
+    dereth_terrain::land::merge::find_road_alpha, dereth_terrain::land::merge::find_terrain_alpha,
+    dereth_terrain::land::merge::get_road_code, dereth_terrain::land::merge::get_terrain,
+    dereth_terrain::land::merge::get_terrain_tex, dereth_terrain::land::merge::MergeKey,
+};
+use {
+    dereth_terrain::land::mesh::generate_landblock_with_table,
+    dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::sw_to_ne_cut,
+    dereth_terrain::land::mesh::Direction,
+};
+use {dereth_terrain::scenery::generate_scenery, dereth_terrain::scenery::SceneryEnv};
 
 const REGION_ID: DataId = DataId(0x1300_0000);
 
@@ -406,7 +416,7 @@ fn get_terrain_over_the_whole_world_never_emits_the_forbidden_mask() {
         let lb = landblock(&s, id);
         for i in 0..8usize {
             for j in 0..8usize {
-                let (k, _, _) = dereth_world_render::land::merge::cell_rotation(&lb, &r, 8, i, j);
+                let (k, _, _) = dereth_terrain::land::merge::cell_rotation(&lb, &r, 8, i, j);
                 keys.insert(k);
             }
         }
@@ -566,7 +576,7 @@ fn scenery_over_retail_landblocks_satisfies_every_filter_and_is_deterministic() 
                     let li: LandblockInfo = li;
                     for bl in &li.buildings {
                         // A building's frame origin names the cell it stands in.
-                        building_cells.insert(dereth_world_render::scenery::outside_cell_index(
+                        building_cells.insert(dereth_terrain::scenery::outside_cell_index(
                             bl.frame.origin.x,
                             bl.frame.origin.y,
                         ));
@@ -597,11 +607,7 @@ fn scenery_over_retail_landblocks_satisfies_every_filter_and_is_deterministic() 
                 "{id}: {p:?} escapes the block"
             );
             assert!(
-                !dereth_world_render::road::on_road(
-                    &lb.terrain,
-                    p.frame.origin.x,
-                    p.frame.origin.y
-                ),
+                !dereth_terrain::road::on_road(&lb.terrain, p.frame.origin.x, p.frame.origin.y),
                 "{id}: {p:?} stands on a road"
             );
             let ci = p.cell.index();
@@ -715,7 +721,7 @@ fn the_shipped_terrain_words_never_name_a_scene_type_the_region_lacks() {
             let tt = usize::from((w >> 2) & 0x1F);
             let st = usize::from(w >> 11);
             words += 1;
-            if st >= dereth_world_render::scenery::num_scene_type(&r, tt) {
+            if st >= dereth_terrain::scenery::num_scene_type(&r, tt) {
                 out_of_range += 1;
             }
             assert_eq!(

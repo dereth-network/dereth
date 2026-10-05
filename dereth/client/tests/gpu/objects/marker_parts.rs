@@ -509,7 +509,7 @@ fn diff(a: &Shot, b: &Shot) -> (usize, (u32, u32, u32, u32)) {
 fn the_guard_takes_the_markers_off_creatures_and_leaves_the_local_player_alone() {
     let store = retail_store();
     let mut gpu = test_gpu(640, 640);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let pos = {
         let r = in_world("first-login-walk-jump");
         let id = r.player.expect("the capture creates a player");

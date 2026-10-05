@@ -182,7 +182,7 @@ pub(super) fn every_recorded_give_is_answered_by_the_move_and_nothing_else() {
                 .ok()
             })
             .find(|m| m.0.id == g.target)
-            .is_none_or(|m| m.0.wdesc.obj_type == dereth_client_model::weenie::item_type::CREATURE)
+            .is_none_or(|m| m.0.wdesc.obj_type == dereth_rules::weenie::item_type::CREATURE)
     });
 
     // The first null: no recorded failure names a thing a give named.
@@ -442,8 +442,8 @@ pub(super) fn a_container_being_viewed_does_not_release_a_give() {
     let chest = ObjectId(0x2882_0040);
     {
         let mut w = dereth_client_model::Weenie::new(chest);
-        w.pwd.obj_type = dereth_client_model::weenie::item_type::CONTAINER;
-        w.pwd.bitfield = dereth_client_model::weenie::bitfield::OPENABLE;
+        w.pwd.obj_type = dereth_rules::weenie::item_type::CONTAINER;
+        w.pwd.bitfield = dereth_rules::weenie::bitfield::OPENABLE;
         w.pwd.items_capacity = Some(10);
         w.pwd.useability = Some(0x20);
         w.pwd.name = "Storage Chest".to_owned();

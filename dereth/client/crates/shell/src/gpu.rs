@@ -950,7 +950,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             cfg: dereth_client_runtime::scene::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             SceneRenderer::load_world(self, store, cfg, world)
         }
 
@@ -965,7 +965,7 @@ mod imp {
             &mut self,
             store: &dereth_dat::RetailDatStore,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             SceneRenderer::stream_world(self, store, world)
         }
 
@@ -974,7 +974,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             stream: &mut dereth_client_runtime::objects::ObjectStream,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             SceneRenderer::sync_objects(self, store, stream, world)
         }
 
@@ -983,7 +983,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             stream: &mut dereth_client_runtime::objects::ObjectStream,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             SceneRenderer::prepare_object_dispatch(self, store, stream, world)
         }
 
@@ -993,7 +993,7 @@ mod imp {
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
         ) -> Result<
             dereth_client_runtime::frame_events::RenderPrefWork,
-            dereth_client_runtime::landblock::WorldError,
+            dereth_world_data::landblock::WorldError,
         > {
             SceneRenderer::update_render_preferences(self, store, world)
         }

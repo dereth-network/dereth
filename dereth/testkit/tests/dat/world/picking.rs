@@ -334,7 +334,7 @@ pub fn the_scene_less_answer_names_nothing() {
     // A creature in the tables and a previous pick that found it, so that a stale answer has
     // something to be stale with: an answer naming it would have produced a give.
     let mut npc = dereth_client_model::Weenie::new(CREATURE);
-    npc.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+    npc.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
     npc.pwd.name = "Ulgrim".to_owned();
     host.objects.world.tables.weenies.insert(CREATURE, npc);
     host.inter

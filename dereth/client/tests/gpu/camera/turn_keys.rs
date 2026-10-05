@@ -24,9 +24,7 @@ use dereth_protocol::actions::unpack_action;
 use dereth_protocol::movement::{MovementAutonomousPosition, MovementMoveToState};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::{Message, Opcode};
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 /// Degrees, with 0 north and values increasing **clockwise**, matching the first-person arm's
 /// 8-degree increment.

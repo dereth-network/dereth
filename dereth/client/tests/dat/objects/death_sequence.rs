@@ -1211,7 +1211,7 @@ fn the_death_sequence_from_the_fight_to_the_vitae_wearing_off() {
         .objects()
         .world
         .player_qualities()
-        .and_then(|q| dereth_client_model::attributes::inq_attribute_2nd_stored(q, HEALTH))
+        .and_then(|q| dereth_rules::attributes::inq_attribute_2nd_stored(q, HEALTH))
         .expect("the stored quality the shard's `0x02E9` wrote");
     assert_eq!(
         raw, 0,

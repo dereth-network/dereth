@@ -285,7 +285,7 @@ pub(super) fn the_cooldown_lines_reach_the_item_pane() {
         .expect("the recorded character description")
         .enchantments
         .cooldown_list
-        .push(dereth_client_model::enchant::Enchantment {
+        .push(dereth_rules::enchant::Enchantment {
             id: 0x8003,
             spell_category: 0,
             power_level: 0,
@@ -296,7 +296,7 @@ pub(super) fn the_cooldown_lines_reach_the_item_pane() {
             degrade_limit: 0.0,
             last_time_degraded: start,
             smod: dereth_protocol::types::qualities::StatMod {
-                kind: dereth_client_model::enchant::ench_type::COOLDOWN,
+                kind: dereth_rules::enchant::ench_type::COOLDOWN,
                 key: 0,
                 value: 0.0,
             },

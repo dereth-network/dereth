@@ -300,7 +300,7 @@ pub fn two_bodies_cannot_share_one_id() {
             dereth_dat::testing::dat_dir().display()
         )
     }));
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut body = Character::new(&store, &region, block.0, (96.0, 96.0)).expect("the body builds");
     let occupied = ObjectId(0x5000_0009);
     let sitting = body.world.create(occupied, a_sphere(), true);

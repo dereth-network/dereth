@@ -19,9 +19,8 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 const W: usize = 800;
@@ -54,7 +53,7 @@ fn block_at(x: i32, y: i32) -> LandblockId {
 fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let cfg = SceneConfig::default();
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");

@@ -387,16 +387,16 @@ pub(super) fn assemble_batches(batches: &mut [StaticBatch], placements: &[Degrad
 /// untouched, so a billboard keeps its per-surface alpha.
 pub(super) fn append_billboarded(out: &mut Vec<u8>, src: &[u8], draw: &Frame) {
     let stride = OBJECT_VERTEX_STRIDE;
-    let rot = dereth_world_render::math::l2g(draw.rotation);
+    let rot = dereth_terrain::math::l2g(draw.rotation);
     for v in src.chunks_exact(stride) {
         let f = |o: usize| f32::from_le_bytes([v[o], v[o + 1], v[o + 2], v[o + 3]]);
         let local = Vec3::new(f(0), f(4), f(8));
-        let w = dereth_world_render::math::localtoglobal(draw, local);
+        let w = dereth_terrain::math::localtoglobal(draw, local);
         out.extend_from_slice(&w.x.to_le_bytes());
         out.extend_from_slice(&w.y.to_le_bytes());
         out.extend_from_slice(&w.z.to_le_bytes());
         // The normal turns with the billboard, as the D3D world matrix would turn it.
-        let n = dereth_world_render::math::localtoglobalvec(rot, Vec3::new(f(12), f(16), f(20)));
+        let n = dereth_terrain::math::localtoglobalvec(rot, Vec3::new(f(12), f(16), f(20)));
         out.extend_from_slice(&n.x.to_le_bytes());
         out.extend_from_slice(&n.y.to_le_bytes());
         out.extend_from_slice(&n.z.to_le_bytes());
@@ -498,7 +498,7 @@ pub(super) fn draw_part(
             // nothing at all.
             let passes = classify_subset_passes(
                 m.subset_mask,
-                dereth_world_render::consts::S_ALPHA_DELAY_MASK,
+                dereth_terrain::consts::S_ALPHA_DELAY_MASK,
                 multi_pass_alpha,
             );
             if let Some(list) = passes.list {
@@ -701,7 +701,7 @@ pub(super) fn static_clip_list_member(batch: &StaticBatch) -> bool {
 /// `Translucent | ClipMap` surface is mask 8 and so takes both passes, although surface setup
 /// draws its first one blended rather than alpha-tested.
 pub(super) fn static_multipass_member(batch: &StaticBatch, detail_installed: bool) -> bool {
-    use dereth_world_render::consts::S_ALPHA_DELAY_MASK;
+    use dereth_terrain::consts::S_ALPHA_DELAY_MASK;
     use dereth_world_render::objects::draw::{
         classify_subset_passes, mesh_draw_defers, subset_mask,
     };
@@ -947,10 +947,10 @@ pub(crate) fn build_meshes_with(
         // what `resolve` is keyed by, so the whole group's vertices take one word.
         let diffuse = vertex_diffuse(if honour { r.vertex_alpha } else { 0xFF });
         let mut vertices = Vec::with_capacity(g.vertices.len() * OBJECT_VERTEX_STRIDE);
-        let rot = place.map(|f| dereth_world_render::math::l2g(f.rotation));
+        let rot = place.map(|f| dereth_terrain::math::l2g(f.rotation));
         for (i, (pt, u, v)) in g.vertices.iter().enumerate() {
             let w = match place {
-                Some(f) => dereth_world_render::math::localtoglobal(f, *pt),
+                Some(f) => dereth_terrain::math::localtoglobal(f, *pt),
                 None => *pt,
             };
             vertices.extend_from_slice(&w.x.to_le_bytes());
@@ -963,7 +963,7 @@ pub(crate) fn build_meshes_with(
             // without them) fall to zero, which the lighting reads as "faces nothing".
             let n = g.normals.get(i).copied().unwrap_or(Vec3::ZERO);
             let n = match rot {
-                Some(m) => dereth_world_render::math::localtoglobalvec(m, n),
+                Some(m) => dereth_terrain::math::localtoglobalvec(m, n),
                 None => n,
             };
             vertices.extend_from_slice(&n.x.to_le_bytes());

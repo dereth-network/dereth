@@ -27,9 +27,8 @@ use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// The retail dats, or a failed test: a test that returned early without them would read as a
@@ -154,7 +153,7 @@ fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu, release: bool) -> WorldS
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -1429,9 +1428,8 @@ mod interior_cell_objects {
     };
     use dereth_render::device::Gpu;
     use {
-        dereth_client_runtime::landblock::block_xy,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+        dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     // =================================================================================================
@@ -1604,8 +1602,7 @@ mod interior_cell_objects {
             ..SceneConfig::default()
         };
         let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");

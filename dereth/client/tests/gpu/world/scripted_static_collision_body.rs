@@ -58,7 +58,11 @@ fn setups_raising(store: &RetailDatStore, hook: u32) -> Vec<(DataId, u32)> {
                 if u32::from(step.hook.hook_type) == hook {
                     hits += 1;
                 }
-                if let dereth_assets::HookData::CallPes { pes, .. } = step.hook.data {
+                if let dereth_assets::HookData::CallPes(dereth_primitives::records::HookCallPes {
+                    pes,
+                    ..
+                }) = step.hook.data
+                {
                     queue.push(pes);
                 }
             }
@@ -331,7 +335,7 @@ mod scene {
         // Cell-static registration writes into the attached character's PhysicsWorld. Attach
         // one before streaming, as the application does, so collision bodies exist for the
         // later script-host pairing.
-        let region = dereth_client_runtime::landblock::load_region(store).expect("region");
+        let region = dereth_world_data::landblock::load_region(store).expect("region");
         scene.attach_character(store, &region, gpu).expect("body");
         // `stream` is the other place cell statics are registered, for blocks that arrive later;
         // `sync_objects` is where the hosts are spawned.
@@ -357,7 +361,7 @@ mod scene {
         let mut scene = scene(
             &mut gpu,
             &store,
-            dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         );
         let mut stream = ObjectStream::new();
         scene

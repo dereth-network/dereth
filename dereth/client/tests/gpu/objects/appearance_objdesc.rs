@@ -407,7 +407,7 @@ fn the_players_own_body_wears_his_objdesc() {
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
     // Attach the local character after loading the world, as the application does.
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");

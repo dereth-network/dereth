@@ -18,8 +18,8 @@ pub fn a_client_ready_to_shoot() -> HeadlessClient {
             .weenies
             .insert(PLAYER, dereth_client_model::Weenie::new(PLAYER));
         let mut victim = dereth_client_model::Weenie::new(A_TARGET);
-        victim.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-        victim.pwd.bitfield = dereth_client_model::weenie::bitfield::ATTACKABLE;
+        victim.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+        victim.pwd.bitfield = dereth_rules::weenie::bitfield::ATTACKABLE;
         w.tables.weenies.insert(A_TARGET, victim);
         w.set_selected_object(Some(A_TARGET), false, &mut dereth_client_model::NullSink);
         w.combat.combat_mode = dereth_client_model::combat::CombatMode::Missile;

@@ -123,7 +123,7 @@ fn before_teleport() -> (ObjectStream, Position, CorpusBlob) {
 
 fn body_at(pos: Position, id: ObjectId) -> Character {
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let block = pos.cell.landblock();
     let mut c = Character::new(
         &store,

@@ -242,10 +242,10 @@ pub(super) fn the_abuse_page_sends_one_report_and_then_empties_itself() {
     let _shard = Peer::attach(&mut c, REPORTER);
     {
         let mut reporter = dereth_client_model::Weenie::new(REPORTER);
-        reporter.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+        reporter.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
         reporter.pwd.name = "Reporter".into();
         let mut target = dereth_client_model::Weenie::new(TARGET);
-        target.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+        target.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
         target.pwd.name = "Target Player".into();
         let w = c.world_mut();
         w.tables.weenies.insert(REPORTER, reporter);

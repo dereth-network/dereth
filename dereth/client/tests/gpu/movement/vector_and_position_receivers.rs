@@ -675,8 +675,8 @@ fn a_position_and_movement_event_whose_tail_is_not_a_buffer_is_counted() {
 fn the_recorded_vector_update_reaches_the_physics_body() {
     use dereth_render::device::{DeviceConfig, Gpu};
     use {
-        dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-        dereth_scene::world_scene::WorldScene,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+        dereth_world_data::landblock::load_region,
     };
 
     let id = ObjectId(0x5000_000A);

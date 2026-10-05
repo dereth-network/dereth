@@ -932,13 +932,13 @@ pub fn strike_hooks(attack_frames: &[AttackFrame]) -> Vec<Option<AttackCone>> {
 }
 
 fn attack_cone(hook: &AnimHook) -> AttackCone {
-    let HookData::Attack {
+    let HookData::Attack(dereth_primitives::records::AttackCone {
         part_index,
         left,
         right,
         radius,
         height,
-    } = hook.data
+    }) = hook.data
     else {
         panic!("ACE: an attack frame's hook is an AttackHook (InvalidCastException)");
     };

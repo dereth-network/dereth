@@ -47,7 +47,7 @@ impl HostText {
 /// Windows-1252, the table `dereth_primitives::text` converts through without `host-nls`.
 impl Default for HostText {
     fn default() -> Self {
-        Self(Arc::new(dereth_protocol::cp1252::Cp1252))
+        Self(Arc::new(dereth_primitives::text::cp1252::Cp1252))
     }
 }
 

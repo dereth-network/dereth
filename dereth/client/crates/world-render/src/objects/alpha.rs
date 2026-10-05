@@ -12,7 +12,7 @@
 
 use dereth_primitives::{DrawBatch, Frame, MeshHandle, RenderBackend, TextureHandle};
 
-use crate::consts::ALPHA_LIST_CAP;
+use dereth_terrain::consts::ALPHA_LIST_CAP;
 
 /// One deferred subset, as the client's alpha-list add records it: the mesh buffer, subset number,
 /// surface, material, matrix-valid flag, multipass flag and world matrix, 0x54 bytes in the client.
@@ -163,7 +163,7 @@ mod tests {
     #![allow(clippy::cast_possible_truncation)]
 
     use super::*;
-    use crate::testing::Recorder;
+    use dereth_terrain::testing::Recorder;
 
     fn entry(mesh: u32, order_key: f32) -> AlphaEntry {
         AlphaEntry {

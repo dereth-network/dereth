@@ -132,11 +132,13 @@ fn creates(s: &dereth_assets::PhysicsScript) -> Vec<(u32, DataId)> {
     s.script_data
         .iter()
         .filter_map(|st| match &st.hook.data {
-            dereth_assets::hook::HookData::CreateParticle {
-                emitter_info_id,
-                emitter_id,
-                ..
-            } => Some((*emitter_id, *emitter_info_id)),
+            dereth_assets::hook::HookData::CreateParticle(
+                dereth_primitives::records::HookCreateParticle {
+                    emitter_info_id,
+                    emitter_id,
+                    ..
+                },
+            ) => Some((*emitter_id, *emitter_info_id)),
             _ => None,
         })
         .collect()
@@ -341,7 +343,12 @@ fn transparent_of(store: &RetailDatStore, ty: u32) -> (f32, f32, f32) {
     let mut found = Vec::new();
     for st in &sc.script_data {
         if st.hook.hook_type == TRANSPARENT_HOOK {
-            if let dereth_assets::hook::HookData::Ramp { start, end, time } = st.hook.data {
+            if let dereth_assets::hook::HookData::Ramp(dereth_primitives::records::HookRamp {
+                start,
+                end,
+                time,
+            }) = st.hook.data
+            {
                 found.push((start, end, time));
             }
         }

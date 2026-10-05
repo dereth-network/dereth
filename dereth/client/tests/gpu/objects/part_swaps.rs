@@ -54,8 +54,8 @@ use dereth_protocol::objects::{
 use dereth_render::device::Gpu;
 use dereth_world_data::anim_assets::DatAnimAssets;
 use {
-    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region,
 };
 
 // ---------------------------------------------------------------------------------------------

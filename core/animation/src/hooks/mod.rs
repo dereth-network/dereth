@@ -15,19 +15,12 @@
 
 pub mod exec;
 
-use dereth_primitives::{DataId, Frame, Vec3};
+use dereth_primitives::{DataId, Vec3};
 
 pub use exec::{AnimEvent, HookQueue, SoundType};
 
-/// `AttackCone` — the payload of hook type 3.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct AttackCone {
-    pub part_index: u32,
-    pub left: (f32, f32),
-    pub right: (f32, f32),
-    pub radius: f32,
-    pub height: f32,
-}
+/// The shared payload of an attack hook.
+pub use dereth_primitives::records::AttackCone;
 
 /// The 27 hook payloads. Variants that share a payload but not a target are kept separate, because
 /// the *target* is the observable part: type 7 is `SetPartTranslucency`, type 9 is
@@ -52,39 +45,19 @@ pub enum HookKind {
     /// 6 `EtherealHook` → set the object ethereal.
     Ethereal { ethereal: i32 },
     /// 7 `TransparentPartHook` → ramp one part's translucency.
-    TransparentPart {
-        part: u32,
-        start: f32,
-        end: f32,
-        time: f32,
-    },
+    TransparentPart(dereth_primitives::records::HookPartRamp),
     /// 8 `LuminousHook` → ramp the object's luminosity.
-    Luminous { start: f32, end: f32, time: f32 },
+    Luminous(dereth_primitives::records::HookRamp),
     /// 9 `LuminousPartHook` → ramp one part's luminosity.
-    LuminousPart {
-        part: u32,
-        start: f32,
-        end: f32,
-        time: f32,
-    },
+    LuminousPart(dereth_primitives::records::HookPartRamp),
     /// 10 `DiffuseHook` → ramp the object's diffusion.
-    Diffuse { start: f32, end: f32, time: f32 },
+    Diffuse(dereth_primitives::records::HookRamp),
     /// 11 `DiffusePartHook` → ramp one part's diffusion.
-    DiffusePart {
-        part: u32,
-        start: f32,
-        end: f32,
-        time: f32,
-    },
+    DiffusePart(dereth_primitives::records::HookPartRamp),
     /// 12 `ScaleHook` → ramp the object's scale.
-    Scale { end: f32, time: f32 },
+    Scale(dereth_primitives::records::HookScale),
     /// 13 `CreateParticleHook` → create a particle emitter.
-    CreateParticle {
-        info: DataId,
-        part_index: u32,
-        offset: Frame,
-        emitter_id: u32,
-    },
+    CreateParticle(dereth_primitives::records::HookCreateParticle),
     /// 14 `DestroyParticleHook` → destroy one.
     DestroyParticle { emitter_id: u32 },
     /// 15 `StopParticleHook` → stop one.
@@ -96,39 +69,25 @@ pub enum HookKind {
     /// 18 `DefaultScriptPartHook` → `play_default_script(part) `.
     DefaultScriptPart { part_index: u32 },
     /// 19 `CallPESHook` → call a particle effect script after a delay.
-    CallPes { pes: DataId, pause: f32 },
+    CallPes(dereth_primitives::records::HookCallPes),
     /// 20 `TransparentHook` → ramp the object's translucency.
-    Transparent { start: f32, end: f32, time: f32 },
+    Transparent(dereth_primitives::records::HookRamp),
     /// 21: play sound `gid` with priority, probability and volume overrides.
     ///
     /// **Probability before priority on the wire.** ACE has them the other way round; contract
     /// 10.6, confirmed against all 541 shipped hooks.
-    SoundTweaked {
-        gid: DataId,
-        probability: f32,
-        priority: f32,
-        volume: f32,
-    },
+    SoundTweaked(dereth_primitives::records::HookSoundTweaked),
     /// 22 `SetOmegaHook` → set the angular velocity. A *set*, not an add.
     SetOmega { axis: Vec3 },
     /// 23 `TextureVelocityHook` → set the object's texture velocity.
-    TextureVelocity { u_speed: f32, v_speed: f32 },
+    TextureVelocity(dereth_primitives::records::HookTextureVelocity),
     /// 24 `TextureVelocityPartHook` → set one part's texture velocity.
-    TextureVelocityPart {
-        part_index: u32,
-        u_speed: f32,
-        v_speed: f32,
-    },
+    TextureVelocityPart(dereth_primitives::records::HookTextureVelocityPart),
     /// 25 `SetLightHook` → set the object's lights flag.
     SetLight { lights_on: i32 },
     /// 26: create-blocking-particle → create a blocking particle emitter. Same
     /// payload as type 13; "blocking" means "do not restart an effect already running".
-    CreateBlockingParticle {
-        info: DataId,
-        part_index: u32,
-        offset: Frame,
-        emitter_id: u32,
-    },
+    CreateBlockingParticle(dereth_primitives::records::HookCreateParticle),
 }
 
 impl HookKind {
@@ -147,26 +106,26 @@ impl HookKind {
             Self::AnimationDone => 4,
             Self::ReplaceObject { .. } => 5,
             Self::Ethereal { .. } => 6,
-            Self::TransparentPart { .. } => 7,
-            Self::Luminous { .. } => 8,
-            Self::LuminousPart { .. } => 9,
-            Self::Diffuse { .. } => 10,
-            Self::DiffusePart { .. } => 11,
-            Self::Scale { .. } => 12,
-            Self::CreateParticle { .. } => 13,
+            Self::TransparentPart(_) => 7,
+            Self::Luminous(_) => 8,
+            Self::LuminousPart(_) => 9,
+            Self::Diffuse(_) => 10,
+            Self::DiffusePart(_) => 11,
+            Self::Scale(_) => 12,
+            Self::CreateParticle(_) => 13,
             Self::DestroyParticle { .. } => 14,
             Self::StopParticle { .. } => 15,
             Self::NoDraw { .. } => 16,
             Self::DefaultScript => 17,
             Self::DefaultScriptPart { .. } => 18,
-            Self::CallPes { .. } => 19,
-            Self::Transparent { .. } => 20,
-            Self::SoundTweaked { .. } => 21,
+            Self::CallPes(_) => 19,
+            Self::Transparent(_) => 20,
+            Self::SoundTweaked(_) => 21,
             Self::SetOmega { .. } => 22,
-            Self::TextureVelocity { .. } => 23,
-            Self::TextureVelocityPart { .. } => 24,
+            Self::TextureVelocity(_) => 23,
+            Self::TextureVelocityPart(_) => 24,
             Self::SetLight { .. } => 25,
-            Self::CreateBlockingParticle { .. } => 26,
+            Self::CreateBlockingParticle(_) => 26,
         }
     }
 }

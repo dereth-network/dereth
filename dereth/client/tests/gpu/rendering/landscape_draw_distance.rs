@@ -14,7 +14,6 @@
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Decode;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
@@ -27,9 +26,10 @@ use {
     dereth_client_runtime::character::PLAYER_OBJECT_ID,
 };
 use {
-    dereth_client_runtime::landblock::landblock_did, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::landblock_did,
 };
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 800;
@@ -105,10 +105,10 @@ fn world_height(store: &RetailDatStore, table: &[f32], wx: f32, wy: f32) -> Opti
 #[test]
 fn the_distant_mountains_are_outside_the_default_land_window() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let table = &region.land_defs.land_height_table;
 
-    let (bx, by) = dereth_client_runtime::landblock::block_xy(HOLTBURG);
+    let (bx, by) = dereth_world_data::landblock::block_xy(HOLTBURG);
     #[allow(clippy::cast_precision_loss)]
     let (wx, wy) = (bx as f32 * BLOCK + STATION.0, by as f32 * BLOCK + STATION.1);
     let eye = 94.005 + 2.54; // the station's z plus the chase camera's lift
@@ -267,8 +267,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &std::sync::Arc<RetailDatStore>, mut gpu: Gpu, land_radius: u32) -> Self {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             land_radius,
@@ -541,9 +540,9 @@ fn the_recorded_frame_loses_the_far_terrain_to_the_window() {
 #[test]
 fn an_object_behind_a_ridge_beyond_the_window_draws_through_it() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let table = &region.land_defs.land_height_table;
-    let (bx, by) = dereth_client_runtime::landblock::block_xy(HOLTBURG);
+    let (bx, by) = dereth_world_data::landblock::block_xy(HOLTBURG);
     #[allow(clippy::cast_precision_loss)]
     let (wx, wy) = (bx as f32 * BLOCK + STATION.0, by as f32 * BLOCK + STATION.1);
     let eye = 94.005 + 2.54;

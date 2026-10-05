@@ -23,7 +23,7 @@ pub(super) const HINT_DRAG_ITEMS: [ObjectId; 3] = [
 /// The pack is what makes the strip's three answers three: a cell holding it, an empty cell
 /// beside it, and the pack itself once it is known to have room.
 pub(super) fn seed_three_things_and_a_pack(w: &mut dereth_client_model::World) {
-    use dereth_client_model::weenie::bitfield;
+    use dereth_rules::weenie::bitfield;
 
     w.set_player(HINT_DRAG_PLAYER);
     let mut me = dereth_client_model::Weenie::new(HINT_DRAG_PLAYER);

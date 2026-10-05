@@ -16,8 +16,8 @@
 //!   no padding ([`Reader::astring`]); `PackObj` strings are `u16` length with a `0xFFFF` escape to
 //!   `u32`, payload, and zero-pad to 4 ([`Reader::pstring`]). The wire uses the second.
 
-use crate::cp1252;
 use crate::error::MessageError;
+use dereth_primitives::text::cp1252;
 
 /// Byte cursor over one message body, reading little-endian.
 ///

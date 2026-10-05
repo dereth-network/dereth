@@ -513,7 +513,7 @@ fn a_player_option_action_flips_its_option_and_saves_an_auto_saved_one_at_once()
 #[test]
 fn the_select_self_give_drop_and_main_pack_keys_act_on_the_selection() {
     use dereth_client_contract::actions::{Action, ActionId};
-    use dereth_client_model::weenie::{item_type, Weenie};
+    use {dereth_client_model::weenie::Weenie, dereth_rules::weenie::item_type};
     const PLAYER: ObjectId = ObjectId(0x5000_0001);
     const COAT: ObjectId = ObjectId(0x8000_0010);
     const GUARD: ObjectId = ObjectId(0x8000_0020);

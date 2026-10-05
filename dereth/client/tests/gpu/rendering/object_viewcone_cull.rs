@@ -11,7 +11,6 @@
 
 #![cfg(gpu)]
 
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording;
@@ -30,6 +29,7 @@ use {
     dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::ObjectConeStats,
     dereth_scene::world_scene::WorldScene,
 };
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// In front of the player, well inside any field of view — the calibration positive.
@@ -85,8 +85,7 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &dev).expect("a D3D12 WARP device");
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,

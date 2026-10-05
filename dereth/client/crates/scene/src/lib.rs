@@ -3,7 +3,7 @@
 //!
 //! **Depends on** the runtime it draws (`dereth-client-runtime`) and the crates the drawing is
 //! built from: `dereth-render` (the device), `dereth-world-render` (what the world draws and in what
-//! order), `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
+//! order), `dereth-terrain`, `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-audio`, `dereth-protocol` and `dereth-world-data`, the target projection from the contract
 //! (`dereth-client-contract`) and character creation's model (`dereth-chargen`). **Used by** the client shell
 //! (`dereth-client-shell`), the desktop client (`dereth-client`) and the browser client

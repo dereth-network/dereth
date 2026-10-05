@@ -130,13 +130,13 @@ fn animation(id: u32, n: u32, hook_frame: Option<u32>) -> Animation {
                 vec![AnimHook {
                     hook_type: 3,
                     direction: 1,
-                    data: HookData::Attack {
+                    data: HookData::Attack(dereth_primitives::records::AttackCone {
                         part_index: 0,
                         left: (0.0, 0.0),
                         right: (0.0, 0.0),
                         radius: 1.0,
                         height: 1.0,
-                    },
+                    }),
                 }]
             } else {
                 Vec::new()
@@ -840,13 +840,13 @@ fn each_strike_of_a_swing_uses_its_own_body_part() {
     let hook = |part_index| AnimHook {
         hook_type: 3,
         direction: 1,
-        data: HookData::Attack {
+        data: HookData::Attack(dereth_primitives::records::AttackCone {
             part_index,
             left: (0.0, 0.0),
             right: (0.0, 0.0),
             radius: 1.0,
             height: 1.0,
-        },
+        }),
     };
     let frames: Vec<monster_melee::AttackFrame> = vec![
         (0.2, Some(hook(3))),

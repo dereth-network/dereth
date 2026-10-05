@@ -16,11 +16,10 @@ use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrit
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;
-use dereth_world_render::consts::BLOCK_LENGTH;
+use dereth_terrain::consts::BLOCK_LENGTH;
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// The retail store, or **fail**. The return type offers no skip, so no caller can turn a missing
@@ -337,7 +336,7 @@ fn a_walking_body_carries_the_window_with_it() {
     let store = std::sync::Arc::new(store);
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");

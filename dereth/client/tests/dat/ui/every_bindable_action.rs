@@ -35,7 +35,7 @@ fn in_the_world() -> App {
     .expect("required retail DATs and a simulated presentation");
     app.start_shell().expect("the UI shell");
     let scene = dereth_client_runtime::scene::SceneConfig {
-        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        landblock: dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 1,
         scenery_radius: 0,

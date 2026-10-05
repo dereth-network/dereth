@@ -176,11 +176,11 @@ fn an_object_the_server_names_a_placement_for_is_drawn_at_it() {
 
     // The part-array update puts part i at combine(world, placement_frame[i]).
     for (i, got) in with_placement.iter().enumerate() {
-        let want = dereth_world_render::math::combine(&world_a, &named[i]);
+        let want = dereth_terrain::math::combine(&world_a, &named[i]);
         assert_eq!(*got, want, "part {i} must sit at MissileFlight's frame");
     }
     for (i, got) in without.iter().enumerate() {
-        let want = dereth_world_render::math::combine(&world_b, &unnamed[i]);
+        let want = dereth_terrain::math::combine(&world_b, &unnamed[i]);
         assert_eq!(
             *got, want,
             "part {i} must sit at Placement.Default with no placement named"
@@ -226,7 +226,7 @@ fn a_placement_the_setup_does_not_carry_falls_back_to_key_zero() {
 
     let (parts, world) = part_frames_for(Some(0x0FFF)).expect("the part frames for that placement");
     for (i, got) in parts.iter().enumerate() {
-        let want = dereth_world_render::math::combine(&world, &fallback[i]);
+        let want = dereth_terrain::math::combine(&world, &fallback[i]);
         assert_eq!(*got, want, "part {i} falls back to Placement.Default");
     }
 }
@@ -269,10 +269,7 @@ fn a_later_position_event_reposes_an_object_already_on_screen() {
         .server_object_part_frames(ObjectId(OBJ))
         .expect("parts");
     for (i, got) in before.iter().enumerate() {
-        assert_eq!(
-            *got,
-            dereth_world_render::math::combine(&world, &unnamed[i])
-        );
+        assert_eq!(*got, dereth_terrain::math::combine(&world, &unnamed[i]));
     }
 
     // The server then says "MissileFlight" on a position event.
@@ -288,7 +285,7 @@ fn a_later_position_event_reposes_an_object_already_on_screen() {
     for (i, got) in after.iter().enumerate() {
         assert_eq!(
             *got,
-            dereth_world_render::math::combine(&world, &named[i]),
+            dereth_terrain::math::combine(&world, &named[i]),
             "part {i} re-posed"
         );
     }

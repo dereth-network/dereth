@@ -49,13 +49,16 @@ use dereth_physics::{SetupGeometry, Sphere};
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
-use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table, Direction};
-use dereth_world_render::scenery::{generate_scenery, SceneryEnv};
 use {
     dereth_client_runtime::character::CharacterInput,
     dereth_client_runtime::character::PLAYER_OBJECT_ID,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {
+    dereth_terrain::land::mesh::generate_landblock_with_table,
+    dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::Direction,
+};
+use {dereth_terrain::scenery::generate_scenery, dereth_terrain::scenery::SceneryEnv};
 
 const W: u32 = 320;
 const H: u32 = 240;
@@ -108,8 +111,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu) -> Self {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: BLOCK,
             land_radius: 2,
@@ -280,14 +282,16 @@ impl Arms {
 fn geometry_of(
     s: &RetailDatStore,
     id: DataId,
-    stats: &mut dereth_client_runtime::object_physics::SetupPartStats,
+    stats: &mut dereth_world_data::setup::SetupPartStats,
 ) -> Option<SetupGeometry> {
     if id.0 >> 24 == 0x01 {
-        return dereth_client_runtime::object_physics::simple_setup_geometry(s, id, stats);
+        return dereth_world_data::setup::simple_setup_geometry(s, id, stats);
     }
     let b = s.read_typed(DbType::Setup, id).ok()?;
     let setup = dereth_assets::Setup::decode_payload(id, &b).ok()?;
-    Some(dereth_client_runtime::object_physics::setup_geometry_with_parts(s, &setup, stats))
+    Some(dereth_world_data::setup::setup_geometry_with_parts(
+        s, &setup, stats,
+    ))
 }
 
 /// Inspect geometry categories over 25 blocks using the production scenery generator and
@@ -323,12 +327,12 @@ fn the_scenery_census_says_which_pieces_retail_makes_solid() {
             })
             .clone()
     };
-    let mut part_stats = dereth_client_runtime::object_physics::SetupPartStats::default();
+    let mut part_stats = dereth_world_data::setup::SetupPartStats::default();
     let mut arms: BTreeMap<u32, (Arms, usize)> = BTreeMap::new();
     let mut total = 0usize;
     let mut solid_placements = 0usize;
-    let mut tree: Option<dereth_world_render::PlacedScenery> = None;
-    let mut decor: Option<dereth_world_render::PlacedScenery> = None;
+    let mut tree: Option<dereth_terrain::scenery::PlacedScenery> = None;
+    let mut decor: Option<dereth_terrain::scenery::PlacedScenery> = None;
 
     for bx in 0xA7..=0xABu32 {
         for by in 0xB2..=0xB6u32 {
@@ -347,12 +351,10 @@ fn the_scenery_census_says_which_pieces_retail_makes_solid() {
                     {
                         let li: LandblockInfo = li;
                         for bl in &li.buildings {
-                            building_cells.insert(
-                                dereth_world_render::scenery::outside_cell_index(
-                                    bl.frame.origin.x,
-                                    bl.frame.origin.y,
-                                ),
-                            );
+                            building_cells.insert(dereth_terrain::scenery::outside_cell_index(
+                                bl.frame.origin.x,
+                                bl.frame.origin.y,
+                            ));
                         }
                     }
                 }

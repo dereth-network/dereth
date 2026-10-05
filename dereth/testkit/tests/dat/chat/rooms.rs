@@ -316,7 +316,7 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
         unreachable!("matched above")
     };
     let spelled =
-        dereth_protocol::cp1252::encode(&talk.message).expect("the line spells") == native;
+        dereth_primitives::text::cp1252::encode(&talk.message).expect("the line spells") == native;
 
     let mut session = Session::new(MockTransport::new());
     assert!(dereth_client_runtime::requests::send_request(

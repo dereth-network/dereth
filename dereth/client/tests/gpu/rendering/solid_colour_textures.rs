@@ -22,9 +22,9 @@ use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
 use dereth_render::{PipelineKey, SurfaceContext, VertexFormat};
 use {
-    dereth_client_runtime::landblock::block_xy, dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::load_region,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 fn store() -> Arc<RetailDatStore> {

@@ -196,9 +196,9 @@ fn recorded(blob: &[u8]) -> dereth_testkit::Inbound {
 /// **The gate.** The recorded chest, the shipped Use button really pressed, the recorded answers:
 /// the strip carries the client's own refusal, in its own order, and the scrollback does not.
 pub(super) fn a_use_of_the_recorded_locked_chest_says_so_in_the_strip() {
-    use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_protocol::types::PublicWeenieDesc;
     use dereth_ui_screens::hud::speech_bubbles::LIST_BOX;
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
     {

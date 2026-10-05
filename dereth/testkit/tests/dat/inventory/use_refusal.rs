@@ -1,10 +1,10 @@
 use dereth_client_model::inventory::use_object::{messages, ItemUses, UseOutcome, UseRefusal};
 use dereth_client_model::inventory::SplitState;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{Notice, RecordingRequests, RecordingSink, World};
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_protocol::types::PublicWeenieDesc;
 use dereth_testkit::{ClientSpec, HeadlessClient, Player, Target};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const ME: ObjectId = ObjectId(0x5000_0001);
 const SUBJECT: ObjectId = ObjectId(0x5000_0002);

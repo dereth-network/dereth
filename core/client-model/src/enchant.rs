@@ -13,12 +13,12 @@
 //!   so one-way latency is silently subtracted from every enchantment for its whole life. Do not
 //!   "fix" it with a server timestamp.
 //!
-//! The pure rules of this module live in [`dereth_rules::enchant`]; they are re-exported
-//! here, so every `dereth_client_model::enchant::*` path resolves.
+//! Shared arithmetic and inquiries live in `dereth-rules`; this module keeps the
+//! client model's state adapters and value tests.
 
 use dereth_primitives::{LocalTime, ObjectId};
 
-pub use dereth_rules::enchant::*;
+use dereth_rules::enchant::*;
 
 // ---------------------------------------------------------------------------------------------
 // The player's registry, reached the way the client reaches it.

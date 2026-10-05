@@ -11,9 +11,9 @@ use dereth_client_model::selection::{
     SelectionType, CLOAKED_PS, COMPASS_ALWAYS, REPORT_COLLISIONS_AS_ENVIRONMENT_PS,
     SELECT_NEXT_SENTINEL,
 };
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{Notice, RecordingSink, World};
 use dereth_primitives::{CellId, ObjectId};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 use std::collections::BTreeMap;
 
@@ -969,9 +969,9 @@ fn the_monster_filter() {
     assert_eq!(
         lone(SelectionType::Monster, |f, id| {
             f.make_monster(id);
-            let mut fs = dereth_client_model::fellowship::Fellowship::default();
+            let mut fs = dereth_rules::fellowship::Fellowship::default();
             fs.members
-                .insert(id, dereth_client_model::fellowship::Fellow::default());
+                .insert(id, dereth_rules::fellowship::Fellow::default());
             f.w.fellowship = Some(fs);
         }),
         None
@@ -1054,9 +1054,9 @@ fn the_compass_item_filter_in_a_combat_stance() {
     assert_eq!(
         lone(SelectionType::CompassItem, |f, id| {
             armed(CombatMode::Melee)(f, id);
-            let mut fs = dereth_client_model::fellowship::Fellowship::default();
+            let mut fs = dereth_rules::fellowship::Fellowship::default();
             fs.members
-                .insert(id, dereth_client_model::fellowship::Fellow::default());
+                .insert(id, dereth_rules::fellowship::Fellow::default());
             f.w.fellowship = Some(fs);
         }),
         None

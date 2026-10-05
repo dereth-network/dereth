@@ -286,311 +286,370 @@ impl Decode for Region {
 }
 
 /// `sky_particles`: whether a sky object carries a particle-script id (nine words, not eight).
-#[allow(clippy::too_many_lines)]
 fn decode_region(
     c: &mut Cursor<'_>,
     era: ContainerEra,
     sky_particles: bool,
 ) -> Result<Region, AssetError> {
-    let pre_tod = era == ContainerEra::PreTod;
-    {
-        let id = c.data_id()?;
-        let region_number = c.u32()?;
-        let version = c.u32()?;
-        let region_name = c.packobj_string()?;
+    let id = c.data_id()?;
+    let region_number = c.u32()?;
+    let version = c.u32()?;
+    let region_name = c.packobj_string()?;
 
-        let land_defs = LandDefs {
-            num_block_length: c.u32()?,
-            num_block_width: c.u32()?,
-            square_length: c.f32()?,
-            lblock_length: c.u32()?,
-            vertex_per_cell: c.u32()?,
-            max_obj_height: c.f32()?,
-            sky_height: c.f32()?,
-            road_width: c.f32()?,
-            land_height_table: read_n(c, LAND_HEIGHT_TABLE_LEN, Cursor::f32)?,
-        };
+    let land_defs = read_land_defs(c)?;
 
-        let zero_time_of_year = c.f64()?;
-        let zero_year = c.u32()?;
-        let day_length = c.f32()?;
-        let days_per_year = c.u32()?;
-        let year_spec = c.packobj_string()?;
+    let game_time = read_game_time(c)?;
+
+    let parts_mask = c.u32()?;
+
+    let sky_info = read_sky(c, parts_mask, sky_particles)?;
+
+    let sound_info = read_sounds(c, parts_mask)?;
+
+    let scene_info = read_scenes(c, parts_mask)?;
+
+    let terrain_types = read_terrain_types(c)?;
+
+    let land_surf = read_land_surface(c, era)?;
+
+    let region_misc = read_misc(c, parts_mask)?;
+
+    Ok(Region {
+        id,
+        region_number,
+        version,
+        region_name,
+        land_defs,
+        game_time,
+        parts_mask,
+        sky_info,
+        sound_info,
+        scene_info,
+        terrain_types,
+        land_surf,
+        region_misc,
+    })
+}
+
+fn read_land_defs(c: &mut Cursor<'_>) -> Result<LandDefs, AssetError> {
+    let land_defs = LandDefs {
+        num_block_length: c.u32()?,
+        num_block_width: c.u32()?,
+        square_length: c.f32()?,
+        lblock_length: c.u32()?,
+        vertex_per_cell: c.u32()?,
+        max_obj_height: c.f32()?,
+        sky_height: c.f32()?,
+        road_width: c.f32()?,
+        land_height_table: read_n(c, LAND_HEIGHT_TABLE_LEN, Cursor::f32)?,
+    };
+
+    Ok(land_defs)
+}
+
+fn read_game_time(c: &mut Cursor<'_>) -> Result<GameTime, AssetError> {
+    let zero_time_of_year = c.f64()?;
+    let zero_year = c.u32()?;
+    let day_length = c.f32()?;
+    let days_per_year = c.u32()?;
+    let year_spec = c.packobj_string()?;
+    let n = c.u32()? as usize;
+    let times_of_day = read_n(c, n, |c| {
+        Ok(TimeOfDay {
+            begin: c.f32()?,
+            is_night: c.u32()?,
+            name: c.packobj_string()?,
+        })
+    })?;
+    let n = c.u32()? as usize;
+    let days_of_the_week = read_n(c, n, Cursor::packobj_string)?;
+    let n = c.u32()? as usize;
+    let seasons = read_n(c, n, |c| {
+        Ok(Season {
+            begin: c.u32()?,
+            name: c.packobj_string()?,
+        })
+    })?;
+    let game_time = GameTime {
+        zero_time_of_year,
+        zero_year,
+        day_length,
+        days_per_year,
+        year_spec,
+        times_of_day,
+        days_of_the_week,
+        seasons,
+    };
+
+    Ok(game_time)
+}
+
+fn read_sky(
+    c: &mut Cursor<'_>,
+    parts_mask: u32,
+    sky_particles: bool,
+) -> Result<Option<SkyInfo>, AssetError> {
+    let sky_info = if parts_mask & 0x10 != 0 {
+        let tick_size = c.f64()?;
+        let light_tick_size = c.f64()?;
+        c.align_ptr();
         let n = c.u32()? as usize;
-        let times_of_day = read_n(c, n, |c| {
-            Ok(TimeOfDay {
-                begin: c.f32()?,
-                is_night: c.u32()?,
-                name: c.packobj_string()?,
-            })
-        })?;
-        let n = c.u32()? as usize;
-        let days_of_the_week = read_n(c, n, Cursor::packobj_string)?;
-        let n = c.u32()? as usize;
-        let seasons = read_n(c, n, |c| {
-            Ok(Season {
-                begin: c.u32()?,
-                name: c.packobj_string()?,
-            })
-        })?;
-        let game_time = GameTime {
-            zero_time_of_year,
-            zero_year,
-            day_length,
-            days_per_year,
-            year_spec,
-            times_of_day,
-            days_of_the_week,
-            seasons,
-        };
-
-        let parts_mask = c.u32()?;
-
-        let sky_info = if parts_mask & 0x10 != 0 {
-            let tick_size = c.f64()?;
-            let light_tick_size = c.f64()?;
-            c.align_ptr();
-            let n = c.u32()? as usize;
-            let mut day_groups = Vec::new();
-            for _ in 0..n {
-                let chance_of_occur = c.f32()?;
-                let day_name = c.packobj_string()?;
-                let m = c.u32()? as usize;
-                let mut sky_objects = Vec::new();
-                for _ in 0..m {
-                    let o = SkyObject {
-                        begin_time: c.f32()?,
-                        end_time: c.f32()?,
-                        begin_angle: c.f32()?,
-                        end_angle: c.f32()?,
-                        tex_velocity: (c.f32()?, c.f32()?),
-                        default_gfx_object: c.data_id()?,
-                        // No particle script before August 2012: eight words.
-                        default_pes_object: if sky_particles {
-                            c.data_id()?
-                        } else {
-                            DataId(0)
-                        },
-                        properties: c.u32()?,
-                    };
-                    c.align_ptr();
-                    sky_objects.push(o);
+        let mut day_groups = Vec::new();
+        for _ in 0..n {
+            let chance_of_occur = c.f32()?;
+            let day_name = c.packobj_string()?;
+            let m = c.u32()? as usize;
+            let mut sky_objects = Vec::new();
+            for _ in 0..m {
+                let o = read_sky_object(c, sky_particles)?;
+                sky_objects.push(o);
+            }
+            let m = c.u32()? as usize;
+            let mut sky_time = Vec::new();
+            for _ in 0..m {
+                let begin = c.f32()?;
+                let dir_bright = c.f32()?;
+                let dir_heading = c.f32()?;
+                let dir_pitch = c.f32()?;
+                let dir_color = c.u32()?;
+                let amb_bright = c.f32()?;
+                let amb_color = c.u32()?;
+                let min_world_fog = c.f32()?;
+                let max_world_fog = c.f32()?;
+                let world_fog_color = c.u32()?;
+                let world_fog = c.u32()?;
+                c.align_ptr();
+                let k = c.u32()? as usize;
+                let mut sky_obj_replace = Vec::new();
+                for _ in 0..k {
+                    let r = read_sky_replacement(c)?;
+                    sky_obj_replace.push(r);
                 }
-                let m = c.u32()? as usize;
-                let mut sky_time = Vec::new();
-                for _ in 0..m {
-                    let begin = c.f32()?;
-                    let dir_bright = c.f32()?;
-                    let dir_heading = c.f32()?;
-                    let dir_pitch = c.f32()?;
-                    let dir_color = c.u32()?;
-                    let amb_bright = c.f32()?;
-                    let amb_color = c.u32()?;
-                    let min_world_fog = c.f32()?;
-                    let max_world_fog = c.f32()?;
-                    let world_fog_color = c.u32()?;
-                    let world_fog = c.u32()?;
-                    c.align_ptr();
-                    let k = c.u32()? as usize;
-                    let mut sky_obj_replace = Vec::new();
-                    for _ in 0..k {
-                        let r = SkyObjectReplace {
-                            object_index: c.u32()?,
-                            gfx_obj_id: c.data_id()?,
-                            rotate: c.f32()?,
-                            transparent: c.f32()?,
-                            luminosity: c.f32()?,
-                            max_bright: c.f32()?,
-                        };
-                        c.align_ptr();
-                        sky_obj_replace.push(r);
-                    }
-                    sky_time.push(SkyTime {
-                        begin,
-                        dir_bright,
-                        dir_heading,
-                        dir_pitch,
-                        dir_color,
-                        amb_bright,
-                        amb_color,
-                        min_world_fog,
-                        max_world_fog,
-                        world_fog_color,
-                        world_fog,
-                        sky_obj_replace,
-                    });
-                }
-                day_groups.push(SkyDayPreset {
-                    chance_of_occur,
-                    day_name,
-                    sky_objects,
-                    sky_time,
+                sky_time.push(SkyTime {
+                    begin,
+                    dir_bright,
+                    dir_heading,
+                    dir_pitch,
+                    dir_color,
+                    amb_bright,
+                    amb_color,
+                    min_world_fog,
+                    max_world_fog,
+                    world_fog_color,
+                    world_fog,
+                    sky_obj_replace,
                 });
             }
-            Some(SkyInfo {
-                tick_size,
-                light_tick_size,
-                day_groups,
-            })
-        } else {
-            None
-        };
+            day_groups.push(SkyDayPreset {
+                chance_of_occur,
+                day_name,
+                sky_objects,
+                sky_time,
+            });
+        }
+        Some(SkyInfo {
+            tick_size,
+            light_tick_size,
+            day_groups,
+        })
+    } else {
+        None
+    };
 
-        let sound_info = if parts_mask & 0x01 != 0 {
-            let n = c.u32()? as usize;
-            Some(read_n(c, n, |c| {
-                let stb_id = c.data_id()?;
-                let m = c.u32()? as usize;
-                let ambient_sounds = read_n(c, m, |c| {
-                    Ok(AmbientSound {
-                        stype: c.u32()?,
-                        volume: c.f32()?,
-                        base_chance: c.f32()?,
-                        min_rate: c.f32()?,
-                        max_rate: c.f32()?,
-                    })
-                })?;
-                Ok(SoundDesc {
-                    stb_id,
-                    ambient_sounds,
-                })
-            })?)
-        } else {
-            None
-        };
+    Ok(sky_info)
+}
 
-        let scene_info = if parts_mask & 0x02 != 0 {
-            let n = c.u32()? as usize;
-            Some(read_n(c, n, |c| {
-                let stb_index = c.i32()?;
-                let m = c.u32()? as usize;
-                Ok(SceneDesc {
-                    stb_index,
-                    scenes: read_n(c, m, Cursor::data_id)?,
-                })
-            })?)
-        } else {
-            None
-        };
-
+fn read_sounds(c: &mut Cursor<'_>, parts_mask: u32) -> Result<Option<Vec<SoundDesc>>, AssetError> {
+    let sound_info = if parts_mask & 0x01 != 0 {
         let n = c.u32()? as usize;
-        let terrain_types = read_n(c, n, |c| {
-            let terrain_name = c.packobj_string()?;
-            let terrain_color = c.u32()?;
+        Some(read_n(c, n, |c| {
+            let stb_id = c.data_id()?;
             let m = c.u32()? as usize;
-            Ok(TerrainType {
-                terrain_name,
-                terrain_color,
-                scene_types: read_n(c, m, Cursor::i32)?,
-            })
-        })?;
-
-        let surf_type = c.u32()?;
-        let tex_merge = if surf_type == 0 {
-            let base_tex_size = c.u32()?;
-            let code_tex = |c: &mut Cursor<'_>| {
-                let n = c.u32()? as usize;
-                read_n(c, n, |c| {
-                    Ok(CodeTexture {
-                        code: c.u32()?,
-                        tex_gid: c.data_id()?,
-                    })
-                })
-            };
-            let corner_terrain_maps = code_tex(c)?;
-            let side_terrain_maps = code_tex(c)?;
-            let road_maps = code_tex(c)?;
-            let n = c.u32()? as usize;
-            let terrain_desc = read_n(c, n, |c| {
-                Ok(TerrainDesc {
-                    terrain_type: c.u32()?,
-                    tex_gid: c.data_id()?,
-                    tex_tiling: c.u32()?,
-                    max_vert_bright: c.u32()?,
-                    min_vert_bright: c.u32()?,
-                    max_vert_saturate: c.u32()?,
-                    min_vert_saturate: c.u32()?,
-                    max_vert_hue: c.u32()?,
-                    min_vert_hue: c.u32()?,
-                    detail_tex_tiling: c.u32()?,
-                    detail_tex_gid: c.data_id()?,
+            let ambient_sounds = read_n(c, m, |c| {
+                Ok(AmbientSound {
+                    stype: c.u32()?,
+                    volume: c.f32()?,
+                    base_chance: c.f32()?,
+                    min_rate: c.f32()?,
+                    max_rate: c.f32()?,
                 })
             })?;
-            Some(TexMerge {
-                base_tex_size,
-                corner_terrain_maps,
-                side_terrain_maps,
-                road_maps,
-                terrain_desc,
+            Ok(SoundDesc {
+                stb_id,
+                ambient_sounds,
             })
-        } else if surf_type == 1 && pre_tod {
-            None
-        } else {
-            // Never taken in data from Throne of Destiny on.
-            return Err(AssetError::Unsupported {
-                what: "land-surface type (PalShift)",
-                value: surf_type,
-            });
-        };
-        let pal_shift = if tex_merge.is_none() {
-            let n = c.u32()? as usize;
-            Some(PalShift {
-                textures: read_n(c, n, |c| {
-                    let tex_gid = c.data_id()?;
-                    let n = c.u32()? as usize;
-                    let sub_palettes = read_n(c, n, |c| Ok((c.u32()?, c.u32()?)))?;
-                    let r = c.u32()? as usize;
-                    let road_maps = read_n(c, r, |c| {
-                        Ok(PalShiftRoad {
-                            road_code: c.u32()?,
-                            sub_palette_types: read_n(c, n, Cursor::u32)?,
-                        })
-                    })?;
-                    let t = c.u32()? as usize;
-                    let terrain_palettes = read_n(c, t, |c| Ok((c.u32()?, c.data_id()?)))?;
-                    Ok(PalShiftTexture {
-                        tex_gid,
-                        sub_palettes,
-                        road_maps,
-                        terrain_palettes,
-                    })
-                })?,
-            })
-        } else {
-            None
-        };
+        })?)
+    } else {
+        None
+    };
 
-        let region_misc = if parts_mask & 0x200 != 0 {
-            Some(RegionMisc {
-                version: c.u32()?,
-                game_map: c.data_id()?,
-                autotest_map: c.data_id()?,
-                autotest_map_size: c.u32()?,
-                clear_cell: c.data_id()?,
-                clear_monster: c.data_id()?,
-            })
-        } else {
-            None
-        };
+    Ok(sound_info)
+}
 
-        Ok(Region {
-            id,
-            region_number,
-            version,
-            region_name,
-            land_defs,
-            game_time,
-            parts_mask,
-            sky_info,
-            sound_info,
-            scene_info,
-            terrain_types,
-            land_surf: LandSurf {
-                surf_type,
-                tex_merge,
-                pal_shift,
-            },
-            region_misc,
+fn read_scenes(c: &mut Cursor<'_>, parts_mask: u32) -> Result<Option<Vec<SceneDesc>>, AssetError> {
+    let scene_info = if parts_mask & 0x02 != 0 {
+        let n = c.u32()? as usize;
+        Some(read_n(c, n, |c| {
+            let stb_index = c.i32()?;
+            let m = c.u32()? as usize;
+            Ok(SceneDesc {
+                stb_index,
+                scenes: read_n(c, m, Cursor::data_id)?,
+            })
+        })?)
+    } else {
+        None
+    };
+
+    Ok(scene_info)
+}
+
+fn read_terrain_types(c: &mut Cursor<'_>) -> Result<Vec<TerrainType>, AssetError> {
+    let n = c.u32()? as usize;
+    let terrain_types = read_n(c, n, |c| {
+        let terrain_name = c.packobj_string()?;
+        let terrain_color = c.u32()?;
+        let m = c.u32()? as usize;
+        Ok(TerrainType {
+            terrain_name,
+            terrain_color,
+            scene_types: read_n(c, m, Cursor::i32)?,
         })
-    }
+    })?;
+
+    Ok(terrain_types)
+}
+
+fn read_land_surface(c: &mut Cursor<'_>, era: ContainerEra) -> Result<LandSurf, AssetError> {
+    let pre_tod = era == ContainerEra::PreTod;
+    let surf_type = c.u32()?;
+    let tex_merge = if surf_type == 0 {
+        let base_tex_size = c.u32()?;
+        let code_tex = |c: &mut Cursor<'_>| {
+            let n = c.u32()? as usize;
+            read_n(c, n, |c| {
+                Ok(CodeTexture {
+                    code: c.u32()?,
+                    tex_gid: c.data_id()?,
+                })
+            })
+        };
+        let corner_terrain_maps = code_tex(c)?;
+        let side_terrain_maps = code_tex(c)?;
+        let road_maps = code_tex(c)?;
+        let n = c.u32()? as usize;
+        let terrain_desc = read_n(c, n, |c| {
+            Ok(TerrainDesc {
+                terrain_type: c.u32()?,
+                tex_gid: c.data_id()?,
+                tex_tiling: c.u32()?,
+                max_vert_bright: c.u32()?,
+                min_vert_bright: c.u32()?,
+                max_vert_saturate: c.u32()?,
+                min_vert_saturate: c.u32()?,
+                max_vert_hue: c.u32()?,
+                min_vert_hue: c.u32()?,
+                detail_tex_tiling: c.u32()?,
+                detail_tex_gid: c.data_id()?,
+            })
+        })?;
+        Some(TexMerge {
+            base_tex_size,
+            corner_terrain_maps,
+            side_terrain_maps,
+            road_maps,
+            terrain_desc,
+        })
+    } else if surf_type == 1 && pre_tod {
+        None
+    } else {
+        // Never taken in data from Throne of Destiny on.
+        return Err(AssetError::Unsupported {
+            what: "land-surface type (PalShift)",
+            value: surf_type,
+        });
+    };
+    let pal_shift = if tex_merge.is_none() {
+        let n = c.u32()? as usize;
+        Some(PalShift {
+            textures: read_n(c, n, |c| {
+                let tex_gid = c.data_id()?;
+                let n = c.u32()? as usize;
+                let sub_palettes = read_n(c, n, |c| Ok((c.u32()?, c.u32()?)))?;
+                let r = c.u32()? as usize;
+                let road_maps = read_n(c, r, |c| {
+                    Ok(PalShiftRoad {
+                        road_code: c.u32()?,
+                        sub_palette_types: read_n(c, n, Cursor::u32)?,
+                    })
+                })?;
+                let t = c.u32()? as usize;
+                let terrain_palettes = read_n(c, t, |c| Ok((c.u32()?, c.data_id()?)))?;
+                Ok(PalShiftTexture {
+                    tex_gid,
+                    sub_palettes,
+                    road_maps,
+                    terrain_palettes,
+                })
+            })?,
+        })
+    } else {
+        None
+    };
+
+    Ok(LandSurf {
+        surf_type,
+        tex_merge,
+        pal_shift,
+    })
+}
+
+fn read_misc(c: &mut Cursor<'_>, parts_mask: u32) -> Result<Option<RegionMisc>, AssetError> {
+    let region_misc = if parts_mask & 0x200 != 0 {
+        Some(RegionMisc {
+            version: c.u32()?,
+            game_map: c.data_id()?,
+            autotest_map: c.data_id()?,
+            autotest_map_size: c.u32()?,
+            clear_cell: c.data_id()?,
+            clear_monster: c.data_id()?,
+        })
+    } else {
+        None
+    };
+
+    Ok(region_misc)
+}
+
+fn read_sky_object(c: &mut Cursor<'_>, sky_particles: bool) -> Result<SkyObject, AssetError> {
+    let value = SkyObject {
+        begin_time: c.f32()?,
+        end_time: c.f32()?,
+        begin_angle: c.f32()?,
+        end_angle: c.f32()?,
+        tex_velocity: (c.f32()?, c.f32()?),
+        default_gfx_object: c.data_id()?,
+        // No particle script before August 2012: eight words.
+        default_pes_object: if sky_particles {
+            c.data_id()?
+        } else {
+            DataId(0)
+        },
+        properties: c.u32()?,
+    };
+    c.align_ptr();
+    Ok(value)
+}
+
+fn read_sky_replacement(c: &mut Cursor<'_>) -> Result<SkyObjectReplace, AssetError> {
+    let value = SkyObjectReplace {
+        object_index: c.u32()?,
+        gfx_obj_id: c.data_id()?,
+        rotate: c.f32()?,
+        transparent: c.f32()?,
+        luminosity: c.f32()?,
+        max_bright: c.f32()?,
+    };
+    c.align_ptr();
+    Ok(value)
 }

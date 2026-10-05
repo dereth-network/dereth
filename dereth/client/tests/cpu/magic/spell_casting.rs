@@ -72,8 +72,11 @@ const S_CASTING: &str = "Casting Flame Bolt";
 
 #[test]
 fn the_pinned_literals_are_the_symbols_they_stand_for() {
-    use dereth_client_model::magic::{messages, spell_index, SCARAB_ONLY_FILLER_SCID};
-    use dereth_client_model::weenie::item_type;
+    use dereth_rules::weenie::item_type;
+    use {
+        dereth_client_model::magic::messages, dereth_client_model::magic::spell_index,
+        dereth_rules::magic::SCARAB_ONLY_FILLER_SCID,
+    };
 
     assert_eq!(Opcode::MAGIC_CAST_UNTARGETED_SPELL.0, MAGIC_CAST_UNTARGETED);
     assert_eq!(Opcode::MAGIC_CAST_TARGETED_SPELL.0, MAGIC_CAST_TARGETED);
@@ -345,7 +348,7 @@ fn cast_world(owned: &[u32]) -> World {
         PLAYER,
         dereth_protocol::types::PublicWeenieDesc {
             name: "Lark".into(),
-            obj_type: dereth_client_model::weenie::item_type::CREATURE,
+            obj_type: dereth_rules::weenie::item_type::CREATURE,
             ..Default::default()
         },
     );
@@ -386,7 +389,7 @@ fn cast_world(owned: &[u32]) -> World {
             dereth_protocol::types::PublicWeenieDesc {
                 name: format!("component {wcid}"),
                 wcid: *wcid,
-                obj_type: dereth_client_model::weenie::item_type::SPELL_COMPONENTS,
+                obj_type: dereth_rules::weenie::item_type::SPELL_COMPONENTS,
                 stack_size: Some(10),
                 // Ownership follows container and wielder links back to the player, which is what
                 // `update_spell_component`'s `owned` argument represents.
@@ -716,7 +719,7 @@ fn both_formula_arms_are_reachable_and_ask_for_different_components() {
         dereth_protocol::types::PublicWeenieDesc {
             name: "War Magic Spell Pack".into(),
             wcid: PACK_WCID,
-            obj_type: dereth_client_model::weenie::item_type::CONTAINER,
+            obj_type: dereth_rules::weenie::item_type::CONTAINER,
             container_id: Some(PLAYER),
             ..Default::default()
         },
@@ -876,7 +879,7 @@ fn each_target_refusal_is_the_binarys_own_literal() {
     require_components(&mut w, false);
     if let Some(x) = w.tables.weenies.get_mut(TARGET) {
         x.pwd.bitfield = 0; // not attackable
-        x.pwd.obj_type = dereth_client_model::weenie::item_type::MISC; // and the mask does not match
+        x.pwd.obj_type = dereth_rules::weenie::item_type::MISC; // and the mask does not match
     }
     w.set_selected_object(Some(TARGET), false, &mut RecordingSink::default());
     let mut out = RecordingSink::default();

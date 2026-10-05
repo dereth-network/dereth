@@ -696,7 +696,10 @@ impl UiSystem {
     #[must_use]
     pub fn resolve_string(&self, table: DataId, string_id: u32) -> Option<String> {
         let raw = self.strings.as_ref()?.resolve_raw(table, string_id)?;
-        Some(text::unescape(text::metalanguage::render(&[raw], &[])))
+        Some(dereth_assets::escape::unescape(text::metalanguage::render(
+            &[raw],
+            &[],
+        )))
     }
 
     /// How many fragments a row holds — one more than the number of variables the client passes

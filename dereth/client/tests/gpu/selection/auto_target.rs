@@ -29,7 +29,6 @@ use dereth_client_model::combat::CombatMode;
 use dereth_client_model::qualities::{StatKey, StatType, StatValue};
 use dereth_client_model::range::RADAR_RADIUS_OUTDOORS;
 use dereth_client_model::selection::LAST_ATTACKER_IID;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::character::PLAYER_OBJECT_ID;
 use dereth_client_runtime::objects::ObjectStream;
@@ -43,6 +42,7 @@ use {
     dereth_client_runtime::interaction::Interaction,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 /// The map the ids are dispatched in. `on_actions` does not read it.
 const MAP: InputMapId = InputMapId(0x1000_0007);
@@ -76,8 +76,7 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,
@@ -809,7 +808,7 @@ fn an_incompatible_pending_combat_retry_is_dropped_without_auto_target() {
     b.make_attackable_compass_item(NEAR);
     // The equipment changes while busy. Combat-mode compatibility rejects melee with
     // only a missile weapon in the ready slot. This tests the existing refusal, not its text.
-    b.objects.world.inventory_mask = dereth_client_model::inventory::slots::loc::MISSILE_WEAPON;
+    b.objects.world.inventory_mask = dereth_rules::slots::loc::MISSILE_WEAPON;
     assert!(!b.objects.world.compatible_combat_mode(CombatMode::Melee));
     assert_eq!(b.frame(Vec::new()), 0);
     assert_eq!(b.objects.world.combat.combat_mode, CombatMode::NonCombat);
@@ -1059,7 +1058,6 @@ mod defender_notification {
     use dereth_client_model::qualities::{StatKey, StatType, StatValue};
     use dereth_client_model::range::RADAR_RADIUS_OUTDOORS;
     use dereth_client_model::selection::LAST_ATTACKER_IID;
-    use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_client_net::client_session::SessionEvent;
     use dereth_client_runtime::character::PLAYER_OBJECT_ID;
     use dereth_client_runtime::interaction::Interaction;
@@ -1070,6 +1068,7 @@ mod defender_notification {
     use dereth_protocol::Message;
     use dereth_render::device::{DeviceConfig, Gpu};
     use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     /// `PLAYER_OPTIONS[13] = ("AutoTarget", ...)` — the option read by automatic targeting.
     const AUTO_TARGET_OPTION: usize = dereth_client_model::player::options::option::AUTO_TARGET;
@@ -1174,7 +1173,7 @@ mod defender_notification {
             };
             let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
             let region =
-                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(&store).expect("the region decodes");
             let cfg = SceneConfig {
                 cell_statics: false,
                 mesh_collision: false,
@@ -1855,7 +1854,6 @@ mod selection_change {
     use dereth_client_model::combat::CombatMode;
     use dereth_client_model::qualities::{StatKey, StatType, StatValue};
     use dereth_client_model::selection::LAST_ATTACKER_IID;
-    use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_client_net::client_session::SessionEvent;
     use dereth_client_runtime::character::PLAYER_OBJECT_ID;
     use dereth_client_runtime::objects::ObjectStream;
@@ -1870,6 +1868,7 @@ mod selection_change {
         dereth_client_runtime::interaction::Interaction,
     };
     use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     const AUTO_TARGET_OPTION: usize = dereth_client_model::player::options::option::AUTO_TARGET;
     const AUTO_REPEAT_OPTION: usize =
@@ -1913,7 +1912,7 @@ mod selection_change {
             };
             let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
             let region =
-                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(&store).expect("the region decodes");
             let scfg = SceneConfig {
                 cell_statics: false,
                 mesh_collision: false,

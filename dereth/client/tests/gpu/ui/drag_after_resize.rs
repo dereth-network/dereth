@@ -155,7 +155,7 @@ fn seed(app: &mut App) {
     let p = w.tables.weenies.get_mut(PLAYER).expect("the player weenie");
     p.pwd.items_capacity = Some(102);
     p.pwd.containers_capacity = Some(7);
-    p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+    p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
 }
 
 /// The station: a headless `App` at the authored 800x600 with the backpack open and one item in it.

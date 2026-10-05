@@ -12,7 +12,7 @@
 //! for each node.
 
 use dereth_client_contract::view::{AllegianceEntry, AllegianceRoster};
-use dereth_client_model::qualities::QualityRead;
+use dereth_rules::quality::QualityRead;
 
 /// Int property 30, the player's allegiance rank as the shard stores it.
 const ALLEGIANCE_RANK: u32 = 30;
@@ -81,10 +81,10 @@ fn entry_for(
 mod tests {
     use super::*;
     use dereth_assets::tables::QualityFilter;
-    use dereth_client_model::enchant::{ench_type, Enchantment};
     use dereth_client_model::qualities::{Qualities, StatKey, StatType, StatValue};
     use dereth_primitives::{DataId, ObjectId};
     use dereth_protocol::types::qualities::StatMod;
+    use {dereth_rules::enchant::ench_type, dereth_rules::enchant::Enchantment};
 
     fn filter(ints: Vec<u32>) -> QualityFilter {
         let mut property_lists: [Vec<u32>; 8] = Default::default();

@@ -3,11 +3,11 @@
 //! The client shows burden and uses load for local movement/jump permission and scaling.
 //! Server authority is separate; these are the client's own inquiry kernels.
 //!
-//! The pure rules of this module live in [`dereth_rules::burden`]; they are re-exported
-//! here, so every `dereth_client_model::inventory::burden::*` path resolves. So does
-//! `inq_load`.
+//! Shared arithmetic and inquiries live in `dereth-rules`; this module keeps the
+//! client model's state adapters and value tests.
 
-pub use dereth_rules::burden::*;
+#[cfg(test)]
+use dereth_rules::burden::*;
 
 #[cfg(test)]
 mod tests {

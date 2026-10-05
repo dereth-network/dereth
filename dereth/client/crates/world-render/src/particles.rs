@@ -20,7 +20,7 @@
 use dereth_primitives::num::math;
 use dereth_primitives::{Frame, Vec3};
 
-use crate::math::V3;
+use dereth_terrain::math::V3;
 
 /// `ParticleType`. `NumParticleType` is 13.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,7 +438,10 @@ mod tests {
         assert!((particle_distance_2dsq(0.0) - 256.0).abs() < 1e-3);
         assert!((particle_distance_2dsq(1.0) - 24.0 * 24.0).abs() < 1e-3);
         assert!((particle_distance_2dsq(-1.0) - 7.0 * 7.0).abs() < 1e-3);
-        assert_eq!(particle_distance_2dsq(crate::consts::PINNED_DEG_MUL), 256.0);
+        assert_eq!(
+            particle_distance_2dsq(dereth_terrain::consts::PINNED_DEG_MUL),
+            256.0
+        );
     }
 
     /// The offset rolls land on z then y then x.

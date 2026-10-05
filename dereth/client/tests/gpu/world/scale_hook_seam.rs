@@ -35,7 +35,7 @@ fn store() -> Arc<RetailDatStore> {
 fn a_scale_hook_fired_inside_the_frame_reaches_the_physics_object() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
 
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene

@@ -135,7 +135,6 @@ pub struct SkillEntry {
     /// debuffed red**, which retail does not do. The comparands are
     /// `level` and `effective - vitae`, and on a character with vitae and no spells those are
     /// equal, so every row draws plain.
-    /// [`crate::panels::inforegion::vitae_modifier`] computes it.
     pub vitae: i32,
 }
 
@@ -236,7 +235,7 @@ impl AttributeAdvancement {
     /// It is a three-way compare of the two `Inq*` answers: a positive difference uses the
     /// `"+"` prefix and index 1, a negative difference uses index 2, and
     /// equal falls through with the index still 0. The identical shape is in the skill row
-    /// and in this crate's [`crate::panels::inforegion`].
+    /// and used by the information-row presentation.
     #[must_use]
     pub const fn title_font(&self) -> u32 {
         let base = self.value - self.vitae;
@@ -609,21 +608,18 @@ pub struct CharacterInfo {
     pub enlightenment: Option<i32>,
     /// `InqInt(354 WeaponMastery)` -- the augmentations section's first line, and a
     /// **weapon-group id**, not a skill level. `> 0` gates the line;
-    /// [`super::panels::characterinfo::melee_mastery_name`] names it.
+    /// presentation maps it to the displayed mastery name.
     pub melee_mastery: i32,
-    /// `InqInt(355 MissileMastery)`, named by
-    /// [`super::panels::characterinfo::ranged_mastery_name`].
+    /// `InqInt(355 MissileMastery)`, the ranged mastery group.
     pub ranged_mastery: i32,
-    /// `InqInt(362 SummoningMastery)`, named by
-    /// [`super::panels::characterinfo::summoning_mastery_name`].
+    /// `InqInt(362 SummoningMastery)`, the summoning mastery group.
     pub summoning_mastery: i32,
     /// Every **other** int inquires, by property id.
     ///
     /// A map rather than fifty named fields because the function is fifty copies of one shape:
     /// `v = InqInt(id)` (defaulted to 0 before the call, and the return ignored), `if v > 0`,
     /// emit one row with `v` as `%NumAugmentations`. The order on screen is
-    /// [`super::panels::characterinfo::LUMINANCE`] then
-    /// [`super::panels::characterinfo::AUGMENTATIONS`], which is where the ids live; an absent
+    /// the luminance rows followed by the augmentation rows; an absent
     /// key and a `0` are the same answer, exactly as they are to the client.
     pub aug_ints: std::collections::BTreeMap<u32, i32>,
     /// What `localtime` would add to [`Self::created`] before the sheet's `strftime("%c")`.
@@ -3676,7 +3672,7 @@ pub struct AppraisalView {
     pub armor_mods: Option<[f32; 8]>,
     /// The profile's integer and float enchantment-mod queries, **already resolved**, for every
     /// property
-    /// [`crate::panels::examination::HIGHLIGHTED_PROPERTIES`] names.
+    /// the presentation's highlighted-property table names.
     ///
     /// Same encoding as [`Self::attribute_enchanted`]: a key is present only when the
     /// property is enchanted at all (the profile's low bit), and the value is whether the
@@ -3774,7 +3770,7 @@ pub struct AppraisalView {
 
     // ---- the gear-ratings block ----------------------------------------------------------------
     /// The thirteen `Gear*` rating terms in the block's **drawn** order — see
-    /// [`crate::panels::examination::GEAR_RATING_ROWS`] — plus `GearMaxHealth` last.
+    /// the presentation's gear-rating rows — plus `GearMaxHealth` last.
     pub gear_ratings: [Option<i32>; 14],
 
     // ---- the defence-mod block -----------------------------------------------------------------

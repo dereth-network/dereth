@@ -79,11 +79,13 @@ fn every_hook_in_every_shipped_animation_converts() {
     let mut max_probability = 0.0_f32;
     let mut max_priority = 0.0_f32;
     let mut check = |h: &dereth_animation::hooks::AnimHook| {
-        if let dereth_animation::hooks::HookKind::SoundTweaked {
-            probability,
-            priority,
-            ..
-        } = h.kind
+        if let dereth_animation::hooks::HookKind::SoundTweaked(
+            dereth_primitives::records::HookSoundTweaked {
+                probability,
+                priority,
+                ..
+            },
+        ) = h.kind
         {
             assert!(
                 (0.0..=1.0).contains(&probability),

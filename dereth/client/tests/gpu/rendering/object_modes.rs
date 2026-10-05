@@ -77,7 +77,7 @@ fn cfg(objects: Option<RegionStyle>) -> SceneConfig {
 /// a still view of buildings, statics, scenery and the body.
 fn load(store: &Arc<RetailDatStore>, gpu: &mut Gpu, cfg: SceneConfig) -> WorldScene {
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");

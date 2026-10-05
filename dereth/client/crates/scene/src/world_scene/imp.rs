@@ -52,25 +52,34 @@ use dereth_render::pso::{PipelineKey, SurfaceContext};
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
 use dereth_render::vertex::VertexFormat;
 use dereth_render::{Cull, DrawConstants, RenderError, ViewParams, ZFunc};
-use dereth_world_render::consts::BLOCK_LENGTH;
+use dereth_terrain::consts::BLOCK_LENGTH;
 use dereth_world_render::land::emit::{
     detail_vertex, triangle_vertices, visible_triangles, LAND_VERTEX_STRIDE,
 };
-use dereth_world_render::land::lighting::{bake_lighting, LandscapeLighting};
-use dereth_world_render::land::merge::{
-    land_texture_scale_shift, Bgra8, MergeKey, MergePlan, TerrainMergeCache, TerrainTextureSource,
+use {
+    dereth_terrain::land::lighting::bake_lighting,
+    dereth_terrain::land::lighting::LandscapeLighting,
 };
-use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table, LandblockMesh};
-use dereth_world_render::land::order::{block_draw_order, cell_draw_order};
+use {
+    dereth_terrain::land::merge::land_texture_scale_shift, dereth_terrain::land::merge::Bgra8,
+    dereth_terrain::land::merge::MergeKey, dereth_terrain::land::merge::MergePlan,
+    dereth_terrain::land::merge::TerrainMergeCache,
+    dereth_terrain::land::merge::TerrainTextureSource,
+};
+use {
+    dereth_terrain::land::mesh::generate_landblock_with_table,
+    dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::LandblockMesh,
+};
+use {dereth_terrain::land::order::block_draw_order, dereth_terrain::land::order::cell_draw_order};
 // The light pool, the eight slots and the D3DLIGHT9s, from the one transcription.
+use dereth_terrain::math::V3;
+use dereth_terrain::scenery::outside_cell_index;
 use dereth_world_render::lighting::{
     ambient_render_state, calc_object_light, enabled_lights, minimize_envcell_lighting,
     minimize_object_lighting, set_color32, sunlight_light, use_sunlight_set, viewer_light,
     world_ambient, ActiveLights, D3dLight, LightInfo, LightPools, LightType, BYTE_TO_FLOAT,
     INDOOR_AMBIENT_LEVEL,
 };
-use dereth_world_render::math::V3;
-use dereth_world_render::scenery::outside_cell_index;
 
 use dereth_animation::parts::MaterialOverride;
 use dereth_animation::MotionDriver;
@@ -99,13 +108,16 @@ use dereth_world_data::anim_assets::DatAnimAssets;
 use dereth_client_runtime::camera::FreeCamera;
 use dereth_client_runtime::environment::EnvironmentOverrideState;
 use dereth_client_runtime::frame_events::RenderPrefWork;
-use dereth_client_runtime::landblock::{block_xy, load_region, WorldError, DERETH_REGION};
-#[cfg(test)]
-use dereth_client_runtime::landblock::{landblock_did, lbi_did};
 use dereth_client_runtime::render_prefs::{RegionStyle, RequiredFiles};
 use dereth_client_runtime::scene::SceneConfig;
 #[cfg(test)]
 use dereth_client_runtime::world_build::read_lbi;
+use {
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::load_region,
+    dereth_world_data::landblock::WorldError, dereth_world_data::landblock::DERETH_REGION,
+};
+#[cfg(test)]
+use {dereth_world_data::landblock::landblock_did, dereth_world_data::landblock::lbi_did};
 
 /// Which of the cell renderer's two object passes a call to
 /// `WorldScene::draw_object_pass` is.
@@ -331,7 +343,7 @@ impl DegradeState {
         let governor = if auto {
             DegradeGovernor::automatic(FramerateTargets::default())
         } else {
-            DegradeGovernor::pinned(dereth_world_render::consts::PINNED_DEG_MUL)
+            DegradeGovernor::pinned(dereth_terrain::consts::PINNED_DEG_MUL)
         };
         Self {
             frame_rate: dereth_client_runtime::camera::FrameRate::default(),
@@ -447,7 +459,7 @@ struct SlotSpec {
     block_x: i32,
     block_y: i32,
     lod_div: u8,
-    dir: dereth_world_render::land::mesh::Direction,
+    dir: dereth_terrain::land::mesh::Direction,
 }
 
 /// One block's baked objects and the three counters they contribute to [`SceneStats`].
@@ -2175,7 +2187,7 @@ struct LandContext {
     /// cells are composed here on the CPU; `None` for texture merging. Which of the two
     /// draws is read from the region's own land-surface record, never from the dat set's era.
     pal_shift: Option<dereth_assets::region::PalShift>,
-    table: Box<[f32; dereth_world_render::consts::LAND_HEIGHT_TABLE_LEN]>,
+    table: Box<[f32; dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN]>,
     lighting: LandscapeLighting,
     /// The landscape surface cache, shared by every block: two neighbouring blocks with the
     /// same terrain pair merge to the same texture and must not upload it twice.
@@ -2875,12 +2887,10 @@ impl<'a> ObjectBaker<'a> {
                     sc.y * mesh_scale.y,
                     sc.z * mesh_scale.z,
                 );
-                world
-                    .origin
-                    .add(dereth_world_render::math::localtoglobalvec(
-                        dereth_world_render::math::l2g(world.rotation),
-                        c,
-                    ))
+                world.origin.add(dereth_terrain::math::localtoglobalvec(
+                    dereth_terrain::math::l2g(world.rotation),
+                    c,
+                ))
             };
             // LINT-OK: a placement index bounded by the block's part count. Not a float.
             #[allow(clippy::cast_possible_truncation)]
@@ -2988,7 +2998,7 @@ impl<'a> ObjectBaker<'a> {
             // LINT-OK: a byte offset into one landblock's vertex buffer. Not a float.
             #[allow(clippy::cast_possible_truncation)]
             let start = buf.len() as u32;
-            let rot = dereth_world_render::math::l2g(world.rotation);
+            let rot = dereth_terrain::math::l2g(world.rotation);
             for (i, (p, u, v)) in g.vertices.iter().enumerate() {
                 let scaled = Vec3::new(p.x * scale.x, p.y * scale.y, p.z * scale.z);
                 // A billboarding placement is baked in the part's own frame
@@ -2998,7 +3008,7 @@ impl<'a> ObjectBaker<'a> {
                 let w = if local {
                     scaled
                 } else {
-                    dereth_world_render::math::localtoglobal(world, scaled)
+                    dereth_terrain::math::localtoglobal(world, scaled)
                 };
                 buf.extend_from_slice(&w.x.to_le_bytes());
                 buf.extend_from_slice(&w.y.to_le_bytes());
@@ -3014,7 +3024,7 @@ impl<'a> ObjectBaker<'a> {
                 let n = if local {
                     n
                 } else {
-                    dereth_world_render::math::localtoglobalvec(rot, n)
+                    dereth_terrain::math::localtoglobalvec(rot, n)
                 };
                 buf.extend_from_slice(&n.x.to_le_bytes());
                 buf.extend_from_slice(&n.y.to_le_bytes());

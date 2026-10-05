@@ -1617,7 +1617,7 @@ fn scarab_power_and_level_agree_with_dereth_client_model() {
             components: vec![c],
             ..SpellFormula::default()
         };
-        let client_power = dereth_client_model::magic::scarab_power_level(c);
+        let client_power = dereth_rules::magic::scarab_power_level(c);
         assert_eq!(f.power(), client_power, "power of component {c}");
         let client_level = if client_power == 0 {
             0

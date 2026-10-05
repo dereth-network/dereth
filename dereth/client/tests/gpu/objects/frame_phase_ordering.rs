@@ -863,8 +863,8 @@ fn recent_attacker_removal_dispatches_selection_while_old_weenie_is_being_remove
         p.wdesc.container_id = None;
         p.wdesc.header |= header::RADAR_ENUM;
         p.wdesc.radar_enum = Some(4);
-        p.wdesc.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-        p.wdesc.bitfield = dereth_client_model::weenie::bitfield::ATTACKABLE;
+        p.wdesc.obj_type = dereth_rules::weenie::item_type::CREATURE;
+        p.wdesc.bitfield = dereth_rules::weenie::bitfield::ATTACKABLE;
         p.physicsdesc.bitfield |= flags::POSITION;
         let at = dereth_physics::math::localtoglobal(
             &here.frame,

@@ -20,7 +20,7 @@ use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId, Vec3};
 use dereth_render::device::Gpu;
-use dereth_world_render::consts::S_ALPHA_DELAY_MASK;
+use dereth_terrain::consts::S_ALPHA_DELAY_MASK;
 use dereth_world_render::degrade_loop::STARTUP_OBJECT_DISTANCE_2DSQ;
 use dereth_world_render::objects::alpha::AlphaList;
 use dereth_world_render::objects::degrade::DegradeMode;

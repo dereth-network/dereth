@@ -285,7 +285,7 @@ fn cooldown_items(app: &App) -> Vec<(ObjectId, String, u32, f64)> {
 }
 
 fn install_cooldown(app: &mut App, cooldown_id: u32, start: f64, duration: f64) {
-    use dereth_client_model::enchant::{ench_type, Enchantment};
+    use {dereth_rules::enchant::ench_type, dereth_rules::enchant::Enchantment};
     let q = app
         .probe_mut()
         .objects_mut()

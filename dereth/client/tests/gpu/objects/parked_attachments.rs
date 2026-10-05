@@ -451,7 +451,7 @@ fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reente
         }
     }
     let store = Arc::new(dereth_dat::testing::open_store().unwrap());
-    let region = dereth_client_runtime::landblock::load_region(&store).unwrap();
+    let region = dereth_world_data::landblock::load_region(&store).unwrap();
     let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).unwrap());
     let block = LandblockId(0x7F03);
     let cell = CellId(0x7F03_0100);

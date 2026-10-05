@@ -12,8 +12,6 @@ use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client_model::combat::{AttackHeight, CombatMode};
-use dereth_client_model::fellowship::{Fellow, Fellowship};
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{RecordingRequests, Request, StatKey, StatType, StatValue};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
@@ -30,6 +28,8 @@ use {
     dereth_client::app::App, dereth_client_runtime::config::Config,
     dereth_client_runtime::net::ClientNetwork, dereth_client_runtime::scene::SceneConfig,
 };
+use {dereth_rules::fellowship::Fellow, dereth_rules::fellowship::Fellowship};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 const TARGET: ObjectId = ObjectId(0x5000_0022);

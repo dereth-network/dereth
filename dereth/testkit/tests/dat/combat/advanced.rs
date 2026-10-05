@@ -311,8 +311,8 @@ fn seed_world() -> dereth_client_model::World {
     );
     let mut m = dereth_client_model::Weenie::new(MONSTER);
     m.pwd.name = "Mosswart".into();
-    m.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-    m.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+    m.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+    m.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
     w.tables.weenies.insert(MONSTER, m);
     w.set_selected_object(Some(MONSTER), false, &mut dereth_client_model::NullSink);
     w.combat.combat_mode = CombatMode::NonCombat;

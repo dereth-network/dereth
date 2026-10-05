@@ -43,8 +43,8 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{MovementPositionEvent, PositionPack};
 use dereth_protocol::{write_body, Opcode};
 use {
-    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region,
 };
 
 /// The four refresh rates in play. 60 and 120 are the two that sit *on* `MIN_QUANTUM` (two and

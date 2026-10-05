@@ -48,15 +48,15 @@ fn a_ranged_scenery_shrub_is_drawn_at_its_scale_times_each_parts_own_scale() {
     let (bx, by) = (0xA8, 0xB5);
     let lb =
         dereth_client_runtime::world_build::read_landblock(&store, bx, by).expect("block 0xA8B5");
-    let table = dereth_world_render::land::mesh::height_table(&region);
-    let mesh = dereth_world_render::land::mesh::generate_landblock_with_table(
+    let table = dereth_terrain::land::mesh::height_table(&region);
+    let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(
         &lb,
         &region,
         &table,
         bx,
         by,
         1,
-        dereth_world_render::land::mesh::Direction::InViewerBlock,
+        dereth_terrain::land::mesh::Direction::InViewerBlock,
     );
     let content =
         dereth_client_runtime::world_build::land_content(&store, &region, &lb, &mesh, bx, by, true);
@@ -106,7 +106,7 @@ fn a_ranged_scenery_shrub_is_drawn_at_its_scale_times_each_parts_own_scale() {
             .into_iter()
             .flat_map(|g| g.vertices.into_iter().map(|(p, _, _)| p))
             .map(move |p| {
-                dereth_world_render::math::localtoglobal(
+                dereth_terrain::math::localtoglobal(
                     &part,
                     Vec3::new(p.x * d.x * s, p.y * d.y * s, p.z * d.z * s),
                 )

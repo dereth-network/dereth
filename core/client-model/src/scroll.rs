@@ -278,7 +278,9 @@ impl Scroll {
         if self.filter_language {
             self.taboo_table.as_deref().map_or_else(
                 || text.to_owned(),
-                |table| crate::taboo::filter_chat_line(table, self.encoding.as_encoding(), text),
+                |table| {
+                    dereth_rules::taboo::filter_chat_line(table, self.encoding.as_encoding(), text)
+                },
             )
         } else {
             text.to_owned()
@@ -434,10 +436,10 @@ mod tests {
     impl dereth_primitives::TextSink for FileSink {
         fn write_line(&mut self, line: &str) {
             use std::io::Write as _;
-            let bytes = dereth_protocol::cp1252::encode(line).unwrap_or_else(|| {
+            let bytes = dereth_primitives::text::cp1252::encode(line).unwrap_or_else(|| {
                 line.chars()
                     .flat_map(|c| {
-                        dereth_protocol::cp1252::encode(&c.to_string())
+                        dereth_primitives::text::cp1252::encode(&c.to_string())
                             .unwrap_or_else(|| vec![b'?'])
                     })
                     .collect()

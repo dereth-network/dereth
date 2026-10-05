@@ -43,8 +43,8 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::{Message, Opcode};
 use {
     dereth_client::app::App, dereth_client_runtime::config::Config,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_desktop::pump::Pump,
+    dereth_client_runtime::scene::SceneConfig, dereth_desktop::pump::Pump,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 fn setup() -> App {

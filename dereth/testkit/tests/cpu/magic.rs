@@ -209,8 +209,8 @@ const VITAE_LAMP: usize = 5;
 /// A one-death penalty.
 const FIVE_PERCENT: f32 = 0.95;
 
-fn vitae_enchantment(multiplier: f32) -> dereth_client_model::enchant::Enchantment {
-    dereth_client_model::enchant::Enchantment {
+fn vitae_enchantment(multiplier: f32) -> dereth_rules::enchant::Enchantment {
+    dereth_rules::enchant::Enchantment {
         id: 666,
         spell_category: 0,
         power_level: 0,
@@ -221,7 +221,7 @@ fn vitae_enchantment(multiplier: f32) -> dereth_client_model::enchant::Enchantme
         degrade_limit: 0.0,
         last_time_degraded: 0.0,
         smod: StatMod {
-            kind: dereth_client_model::enchant::ench_type::VITAE,
+            kind: dereth_rules::enchant::ench_type::VITAE,
             key: 0,
             value: multiplier,
         },
@@ -349,7 +349,7 @@ fn a_player_with_a_catalogue() -> HeadlessClient {
         PLAYER,
         dereth_protocol::types::PublicWeenieDesc {
             name: "Lark".to_owned(),
-            obj_type: dereth_client_model::weenie::item_type::CREATURE,
+            obj_type: dereth_rules::weenie::item_type::CREATURE,
             ..dereth_protocol::types::PublicWeenieDesc::default()
         },
     );
@@ -453,7 +453,7 @@ pub fn the_component_tally_follows_the_pack() {
             dereth_protocol::types::PublicWeenieDesc {
                 name: "Sandstone Sceptre".to_owned(),
                 wcid: 999,
-                obj_type: dereth_client_model::weenie::item_type::MISC,
+                obj_type: dereth_rules::weenie::item_type::MISC,
                 container_id: Some(PLAYER),
                 ..dereth_protocol::types::PublicWeenieDesc::default()
             },
@@ -747,7 +747,7 @@ fn tally(c: &HeadlessClient) -> (u32, u32) {
 
 /// A purge takes the timed enchantments and leaves the permanent ones.
 pub fn a_purge_leaves_the_permanent_enchantments() {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
 
     // Spell 10 helps, spell 20 harms, spell 30 helps and is permanent.
     let mut c = an_enchanted_player(&[(10, true), (20, false), (30, true)]);

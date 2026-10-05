@@ -22,7 +22,7 @@ use dereth_primitives::{DataId, TextureData, TextureFormat};
 use dereth_render::palette::ExpandedPalette;
 use dereth_render::pixel_format::PixelFormatId;
 use dereth_render::texture::{decode_surface, SourcePixels};
-use dereth_world_render::land::merge::Bgra8;
+use dereth_terrain::land::merge::Bgra8;
 
 /// Anything the lookup can refuse to do. A missing texture is **not** an error at the call sites:
 /// the terrain compositor renders a missing tile as the client's `00 FF 00 00` debug colour
@@ -608,8 +608,7 @@ mod tests {
                 dereth_dat::testing::dat_dir().display()
             )
         });
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let tm = region
             .land_surf
             .tex_merge

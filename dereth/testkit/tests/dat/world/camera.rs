@@ -32,12 +32,11 @@ pub fn the_camera_slides_through_a_creature_but_not_through_a_solid_twin() {
     fn plain_body(
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
     ) -> dereth_client_runtime::character::Character {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         dereth_client_runtime::character::Character::new(
             store,
             &region,
-            dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
             (96.0, 96.0),
         )
         .expect("the ordinary local body is created")
@@ -265,7 +264,7 @@ pub fn the_camera_against_a_wall_settles_the_same_at_any_tick_rate() {
     const RESIDUAL_WINDOW: f64 = 1.0;
 
     let store = std::sync::Arc::new(dereth_dat::testing::open_store_or_fail());
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src = std::sync::Arc::new(
         dereth_world_data::land_source::DatLandSource::new(std::sync::Arc::clone(&store), &region)
             .expect("the retail height table"),

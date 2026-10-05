@@ -7,15 +7,14 @@
 //! The unpack order is not the header-bit order. The protocol crate reproduces that; nothing here
 //! may re-derive a field order from flags.
 //!
-//! The pure rules of this module live in [`dereth_rules::weenie`]; they are re-exported
-//! here, so every `dereth_client_model::weenie::item_type` path resolves. So are the
-//! `bitfield` bits, and the property→`PublicWeenieDesc` mirror's id→field table is
+//! The item-type and bitfield rules live in [`dereth_rules::weenie`], and
+//! the property→`PublicWeenieDesc` mirror's id→field table is
 //! [`dereth_rules::pwd_mirror`], which [`mirror_stat_update`] reads.
 
 use crate::qualities::{PropertySequenceGate, Qualities, StatKey, StatType, StatValue};
 use dereth_primitives::ObjectId;
 use dereth_protocol::types::PublicWeenieDesc;
-pub use dereth_rules::weenie::{bitfield, item_type};
+use dereth_rules::weenie::{bitfield, item_type};
 
 /// `ITEM_USEABLE` (`pwd._useability`): a source half in the low 16 bits and a target half in the
 /// high 16.

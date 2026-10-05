@@ -479,7 +479,7 @@ feedback,channel: 0x1A, text},
                     // Existing narrow-message String storage is a bijective BYTE SPELLING:
                     // cp1252::encode writes these exact bytes, even when ACP is not1252.
                     // This is NOT ACP decoding to Unicode, and must not be used for display.
-                    let text = dereth_protocol::cp1252::decode(&narrow);
+                    let text = dereth_primitives::text::cp1252::decode(&narrow);
                     let focus =
                         dereth_client_model::cmd::TalkFocus::from_raw(game.chat.talk_focus as u32)
                             .unwrap_or(dereth_client_model::cmd::TalkFocus::Say);
@@ -969,7 +969,7 @@ feedback,channel: 0x1A, text},
                     }
                 }
                 UiRequest::AutoWield { item, side } => {
-                    use dereth_client_model::inventory::slots::SlotSide;
+                    use dereth_rules::slots::SlotSide;
                     let side = match side {
                         1 => SlotSide::Left,
                         2 => SlotSide::Right,

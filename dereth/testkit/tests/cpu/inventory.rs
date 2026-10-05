@@ -15,12 +15,12 @@ use dereth_client_model::inventory::use_object::{
     GroundObjectResult, UsageConfirmation, UseOutcome, UseRefusal, UseResult,
 };
 use dereth_client_model::inventory::SplitState;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{Notice, RecordingRequests, RecordingSink, Request, World};
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_protocol::types::weeniedesc::header as pwd_header;
 use dereth_protocol::types::{ContentProfile, PublicWeenieDesc};
 use dereth_testkit::{Given, HeadlessClient, Inbound, Player, ScenarioView};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 /// The notice channel the strip across the top of the viewport draws.
@@ -3429,12 +3429,13 @@ pub fn every_recorded_placement_can_be_asked_for_and_the_shards_answer_closes_it
 // =============================================================================================
 
 use dereth_client_model::inventory::equip::WIELD_SLOT_ORDER;
-use dereth_client_model::inventory::slots::{
-    loc, location_info_from_element_id, PAPERDOLL_REGIONS,
-};
 use dereth_testkit::adapters_inventory::{all_recorded_equips, RecordedEquip};
 use dereth_ui_screens::panels::inventory::{
     InventoryPanels, CANNOT_PUT_THAT_ITEM_THERE, PAPER_DOLL_DRAG_MASK, PAPER_DOLL_SLOTS,
+};
+use {
+    dereth_rules::slots::loc, dereth_rules::slots::location_info_from_element_id,
+    dereth_rules::slots::PAPERDOLL_REGIONS,
 };
 
 /// The figure's viewport, its own answer overlay and the checkbox that asks for the grid of
@@ -3909,8 +3910,7 @@ pub fn ground_container_contents_become_a_pickup() {
 
 fn equipment_destination(element: u32) -> dereth_client_contract::view::DropTarget {
     let (mask, side) =
-        dereth_client_model::inventory::slots::location_info_from_element_id(element)
-            .expect("equipment slot");
+        dereth_rules::slots::location_info_from_element_id(element).expect("equipment slot");
     dereth_client_contract::view::DropTarget::EquipLocation {
         mask,
         side: side as u32,

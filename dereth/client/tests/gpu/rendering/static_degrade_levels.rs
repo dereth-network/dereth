@@ -523,7 +523,7 @@ fn the_triangle_count_over_a_fixed_walk_falls_with_the_switch_on() {
 fn map_mode_puts_every_placement_back_on_level_zero() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region loads");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region loads");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         scenery_radius: 1,
@@ -717,7 +717,7 @@ fn the_furniture_beside_the_player_takes_the_level_its_distance_from_the_eye_sel
     use dereth_primitives::{CellId, Frame, Position, Quat};
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region loads");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region loads");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         scenery_radius: 0,

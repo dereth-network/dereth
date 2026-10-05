@@ -127,7 +127,7 @@ pub fn render_frame_of(ws: &WorldState, fallback_landblock: u16, pos: Position) 
         .streamer
         .window
         .viewer_block()
-        .unwrap_or_else(|| crate::landblock::block_xy(fallback_landblock));
+        .unwrap_or_else(|| dereth_world_data::landblock::block_xy(fallback_landblock));
     let block = pos.cell.landblock();
     let length = dereth_terrain::consts::BLOCK_LENGTH;
     #[allow(clippy::cast_precision_loss)] // a block index difference, at most 255

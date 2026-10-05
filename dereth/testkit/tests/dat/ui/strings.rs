@@ -277,7 +277,7 @@ pub(super) fn the_key_binding_prompt_loses_both_of_its_double_spaces() {
 /// Read off the glyphs the pane lays out, not off what the composer answered -- and the pane it
 /// is read from is the one the shipped layout carries, which is the guard folded in here.
 pub(super) fn the_pane_draws_the_tidied_line_and_not_the_shipped_double_space() {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
 
     let (mut c, _peer) = a_described_character();
     // A death's penalty, which is what the pane is about, through the one door one comes in by.

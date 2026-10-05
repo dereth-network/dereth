@@ -1,10 +1,7 @@
 //! Buildings: the draw sequence and the portal pass.
 //!
 //! A landblock's per-cell registration (`SortCells`, the building each land cell owns, and the
-//! static-object lists) is the landscape's own content, kept in `dereth-terrain` and re-exported
-//! here at its old path.
-
-pub use dereth_terrain::buildings::{Building, SortCells, MAX_SHADOW_PARTS};
+//! static-object lists) is the landscape's own content in `dereth-terrain`.
 
 use crate::cells::portal_view::{PortalMode, PortalPoly};
 

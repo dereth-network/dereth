@@ -52,13 +52,13 @@ fn the_shipped_attack_cones() {
         let before = cones.len();
         for frame in &anim.part_frames {
             for hook in &frame.hooks {
-                if let HookData::Attack {
+                if let HookData::Attack(dereth_primitives::records::AttackCone {
                     part_index,
                     left,
                     right,
                     radius,
                     height,
-                } = &hook.data
+                }) = &hook.data
                 {
                     #[allow(clippy::cast_possible_wrap)]
                     cones.push(AttackCone {
@@ -222,8 +222,8 @@ mod seam {
                 let makes_emitter = s.steps.iter().any(|step| {
                     matches!(
                         step.hook.kind,
-                        dereth_animation::HookKind::CreateParticle { .. }
-                            | dereth_animation::HookKind::CreateBlockingParticle { .. }
+                        dereth_animation::HookKind::CreateParticle(_)
+                            | dereth_animation::HookKind::CreateBlockingParticle(_)
                     )
                 });
                 if makes_emitter {
@@ -264,7 +264,7 @@ mod seam {
     fn swing(with_target: bool, scripted: bool) -> Run {
         let mut gpu = crate::common::test_gpu(800, 600);
         let store = store();
-        let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+        let region = dereth_world_data::landblock::load_region(&store).expect("region");
         let (mtable, cone) = an_attack_motion(&store);
         let (table_id, script_type) = a_particle_script(&store);
         eprintln!(

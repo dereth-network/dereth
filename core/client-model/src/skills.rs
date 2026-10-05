@@ -1,17 +1,16 @@
 //! The skill table, the skill query's bonus stack, augmentations, and the two movement formulas
 //! skills drive.
 //!
-//! The pure rules live in [`dereth_rules::skills`] and are re-exported here, so every
-//! `dereth_client_model::skills::*` path resolves. So do the inquiries (`inq_skill` and the
-//! rest), written against `dereth_rules::quality::QualityRead`, which
-//! [`Qualities`](crate::qualities::Qualities) implements.
+//! Shared arithmetic and inquiries live in `dereth-rules`; this module keeps the
+//! client model's state adapters and value tests.
 
 #[cfg(test)]
 use crate::qualities::Qualities;
 #[cfg(test)]
 use dereth_assets::tables::SkillTable;
 
-pub use dereth_rules::skills::*;
+#[cfg(test)]
+use dereth_rules::skills::*;
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -148,8 +147,12 @@ pub(crate) mod tests {
     }
 
     /// One multiplicative enchantment on `family`/`key`, for the enlightenment tests.
-    pub(crate) fn multiplier(family: u32, key: u32, value: f32) -> crate::enchant::Enchantment {
-        crate::enchant::Enchantment {
+    pub(crate) fn multiplier(
+        family: u32,
+        key: u32,
+        value: f32,
+    ) -> dereth_rules::enchant::Enchantment {
+        dereth_rules::enchant::Enchantment {
             id: 1,
             spell_category: 1,
             power_level: 1,
@@ -160,8 +163,8 @@ pub(crate) mod tests {
             degrade_limit: 0.0,
             last_time_degraded: 0.0,
             smod: dereth_protocol::types::qualities::StatMod {
-                kind: crate::enchant::ench_type::MULTIPLICATIVE
-                    | crate::enchant::ench_type::SINGLE_STAT
+                kind: dereth_rules::enchant::ench_type::MULTIPLICATIVE
+                    | dereth_rules::enchant::ench_type::SINGLE_STAT
                     | family,
                 key,
                 value,
@@ -226,7 +229,7 @@ pub(crate) mod tests {
         // x1.5 on Missile Weapons: (150 + 3) * 1.5 = 229.5, rounded half up to 230; the raw
         // query is untouched.
         q.enchantments.mult_list.push(multiplier(
-            crate::enchant::ench_type::SKILL,
+            dereth_rules::enchant::ench_type::SKILL,
             skill::MISSILE_WEAPONS,
             1.5,
         ));

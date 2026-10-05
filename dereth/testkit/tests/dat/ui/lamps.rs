@@ -322,7 +322,7 @@ pub(super) fn the_burden_lamp_crosses_both_thresholds_on_the_characters_own_capa
             .expect("the character has a strength");
         (s, q.inq_int(NUM_AUGMENTATIONS))
     };
-    let capacity = dereth_client_model::inventory::burden::encumbrance_capacity(strength, augs);
+    let capacity = dereth_rules::burden::encumbrance_capacity(strength, augs);
     let a_real_capacity = capacity > 0;
 
     // Checkpoint 1 -- as described, carrying nothing.
@@ -367,7 +367,7 @@ pub(super) fn the_burden_lamp_crosses_both_thresholds_on_the_characters_own_capa
 /// The asymmetry is the whole scenario: a pair of lamps driven by one shared count would pass a
 /// "something is lit" assertion and be wrong.
 pub(super) fn a_buff_lights_one_lamp_and_a_debuff_the_other() {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
     let (mut c, _peer) = a_described_character();
 
     let both_dark_first = strip_state(&c, BUFF_LAMP) == indicators::STATE_NOTHING
@@ -405,7 +405,7 @@ pub(super) fn a_buff_lights_one_lamp_and_a_debuff_the_other() {
 /// **No recording witnesses this**: nothing in the corpus installs a death penalty. The body is
 /// this scenario's own, and the arm it goes in through is the client's only door for one.
 pub(super) fn the_vitae_lamp_lights_for_a_penalty_and_not_for_a_multiplier_of_one() {
-    use dereth_client_model::enchant::ench_type;
+    use dereth_rules::enchant::ench_type;
     let (mut c, _peer) = a_described_character();
 
     let dark_with_no_penalty = strip_state(&c, VITAE_LAMP) == indicators::STATE_NOTHING;

@@ -27,9 +27,8 @@ use dereth_protocol::types::{PhysicsDesc, PositionWire, PublicWeenieDesc};
 use dereth_protocol::{Message, Opcode};
 use {dereth_client_runtime::character::Character, dereth_world_data::setup::setup_geometry};
 use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// The bolt.
@@ -208,7 +207,7 @@ fn step_down_over_encoded_candidate(obj_type: u32) -> (bool, f32) {
             .as_ref()
             .expect("the candidate has a weenie seam")
             .is_creature,
-        obj_type == dereth_client_model::weenie::item_type::CREATURE,
+        obj_type == dereth_rules::weenie::item_type::CREATURE,
         "the accepted PWD type did not reach candidate IsCreature"
     );
     assert_eq!(candidate_body.geometry.spheres, candidate_geometry.spheres);
@@ -383,7 +382,7 @@ fn fly_with_bystander(
         },
     )
     .expect("the recorded block loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("a physics owner");
@@ -548,7 +547,7 @@ fn move_player_pair(mover_flags: u32, obstacle_flags: u32) -> (Vec3, Vec3) {
         },
     )
     .expect("the recorded block loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("a physics owner");
@@ -652,17 +651,17 @@ fn move_player_pair(mover_flags: u32, obstacle_flags: u32) -> (Vec3, Vec3) {
             );
             assert_eq!(
                 got.is_pk,
-                expected & dereth_client_model::weenie::bitfield::PLAYER_KILLER != 0,
+                expected & dereth_rules::weenie::bitfield::PLAYER_KILLER != 0,
                 "the 0xF745 PWD PLAYER_KILLER bit must reach the physics body"
             );
             assert_eq!(
                 got.is_pk_lite,
-                expected & dereth_client_model::weenie::bitfield::PK_LITE != 0,
+                expected & dereth_rules::weenie::bitfield::PK_LITE != 0,
                 "the 0xF745 PWD PK_LITE bit must reach the physics body"
             );
             assert_eq!(
                 got.is_impenetrable,
-                expected & dereth_client_model::weenie::bitfield::IMPENETRABLE != 0,
+                expected & dereth_rules::weenie::bitfield::IMPENETRABLE != 0,
                 "the 0xF745 PWD IMPENETRABLE bit must reach the physics body"
             );
         }
@@ -704,7 +703,7 @@ fn move_player_pair(mover_flags: u32, obstacle_flags: u32) -> (Vec3, Vec3) {
 /// helper-only collision-query state injection.
 #[test]
 fn player_pair_collision_uses_the_pwd_pk_and_impenetrable_qualities() {
-    use dereth_client_model::weenie::bitfield as pwd;
+    use dereth_rules::weenie::bitfield as pwd;
 
     let npk = move_player_pair(pwd::PLAYER, pwd::PLAYER);
     let pk = move_player_pair(
@@ -790,8 +789,7 @@ fn a_bolt_still_in_flight_is_still_a_missile() {
 #[test]
 fn a_player_step_down_does_not_treat_an_encoded_creature_as_walkable_support() {
     let solid = step_down_over_encoded_candidate(0x0000_0080);
-    let creature =
-        step_down_over_encoded_candidate(dereth_client_model::weenie::item_type::CREATURE);
+    let creature = step_down_over_encoded_candidate(dereth_rules::weenie::item_type::CREATURE);
 
     assert!(
         solid.0,

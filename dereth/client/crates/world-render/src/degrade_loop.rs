@@ -169,7 +169,7 @@ pub struct DegradeGovernor {
 
 impl Default for DegradeGovernor {
     fn default() -> Self {
-        Self::pinned(crate::consts::PINNED_DEG_MUL)
+        Self::pinned(dereth_terrain::consts::PINNED_DEG_MUL)
     }
 }
 
@@ -326,14 +326,18 @@ mod tests {
     /// the frame rate, so no measurement becomes a function of the test machine's speed.
     #[test]
     fn a_pinned_governor_never_moves() {
-        let mut g = DegradeGovernor::pinned(crate::consts::PINNED_DEG_MUL);
+        let mut g = DegradeGovernor::pinned(dereth_terrain::consts::PINNED_DEG_MUL);
         for fps in [1.0f32, 15.0, 30.0, 60.0, 240.0, 10_000.0] {
             g.use_time(fps);
-            assert_eq!(g.deg_mul, crate::consts::PINNED_DEG_MUL, "fps={fps}");
+            assert_eq!(
+                g.deg_mul,
+                dereth_terrain::consts::PINNED_DEG_MUL,
+                "fps={fps}"
+            );
         }
         assert_eq!(
             DegradeGovernor::default().deg_mul,
-            crate::consts::PINNED_DEG_MUL
+            dereth_terrain::consts::PINNED_DEG_MUL
         );
         assert!(!DegradeGovernor::default().auto);
     }
@@ -483,7 +487,7 @@ mod tests {
 
         assert_eq!(
             DegradeLevel::default().deg_mul,
-            crate::consts::PINNED_DEG_MUL
+            dereth_terrain::consts::PINNED_DEG_MUL
         );
     }
 

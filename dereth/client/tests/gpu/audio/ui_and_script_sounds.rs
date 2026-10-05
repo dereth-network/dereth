@@ -578,7 +578,7 @@ fn a_physics_scripts_sound_hook_reaches_the_mixer() {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -684,7 +684,7 @@ fn the_listener_follows_the_camera_every_frame() {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -759,7 +759,7 @@ fn running_into_new_terrain_swaps_the_ambient_set() {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");

@@ -1200,8 +1200,8 @@ pub fn position_to_string(p: &dereth_primitives::Position) -> String {
 fn corpse_coordinate_string(cell: u32) -> Option<String> {
     let (east_west, north_south) =
         dereth_physics::landdefs::gid_to_lcoord(dereth_primitives::CellId(cell))?;
-    let east_west = f64::from(east_west - 0x400) * 0.1 + 0.5;
-    let north_south = f64::from(north_south - 0x400) * 0.1 + 0.5;
+    let (north_south, east_west) =
+        dereth_primitives::position::landscape_coordinates(east_west, north_south);
     Some(dereth_client_model::quests::location_string(
         north_south,
         east_west,

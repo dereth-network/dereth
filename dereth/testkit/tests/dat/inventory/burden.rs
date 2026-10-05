@@ -19,7 +19,7 @@ fn inputs(c: &HeadlessClient) -> (i32, i32, i32) {
         .world()
         .player_qualities()
         .expect("the premise: the recording carries the character's own description");
-    let strength = dereth_client_model::attributes::inq_attribute(q, 1, false)
+    let strength = dereth_rules::attributes::inq_attribute(q, 1, false)
         .map_or(10, |s| i32::try_from(s).unwrap_or(i32::MAX));
     (strength, q.inq_int(5), q.inq_int(230))
 }

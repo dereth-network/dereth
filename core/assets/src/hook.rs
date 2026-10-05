@@ -7,7 +7,7 @@
 //! Hook records are described in `docs/formats/12-animation.md`.
 
 use dereth_dat::{Cursor, DatError};
-use dereth_primitives::{DataId, Frame, Vec3};
+use dereth_primitives::{DataId, Vec3};
 
 use crate::error::AssetError;
 
@@ -22,35 +22,19 @@ pub enum HookData {
     /// 2 `SOUND_TABLE`.
     SoundTable { sound_type: u32 },
     /// 3 `ATTACK`.
-    Attack {
-        part_index: u32,
-        left: (f32, f32),
-        right: (f32, f32),
-        radius: f32,
-        height: f32,
-    },
+    Attack(dereth_primitives::records::AttackCone),
     /// 5 `REPLACE_OBJECT`. The part id is a compressed DataID relative to `GFXOBJ`'s base.
     ReplaceObject { part_index: u8, part_id: DataId },
     /// 6 `ETHEREAL`.
     Ethereal { ethereal: i32 },
     /// 7 `TRANSPARENT_PART`, 9 `LUMINOUS_PART`, 11 `DIFFUSE_PART`.
-    PartRamp {
-        part: u32,
-        start: f32,
-        end: f32,
-        time: f32,
-    },
+    PartRamp(dereth_primitives::records::HookPartRamp),
     /// 8 `LUMINOUS`, 10 `DIFFUSE`, 20 `TRANSPARENT`.
-    Ramp { start: f32, end: f32, time: f32 },
+    Ramp(dereth_primitives::records::HookRamp),
     /// 12 `SCALE`.
-    Scale { end: f32, time: f32 },
+    Scale(dereth_primitives::records::HookScale),
     /// 13 `CREATE_PARTICLE`, 26 `CREATE_BLOCKING_PARTICLE`.
-    CreateParticle {
-        emitter_info_id: DataId,
-        part_index: u32,
-        offset: Frame,
-        emitter_id: u32,
-    },
+    CreateParticle(dereth_primitives::records::HookCreateParticle),
     /// 14 `DESTROY_PARTICLE`, 15 `STOP_PARTICLE`.
     Particle { emitter_id: u32 },
     /// 16 `NODRAW`.
@@ -58,28 +42,19 @@ pub enum HookData {
     /// 18 `DEFAULT_SCRIPT_PART`.
     DefaultScriptPart { part_index: u32 },
     /// 19 `CALL_PES`.
-    CallPes { pes: DataId, pause: f32 },
+    CallPes(dereth_primitives::records::HookCallPes),
     /// 21 `SOUND_TWEAKED`.
     ///
     /// **Probability before priority.** ACE's `SoundTweakedHook` has the two swapped.
     /// Contract-relevant: the fields are floats, so a swap does not
     /// desynchronise the cursor and cannot be caught by `expect_end`.
-    SoundTweaked {
-        sound_id: DataId,
-        probability: f32,
-        priority: f32,
-        volume: f32,
-    },
+    SoundTweaked(dereth_primitives::records::HookSoundTweaked),
     /// 22 `SET_OMEGA`.
     SetOmega { axis: Vec3 },
     /// 23 `TEXTURE_VELOCITY`.
-    TextureVelocity { u_speed: f32, v_speed: f32 },
+    TextureVelocity(dereth_primitives::records::HookTextureVelocity),
     /// 24 `TEXTURE_VELOCITY_PART`.
-    TextureVelocityPart {
-        part_index: u32,
-        u_speed: f32,
-        v_speed: f32,
-    },
+    TextureVelocityPart(dereth_primitives::records::HookTextureVelocityPart),
     /// 25 `SET_LIGHT`.
     SetLight { lights_on: i32 },
 }
@@ -105,40 +80,40 @@ impl AnimHook {
             2 => HookData::SoundTable {
                 sound_type: c.u32()?,
             },
-            3 => HookData::Attack {
+            3 => HookData::Attack(dereth_primitives::records::AttackCone {
                 part_index: c.u32()?,
                 left: (c.f32()?, c.f32()?),
                 right: (c.f32()?, c.f32()?),
                 radius: c.f32()?,
                 height: c.f32()?,
-            },
+            }),
             5 => HookData::ReplaceObject {
                 part_index: c.u8()?,
                 // A data id of a known type, read against GFXOBJ's base.
                 part_id: c.data_id_of_known_type(0x0100_0000)?,
             },
             6 => HookData::Ethereal { ethereal: c.i32()? },
-            7 | 9 | 11 => HookData::PartRamp {
+            7 | 9 | 11 => HookData::PartRamp(dereth_primitives::records::HookPartRamp {
                 part: c.u32()?,
                 start: c.f32()?,
                 end: c.f32()?,
                 time: c.f32()?,
-            },
-            8 | 10 | 20 => HookData::Ramp {
+            }),
+            8 | 10 | 20 => HookData::Ramp(dereth_primitives::records::HookRamp {
                 start: c.f32()?,
                 end: c.f32()?,
                 time: c.f32()?,
-            },
-            12 => HookData::Scale {
+            }),
+            12 => HookData::Scale(dereth_primitives::records::HookScale {
                 end: c.f32()?,
                 time: c.f32()?,
-            },
-            13 | 26 => HookData::CreateParticle {
+            }),
+            13 | 26 => HookData::CreateParticle(dereth_primitives::records::HookCreateParticle {
                 emitter_info_id: c.data_id()?,
                 part_index: c.u32()?,
                 offset: c.placed_frame()?,
                 emitter_id: c.u32()?,
-            },
+            }),
             14 | 15 => HookData::Particle {
                 emitter_id: c.u32()?,
             },
@@ -146,26 +121,28 @@ impl AnimHook {
             18 => HookData::DefaultScriptPart {
                 part_index: c.u32()?,
             },
-            19 => HookData::CallPes {
+            19 => HookData::CallPes(dereth_primitives::records::HookCallPes {
                 pes: c.data_id()?,
                 pause: c.f32()?,
-            },
-            21 => HookData::SoundTweaked {
+            }),
+            21 => HookData::SoundTweaked(dereth_primitives::records::HookSoundTweaked {
                 sound_id: c.data_id()?,
                 probability: c.f32()?,
                 priority: c.f32()?,
                 volume: c.f32()?,
-            },
+            }),
             22 => HookData::SetOmega { axis: c.vec3()? },
-            23 => HookData::TextureVelocity {
+            23 => HookData::TextureVelocity(dereth_primitives::records::HookTextureVelocity {
                 u_speed: c.f32()?,
                 v_speed: c.f32()?,
-            },
-            24 => HookData::TextureVelocityPart {
-                part_index: c.u32()?,
-                u_speed: c.f32()?,
-                v_speed: c.f32()?,
-            },
+            }),
+            24 => {
+                HookData::TextureVelocityPart(dereth_primitives::records::HookTextureVelocityPart {
+                    part_index: c.u32()?,
+                    u_speed: c.f32()?,
+                    v_speed: c.f32()?,
+                })
+            }
             25 => HookData::SetLight {
                 lights_on: c.i32()?,
             },
@@ -187,14 +164,21 @@ impl AnimHook {
     /// The DataIDs this hook references.
     pub fn sub_data_ids(&self, out: &mut Vec<DataId>) {
         match &self.data {
-            HookData::Sound { sound_id } | HookData::SoundTweaked { sound_id, .. } => {
+            HookData::Sound { sound_id }
+            | HookData::SoundTweaked(dereth_primitives::records::HookSoundTweaked {
+                sound_id,
+                ..
+            }) => {
                 out.push(*sound_id);
             }
             HookData::ReplaceObject { part_id, .. } => out.push(*part_id),
-            HookData::CreateParticle {
-                emitter_info_id, ..
-            } => out.push(*emitter_info_id),
-            HookData::CallPes { pes, .. } => out.push(*pes),
+            HookData::CreateParticle(dereth_primitives::records::HookCreateParticle {
+                emitter_info_id,
+                ..
+            }) => out.push(*emitter_info_id),
+            HookData::CallPes(dereth_primitives::records::HookCallPes { pes, .. }) => {
+                out.push(*pes)
+            }
             _ => {}
         }
     }
@@ -292,12 +276,12 @@ mod tests {
         let h = AnimHook::decode(&mut c).unwrap();
         assert_eq!(
             h.data,
-            HookData::SoundTweaked {
+            HookData::SoundTweaked(dereth_primitives::records::HookSoundTweaked {
                 sound_id: DataId(0x0A00_0002),
                 probability: 0.25,
                 priority: 0.75,
                 volume: 1.0,
-            }
+            })
         );
         c.expect_end().unwrap();
     }

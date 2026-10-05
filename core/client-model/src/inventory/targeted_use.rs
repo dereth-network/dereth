@@ -97,7 +97,8 @@ mod feedback_tests {
         world.weenie_mut(ObjectId(1)).unwrap().pwd.target_type = Some(0x10);
         assert!(world.target_compatible_with_object(ObjectId(2), ObjectId(1)));
         assert!(world.report_target_compatibility(&mut out, ObjectId(2), ObjectId(1)));
-        world.weenie_mut(ObjectId(2)).unwrap().pwd.bitfield |= crate::weenie::bitfield::PLAYER;
+        world.weenie_mut(ObjectId(2)).unwrap().pwd.bitfield |=
+            dereth_rules::weenie::bitfield::PLAYER;
         assert!(world.report_target_compatibility(&mut out, ObjectId(2), ObjectId(1)));
         assert_eq!(
             out.0,

@@ -82,8 +82,8 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
 use dereth_scene::textures::TextureStore;
 use {
-    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region,
 };
 
 use dereth_render::{combined_texture_key, TextureKey, TextureSpace};

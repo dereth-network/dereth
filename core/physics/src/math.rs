@@ -3,8 +3,8 @@
 //! The vector and frame arithmetic is the shared implementation ([`dereth_primitives::frame`]),
 //! re-exported here at the paths physics has always used; the animation player and the landscape
 //! use the same code. What only physics needs is defined here: the block-margin test, the
-//! heading-only validity check, frame interpolation and the position arithmetic that crosses
-//! landblocks.
+//! heading-only validity check and frame interpolation. Position arithmetic across landblocks
+//! delegates to `dereth_primitives::position`.
 
 use dereth_primitives::num::consts::EPSILON;
 use dereth_primitives::num::math;

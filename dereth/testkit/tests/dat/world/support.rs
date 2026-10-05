@@ -13,10 +13,7 @@ use {
     dereth_client_runtime::character::Character,
     dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
 };
-use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-};
+use {dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 /// The description type every body below carries. A player and a monster both have it.
 pub const CREATURE: u32 = 0x0000_0010;
@@ -239,7 +236,7 @@ const SPAWN: (f32, f32) = (96.0, 96.0);
 /// The settle is not a nicety: an unsettled body has no contact plane, and a measurement
 /// taken over one would be measuring the drop.
 pub fn settled_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut c =
         Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created");
     for i in 1..=60 {
@@ -493,7 +490,9 @@ pub fn scale_the_shipped_script_asks_for(store: &Arc<RetailDatStore>) -> f32 {
         .script_data
         .iter()
         .find_map(|st| match st.hook.data {
-            HookData::Scale { end, time } => Some((end, time)),
+            HookData::Scale(dereth_primitives::records::HookScale { end, time }) => {
+                Some((end, time))
+            }
             _ => None,
         })
         .expect("the script carries a scale hook");
@@ -1404,7 +1403,7 @@ pub fn replay_teleports(
 /// Stand a body up the way the client does at world entry: build it in the piece of land the
 /// shard named and put it on the shard's own position.
 fn body_at(store: &Arc<RetailDatStore>, pos: dereth_primitives::Position) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     #[allow(clippy::cast_possible_truncation)]
     // LINT-OK: a cell id's top sixteen bits are its piece of land. Not a float cast.
     let landblock = (pos.cell.0 >> 16) as u16;
@@ -1566,8 +1565,7 @@ impl DoorRig {
         use dereth_client_runtime::actions::movement::{action, on_action};
         let (player, door_pos, _) = recorded_door();
         let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let mut c =
             Character::new(&store, &region, ACADEMY, (96.0, 96.0)).expect("the body is created");
         c.land().load_block_cells(player.cell.landblock());
@@ -1807,12 +1805,10 @@ impl DoorRig {
             .read_typed(dereth_dat::DbType::Setup, DOOR_SETUP)
             .expect("the door's shipped setup");
         let s = Setup::decode_payload(DOOR_SETUP, &bytes).expect("it decodes");
-        let mut stats = dereth_client_runtime::object_physics::SetupPartStats::default();
-        let g = Arc::new(
-            dereth_client_runtime::object_physics::setup_geometry_with_parts(
-                &store, &s, &mut stats,
-            ),
-        );
+        let mut stats = dereth_world_data::setup::SetupPartStats::default();
+        let g = Arc::new(dereth_world_data::setup::setup_geometry_with_parts(
+            &store, &s, &mut stats,
+        ));
         let h = self.c.world.create(DOOR, g, true);
         self.c.world.enter_cell(h, at.cell);
         if let Some(o) = self.c.world.get_mut(h) {

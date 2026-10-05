@@ -30,9 +30,7 @@ use dereth_primitives::{LocalTime, ObjectId, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// Visible-state word applied after the hidden login create; the test constructs the update and

@@ -34,9 +34,7 @@ use dereth_protocol::objects::{physics_state, ItemCreateObject, ItemSetState};
 use dereth_protocol::{Message, Opcode};
 use dereth_ui::framework::mode;
 use winit::keyboard::KeyCode;
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const REMOTE: ObjectId = ObjectId(0x5000_0F98);
 

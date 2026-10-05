@@ -98,10 +98,11 @@ impl TextSink for ChatLog {
     /// bare LF.
     fn write_line(&mut self, line: &str) {
         use std::io::Write as _;
-        let legacy = dereth_protocol::cp1252::encode(line).unwrap_or_else(|| {
+        let legacy = dereth_primitives::text::cp1252::encode(line).unwrap_or_else(|| {
             line.chars()
                 .flat_map(|c| {
-                    dereth_protocol::cp1252::encode(&c.to_string()).unwrap_or_else(|| vec![b'?'])
+                    dereth_primitives::text::cp1252::encode(&c.to_string())
+                        .unwrap_or_else(|| vec![b'?'])
                 })
                 .collect()
         });

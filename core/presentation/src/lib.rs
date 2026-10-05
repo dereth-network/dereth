@@ -3,7 +3,7 @@
 //!
 //! **Depends on** `dereth-primitives`, the contract (`dereth-client-contract`), whose read-only
 //! view the rules are functions of, and the shared rules' arithmetic (`dereth-rules`). **Used by**
-//! the retail interface (`dereth-ui-screens`, which re-exports each module at its old path) and
+//! the runtime (`dereth-client-runtime`), the retail interface (`dereth-ui-screens`) and
 //! the classic interface (`dereth-classic-ui`).
 //!
 //! **Must never** draw, lay out an element, hold a string table or reach the platform: these are
@@ -14,6 +14,7 @@
 //! - [`character`]: the character information sheet's ladders, breakdowns and its augmentation
 //!   and luminance section, composed over whatever string service the interface has.
 //! - [`coordinates`]: the player's coordinates as text.
+//! - [`numfmt`], [`inforegion`], [`map`]: numeric grouping, information rows and calendar text.
 //! - [`journal`]: the journal's pages, its file's text and its captions.
 //! - [`target`]: where the target indicator's brackets and arrows go.
 
@@ -21,7 +22,10 @@ pub mod appraisal;
 pub mod character;
 pub mod coordinates;
 pub mod creation;
+pub mod inforegion;
 pub mod journal;
+pub mod map;
+pub mod numfmt;
 pub mod social;
 pub mod spell;
 pub mod stats;

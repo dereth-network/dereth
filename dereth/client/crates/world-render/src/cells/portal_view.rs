@@ -180,9 +180,9 @@ pub fn init_cell(cell: &TraversalCell, entered_portal: Option<usize>, pv: &mut P
         } else {
             pv.seen[p] = false;
             let d = portal.viewpoint_side_distance;
-            let side = if d > crate::consts::EPSILON {
+            let side = if d > dereth_terrain::consts::EPSILON {
                 Some(0u8)
-            } else if d < -crate::consts::EPSILON {
+            } else if d < -dereth_terrain::consts::EPSILON {
                 Some(1u8)
             } else {
                 None // IN_PLANE
@@ -592,8 +592,8 @@ pub enum Sidedness {
 /// which is what the cell's own portal walk and the portals-only walk both compile to.
 #[must_use]
 pub fn sidedness(d: f32) -> Sidedness {
-    if d <= crate::consts::EPSILON {
-        if -crate::consts::EPSILON <= d {
+    if d <= dereth_terrain::consts::EPSILON {
+        if -dereth_terrain::consts::EPSILON <= d {
             Sidedness::InPlane
         } else {
             Sidedness::Negative

@@ -64,7 +64,8 @@ pub trait StringResolver: std::fmt::Debug {
 
     /// Variant 0 as a text element receives it, after.
     fn resolve(&self, table: DataId, string_id: u32) -> Option<String> {
-        self.resolve_raw(table, string_id).map(crate::unescape)
+        self.resolve_raw(table, string_id)
+            .map(dereth_assets::escape::unescape)
     }
 
     /// Every variant as a text element receives them, after. Each
@@ -72,6 +73,6 @@ pub trait StringResolver: std::fmt::Debug {
     /// `StringInfo` literals and the substituted values are never rescanned.
     fn resolve_variants(&self, table: DataId, string_id: u32) -> Option<Vec<String>> {
         self.resolve_variants_raw(table, string_id)
-            .map(|v| v.into_iter().map(crate::unescape).collect())
+            .map(|v| v.into_iter().map(dereth_assets::escape::unescape).collect())
     }
 }

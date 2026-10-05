@@ -240,10 +240,7 @@ use {
     dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
 };
 use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
-use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-};
+use {dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 // =============================================================================================
 // The shop's money, its category tabs, and the two lines about the row the player picked.

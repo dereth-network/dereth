@@ -38,13 +38,13 @@ fn seed_two_packs(w: &mut dereth_client_model::World) {
         let p = w.tables.weenies.get_mut(BUSY_PLAYER).expect("seeded");
         p.pwd.items_capacity = Some(102);
         p.pwd.containers_capacity = Some(7);
-        p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     }
     for pack in [SIDE_PACK, OTHER_PACK] {
         let c = w.tables.weenies.get_mut(pack).expect("seeded");
         c.pwd.items_capacity = Some(24);
         c.pwd.containers_capacity = Some(0);
-        c.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        c.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
         c.pwd.container_id = Some(BUSY_PLAYER);
         w.tables.inventories.insert(
             pack,
@@ -387,7 +387,7 @@ pub(super) fn a_destroyed_thing_leaves_no_tile_and_no_mark() {
 /// takes no one-at-a-time lock, so the drag that follows is a gesture the player could make.
 pub(super) fn a_tile_clears_its_own_before_catching_another_thing() {
     let mut c = a_client_with_two_side_packs();
-    let ammunition = dereth_client_model::inventory::slots::loc::MISSILE_AMMO;
+    let ammunition = dereth_rules::slots::loc::MISSILE_AMMO;
     {
         let w = &mut c.app_mut().probe_mut().objects_mut().world;
         let stack = w.weenie_mut(LOOSE).expect("seeded");
@@ -560,7 +560,7 @@ pub(super) fn a_full_pack_is_named_the_way_the_player_would_name_it() {
     {
         let w = &mut c.app_mut().probe_mut().objects_mut().world;
         let player = w.weenie_mut(BUSY_PLAYER).expect("seeded");
-        player.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+        player.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
         player.pwd.items_capacity = Some(1);
         player.pwd.name = "Larktest".into();
         for pack in [SIDE_PACK, OTHER_PACK] {
@@ -614,7 +614,7 @@ pub(super) fn a_full_pack_is_named_the_way_the_player_would_name_it() {
         chest.pwd.name = "Chest".into();
         chest.pwd.material_type = Some(0x3A);
         chest.pwd.items_capacity = Some(0);
-        chest.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        chest.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
         w.tables.weenies.insert(A_CHEST, chest);
         w.tables.inventories.insert(
             A_CHEST,

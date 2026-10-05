@@ -80,7 +80,9 @@ fn the_scripted_statics_hook_population_says_what_a_host_can_raise() {
                     instances[t] += 1;
                     seen[t] = true;
                 }
-                if let HookData::CallPes { pes, .. } = step.hook.data {
+                if let HookData::CallPes(dereth_primitives::records::HookCallPes { pes, .. }) =
+                    step.hook.data
+                {
                     queue.push(pes);
                 }
             }

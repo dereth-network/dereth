@@ -271,7 +271,7 @@ impl AttributesPanel {
     /// The primaries render `"%d"` or `"???"`; the secondaries render `"%d/%d"` — the third
     /// secondary-attribute info-region constructor argument is `false` for all three of this panel's
     /// rows, which is the current-and-maximum shape and not the percentage one. Both formats are
-    /// [`dereth_client_contract::panels::inforegion`]'s, already recovered and tested there.
+    /// [`dereth_presentation::inforegion`]'s, already recovered and tested there.
     ///
     /// # The value is one `set_text_with_font`, and its colour is the buff/debuff ladder
     ///
@@ -297,7 +297,10 @@ impl AttributesPanel {
     ///
     /// Returns true on a frame that actually rewrote a value or a colour.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
-        use dereth_client_contract::panels::inforegion::{format_attribute, format_attribute_2nd};
+        use {
+            dereth_presentation::inforegion::format_attribute,
+            dereth_presentation::inforegion::format_attribute_2nd,
+        };
         if self.rows.is_empty() {
             return false;
         }

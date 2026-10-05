@@ -200,7 +200,7 @@ fn outside_view_count_at(
     block: u16,
     cell: u32,
 ) -> Option<usize> {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: block,
         start_cell: Some(CellId(cell)),

@@ -3,7 +3,7 @@
 //! over the platform under it.
 //!
 //! **Depends on** the runtime and what it is built from (`dereth-client-runtime`,
-//! `dereth-client-model`, `dereth-client-contract`, `dereth-client-net`, `dereth-protocol`,
+//! `dereth-client-model`, `dereth-client-contract`, `dereth-client-net`, `dereth-protocol`, `dereth-rules`,
 //! `dereth-primitives`, `dereth-chargen`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-audio`, `dereth-world-data`), the drawn world (`dereth-scene`, with `dereth-render` and `dereth-world-render`),
 //! the UI crates (`dereth-ui`, `dereth-ui-screens`, `dereth-input`), and the classic interface it

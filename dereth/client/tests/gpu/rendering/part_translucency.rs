@@ -95,7 +95,7 @@ struct Arm {
 fn render(store: &Arc<RetailDatStore>, gpu: &mut Gpu, material: bool, t: f32) -> Arm {
     let mut scene = WorldScene::load(store, gpu, populated(material)).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -464,7 +464,7 @@ fn the_hook_channel_ramps_to_invisible_and_comes_back() {
     let mut scene =
         WorldScene::load(&store, &mut gpu, populated(true)).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -635,7 +635,7 @@ fn first_person_hides_the_body_through_the_frames_own_camera_call() {
     let mut scene =
         WorldScene::load(&store, &mut gpu, populated(true)).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");

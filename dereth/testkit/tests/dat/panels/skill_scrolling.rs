@@ -289,7 +289,7 @@ fn skill_list_vitae(multiplier: f32) -> dereth_protocol::types::qualities::Encha
         degrade_limit: 0.0,
         last_time_degraded: 0.0,
         smod: dereth_protocol::types::qualities::StatMod {
-            kind: dereth_client_model::enchant::ench_type::VITAE,
+            kind: dereth_rules::enchant::ench_type::VITAE,
             key: 0,
             value: multiplier,
         },

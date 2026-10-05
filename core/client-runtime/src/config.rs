@@ -473,7 +473,7 @@ impl Default for Config {
             create_char: String::new(),
             gls_ticket: String::new(),
             vg_password: String::new(),
-            landblock: crate::landblock::DEFAULT_LANDBLOCK,
+            landblock: dereth_world_data::landblock::DEFAULT_LANDBLOCK,
             start_cell: None,
             cell_statics: true,
             mesh_collision: true,

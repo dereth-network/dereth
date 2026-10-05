@@ -101,7 +101,7 @@ fn every_sky_object_the_region_names_resolves_to_triangles() {
 #[test]
 fn the_shipped_region_does_use_the_sky_object_property_bits() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let sky = region.sky_info.as_ref().expect("the region has sky info");
     let mut seen = std::collections::BTreeMap::<u32, usize>::new();
     for g in &sky.day_groups {
@@ -276,7 +276,7 @@ fn the_landscape_sun_vector_keeps_its_brightness() {
     let store = store();
     let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
 
     for t in [0.02f32, 0.25, 0.5, 0.75] {
         let scene = scene_at(&store, &mut gpu, t);

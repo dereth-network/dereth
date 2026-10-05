@@ -40,7 +40,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn land(store: &Arc<RetailDatStore>) -> Arc<DatLandSource> {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     Arc::new(DatLandSource::new(Arc::clone(store), &region).expect("the retail height table"))
 }
 
@@ -83,7 +83,7 @@ fn every_holtburg_building_reaches_the_land_cell_its_origin_falls_in_at_its_own_
     let src = land(&s);
     src.load_block_cells(HOLTBURG);
 
-    let lbi_id = dereth_client_runtime::landblock::lbi_did(HOLTBURG.0);
+    let lbi_id = dereth_world_data::landblock::lbi_did(HOLTBURG.0);
     let bytes = s.read_typed(DbType::Lbi, lbi_id).expect("Holtburg's LBI");
     let lbi = dereth_assets::world::LandblockInfo::decode_payload(lbi_id, &bytes).expect("decodes");
     assert_eq!(
@@ -426,7 +426,7 @@ fn a_body_walking_into_a_holtburg_wall_is_stopped_only_when_the_client_registers
     let src = land(&s);
     src.load_block_cells(HOLTBURG);
 
-    let lbi_id = dereth_client_runtime::landblock::lbi_did(HOLTBURG.0);
+    let lbi_id = dereth_world_data::landblock::lbi_did(HOLTBURG.0);
     let bytes = s.read_typed(DbType::Lbi, lbi_id).expect("Holtburg's LBI");
     let lbi = dereth_assets::world::LandblockInfo::decode_payload(lbi_id, &bytes).expect("decodes");
 

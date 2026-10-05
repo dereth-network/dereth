@@ -31,10 +31,10 @@ use dereth_terrain::scenery::{generate_scenery, outside_cell_index, PlacedScener
 
 use crate::camera::FreeCamera;
 use crate::environment::EnvironmentOverrideState;
-use crate::landblock::{landblock_did, lbi_did};
 use crate::scene::SceneConfig;
 use crate::world_state::WorldState;
 use {dereth_world_data::env_cells::CellStatic, dereth_world_data::env_cells::DecodedCell};
+use {dereth_world_data::landblock::landblock_did, dereth_world_data::landblock::lbi_did};
 
 impl WorldState {
     /// The world as a scene starts it: no body, no objects, nothing resident yet, the calendar
@@ -586,7 +586,7 @@ pub fn release_block_interiors(
 pub fn place_load_camera(
     ws: &mut WorldState,
     cfg: &SceneConfig,
-) -> Result<(), crate::landblock::WorldError> {
+) -> Result<(), dereth_world_data::landblock::WorldError> {
     use crate::world_stream::SlotMesh;
     let window = &ws.streamer.window;
     let r = window.mid_radius();
@@ -607,7 +607,9 @@ pub fn place_load_camera(
                         .map(|m| m.max_zval)
                 })
         })
-        .ok_or(crate::landblock::WorldError::NoSuchLandblock(cfg.landblock))?
+        .ok_or(dereth_world_data::landblock::WorldError::NoSuchLandblock(
+            cfg.landblock,
+        ))?
         - dereth_terrain::consts::MAX_OBJECT_HEIGHT;
     let length = dereth_terrain::consts::BLOCK_LENGTH;
     ws.camera = FreeCamera::new(
@@ -928,19 +930,21 @@ impl BlockResidency {
 pub fn load(
     store: &std::sync::Arc<RetailDatStore>,
     cfg: &SceneConfig,
-) -> Result<(WorldState, BlockResidency), crate::landblock::WorldError> {
-    let region = crate::landblock::load_region(store)?;
+) -> Result<(WorldState, BlockResidency), dereth_world_data::landblock::WorldError> {
+    let region = dereth_world_data::landblock::load_region(store)?;
     let mut ws = WorldState::new(&region, cfg);
     let mut residency = BlockResidency::new(region);
     // Every slot comes back `Fetched` because the window did not exist: the full-reload path.
     let actions = ws
         .streamer
         .window
-        .update_block(crate::landblock::block_xy(cfg.landblock));
+        .update_block(dereth_world_data::landblock::block_xy(cfg.landblock));
     residency.queue(&mut ws, cfg, &actions);
     residency.stream(&mut ws, store, cfg);
     if residency.blocks.is_empty() {
-        return Err(crate::landblock::WorldError::NoSuchLandblock(cfg.landblock));
+        return Err(dereth_world_data::landblock::WorldError::NoSuchLandblock(
+            cfg.landblock,
+        ));
     }
     place_load_camera(&mut ws, cfg)?;
     ws.update_viewer_cell();
@@ -961,9 +965,9 @@ pub fn attach_body(
     residency: &mut BlockResidency,
     store: &std::sync::Arc<RetailDatStore>,
     cfg: &SceneConfig,
-) -> Result<(), crate::landblock::WorldError> {
+) -> Result<(), dereth_world_data::landblock::WorldError> {
     let character = body_for(store, &residency.region, cfg)
-        .map_err(|e| crate::landblock::WorldError::Render(e.to_string()))?;
+        .map_err(|e| dereth_world_data::landblock::WorldError::Render(e.to_string()))?;
     ws.character_sound_table = body_sound_table(&character);
     let resident: Vec<(i32, i32)> = residency.resident().collect();
     place_body(ws, character, resident);
@@ -1003,7 +1007,7 @@ mod tests {
     )]
     fn statics_and_restrictions_wait_for_a_body() {
         let store = retail_store();
-        let region = crate::landblock::load_region(&store).expect("the region");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
         let cfg = SceneConfig::default();
         let mut ws = WorldState::new(&region, &cfg);
         let mut block = BlockStatics {
@@ -1034,7 +1038,7 @@ mod tests {
     )]
     fn holtburgs_statics_pair_each_placement_with_its_record() {
         let store = retail_store();
-        let region = crate::landblock::load_region(&store).expect("the region");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
         let table = dereth_terrain::land::mesh::height_table(&region);
         let mut scenery = 0;
         for bx in 0xA8..=0xAA {

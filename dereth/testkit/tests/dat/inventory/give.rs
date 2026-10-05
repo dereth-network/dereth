@@ -1,7 +1,7 @@
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::Request;
 use dereth_primitives::ObjectId;
 use dereth_testkit::{ClientSpec, HeadlessClient};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 use super::{DropHost, FEEDBACK_CHANNEL};
 

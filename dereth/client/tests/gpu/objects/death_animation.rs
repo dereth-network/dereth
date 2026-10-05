@@ -141,7 +141,7 @@ impl Station {
             },
         )
         .expect("scene");
-        let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+        let region = dereth_world_data::landblock::load_region(&store).expect("region");
         scene
             .attach_character(&store, &region, &mut gpu)
             .expect("physics owner");

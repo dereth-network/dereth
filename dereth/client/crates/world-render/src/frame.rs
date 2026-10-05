@@ -101,9 +101,9 @@ pub fn block_steps(
         if in_view(c) {
             s.push(BlockStep::LandCell(c));
         }
-        if crate::consts::ALWAYS_DRAW_SORT_CELL || in_view(c) {
+        if dereth_terrain::consts::ALWAYS_DRAW_SORT_CELL || in_view(c) {
             s.push(BlockStep::SortCell(c));
-            if crate::consts::ALPHA_FLUSH_MIN_Z < 1.0 {
+            if dereth_terrain::consts::ALPHA_FLUSH_MIN_Z < 1.0 {
                 s.push(BlockStep::FlushPartial);
             }
         }
@@ -155,7 +155,7 @@ mod tests {
     /// The two sky passes bracket the landblocks, and the alpha list is last.
     #[test]
     fn the_outdoor_frame_brackets_the_landblocks_with_the_two_sky_passes() {
-        let blocks = crate::land::order::block_draw_order(5);
+        let blocks = dereth_terrain::land::order::block_draw_order(5);
         let s = outdoor_steps(&blocks, &|_| true, true);
         assert_eq!(s[0], OutdoorStep::Clear);
         assert_eq!(s[1], OutdoorStep::SkyPass0);
@@ -192,7 +192,7 @@ mod tests {
     /// weather off there is no second pass at all.
     #[test]
     fn the_weather_pass_is_conditional() {
-        let blocks = crate::land::order::block_draw_order(3);
+        let blocks = dereth_terrain::land::order::block_draw_order(3);
         assert!(outdoor_steps(&blocks, &|_| true, true).contains(&OutdoorStep::SkyPass1));
         assert!(!outdoor_steps(&blocks, &|_| true, false).contains(&OutdoorStep::SkyPass1));
     }
@@ -202,9 +202,9 @@ mod tests {
     /// culled (` = 1`), tall objects on culled cells still appear".
     #[test]
     fn a_culled_cell_still_draws_its_objects() {
-        let draw_array = crate::land::order::cell_draw_order(
+        let draw_array = dereth_terrain::land::order::cell_draw_order(
             8,
-            crate::land::mesh::Direction::InViewerBlock,
+            dereth_terrain::land::mesh::Direction::InViewerBlock,
             (0, 0),
         );
         // Cull exactly one cell.
@@ -228,8 +228,11 @@ mod tests {
     /// starts, because the shadow-part sort of a later cell must not run between two earlier draws.
     #[test]
     fn pass_a_completes_before_pass_b_begins() {
-        let draw_array =
-            crate::land::order::cell_draw_order(4, crate::land::mesh::Direction::North, (0, 0));
+        let draw_array = dereth_terrain::land::order::cell_draw_order(
+            4,
+            dereth_terrain::land::mesh::Direction::North,
+            (0, 0),
+        );
         let s = block_steps(&draw_array, &|_| true, &|_| true);
         let last_a = s
             .iter()
@@ -276,7 +279,7 @@ mod tests {
             s.iter().filter(|x| **x == BlockStep::FlushPartial).count(),
             3
         );
-        assert_eq!(crate::consts::ALPHA_FLUSH_MIN_Z, 0.75);
+        assert_eq!(dereth_terrain::consts::ALPHA_FLUSH_MIN_Z, 0.75);
     }
 
     /// Oracle: indoor rendering — the frame takes the indoor path, and it still runs the

@@ -45,7 +45,7 @@ fn real_use_and_decoded_messages_keep_meaning_through_notice_absorb_and_both_hud
     source.pwd.name = "Unfamiliar Gem".into();
     source.pwd.useability = Some(0x0020_0020);
     source.pwd.target_type = Some(1);
-    source.pwd.bitfield = dereth_client_model::weenie::bitfield::STUCK;
+    source.pwd.bitfield = dereth_rules::weenie::bitfield::STUCK;
     let mut target = Weenie::new(ObjectId(2));
     target.pwd.name = "Unfamiliar Ring".into();
     target.pwd.obj_type = 1;

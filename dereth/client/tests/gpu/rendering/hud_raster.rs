@@ -199,20 +199,8 @@ fn recorded_series(
             continue;
         };
         let (Some(c), Some(m)) = (
-            dereth_client_model::attributes::inq_attribute_2nd(
-                q,
-                &table,
-                cur,
-                false,
-                Some(&filter),
-            ),
-            dereth_client_model::attributes::inq_attribute_2nd(
-                q,
-                &table,
-                max,
-                false,
-                Some(&filter),
-            ),
+            dereth_rules::attributes::inq_attribute_2nd(q, &table, cur, false, Some(&filter)),
+            dereth_rules::attributes::inq_attribute_2nd(q, &table, max, false, Some(&filter)),
         ) else {
             continue;
         };

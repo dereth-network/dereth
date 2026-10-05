@@ -252,8 +252,8 @@ impl PinnedHost {
         #[allow(clippy::cast_precision_loss)] // a landblock index difference, at most 255
         let (dx, dy) = ((b.0 - self.block.0) as f32, (b.1 - self.block.1) as f32);
         Vec3::new(
-            self.origin.x - dx * dereth_world_render::consts::BLOCK_LENGTH,
-            self.origin.y - dy * dereth_world_render::consts::BLOCK_LENGTH,
+            self.origin.x - dx * dereth_terrain::consts::BLOCK_LENGTH,
+            self.origin.y - dy * dereth_terrain::consts::BLOCK_LENGTH,
             self.origin.z,
         )
     }
@@ -966,7 +966,7 @@ fn the_shipped_client_runs_automatic_degrades_and_the_preference_turns_them_off(
     let mut moved = false;
     for dt in series() {
         h.frame(&store, &mut gpu, &mut scene, dt);
-        moved |= scene.draw.degrade.governor.deg_mul != dereth_world_render::consts::PINNED_DEG_MUL;
+        moved |= scene.draw.degrade.governor.deg_mul != dereth_terrain::consts::PINNED_DEG_MUL;
     }
     assert!(moved, "the shipped governor never moved the bias");
     assert!(scene.degrade_globals().auto_update_deg_mul);
@@ -980,7 +980,7 @@ fn the_shipped_client_runs_automatic_degrades_and_the_preference_turns_them_off(
         h.frame(&store, &mut gpu, &mut scene, dt);
         assert_eq!(
             scene.draw.degrade.governor.deg_mul,
-            dereth_world_render::consts::PINNED_DEG_MUL,
+            dereth_terrain::consts::PINNED_DEG_MUL,
             "turned off live, the governor never moves"
         );
     }
@@ -1001,7 +1001,7 @@ fn the_shipped_client_runs_automatic_degrades_and_the_preference_turns_them_off(
         h.frame(&store, &mut gpu, &mut scene, dt);
         assert_eq!(
             scene.draw.degrade.governor.deg_mul,
-            dereth_world_render::consts::PINNED_DEG_MUL,
+            dereth_terrain::consts::PINNED_DEG_MUL,
             "a pinned governor never moves"
         );
     }
@@ -1012,7 +1012,7 @@ fn the_shipped_client_runs_automatic_degrades_and_the_preference_turns_them_off(
     );
     assert_eq!(
         g.user_bias,
-        dereth_world_render::consts::PINNED_DEG_MUL,
+        dereth_terrain::consts::PINNED_DEG_MUL,
         "...with the manual bias"
     );
 }
@@ -1083,7 +1083,7 @@ fn the_overhead_camera_mode_disables_degrades() {
         ..cfg(true)
     };
     let mut scene = WorldScene::load(&store, &mut gpu, scene_cfg).expect("the landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region loads");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region loads");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the character attaches");

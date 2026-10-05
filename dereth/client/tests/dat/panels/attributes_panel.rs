@@ -907,13 +907,13 @@ fn selecting_a_row_fills_the_footer_with_that_rows_own_numbers() {
             let a = q.attribute(*stat).expect("the capture's attribute");
             (a.level_from_cp, a.cp_spent)
         };
-        let one = dereth_client_model::advancement::attribute_cost_to_raise(
+        let one = dereth_rules::advancement::attribute_cost_to_raise(
             &xp,
             level_from_cp,
             cp_spent,
             *secondary,
         );
-        let ten = dereth_client_model::advancement::attribute_cost_to_raise_10(
+        let ten = dereth_rules::advancement::attribute_cost_to_raise_10(
             &xp,
             level_from_cp,
             cp_spent,
@@ -1077,13 +1077,13 @@ fn every_captured_attribute_request_is_the_one_this_panel_would_emit() {
                     .unwrap_or_else(|| panic!("{what}: no such attribute"));
                 (a.level_from_cp, a.cp_spent)
             };
-            let one = dereth_client_model::advancement::attribute_cost_to_raise(
+            let one = dereth_rules::advancement::attribute_cost_to_raise(
                 &xp,
                 level_from_cp,
                 cp_spent,
                 secondary,
             );
-            let ten = dereth_client_model::advancement::attribute_cost_to_raise_10(
+            let ten = dereth_rules::advancement::attribute_cost_to_raise_10(
                 &xp,
                 level_from_cp,
                 cp_spent,
@@ -1504,7 +1504,7 @@ fn a_captured_vital_raise_answer_lands_and_clears_the_attribute_latch() {
                 value_after, value_before,
                 "{what}: the row's own current/maximum pair moved: {value_before} -> {value_after}"
             );
-            let cost_after = dereth_client_model::advancement::attribute_cost_to_raise(
+            let cost_after = dereth_rules::advancement::attribute_cost_to_raise(
                 &xp,
                 after.attribute.level_from_cp,
                 after.attribute.cp_spent,

@@ -26,8 +26,8 @@ use dereth_world_render::lighting::{
     HARDWARE_LIGHT_SLOTS, INDOOR_AMBIENT_LEVEL,
 };
 use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
 
@@ -83,7 +83,7 @@ fn torch_cells(store: &RetailDatStore) -> Vec<(CellId, DataId, Vec3, usize)> {
 /// sync/update/stream/draw order for six frames and return its last capture. No session input
 /// is replayed through the empty object stream.
 fn station(store: &Arc<RetailDatStore>, gpu: &mut Gpu, cfg: SceneConfig) -> (WorldScene, Vec<u8>) {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
     scene
         .attach_character(store, &region, gpu)

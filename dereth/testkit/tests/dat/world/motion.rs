@@ -581,11 +581,11 @@ const OTHER_TARGET: ObjectId = ObjectId(0x8000_0998);
 
 /// A settled local body on the default landblock, as every approach scenario starts from.
 fn local_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the body is created");
@@ -1171,11 +1171,11 @@ const FLAT_GROUND: (f32, f32) = (20.0, 52.0);
 const CONTACT_TOLERANCE: f32 = 0.10;
 
 fn walking_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         FLAT_GROUND,
     )
     .expect("a body on real terrain");
@@ -1408,11 +1408,11 @@ fn playing(c: &Character) -> MotionCommand {
 }
 
 fn settled_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the body");
@@ -1621,7 +1621,7 @@ pub fn a_body_in_the_air_turns_but_does_not_walk() {
     use dereth_animation::motion::MotionInterp;
 
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut c = Character::new(&store, &region, 0x7f03, (96.0, 96.0))
         .expect("a body in the training academy's landblock");
 
@@ -1831,7 +1831,7 @@ fn apply_shard_stance(c: &mut Character, blob: &[u8]) {
 /// a real character is born with.
 fn world_with_target() -> (dereth_client_model::World, ObjectId) {
     use dereth_client_model::combat::{CombatMode, COMBAT_TABLE_DID};
-    use dereth_client_model::inventory::slots::loc;
+    use dereth_rules::slots::loc;
     let mut w = dereth_client_model::World::new();
     let player = ObjectId(0x5000_0476);
     let monster = ObjectId(0x8000_0777);
@@ -1851,8 +1851,8 @@ fn world_with_target() -> (dereth_client_model::World, ObjectId) {
     );
     let mut m = dereth_client_model::Weenie::new(monster);
     m.pwd.name = "Mosswart".into();
-    m.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-    m.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+    m.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+    m.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
     w.tables.weenies.insert(monster, m);
     w.set_selected_object(Some(monster), false, &mut dereth_client_model::NullSink);
     w.inventory_mask = loc::MISSILE_WEAPON | loc::MELEE_WEAPON | loc::HELD;

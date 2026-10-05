@@ -172,7 +172,7 @@ pub(super) fn the_ten_point_button_lights_up_and_a_real_press_sends_the_raise() 
         .expect("the recorded description")
         .clone();
     let strength = q.attribute(1).expect("the recorded character has strength");
-    let strength_ten = dereth_client_model::advancement::attribute_cost_to_raise_10(
+    let strength_ten = dereth_rules::advancement::attribute_cost_to_raise_10(
         &xp,
         strength.level_from_cp,
         strength.cp_spent,
@@ -181,7 +181,7 @@ pub(super) fn the_ten_point_button_lights_up_and_a_real_press_sends_the_raise() 
     let health = q
         .attribute_2nd(1)
         .expect("the recorded character has health");
-    let health_ten = dereth_client_model::advancement::attribute_cost_to_raise_10(
+    let health_ten = dereth_rules::advancement::attribute_cost_to_raise_10(
         &xp,
         health.attribute.level_from_cp,
         health.attribute.cp_spent,
@@ -198,7 +198,7 @@ pub(super) fn the_ten_point_button_lights_up_and_a_real_press_sends_the_raise() 
         .find(|r| q.skill(r.skill).is_some_and(|s| s.sac >= 2))
         .map(|r| r.skill)
         .expect("the recorded character has a trained skill with a row");
-    let skill_ten = dereth_client_model::advancement::skill_cost_to_raise_10(&q, &xp, skill);
+    let skill_ten = dereth_rules::advancement::skill_cost_to_raise_10(&q, &xp, skill);
     let costs_something = strength_ten > 0 && health_ten > 0 && skill_ten > 0;
 
     let mut every_case_holds = true;
@@ -1168,13 +1168,8 @@ pub(super) fn the_footer_under_a_picked_skill_is_that_characters_own_arithmetic(
             (
                 *id,
                 (
-                    dereth_client_model::advancement::skill_cost_to_raise(
-                        &q,
-                        &skill_table,
-                        &xp,
-                        *id,
-                    ),
-                    dereth_client_model::advancement::skill_cost_to_raise_10(&q, &xp, *id),
+                    dereth_rules::advancement::skill_cost_to_raise(&q, &skill_table, &xp, *id),
+                    dereth_rules::advancement::skill_cost_to_raise_10(&q, &xp, *id),
                 ),
             )
         })
@@ -1239,10 +1234,10 @@ pub(super) fn the_footer_under_a_picked_skill_is_that_characters_own_arithmetic(
         .skill(skill)
         .copied()
         .expect("the picked skill is in the recording");
-    let sac = dereth_client_model::skills::Sac::from_raw(s.sac);
+    let sac = dereth_rules::skills::Sac::from_raw(s.sac);
     let rank = usize::from(s.level_from_pp);
-    let lo = dereth_client_model::advancement::experience_to_skill_level(&xp, sac, rank);
-    let hi = dereth_client_model::advancement::experience_to_skill_level(&xp, sac, rank + 1);
+    let lo = dereth_rules::advancement::experience_to_skill_level(&xp, sac, rank);
+    let hi = dereth_rules::advancement::experience_to_skill_level(&xp, sac, rank + 1);
     #[allow(clippy::cast_precision_loss)]
     let want_meter = if hi == lo {
         0.0f32
@@ -1310,8 +1305,7 @@ pub(super) fn the_raise_button_spends_experience_or_credits_by_what_the_skill_is
         .map(|r| r.skill)
         .find(|id| trained.contains(id))
         .expect("a trained skill has a row on the page");
-    let want_xp =
-        dereth_client_model::advancement::skill_cost_to_raise(&q, &skill_table, &xp, skill);
+    let want_xp = dereth_rules::advancement::skill_cost_to_raise(&q, &skill_table, &xp, skill);
 
     press_skill_row(&mut c, skill);
     let (hit, button) = pinp_press_the_raise_button(&mut c, statmgmt::child::BUTTON);
@@ -1445,7 +1439,7 @@ pub(super) fn a_skill_values_colour_is_one_of_the_rows_own_three() {
         "this recording must carry no spell; it carries {enchantments}"
     );
     assert_eq!(
-        q.inq_int(dereth_client_model::skills::aug::JACK_OF_ALL_TRADES),
+        q.inq_int(dereth_rules::skills::aug::JACK_OF_ALL_TRADES),
         1,
         "this character must carry jack-of-all-trades for the flat difference below to be it"
     );
@@ -1455,10 +1449,8 @@ pub(super) fn a_skill_values_colour_is_one_of_the_rows_own_three() {
         .skills
         .keys()
         .map(|id| {
-            let raw =
-                dereth_client_model::skills::inq_skill(&q, &skill_table, *id, true).unwrap_or(0);
-            let eff =
-                dereth_client_model::skills::inq_skill(&q, &skill_table, *id, false).unwrap_or(0);
+            let raw = dereth_rules::skills::inq_skill(&q, &skill_table, *id, true).unwrap_or(0);
+            let eff = dereth_rules::skills::inq_skill(&q, &skill_table, *id, false).unwrap_or(0);
             assert_eq!(
                 i64::from(eff) - i64::from(raw),
                 5,
@@ -1566,12 +1558,10 @@ pub(super) fn both_character_pages_head_with_the_name_the_level_and_the_experien
     };
     let level = q.inq_int(0x19);
     assert!(level > 0, "the recorded character has a level ({level})");
-    let this_level = dereth_client_model::advancement::experience_to_level(
-        &xp,
-        usize::try_from(level).unwrap_or(0),
-    )
-    .expect("the level is inside the shipped curve");
-    let next_level = dereth_client_model::advancement::experience_to_level(
+    let this_level =
+        dereth_rules::advancement::experience_to_level(&xp, usize::try_from(level).unwrap_or(0))
+            .expect("the level is inside the shipped curve");
+    let next_level = dereth_rules::advancement::experience_to_level(
         &xp,
         usize::try_from(level).unwrap_or(0) + 1,
     )

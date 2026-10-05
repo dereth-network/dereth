@@ -63,10 +63,9 @@ fn choosing_a_pack_updates_the_shared_pickup_destination() {
 }
 
 fn inventory_world() -> dereth_client_model::World {
-    use dereth_client_model::{
-        objects::ObjectInventory,
-        weenie::{bitfield, Weenie},
-        World,
+    use {
+        dereth_client_model::objects::ObjectInventory, dereth_client_model::weenie::Weenie,
+        dereth_client_model::World, dereth_rules::weenie::bitfield,
     };
     let mut world = World::new();
     let player = ObjectId(1);

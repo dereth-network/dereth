@@ -12,8 +12,11 @@
 
 use dereth_primitives::{Frame, Vec3};
 
-use crate::math::{combine, l2g, localtoglobalvec, V3};
 use crate::objects::degrade::{calc_draw_frame, DegradeMode};
+use {
+    dereth_terrain::math::combine, dereth_terrain::math::l2g,
+    dereth_terrain::math::localtoglobalvec, dereth_terrain::math::V3,
+};
 
 /// The horizontal distance past which the per-cell object update stops measuring each object and
 /// hands every object in a land cell the cell's own distance and direction
@@ -139,7 +142,7 @@ pub fn update_viewer_distance(part: &PartDraw, sort_center: Vec3, viewer_pos: Ve
 pub fn viewer_distance_and_heading(sort_center_world: Vec3, viewer_pos: Vec3) -> (f32, Vec3) {
     let v = sort_center_world.sub(viewer_pos);
     let cypt = v.magnitude();
-    let heading = if cypt <= crate::consts::EPSILON {
+    let heading = if cypt <= dereth_terrain::consts::EPSILON {
         Vec3::new(0.0, 0.0, 1.0)
     } else {
         v.mul(1.0 / cypt)

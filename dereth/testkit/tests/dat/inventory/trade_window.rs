@@ -41,7 +41,7 @@ fn seed(c: &mut HeadlessClient) {
     let mut me = dereth_client_model::Weenie::new(ME);
     me.valid = true;
     me.pwd.name = "Tester".into();
-    me.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+    me.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
     w.tables.weenies.insert(ME, me);
     w.tables
         .inventories
@@ -98,7 +98,7 @@ fn seed(c: &mut HeadlessClient) {
             // The premise, and the world a shard builds: another player is marked as one, is
             // not a thing you can use, and carries a pack of their own. Those three are what
             // send a double-click on them down the trade path rather than the use path.
-            wn.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+            wn.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
             wn.pwd.useability = Some(dereth_client_model::weenie::item_useable::NO);
             wn.pwd.items_capacity = Some(102);
         }
@@ -128,7 +128,7 @@ fn seed(c: &mut HeadlessClient) {
     let p = w.tables.weenies.get_mut(ME).expect("the player");
     p.pwd.items_capacity = Some(102);
     p.pwd.containers_capacity = Some(7);
-    p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+    p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
 }
 
 /// A whole client with the shipped gameplay screen up, the pack open, and that world in it.

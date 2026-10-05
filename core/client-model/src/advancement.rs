@@ -4,17 +4,16 @@
 //! `Train*`, sets its awaiting-raise latch and does not touch its local copy until the server sends the
 //! changed quality back; the latch exists precisely to stop double-spending.
 //!
-//! The pure rules of this module live in [`dereth_rules::advancement`]; they are re-exported
-//! here, so every `dereth_client_model::advancement::*` path resolves. So do the raise
-//! costs (`skill_cost_to_raise`, `skill_cost_to_raise_10`), written against
-//! `dereth_rules::quality::QualityRead`.
+//! Shared arithmetic and inquiries live in `dereth-rules`; this module keeps the
+//! client model's state adapters and value tests.
 
 use crate::qualities::Qualities;
-use crate::skills::Sac;
 #[cfg(test)]
 use dereth_assets::tables::{SkillTable, XpTable};
+use dereth_rules::skills::Sac;
 
-pub use dereth_rules::advancement::*;
+#[cfg(test)]
+use dereth_rules::advancement::*;
 
 /// The experience types: what a spend of experience raises.
 pub mod experience_type {

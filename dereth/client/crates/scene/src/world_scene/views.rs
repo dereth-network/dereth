@@ -136,7 +136,7 @@ impl SceneDraw {
         let f = ws.camera.frame();
         dereth_world_render::cells::cull::viewer_near_plane(
             f.origin,
-            dereth_world_render::math::get_vector_heading(&f),
+            dereth_terrain::math::get_vector_heading(&f),
             dereth_render::camera::ZNEAR,
         )
     }
@@ -152,7 +152,7 @@ impl SceneDraw {
                 let scale = object_scale(s.part.gfxobj_scale);
                 let scaled = Vec3::new(c.x * scale, c.y * scale, c.z * scale);
                 (
-                    dereth_world_render::math::localtoglobal(&s.draw_pos, scaled),
+                    dereth_terrain::math::localtoglobal(&s.draw_pos, scaled),
                     scale * r,
                 )
             }
@@ -200,7 +200,7 @@ impl SceneDraw {
         };
         let scale = object_scale(s.part.gfxobj_scale);
         let scaled = Vec3::new(centre.x * scale, centre.y * scale, centre.z * scale);
-        let world = dereth_world_render::math::localtoglobal(&s.draw_pos, scaled);
+        let world = dereth_terrain::math::localtoglobal(&s.draw_pos, scaled);
         let cone = viewcone_check(world, scale * radius, near, &view.planes);
         stats.tested += 1;
         if cone == Bounding::Outside {
@@ -246,7 +246,7 @@ impl SceneDraw {
         };
         let scale = object_scale(s.part.gfxobj_scale);
         let scaled = Vec3::new(centre.x * scale, centre.y * scale, centre.z * scale);
-        let world = dereth_world_render::math::localtoglobal(&s.draw_pos, scaled);
+        let world = dereth_terrain::math::localtoglobal(&s.draw_pos, scaled);
         let answers: Vec<Bounding> = views
             .iter()
             .map(|v| viewcone_check(world, scale * radius, near, &v.planes))
@@ -1045,7 +1045,7 @@ pub(super) fn swap_zup_to_d3d() -> glam::Mat4 {
 
 /// A [`Frame`] as a glam column-vector matrix: `M v = R v + t`.
 pub(super) fn frame_matrix(f: &Frame) -> glam::Mat4 {
-    let m = dereth_world_render::math::l2g(f.rotation).0;
+    let m = dereth_terrain::math::l2g(f.rotation).0;
     // The rotation matrix stores the local X axis in world space in elements 0..3, the local Y
     // axis in 3..6, and the local Z axis in 6..9; `localtoglobalvec` reads them as
     // `m[0]*vx + m[3]*vy + m[6]*vz`, so each triple is a *column* of the column-vector matrix.

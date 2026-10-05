@@ -157,7 +157,7 @@ fn recorded_corpse_destroy_then_delete_retires_every_app_owner() {
     assert_eq!(payload.id, CORPSE);
     assert_eq!(payload.physicsdesc.timestamps.instance, 0);
     assert_ne!(
-        payload.wdesc.bitfield & dereth_client_model::weenie::bitfield::CORPSE,
+        payload.wdesc.bitfield & dereth_rules::weenie::bitfield::CORPSE,
         0
     );
     let landblock = u16::try_from(
@@ -352,8 +352,8 @@ fn create_instance(app: &mut App, id: ObjectId, instance: u16, animated: bool) {
             ..Default::default()
         },
         wdesc: PublicWeenieDesc {
-            obj_type: dereth_client_model::weenie::item_type::CONTAINER,
-            bitfield: dereth_client_model::weenie::bitfield::CORPSE,
+            obj_type: dereth_rules::weenie::item_type::CONTAINER,
+            bitfield: dereth_rules::weenie::bitfield::CORPSE,
             ..Default::default()
         },
     };

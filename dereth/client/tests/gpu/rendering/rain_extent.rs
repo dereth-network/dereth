@@ -61,7 +61,7 @@ fn the_weather_layer_falls_across_the_whole_view() {
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("loads");
     let (y, d, t) = scene.game_time();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let group = dereth_world_render::sky::present_day_group(&region, y, d).expect("group");
     assert_eq!(
         group.day_name, "Rainy",
@@ -141,7 +141,7 @@ fn the_rain_curtain_has_nothing_below_its_own_origin() {
             dereth_dat::testing::dat_dir().display()
         )
     });
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let info = region.sky_info.as_ref().expect("sky info");
     let mut checked = 0usize;
     for group in &info.day_groups {

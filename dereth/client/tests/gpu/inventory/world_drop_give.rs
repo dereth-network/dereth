@@ -19,7 +19,6 @@ use std::path::PathBuf;
 
 use dereth_client::app::App;
 use dereth_client_model::inventory::requests::InventoryRequest;
-use dereth_client_model::weenie::item_type;
 use dereth_client_net::client_session::testing::{shared_session, Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
@@ -28,6 +27,7 @@ use dereth_client_runtime::net::ClientNetwork;
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_client_shell::ui::UiMouseEvent;
 use dereth_primitives::{AssetSource, LocalTime, ObjectId, ServerTime};
+use dereth_rules::weenie::item_type;
 use dereth_transport::wire::ParsedPacket;
 use dereth_ui::{ElemHandle, UiSystem};
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
@@ -232,12 +232,11 @@ impl Host {
         let store = std::sync::Arc::new(
             dereth_dat::RetailDatStore::open_dir(&dats()).expect("the retail dats open"),
         );
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let mut c = dereth_client_runtime::character::Character::new(
             &store,
             &region,
-            dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
             (96.0, 96.0),
         )
         .expect("the character is created");

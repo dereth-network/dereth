@@ -50,8 +50,8 @@ use dereth_protocol::objects::physics_state::HIDDEN_PS;
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_render::device::Gpu;
 use {
-    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -960,7 +960,7 @@ fn a_setup_the_dat_does_not_hold_leaves_the_body_alone() {
     let region = load_region(&store).expect("the region decodes");
     let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
-        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        landblock: dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 0,
         scenery_radius: 0,
@@ -1179,7 +1179,7 @@ fn a_rebuilt_body_takes_the_new_setups_collision_half() {
 
     let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
-        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        landblock: dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 0,
         scenery_radius: 0,
@@ -1239,7 +1239,7 @@ fn a_motion_table_the_dat_does_not_hold_leaves_the_body_alone() {
     let region = load_region(&store).expect("the region decodes");
     let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
-        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        landblock: dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 0,
         scenery_radius: 0,

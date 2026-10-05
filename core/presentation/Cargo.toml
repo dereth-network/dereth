@@ -11,8 +11,8 @@ autotests = false
 
 [dependencies]
 dereth-primitives.workspace = true
-# The read-only view the rules are functions of (`AppraisalView`, `CharacterInfo`), the digit
-# grouping and the character sheet's tables.
+# The read-only view the rules are functions of (`AppraisalView`, `CharacterInfo`)
+# and their neutral property identifiers.
 dereth-client-contract.workspace = true
 # The item level arithmetic, the burden load mod and the elemental modifier. Off the wire crate.
 dereth-rules.workspace = true

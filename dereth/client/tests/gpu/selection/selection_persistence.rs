@@ -37,7 +37,6 @@ use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_client_model::range::RADAR_RADIUS_OUTDOORS;
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::character::PLAYER_OBJECT_ID;
 use dereth_client_runtime::objects::ObjectStream;
@@ -53,6 +52,7 @@ use {
     dereth_client_runtime::interaction::Interaction,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 // Three monsters on a 53.13° heading at 3 m, 9 m and 30 m — non-cardinal throughout.
 const NEAR: ObjectId = ObjectId(0x8300_0001);
@@ -103,8 +103,7 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a software GPU device");
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,

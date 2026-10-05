@@ -54,7 +54,7 @@ fn put(w: &mut dereth_client_model::World, id: ObjectId, pwd: PublicWeenieDesc) 
 fn a_frame_closes_the_vendor_the_player_has_walked_away_from() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -266,8 +266,8 @@ mod range_watch {
     use dereth_protocol::types::PublicWeenieDesc;
     use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
     use {
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     const TARGET: ObjectId = ObjectId(0x8000_0011);
@@ -347,8 +347,7 @@ mod range_watch {
     fn the_selection_watch_arms_at_the_range_the_players_own_cell_chooses() {
         let store = store();
         let mut gpu = crate::common::test_gpu(800, 600);
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
         scene
@@ -447,8 +446,7 @@ mod range_watch {
     fn the_range_follows_the_body_when_it_goes_back_outside() {
         let store = store();
         let mut gpu = crate::common::test_gpu(800, 600);
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
         scene

@@ -100,7 +100,7 @@ fn recorded_academy_cell_collision_supports_grounded_walk_without_scene_objects(
         ),
     );
     let store = Arc::new(dereth_dat::testing::open_store().unwrap());
-    let region = dereth_client_runtime::landblock::load_region(&store).unwrap();
+    let region = dereth_world_data::landblock::load_region(&store).unwrap();
     let mut c = Character::new(&store, &region, 0x7f03, (96.0, 96.0)).unwrap();
     c.land().load_block_cells(origin.cell.landblock());
     let cell = c.land().env_cell(origin.cell).unwrap();
@@ -367,7 +367,7 @@ mod actual_app {
                     ItemCreateObject::read(&mut dereth_protocol::Reader::new(&r.payload[4..])).ok()
                 })
                 .find(|m| {
-                    m.0.wdesc.obj_type & dereth_client_model::weenie::item_type::CREATURE != 0
+                    m.0.wdesc.obj_type & dereth_rules::weenie::item_type::CREATURE != 0
                         && m.0.id != app.objects().player().unwrap()
                         && m.0.physicsdesc.position.is_some()
                 })

@@ -25,8 +25,8 @@ use {
     dereth_client_runtime::character::PLAYER_OBJECT_ID,
 };
 use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 use {dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader};
 
@@ -114,7 +114,7 @@ fn in_cell_space(g: &EnvCellGeometry, at: CellId, p: Position) -> Vec3 {
 fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let found = rooms(&store, 20);
     assert!(
         found.len() >= 20,
@@ -258,7 +258,7 @@ fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
 fn the_swept_camera_does_not_sink_into_a_hillside() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -464,7 +464,7 @@ fn the_swept_camera_does_not_sink_into_a_hillside() {
 fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -527,7 +527,7 @@ fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
 fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -607,7 +607,7 @@ fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
 fn a_frame_from_inside_a_holtburg_room_is_of_the_room() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let (inside, g) = rooms(&store, 1)
         .into_iter()
         .next()

@@ -3,8 +3,7 @@
 //! **Depends on** `dereth-primitives` (the vocabulary, the arithmetic policy and the
 //! [`RenderBackend`](dereth_primitives::RenderBackend) seam), the decoded world records of
 //! `dereth-assets` and the landscape's geometry and static
-//! contents in `dereth-terrain`, whose modules it re-exports at their old paths (`land::mesh`,
-//! `scenery`, `consts` and the rest). **Used by** the client (`dereth-client`).
+//! contents in `dereth-terrain`. **Used by** the client (`dereth-client`).
 //!
 //! **Must never** hold GPU code, link a renderer crate or decode anything: everything leaves
 //! through [`RenderBackend`](dereth_primitives::RenderBackend) as
@@ -14,12 +13,12 @@
 //!
 //! | Module | What it owns |
 //! |---|---|
-//! | [`land::mesh`] | vertices, the diagonal split, planes, UVs, per-cell rotation |
-//! | [`land::merge`] | the terrain merge key, road codes, alpha maps, the integer blend |
-//! | [`land::stitch`] | the transition adjustment between detail rings |
-//! | [`land::lighting`], [`land::water`] | per-vertex terrain colours, water classification |
-//! | [`scenery`], [`road`] | deterministic scenery, its hashes and filters |
-//! | [`land::order`], [`land::emit`], [`cells::cull`] | draw order and vertical-column culling |
+//! | [`dereth_terrain::land::mesh`] | vertices, the diagonal split, planes, UVs, per-cell rotation |
+//! | [`dereth_terrain::land::merge`] | the terrain merge key, road codes, alpha maps, the integer blend |
+//! | [`dereth_terrain::land::stitch`] | the transition adjustment between detail rings |
+//! | [`dereth_terrain::land::lighting`], [`dereth_terrain::land::water`] | per-vertex terrain colours, water classification |
+//! | [`dereth_terrain::scenery`], [`dereth_terrain::road`] | deterministic scenery, its hashes and filters |
+//! | [`dereth_terrain::land::order`], [`land::emit`], [`cells::cull`] | draw order and vertical-column culling |
 //! | [`objects`] | the part hierarchy, degrade and billboarding, the alpha list |
 //! | [`cells::portal_view`] | portal traversal and the indoor path |
 //! | [`lighting`] | the light pools, the eight-light cap |
@@ -32,11 +31,11 @@
 //!
 //! 1. The terrain diagonal split is the **sign bit** of a 32-bit hash of global cell coordinates;
 //!    ACE's mesh code returns the inverse boolean under the opposite name. See
-//!    [`land::mesh::sw_to_ne_cut`].
+//!    [`dereth_terrain::land::mesh::sw_to_ne_cut`].
 //! 2. The terrain blend is **integer** arithmetic and **alpha 0 means the overlay wins**. See
-//!    [`land::merge::integer_blend`].
+//!    [`dereth_terrain::land::merge::integer_blend`].
 //! 3. **Everything draws far to near**, including cells within a block, and the alpha list is
-//!    flushed in insertion order with no depth sort. See [`land::order`] and [`objects::alpha`].
+//!    flushed in insertion order with no depth sort. See [`dereth_terrain::land::order`] and [`objects::alpha`].
 //! 4. `degrade_mode` is a **billboarding** mode, not a level-of-detail hint. See
 //!    [`objects::degrade`].
 
@@ -54,18 +53,7 @@ pub mod objects;
 pub mod particles;
 pub mod sky;
 
-// The landscape's geometry and static contents are `dereth-terrain`'s; they are re-exported at the
-// paths they have always had here.
 pub(crate) use dereth_terrain::narrow;
-pub use dereth_terrain::{consts, math, road, scenery, testing};
-
-pub use land::merge::{integer_blend, MergeKey, TerrainMergeCache};
-pub use land::mesh::{
-    generate_landblock, sw_to_ne_cut, Direction, LandPolygon, LandblockMesh, Rotation,
-};
-pub use land::order::{block_draw_order, block_orient, cell_draw_order};
-pub use land::water::WaterType;
-pub use scenery::{generate_scenery, PlacedScenery};
 
 /// A plane in the client's form: a **unit** normal and the signed distance `d` such that
 /// `N·p + d == 0` on the plane.

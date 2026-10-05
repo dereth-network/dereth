@@ -658,7 +658,7 @@ fn a_weapon_wielded_by_the_player_hangs_off_his_own_body() {
 
     // The local body. `SceneConfig::character` alone does not build one: `attach_character` is a
     // separate call the application makes, and every test that needs a body makes it too.
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene = scene_of(&store, &mut gpu, true);
     scene
         .attach_character(&store, &region, &mut gpu)

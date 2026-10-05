@@ -249,7 +249,7 @@ fn a_real_click_on_the_stance_icon_toggles_combat_mode_and_sends_it() {
         seed_player(w, player);
         let sword = ObjectId(0x8000_00AA);
         seed_weapon(w, sword, player);
-        w.inventory_mask = dereth_client_model::inventory::slots::loc::MELEE_WEAPON;
+        w.inventory_mask = dereth_rules::slots::loc::MELEE_WEAPON;
     }
     assert_eq!(
         app.objects().world.combat.combat_mode,
@@ -339,19 +339,19 @@ pub(crate) fn seed_item(w: &mut dereth_client_model::World, id: ObjectId, contai
 pub(crate) fn seed_container(w: &mut dereth_client_model::World, id: ObjectId) {
     let c = weenie(w, id);
     c.pwd.name = "Chest".into();
-    c.pwd.obj_type = dereth_client_model::weenie::item_type::CONTAINER;
+    c.pwd.obj_type = dereth_rules::weenie::item_type::CONTAINER;
 }
 
 fn seed_weapon(w: &mut dereth_client_model::World, id: ObjectId, wielder: ObjectId) {
     {
         let it = weenie(w, id);
         it.pwd.name = "Sword".into();
-        it.pwd.obj_type = dereth_client_model::weenie::item_type::MELEE_WEAPON;
+        it.pwd.obj_type = dereth_rules::weenie::item_type::MELEE_WEAPON;
         it.pwd.wielder_id = Some(wielder);
-        it.pwd.location = Some(dereth_client_model::inventory::slots::loc::WEAPON);
+        it.pwd.location = Some(dereth_rules::slots::loc::WEAPON);
     }
     if let Some(inv) = w.tables.inventories.get_mut(wielder) {
-        inv.set_placement(id, dereth_client_model::inventory::slots::loc::WEAPON, 0);
+        inv.set_placement(id, dereth_rules::slots::loc::WEAPON, 0);
     }
 }
 
@@ -361,10 +361,10 @@ fn seed_side_pack(w: &mut dereth_client_model::World, id: ObjectId, player: Obje
     {
         let c = weenie(w, id);
         c.pwd.name = "Backpack".into();
-        c.pwd.obj_type = dereth_client_model::weenie::item_type::CONTAINER;
+        c.pwd.obj_type = dereth_rules::weenie::item_type::CONTAINER;
         // The container predicate is the openable bit or either nonzero capacity, not the
         // item-type field.
-        c.pwd.bitfield = dereth_client_model::weenie::bitfield::OPENABLE;
+        c.pwd.bitfield = dereth_rules::weenie::bitfield::OPENABLE;
         c.pwd.items_capacity = Some(24);
         c.pwd.containers_capacity = Some(0);
         c.pwd.container_id = Some(player);

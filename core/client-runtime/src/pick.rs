@@ -808,7 +808,7 @@ impl WorldPicker {
         // notice. It has three readers: the pick, the collision setup
         // (`dereth_physics::source::SetupPart::drawing_sphere`) and the draw path's cone
         // (`WorldScene::BakeCache::drawing_sphere`).
-        let Some(s) = crate::object_physics::drawing_sphere(&g) else {
+        let Some(s) = dereth_world_data::setup::drawing_sphere(&g) else {
             self.stats.parts_without_drawing_sphere += 1;
             return None;
         };

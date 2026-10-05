@@ -12,7 +12,6 @@ use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_primitives::{LocalTime, ObjectId, Quat, Vec3};
 use dereth_protocol::{
     admin::AdminEnvirons,
@@ -23,6 +22,7 @@ use {
     dereth_client::app::App, dereth_client_runtime::config::Config,
     dereth_client_runtime::net::ClientNetwork, dereth_client_runtime::scene::SceneConfig,
 };
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0EA6);
 const TARGET: ObjectId = ObjectId(0x5000_0EA7);

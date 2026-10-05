@@ -1289,8 +1289,8 @@ fn shell_frame(m: &mut Model) {
 /// A player character with a pack, and nothing else -- the world every synthesised model scenario
 /// starts from.
 fn seed_player(w: &mut World, id: ObjectId) {
-    use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_protocol::types::PublicWeenieDesc;
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     let mut it = dereth_client_model::Weenie::new(id);
     it.pwd = PublicWeenieDesc {

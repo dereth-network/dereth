@@ -188,7 +188,7 @@ fn feed_answer(p: &mut DddPatcher, blob: &[u8]) {
 /// A land source over a cell dat with one landblock record removed.
 fn land_without_the_block(cell: &Path) -> DatLandSource {
     let store = Arc::new(store_with_cell_copy(cell));
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     DatLandSource::new(store, &region).expect("the land source comes up")
 }
 

@@ -6,8 +6,6 @@
 //! classic UI, and `"Critical hit!  "` has **two** trailing spaces in the attacker
 //! message and one in the defender message.
 
-use crate::inventory::slots::loc;
-use crate::weenie::item_type;
 use crate::world::World;
 use crate::{Request, RequestSink};
 use dereth_primitives::{LocalTime, ObjectId};
@@ -15,6 +13,8 @@ use dereth_protocol::combat::{
     CombatCancelAttack, CombatChangeCombatMode, CombatQueryHealth, CombatTargetedMeleeAttack,
     CombatTargetedMissileAttack,
 };
+use dereth_rules::slots::loc;
+use dereth_rules::weenie::item_type;
 
 /// `COMBAT_MODE` — a bit **mask**, not an ordinal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -532,7 +532,7 @@ impl World {
     ///
     #[must_use]
     pub fn object_is_attackable(&self, id: ObjectId) -> bool {
-        use crate::weenie::{bitfield, item_type};
+        use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
         if id.0 == 0 || self.player == Some(id) {
             return true;
         }
@@ -1483,7 +1483,7 @@ impl World {
         };
         // The power-bar display reads player skill 0x32 (Recklessness), not a weapon fact.
         let sac = self.player_qualities().map_or(0, |q| {
-            crate::skills::inq_skill_advancement_class(q, 0x32) as u32
+            dereth_rules::skills::inq_skill_advancement_class(q, 0x32) as u32
         });
         self.combat
             .begin_power_bar(mode, self.combat.combat_mode == CombatMode::Melee, sac);
@@ -2191,7 +2191,7 @@ mod tests {
         m.pwd = PublicWeenieDesc {
             name: "Drudge".into(),
             obj_type: item_type::CREATURE,
-            bitfield: crate::weenie::bitfield::ATTACKABLE,
+            bitfield: dereth_rules::weenie::bitfield::ATTACKABLE,
             ..PublicWeenieDesc::default()
         };
         w.tables.weenies.insert(ObjectId(2), m);

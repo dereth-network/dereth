@@ -6,11 +6,14 @@
 use dereth_assets::tables::{Attribute2ndTable, SkillTable, XpTable};
 use dereth_assets::Decode;
 use dereth_client_model::advancement as adv;
-use dereth_client_model::attributes::{self, attribute, vital};
 use dereth_client_model::qualities::Qualities;
-use dereth_client_model::skills::{self, skill, Sac};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_protocol::types::qualities::{Attribute, AttributeCache, SecondaryAttribute, Skill};
+use {
+    dereth_client_model::attributes, dereth_rules::attributes::attribute,
+    dereth_rules::attributes::vital,
+};
+use {dereth_client_model::skills, dereth_rules::skills::skill, dereth_rules::skills::Sac};
 
 fn store() -> RetailDatStore {
     dereth_dat::testing::open_store_or_fail()
@@ -65,7 +68,7 @@ fn every_shipped_skill_evaluates_and_respects_its_minimum_advancement_class() {
     let mut with_min_level = 0usize;
     let mut no_attribute_contribution = 0usize;
     for (id, base) in &skills.skills {
-        let untrained = skills::inq_skill_base_level(&q, &skills, *id, true)
+        let untrained = dereth_rules::skills::inq_skill_base_level(&q, &skills, *id, true)
             .unwrap_or_else(|| panic!("skill {id} has no base level"));
         if base.min_level > Sac::Untrained as u32 {
             with_min_level += 1;
@@ -89,7 +92,7 @@ fn every_shipped_skill_evaluates_and_respects_its_minimum_advancement_class() {
                 last_used_time: 0.0,
             },
         );
-        let trained = skills::inq_skill_base_level(&qt, &skills, *id, true).unwrap();
+        let trained = dereth_rules::skills::inq_skill_base_level(&qt, &skills, *id, true).unwrap();
         if base.formula.x == 0 && base.formula.y == 0 {
             // Six shipped skills have both attribute multipliers at zero, so
             // the skill formula yields `floor(0/z + 0.5) = 0` whatever the attributes are:
@@ -118,21 +121,25 @@ fn the_three_vital_formulas_evaluate_from_the_shipped_table() {
     let t: Attribute2ndTable = load(&s, DbType::Attribute2ndTable);
     let q = player(100, 100, 100, 100, 100, 100);
     for id in [vital::MAX_HEALTH, vital::MAX_STAMINA, vital::MAX_MANA] {
-        let v = attributes::inq_attribute_2nd_base_level(&q, &t, id, true)
+        let v = dereth_rules::attributes::inq_attribute_2nd_base_level(&q, &t, id, true)
             .unwrap_or_else(|| panic!("vital {id} has no formula"));
         assert!(v > 0, "vital {id} evaluated to 0 from attributes of 100");
     }
     // An even id has no formula at all.
     assert_eq!(
-        attributes::inq_attribute_2nd_base_level(&q, &t, vital::HEALTH, true),
+        dereth_rules::attributes::inq_attribute_2nd_base_level(&q, &t, vital::HEALTH, true),
         None
     );
 
     // MaxHealth is the endurance-driven one, so raising endurance alone must raise it.
     let higher = player(100, 200, 100, 100, 100, 100);
     assert!(
-        attributes::inq_attribute_2nd_base_level(&higher, &t, vital::MAX_HEALTH, true)
-            > attributes::inq_attribute_2nd_base_level(&q, &t, vital::MAX_HEALTH, true)
+        dereth_rules::attributes::inq_attribute_2nd_base_level(
+            &higher,
+            &t,
+            vital::MAX_HEALTH,
+            true
+        ) > dereth_rules::attributes::inq_attribute_2nd_base_level(&q, &t, vital::MAX_HEALTH, true)
     );
     let _ = attribute::STRENGTH;
 }
@@ -146,8 +153,8 @@ fn the_raise_cost_curves_match_the_shipped_experience_table() {
     let skills: SkillTable = load(&s, DbType::SkillTable);
     let id = *skills.skills.keys().next().expect("at least one skill");
 
-    let max_trained = adv::max_trained_skill_level(&xp);
-    let max_spec = adv::max_specialized_skill_level(&xp);
+    let max_trained = dereth_rules::advancement::max_trained_skill_level(&xp);
+    let max_spec = dereth_rules::advancement::max_specialized_skill_level(&xp);
     assert!(
         max_trained > 100 && max_spec > 100,
         "the shipped curves run past level 100"
@@ -168,15 +175,20 @@ fn the_raise_cost_curves_match_the_shipped_experience_table() {
                     level_from_pp: level as u16,
                     format_version: 1,
                     sac: sac as u32,
-                    pp: adv::experience_to_skill_level(&xp, sac, level as usize),
+                    pp: dereth_rules::advancement::experience_to_skill_level(&xp, sac, level as usize),
                     init_level: 0,
                     resistance_of_last_check: 0,
                     last_used_time: 0.0,
                 },
             );
-            let cost = adv::skill_cost_to_raise(&q, &skills, &xp, id);
-            let expected = adv::experience_to_skill_level(&xp, sac, level as usize + 1)
-                - adv::experience_to_skill_level(&xp, sac, level as usize);
+            let cost = dereth_rules::advancement::skill_cost_to_raise(&q, &skills, &xp, id);
+            let expected =
+                dereth_rules::advancement::experience_to_skill_level(&xp, sac, level as usize + 1)
+                    - dereth_rules::advancement::experience_to_skill_level(
+                        &xp,
+                        sac,
+                        level as usize,
+                    );
             assert_eq!(cost, expected, "{sac:?} level {level}");
         }
         // At the cap the cost is zero.
@@ -190,11 +202,14 @@ fn the_raise_cost_curves_match_the_shipped_experience_table() {
             },
         );
         assert_eq!(
-            adv::skill_cost_to_raise(&q, &skills, &xp, id),
+            dereth_rules::advancement::skill_cost_to_raise(&q, &skills, &xp, id),
             0,
             "{sac:?} at the cap"
         );
-        assert_eq!(adv::skill_cost_to_raise_10(&q, &xp, id), 0);
+        assert_eq!(
+            dereth_rules::advancement::skill_cost_to_raise_10(&q, &xp, id),
+            0
+        );
     }
 }
 
@@ -204,26 +219,34 @@ fn the_raise_cost_curves_match_the_shipped_experience_table() {
 fn the_attribute_raise_costs_step_one_threshold_at_a_time() {
     let s = store();
     let xp: XpTable = load(&s, DbType::XpTable);
-    let max = adv::max_attribute_level(&xp);
+    let max = dereth_rules::advancement::max_attribute_level(&xp);
     assert!(max > 100);
     for level in 0..max {
-        let spent = adv::experience_to_attribute_level(&xp, level as usize).unwrap();
-        let cost = adv::attribute_cost_to_raise(&xp, level, spent, false);
-        let expected = adv::experience_to_attribute_level(&xp, level as usize + 1).unwrap() - spent;
+        let spent =
+            dereth_rules::advancement::experience_to_attribute_level(&xp, level as usize).unwrap();
+        let cost = dereth_rules::advancement::attribute_cost_to_raise(&xp, level, spent, false);
+        let expected =
+            dereth_rules::advancement::experience_to_attribute_level(&xp, level as usize + 1)
+                .unwrap()
+                - spent;
         assert_eq!(cost, expected, "attribute level {level}");
     }
     assert_eq!(
-        adv::attribute_cost_to_raise(&xp, max, 0, false),
+        dereth_rules::advancement::attribute_cost_to_raise(&xp, max, 0, false),
         0,
         "at the cap"
     );
 
-    let vmax = adv::max_attribute_2nd_level(&xp);
+    let vmax = dereth_rules::advancement::max_attribute_2nd_level(&xp);
     for level in 0..vmax {
-        let spent = adv::experience_to_attribute_2nd_level(&xp, level as usize).unwrap();
-        let cost = adv::attribute_cost_to_raise(&xp, level, spent, true);
+        let spent =
+            dereth_rules::advancement::experience_to_attribute_2nd_level(&xp, level as usize)
+                .unwrap();
+        let cost = dereth_rules::advancement::attribute_cost_to_raise(&xp, level, spent, true);
         let expected =
-            adv::experience_to_attribute_2nd_level(&xp, level as usize + 1).unwrap() - spent;
+            dereth_rules::advancement::experience_to_attribute_2nd_level(&xp, level as usize + 1)
+                .unwrap()
+                - spent;
         assert_eq!(cost, expected, "vital level {level}");
     }
 }
@@ -238,9 +261,12 @@ fn get_run_rate_is_still_non_monotonic_with_the_shipped_run_skill() {
         "the Run skill is id 0x18"
     );
 
-    assert_eq!(skills::get_run_rate(0.0, 800, 1.0), 4.5);
+    assert_eq!(dereth_rules::skills::get_run_rate(0.0, 800, 1.0), 4.5);
     for v in [799i32, 801] {
-        assert!(skills::get_run_rate(0.0, v, 1.0) < 3.21, "skill {v}");
+        assert!(
+            dereth_rules::skills::get_run_rate(0.0, v, 1.0) < 3.21,
+            "skill {v}"
+        );
     }
 }
 

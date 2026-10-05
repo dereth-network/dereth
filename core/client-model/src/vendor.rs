@@ -7,12 +7,11 @@
 //! 2. the `± 0.1` fudge is applied **inside** the rounding, not outside;
 //! 3. trade notes ignore the vendor's rate entirely — bought at face value, sold at **1.15×**.
 //!
-//! The pure rules of this module live in [`dereth_rules::vendor`]; they are re-exported
-//! here, so every `dereth_client_model::vendor::{buy_price, sell_price}` path resolves.
+//! Shared price arithmetic lives in [`dereth_rules::vendor`]; the profile adapts it to item descriptions.
 
-use crate::weenie::bitfield;
 use dereth_primitives::{DataId, ObjectId};
 use dereth_protocol::types::PublicWeenieDesc;
+use dereth_rules::weenie::bitfield;
 
 /// `ShopEvent`.
 pub const SE_BUY: u32 = 0;
@@ -61,7 +60,7 @@ pub struct ItemProfile {
     pub pwd: PublicWeenieDesc,
 }
 
-pub use dereth_rules::vendor::*;
+use dereth_rules::vendor::*;
 
 impl VendorProfile {
     /// The price charged to the player.
@@ -1958,7 +1957,7 @@ impl crate::world::World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::weenie::item_type;
+    use dereth_rules::weenie::item_type;
 
     fn item(value: u32, stack: u16, obj_type: u32) -> PublicWeenieDesc {
         PublicWeenieDesc {

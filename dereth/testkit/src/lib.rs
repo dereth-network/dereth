@@ -3,7 +3,7 @@
 //!
 //! **Depends on** the products it tests (`dereth-client`, `dereth-headless`) and the crates a
 //! scenario reaches through them (`dereth-client-shell`, `dereth-desktop`,
-//! `dereth-client-runtime`, `dereth-client-model`,
+//! `dereth-client-runtime`, `dereth-client-model`, `dereth-rules`,
 //! `dereth-client-contract`, `dereth-client-net`, `dereth-input`, `dereth-ui`, `dereth-ui-screens`,
 //! `dereth-primitives`, `dereth-dat`, `dereth-physics`, `dereth-transport`, `dereth-protocol`).
 //! **Used by** nothing: it is a workspace member only so its tests are built and run.

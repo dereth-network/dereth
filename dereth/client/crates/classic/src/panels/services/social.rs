@@ -1,7 +1,7 @@
 use super::*;
 use crate::int::i32_from;
-use dereth_client_contract::panels::numfmt::exact_number as comma;
 use dereth_client_contract::view::{AllegianceAction, AllegianceEntry, AllegianceRoster};
+use dereth_presentation::numfmt::exact_number as comma;
 
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
     Some(Box::new(Social {

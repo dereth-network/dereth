@@ -1925,7 +1925,7 @@ fn a_client_with_three_players() -> HeadlessClient {
         for id in [F_ME, F_FELLOW, F_OUTSIDER] {
             let mut it = dereth_client_model::Weenie::new(id);
             it.valid = true;
-            it.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+            it.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
             w.tables.weenies.insert(id, it);
         }
     }

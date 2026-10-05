@@ -15,9 +15,7 @@ use dereth_client_model::combat::CombatMode;
 use dereth_client_runtime::camera::target;
 use dereth_client_runtime::config::Config;
 use dereth_primitives::ObjectId;
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0002);
 const MONSTER: ObjectId = ObjectId(0x8000_0777);
@@ -75,11 +73,11 @@ fn seed(app: &mut App, attackable: bool) {
     {
         let m = weenie(w, MONSTER);
         m.pwd.name = "Mosswart".into();
-        m.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        m.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
         if attackable {
-            m.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+            m.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
         } else {
-            m.pwd.bitfield &= !dereth_client_model::weenie::bitfield::ATTACKABLE;
+            m.pwd.bitfield &= !dereth_rules::weenie::bitfield::ATTACKABLE;
         }
     }
     w.set_selected_object(Some(MONSTER), false, &mut dereth_client_model::NullSink);

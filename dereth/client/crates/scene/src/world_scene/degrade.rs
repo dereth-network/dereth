@@ -280,7 +280,7 @@ impl SceneDraw {
             // decision and not a user setting.
             user_bias: if g.auto {
                 0.0
-            } else if g.deg_mul == dereth_world_render::consts::PINNED_DEG_MUL {
+            } else if g.deg_mul == dereth_terrain::consts::PINNED_DEG_MUL {
                 self.cfg.render.graphics_performance
             } else {
                 g.deg_mul

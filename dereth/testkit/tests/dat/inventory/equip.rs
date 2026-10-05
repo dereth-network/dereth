@@ -7,7 +7,6 @@ use super::{
 use dereth_client::app::App;
 use dereth_client_model::inventory::equip::{WieldPlan, WIELD_SLOT_ORDER};
 use dereth_client_model::inventory::requests::RequestLock;
-use dereth_client_model::inventory::slots::{loc, SlotSide, PAPERDOLL_REGIONS};
 use dereth_client_model::inventory::SplitState;
 use dereth_client_model::Request;
 use dereth_client_net::client_session::testing::{Corpus, Direction};
@@ -16,6 +15,9 @@ use dereth_testkit::adapters_inventory::{recorded_equips, EQUIP_SESSIONS};
 use dereth_testkit::{ClientSpec, Given, HeadlessClient, Inbound, Player, ScreenPoint, Target};
 use dereth_ui::{ElemHandle, ElementId, StateId};
 use dereth_ui_screens::view::{DropTarget, UiRequest};
+use {
+    dereth_rules::slots::loc, dereth_rules::slots::SlotSide, dereth_rules::slots::PAPERDOLL_REGIONS,
+};
 
 // -----------------------------------------------------------------------------------------
 // The recordings, read once: which things a recorded client asked to put on, where it asked
@@ -1573,7 +1575,7 @@ fn a_weapon_in_the_pack(c: &mut HeadlessClient, item: ObjectId, left_handed: boo
     carrying(c, item, loc::WEAPON_READY_SLOT, 1);
     let w = c.world_mut().tables.weenies.get_mut(item).expect("carried");
     w.pwd.combat_use = Some(1);
-    w.pwd.obj_type = dereth_client_model::weenie::item_type::MELEE_WEAPON;
+    w.pwd.obj_type = dereth_rules::weenie::item_type::MELEE_WEAPON;
     if left_handed {
         w.pwd.bitfield |= use_bitfield::WIELD_LEFT;
     }
@@ -1760,7 +1762,7 @@ pub fn a_ring_may_go_on_the_free_hand_where_a_drop_on_the_full_one_may_not() {
         );
         carrying(c, ring, loc::FINGER_WEAR, 1);
         let w = c.world_mut().tables.weenies.get_mut(ring).expect("carried");
-        w.pwd.obj_type = dereth_client_model::weenie::item_type::JEWELRY;
+        w.pwd.obj_type = dereth_rules::weenie::item_type::JEWELRY;
         w.pwd.bitfield |= use_bitfield::WIELD_ON_USE;
     };
 
@@ -1816,7 +1818,7 @@ pub fn something_that_can_be_worn_or_held_falls_through_to_the_hand() {
     {
         let w = c.world_mut().tables.weenies.get_mut(item).expect("carried");
         w.pwd.priority = Some(0x40);
-        w.pwd.obj_type = dereth_client_model::weenie::item_type::ARMOR;
+        w.pwd.obj_type = dereth_rules::weenie::item_type::ARMOR;
     }
     assert_eq!(
         c.world_mut().determine_use_result(item),
@@ -1862,7 +1864,7 @@ pub fn a_thing_that_cannot_be_held_in_a_fight_says_so() {
             .get_mut(torch)
             .expect("carried");
         w.pwd.combat_use = Some(1);
-        w.pwd.obj_type = dereth_client_model::weenie::item_type::MELEE_WEAPON;
+        w.pwd.obj_type = dereth_rules::weenie::item_type::MELEE_WEAPON;
         w.pwd.name = "Torch".into();
     }
     c.world_mut().combat.combat_mode = dereth_client_model::combat::CombatMode::Melee;
@@ -1919,7 +1921,7 @@ pub fn a_piece_of_armour_whose_place_is_taken_is_refused_out_loud() {
             .get_mut(armour)
             .expect("carried");
         w.pwd.priority = Some(0x40);
-        w.pwd.obj_type = dereth_client_model::weenie::item_type::ARMOR;
+        w.pwd.obj_type = dereth_rules::weenie::item_type::ARMOR;
     }
     assert_eq!(
         c.world_mut().determine_use_result(armour),
@@ -2163,7 +2165,7 @@ fn seed_the_armoury(w: &mut dereth_client_model::World) {
     me.valid = true;
     me.pwd.items_capacity = Some(102);
     me.pwd.containers_capacity = Some(7);
-    me.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+    me.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     w.tables.weenies.insert(ARMOURY_PLAYER, me);
 
     for (i, (id, kind, name)) in [

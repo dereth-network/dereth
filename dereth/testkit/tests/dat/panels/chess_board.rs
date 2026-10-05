@@ -37,8 +37,8 @@ fn chess_a_client_and_two_boards() -> (HeadlessClient, Peer) {
 /// player's own.
 fn chess_put_a_board_in_the_world(c: &mut HeadlessClient, id: ObjectId) {
     let mut w = dereth_client_model::Weenie::default();
-    w.pwd.obj_type = dereth_client_model::weenie::item_type::GAMEBOARD;
-    w.pwd.bitfield |= dereth_client_model::weenie::bitfield::STUCK;
+    w.pwd.obj_type = dereth_rules::weenie::item_type::GAMEBOARD;
+    w.pwd.bitfield |= dereth_rules::weenie::bitfield::STUCK;
     w.pwd.name = format!("Chess Board {:X}", id.0);
     c.world_mut().tables.weenies.insert(id, w);
 }

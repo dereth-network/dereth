@@ -986,8 +986,8 @@ pub fn available_houses_header(house_type: u32, num_houses: i32) -> String {
 pub fn coord_line(ew: i32, ns: i32) -> String {
     let ns_letter = if ns >= 0x400 { "N" } else { "S" };
     let ew_letter = if ew >= 0x400 { "E" } else { "W" };
-    let ns_value = (f64::from(ns - 0x400) * 0.1 + 0.5).abs();
-    let ew_value = (f64::from(ew - 0x400) * 0.1 + 0.5).abs();
+    let (ns_value, ew_value) = dereth_primitives::position::landscape_coordinates(ew, ns);
+    let (ns_value, ew_value) = (ns_value.abs(), ew_value.abs());
     format!("     {ns_value:.1}{ns_letter}, {ew_value:.1}{ew_letter}\n")
 }
 
@@ -1163,7 +1163,7 @@ mod tests {
         world.player = Some(PLAYER);
         let mut player = crate::Weenie::new(PLAYER);
         player.valid = true;
-        player.pwd.bitfield |= crate::weenie::bitfield::OPENABLE;
+        player.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
         player.pwd.items_capacity = Some(10);
         world.tables.weenies.insert(PLAYER, player);
         let mut coins = crate::Weenie::new(COINS);

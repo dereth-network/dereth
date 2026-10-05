@@ -100,7 +100,7 @@ struct Reading {
 /// carried, `ROOM_CELL` the interior cell that contains the same point.
 fn run(store: &Arc<RetailDatStore>, cell: u32, early: f64, late: f64) -> (Reading, Reading) {
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),

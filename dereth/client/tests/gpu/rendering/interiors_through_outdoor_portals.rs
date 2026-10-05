@@ -459,7 +459,7 @@ fn edge_distance(poly: &[(f32, f32)], x: f32, y: f32) -> f32 {
 fn the_indoor_path_follows_the_camera_and_not_the_body() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     // A body, and with it a `CameraControl`. `cfg` has `character: false`, so ask for one.
     scene

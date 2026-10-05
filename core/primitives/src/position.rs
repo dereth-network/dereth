@@ -50,3 +50,12 @@ pub fn cylinder_distance(r1: f32, h1: f32, p1: &Position, r2: f32, h2: f32, p2: 
         gap
     }
 }
+
+/// Convert an admitted landscape grid coordinate to north/south and east/west map values.
+#[must_use]
+pub fn landscape_coordinates(east_west: i32, north_south: i32) -> (f64, f64) {
+    (
+        f64::from(north_south - 0x400) * 0.1 + 0.5,
+        f64::from(east_west - 0x400) * 0.1 + 0.5,
+    )
+}

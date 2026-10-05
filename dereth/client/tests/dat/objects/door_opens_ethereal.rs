@@ -28,8 +28,7 @@ use dereth_world_data::anim_assets::DatAnimAssets;
 use dereth_world_data::env_cells::EnvCellLoader;
 use dereth_world_data::land_source::DatLandSource;
 use {
-    dereth_client_runtime::object_physics::setup_geometry_with_parts,
-    dereth_client_runtime::object_physics::SetupPartStats,
+    dereth_world_data::setup::setup_geometry_with_parts, dereth_world_data::setup::SetupPartStats,
 };
 
 /// The shared collision-walk probe, also used by `door_set_state`; its own calibration pins
@@ -500,7 +499,7 @@ fn a_standable_point(cell: &EnvCellGeometry) -> Option<Vec3> {
 #[test]
 fn an_opened_retail_door_stops_blocking_and_a_closing_one_will_not_close_on_a_body() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -800,7 +799,7 @@ door=({:.3},{:.3},{:.3})",
 #[test]
 fn the_doors_refusal_is_a_function_of_where_the_body_rests_and_flips_once_along_the_walk() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -1044,7 +1043,7 @@ fn the_doors_refusal_is_a_function_of_where_the_body_rests_and_flips_once_along_
 #[test]
 fn the_refusal_is_decided_by_cell_registration_and_the_doors_mesh_registers_it_in_two_cells() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -1236,7 +1235,7 @@ fn the_refusal_is_decided_by_cell_registration_and_the_doors_mesh_registers_it_i
 fn a_door_refuses_to_close_on_a_body_on_either_side_of_its_cell_boundary_and_closes_once_it_leaves()
 {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -1464,7 +1463,7 @@ fn a_door_refuses_to_close_on_a_body_on_either_side_of_its_cell_boundary_and_clo
 #[test]
 fn calc_cross_cells_takes_the_sorting_sphere_and_never_the_path_spheres() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -1604,7 +1603,7 @@ fn cells_of(store: &RetailDatStore) -> Option<CellId> {
 #[test]
 fn the_bbox_arm_reads_the_portal_side_the_drawing_sphere_and_the_second_round() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -1767,8 +1766,8 @@ mod set_state {
     use dereth_protocol::objects::ItemSetState;
     use dereth_world_data::land_source::DatLandSource;
     use {
-        dereth_client_runtime::object_physics::setup_geometry_with_parts,
-        dereth_client_runtime::object_physics::SetupPartStats,
+        dereth_world_data::setup::setup_geometry_with_parts,
+        dereth_world_data::setup::SetupPartStats,
     };
 
     /// The shared collision-walk probe, also used by `door_opens_ethereal`.
@@ -1938,8 +1937,7 @@ mod set_state {
         );
 
         let store = Arc::new(store());
-        let region =
-            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let src = Arc::new(
             DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"),
         );

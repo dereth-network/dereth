@@ -9,8 +9,8 @@ use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;
-use dereth_client_runtime::landblock::load_region;
 use dereth_primitives::{LocalTime, ObjectId};
+use dereth_world_data::landblock::load_region;
 
 /// Behaviour: movement.sticky.animation-done-unsticks-before-manual-motion
 #[test]

@@ -35,7 +35,9 @@ pub fn a_delayed_script_call_plays_after_its_delay() {
             (0.0, world_support::CREATE_PARTICLE),
             (0.5, world_support::CALL_PES),
         ];
-    let HookData::CallPes { pes, pause } = script.script_data[1].hook.data else {
+    let HookData::CallPes(dereth_primitives::records::HookCallPes { pes, pause }) =
+        script.script_data[1].hook.data
+    else {
         panic!("the ring script's second step is not a call")
     };
     let names_the_child = pes == world_support::RING_CHILD && (pause - 0.5).abs() < 1e-6;
@@ -175,7 +177,9 @@ pub fn a_script_call_with_no_delay_plays_on_the_spot() {
             continue;
         };
         for step in &s.script_data {
-            if let HookData::CallPes { pes, pause } = step.hook.data {
+            if let HookData::CallPes(dereth_primitives::records::HookCallPes { pes, pause }) =
+                step.hook.data
+            {
                 if pause < world_support::HOOK_EPSILON
                     && pes != *id
                     && store.read_typed(DbType::PhysicsScript, pes).is_ok()

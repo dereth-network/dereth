@@ -110,13 +110,13 @@ pub(crate) fn animation(id: u32, n: u32, hook_frame: Option<u32>) -> Animation {
     let attack = AnimHook {
         hook_type: 3,
         direction: 1,
-        data: HookData::Attack {
+        data: HookData::Attack(dereth_primitives::records::AttackCone {
             part_index: 0,
             left: (0.0, 0.0),
             right: (0.0, 0.0),
             radius: 1.0,
             height: 1.0,
-        },
+        }),
     };
     let part_frames = (0..n)
         .map(|i| AnimFrame {

@@ -1110,9 +1110,7 @@ impl MotionSource for SharedMotion {
     }
 }
 
-/// The collision half of a decoded setup record. It lives in `dereth_world_data::setup` and is
-/// re-exported here at its old path.
-pub use dereth_world_data::setup::setup_geometry;
+use dereth_world_data::setup::setup_geometry;
 
 /// The player's body: one physics object, one animation driver, and the once-per-frame call order
 /// that joins them.
@@ -1413,7 +1411,7 @@ impl Character {
             handle,
             driver,
             edges,
-            viewer_block: crate::landblock::block_xy(landblock),
+            viewer_block: dereth_world_data::landblock::block_xy(landblock),
             land: Arc::clone(&land),
             camera: crate::camera::CameraControl::new(PLAYER_OBJECT_ID),
             player_physics_updated: false,
@@ -3084,7 +3082,7 @@ pub fn refresh_run_rate(
     filter: Option<&dereth_assets::tables::QualityFilter>,
 ) {
     let rate = match (qualities, skills) {
-        (Some(q), Some(t)) => dereth_client_model::skills::inq_run_rate(q, t, filter),
+        (Some(q), Some(t)) => dereth_rules::skills::inq_run_rate(q, t, filter),
         // No player description yet, or the shipped `SkillTable` has not been read: there are no
         // qualities and the run-rate inquiry returns false. Not a rate of 1.0 — a failed inquiry.
         _ => None,

@@ -3,9 +3,9 @@
 //! Fixture: shipped formula tables, spell data and taboo patterns from the retail DATs.
 
 use dereth_assets::{Decode, TabooTable};
-use dereth_client_model::taboo::{censors_chat_token, filter_chat_line};
+use dereth_primitives::text::cp1252::Cp1252;
 use dereth_primitives::DataId;
-use dereth_protocol::cp1252::Cp1252;
+use {dereth_rules::taboo::censors_chat_token, dereth_rules::taboo::filter_chat_line};
 
 const TABOO_TABLE: DataId = DataId(0x0E00_001E);
 

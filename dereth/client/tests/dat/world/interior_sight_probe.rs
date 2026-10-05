@@ -36,7 +36,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn source(store: &Arc<RetailDatStore>) -> Option<Arc<DatLandSource>> {
-    let region = dereth_client_runtime::landblock::load_region(store).ok()?;
+    let region = dereth_world_data::landblock::load_region(store).ok()?;
     let src = Arc::new(DatLandSource::new(Arc::clone(store), &region).ok()?);
     for b in BLOCKS {
         src.load_block_cells(LandblockId(b));

@@ -419,7 +419,7 @@ fn a_client_with_the_recorded_pack_open() -> HeadlessClient {
         p.pwd.name = "lark".into();
         p.pwd.items_capacity = Some(102);
         p.pwd.containers_capacity = Some(7);
-        p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
         w.tables.weenies.insert(GHOST_PLAYER, p);
         w.tables.inventories.insert(
             GHOST_PLAYER,
@@ -539,7 +539,7 @@ const SALVAGING_SKILL: u32 = 40;
 /// Everything the salvage fixture in this file does not already seed. The player, the tool and
 /// the ring are [`super::seed_salvage`]'s.
 fn seed_the_rest_of_the_bench(w: &mut dereth_client_model::World) {
-    use dereth_client_model::weenie::item_type;
+    use dereth_rules::weenie::item_type;
 
     let seeds: [(ObjectId, &str, u32, u16, u32, bool); 5] = [
         (
@@ -1864,8 +1864,8 @@ const OTHER_WHOLE: u32 = 30;
 fn seed_a_stack(w: &mut dereth_client_model::World) {
     w.player = Some(SPLIT_PLAYER);
     let mut me = dereth_client_model::Weenie::new(SPLIT_PLAYER);
-    me.pwd.bitfield = dereth_client_model::weenie::bitfield::PLAYER;
-    me.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+    me.pwd.bitfield = dereth_rules::weenie::bitfield::PLAYER;
+    me.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
     me.pwd.items_capacity = Some(102);
     me.pwd.containers_capacity = Some(7);
     me.valid = true;
@@ -1877,8 +1877,8 @@ fn seed_a_stack(w: &mut dereth_client_model::World) {
 
     let mut pack = dereth_client_model::Weenie::new(SPLIT_PACK);
     pack.pwd.name = "Backpack".into();
-    pack.pwd.obj_type = dereth_client_model::weenie::item_type::CONTAINER;
-    pack.pwd.bitfield = dereth_client_model::weenie::bitfield::OPENABLE;
+    pack.pwd.obj_type = dereth_rules::weenie::item_type::CONTAINER;
+    pack.pwd.bitfield = dereth_rules::weenie::bitfield::OPENABLE;
     pack.pwd.items_capacity = Some(24);
     pack.pwd.container_id = Some(SPLIT_PLAYER);
     pack.valid = true;

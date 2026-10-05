@@ -493,8 +493,7 @@ fn j_asks_the_body_to_wave() {
 fn the_wave_key_reaches_the_motion_state_the_client_would_report() {
     use dereth_animation::MotionCommand;
     use {
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-        dereth_client_runtime::scene::SceneConfig,
+        dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     let mut app = screen_only();

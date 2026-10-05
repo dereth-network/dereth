@@ -3,7 +3,7 @@
 // ACE's `BinaryWriter`/`BinaryReader` extension methods, over a plain byte vector (writer) or a
 // stream position (reader). They are shared by the message builders.
 
-use dereth_protocol::cp1252;
+use dereth_primitives::text::cp1252;
 use empyrean_common::dotnet::CsCast;
 
 // ACE: Extensions.CalculatePadMultiple

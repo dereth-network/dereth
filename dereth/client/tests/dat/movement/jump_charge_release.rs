@@ -20,8 +20,8 @@ use dereth_protocol::objects::{physics_state, ItemSetState};
 use dereth_protocol::{Message, Opcode};
 use {
     dereth_client::app::App, dereth_client_runtime::config::Config,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_desktop::pump::Pump,
+    dereth_client_runtime::scene::SceneConfig, dereth_desktop::pump::Pump,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 fn setup() -> App {
@@ -920,12 +920,12 @@ fn gameplay(
 
 #[test]
 fn missing_description_and_private_load_enchantment_updates_reach_jump_and_burden_widget() {
-    use dereth_client_model::enchant::ench_type;
     use dereth_protocol::qualities::{
         MagicUpdateEnchantment, PrivateUpdate, QualitiesPrivateUpdateAttribute,
         QualitiesPrivateUpdateInt,
     };
     use dereth_protocol::types::qualities::{Attribute, Enchantment, StatMod};
+    use dereth_rules::enchant::ench_type;
     let mut app = setup();
     // With no player description the jump is refused, rather than jumping with skill 0 and load 0.
     space(&mut app, true, 500_000);
@@ -955,9 +955,7 @@ fn missing_description_and_private_load_enchantment_updates_reach_jump_and_burde
         }),
     );
     assert_eq!(
-        dereth_client_model::inventory::burden::inq_load(
-            app.objects().world.player_qualities().unwrap()
-        ),
+        dereth_rules::burden::inq_load(app.objects().world.player_qualities().unwrap()),
         2.0
     );
     {
@@ -1003,9 +1001,7 @@ fn missing_description_and_private_load_enchantment_updates_reach_jump_and_burde
     );
     frames(&mut app, 2);
     assert_eq!(
-        dereth_client_model::inventory::burden::inq_load(
-            app.objects().world.player_qualities().unwrap()
-        ),
+        dereth_rules::burden::inq_load(app.objects().world.player_qualities().unwrap()),
         1.0
     );
     assert_eq!(
@@ -1037,7 +1033,7 @@ fn recorded_player_qualities_drive_the_actual_release_impulse() {
         .expect("the actual player-description qualities");
     let table = app.hud().skill_table.as_ref().expect("actual SkillTable");
     assert_eq!(
-        dereth_client_model::skills::inq_skill(q, table, 0x16, false),
+        dereth_rules::skills::inq_skill(q, table, 0x16, false),
         Some(75)
     );
     key(&mut app, winit::keyboard::KeyCode::ShiftLeft, true, 199_999);

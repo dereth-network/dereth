@@ -4,7 +4,7 @@
 //! **Depends on** `dereth-primitives`, the decoded tables (`dereth-assets`), the shared rules'
 //! creation arithmetic (`dereth-rules`) and the contract (`dereth-client-contract`), whose
 //! `CharGenResultData` is what a finished creation hands the session. **Used by** the retail UI
-//! (`dereth-ui-screens`, which re-exports it at its old path), the drawn world's creation preview
+//! (`dereth-ui-screens`), the drawn world's creation preview
 //! (`dereth-scene`) and any other UI's creation screens.
 //!
 //! **Must never** draw, lay anything out or touch the wire: a UI shows this model, and the runtime

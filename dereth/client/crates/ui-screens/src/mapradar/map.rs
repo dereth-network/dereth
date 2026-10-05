@@ -310,10 +310,11 @@ pub const DATE_PREFIX: &str = "Date: ";
 pub const TIME_PREFIX: &str = "Time: ";
 
 /// The two buffer lengths and the date-and-time formatter, re-exported from
-/// [`dereth_client_contract::panels::map`]: the world state's calendar clock formats through the
+/// [`dereth_presentation::map`]: the world state's calendar clock formats through the
 /// same function.
-pub use dereth_client_contract::panels::map::{
-    date_time_strings, DATE_BUFFER_LEN, TIME_BUFFER_LEN,
+pub use {
+    dereth_presentation::map::date_time_strings, dereth_presentation::map::DATE_BUFFER_LEN,
+    dereth_presentation::map::TIME_BUFFER_LEN,
 };
 
 /// The client's first block: the two prefixed buffers joined by

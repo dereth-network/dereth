@@ -428,7 +428,7 @@ impl SceneDraw {
                         let passes = if self.cfg.part_alpha_lists {
                             dereth_world_render::objects::draw::classify_subset_passes(
                                 m.subset_mask,
-                                dereth_world_render::consts::S_ALPHA_DELAY_MASK,
+                                dereth_terrain::consts::S_ALPHA_DELAY_MASK,
                                 multi_pass_alpha,
                             )
                         } else {

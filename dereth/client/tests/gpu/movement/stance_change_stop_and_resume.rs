@@ -97,7 +97,6 @@ use dereth_animation::MotionCommand;
 use dereth_client_net::client_session::testing::{shared_session, Datagram};
 use dereth_client_net::recording::connection_sequence_number;
 use dereth_client_runtime::actions::movement::{action, on_action};
-use dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
 use dereth_client_runtime::net::ClientNetwork;
 use dereth_dat::RetailDatStore;
 use dereth_input::ActionId;
@@ -105,6 +104,7 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{MovementBuffer, MovementSetObjectMovement};
 use dereth_protocol::{Message, Opcode};
 use dereth_transport::wire::ParsedPacket;
+use dereth_world_data::landblock::DEFAULT_LANDBLOCK;
 use {
     dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
     dereth_client_runtime::character::MovementCommands,
@@ -554,7 +554,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn settled_character(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut c =
         Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created");
     for i in 1..=60 {
@@ -1024,7 +1024,7 @@ fn holtburg_scene(
         ..SceneConfig::default()
     };
     let mut s = WorldScene::load(store, gpu, cfg).expect("Holtburg's landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     s.attach_character(store, &region, gpu)
         .expect("the body is created");
     for i in 1..=60 {
@@ -1164,7 +1164,7 @@ fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
             let mut s = dereth_scene::world_scene::WorldScene::load(&store, &mut gpu, cfg)
                 .expect("the recording's landscape loads");
             let region =
-                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);

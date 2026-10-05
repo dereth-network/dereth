@@ -345,7 +345,7 @@ pub fn get_sky(group: &SkyDayPreset, t: f32) -> Vec<CelestialPosition> {
 /// the heading; `begin_angle`/`end_angle` are the elevation sweep endpoints.
 pub fn calc_frame(f: &mut Frame, heading: f32, rotation: f32) {
     if heading != 0.0 {
-        crate::math::set_heading(f, heading);
+        dereth_terrain::math::set_heading(f, heading);
     }
     if rotation != 0.0 {
         grotate(
@@ -358,9 +358,9 @@ pub fn calc_frame(f: &mut Frame, heading: f32, rotation: f32) {
 /// Rotate about a **global** axis by `|v|` radians. A no-op when
 /// `|v|² < 2e-4 * 2e-4`, which is the guard that keeps a zero omega from producing NaN.
 pub fn grotate(f: &mut Frame, v: Vec3) {
-    use crate::math::{set_rotate, V3};
+    use {dereth_terrain::math::set_rotate, dereth_terrain::math::V3};
     let mag2 = v.mag2();
-    if mag2 < crate::consts::EPSILON * crate::consts::EPSILON {
+    if mag2 < dereth_terrain::consts::EPSILON * dereth_terrain::consts::EPSILON {
         return;
     }
     let len = mag2.sqrt();
@@ -723,11 +723,11 @@ mod tests {
         assert_eq!(f, Frame::default(), "both zero is a no-op");
         let mut f = Frame::default();
         calc_frame(&mut f, 90.0, 0.0);
-        assert!((crate::math::get_heading(&f) - 90.0).abs() < 0.01);
+        assert!((dereth_terrain::math::get_heading(&f) - 90.0).abs() < 0.01);
         // A rotation about local y tilts the local x axis out of the ground plane.
         let mut f = Frame::default();
         calc_frame(&mut f, 0.0, 90.0);
-        let m = crate::math::l2g(f.rotation).0;
+        let m = dereth_terrain::math::l2g(f.rotation).0;
         assert!(m[2].abs() > 0.99, "the local x axis is now vertical: {m:?}");
     }
 

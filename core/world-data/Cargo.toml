@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 # The dat -> physics / animation adapters, shared by the client and the server;
-# `dereth-client-runtime` re-exports every module. Nothing here may depend on a render, UI,
+# consumed directly by `dereth-client-runtime`. Nothing here may depend on a render, UI,
 # input, audio, network or game-model
 # crate: the adapters take dat records in and hand physics and animation structures out.
 [features]

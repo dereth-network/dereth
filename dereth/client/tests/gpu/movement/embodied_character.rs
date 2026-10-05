@@ -22,8 +22,8 @@ use {
     dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
 };
 use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// Where the character spawns: the middle of Holtburg's own landblock.
@@ -44,7 +44,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn character(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created")
 }
 
@@ -69,11 +69,11 @@ fn physics_ground(store: &Arc<RetailDatStore>, block: LandblockId, x: f32, y: f3
     use dereth_assets::Decode;
     use dereth_dat::DbType;
 
-    let region = dereth_client_runtime::landblock::load_region(store).expect("region");
+    let region = dereth_world_data::landblock::load_region(store).expect("region");
     let table =
         dereth_physics::landdefs::validate_height_table(&region.land_defs.land_height_table)
             .expect("the retail height table is valid");
-    let did = dereth_client_runtime::landblock::landblock_did(block.0);
+    let did = dereth_world_data::landblock::landblock_did(block.0);
     let bytes = store.read_typed(DbType::LandBlock, did).expect("landblock");
     let lb = CellLandblock::decode_payload(did, &bytes).expect("decodes");
     let col = dereth_physics::LandblockCollision::build(
@@ -170,12 +170,15 @@ fn the_ground_physics_stands_on_is_the_ground_the_renderer_draws() {
     use dereth_assets::world::CellLandblock;
     use dereth_assets::Decode;
     use dereth_dat::DbType;
-    use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table};
+    use {
+        dereth_terrain::land::mesh::generate_landblock_with_table,
+        dereth_terrain::land::mesh::height_table,
+    };
 
     let store = store();
     let block = LandblockId(DEFAULT_LANDBLOCK);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
-    let did = dereth_client_runtime::landblock::landblock_did(block.0);
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
+    let did = dereth_world_data::landblock::landblock_did(block.0);
     let bytes = store.read_typed(DbType::LandBlock, did).expect("landblock");
     let lb = CellLandblock::decode_payload(did, &bytes).expect("decodes");
 
@@ -187,7 +190,7 @@ fn the_ground_physics_stands_on_is_the_ground_the_renderer_draws() {
         i32::from(block.x()),
         i32::from(block.y()),
         1,
-        dereth_world_render::land::mesh::Direction::InViewerBlock,
+        dereth_terrain::land::mesh::Direction::InViewerBlock,
     );
     assert_eq!(mesh.side_cell_count, 8);
 
@@ -660,9 +663,7 @@ fn the_body_animates_and_the_part_placement_is_a_step_function() {
         // it here, and `place_parts` takes the `RenderSpace` that `set_viewer_block` returns, so
         // this line states which block the placement is expressed in: the body's own block, which
         // is what `WorldScene::recenter` would choose with no window scrolling under it.
-        let space = c.set_viewer_block(dereth_client_runtime::landblock::block_xy(
-            DEFAULT_LANDBLOCK,
-        ));
+        let space = c.set_viewer_block(dereth_world_data::landblock::block_xy(DEFAULT_LANDBLOCK));
         c.place_parts(space);
         let d = c.driver();
         let body = c.render_frame().origin;
@@ -720,7 +721,7 @@ fn the_body_animates_and_the_part_placement_is_a_step_function() {
 fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
 
     // The control is the **same scene from the same chase camera** with the body hidden, so the
     // only difference between the two frames is the body itself. The control sets the no-draw
@@ -800,7 +801,7 @@ fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
 fn two_identically_stepped_scenes_render_the_same_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let mut shots = Vec::new();
     for _ in 0..2 {
         let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");

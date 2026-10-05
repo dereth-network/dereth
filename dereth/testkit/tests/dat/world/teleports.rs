@@ -378,11 +378,11 @@ pub fn a_placement_inside_a_building_takes_and_raises_its_footing_change() {
     let store = support::store();
 
     // 1. The placement itself, outdoors and indoors, at a spot the body demonstrably stands on.
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let mut out = dereth_client_runtime::character::Character::new(
         &store,
         &region,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the outdoor body is created");

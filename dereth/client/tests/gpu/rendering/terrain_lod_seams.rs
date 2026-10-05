@@ -28,12 +28,15 @@ use dereth_assets::Decode;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
 use dereth_scene::world_scene::SceneReads;
-use dereth_world_render::land::mesh::{generate_landblock_with_table, Direction};
-use dereth_world_render::land::order::{block_orient, side_cell_count};
-use dereth_world_render::LandblockMesh;
+use dereth_terrain::land::mesh::LandblockMesh;
 use {
-    dereth_client_runtime::landblock::block_xy, dereth_client_runtime::landblock::landblock_did,
-    dereth_client_runtime::landblock::load_region,
+    dereth_terrain::land::mesh::generate_landblock_with_table,
+    dereth_terrain::land::mesh::Direction,
+};
+use {dereth_terrain::land::order::block_orient, dereth_terrain::land::order::side_cell_count};
+use {
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::landblock_did,
+    dereth_world_data::landblock::load_region,
 };
 
 /// Holtburg, the landblock every station here stands on.
@@ -110,7 +113,7 @@ fn sample_edge(z: &[f32]) -> [f32; 9] {
 /// `LandContext::generate` calls.
 fn slot(
     store: &RetailDatStore,
-    table: &[f32; dereth_world_render::consts::LAND_HEIGHT_TABLE_LEN],
+    table: &[f32; dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN],
     region: &dereth_assets::region::Region,
     viewer: (i32, i32),
     d: (i32, i32),
@@ -201,7 +204,7 @@ fn adjacent_landblocks_share_their_boundary_height_row() {
 fn the_coarse_side_of_a_ring_two_seam_never_stands_above_the_fine_side() {
     let store = store();
     let region = load_region(&store).expect("the region decodes");
-    let table = dereth_world_render::land::mesh::height_table(&region);
+    let table = dereth_terrain::land::mesh::height_table(&region);
     let viewer = block_xy(HOLTBURG);
 
     let mut seams = 0usize;
@@ -262,7 +265,7 @@ fn the_coarse_side_of_a_ring_two_seam_never_stands_above_the_fine_side() {
 fn the_outward_edge_of_a_stitched_block_is_exactly_its_coarser_neighbours_polyline() {
     let store = store();
     let region = load_region(&store).expect("the region decodes");
-    let table = dereth_world_render::land::mesh::height_table(&region);
+    let table = dereth_terrain::land::mesh::height_table(&region);
     let viewer = block_xy(HOLTBURG);
 
     // (ring-2 -> ring-3) and (ring-4 -> ring-5) on each of the four cardinals.
@@ -333,7 +336,6 @@ fn the_outward_edge_of_a_stitched_block_is_exactly_its_coarser_neighbours_polyli
 /// **No datagram leaves this process.** `ObjectStream::apply_event` is handed an encoded body
 /// directly; nothing opens a socket.
 mod bench {
-    use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_client_net::client_session::SessionEvent;
     use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
@@ -346,6 +348,7 @@ mod bench {
         dereth_client_runtime::character::PLAYER_OBJECT_ID,
     };
     use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
     use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
     pub const W: u32 = 800;
@@ -382,7 +385,7 @@ mod bench {
     impl Bench {
         pub fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu, land_radius: u32) -> Self {
             let region =
-                dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(store).expect("the region decodes");
             let cfg = SceneConfig {
                 landblock: HOLTBURG,
                 land_radius,

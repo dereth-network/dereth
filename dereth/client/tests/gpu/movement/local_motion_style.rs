@@ -295,7 +295,7 @@ fn drive(session: &str, limit: usize) -> (Vec<Station>, ObjectId, bool, u64) {
             };
             let mut s = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
             let region =
-                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+                dereth_world_data::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);

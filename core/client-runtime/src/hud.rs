@@ -47,12 +47,12 @@ use dereth_client_contract::panels::external_container::ExternalContainerNotice;
 use dereth_client_contract::{
     GameView, RadarEntry, SelectionQueryFacts, SkillEntry, SpellEntry, Vital,
 };
-use dereth_client_model::attributes::inq_attribute_2nd;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{DataId, ObjectId};
 use dereth_protocol::login::PlayerModule;
 use dereth_protocol::property::{BasePropertyValue, PropertyCollection};
 use dereth_protocol::Message as _;
+use dereth_rules::attributes::inq_attribute_2nd;
 
 /// The `ObjectDescriptionFlag` bits and the `RadarEnum` values the radar reads, taken from
 /// [`dereth_client_contract::radar`] rather than restated, so the seam and the rules that consume it can
@@ -286,7 +286,7 @@ impl DisplayName {
     /// nothing.
     fn wanted(w: &dereth_client_model::weenie::Weenie) -> bool {
         w.pwd.material_type.unwrap_or(0) as i32 > 0
-            || (w.pwd.bitfield & dereth_client_model::weenie::bitfield::HIDDEN_ADMIN != 0
+            || (w.pwd.bitfield & dereth_rules::weenie::bitfield::HIDDEN_ADMIN != 0
                 && w.pwd.name.starts_with('+'))
     }
 }

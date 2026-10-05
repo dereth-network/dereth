@@ -3,7 +3,7 @@
 //!
 //! **Depends on** `dereth-primitives`, the decoded tables of `dereth-assets` and, behind the
 //! default `proto` feature, `dereth-protocol`. **Used by** the client's object model
-//! (`dereth-client-model`, which re-exports every module at its old path), animation
+//! (`dereth-client-model`), animation
 //! (`dereth-animation`), the retail UI (`dereth-ui-screens`), the SDK and the server
 //! (`empyrean-world`).
 //!

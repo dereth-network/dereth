@@ -7,6 +7,12 @@
 //! either depending on the other. The containing objects are not here: their runtime forms differ
 //! from the decoded ones (resolved hooks, keyed maps, derived values) and stay in their crates.
 
+mod hook;
+pub use hook::{
+    AttackCone, HookCallPes, HookCreateParticle, HookPartRamp, HookRamp, HookScale,
+    HookSoundTweaked, HookTextureVelocity, HookTextureVelocityPart,
+};
+
 use crate::ids::DataId;
 use crate::space::Frame;
 

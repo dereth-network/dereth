@@ -24,7 +24,7 @@
 //! the enchantment id, category, power level, start time and duration, and
 //! `EnchantmentRegistry::enchantments_in_effect` is
 //! the quality table's enchantments-in-effect read; the duration formatter
-//! [`dereth_client_contract::panels::inforegion::format_duration`] is the client's
+//! [`dereth_presentation::inforegion::format_duration`] is the client's
 //! `"%d:%02d"` / `"%d:%02d:%02d"`; the row
 //! template and its three children are the same info-region shape `super::skills` already builds.
 //! This module is presentation and a filter, and that is why it is the cheapest of the five.
@@ -95,7 +95,7 @@ pub mod row {
     pub const ICON: u32 = 0x1000_0129;
     /// The label text — the spell name.
     pub const LABEL: u32 = 0x1000_012A;
-    /// The value text — the duration, through `dereth_client_contract::panels::inforegion::format_duration`.
+    /// The value text — the duration, through `dereth_presentation::inforegion::format_duration`.
     pub const VALUE: u32 = 0x1000_012B;
 }
 
@@ -126,7 +126,7 @@ pub struct EffectRow {
     pub name: String,
     /// The spell description — the info line's second half.
     pub description: String,
-    /// What the value text reads — [`dereth_client_contract::panels::inforegion::format_duration`]'s output, or the empty
+    /// What the value text reads — [`dereth_presentation::inforegion::format_duration`]'s output, or the empty
     /// string when the row is permanent or the **Spell Duration** character option is off.
     pub duration: String,
     pub element: ElemHandle,
@@ -492,7 +492,7 @@ impl EffectsPanel {
 /// * The option off — SpellDuration false — writes **nothing**: the client returns
 ///   true before touching the value cell, so the column is blank rather than `0:00`.
 /// * A permanent enchantment (duration `< 0`) has no meaningful remaining time; the duration read
-///   would return a large negative and [`dereth_client_contract::panels::inforegion::format_duration`] clamps at zero, so
+///   would return a large negative and [`dereth_presentation::inforegion::format_duration`] clamps at zero, so
 ///   it is blanked here on the same test [`crate::view::EffectEntry::permanent`] carries.
 /// * Everything else is `format_duration(remaining)`, the two shapes, with the seconds **already
 ///   rebased on receipt**: the server's times are converted to the local clock when they arrive.
@@ -502,7 +502,7 @@ pub fn duration_cell(e: &EffectEntry, show_duration: bool) -> String {
         return String::new();
     }
     #[allow(clippy::cast_possible_truncation)]
-    dereth_client_contract::panels::inforegion::format_duration(e.remaining as i64)
+    dereth_presentation::inforegion::format_duration(e.remaining as i64)
 }
 
 #[cfg(test)]
@@ -545,7 +545,7 @@ mod tests {
 
     /// Oracle: the effect info region's update's SpellDuration
     /// early return, and its two shapes through
-    /// [`dereth_client_contract::panels::inforegion::format_duration`].
+    /// [`dereth_presentation::inforegion::format_duration`].
     #[test]
     fn the_duration_cell_is_blank_without_the_option_and_blank_when_permanent() {
         let a = e(1, "Strength Self VI", true, 75.0);

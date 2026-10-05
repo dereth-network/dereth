@@ -63,9 +63,7 @@ use dereth_protocol::{Message, Opcode};
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::hud::target::Projection;
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// The visible-state word that un-hides a login's hidden create.

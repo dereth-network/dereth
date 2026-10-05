@@ -254,7 +254,7 @@ pub trait Presentation: std::fmt::Debug {
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         cfg: crate::scene::SceneConfig,
         world: &mut Option<crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError>;
+    ) -> Result<(), dereth_world_data::landblock::WorldError>;
     /// Returns the number of textures released. The world state goes with the drawing half: a
     /// presentation that had a scene clears `world`.
     fn release_world(&mut self, world: &mut Option<crate::world_state::WorldState>) -> u32;
@@ -266,7 +266,7 @@ pub trait Presentation: std::fmt::Debug {
         &mut self,
         store: &dereth_dat::RetailDatStore,
         world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError>;
+    ) -> Result<(), dereth_world_data::landblock::WorldError>;
     /// # Errors
     /// When an object's geometry will not build.
     fn sync_objects(
@@ -274,7 +274,7 @@ pub trait Presentation: std::fmt::Debug {
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         stream: &mut crate::objects::ObjectStream,
         world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError>;
+    ) -> Result<(), dereth_world_data::landblock::WorldError>;
     /// # Errors
     /// As [`Presentation::sync_objects`].
     fn prepare_object_dispatch(
@@ -282,7 +282,7 @@ pub trait Presentation: std::fmt::Debug {
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         stream: &mut crate::objects::ObjectStream,
         world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError>;
+    ) -> Result<(), dereth_world_data::landblock::WorldError>;
     /// Poll changed render preferences and apply any requested scene rebuilds.
     ///
     /// # Errors
@@ -291,7 +291,7 @@ pub trait Presentation: std::fmt::Debug {
         &mut self,
         store: &dereth_dat::RetailDatStore,
         world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<crate::frame_events::RenderPrefWork, crate::landblock::WorldError>;
+    ) -> Result<crate::frame_events::RenderPrefWork, dereth_world_data::landblock::WorldError>;
     /// Set whether the world is hidden and the optional view-distance override.
     fn set_world_view_state(&mut self, hidden: bool, view_distance: Option<f32>);
     /// The object identity verdicts the application worked out for its store
@@ -702,7 +702,7 @@ impl Presentation for NullPresentation {
         _store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         _cfg: crate::scene::SceneConfig,
         _world: &mut Option<crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         self.counts.load_world += 1;
         Ok(())
     }
@@ -714,7 +714,7 @@ impl Presentation for NullPresentation {
         &mut self,
         _store: &dereth_dat::RetailDatStore,
         _world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         self.counts.stream_world += 1;
         Ok(())
     }
@@ -723,7 +723,7 @@ impl Presentation for NullPresentation {
         _store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         _stream: &mut crate::objects::ObjectStream,
         _world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         self.counts.sync_objects += 1;
         Ok(())
     }
@@ -732,7 +732,7 @@ impl Presentation for NullPresentation {
         _store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         _stream: &mut crate::objects::ObjectStream,
         _world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<(), crate::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         self.counts.prepare_object_dispatch += 1;
         Ok(())
     }
@@ -740,7 +740,7 @@ impl Presentation for NullPresentation {
         &mut self,
         _store: &dereth_dat::RetailDatStore,
         _world: Option<&mut crate::world_state::WorldState>,
-    ) -> Result<crate::frame_events::RenderPrefWork, crate::landblock::WorldError> {
+    ) -> Result<crate::frame_events::RenderPrefWork, dereth_world_data::landblock::WorldError> {
         self.counts.update_render_preferences += 1;
         Ok(crate::frame_events::RenderPrefWork::default())
     }

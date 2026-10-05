@@ -77,7 +77,7 @@ fn an_ethereal_motion_table(store: &Arc<RetailDatStore>) -> DataId {
 fn an_ethereal_hook_fired_inside_the_frame_reaches_the_physics_object() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     let mtable = an_ethereal_motion_table(&store);
     eprintln!(
         "ethereal hook: driving the body with retail motion table {:#010X}",
@@ -188,7 +188,7 @@ fn quarter_turn_per_second() -> Vec3 {
 fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
 
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene
@@ -308,7 +308,7 @@ fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
 fn the_last_set_omega_hook_of_a_step_wins() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
 
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene

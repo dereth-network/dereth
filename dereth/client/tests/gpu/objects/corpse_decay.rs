@@ -88,9 +88,8 @@ use dereth_protocol::{
 use dereth_render::device::Gpu;
 use dereth_ui_screens::mapradar::radar::{inq_showable_on_radar, radar_enum};
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// long-solo-play's recorded corpse.
@@ -268,7 +267,7 @@ fn recorded() -> Recorded {
     assert_eq!(payload.id, CORPSE);
     assert_eq!(payload.physicsdesc.timestamps.instance, 0);
     assert_ne!(
-        payload.wdesc.bitfield & dereth_client_model::weenie::bitfield::CORPSE,
+        payload.wdesc.bitfield & dereth_rules::weenie::bitfield::CORPSE,
         0,
         "the recorded weenie really is a corpse"
     );
@@ -983,7 +982,7 @@ fn the_ghost_band_is_the_gap_between_aces_pvs_and_the_clients_landblock_window()
         "this arm is calibrated against the cheapest shipped landscape-radius preset"
     );
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");

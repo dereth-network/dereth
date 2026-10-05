@@ -255,11 +255,12 @@ use dereth_ui_screens::panels::contracts::{self, ContractSort, ContractsPanel};
 // through `Peer`. Nothing binds a socket; every byte the client writes stays in its own endpoint.
 // =============================================================================================
 
-use dereth_client_model::chess::{
-    move_result as chess_mr, Coord as ChessCoord, GameState, PieceType,
-};
 use dereth_client_model::minigame::GameBoard as ChessBoard;
 use dereth_ui_screens::panels::minigame;
+use {
+    dereth_rules::chess::move_result as chess_mr, dereth_rules::chess::Coord as ChessCoord,
+    dereth_rules::chess::GameState, dereth_rules::chess::PieceType,
+};
 
 mod abuse_reports;
 use abuse_reports::{

@@ -537,7 +537,7 @@ const OWNER_STR_BUFF: f32 = 15.0;
 const OWNER_STR_COST_10: u32 = 63_878 - 32_676;
 
 fn install_owner_figures(app: &mut App) {
-    use dereth_client_model::enchant::{ench_type, Enchantment};
+    use {dereth_rules::enchant::ench_type, dereth_rules::enchant::Enchantment};
     let q = app
         .probe_mut()
         .objects_mut()
@@ -756,7 +756,7 @@ fn int64_answer(
 }
 
 fn install_owner_attribute_and_level(app: &mut App) {
-    use dereth_client_model::enchant::{ench_type, Enchantment};
+    use {dereth_rules::enchant::ench_type, dereth_rules::enchant::Enchantment};
     let q = app
         .probe_mut()
         .objects_mut()

@@ -21,8 +21,8 @@ use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::types::{PhysicsDesc, PublicWeenieDesc};
 use dereth_protocol::Message;
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::block_xy,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// The campfire's setup: all three of its default script's emitters hang on the object itself.

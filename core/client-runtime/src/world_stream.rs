@@ -14,7 +14,7 @@ use dereth_primitives::{CellId, Vec3};
 
 use crate::camera::FreeCamera;
 use crate::character::{Character, RenderSpace};
-use crate::landblock::block_xy;
+use dereth_world_data::landblock::block_xy;
 
 /// A window slot's geometry, as the drawing side built it.
 ///

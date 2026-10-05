@@ -62,9 +62,8 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::{Message, Opcode};
 use {
     dereth_client::app::App, dereth_client_runtime::config::Config,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
     dereth_client_runtime::platform::clock::HEADLESS_STEP,
-    dereth_client_runtime::scene::SceneConfig,
+    dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// **Landblock-global** metres. `Character::render_frame` is relative to `viewer_block`, which the
@@ -273,8 +272,8 @@ fn the_body_covers_ground_at_the_run_skills_rate() {
             .expect("recorded player-description qualities");
         let t = app.hud().skill_table.as_ref().expect("shipped SkillTable");
         (
-            dereth_client_model::skills::inq_skill(q, t, 0x18, false).expect("a Run skill") as i32,
-            dereth_client_model::inventory::burden::inq_load(q),
+            dereth_rules::skills::inq_skill(q, t, 0x18, false).expect("a Run skill") as i32,
+            dereth_rules::burden::inq_load(q),
         )
     };
     let b = measured_run(&mut app, 200_000);

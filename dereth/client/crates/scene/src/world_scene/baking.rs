@@ -250,7 +250,7 @@ impl BakeCache {
             let bytes = store.read_typed(DbType::GfxObj, gfxobj).ok()?;
             let o = dereth_assets::GfxObj::decode_payload_in(store.era_of(gfxobj), gfxobj, &bytes)
                 .ok()?;
-            dereth_client_runtime::object_physics::drawing_sphere(&o).map(|s| (s.center, s.radius))
+            dereth_world_data::setup::drawing_sphere(&o).map(|s| (s.center, s.radius))
         })
     }
 

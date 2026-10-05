@@ -1,6 +1,6 @@
 //! Character statistics, skill groups, titles and vitae wording shared by interfaces.
+use crate::numfmt::exact_number;
 use crate::DisplayVariant;
-use dereth_client_contract::panels::numfmt::exact_number;
 use dereth_client_contract::{GameView, SkillEntry, VitaeDisplay};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

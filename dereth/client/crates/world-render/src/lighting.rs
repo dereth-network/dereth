@@ -15,8 +15,8 @@
 
 use dereth_primitives::{CellId, Frame, Vec3};
 
-use crate::math::{l2g, V3};
 use crate::narrow::{i32_of, u32_of};
+use {dereth_terrain::math::l2g, dereth_terrain::math::V3};
 
 /// Light type. Every one of the 608 shipped lights is type 0, so only the
 /// point branch is ever exercised — but all three are implemented as documented.
@@ -389,7 +389,7 @@ pub fn convert_to_local(info: &LightInfo, mesh_frame: &Frame) -> LightInfo {
     };
     let mut out = *info;
     if info.light_type == LightType::Directional {
-        let dir = crate::math::get_vector_heading(&info.offset);
+        let dir = dereth_terrain::math::get_vector_heading(&info.offset);
         out.offset.origin = global_to_local_vec(dir);
     } else {
         out.offset.origin = global_to_local_vec(info.offset.origin.sub(mesh_frame.origin));
@@ -531,7 +531,9 @@ impl Default for D3dLight {
 #[must_use]
 pub fn get_direction(info: &LightInfo) -> Vec3 {
     match info.light_type {
-        LightType::Directional | LightType::Spot => crate::math::get_vector_heading(&info.offset),
+        LightType::Directional | LightType::Spot => {
+            dereth_terrain::math::get_vector_heading(&info.offset)
+        }
         LightType::Point => Vec3::ZERO,
     }
 }
@@ -543,7 +545,10 @@ pub fn set_direction(info: &mut LightInfo, v: Vec3) {
         return;
     }
     let inv = 1.0 / (v.y * v.y + v.z * v.z + v.x * v.x).sqrt();
-    crate::math::set_vector_heading(&mut info.offset, Vec3::new(inv * v.x, inv * v.y, inv * v.z));
+    dereth_terrain::math::set_vector_heading(
+        &mut info.offset,
+        Vec3::new(inv * v.x, inv * v.y, inv * v.z),
+    );
 }
 
 /// The hardware light configuration, verbatim.
@@ -734,7 +739,7 @@ impl LightPools {
             0.0
         };
         let mut combined = quantise_colour(*info);
-        combined.offset = crate::math::combine(frame, &info.offset);
+        combined.offset = dereth_terrain::math::combine(frame, &info.offset);
         combined.viewerspace_location = combined.offset.origin;
         let d3d = config_hardware_light(&combined);
         let (pool, cap, base) = if is_static {

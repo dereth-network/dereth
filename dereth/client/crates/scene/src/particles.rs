@@ -29,10 +29,10 @@ use dereth_render::device::{Gpu, PerDrawConstants, PerFrameConstants};
 use dereth_render::{DrawConstants, RenderError};
 use dereth_world_render::degrade_loop::DegradeLevel;
 use dereth_world_render::lighting::D3dLight;
-use dereth_world_render::math::{l2g, localtoglobalvec, V3};
 use dereth_world_render::objects::degrade::{
     calc_draw_frame, get_degrade, DegradeGlobals, DegradeMode,
 };
+use {dereth_terrain::math::l2g, dereth_terrain::math::localtoglobalvec, dereth_terrain::math::V3};
 
 use {crate::world_scene::world_constants_scaled, crate::world_scene::PartMesh};
 
@@ -485,7 +485,7 @@ pub(crate) fn prepare(
                     let s = p.scale;
                     let scaled = Vec3::new(c.x * s, c.y * s, c.z * s);
                     (
-                        dereth_world_render::math::localtoglobal(&draw_frame, scaled),
+                        dereth_terrain::math::localtoglobal(&draw_frame, scaled),
                         s * r,
                     )
                 }

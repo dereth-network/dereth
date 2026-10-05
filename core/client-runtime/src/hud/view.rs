@@ -262,7 +262,7 @@ impl GameView for HudView<'_> {
     /// which reads like a range check and is not one.
     fn endowment(&self) -> Option<(ObjectId, u32)> {
         use dereth_client_contract::panels::spellcasting::ENDOWMENT_LOCATION;
-        const CASTER: u32 = dereth_client_model::weenie::item_type::CASTER;
+        const CASTER: u32 = dereth_rules::weenie::item_type::CASTER;
         let (item, _) = self
             .hud
             .equipment
@@ -292,14 +292,14 @@ impl GameView for HudView<'_> {
     /// Absent means the object declares none, which
     /// the item list's container-size update treats as 0 rather than as unbounded.
     fn items_capacity(&self, id: ObjectId) -> Option<i32> {
-        Some(dereth_client_model::capacity::capacity(
+        Some(dereth_rules::capacity::capacity(
             self.world.weenie(id)?.pwd.items_capacity.unwrap_or(0),
         ))
     }
 
     /// The number of container slots this object supplies.
     fn containers_capacity(&self, id: ObjectId) -> Option<i32> {
-        Some(dereth_client_model::capacity::capacity(
+        Some(dereth_rules::capacity::capacity(
             self.world.weenie(id)?.pwd.containers_capacity.unwrap_or(0),
         ))
     }
@@ -479,7 +479,7 @@ impl GameView for HudView<'_> {
         };
         // The client treats the level as an unsigned 32-bit value when converting it.
         // The world's era decides the curve (the older one before Throne of Destiny).
-        let threshold = dereth_client_model::advancement::vitae_cp_pool_threshold_in(
+        let threshold = dereth_rules::advancement::vitae_cp_pool_threshold_in(
             self.hud.era.era.vitae_recovery(),
             f64::from(multiplier),
             f64::from(level.unsigned_abs()),
@@ -506,7 +506,7 @@ impl GameView for HudView<'_> {
     ///
     /// `None` is no `0x0013` yet.
     fn character_info(&self) -> Option<dereth_client_contract::CharacterInfo> {
-        use dereth_client_model::attributes::inq_attribute;
+        use dereth_rules::attributes::inq_attribute;
         let q = self.player_desc()?;
         // `ID_CharacterInfo_Innates`' display order: 1, 2, 4, 3, 5, 6.
         let innate_of = |id: u32| {
@@ -540,12 +540,9 @@ impl GameView for HudView<'_> {
             num_deaths: q.inq_int(NUM_DEATHS),
             strength: raw(1),
             endurance: raw(2),
-            load: dereth_client_model::inventory::burden::inq_load(q),
+            load: dereth_rules::burden::inq_load(q),
             encumbrance: q.inq_int(ENCUMBRANCE_VAL),
-            capacity: dereth_client_model::inventory::burden::encumbrance_capacity(
-                cap_strength,
-                augmentations,
-            ),
+            capacity: dereth_rules::burden::encumbrance_capacity(cap_strength, augmentations),
             augmentations,
             // The birth/age/deaths read-out's first two arms are
             // gated on the int-quality query's **return**, so `None` and `Some(0)` are different
@@ -560,10 +557,14 @@ impl GameView for HudView<'_> {
             // The augmentations read-out asks for fifty-four ints and shows the ones
             // that came back positive. An absent key and a zero are the same answer here,
             // which is why the zeroes are dropped rather than stored.
-            aug_ints: charinfo::LUMINANCE
+            aug_ints: dereth_presentation::character::LUMINANCE
                 .iter()
                 .map(|(id, _, _)| *id)
-                .chain(charinfo::AUGMENTATIONS.iter().map(|(id, _)| *id))
+                .chain(
+                    dereth_presentation::character::AUGMENTATIONS
+                        .iter()
+                        .map(|(id, _)| *id),
+                )
                 .map(|id| (id, q.inq_int(id)))
                 .filter(|(_, v)| *v != 0)
                 .collect(),
@@ -583,9 +584,7 @@ impl GameView for HudView<'_> {
     /// `0x0013` description supplies the attribute cache and `EncumbranceVal`; once registered,
     /// both names refer to the same qualities.
     fn load(&self) -> Option<f32> {
-        Some(dereth_client_model::inventory::burden::inq_load(
-            self.player_desc()?,
-        ))
+        Some(dereth_rules::burden::inq_load(self.player_desc()?))
     }
 
     /// The object's public-description decoration fields used by the item-display update.
@@ -600,10 +599,9 @@ impl GameView for HudView<'_> {
         /// Public-description flag marking a readied item.
         const BF_OPENABLE: u32 = 0x0000_0001;
         let w = self.world.weenie(id)?;
-        let items_capacity =
-            dereth_client_model::capacity::capacity(w.pwd.items_capacity.unwrap_or(0));
+        let items_capacity = dereth_rules::capacity::capacity(w.pwd.items_capacity.unwrap_or(0));
         let containers_capacity =
-            dereth_client_model::capacity::capacity(w.pwd.containers_capacity.unwrap_or(0));
+            dereth_rules::capacity::capacity(w.pwd.containers_capacity.unwrap_or(0));
         Some(dereth_client_contract::SlotDecoration {
             // A zero stack size counts as 1 — the tooltip update's own mapping.
             stack_size: u32::from(w.pwd.stack_size.unwrap_or(0)).max(1),
@@ -867,7 +865,7 @@ impl GameView for HudView<'_> {
             let want = skill_for_spell(base.school);
             let level = |id: u32| {
                 q.map_or(0, |q| {
-                    i32::try_from(dereth_client_model::skills::inq_skill_level(q, id)).unwrap_or(0)
+                    i32::try_from(dereth_rules::skills::inq_skill_level(q, id)).unwrap_or(0)
                 })
             };
             if want == 0 {
@@ -877,7 +875,7 @@ impl GameView for HudView<'_> {
             }
         };
         let formula = self.world.spell_formula(base);
-        let n = dereth_client_model::magic::num_spell_components(&formula);
+        let n = dereth_rules::magic::num_spell_components(&formula);
         let components = formula
             .iter()
             .take(n)
@@ -904,14 +902,14 @@ impl GameView for HudView<'_> {
             range: spell_range(base.base_range_constant, base.base_range_mod, skill),
             icon: (base.icon != 0).then_some(DataId(base.icon)),
             level: dereth_client_model::magic::spell_level_by_rough_heuristic(
-                dereth_client_model::magic::scarab_power_level(
+                dereth_rules::magic::scarab_power_level(
                     dereth_client_contract::spellbook::power_component(
                         base.raw_comps[0],
                         base.comp_key,
                     ),
                 ),
             ),
-            icon_power: dereth_client_model::magic::scarab_power_level(
+            icon_power: dereth_rules::magic::scarab_power_level(
                 dereth_client_contract::spellbook::power_component(
                     base.raw_comps[0],
                     base.comp_key,
@@ -951,10 +949,7 @@ impl GameView for HudView<'_> {
     /// the same qualities.
     fn attribute(&self, id: u32) -> Option<i32> {
         let q = self.player_desc()?;
-        i32::try_from(dereth_client_model::attributes::inq_attribute(
-            q, id, false,
-        )?)
-        .ok()
+        i32::try_from(dereth_rules::attributes::inq_attribute(q, id, false)?).ok()
     }
 
     /// The Skills panel's footer inputs for one skill.
@@ -965,19 +960,18 @@ impl GameView for HudView<'_> {
     /// own, and they are made here rather than in the panel for the same reason the skill's name
     /// is: `dereth-ui-screens` must not depend on `dereth-client-model` or on the experience table.
     fn skill_advancement(&self, id: u32) -> Option<dereth_client_contract::SkillAdvancement> {
-        use dereth_client_model::advancement as adv;
         let q = self.player_desc()?;
         let xp = self.hud.xp_table.as_ref()?;
         let skills = self.hud.skill_table.as_ref()?;
         let s = q.skill(id).copied().unwrap_or_default();
-        let sac = dereth_client_model::skills::Sac::from_raw(s.sac);
+        let sac = dereth_rules::skills::Sac::from_raw(s.sac);
         let level = u32::from(s.level_from_pp);
         Some(dereth_client_contract::SkillAdvancement {
             sac: s.sac,
             pp: s.pp,
             level_from_pp: level,
-            cost_to_raise: adv::skill_cost_to_raise(q, skills, xp, id),
-            cost_to_raise_10: adv::skill_cost_to_raise_10(q, xp, id),
+            cost_to_raise: dereth_rules::advancement::skill_cost_to_raise(q, skills, xp, id),
+            cost_to_raise_10: dereth_rules::advancement::skill_cost_to_raise_10(q, xp, id),
             // The experience-to-skill-level conversion returns `0xFFFFFFFF` for a skill below
             // TRAINED, which would
             // make the meter's span nonsense; the untrained footer has no meter, so 0/0 is the
@@ -1001,7 +995,6 @@ impl GameView for HudView<'_> {
         id: u32,
         secondary: bool,
     ) -> Option<dereth_client_contract::AttributeAdvancement> {
-        use dereth_client_model::advancement as adv;
         let q = self.player_desc()?;
         let xp = self.hud.xp_table.as_ref()?;
         let i32_of = |v: Option<u32>| v.and_then(|v| i32::try_from(v).ok()).unwrap_or(0);
@@ -1013,7 +1006,7 @@ impl GameView for HudView<'_> {
             // reads only `_level_from_cp` and `_cp_spent`, is unaffected.
             let inq = |k: u32, raw: bool| -> i32 {
                 self.hud.vitals_table.as_ref().map_or(0, |t| {
-                    i32_of(dereth_client_model::attributes::inq_attribute_2nd(
+                    i32_of(dereth_rules::attributes::inq_attribute_2nd(
                         q,
                         t,
                         k,
@@ -1033,7 +1026,7 @@ impl GameView for HudView<'_> {
             // The multiplier is read straight off the registry rather than through
             // `GameView::vitae`, because **`HudView` does not implement that method**, so the
             // vitae lamp has no source; that is a separate gap.
-            let vitae = dereth_client_contract::panels::inforegion::apply_vitae(
+            let vitae = dereth_presentation::inforegion::apply_vitae(
                 raw,
                 Some(q.enchantments.vitae_value()),
             ) - raw;
@@ -1047,8 +1040,8 @@ impl GameView for HudView<'_> {
             )
         } else {
             let a = q.attribute(id)?;
-            let raw = i32_of(dereth_client_model::attributes::inq_attribute(q, id, true));
-            let eff = i32_of(dereth_client_model::attributes::inq_attribute(q, id, false));
+            let raw = i32_of(dereth_rules::attributes::inq_attribute(q, id, true));
+            let eff = i32_of(dereth_rules::attributes::inq_attribute(q, id, false));
             // The base vitae-modifier query returns 0 and primary-attribute rows do not
             // override it: a primary attribute carries no vitae penalty.
             (a.level_from_cp, a.cp_spent, raw, eff, eff, 0)
@@ -1056,8 +1049,13 @@ impl GameView for HudView<'_> {
         Some(dereth_client_contract::AttributeAdvancement {
             level_from_cp,
             cp_spent,
-            cost_to_raise: adv::attribute_cost_to_raise(xp, level_from_cp, cp_spent, secondary),
-            cost_to_raise_10: adv::attribute_cost_to_raise_10(
+            cost_to_raise: dereth_rules::advancement::attribute_cost_to_raise(
+                xp,
+                level_from_cp,
+                cp_spent,
+                secondary,
+            ),
+            cost_to_raise_10: dereth_rules::advancement::attribute_cost_to_raise_10(
                 xp,
                 level_from_cp,
                 cp_spent,
@@ -1227,13 +1225,13 @@ impl GameView for HudView<'_> {
         };
         let total = u64::try_from(int64(TOTAL_EXPERIENCE)).unwrap_or(0);
         let level = q.inq_int(LEVEL);
-        let h = dereth_client_model::advancement::experience_header(xp, total, level, true);
-        let this_level = dereth_client_model::advancement::experience_to_level(
+        let h = dereth_rules::advancement::experience_header(xp, total, level, true);
+        let this_level = dereth_rules::advancement::experience_to_level(
             xp,
             usize::try_from(level.max(0)).unwrap_or(0),
         )
         .unwrap_or(0);
-        let next_level = dereth_client_model::advancement::experience_to_level(
+        let next_level = dereth_rules::advancement::experience_to_level(
             xp,
             usize::try_from(level.max(0)).unwrap_or(0) + 1,
         )
@@ -1402,13 +1400,13 @@ impl GameView for HudView<'_> {
         let mut piece_slots = [None; 64];
         for piece in &g.board.logic.pieces {
             let within_side = match piece.piece_type {
-                dereth_client_model::chess::PieceType::Empty => continue,
-                dereth_client_model::chess::PieceType::Pawn => 0,
-                dereth_client_model::chess::PieceType::Rook => 3,
-                dereth_client_model::chess::PieceType::Bishop => 1,
-                dereth_client_model::chess::PieceType::Knight => 2,
-                dereth_client_model::chess::PieceType::Queen => 4,
-                dereth_client_model::chess::PieceType::King => 5,
+                dereth_rules::chess::PieceType::Empty => continue,
+                dereth_rules::chess::PieceType::Pawn => 0,
+                dereth_rules::chess::PieceType::Rook => 3,
+                dereth_rules::chess::PieceType::Bishop => 1,
+                dereth_rules::chess::PieceType::Knight => 2,
+                dereth_rules::chess::PieceType::Queen => 4,
+                dereth_rules::chess::PieceType::King => 5,
             };
             let side = match piece.player {
                 0 => 0,
@@ -1607,7 +1605,7 @@ impl GameView for HudView<'_> {
         } else {
             xp.level_span
         };
-        Some(dereth_client_model::allegiance::swear_xp_cost_after_breaks(
+        Some(dereth_rules::allegiance::swear_xp_cost_after_breaks(
             span, breaks,
         ))
     }
@@ -1668,12 +1666,10 @@ impl GameView for HudView<'_> {
             list.0
                 .iter()
                 .map(|payment| {
-                    let required =
-                        dereth_client_contract::panels::numfmt::number(i64::from(payment.num));
+                    let required = dereth_presentation::numfmt::number(i64::from(payment.num));
                     let name = payment.get_name(payment.num);
                     if show_paid {
-                        let paid =
-                            dereth_client_contract::panels::numfmt::number(i64::from(payment.paid));
+                        let paid = dereth_presentation::numfmt::number(i64::from(payment.paid));
                         format!("{paid}/{required} {name}")
                     } else {
                         format!("{required} {name}")
@@ -1867,7 +1863,7 @@ impl GameView for HudView<'_> {
         let sum = xp.map_or(0, |t| f.experience_proportion_sum(t));
         // The share is held as an `f32` (the panel stores it single precision before the multiply),
         // then widened: that is what makes six members read 44% rather than 45%.
-        let even = f64::from(dereth_client_model::fellowship::even_split_xp_percentage(
+        let even = f64::from(dereth_rules::fellowship::even_split_xp_percentage(
             f.members.len(),
         ));
         let members = f
@@ -1883,7 +1879,7 @@ impl GameView for HudView<'_> {
                 } else {
                     #[allow(clippy::cast_precision_loss)]
                     let p = xp.map_or(0, |t| {
-                        dereth_client_model::fellowship::get_experience_proportion(t, m.level)
+                        dereth_rules::fellowship::get_experience_proportion(t, m.level)
                     }) as f64;
                     #[allow(clippy::cast_precision_loss)]
                     let d = sum as f64;
@@ -1960,7 +1956,7 @@ impl GameView for HudView<'_> {
         // `mod_high_font`/`mod_low_font` would draw plain. The keys are
         // the two mod blocks' own, so the list lives with them.
         let mut enchantment_mods = std::collections::BTreeMap::new();
-        for (key, is_float) in dereth_client_contract::panels::examination::HIGHLIGHTED_PROPERTIES {
+        for (key, is_float) in dereth_presentation::appraisal::HIGHLIGHTED_PROPERTIES {
             let hl = if *is_float {
                 dereth_client_model::appraisal::float_highlight(*key)
             } else {
@@ -2139,7 +2135,6 @@ impl GameView for HudView<'_> {
         // requirement, the second the skill/attribute id, the third the difficulty — and cases 11
         // and 12 read the third, not the second, which is why all three are taken.
         let requirement_subject = |req: i32, skill: i32, difficulty: i32| -> Option<String> {
-            use dereth_client_contract::panels::examination as ex;
             // The "base " prefix is chosen before the switch.
             let prefix = if matches!(req, 2 | 4 | 6) {
                 "base "
@@ -2157,12 +2152,12 @@ impl GameView for HudView<'_> {
                     .unwrap_or_default(),
                 3 | 4 => u32::try_from(skill)
                     .ok()
-                    .and_then(ex::attribute_name)
+                    .and_then(dereth_presentation::appraisal::attribute_name)
                     .unwrap_or_default()
                     .to_string(),
                 5 | 6 => u32::try_from(skill)
                     .ok()
-                    .and_then(ex::vital_name)
+                    .and_then(dereth_presentation::appraisal::vital_name)
                     .unwrap_or_default()
                     .to_string(),
                 // Level is a plain `set`, so the `"base "` prefix is discarded.
@@ -2207,7 +2202,7 @@ impl GameView for HudView<'_> {
         }
         // The appraisal ratings section, in `GEAR_RATING_ROWS`' drawn order with
         // `GearMaxHealth` in the slot after the thirteen terms.
-        let gear_rows = dereth_client_contract::panels::examination::GEAR_RATING_ROWS;
+        let gear_rows = dereth_presentation::appraisal::GEAR_RATING_ROWS;
         let mut gear_ratings = [None; 14];
         for (slot, (key, _)) in gear_rows.iter().enumerate() {
             gear_ratings[slot] = am::inq::int(p, *key);
@@ -2241,13 +2236,13 @@ impl GameView for HudView<'_> {
         let activation_attribute = paired(0x102, 0x101, &|id| {
             u32::try_from(id)
                 .ok()
-                .and_then(ex::attribute_name)
+                .and_then(dereth_presentation::appraisal::attribute_name)
                 .map(ToString::to_string)
         });
         let activation_attribute_2nd = paired(0x104, 0x103, &|id| {
             u32::try_from(id)
                 .ok()
-                .and_then(ex::vital_name)
+                .and_then(dereth_presentation::appraisal::vital_name)
                 .map(ToString::to_string)
         });
         // **The three character-pane values that need a dat table.**
@@ -2312,7 +2307,7 @@ impl GameView for HudView<'_> {
                 )
             })
             .map(ToString::to_string);
-        use dereth_client_model::weenie::bitfield as bf;
+        use dereth_rules::weenie::bitfield as bf;
         let bits = w.map_or(0, |w| w.pwd.bitfield);
         let hook_flags = p.hook_profile.map_or(0, |h| h.bitfield);
         use dereth_client_model::appraisal::hook_appraisal as hk;
@@ -2388,7 +2383,7 @@ impl GameView for HudView<'_> {
                     let name = if count == 1 {
                         name
                     } else {
-                        ex::pluralized_gem_name(gem as u32, &name)
+                        dereth_presentation::appraisal::pluralized_gem_name(gem as u32, &name)
                     };
                     (count, name)
                 },
@@ -2411,10 +2406,10 @@ impl GameView for HudView<'_> {
             weenie_is_lockpick: bits & bf::LOCKPICK != 0,
             items_capacity: w
                 .and_then(|w| w.pwd.items_capacity)
-                .map_or(0, dereth_client_model::capacity::capacity),
+                .map_or(0, dereth_rules::capacity::capacity),
             containers_capacity: w
                 .and_then(|w| w.pwd.containers_capacity)
-                .map_or(0, dereth_client_model::capacity::capacity),
+                .map_or(0, dereth_rules::capacity::capacity),
             hooked_item: p.hook_profile.is_some(),
             hooked_item_healer: hook_flags & hk::HEALER != 0,
             hooked_item_lockpick: hook_flags & hk::LOCKPICK != 0,
@@ -2695,7 +2690,7 @@ impl GameView for HudView<'_> {
     /// `0 < 2`, so the recklessness meter stays hidden.
     fn recklessness_advancement_class(&self) -> u32 {
         self.player_desc().map_or(0, |q| {
-            dereth_client_model::skills::inq_skill_advancement_class(
+            dereth_rules::skills::inq_skill_advancement_class(
                 q,
                 dereth_client_contract::combat_notice::RECKLESSNESS_SKILL,
             ) as u32

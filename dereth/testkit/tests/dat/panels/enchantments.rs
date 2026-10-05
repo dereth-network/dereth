@@ -106,12 +106,7 @@ pub(super) fn spell_on(
     key: u32,
     delta: f32,
 ) -> dereth_protocol::types::qualities::Enchantment {
-    let mut e = enchantment(
-        spell,
-        dereth_client_model::enchant::ench_type::SKILL,
-        key,
-        delta,
-    );
+    let mut e = enchantment(spell, dereth_rules::enchant::ench_type::SKILL, key, delta);
     e.category_word = u32::from(category);
     e.power_level = 8;
     e.duration = 1800.0;
@@ -171,7 +166,7 @@ pub(super) fn a_spell_cast_while_playing_moves_the_skill_row_it_is_about() {
     let strength = attribute_shown(&c, STRENGTH);
     let mut on_strength = enchantment(
         4325,
-        dereth_client_model::enchant::ench_type::ATTRIBUTE,
+        dereth_rules::enchant::ench_type::ATTRIBUTE,
         STRENGTH,
         45.0,
     );

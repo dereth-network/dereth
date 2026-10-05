@@ -5,9 +5,9 @@
 
 use dereth_client_model::range::{ObjectRangeGeometry, RangeHandler, RADAR_RADIUS_OUTDOORS};
 use dereth_client_model::selection::{SelectionPhysics, SelectionType};
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_model::{Notice, RecordingRequests, RecordingSink, World};
 use dereth_primitives::{CellId, ObjectId, ServerTime};
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 use std::collections::BTreeMap;
 

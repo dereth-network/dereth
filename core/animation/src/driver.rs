@@ -655,12 +655,12 @@ impl MotionDriver {
                 priority: 0.9,
                 probability: 1.0,
             }),
-            HookKind::SoundTweaked {
-                gid,
+            HookKind::SoundTweaked(dereth_primitives::records::HookSoundTweaked {
+                sound_id: gid,
                 probability,
                 priority,
                 volume,
-            } => {
+            }) => {
                 self.events.push(AnimEvent::PlaySound {
                     gid,
                     volume,
@@ -699,78 +699,85 @@ impl MotionDriver {
                 self.events.push(AnimEvent::SetLights(lights_on != 0));
             }
             HookKind::SetOmega { axis } => self.events.push(AnimEvent::SetOmega(axis)),
-            HookKind::Scale { end, time } => self.set_scale(end, time),
+            HookKind::Scale(dereth_primitives::records::HookScale { end, time }) => {
+                self.set_scale(end, time)
+            }
             // The six interpolating visual hooks. Each timed setter has two arms:
             // `time < 0.0002` applies the end value now; a longer duration creates an
             // interpolating hook that [`Self::update_fp_hooks`] steps.
             // Both arms matter: the hidden play script's `Transparent` is `time == 0.0` and the
             // unhide play script's is a 0.75 s ramp, so with only the immediate case a character
             // goes invisible at login and never comes back.
-            HookKind::Transparent { start, end, time } => {
+            HookKind::Transparent(dereth_primitives::records::HookRamp { start, end, time }) => {
                 self.ramp(FpHookKind::Translucency, 0, start, end, time);
             }
-            HookKind::TransparentPart {
+            HookKind::TransparentPart(dereth_primitives::records::HookPartRamp {
                 part,
                 start,
                 end,
                 time,
-            } => {
+            }) => {
                 self.ramp(FpHookKind::PartTranslucency, part, start, end, time);
             }
-            HookKind::Luminous { start, end, time } => {
+            HookKind::Luminous(dereth_primitives::records::HookRamp { start, end, time }) => {
                 self.ramp(FpHookKind::Luminosity, 0, start, end, time);
             }
-            HookKind::LuminousPart {
+            HookKind::LuminousPart(dereth_primitives::records::HookPartRamp {
                 part,
                 start,
                 end,
                 time,
-            } => {
+            }) => {
                 self.ramp(FpHookKind::PartLuminosity, part, start, end, time);
             }
-            HookKind::Diffuse { start, end, time } => {
+            HookKind::Diffuse(dereth_primitives::records::HookRamp { start, end, time }) => {
                 self.ramp(FpHookKind::Diffusion, 0, start, end, time);
             }
-            HookKind::DiffusePart {
+            HookKind::DiffusePart(dereth_primitives::records::HookPartRamp {
                 part,
                 start,
                 end,
                 time,
-            } => {
+            }) => {
                 self.ramp(FpHookKind::PartDiffusion, part, start, end, time);
             }
-            HookKind::TextureVelocity { u_speed, v_speed } => {
+            HookKind::TextureVelocity(dereth_primitives::records::HookTextureVelocity {
+                u_speed,
+                v_speed,
+            }) => {
                 self.events.push(AnimEvent::SetTextureVelocity {
                     part: None,
                     u: u_speed,
                     v: v_speed,
                 });
             }
-            HookKind::TextureVelocityPart {
-                part_index,
-                u_speed,
-                v_speed,
-            } => {
+            HookKind::TextureVelocityPart(
+                dereth_primitives::records::HookTextureVelocityPart {
+                    part_index,
+                    u_speed,
+                    v_speed,
+                },
+            ) => {
                 self.events.push(AnimEvent::SetTextureVelocity {
                     part: Some(part_index),
                     u: u_speed,
                     v: v_speed,
                 });
             }
-            HookKind::CreateParticle {
-                info,
+            HookKind::CreateParticle(dereth_primitives::records::HookCreateParticle {
+                emitter_info_id: info,
                 part_index,
                 offset,
                 emitter_id,
-            } => {
+            }) => {
                 self.create_emitter(info, part_index, offset, emitter_id, false);
             }
-            HookKind::CreateBlockingParticle {
-                info,
+            HookKind::CreateBlockingParticle(dereth_primitives::records::HookCreateParticle {
+                emitter_info_id: info,
                 part_index,
                 offset,
                 emitter_id,
-            } => {
+            }) => {
                 self.create_emitter(info, part_index, offset, emitter_id, true);
             }
             HookKind::DestroyParticle { emitter_id } => {
@@ -792,7 +799,7 @@ impl MotionDriver {
                     part: Some(part_index),
                 });
             }
-            HookKind::CallPes { pes, pause } => {
+            HookKind::CallPes(dereth_primitives::records::HookCallPes { pes, pause }) => {
                 // A `pause` at or above `0.0002` rolls uniformly in `[0, pause]` once and schedules
                 // the script for that many seconds later, preventing identical objects from
                 // flashing in lockstep. Below that threshold the script plays immediately if a

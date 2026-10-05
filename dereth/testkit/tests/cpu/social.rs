@@ -11,7 +11,6 @@ use std::collections::BTreeMap;
 use dereth_client_contract::UiRequest;
 use dereth_client_model::chat::TalkFocus;
 use dereth_client_model::selection::{SelectionPhysics, SelectionType};
-use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_primitives::{CellId, ObjectId};
 use dereth_protocol::social::{
     Fellow, Fellowship, FellowshipDisband, FellowshipDismiss, FellowshipFullUpdate,
@@ -19,6 +18,7 @@ use dereth_protocol::social::{
 };
 use dereth_testkit::{HeadlessClient, Inbound, Player};
 use dereth_ui_screens::view::GameView as _;
+use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 const FELLOW: ObjectId = ObjectId(0x5000_0002);

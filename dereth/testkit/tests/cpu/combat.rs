@@ -89,7 +89,7 @@ fn description() -> LoginPlayerDescription {
 /// A player in melee mode with an attackable target selected, and an empty set of qualities --
 /// nothing here writes the combat table.
 fn a_player_facing_a_monster(c: &mut HeadlessClient) {
-    use dereth_client_model::inventory::slots::loc;
+    use dereth_rules::slots::loc;
     let w: &mut World = c.world_mut();
     w.player = Some(PLAYER);
     let mut me = dereth_client_model::Weenie::new(PLAYER);
@@ -102,8 +102,8 @@ fn a_player_facing_a_monster(c: &mut HeadlessClient) {
     );
     let mut monster = dereth_client_model::Weenie::new(MONSTER);
     monster.pwd.name = "Mosswart".to_owned();
-    monster.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-    monster.pwd.bitfield |= dereth_client_model::weenie::bitfield::ATTACKABLE;
+    monster.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+    monster.pwd.bitfield |= dereth_rules::weenie::bitfield::ATTACKABLE;
     w.tables.weenies.insert(MONSTER, monster);
     w.set_selected_object(Some(MONSTER), false, &mut dereth_client_model::NullSink);
     w.inventory_mask = loc::MELEE_WEAPON | loc::HELD;
@@ -298,7 +298,7 @@ const NONCOMBAT_STANCE: u32 = 0x8000_003D;
 /// inventory under which every mode used below is compatible -- so no answer here can be a
 /// compatibility refusal in disguise.
 fn a_player_in(mode: CombatMode, style: u32) -> World {
-    use dereth_client_model::inventory::slots::loc;
+    use dereth_rules::slots::loc;
     let mut w = World::new();
     w.player = Some(PLAYER);
     let mut me = dereth_client_model::Weenie::new(PLAYER);

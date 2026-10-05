@@ -14,8 +14,6 @@ pub mod remove;
 pub mod stamper;
 pub mod update;
 
-/// The quality-inquiry seam these qualities implement, with its enchanted int and float reads.
-pub use dereth_rules::quality::QualityRead;
 pub use registrar::{QualityNotifications, QualityScope};
 pub use remove::{Outcome as RemoveOutcome, QualityRemove};
 pub use stamper::PropertySequenceGate;
@@ -184,7 +182,7 @@ pub struct Qualities {
     pub skills: Option<BTreeMap<u32, Skill>>,
     /// `_spell_book` — spell id -> casting likelihood.
     pub spell_book: Option<BTreeMap<u32, SpellBookPage>>,
-    pub enchantments: crate::enchant::EnchantmentRegistry,
+    pub enchantments: dereth_rules::enchant::EnchantmentRegistry,
     /// `_event_filter` — which world events this object reports. Carried, never read.
     pub event_filter: Option<Vec<u32>>,
     /// `_create_list`. The three anonymous dwords move opaquely, as the client does.
@@ -229,8 +227,8 @@ impl Qualities {
         self.enchantments = q
             .enchantments
             .as_ref()
-            .map_or_else(crate::enchant::EnchantmentRegistry::default, |r| {
-                crate::enchant::EnchantmentRegistry::from_wire(r, now)
+            .map_or_else(dereth_rules::enchant::EnchantmentRegistry::default, |r| {
+                dereth_rules::enchant::EnchantmentRegistry::from_wire(r, now)
             });
         self.event_filter = q.event_filter.clone();
         self.creation_profiles = q.creation_profiles.clone();
@@ -592,7 +590,7 @@ impl Qualities {
         now: dereth_primitives::LocalTime,
     ) -> bool {
         self.enchantments
-            .update_enchantment(crate::enchant::Enchantment::from_wire(e, now))
+            .update_enchantment(dereth_rules::enchant::Enchantment::from_wire(e, now))
     }
 
     /// Behavior: the wire path for
@@ -710,8 +708,8 @@ mod tests {
 
     /// MaxHealth = Endurance / 2; MaxStamina = Endurance; MaxMana = Self.
     fn vital_table() -> dereth_assets::tables::Attribute2ndTable {
-        use crate::attributes::attribute;
         use dereth_assets::tables::SkillFormula;
+        use dereth_rules::attributes::attribute;
         let f = |z, a1| SkillFormula {
             w: 0,
             x: 1,
@@ -829,7 +827,7 @@ mod tests {
         assert!(q.set_received(health, StatValue::Attribute2ndLevel(136), Some(&t), None));
         assert_eq!(current(&q, 2), 130);
         q.set(
-            StatKey::new(StatType::Int, crate::skills::aug::ENLIGHTENMENT),
+            StatKey::new(StatType::Int, dereth_rules::skills::aug::ENLIGHTENMENT),
             StatValue::Int(3),
         );
         assert!(q.set_received(health, StatValue::Attribute2ndLevel(136), Some(&t), None));

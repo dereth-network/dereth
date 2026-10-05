@@ -112,7 +112,7 @@ impl SimWorld {
     pub fn sync_objects(
         &mut self,
         stream: &mut ObjectStream,
-    ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+    ) -> Result<(), dereth_world_data::landblock::WorldError> {
         self.present
             .sync_objects(&self.store, stream, self.world.as_mut())
     }

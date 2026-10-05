@@ -11,8 +11,8 @@
 use dereth_dat::RetailDatStore;
 use dereth_scene::world_scene::SceneReads;
 use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// The retail store, or **fail**: absent dats are a missing oracle, not a reason to pass, so the

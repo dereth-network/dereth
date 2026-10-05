@@ -9,12 +9,12 @@ pub(super) const SALVAGE_TOOL: ObjectId = ObjectId(0x5000_0002);
 pub(super) const SALVAGE_RING: ObjectId = ObjectId(0x5000_0003);
 
 pub(super) fn seed_salvage(w: &mut dereth_client_model::World) {
-    use dereth_client_model::weenie::item_type;
+    use dereth_rules::weenie::item_type;
 
     w.set_player(SALVAGE_PLAYER);
     let mut me = dereth_client_model::Weenie::new(SALVAGE_PLAYER);
     me.valid = true;
-    me.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+    me.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
     me.pwd.items_capacity = Some(24);
     w.tables.weenies.insert(SALVAGE_PLAYER, me);
 

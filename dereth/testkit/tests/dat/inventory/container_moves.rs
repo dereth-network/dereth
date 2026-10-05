@@ -683,7 +683,7 @@ pub(super) fn a_full_destination_draws_no_row_and_the_move_spills_to_a_side_pack
             .world
             .weenie_mut(pack)
             .expect("the side pack");
-        w.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        w.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
         w.pwd.items_capacity = Some(24);
     }
     let me = recorded_player(&c);
@@ -1487,7 +1487,7 @@ fn believes_it_opens(c: &HeadlessClient, id: ObjectId) -> bool {
         .unwrap_or_else(|| panic!("{id:?} is created by the recording"))
         .pwd
         .bitfield
-        & dereth_client_model::weenie::bitfield::OPENABLE
+        & dereth_rules::weenie::bitfield::OPENABLE
         != 0
 }
 

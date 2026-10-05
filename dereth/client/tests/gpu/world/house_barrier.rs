@@ -218,8 +218,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu, player: ObjectId) -> Self {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: BLOCK,
             land_radius: 1,
@@ -470,7 +469,7 @@ fn bench_with_the_house(
 ) -> Option<Bench> {
     let gpu = crate::common::test_gpu(W, H);
     let mut b = Bench::new(store, gpu, player);
-    b.create_player(player, dereth_client_model::weenie::bitfield::PLAYER);
+    b.create_player(player, dereth_rules::weenie::bitfield::PLAYER);
     b.create_house_from_the_capture(blobs, HOUSE);
     // Two frames so `ObjectPhysics::sync` has created the house's body and pushed both weenies.
     b.step(CharacterInput::default());

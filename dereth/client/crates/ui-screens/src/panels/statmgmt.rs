@@ -129,7 +129,7 @@ pub fn label(ui: &UiSystem, token: &str) -> String {
 /// choice made here.
 #[must_use]
 pub fn num(v: impl Into<i128>) -> String {
-    dereth_client_contract::panels::numfmt::language_number(v)
+    dereth_presentation::numfmt::language_number(v)
 }
 
 /// What one footer render put on screen. The panel keeps the last one so a test can read the
@@ -602,7 +602,7 @@ pub const LUMINANCE_MIN_LEVEL: i32 = 200;
 /// number", which is what a leading `-` gives.
 #[must_use]
 pub fn xp_to_string(v: i64) -> String {
-    dereth_client_contract::panels::numfmt::exact_number(v)
+    dereth_presentation::numfmt::exact_number(v)
 }
 
 pub use dereth_presentation::stats::HeaderInputs;

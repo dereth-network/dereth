@@ -65,9 +65,12 @@
 //! **No datagram leaves this process.** Every sender here puts a typed [`crate::Request`] in a
 //! [`crate::RequestSink`]; framing and the wire belong to the session.
 
-use crate::chess::{move_result as mr, ChessLogic, Coord, GameState, PieceType};
 use crate::{Request, RequestSink};
 use dereth_primitives::ObjectId;
+use {
+    dereth_rules::chess::move_result as mr, dereth_rules::chess::ChessLogic,
+    dereth_rules::chess::Coord, dereth_rules::chess::GameState, dereth_rules::chess::PieceType,
+};
 
 /// The join event's second argument, pushed as `-1` (`0xFFFFFFFF`).
 ///
@@ -511,8 +514,8 @@ impl MiniGame {
         self.stalemate_button_state = BUTTON_STATE_NORMAL;
         self.board.logic.cur_player = 0;
         self.board.logic.last_move_was_check = false;
-        self.board.logic.en_passant_attack_site = crate::chess::HEAVEN;
-        self.board.logic.en_passant_victim_pos = crate::chess::HEAVEN;
+        self.board.logic.en_passant_attack_site = dereth_rules::chess::HEAVEN;
+        self.board.logic.en_passant_victim_pos = dereth_rules::chess::HEAVEN;
         self.board.selected = None;
     }
 
@@ -663,7 +666,7 @@ impl MiniGame {
             // An absent coordinate pair leaves the destination coordinates at their constructor
             // values for a `Pass`, `Resign` or `Stalemate` move type, and the opponent-move handler reads
             // them regardless. The signed coordinate-validity check in `Move` is what refuses it.
-            _ => (crate::chess::HEAVEN, crate::chess::HEAVEN),
+            _ => (dereth_rules::chess::HEAVEN, dereth_rules::chess::HEAVEN),
         };
         self.board.prepare_new_move();
         let mut r = self.board.logic.do_move(from, to);

@@ -29,9 +29,12 @@ use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWee
 use dereth_render::device::Gpu;
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
 use dereth_render::{PipelineKey, SurfaceContext, VertexFormat};
-use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table, Direction};
-use dereth_world_render::scenery::{generate_scenery, SceneryEnv};
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {
+    dereth_terrain::land::mesh::generate_landblock_with_table,
+    dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::Direction,
+};
+use {dereth_terrain::scenery::generate_scenery, dereth_terrain::scenery::SceneryEnv};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -179,7 +182,7 @@ fn census(
     s: &RetailDatStore,
 ) -> (
     BTreeMap<u32, usize>,
-    Vec<dereth_world_render::PlacedScenery>,
+    Vec<dereth_terrain::scenery::PlacedScenery>,
 ) {
     let r = region(s);
     let t = height_table(&r);
@@ -216,12 +219,10 @@ fn census(
                     {
                         let li: LandblockInfo = li;
                         for bl in &li.buildings {
-                            building_cells.insert(
-                                dereth_world_render::scenery::outside_cell_index(
-                                    bl.frame.origin.x,
-                                    bl.frame.origin.y,
-                                ),
-                            );
+                            building_cells.insert(dereth_terrain::scenery::outside_cell_index(
+                                bl.frame.origin.x,
+                                bl.frame.origin.y,
+                            ));
                         }
                     }
                 }

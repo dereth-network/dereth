@@ -19,8 +19,8 @@ use dereth_physics::LandSource;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 use {dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader};
 
@@ -209,7 +209,7 @@ fn env_cells_become_visible_because_the_landblock_path_prefetched_them() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -263,7 +263,7 @@ fn env_cells_become_visible_because_the_landblock_path_prefetched_them() {
 fn a_body_inside_a_holtburg_building_is_stopped_by_its_walls() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     // Twenty rooms, not one: Holtburg's interiors are a mixture of sealed rooms, halls that run
     // the length of a building, and covered walkways with an opening on every side. A test that
     // picked one would be measuring which kind it happened to get.
@@ -896,7 +896,7 @@ clear_ahead_at_all={ahead_full_any}/{trials}",
 fn standing_inside_a_building_draws_its_interior() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let (room, inside) = a_room(&store).expect("Holtburg has an interior cell");
 
     let mut scene =
@@ -956,7 +956,7 @@ fn standing_inside_a_building_draws_its_interior() {
 fn a_body_standing_where_a_building_is_transits_into_its_interior_cell() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let (room, inside) = a_room(&store).expect("Holtburg has an interior cell");
 
     let mut scene =
@@ -1026,7 +1026,7 @@ enum Fate {
 fn block_cells(store: &RetailDatStore) -> Vec<CellObstacles> {
     let mut loader = EnvCellLoader::new();
     let mut out = Vec::new();
-    let mut stats = dereth_client_runtime::object_physics::SetupPartStats::default();
+    let mut stats = dereth_world_data::setup::SetupPartStats::default();
     for d in loader.load_block(store, DEFAULT_LANDBLOCK) {
         let mut spheres: Vec<dereth_physics::geom::Sphere> = Vec::new();
         let mut parts: Vec<dereth_physics::source::PhysicsPart> = Vec::new();
@@ -1035,16 +1035,14 @@ fn block_cells(store: &RetailDatStore) -> Vec<CellObstacles> {
             // graphics-object id takes the simple-setup route; other ids decode a setup and load
             // its parts. Sphere-less geometry must not disappear from the oracle.
             let g = if s.id.0 >> 24 == 0x01 {
-                dereth_client_runtime::object_physics::simple_setup_geometry(
-                    store, s.id, &mut stats,
-                )
+                dereth_world_data::setup::simple_setup_geometry(store, s.id, &mut stats)
             } else {
                 store
                     .read_typed(dereth_dat::DbType::Setup, s.id)
                     .ok()
                     .and_then(|b| dereth_assets::Setup::decode_payload(s.id, &b).ok())
                     .map(|setup| {
-                        dereth_client_runtime::object_physics::setup_geometry_with_parts(
+                        dereth_world_data::setup::setup_geometry_with_parts(
                             store, &setup, &mut stats,
                         )
                     })
@@ -1374,22 +1372,20 @@ fn the_free_space_oracle_can_see_a_static_that_has_no_spheres_at_all() {
         dereth_primitives::DataId,
         dereth_physics::source::PhysicsPart,
     )> = Vec::new();
-    let mut stats = dereth_client_runtime::object_physics::SetupPartStats::default();
+    let mut stats = dereth_world_data::setup::SetupPartStats::default();
     let mut loader = EnvCellLoader::new();
     for d in loader.load_block(&store, DEFAULT_LANDBLOCK) {
         for st in dereth_world_data::env_cells::cell_statics(&d) {
             placements += 1;
             let g = if st.id.0 >> 24 == 0x01 {
-                dereth_client_runtime::object_physics::simple_setup_geometry(
-                    &store, st.id, &mut stats,
-                )
+                dereth_world_data::setup::simple_setup_geometry(&store, st.id, &mut stats)
             } else {
                 store
                     .read_typed(dereth_dat::DbType::Setup, st.id)
                     .ok()
                     .and_then(|b| dereth_assets::Setup::decode_payload(st.id, &b).ok())
                     .map(|setup| {
-                        dereth_client_runtime::object_physics::setup_geometry_with_parts(
+                        dereth_world_data::setup::setup_geometry_with_parts(
                             &store, &setup, &mut stats,
                         )
                     })

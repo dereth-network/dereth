@@ -14,10 +14,13 @@ use dereth_primitives::{
     DrawBatch, Frame, MeshData, MeshHandle, RenderBackend, TextureHandle, Vec3,
 };
 
-use crate::consts::{LAND_UVS, TEXTURE_U_SIZE, TEXTURE_V_SIZE, Z_FIGHT_TERRAIN_ADJUST};
-use crate::land::mesh::{LandPolygon, LandblockMesh};
 use crate::narrow::u32_of;
 use crate::Plane;
+use {
+    dereth_terrain::consts::LAND_UVS, dereth_terrain::consts::TEXTURE_U_SIZE,
+    dereth_terrain::consts::TEXTURE_V_SIZE, dereth_terrain::consts::Z_FIGHT_TERRAIN_ADJUST,
+};
+use {dereth_terrain::land::mesh::LandPolygon, dereth_terrain::land::mesh::LandblockMesh};
 
 /// `Sidedness` — the three-way plane-side answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,13 +142,13 @@ pub fn visible_triangles(
         &a.plane,
         viewpoint,
         Z_FIGHT_TERRAIN_ADJUST,
-        crate::consts::EPSILON,
+        dereth_terrain::consts::EPSILON,
     );
     let sb = which_side2(
         &b.plane,
         viewpoint,
         Z_FIGHT_TERRAIN_ADJUST,
-        crate::consts::EPSILON,
+        dereth_terrain::consts::EPSILON,
     );
     match (sa == Sidedness::Positive, sb == Sidedness::Positive) {
         (true, true) => vec![a, b],
@@ -320,7 +323,7 @@ mod tests {
     fn a_cell_submits_one_batch_of_the_visible_triangles() {
         let mut m = crate::land::tests_support::flat_mesh(0.0);
         m.colours = vec![[255, 255, 255]; m.vertices.len()];
-        let mut r = crate::testing::Recorder::new();
+        let mut r = dereth_terrain::testing::Recorder::new();
         let out = draw_land_cell(
             &m,
             0,
@@ -339,7 +342,7 @@ mod tests {
             "stride 0x18 per vertex"
         );
         // A cell facing away emits nothing at all.
-        let mut r2 = crate::testing::Recorder::new();
+        let mut r2 = dereth_terrain::testing::Recorder::new();
         assert!(draw_land_cell(
             &m,
             0,

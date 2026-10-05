@@ -18,7 +18,7 @@ fn the_terrain_split_rule_agrees_between_rendering_and_physics() {
     let mut sw_to_ne = 0u64;
     for x in 0..2040i32 {
         for y in 0..2040i32 {
-            let render = dereth_world_render::land::mesh::sw_to_ne_cut(x, y);
+            let render = dereth_terrain::land::mesh::sw_to_ne_cut(x, y);
             let physics = dereth_physics::land::split_hash(x as u32, y as u32);
             assert_eq!(
                 render, physics,

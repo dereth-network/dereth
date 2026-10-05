@@ -486,11 +486,11 @@ fn every_shipped_tweaked_hook_has_a_probability_first_and_a_priority_second() {
     let mut max_first = f32::NEG_INFINITY;
     let mut max_second = f32::NEG_INFINITY;
     let mut tally = |h: &HookData| {
-        if let HookData::SoundTweaked {
+        if let HookData::SoundTweaked(dereth_primitives::records::HookSoundTweaked {
             probability,
             priority,
             ..
-        } = h
+        }) = h
         {
             assert!(
                 (0.0..=1.0).contains(probability),

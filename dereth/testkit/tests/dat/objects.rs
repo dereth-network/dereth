@@ -542,8 +542,7 @@ pub fn a_new_animation_table_alone_reaches_the_body() {
     use dereth_dat::DbType;
     use dereth_primitives::DataId;
     use {
-        dereth_client_runtime::landblock::load_region,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     /// The middle of the body's own block, where every movement scenario stands one up.
@@ -803,7 +802,7 @@ pub fn a_held_object_has_no_body_of_its_own() {
 
     // 2. And it has no body at all: the synchronisation skips a held object, and destroys the body
     //    of one that becomes held. Measured from the arena rather than asserted from the source.
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let land =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land source opens"));
     let block = LandblockId(0x7F03);
@@ -1154,7 +1153,7 @@ pub fn an_unloaded_body_is_rescued_by_a_position() {
     const GROUNDED: u32 = position_flags::IS_GROUNDED;
 
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let land =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land source opens"));
     // Two real interiors, so "into another room that is loaded" is a real room.
@@ -2513,9 +2512,9 @@ pub fn selecting_a_stack_asks_nothing() {
 /// A recording cannot supply a pet or a hostile player, so those objects are built here; the
 /// branch that sorts them is the client's own, reached through the shipped screen.
 pub fn what_is_asked_has_four_outcomes_and_not_two() {
-    use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_primitives::ObjectId;
     use dereth_ui_screens::screens::gameplay::SelectionQuery;
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     let mut b = hud_support::Bench::new();
     let me = b
@@ -2705,8 +2704,8 @@ pub fn the_shards_answer_fills_the_selected_things_health_bar() {
 
 /// An answer about a thing's magic fills its bar only when the shard says it succeeded.
 pub fn a_magic_answer_fills_the_bar_only_when_it_succeeded() {
-    use dereth_client_model::weenie::item_type;
     use dereth_primitives::ObjectId;
+    use dereth_rules::weenie::item_type;
 
     const WAND: ObjectId = ObjectId(0x7100_0001);
 
@@ -2976,7 +2975,7 @@ mod hud_support {
             .tables
             .weenies
             .iter()
-            .filter(|(_, w)| w.pwd.obj_type & dereth_client_model::weenie::item_type::CREATURE != 0)
+            .filter(|(_, w)| w.pwd.obj_type & dereth_rules::weenie::item_type::CREATURE != 0)
             .map(|(id, _)| id)
             .collect();
         v.sort_by_key(|id| id.0);

@@ -793,14 +793,13 @@ fn every_captured_request_asks_for_the_amount_this_client_would_have_asked_for()
                         before.sac >= 2,
                         "{what}: the retail client raised a trained skill"
                     );
-                    let one = dereth_client_model::advancement::skill_cost_to_raise(
+                    let one = dereth_rules::advancement::skill_cost_to_raise(
                         &q,
                         &skill_table,
                         &xp_table,
                         id,
                     );
-                    let ten =
-                        dereth_client_model::advancement::skill_cost_to_raise_10(&q, &xp_table, id);
+                    let ten = dereth_rules::advancement::skill_cost_to_raise_10(&q, &xp_table, id);
                     assert!(
                         amount == one || amount == ten,
                         "{what}: the retail client asked for {amount}; the single-level cost is {one} \
@@ -884,13 +883,13 @@ fn every_captured_request_asks_for_the_amount_this_client_would_have_asked_for()
                             .unwrap_or_else(|| panic!("{what}: no such attribute"));
                         (a.level_from_cp, a.cp_spent)
                     };
-                    let one = dereth_client_model::advancement::attribute_cost_to_raise(
+                    let one = dereth_rules::advancement::attribute_cost_to_raise(
                         &xp_table,
                         level_from_cp,
                         cp_spent,
                         vital,
                     );
-                    let ten = dereth_client_model::advancement::attribute_cost_to_raise_10(
+                    let ten = dereth_rules::advancement::attribute_cost_to_raise_10(
                         &xp_table,
                         level_from_cp,
                         cp_spent,
@@ -1439,8 +1438,8 @@ fn a_raise_leaves_the_panel_and_lands_on_the_wire_as_0x0046() {
         .map(|(id, _)| *id)
         .expect("the capture has a trained skill");
     let want_xp =
-        dereth_client_model::advancement::skill_cost_to_raise(&q, &skill_table, &xp_table, skill);
-    let want_xp_10 = dereth_client_model::advancement::skill_cost_to_raise_10(&q, &xp_table, skill);
+        dereth_rules::advancement::skill_cost_to_raise(&q, &skill_table, &xp_table, skill);
+    let want_xp_10 = dereth_rules::advancement::skill_cost_to_raise_10(&q, &xp_table, skill);
     assert!(
         want_xp > 0,
         "a trained skill below its cap costs something to raise"
@@ -1836,7 +1835,7 @@ fn the_captures_own_skill_updates_land_and_move_the_panel() {
         }
         let inq = |raw: bool| {
             i32::try_from(
-                dereth_client_model::skills::inq_skill(q, &skill_table, *id, raw)
+                dereth_rules::skills::inq_skill(q, &skill_table, *id, raw)
                     .expect("the skill query returns a level"),
             )
             .expect("a level fits")
@@ -2159,12 +2158,7 @@ fn a_raise_answer_moves_the_number_and_re_enables_the_button() {
             "{what}: the footer's cost is the amount the retail client put on the wire"
         );
         assert_eq!(
-            dereth_client_model::advancement::skill_cost_to_raise(
-                &q0,
-                &skill_table,
-                &xp_table,
-                skill
-            ),
+            dereth_rules::advancement::skill_cost_to_raise(&q0, &skill_table, &xp_table, skill),
             cost,
             "{what}: and it is the advancement helper's computed cost"
         );
@@ -2250,14 +2244,14 @@ fn a_raise_answer_moves_the_number_and_re_enables_the_button() {
         // The oracle is the enchanted total (raw=false), the original row's displayed query
         // result; raw=true stays alongside it as the unequal negative control.
         let want_level = i32::try_from(
-            dereth_client_model::skills::inq_skill(&q1, &skill_table, skill, false)
+            dereth_rules::skills::inq_skill(&q1, &skill_table, skill, false)
                 .expect("the skill query returns a level"),
         )
         .expect("a level fits");
         assert_ne!(
             want_level,
             i32::try_from(
-                dereth_client_model::skills::inq_skill(&q1, &skill_table, skill, true)
+                dereth_rules::skills::inq_skill(&q1, &skill_table, skill, true)
                     .expect("the skill query returns a level")
             )
             .expect("a level fits"),
@@ -2282,12 +2276,8 @@ fn a_raise_answer_moves_the_number_and_re_enables_the_button() {
             "{what}: one bought rank is one displayed level: {level_before} -> {row_after}"
         );
 
-        let want_cost_after = dereth_client_model::advancement::skill_cost_to_raise(
-            &q1,
-            &skill_table,
-            &xp_table,
-            skill,
-        );
+        let want_cost_after =
+            dereth_rules::advancement::skill_cost_to_raise(&q1, &skill_table, &xp_table, skill);
         assert_eq!(
             footer_text(&mut app, statmgmt::child::LINE_TWO_VALUE),
             statmgmt::num(available_after),

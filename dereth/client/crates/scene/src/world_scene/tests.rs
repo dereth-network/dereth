@@ -85,7 +85,7 @@ fn the_frame_matrix_agrees_with_the_clients_own_localtoglobal() {
         Vec3::new(0.0, 0.0, 3.0),
         Vec3::new(-4.0, 5.0, -6.0),
     ] {
-        let want = dereth_world_render::math::localtoglobal(&f, p);
+        let want = dereth_terrain::math::localtoglobal(&f, p);
         let got = frame_matrix(&f) * glam::Vec4::new(p.x, p.y, p.z, 1.0);
         assert!(
             (got - glam::Vec4::new(want.x, want.y, want.z, 1.0)).length() < 1e-4,

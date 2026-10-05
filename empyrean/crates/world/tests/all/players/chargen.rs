@@ -284,7 +284,7 @@ fn the_shared_taboo_matcher_refuses_what_aces_regex_refuses() {
         let ace = empyrean_dat::file_types::taboo_table::entry_contains_bad_word(&patterns, name);
         let shared = dereth_rules::taboo::contains_taboo_word(
             &table,
-            &dereth_protocol::cp1252::Cp1252,
+            &dereth_primitives::text::cp1252::Cp1252,
             name,
         );
         assert_eq!(shared, ace, "{name:?}");

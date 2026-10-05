@@ -8,11 +8,15 @@
 use dereth_assets::tables::Attribute2ndTable;
 use dereth_assets::tables::QualityFilter;
 use dereth_assets::Decode;
-use dereth_client_model::attributes::{inq_attribute_2nd, vital};
-use dereth_client_model::enchant::{ench_type, Enchantment};
-use dereth_client_model::qualities::{Qualities, QualityRead, StatKey, StatType, StatValue};
 use dereth_primitives::{DataId, ObjectId};
 use dereth_protocol::types::qualities::{Attribute, SecondaryAttribute, StatMod};
+use {
+    dereth_client_model::qualities::Qualities, dereth_client_model::qualities::StatKey,
+    dereth_client_model::qualities::StatType, dereth_client_model::qualities::StatValue,
+    dereth_rules::quality::QualityRead,
+};
+use {dereth_rules::attributes::inq_attribute_2nd, dereth_rules::attributes::vital};
+use {dereth_rules::enchant::ench_type, dereth_rules::enchant::Enchantment};
 
 /// The filter the int and float enchantment steps consult: the "Enchantable" one.
 const ENCHANTABLE: DataId = DataId(0x0E01_0001);

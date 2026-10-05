@@ -78,7 +78,7 @@ pub struct World {
     /// A **copy** of the player's `ObjDesc`.
     pub player_objdesc: Option<dereth_protocol::types::ObjDesc>,
     /// The 24 named equipment slots.
-    pub inv_slots: crate::inventory::slots::InvSlotModule,
+    pub inv_slots: dereth_rules::slots::InvSlotModule,
     /// The occupied `INVENTORY_LOC` bits.
     pub inventory_mask: u32,
     /// The occupied clothing-priority bits.
@@ -166,7 +166,7 @@ pub struct World {
     /// replaces the whole `World` on session reset.
     pub player_initialized: bool,
     /// The current fellowship, or `None` when not in one.
-    pub fellowship: Option<crate::fellowship::Fellowship>,
+    pub fellowship: Option<dereth_rules::fellowship::Fellowship>,
     /// The secure-trade mirror and the ids needed to reject a second partner and defer an
     /// item-on-player gesture until registration.
     pub trade: crate::trade::TradeSystem,
@@ -264,7 +264,7 @@ impl World {
             last_used: None,
             targeting_object: ObjectId(0),
             player_objdesc: None,
-            inv_slots: crate::inventory::slots::InvSlotModule::new(),
+            inv_slots: dereth_rules::slots::InvSlotModule::new(),
             inventory_mask: 0,
             clothing_priority_mask: 0,
             pending_split: None,
@@ -1646,7 +1646,7 @@ impl World {
         self.inventory_mask = 0;
         self.clothing_priority_mask = 0;
         self.inv_slots
-            .set_into_location(crate::inventory::slots::loc::ALL, ObjectId(0));
+            .set_into_location(dereth_rules::slots::loc::ALL, ObjectId(0));
         let Some(inv) = self.tables.inventories.get(player) else {
             return;
         };
@@ -1659,7 +1659,7 @@ impl World {
             if loc != 0 {
                 self.inventory_mask |= loc;
             }
-            if loc & crate::inventory::slots::loc::WEARABLE != 0 {
+            if loc & dereth_rules::slots::loc::WEARABLE != 0 {
                 self.clothing_priority_mask |= priority;
             }
             self.inv_slots.set_into_location(loc, iid);
@@ -1814,8 +1814,7 @@ impl World {
         // a *wearable* one clears or sets its whole `_valid_locations` and its `_priority` in
         // the clothing-priority mask — which is what `auto_wear_is_legal` tests.
         if Some(old_wielder) == player && old_location != 0 {
-            let (mask, slot_mask) = if valid_locations & crate::inventory::slots::loc::WEARABLE == 0
-            {
+            let (mask, slot_mask) = if valid_locations & dereth_rules::slots::loc::WEARABLE == 0 {
                 (old_location, old_location)
             } else {
                 self.clothing_priority_mask &= !priority;
@@ -1825,7 +1824,7 @@ impl World {
             self.inv_slots.set_into_location(slot_mask, ObjectId(0));
         }
         if Some(wielder) == player && location != 0 {
-            let mask = if valid_locations & crate::inventory::slots::loc::WEARABLE == 0 {
+            let mask = if valid_locations & dereth_rules::slots::loc::WEARABLE == 0 {
                 location
             } else {
                 self.clothing_priority_mask |= priority;

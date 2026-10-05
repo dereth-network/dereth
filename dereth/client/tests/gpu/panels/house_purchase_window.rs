@@ -412,7 +412,7 @@ fn give_carried_item(
         .expect("the player inventory")
         .add_content(id, false, 0);
     let player = world.weenie_mut(PLAYER).expect("the player exists");
-    player.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+    player.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     player.pwd.items_capacity = Some(102);
     player.pwd.containers_capacity = Some(7);
     give_item(app, id, wcid, stack, true);

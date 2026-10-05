@@ -10,18 +10,22 @@ use std::collections::BTreeMap;
 use dereth_assets::{decode_any, DecodedAsset};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{CellId, DataId, Frame, MeshHandle, Vec3};
+use dereth_terrain::testing::Recorder;
 use dereth_world_render::cells::portal_view::{
     construct_view, indoor_steps, CellPortal, IndoorStep, TraversalCell, OUTDOORS,
 };
 use dereth_world_render::degrade_loop::DegradeGovernor;
 use dereth_world_render::frame::{block_steps, outdoor_steps, BlockStep, OutdoorStep};
 use dereth_world_render::land::emit::draw_land_cell;
-use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table, Direction};
-use dereth_world_render::land::order::{
-    block_draw_order, block_orient, cell_draw_order, side_cell_count,
-};
 use dereth_world_render::objects::alpha::{AlphaEntry, AlphaList, AlphaLists};
-use dereth_world_render::testing::Recorder;
+use {
+    dereth_terrain::land::mesh::generate_landblock_with_table,
+    dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::Direction,
+};
+use {
+    dereth_terrain::land::order::block_draw_order, dereth_terrain::land::order::block_orient,
+    dereth_terrain::land::order::cell_draw_order, dereth_terrain::land::order::side_cell_count,
+};
 
 const REGION_ID: DataId = DataId(0x1300_0000);
 
@@ -41,7 +45,7 @@ fn the_recorded_batch_sequence_is_far_to_near_between_and_within_blocks() {
         panic!("0x13000000 is not a region")
     };
     let table = height_table(&region);
-    let _governor = DegradeGovernor::pinned(dereth_world_render::consts::PINNED_DEG_MUL);
+    let _governor = DegradeGovernor::pinned(dereth_terrain::consts::PINNED_DEG_MUL);
 
     // A 5x5 window (mid_radius 2) centred on a real, land-bearing block.
     let mid_radius = 2i32;
@@ -65,9 +69,9 @@ fn the_recorded_batch_sequence_is_far_to_near_between_and_within_blocks() {
             };
             let (lod, dir) = block_orient(xi - mid_radius, yi - mid_radius);
             let mut m = generate_landblock_with_table(&lb, &region, &table, bx, by, lod, dir);
-            dereth_world_render::land::lighting::bake_lighting(
+            dereth_terrain::land::lighting::bake_lighting(
                 &mut m,
-                &dereth_world_render::land::lighting::LandscapeLighting::default(),
+                &dereth_terrain::land::lighting::LandscapeLighting::default(),
             );
             // LINT-OK: index arithmetic, bounded by mid_width.
             meshes.insert((mid_width as i32 * xi + yi) as u32, (m, xi, yi));
@@ -97,12 +101,12 @@ fn the_recorded_batch_sequence_is_far_to_near_between_and_within_blocks() {
         let ring = (xi - mid_radius).abs().max((yi - mid_radius).abs());
         let n = mesh.side_cell_count;
         let (_, dir) = block_orient(xi - mid_radius, yi - mid_radius);
-        let cell_dir = dereth_world_render::land::order::get_dir(xi - mid_radius, yi - mid_radius);
+        let cell_dir = dereth_terrain::land::order::get_dir(xi - mid_radius, yi - mid_radius);
         // `cell_draw_order` takes the viewer's cell within its own block, already divided by
         // `8 / side_cell_count`, so a reduced-detail block indexes a coarser grid.
         let step = 8 / n;
         let viewer_cell = (4 / step, 4 / step);
-        let closest = dereth_world_render::land::order::closest_cell(n, cell_dir, viewer_cell);
+        let closest = dereth_terrain::land::order::closest_cell(n, cell_dir, viewer_cell);
         let array = cell_draw_order(n, cell_dir, viewer_cell);
         assert_eq!(
             side_cell_count(block_orient(xi - mid_radius, yi - mid_radius).0),

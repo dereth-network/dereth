@@ -148,12 +148,15 @@ pub fn turbine_text_conversion_runs_before_the_markup() {
     // And the narrow spelling is reversible for every byte, which is what stops the conversion
     // losing a character it could have kept.
     let all: Vec<u8> = (0_u8..=255).collect();
-    let bijective = dereth_protocol::cp1252::encode(&dereth_protocol::cp1252::decode(&all))
-        .is_some_and(|back| back == all)
-        && (0_u8..=255).all(|b| {
-            dereth_protocol::cp1252::encode(&dereth_protocol::cp1252::decode(&[b]))
+    let bijective =
+        dereth_primitives::text::cp1252::encode(&dereth_primitives::text::cp1252::decode(&all))
+            .is_some_and(|back| back == all)
+            && (0_u8..=255).all(|b| {
+                dereth_primitives::text::cp1252::encode(&dereth_primitives::text::cp1252::decode(
+                    &[b],
+                ))
                 .is_some_and(|back| back == [b])
-        });
+            });
 
     c.assert_behaviour(
         "chat.turbine.host-text-conversion-happens-before-the-markup-is-read",
@@ -2382,7 +2385,7 @@ fn a_client_with_a_named_player() -> HeadlessClient {
         w.player = Some(player);
         let mut wn = dereth_client_model::Weenie::new(player);
         wn.pwd.name = "Lark".to_owned();
-        wn.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        wn.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
         w.tables.weenies.insert(player, wn);
     }
     c
@@ -2398,7 +2401,7 @@ pub fn the_squelch_row_is_a_toggle_and_names_the_speaker() {
     let missing_is_inert = c.outbound().is_empty();
     let mut object = dereth_client_model::Weenie::new(target);
     object.pwd.name = "Alba".into();
-    object.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+    object.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
     c.world_mut().tables.weenies.insert(target, object);
     c.world_mut().selected = Some(target);
 
@@ -2464,7 +2467,7 @@ pub fn the_squelch_row_is_a_toggle_and_names_the_speaker() {
 
 /// Menu eligibility follows the current named player while an active Tell keeps its target.
 pub fn target_menu_and_activation_require_the_current_named_player() {
-    use dereth_client_model::weenie::bitfield;
+    use dereth_rules::weenie::bitfield;
     let mut c = a_client_with_a_named_player();
     let peer = ObjectId(0x5000_2000);
     let npc = ObjectId(0x7000_2001);
@@ -2477,7 +2480,7 @@ pub fn target_menu_and_activation_require_the_current_named_player() {
     ] {
         let mut object = dereth_client_model::Weenie::new(id);
         object.pwd.name = name.into();
-        object.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+        object.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
         if player {
             object.pwd.bitfield |= bitfield::PLAYER;
         }
@@ -2557,7 +2560,7 @@ pub fn the_chat_target_follows_what_is_selected_while_it_is_near() {
         for (id, name) in [(player, "Lark"), (npc, "Ulgrim")] {
             let mut wn = dereth_client_model::Weenie::new(id);
             wn.pwd.name = name.to_owned();
-            wn.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
+            wn.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
             w.tables.weenies.insert(id, wn);
         }
     }
@@ -2614,8 +2617,8 @@ pub fn a_tell_to_the_chat_target_goes_to_it_and_not_to_the_selection() {
     let mut c = a_client_with_a_named_player();
     let mut object = dereth_client_model::Weenie::new(npc);
     object.pwd.name = "Ulgrim".into();
-    object.pwd.obj_type = dereth_client_model::weenie::item_type::CREATURE;
-    object.pwd.bitfield |= dereth_client_model::weenie::bitfield::PLAYER;
+    object.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+    object.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
     c.world_mut().tables.weenies.insert(npc, object);
     c.world_mut().selected = Some(npc);
     let facts = dereth_client_contract::chat::mainchat::AutoTargetWorld {

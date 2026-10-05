@@ -23,6 +23,7 @@ d3d12 = ["dereth-scene/d3d12", "dereth-render/d3d12"]
 retail-dats = []
 
 [dependencies]
+dereth-rules.workspace = true
 dereth-world-data.workspace = true
 dereth-chargen.workspace = true
 dereth-primitives.workspace = true

@@ -104,8 +104,7 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu) -> Self {
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             land_radius: 2,

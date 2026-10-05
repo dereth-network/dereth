@@ -9,13 +9,15 @@ use std::collections::BTreeMap;
 
 use dereth_assets::tables::{DualDidMapper, SpellComponentTable, SpellTable};
 use dereth_assets::Decode;
-use dereth_client_model::magic::{
-    decrypt_formula, scarab_only_filler_count, scarab_only_formula, ComponentBase,
-    ComponentCatalogue, SpellFormulaKind, SCARAB_ONLY_FILLER_SCID,
-};
 use dereth_client_model::World;
 use dereth_primitives::{AssetSource, DataId, ObjectId};
 use dereth_protocol::types::PublicWeenieDesc;
+use {
+    dereth_client_model::magic::decrypt_formula, dereth_client_model::magic::ComponentBase,
+    dereth_client_model::magic::ComponentCatalogue, dereth_client_model::magic::SpellFormulaKind,
+    dereth_rules::magic::scarab_only_filler_count, dereth_rules::magic::scarab_only_formula,
+    dereth_rules::magic::SCARAB_ONLY_FILLER_SCID,
+};
 
 // =================================================================================================
 // 0. The literals this file pins, all re-derived from the shipped tables below.
@@ -237,7 +239,7 @@ fn every_shipped_spells_foci_formula_is_scarabs_then_prismatic_tapers() {
         let power = scarabs
             .iter()
             .copied()
-            .map(dereth_client_model::magic::scarab_power_level)
+            .map(dereth_rules::magic::scarab_power_level)
             .max();
         let asked = scarab_only_filler_count(power.unwrap_or(0));
         let room = u32::try_from(8 - scarabs.len()).unwrap();

@@ -100,7 +100,7 @@ fn a_recorded_remote_walk_raises_no_ground_edges_and_never_reaches_the_falling_a
         },
     )
     .expect("scene");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("physics owner");

@@ -39,7 +39,7 @@
 use dereth_primitives::{Frame, Quat, Vec3};
 
 use crate::lighting::LightType;
-use crate::math::{euler_set_rotate, rotate};
+use {dereth_terrain::math::euler_set_rotate, dereth_terrain::math::rotate};
 
 /// The default ambient colour: 0.3 in each channel.
 pub const DEFAULT_AMBIENT: [f32; 3] = [0.3, 0.3, 0.3];

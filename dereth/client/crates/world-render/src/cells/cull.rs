@@ -12,8 +12,11 @@
 
 use dereth_primitives::Vec3;
 
-use crate::consts::{EPSILON, OUTSIDE_VAL, SKY_HEIGHT};
 use crate::Plane;
+use {
+    dereth_terrain::consts::EPSILON, dereth_terrain::consts::OUTSIDE_VAL,
+    dereth_terrain::consts::SKY_HEIGHT,
+};
 
 /// The view-cone and column tests' outside / straddling / inside answer, shared with physics.
 pub use dereth_primitives::shape::Bounding;

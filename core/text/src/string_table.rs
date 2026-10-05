@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use dereth_primitives::{AssetSource, DataId};
 
-use crate::{metalanguage, unescape, StringResolver};
+use {crate::metalanguage, crate::StringResolver, dereth_assets::escape::unescape};
 
 /// One `StringInfo` rendered with its values matched **by name**: the row's own variable list is
 /// walked and each id looked up among `values` by the string hash of its name, then the pieces and

@@ -71,11 +71,11 @@ fn owner_position() -> Position {
 fn settled_on_the_owner_spot(
     store: &std::sync::Arc<dereth_dat::RetailDatStore>,
 ) -> (Character, Position) {
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_world_data::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the ordinary local body is created");

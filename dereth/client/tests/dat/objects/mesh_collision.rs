@@ -20,11 +20,10 @@ use dereth_physics::{LandSource, PhysHandle, PhysicsWorld, SetupGeometry, Sphere
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_world_data::land_source::DatLandSource;
-use {
-    dereth_client_runtime::object_physics::setup_geometry_with_parts,
-    dereth_client_runtime::object_physics::SetupPartStats,
-};
 use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
+use {
+    dereth_world_data::setup::setup_geometry_with_parts, dereth_world_data::setup::SetupPartStats,
+};
 
 /// The shared collision-walk probe: `inside_object` is the primitive the sampled frames-in-mesh
 /// judgment uses.
@@ -262,7 +261,7 @@ fn approaches(cell: &EnvCellGeometry, origin: Vec3, z: f32) -> Vec<Approach> {
 #[test]
 fn a_bsp_only_dungeon_object_stops_a_body_that_used_to_walk_through_it() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -461,7 +460,7 @@ fn a_standable_point(cell: &EnvCellGeometry) -> Option<Vec3> {
 #[test]
 fn a_body_walking_into_a_retail_door_is_stopped_by_it() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -722,7 +721,7 @@ fn the_training_dungeons_cylsphere_placements_and_which_arm_each_takes() {
 #[test]
 fn a_cylsphere_only_dungeon_object_stops_a_body_that_used_to_walk_through_it() {
     let store = store();
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));

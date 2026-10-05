@@ -2094,7 +2094,7 @@ pub fn the_world_is_torn_down_when_the_character_leaves() {
 /// than read back through the same symbols the client reads them through, so a wrong mask is
 /// visible here.
 pub fn what_the_client_will_let_you_attack() {
-    use dereth_client_model::weenie::{bitfield, item_type};
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
 
     // The bits, as numbers. Reading them through the client's own names would not notice a
     // wrong one.

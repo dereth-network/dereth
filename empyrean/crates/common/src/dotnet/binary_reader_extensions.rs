@@ -103,6 +103,8 @@ impl BinaryReader<'_> {
                 available,
             });
         }
-        Ok(dereth_protocol::cp1252::decode(self.read_bytes(length)))
+        Ok(dereth_primitives::text::cp1252::decode(
+            self.read_bytes(length),
+        ))
     }
 }

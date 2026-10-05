@@ -25,10 +25,10 @@
 //! `"You obtain <amount> <material> (ws <workmanship>) using your knowledge of <skill>."`, which is
 //! an independent second reading of the same two format strings.
 
-use crate::weenie::{bitfield, Weenie};
 use crate::{Request, RequestSink, World};
 use dereth_primitives::ObjectId;
 use dereth_protocol::items::SalvageResultMessage;
+use {crate::weenie::Weenie, dereth_rules::weenie::bitfield};
 
 mod list;
 pub use list::{SalvageEffect, SalvageList};

@@ -249,7 +249,7 @@ fn recorded_approach_replacement_unsticks_and_starts_again() {
         },
     )
     .expect("scene loads");
-    let region = dereth_client_runtime::landblock::load_region(&store).expect("retail region");
+    let region = dereth_world_data::landblock::load_region(&store).expect("retail region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("physics world and body");

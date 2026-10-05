@@ -3,13 +3,13 @@
 //! The client recomputes the even-split flag so the panel can grey the state; **the server does the
 //! real division**.
 //!
-//! The pure rules of this module live in [`dereth_rules::fellowship`]; they are re-exported
-//! here, so every `dereth_client_model::fellowship::*` path resolves.
+//! Shared arithmetic and inquiries live in `dereth-rules`; this module keeps the
+//! client model's state adapters and value tests.
 
 use dereth_primitives::ObjectId;
 use std::collections::BTreeMap;
 
-pub use dereth_rules::fellowship::*;
+use dereth_rules::fellowship::*;
 
 /// How a `0x02C0 Fellowship_UpdateFellow` describes what changed — `FellowUpdateType`, passed
 /// through the fellow-updated notice to the fellowship panel untouched.

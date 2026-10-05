@@ -71,7 +71,7 @@ fn scripted_caster(
     inv.items.iter().copied().find(|&id| {
         world
             .weenie(id)
-            .is_some_and(|w| w.inq_type() & dereth_client_model::weenie::item_type::CASTER != 0)
+            .is_some_and(|w| w.inq_type() & dereth_rules::weenie::item_type::CASTER != 0)
     })
 }
 

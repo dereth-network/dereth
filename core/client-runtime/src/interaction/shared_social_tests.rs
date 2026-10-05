@@ -1,8 +1,8 @@
 use super::*;
-use dereth_client_model::{
-    fellowship::{Fellow, Fellowship},
-    weenie::{bitfield, Weenie},
-    World,
+use {
+    dereth_client_model::weenie::Weenie, dereth_client_model::World,
+    dereth_rules::fellowship::Fellow, dereth_rules::fellowship::Fellowship,
+    dereth_rules::weenie::bitfield,
 };
 
 fn actors() -> (World, Interaction) {

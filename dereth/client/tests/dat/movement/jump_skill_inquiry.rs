@@ -7,7 +7,7 @@ use dereth_assets::{
     tables::{QualityFilter, SkillTable},
     Decode,
 };
-use dereth_client_model::{attributes, inventory::burden, qualities::Qualities, skills};
+use dereth_client_model::qualities::Qualities;
 use dereth_primitives::{AssetSource, LocalTime};
 
 /// Behaviour: movement.jump.the-jump-skill-is-read-through-the-shipped-quality-filter
@@ -64,14 +64,14 @@ fn recorded_jump_quality_inputs_and_real_filter_are_explicit() {
         let mut q = Qualities::new();
         q.apply_ac_qualities(&desc.qualities, LocalTime(1.0));
         assert_eq!(
-            skills::inq_jump_skill(&q, &skills, Some(&filter)),
+            dereth_rules::skills::inq_jump_skill(&q, &skills, Some(&filter)),
             Some(expected)
         );
         eprintln!(
             "{name} jump={:?} load={} stamina={:?} skillslot={:?} attributes={:?}",
-            skills::inq_skill(&q, &skills, 0x16, false),
-            burden::inq_load(&q),
-            attributes::inq_attribute_2nd_stored(&q, 4),
+            dereth_rules::skills::inq_skill(&q, &skills, 0x16, false),
+            dereth_rules::burden::inq_load(&q),
+            dereth_rules::attributes::inq_attribute_2nd_stored(&q, 4),
             q.skill(0x16),
             q.attributes
         );
@@ -83,20 +83,20 @@ fn recorded_jump_quality_inputs_and_real_filter_are_explicit() {
             .unwrap()
             .current_level = 0;
         assert_eq!(
-            skills::inq_jump_skill(&q, &skills, Some(&filter)),
+            dereth_rules::skills::inq_jump_skill(&q, &skills, Some(&filter)),
             Some(0),
             "real filter excludes currentStamina4; a true zero stays zero"
         );
         let mut missing_jump = skills.clone();
         missing_jump.skills.remove(&0x16);
         assert_eq!(
-            skills::inq_jump_skill(&q, &missing_jump, Some(&filter)),
+            dereth_rules::skills::inq_jump_skill(&q, &missing_jump, Some(&filter)),
             None,
             "zero stamina does not bypass a required failed Jump skill inquiry"
         );
         q.attributes.as_mut().unwrap().stamina = None;
         assert_eq!(
-            skills::inq_jump_skill(&q, &skills, Some(&filter)),
+            dereth_rules::skills::inq_jump_skill(&q, &skills, Some(&filter)),
             None,
             "missing stamina is inquiry failure, not skill zero"
         );

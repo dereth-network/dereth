@@ -133,7 +133,7 @@ fn character_create_ex(
         // retail table (every pattern `a`-`z` and `*`) it bans the same words as ACE's regex.
         if dereth_rules::taboo::contains_taboo_word(
             table,
-            &dereth_protocol::cp1252::Cp1252,
+            &dereth_primitives::text::cp1252::Cp1252,
             &to_lower_invariant(&name),
         ) {
             send_character_create_response(

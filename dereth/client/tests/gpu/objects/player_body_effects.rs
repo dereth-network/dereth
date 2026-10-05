@@ -245,7 +245,7 @@ fn cfg() -> SceneConfig {
 /// The scene with a local body, which is the configuration a logged-in client is always in.
 fn scene(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let mut s = WorldScene::load(store, gpu, cfg()).expect("the landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     s.attach_character(store, &region, gpu)
         .expect("the body is created");
     s
@@ -410,9 +410,11 @@ fn a_level_up_on_the_players_own_object_reaches_the_bodys_emitters() {
         .script_data
         .iter()
         .filter_map(|st| match &st.hook.data {
-            dereth_assets::hook::HookData::CreateParticle {
-                emitter_info_id, ..
-            } => Some(*emitter_info_id),
+            dereth_assets::hook::HookData::CreateParticle(
+                dereth_primitives::records::HookCreateParticle {
+                    emitter_info_id, ..
+                },
+            ) => Some(*emitter_info_id),
             _ => None,
         })
         .collect();

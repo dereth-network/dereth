@@ -767,7 +767,7 @@ impl Interaction {
                         .iter()
                         .position(|byte| *byte == 0)
                         .unwrap_or(chunk.len());
-                    let narrow_line = dereth_protocol::cp1252::decode(&chunk[..native_len]);
+                    let narrow_line = dereth_primitives::text::cp1252::decode(&chunk[..native_len]);
                     let line = dereth_client_model::cmd::loadfile::make_variable_substitutions(
                         &narrow_line,
                         &date,

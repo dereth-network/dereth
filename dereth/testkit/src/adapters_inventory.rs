@@ -165,7 +165,7 @@ pub fn given_recorded_chest(client: &mut HeadlessClient) -> usize {
             .objects_mut()
             .world
             .weenie(RECORDED_CHEST)
-            .is_some_and(|w| w.pwd.bitfield & dereth_client_model::weenie::bitfield::OPENABLE != 0),
+            .is_some_and(|w| w.pwd.bitfield & dereth_rules::weenie::bitfield::OPENABLE != 0),
         "the premise: the recording has described {RECORDED_CHEST:?} as an openable container \
          before it answers about its contents"
     );

@@ -427,7 +427,7 @@ pub fn component_object(slot: usize) -> ObjectId {
 pub fn formula_of(c: &HeadlessClient, spell: u32) -> Vec<u32> {
     let base = shipped_spell(c, spell);
     let f = c.view().world().spell_formula(&base);
-    let n = dereth_client_model::magic::num_spell_components(&f);
+    let n = dereth_rules::magic::num_spell_components(&f);
     assert!(n > 0, "the shipped formula for spell {spell} has slots");
     f[..n].to_vec()
 }

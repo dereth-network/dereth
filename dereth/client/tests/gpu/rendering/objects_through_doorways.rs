@@ -103,8 +103,7 @@ struct Bench {
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, stamp: bool) -> Option<Self> {
         let mut gpu = crate::common::test_gpu(W, H);
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             time_of_day: Some(0.35),

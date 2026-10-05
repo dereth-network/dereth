@@ -16,7 +16,6 @@ pub mod compose;
 pub mod edit;
 /// The string-table escape pass. It lives beside the string table in `dereth_assets` so a lookup
 /// made with no UI unescapes the same way; re-exported here at its old path.
-pub use dereth_assets::escape;
 pub mod element_text;
 pub mod glyph;
 pub mod linebreak;
@@ -31,7 +30,6 @@ pub use edit::{
     Selection,
 };
 pub use element_text::{TextBits, TextElement, CARET_BLINK_PERIOD};
-pub use escape::{un_escaped_char, unescape};
 pub use glyph::{
     calc_justification, justification_extent, FixedMetrics, FontMetrics, Glyph, GlyphLine,
     GlyphList,

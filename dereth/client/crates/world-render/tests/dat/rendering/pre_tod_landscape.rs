@@ -10,8 +10,14 @@ use dereth_assets::world::CellLandblock;
 use dereth_assets::{decode_any_in, Decode, DecodedAsset};
 use dereth_dat::{ContainerEra, DbType};
 use dereth_primitives::DataId;
-use dereth_world_render::land::merge::{cell_rotation_keys, cell_x, cell_y, is_pal_shifted};
-use dereth_world_render::land::palshift::{road_pattern, select, sub_palettes};
+use {
+    dereth_terrain::land::merge::cell_rotation_keys, dereth_terrain::land::merge::cell_x,
+    dereth_terrain::land::merge::cell_y, dereth_terrain::land::merge::is_pal_shifted,
+};
+use {
+    dereth_terrain::land::palshift::road_pattern, dereth_terrain::land::palshift::select,
+    dereth_terrain::land::palshift::sub_palettes,
+};
 
 #[test]
 fn every_february_2005_cell_finds_a_palette_shift_texture_and_rotation() {
@@ -111,7 +117,7 @@ fn the_february_2005_cells_read_as_the_later_region_numbers_its_terrains() {
         .expect("the later region texture-merges");
     let described: BTreeSet<u32> = tm.terrain_desc.iter().map(|d| d.terrain_type).collect();
     assert!(
-        described.contains(&dereth_world_render::consts::ROAD_TERRAIN_TYPE),
+        described.contains(&dereth_terrain::consts::ROAD_TERRAIN_TYPE),
         "the road"
     );
     let mut used = BTreeSet::new();

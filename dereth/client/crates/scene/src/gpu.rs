@@ -187,7 +187,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             cfg: dereth_client_runtime::scene::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             let (mut scene, mut ws) = crate::world_scene::SceneDraw::load_with_identity(
                 store,
                 &mut self.gpu,
@@ -203,7 +203,7 @@ mod imp {
             }
             scene
                 .reserve_upload_arena(&mut self.gpu)
-                .map_err(|e| dereth_client_runtime::landblock::WorldError::Render(e.to_string()))?;
+                .map_err(|e| dereth_world_data::landblock::WorldError::Render(e.to_string()))?;
             self.scene = None;
             self.world = Some(scene);
             *world = Some(ws);
@@ -222,7 +222,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             stream: &mut dereth_client_runtime::objects::ObjectStream,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(());
             };
@@ -265,7 +265,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             stream: &mut dereth_client_runtime::objects::ObjectStream,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(());
             };
@@ -284,7 +284,7 @@ mod imp {
             &mut self,
             store: &dereth_dat::RetailDatStore,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+        ) -> Result<(), dereth_world_data::landblock::WorldError> {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(());
             };
@@ -302,7 +302,7 @@ mod imp {
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
         ) -> Result<
             dereth_client_runtime::frame_events::RenderPrefWork,
-            dereth_client_runtime::landblock::WorldError,
+            dereth_world_data::landblock::WorldError,
         > {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(dereth_client_runtime::frame_events::RenderPrefWork::default());

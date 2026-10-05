@@ -21,7 +21,7 @@ const HINT_ITEMS: [ObjectId; 4] = [SHIELD, SWORD, TORCH, PLAIN_ROCK];
 /// go in a different place on the body and the rock can go nowhere, which is what makes the
 /// body-slot claim a claim rather than a constant.
 fn seed_for_hints(w: &mut dereth_client_model::World) {
-    use dereth_client_model::inventory::slots::loc;
+    use dereth_rules::slots::loc;
 
     w.player = Some(HINT_PLAYER);
     w.tables.inventories.insert(
@@ -38,7 +38,7 @@ fn seed_for_hints(w: &mut dereth_client_model::World) {
         let p = w.tables.weenies.get_mut(HINT_PLAYER).expect("seeded");
         p.pwd.items_capacity = Some(102);
         p.pwd.containers_capacity = Some(7);
-        p.pwd.bitfield |= dereth_client_model::weenie::bitfield::OPENABLE;
+        p.pwd.bitfield |= dereth_rules::weenie::bitfield::OPENABLE;
     }
     for (id, mask) in [
         (SHIELD, loc::SHIELD),
@@ -406,7 +406,7 @@ fn a_client_wearing_something(material: Option<u32>) -> HeadlessClient {
         wear_it(
             w,
             SHIRT,
-            dereth_client_model::inventory::slots::loc::CHEST_WEAR,
+            dereth_rules::slots::loc::CHEST_WEAR,
             0x20,
             "obj14",
         );
@@ -627,7 +627,7 @@ pub(super) fn the_open_chest_lights_the_row_the_carried_thing_is_over() {
             .world
             .weenie_mut(RECORDED_CHEST)
             .expect("the ground object");
-        w.pwd.bitfield |= dereth_client_model::weenie::bitfield::CORPSE;
+        w.pwd.bitfield |= dereth_rules::weenie::bitfield::CORPSE;
     }
     c.tick(1);
     assert!(
@@ -667,7 +667,7 @@ pub(super) fn the_open_chest_lights_the_row_the_carried_thing_is_over() {
 /// right. A hook in nobody's house refuses everything before either count is looked at.
 pub(super) fn a_hook_shows_whether_it_could_take_what_is_carried() {
     use dereth_client_model::housing::hook_type_enum;
-    use dereth_client_model::weenie::item_type;
+    use dereth_rules::weenie::item_type;
 
     let wall = u16::try_from(hook_type_enum::WALL).expect("a hook location");
     let floor = u16::try_from(hook_type_enum::FLOOR).expect("a hook location");
@@ -718,7 +718,7 @@ pub(super) fn a_hook_shows_whether_it_could_take_what_is_carried() {
 /// unowned hook's masks light green over it.
 pub(super) fn a_hook_in_nobodys_house_refuses_everything_carried_over_it() {
     use dereth_client_model::housing::hook_type_enum;
-    use dereth_client_model::weenie::item_type;
+    use dereth_rules::weenie::item_type;
 
     let wall = u16::try_from(hook_type_enum::WALL).expect("a hook location");
     let (mut c, item) = a_chest_with_something_in_it();

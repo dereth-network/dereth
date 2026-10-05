@@ -17,9 +17,9 @@ pub fn refresh_qualities(
         character.set_jump_qualities(0.0, false, None);
         return;
     };
-    let load = dereth_client_model::inventory::burden::inq_load(qualities);
-    let jump = skills
-        .and_then(|table| dereth_client_model::skills::inq_jump_skill(qualities, table, filter));
+    let load = dereth_rules::burden::inq_load(qualities);
+    let jump =
+        skills.and_then(|table| dereth_rules::skills::inq_jump_skill(qualities, table, filter));
     character.set_jump_qualities(load, load < 2.0, jump);
 }
 

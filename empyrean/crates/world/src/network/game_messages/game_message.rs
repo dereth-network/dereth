@@ -115,7 +115,7 @@ impl GameMessage {
 /// bytes: C#'s `null` is empty, and each UTF-16 unit Windows-1252 cannot represent is `?`.
 #[must_use]
 pub fn ace_str<'a>(data: impl Into<Option<&'a str>>) -> String {
-    dereth_protocol::cp1252::decode(&dereth_protocol::cp1252::encode_lossy(
+    dereth_primitives::text::cp1252::decode(&dereth_primitives::text::cp1252::encode_lossy(
         data.into().unwrap_or(""),
     ))
 }

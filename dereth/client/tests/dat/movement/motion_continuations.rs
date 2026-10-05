@@ -12,10 +12,7 @@ use dereth_primitives::{LocalTime, MotionSource, ObjectId, Vec3};
 use {
     dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
 };
-use {
-    dereth_client_runtime::landblock::load_region,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
-};
+use {dereth_world_data::landblock::load_region, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 struct Body {
     c: Character,

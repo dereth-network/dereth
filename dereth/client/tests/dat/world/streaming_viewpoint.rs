@@ -21,8 +21,8 @@ use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::block_xy,
+    dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// `BLOCK_LENGTH`.

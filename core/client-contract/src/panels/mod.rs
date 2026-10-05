@@ -1,31 +1,24 @@
-//! The panel seam.
+//! Neutral panel facts and the synchronous HUD delivery seam.
 //!
-//! `dereth-ui-screens` draws the panels; `dereth-client` owns the world they show. Everything both
-//! sides have to agree about — a property key, a table of ids, a notice the world queues and a
-//! panel drains, a formula the world has to evaluate for itself — lives here, at the same module
-//! path as under `dereth_ui_screens::panels`, and that crate re-exports each item.
-//!
-//! Nothing here draws, binds an element or names a `dereth_ui` type. What stays in the UI is the
-//! drawing: every `…Panel` struct, its element ids, its layout and its `update`.
+//! Property identifiers, view kinds and content profiles are shared with producers.
+//! Display formatting and display-order tables live in `dereth-presentation`.
 
-/// The character page's ids and its two rating tables.
+/// The character page's property identifiers.
 pub mod characterinfo;
 /// The contracts panel's sort criterion.
 pub mod contracts;
-/// The identify window's property keys, name switches and gear-rating rows.
+/// The identify window's property identifiers.
 pub mod examination;
 /// The external-container panel's two subscribed notices.
 pub mod external_container;
 /// The housing system's thirty-day purchase wait.
 pub mod house;
-/// The info regions' vitae arithmetic and their number formats. Moved whole.
+/// The information row kinds carried by panel views.
 pub mod inforegion;
 /// The paper doll's drag mask, its refusal line and the heritage property.
 pub mod inventory;
-/// The map panel's date-and-time formatter, shared with the calendar clock.
+/// The map's world-profile locations and rectangles.
 pub mod map;
-/// Digit grouping, shared by the HUD's view and the panels.
-pub mod numfmt;
 /// The salvage panel's three object-carrying notices.
 pub mod salvage;
 /// The house payment window's operation: which payment list is in play.

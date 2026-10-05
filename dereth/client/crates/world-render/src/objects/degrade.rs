@@ -14,8 +14,10 @@
 use dereth_assets::motion::{GfxObjDegradeInfo, GfxObjInfo};
 use dereth_primitives::{Frame, Vec3};
 
-use crate::consts::S_R_DEGRADE_DISTANCE;
-use crate::math::{rotate_around_axis_to_vector, set_vector_heading};
+use dereth_terrain::consts::S_R_DEGRADE_DISTANCE;
+use {
+    dereth_terrain::math::rotate_around_axis_to_vector, dereth_terrain::math::set_vector_heading,
+};
 
 /// The graphics object's `degrade_mode`, interpreted while calculating its draw frame.
 ///
@@ -96,7 +98,7 @@ impl Default for DegradeGlobals {
             force_level: -1,
             degrade_distance: S_R_DEGRADE_DISTANCE,
             auto_update_deg_mul: true,
-            deg_mul: crate::consts::PINNED_DEG_MUL,
+            deg_mul: dereth_terrain::consts::PINNED_DEG_MUL,
             user_bias: 0.0,
         }
     }
@@ -409,7 +411,7 @@ mod tests {
         );
         assert_eq!(
             DegradeGlobals::default().deg_mul,
-            crate::consts::PINNED_DEG_MUL
+            dereth_terrain::consts::PINNED_DEG_MUL
         );
     }
 
@@ -464,14 +466,14 @@ mod tests {
         }
         // Mode 5, the upright foliage card: the local Z axis stays vertical.
         let f = calc_draw_frame(&pos, DegradeMode::AxisZ, viewer);
-        let m = crate::math::l2g(f.rotation).0;
+        let m = dereth_terrain::math::l2g(f.rotation).0;
         assert!(
             (m[8] - 1.0).abs() < 1e-4,
             "mode 5 keeps the card upright: {m:?}"
         );
         // Mode 2, the full billboard: the local Y axis aims at the viewer, tilt and all.
         let f = calc_draw_frame(&pos, DegradeMode::FullBillboard, viewer);
-        let y = crate::math::get_vector_heading(&f);
+        let y = dereth_terrain::math::get_vector_heading(&f);
         let vn = 1.0 / (1.0f32 + 0.25).sqrt();
         assert!(
             (y.x - 1.0 * vn).abs() < 1e-3 && (y.z - 0.5 * vn).abs() < 1e-3,

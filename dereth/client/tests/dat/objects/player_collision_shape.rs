@@ -12,8 +12,7 @@ use dereth_assets::{CharGen, Decode, GfxObj, Setup};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
 use {
-    dereth_client_runtime::object_physics::setup_geometry_with_parts,
-    dereth_client_runtime::object_physics::SetupPartStats,
+    dereth_world_data::setup::setup_geometry_with_parts, dereth_world_data::setup::SetupPartStats,
 };
 
 const CHARGEN: DataId = DataId(0x0E00_0002);

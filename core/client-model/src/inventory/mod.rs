@@ -5,12 +5,11 @@ pub mod equip;
 pub mod requests;
 pub mod salvage;
 /// `INVENTORY_LOC` and the slot tables. Lives in [`dereth_rules::slots`].
-pub use dereth_rules::slots;
+use dereth_rules::slots;
 pub mod targeted_use;
 /// What a use on an object does, and the pickup it dispatches to.
 pub mod use_object;
 
-use crate::weenie::{item_type, NameType, Weenie};
 use crate::world::World;
 use crate::{Notice, NoticeSink, Request, RequestSink};
 use dereth_primitives::{ObjectId, ServerTime};
@@ -22,6 +21,7 @@ use dereth_protocol::items::{
 };
 use dereth_protocol::objects::ItemAppraise;
 use requests::{ready_for_inventory_request, InventoryRequest, FEEDBACK_CHANNEL};
+use {crate::weenie::NameType, crate::weenie::Weenie, dereth_rules::weenie::item_type};
 
 /// The drag quantity: how many of the stack to move, and the most that can be moved.
 ///
@@ -566,7 +566,8 @@ impl World {
             return false;
         }
         // Not openable and not the player: refuse.
-        if c.pwd.bitfield & crate::weenie::bitfield::OPENABLE == 0 && Some(container) != self.player
+        if c.pwd.bitfield & dereth_rules::weenie::bitfield::OPENABLE == 0
+            && Some(container) != self.player
         {
             return false;
         }
@@ -1404,7 +1405,7 @@ mod tests {
     #[test]
     fn capacity_checks_follow_the_clients_escapes() {
         let mut container = PublicWeenieDesc {
-            bitfield: crate::weenie::bitfield::OPENABLE,
+            bitfield: dereth_rules::weenie::bitfield::OPENABLE,
             items_capacity: Some(2),
             ..PublicWeenieDesc::default()
         };
@@ -1469,7 +1470,7 @@ mod tests {
     #[test]
     fn the_drag_gate_is_is_item_legal_plus_will_item_fit() {
         let chest = PublicWeenieDesc {
-            bitfield: crate::weenie::bitfield::OPENABLE,
+            bitfield: dereth_rules::weenie::bitfield::OPENABLE,
             items_capacity: Some(2),
             containers_capacity: Some(0),
             ..PublicWeenieDesc::default()
@@ -1532,7 +1533,7 @@ mod tests {
         w.weenie_mut(ObjectId(12)).unwrap().pwd.obj_type = 0;
 
         // STUCK, and neither contained nor wielded.
-        w.weenie_mut(ObjectId(12)).unwrap().pwd.bitfield = crate::weenie::bitfield::STUCK;
+        w.weenie_mut(ObjectId(12)).unwrap().pwd.bitfield = dereth_rules::weenie::bitfield::STUCK;
         assert!(
             !legal(&w, 12),
             "a stuck object loose in the 3D world is illegal"
@@ -1577,7 +1578,7 @@ mod tests {
         // Not openable and not the player.
         w.weenie_mut(ObjectId(1)).unwrap().pwd.bitfield = 0;
         assert!(!legal(&w, 12), "a non-openable destination is illegal");
-        w.weenie_mut(ObjectId(1)).unwrap().pwd.bitfield = crate::weenie::bitfield::OPENABLE;
+        w.weenie_mut(ObjectId(1)).unwrap().pwd.bitfield = dereth_rules::weenie::bitfield::OPENABLE;
 
         // The destination is in a trade.
         w.weenie_mut(ObjectId(1)).unwrap().trade_state = 1;
@@ -1674,7 +1675,7 @@ mod tests {
     #[test]
     fn the_spill_order_is_requested_then_main_pack_then_side_packs_in_order() {
         let full = |cap: u8| PublicWeenieDesc {
-            bitfield: crate::weenie::bitfield::OPENABLE,
+            bitfield: dereth_rules::weenie::bitfield::OPENABLE,
             items_capacity: Some(cap),
             ..PublicWeenieDesc::default()
         };

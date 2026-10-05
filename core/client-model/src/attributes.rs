@@ -4,16 +4,14 @@
 //! only when the server sends `Qualities_UpdateAttribute2nd`. The bar interpolates its *fill*; the
 //! number is never predicted.
 //!
-//! The pure rules of this module live in [`dereth_rules::attributes`]; they are re-exported
-//! here, so every `dereth_client_model::attributes::*` path resolves. So do the inquiries
-//! (`inq_attribute`, `inq_attribute_2nd` and the rest), written against
-//! `dereth_rules::quality::QualityRead`.
+//! Shared arithmetic and inquiries live in `dereth-rules`; this module keeps the
+//! client model's state adapters and value tests.
 
-use crate::enchant::EnchantmentRegistry;
 use crate::qualities::Qualities;
 use dereth_assets::tables::{Attribute2ndTable, QualityFilter};
+use dereth_rules::enchant::EnchantmentRegistry;
 
-pub use dereth_rules::attributes::*;
+use dereth_rules::attributes::*;
 
 /// True for the three *current* vital ids (2, 4, 6), the only ones a received value is clamped on.
 #[must_use]
@@ -255,7 +253,7 @@ mod tests {
         };
         assert_eq!(vitals(&q), [Some(130), Some(200), None, Some(55)]);
         q.set(
-            StatKey::new(StatType::Int, crate::skills::aug::ENLIGHTENMENT),
+            StatKey::new(StatType::Int, dereth_rules::skills::aug::ENLIGHTENMENT),
             StatValue::Int(3),
         );
         assert_eq!(vitals(&q), [Some(136), Some(200), None, Some(55)]);
@@ -268,7 +266,7 @@ mod tests {
         q.enchantments
             .mult_list
             .push(crate::skills::tests::multiplier(
-                crate::enchant::ench_type::SECOND_ATT,
+                dereth_rules::enchant::ench_type::SECOND_ATT,
                 vital::MAX_HEALTH,
                 1.5,
             ));
@@ -323,7 +321,7 @@ mod tests {
         q.enchantments
             .mult_list
             .push(crate::skills::tests::multiplier(
-                crate::enchant::ench_type::SECOND_ATT,
+                dereth_rules::enchant::ench_type::SECOND_ATT,
                 vital::HEALTH,
                 2.0,
             ));
@@ -403,7 +401,7 @@ mod tests {
         q.enchantments
             .mult_list
             .push(crate::skills::tests::multiplier(
-                crate::enchant::ench_type::SECOND_ATT,
+                dereth_rules::enchant::ench_type::SECOND_ATT,
                 vital::MAX_HEALTH,
                 0.5,
             ));

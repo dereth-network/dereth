@@ -528,11 +528,11 @@ fn sound_tweaked_hook_field_order_is_confirmed_by_the_shipped_values() {
     let mut vals: Vec<(f32, f32)> = Vec::new();
     let collect = |hooks: &[AnimHook], out: &mut Vec<(f32, f32)>| {
         for h in hooks {
-            if let HookData::SoundTweaked {
+            if let HookData::SoundTweaked(dereth_primitives::records::HookSoundTweaked {
                 probability,
                 priority,
                 ..
-            } = h.data
+            }) = h.data
             {
                 out.push((probability, priority));
             }

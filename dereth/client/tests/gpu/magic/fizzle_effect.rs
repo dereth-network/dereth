@@ -206,12 +206,12 @@ fn every_recorded_fizzle_targets_the_player_and_the_script_is_what_this_file_cla
         "both at t = 0"
     );
     match script.script_data[0].hook.data {
-        HookData::CreateParticle {
+        HookData::CreateParticle(dereth_primitives::records::HookCreateParticle {
             emitter_info_id,
             part_index,
             emitter_id,
             ..
-        } => {
+        }) => {
             assert_eq!(
                 script.script_data[0].hook.hook_type, 13,
                 "13 CREATE_PARTICLE"
@@ -335,7 +335,7 @@ fn cfg() -> SceneConfig {
 
 fn scene(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let mut s = WorldScene::load(store, gpu, cfg()).expect("the landscape loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     s.attach_character(store, &region, gpu)
         .expect("the body is created");
     s

@@ -20,8 +20,7 @@ dereth-primitives.workspace = true
 # consumes decoded structs; it decodes nothing itself. The renderer is reached only through
 # the `RenderBackend` trait in dereth-primitives, and no renderer crate is linked.
 dereth-assets.workspace = true
-# The landscape's geometry and static contents: every module of it is re-exported here at the path
-# it had before it moved.
+# The landscape's geometry and static contents, consumed by draw emission.
 dereth-terrain.workspace = true
 
 [dev-dependencies]

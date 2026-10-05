@@ -18,6 +18,7 @@ path = "tests/cpu.rs"
 retail-dats = []
 
 [dependencies]
+dereth-world-data.workspace = true
 dereth-primitives.workspace = true
 dereth-text.workspace = true
 dereth-dat.workspace = true

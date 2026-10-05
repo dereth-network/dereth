@@ -15,8 +15,6 @@ pub mod resolver;
 pub mod string_table;
 pub mod tag;
 
-pub use dereth_assets::escape;
-pub use escape::{un_escaped_char, unescape};
 pub use metalanguage::render;
 pub use resolver::StringResolver;
 pub use string_table::{render_named, render_positional, render_token, DatStringResolver};

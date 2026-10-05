@@ -73,7 +73,7 @@ fn render(
     };
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");

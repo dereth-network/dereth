@@ -6,12 +6,12 @@
 //!
 //! The enchantment registry itself lives in [`crate::enchant`].
 
-use crate::weenie::item_type;
 use crate::world::World;
 use crate::{NoticeSink, Request, RequestSink};
 use dereth_assets::tables::{SpellBase, SpellTable};
 use dereth_primitives::ObjectId;
 use dereth_protocol::combat::{MagicCastTargetedSpell, MagicCastUntargetedSpell};
+use dereth_rules::weenie::item_type;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Spell-index flags. These are the **client's own** names, rather than names inferred from the server
@@ -89,10 +89,12 @@ pub enum ComponentTrackerUpdate {
     Remove = 2,
 }
 
-pub use dereth_rules::magic::{
-    find_most_powerful_power_component, num_spell_components, scarab_only_filler_count,
-    scarab_only_formula, scarab_power_level, SCARAB_ONLY_FILLER_SCID,
+#[cfg(test)]
+use dereth_rules::magic::{
+    find_most_powerful_power_component, scarab_only_filler_count, scarab_power_level,
+    SCARAB_ONLY_FILLER_SCID,
 };
+use dereth_rules::magic::{num_spell_components, scarab_only_formula};
 
 /// Computes the 1–8 spell level the UI shows.
 #[must_use]
@@ -145,7 +147,7 @@ pub fn decrypt_formula(raw_comps: &[u32; 8], comp_key: u32) -> [u32; 8] {
 /// for a zero-length string).
 #[must_use]
 pub fn account_name_hash(account: &str) -> u32 {
-    let bytes = dereth_protocol::cp1252::encode(account).unwrap_or_default();
+    let bytes = dereth_primitives::text::cp1252::encode(account).unwrap_or_default();
     dereth_assets::tables::spell_hash(&bytes)
 }
 
@@ -2032,7 +2034,7 @@ mod tests {
         let mut me = Weenie::new(ObjectId(1));
         me.pwd = PublicWeenieDesc {
             name: "Lark".into(),
-            bitfield: crate::weenie::bitfield::PLAYER,
+            bitfield: dereth_rules::weenie::bitfield::PLAYER,
             ..PublicWeenieDesc::default()
         };
         w.tables.weenies.insert(ObjectId(1), me);

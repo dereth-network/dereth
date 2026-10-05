@@ -2,8 +2,7 @@
 //! fill, with the display formulas and legality prechecks read from it.
 //!
 //! **Depends on** `dereth-primitives`, the decoded tables (`dereth-assets`), the codecs
-//! (`dereth-protocol`), the shared rules (`dereth-rules`, whose modules it re-exports at their old
-//! paths) and the contract (`dereth-client-contract`). **Used by** the client runtime and the SDK,
+//! (`dereth-protocol`), the shared rules (`dereth-rules`) and the contract (`dereth-client-contract`). **Used by** the client runtime and the SDK,
 //! the client and its test kit, and, as a test-only cross-check, the server (`empyrean-world`).
 //!
 //! **Must never** predict or touch bytes. The client is a viewer with a state cache: it decodes
@@ -38,12 +37,6 @@ pub mod chat_entry;
 /// The chat command interpreter: a line beginning `/` or `@` is normalised, tokenised and looked
 /// up in the table of client-side handlers, and anything unrecognised is forwarded verbatim.
 pub mod cmd;
-pub mod journal;
-pub mod turbine;
-/// A container's slot counts: the capacity byte read signed. Lives in [`dereth_rules::capacity`].
-pub use dereth_rules::capacity;
-/// The chess rules. Lives in [`dereth_rules::chess`].
-pub use dereth_rules::chess;
 pub mod combat;
 pub mod emotes;
 pub mod enchant;
@@ -53,6 +46,7 @@ pub mod friends;
 pub mod host;
 pub mod housing;
 pub mod inventory;
+pub mod journal;
 pub mod magic;
 /// Chess window and board grid.
 pub mod minigame;
@@ -66,12 +60,11 @@ pub mod quests;
 pub mod range;
 /// the notice → screen chain.
 pub mod scroll;
-/// The language filter. Lives in [`dereth_rules::taboo`].
-pub use dereth_rules::taboo;
 /// the radar range as a selection gate.
 pub mod selection;
 pub mod skills;
 pub mod trade;
+pub mod turbine;
 pub mod vendor;
 pub mod weenie;
 pub mod world;

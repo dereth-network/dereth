@@ -37,8 +37,8 @@ use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
 use dereth_world_data::anim_assets::DatAnimAssets;
 use {
-    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::load_region,
 };
 use {dereth_scene::preview::PreviewObject, dereth_scene::preview::PreviewSpace};
 

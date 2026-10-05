@@ -25,9 +25,8 @@ use dereth_physics::LandSource;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use {
-    dereth_client_runtime::landblock::block_xy,
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-    dereth_scene::world_scene::WorldScene,
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
 };
 
 /// `BLOCK_LENGTH`.
@@ -52,7 +51,7 @@ fn block_at(x: i32, y: i32) -> LandblockId {
 
 fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let mut scene = WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -1042,9 +1041,8 @@ mod cell_source {
     use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
     use dereth_render::device::Gpu;
     use {
-        dereth_client_runtime::landblock::block_xy,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+        dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     /// The viewer sphere's radius, which is what sets the window in which a neighbouring cell is
@@ -1054,8 +1052,7 @@ mod cell_source {
     fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         let mut scene =
             WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");
@@ -1612,16 +1609,14 @@ mod load_time {
     use dereth_primitives::Vec3;
     use dereth_render::device::Gpu;
     use {
-        dereth_client_runtime::landblock::block_xy,
-        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+        dereth_world_data::landblock::block_xy, dereth_world_data::landblock::DEFAULT_LANDBLOCK,
     };
 
     fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         let mut scene =
             WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-        let region =
-            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");

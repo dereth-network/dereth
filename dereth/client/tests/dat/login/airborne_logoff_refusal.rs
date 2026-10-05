@@ -21,9 +21,7 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::objects::{physics_state, ItemSetState};
 use dereth_protocol::{Message, Opcode};
 use dereth_ui_screens::screens::gameplay::{logout, GamePlayScreen};
-use {
-    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
-};
+use {dereth_client_runtime::scene::SceneConfig, dereth_world_data::landblock::DEFAULT_LANDBLOCK};
 
 fn space(app: &mut App, down: bool, time: u32) {
     key(app, winit::keyboard::KeyCode::Space, down, time);

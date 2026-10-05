@@ -317,13 +317,13 @@ impl Hud {
             .iter()
             .map(|(id, base)| {
                 // The row's advancement class and raw skill value are queried independently.
-                let sac = dereth_client_model::skills::inq_skill_advancement_class(q, *id) as u32;
-                let level = dereth_client_model::skills::inq_skill(q, table, *id, true)
+                let sac = dereth_rules::skills::inq_skill_advancement_class(q, *id) as u32;
+                let level = dereth_rules::skills::inq_skill(q, table, *id, true)
                     .and_then(|v| i32::try_from(v).ok())
                     .unwrap_or(0);
                 // The font operand is the skill query with `raw = 0`, the **enchanted** value,
                 // not the base-level query's attribute contribution — see `SkillEntry::effective`.
-                let effective = dereth_client_model::skills::inq_skill(q, table, *id, false)
+                let effective = dereth_rules::skills::inq_skill(q, table, *id, false)
                     .and_then(|v| i32::try_from(v).ok())
                     .unwrap_or(0);
                 // The vitae penalty on **this skill's raw level**, zero or negative. The panel
@@ -331,7 +331,7 @@ impl Hud {
                 // it, which is what stops a vitae-carrying character's whole list drawing red.
                 // Read straight off the registry, the same route the attribute-2nd rows take:
                 // `HudView` does not implement `GameView::vitae`.
-                let vitae = dereth_client_contract::panels::inforegion::vitae_modifier(
+                let vitae = dereth_presentation::inforegion::vitae_modifier(
                     level,
                     Some(q.enchantments.vitae_value()),
                 );
@@ -473,7 +473,10 @@ impl Hud {
     /// See [`dereth_client_contract::GameView::spell`].
     pub fn spell_entry(&self, id: u32) -> Option<SpellEntry> {
         use dereth_client_contract::spellbook::power_component;
-        use dereth_client_model::magic::{scarab_power_level, spell_level_by_rough_heuristic};
+        use {
+            dereth_client_model::magic::spell_level_by_rough_heuristic,
+            dereth_rules::magic::scarab_power_level,
+        };
         // Retail's spell add drops an id the spell table does not know, and so does this `?`.
         let b = self.spell_table.as_ref()?.spells.get(&id)?;
         let icon_power = scarab_power_level(power_component(b.raw_comps[0], b.comp_key));
@@ -539,12 +542,8 @@ pub(super) fn contract_location(p: dereth_primitives::Position) -> Option<String
     if p.cell.0 == 0 {
         return None;
     }
-    let coords = dereth_physics::landdefs::gid_to_lcoord(p.cell).map(|(x, y)| {
-        (
-            f64::from(y - 0x400) * 0.1 + 0.5,
-            f64::from(x - 0x400) * 0.1 + 0.5,
-        )
-    });
+    let coords = dereth_physics::landdefs::gid_to_lcoord(p.cell)
+        .map(|(x, y)| dereth_primitives::position::landscape_coordinates(x, y));
     Some(dereth_client_model::quests::contract_location_text(coords))
 }
 
@@ -556,10 +555,10 @@ pub(super) fn contract_location(p: dereth_primitives::Position) -> Option<String
 /// `SkillAdvancement::meter_fill` reads as "no bar" rather than as a wild fraction.
 pub(super) fn level_xp(
     t: &dereth_assets::tables::XpTable,
-    sac: dereth_client_model::skills::Sac,
+    sac: dereth_rules::skills::Sac,
     level: u32,
 ) -> u32 {
-    let v = dereth_client_model::advancement::experience_to_skill_level(t, sac, level as usize);
+    let v = dereth_rules::advancement::experience_to_skill_level(t, sac, level as usize);
     if v == u32::MAX {
         0
     } else {
