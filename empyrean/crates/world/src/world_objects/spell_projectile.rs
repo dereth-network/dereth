@@ -1889,13 +1889,30 @@ fn creature_get_resistance_mod(
 }
 
 /// `CheckPKStatusVsTarget(target, spell)` (the virtual, `WorldObject_Combat.cs`/`Player_Combat.cs`).
+/// A player's check is given the spell, as the cast's own check is.
 fn check_pk_status_vs_target(
     w: &mut World,
     this: ObjectGuid,
     target: ObjectGuid,
-    _spell: &Spell,
+    spell: &Spell,
 ) -> Option<Vec<WeenieErrorWithString>> {
-    crate::dispatch::check_pk_status_vs_target::check_pk_status_vs_target(w, this, target, ())
+    use crate::dispatch::{class_of, Class};
+    match class_of(w, this) {
+        Class::Admin | Class::Player | Class::Sentinel => {
+            crate::world_objects::player_combat::check_pk_status_vs_target(
+                w,
+                this,
+                Some(target),
+                Some(spell),
+            )
+        }
+        _ => crate::dispatch::check_pk_status_vs_target::check_pk_status_vs_target(
+            w,
+            this,
+            target,
+            (),
+        ),
+    }
 }
 
 /// `Session.Network.EnqueueSend(new GameEventWeenieErrorWithString(Session, error, str))`.

@@ -2421,14 +2421,31 @@ fn current_landblock_get_object(
 }
 
 /// `CheckPKStatusVsTarget(target, spell)` (the virtual, `WorldObject_Combat.cs`/`Player_Combat.cs`):
-/// the two errors, or `None` when the cast is allowed.
+/// the two errors, or `None` when the cast is allowed. A player's check is given the spell, so a
+/// beneficial spell on another player is judged as one and not as an attack.
 fn check_pk_status_vs_target(
     w: &mut World,
     this: ObjectGuid,
     target: ObjectGuid,
-    _spell: &Spell,
+    spell: &Spell,
 ) -> Option<Vec<WeenieErrorWithString>> {
-    crate::dispatch::check_pk_status_vs_target::check_pk_status_vs_target(w, this, target, ())
+    use crate::dispatch::{class_of, Class};
+    match class_of(w, this) {
+        Class::Admin | Class::Player | Class::Sentinel => {
+            crate::world_objects::player_combat::check_pk_status_vs_target(
+                w,
+                this,
+                Some(target),
+                Some(spell),
+            )
+        }
+        _ => crate::dispatch::check_pk_status_vs_target::check_pk_status_vs_target(
+            w,
+            this,
+            target,
+            (),
+        ),
+    }
 }
 
 /// `GetAngle(target)` (`Creature_Navigation.cs`).

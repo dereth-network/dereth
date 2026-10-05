@@ -1033,6 +1033,69 @@ fn a_spell_refused_its_target_names_the_target_and_not_the_spell() {
     assert!(texts.iter().all(|t| !t.contains("Strength")), "{texts:?}");
 }
 
+/// A beneficial spell cast by one non-player-killer on another lands; a harmful one is refused as
+/// an attack on a non-player-killer. The player's PK check is given the spell, so a buff is not
+/// judged as an attack.
+#[test]
+fn a_beneficial_spell_on_another_non_pk_lands_and_a_harmful_one_is_refused() {
+    use empyrean_entity::enums::PlayerKillerStatus;
+    const FRIEND: ObjectGuid = ObjectGuid::new(0x5000_0002);
+    /// `Magic_WeenieErrorWithString`.
+    const EV_WEENIE_ERROR_WITH_STRING: u32 = 0x028B;
+    for beneficial in [true, false] {
+        let mut definition = defs().remove(0);
+        definition.flags = if beneficial { BENEFICIAL } else { 0 };
+        let mut h = H::with_dats(dats_with(vec![definition], ItemType::Creature.0));
+        h.player(100.0, 100.0);
+        h.creature(Class::Player, FRIEND, "Friend", 101.0, 102.0);
+        h.w.objects
+            .get_mut(FRIEND)
+            .unwrap()
+            .player
+            .as_mut()
+            .expect("a player")
+            .player
+            .character = Some(empyrean_store::models::shard::Character::default());
+        h.w.sessions.insert(
+            empyrean_net::SessionId {
+                client_id: 2,
+                generation: 1,
+            },
+            empyrean_world::sessions::SessionData {
+                state: empyrean_net::SessionState::WorldConnected,
+                player: Some(FRIEND),
+                account: Some("friend".to_owned()),
+                ..empyrean_world::sessions::SessionData::default()
+            },
+        );
+        assert!(lm::add_object(&mut h.w, FRIEND, false));
+        for p in [PLAYER, FRIEND] {
+            h.w.objects
+                .get_mut(p)
+                .unwrap()
+                .set_player_killer_status_prop(PlayerKillerStatus::NPK);
+        }
+        let _ = h.give_components();
+        start_capture();
+        player_magic::handle_action_cast_targeted_spell(
+            &mut h.w,
+            PLAYER,
+            FRIEND.full(),
+            STRENGTH_SELF,
+            None,
+        );
+        assert!(h.run_until(4.0, |h| !player_magic::is_busy(&h.w, PLAYER)));
+        let got = sent();
+        let refused = !events(&got, EV_WEENIE_ERROR_WITH_STRING).is_empty();
+        let landed = registry_ids(&h.w, FRIEND) == [i32::try_from(STRENGTH_SELF).unwrap()];
+        assert_eq!(
+            (landed, refused),
+            (beneficial, !beneficial),
+            "beneficial {beneficial}: {got:?}"
+        );
+    }
+}
+
 fn definition_clone(d: &Def) -> Def {
     Def {
         id: d.id,
