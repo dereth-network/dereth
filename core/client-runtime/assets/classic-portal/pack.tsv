@@ -17,6 +17,12 @@ background  0D1115
 0x06006BF0  rgb  sigil-yellow.png
 0x06006BF1  rgb  sigil-red.png
 
+# The paper doll's accessories button, 32 x 32, plain and lit (a slot behind it holds an item),
+# under the client's own ids (0x06F00020 and 0x06F00021, in a range no portal uses). Until these
+# are here the interface composes them from the shield slot's frame with three dots.
+# 0x06F00020  rgb  accessories.png
+# 0x06F00021  rgb  accessories-lit.png
+
 # The journal's toolbar button, 34 x 27 like the map's, normal and lit (its page shown; the
 # pressed button shows the lit picture). Until these are here the interface composes them.
 0x060069AE  rgb  journal.png

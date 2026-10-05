@@ -29,6 +29,14 @@ const GARMENT_ICON: u32 = 0x0600_32bf;
 const FLASK_ICON: u32 = 0x0600_32c8;
 const CRYSTAL_ICON: u32 = 0x0600_32d4;
 
+/// The paper doll's accessories button, plain and lit (a slot behind it holds an item): ids of
+/// Dereth's own in the range no portal uses. Composed, when no record holds them, as the shield
+/// slot's bevelled frame with its inside cleared and three dots across it, grey on the plain
+/// button and gold on the lit one, whose ground is warmed too.
+pub const ACCESSORIES_BUTTON: [u32; 2] = [BASE + 0x20, BASE + 0x21];
+/// The classic shield slot, whose frame the accessories button borrows.
+const SHIELD_SLOT: u32 = 0x0600_0f6c;
+
 /// The journal's toolbar button, normal, lit (its page shown) and pressed: the later files' ids
 /// for the quest button's normal and lit pictures, the pressed one showing the lit picture as the
 /// map's and the options' do. Composed, when no record holds them, as the map button's triangle
@@ -93,6 +101,9 @@ pub fn compose(id: u32, portal: &dyn Fn(u32) -> Option<Image>) -> Option<Image> 
         let mut image = blank(&portal(TRIANGLES[variant])?, usize::from(variant == 0));
         quill(&mut image, &portal(FEATHER)?, 9, 7);
         return Some(image);
+    }
+    if let Some(lit) = ACCESSORIES_BUTTON.iter().position(|b| *b == id) {
+        return Some(dots(&portal(SHIELD_SLOT)?, lit == 1));
     }
     let narrowing = NARROWED..NARROWED + 64 * crate::int::u32_from(TOOLBAR_PICTURES.len());
     if narrowing.contains(&id) {
@@ -162,6 +173,47 @@ fn slot(frame: &Image, icon: &Image) -> Image {
             }
             let i = ((y * w + x) * 4) as usize;
             out.rgba[i..i + 3].copy_from_slice(&colour);
+        }
+    }
+    out
+}
+
+/// The accessories button: the frame's bevel kept, its inside cleared to its own ground, and
+/// three round dots across its middle; lit, the dots are gold and the ground is warmed towards
+/// them.
+fn dots(frame: &Image, lit: bool) -> Image {
+    const BEVEL: u32 = 3;
+    let (w, h) = (frame.width, frame.height);
+    let ground = pixel(frame, BEVEL + 1, BEVEL + 1);
+    let (ground, dot) = if lit {
+        (
+            [
+                ground[0].saturating_add(34),
+                ground[1].saturating_add(24),
+                ground[2].saturating_add(4),
+            ],
+            [236, 196, 96],
+        )
+    } else {
+        (ground, [150, 150, 150])
+    };
+    let mut out = frame.clone();
+    // Dots four pixels across, a quarter of the width apart.
+    let step = w / 4;
+    let centres = [w / 2 - step, w / 2, w / 2 + step];
+    let middle = h / 2;
+    for y in BEVEL..h.saturating_sub(BEVEL) {
+        for x in BEVEL..w.saturating_sub(BEVEL) {
+            let on = centres.iter().any(|&c| {
+                // The 4x4 square around the centre, less its corners.
+                let (Some(lx), Some(ly)) = ((x + 2).checked_sub(c), (y + 2).checked_sub(middle))
+                else {
+                    return false;
+                };
+                lx < 4 && ly < 4 && !((lx == 0 || lx == 3) && (ly == 0 || ly == 3))
+            });
+            let i = ((y * w + x) * 4) as usize;
+            out.rgba[i..i + 3].copy_from_slice(if on { &dot } else { &ground });
         }
     }
     out
@@ -372,6 +424,40 @@ mod tests {
             height,
             rgba,
         }
+    }
+
+    #[test]
+    fn the_accessories_button_is_the_shield_frame_with_three_dots_grey_or_gold() {
+        let mut frame = flat(32, 32, [20, 22, 26]);
+        frame.rgba[0..3].copy_from_slice(&[200, 0, 0]);
+        // Something of the shield's outline inside, which the button clears.
+        let at = ((8 * 32 + 16) * 4) as usize;
+        frame.rgba[at..at + 3].copy_from_slice(&[150, 150, 150]);
+        let shield = |p: u32| (p == SHIELD_SLOT).then(|| frame.clone());
+        let plain = compose(ACCESSORIES_BUTTON[0], &shield).unwrap();
+        let lit = compose(ACCESSORIES_BUTTON[1], &shield).unwrap();
+        for button in [&plain, &lit] {
+            assert_eq!(pixel(button, 0, 0), [200, 0, 0], "the bevel is the frame's");
+            assert_eq!(
+                pixel(button, 16, 8),
+                pixel(button, 5, 5),
+                "the inside is cleared"
+            );
+            // Three dots across the middle, with ground between them.
+            for x in [8, 16, 24] {
+                assert_ne!(pixel(button, x, 16), pixel(button, 5, 5), "a dot at {x}");
+            }
+            assert_eq!(pixel(button, 12, 16), pixel(button, 5, 5));
+            assert_eq!(pixel(button, 16, 12), pixel(button, 5, 5));
+        }
+        assert_eq!(pixel(&plain, 5, 5), [20, 22, 26]);
+        assert!(pixel(&lit, 5, 5)[0] > 20, "the lit ground is warmed");
+        assert!(
+            pixel(&lit, 16, 16)[0] > pixel(&plain, 16, 16)[0],
+            "the lit dots are gold"
+        );
+        assert!(ACCESSORIES_BUTTON.iter().all(|b| is_composed(*b)));
+        assert!(compose(ACCESSORIES_BUTTON[0], &|_| None).is_none());
     }
 
     #[test]

@@ -1903,6 +1903,9 @@ impl ClassicUi {
             }
         }
         let map_allowed = self.map_allowed(cx);
+        let pointer = cx
+            .last_cursor()
+            .map(|(x, y)| (to_i32_f64(x), to_i32_f64(y)));
         {
             let view = cx.hud().view(cx.objects());
             let context = Context {
@@ -2008,6 +2011,7 @@ impl ClassicUi {
                 }
                 self.last_in_world = in_world;
             }
+            self.desktop.drag_over(pointer, &context);
             self.desktop.tick_controls(now.0, &context);
             self.desktop.tick(&context);
             // The combat bar shows in melee and missile combat, unless the "advanced combat
@@ -2089,7 +2093,8 @@ impl ClassicUi {
                         self.preview_held = (!armed
                             && !self.desktop.modal_open()
                             && self.desktop.drag_payload.is_none()
-                            && self.desktop.item_at(x, y).is_none())
+                            && self.desktop.item_at(x, y).is_none()
+                            && !self.desktop.overlay_at(x, y))
                         .then(|| {
                             self.desktop
                                 .previews
@@ -2134,7 +2139,8 @@ impl ClassicUi {
                     );
                 }
 
-                // Escape, with no dialog up and no text being typed, first ends a targeting
+                // Escape, with no dialog up and no text being typed, first closes what a page
+                // has open over itself (the paper doll's accessories), then ends a targeting
                 // cursor, then clears the selection, and only then closes pages.
                 if matches!(
                     input,
@@ -2147,6 +2153,9 @@ impl ClassicUi {
                     && !self.desktop.editing()
                     && self.desktop.drag_payload.is_none()
                 {
+                    if self.desktop.dismiss(&context) {
+                        continue;
+                    }
                     match escape_step(armed, context.game.selected_object().is_some()) {
                         EscapeStep::EndTargeting => {
                             self.leave_target_after_click = true;
@@ -2174,11 +2183,12 @@ impl ClassicUi {
                     _ => None,
                 };
                 // A click on the paper doll picks from the model, unless it is on an item slot
-                // beside the doll: that slot's own press and release stay together.
+                // beside the doll or on something lying over it (the accessories): that
+                // control's own press and release stay together.
                 if !self.desktop.modal_open() && self.desktop.drag_payload.is_none() {
-                    if let Some((x, y, right_click)) =
-                        click.filter(|&(x, y, _)| self.desktop.item_at(x, y).is_none())
-                    {
+                    if let Some((x, y, right_click)) = click.filter(|&(x, y, _)| {
+                        self.desktop.item_at(x, y).is_none() && !self.desktop.overlay_at(x, y)
+                    }) {
                         if let Some((index, preview)) = self
                             .desktop
                             .previews

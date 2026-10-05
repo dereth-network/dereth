@@ -49,6 +49,8 @@ struct Modal {
 pub struct Desktop {
     pub sounds: Vec<u32>,
     pub drag_payload: Option<DragPayload>,
+    /// Whether the windows were last told of a drag in progress ([`Self::drag_over`]).
+    drag_told: bool,
     factory: Factory,
     windows: Vec<Window>,
     modal: Option<Modal>,
@@ -114,6 +116,93 @@ impl Desktop {
                 .update_item_drop_preview(game, dragged, pointer, ready, 0);
             window.controls.update_slot_hint(pointer.filter(|_| spell));
         }
+    }
+    /// Tell every window where a dragged item is (`pointer` in the desktop's coordinates), each
+    /// frame of the drag, and once more when the drag has ended. A window hears the pointer only
+    /// while it is shown, no dialog is up, and the pointer is over it.
+    pub fn drag_over(&mut self, pointer: Option<(i32, i32)>, context: &Context<'_>) {
+        let dragged = match self.drag_payload {
+            Some(DragPayload::Object(id)) | Some(DragPayload::Shortcut { object: id, .. }) => {
+                Some(id)
+            }
+            _ => None,
+        };
+        if dragged.is_none() && !self.drag_told {
+            return;
+        }
+        self.drag_told = dragged.is_some();
+        let visible = self.visible_tokens();
+        let events: Vec<_> = self
+            .windows
+            .iter()
+            .map(|w| {
+                let at = pointer
+                    .filter(|_| dragged.is_some() && self.modal.is_none())
+                    .filter(|_| visible.contains(&w.token))
+                    .map(|(x, y)| (x - w.x, y - w.y))
+                    .filter(|&(x, y)| {
+                        rect(
+                            0,
+                            0,
+                            w.frame.screen.width as i32,
+                            w.frame.screen.height as i32,
+                        )
+                        .contains(x, y)
+                    });
+                (
+                    w.token,
+                    ControlEvent::DragOver {
+                        object: dragged,
+                        at,
+                    },
+                )
+            })
+            .collect();
+        for (token, event) in events {
+            self.dispatch(token, event, context);
+        }
+        self.refresh(context);
+    }
+    /// Close whatever a shown window has open over itself (a flyout), as Escape does first;
+    /// whether anything was closed.
+    pub fn dismiss(&mut self, context: &Context<'_>) -> bool {
+        if self.modal.is_some() {
+            return false;
+        }
+        let visible = self.visible_tokens();
+        let mut dismissed = false;
+        for w in self.windows.iter_mut().rev() {
+            if visible.contains(&w.token) && w.panel.dismiss() {
+                dismissed = true;
+                break;
+            }
+        }
+        if dismissed {
+            self.refresh(context);
+        }
+        dismissed
+    }
+    /// Whether a point is on a window's overlay (a flyout and its button), which takes the
+    /// pointer from a preview beneath it.
+    pub fn overlay_at(&self, x: i32, y: i32) -> bool {
+        if self.modal.is_some() {
+            return false;
+        }
+        let visible = self.visible_tokens();
+        self.windows
+            .iter()
+            .rev()
+            .filter(|w| visible.contains(&w.token))
+            .find(|w| {
+                rect(
+                    w.x,
+                    w.y,
+                    w.frame.screen.width as i32,
+                    w.frame.screen.height as i32,
+                )
+                .contains(x, y)
+            })
+            .is_some_and(|w| w.controls.overlay_at(x - w.x, y - w.y))
     }
     pub fn item_at(&self, x: i32, y: i32) -> Option<ObjectId> {
         if self.modal.is_some() {
@@ -424,6 +513,7 @@ impl Desktop {
         Self {
             sounds: vec![],
             drag_payload: None,
+            drag_told: false,
             factory,
             windows: vec![],
             modal: None,
@@ -882,6 +972,14 @@ impl Desktop {
         let tokens: Vec<_> = self.windows.iter().map(|w| w.token).collect();
         for token in tokens {
             self.dispatch(token, ControlEvent::Tick, context);
+        }
+        // A window kept out of sight (a side page another page covers) shows nothing open over
+        // itself when it comes back.
+        let visible = self.visible_tokens();
+        for w in &mut self.windows {
+            if !visible.contains(&w.token) {
+                w.panel.dismiss();
+            }
         }
         self.refresh(context);
     }

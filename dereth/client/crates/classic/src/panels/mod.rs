@@ -350,6 +350,13 @@ pub enum ControlEvent {
         payload: DragPayload,
         slot: u32,
     },
+    /// Where a dragged item is, told to every window each frame of the drag: the item, and the
+    /// pointer in the window's own coordinates while it is over the shown window. Once the drag
+    /// has ended (dropped or cancelled) every window hears it once more with no item.
+    DragOver {
+        object: Option<ObjectId>,
+        at: Option<(i32, i32)>,
+    },
     Tick,
 }
 
@@ -508,6 +515,9 @@ pub struct Control {
     pub slot: bool,
     /// A drop-down drawn from one of the interface's list art sets (face, arrow, rows, edges).
     pub list_skin: Option<ListSkin>,
+    /// A control of the window's overlay: drawn after the window's other controls and the
+    /// overlay's pictures ([`PanelFrame::overlay`]), so it lies over them.
+    pub overlay: bool,
     /// The scroll bar the wheel over this control moves, and by how many of its steps a notch:
     /// a text box or a grid of picture buttons scrolled by a bar beside it.
     pub wheel_bar: Option<(String, i32)>,
@@ -570,6 +580,9 @@ pub struct PanelFrame {
     pub screen: Screen,
     pub controls: Vec<Control>,
     pub previews: Vec<Preview>,
+    /// Pictures drawn over the window's controls, under its overlay controls: a part of the
+    /// window that opens over the rest of it (the paper doll's accessories).
+    pub overlay: Vec<Command>,
 }
 #[derive(Clone, Debug)]
 pub struct Preview {
@@ -648,6 +661,7 @@ impl PanelFrame {
             },
             controls: vec![],
             previews: vec![],
+            overlay: vec![],
         }
     }
     pub fn control(
@@ -679,6 +693,7 @@ impl PanelFrame {
             choice_art: false,
             slot: false,
             list_skin: None,
+            overlay: false,
             wheel_bar: None,
             font: "15-6".into(),
             color: 0xffd2d2c8,
@@ -861,6 +876,11 @@ pub trait Panel: std::fmt::Debug {
     }
     fn set_object(&mut self, _object: ObjectId) {}
     fn set_spell(&mut self, _spell: u32) {}
+    /// Close what the window has open over itself (a flyout), as Escape does, or as the window
+    /// being hidden does; whether there was anything to close.
+    fn dismiss(&mut self) -> bool {
+        false
+    }
     fn id(&self) -> &'static str;
     fn frame(&self, context: &Context<'_>) -> PanelFrame;
     fn event(&mut self, event: ControlEvent, context: &Context<'_>) -> Vec<PanelAction>;

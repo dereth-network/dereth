@@ -405,11 +405,11 @@ fn classic_equipment_preserves_pairs_offhand_and_later_locations() {
         ("equip:5", 0x100000, 0x100000),
         ("equip:7", 0x100000, 0x200000),
         ("equip:5", 0x2000000, 0x2000000),
-        ("equip:10", 0x8000000, 0x8000000),
-        ("equip:11", 0x4000000, 0x4000000),
-        ("equip:12", 0x10000000, 0x10000000),
-        ("equip:13", 0x20000000, 0x20000000),
-        ("equip:14", 0x40000000, 0x40000000),
+        ("accessory:0", 0x8000000, 0x8000000),
+        ("accessory:1", 0x4000000, 0x4000000),
+        ("accessory:2", 0x10000000, 0x10000000),
+        ("accessory:3", 0x20000000, 0x20000000),
+        ("accessory:4", 0x40000000, 0x40000000),
     ] {
         let mut world = equipment_world(valid);
         let interaction = equipment_drop(&mut world, control);
@@ -657,6 +657,10 @@ fn classic_equipment_refreshes_unlocks_through_the_runtime_view_and_preserves_dr
         let snap = GameSnapshot::from_view(&view);
         assert_eq!(view.aetheria_slots(), snap.aetheria_slots());
         era_context(&view, |c| {
+            // The sigils are in the accessories flyout, opened from its button.
+            if bits == 0 {
+                panel.event(ControlEvent::Activate("accessories-button".into()), c);
+            }
             let f = panel.frame(c);
             let slots: Vec<_> = f
                 .controls

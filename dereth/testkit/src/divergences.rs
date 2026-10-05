@@ -265,6 +265,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                  behind the character screen until the next character entered.",
         why: "Nothing of a world the player has left goes on being seen or heard.",
     },
+    Divergence {
+        id: "CD-033",
+        title: "The classic paper doll's later slots open from one button",
+        change: "On a world with cloaks, trinkets or aetheria, the classic interface's paper doll                  has an accessories button beside the shield. It opens a flyout over the doll                  holding the cloak, the trinket and each aetheria sigil the character has                  unlocked, as slots that work as the doll's own do. The classic interface never                  had these slots.",
+        why: "Later worlds' equipment can be worn and seen in the classic interface, and the               doll keeps its own layout.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

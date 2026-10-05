@@ -408,6 +408,11 @@ impl ControlHost {
             .rev()
             .find(|c| c.enabled && c.rect.contains(x, y))
     }
+    /// Whether the control at a point is one of the window's overlay, lying over whatever the
+    /// window shows beneath it (the paper doll's picture).
+    pub fn overlay_at(&self, x: i32, y: i32) -> bool {
+        self.control_at(x, y).is_some_and(|c| c.overlay)
+    }
     pub fn contains_control(&self, x: i32, y: i32) -> bool {
         self.popup_open() || self.control_at(x, y).is_some()
     }
@@ -1211,7 +1216,15 @@ impl ControlHost {
         if let Some(r) = self.slot_hint {
             out.image_native(SLOT_HINT, r.x, r.y, r, true);
         }
-        for c in &self.controls {
+        // The window's own controls, then its overlay's pictures and the overlay's controls over
+        // them.
+        let mut overlay_drawn = false;
+        let order = self.controls.iter().filter(|c| !c.overlay);
+        for c in order.chain(self.controls.iter().filter(|c| c.overlay)) {
+            if c.overlay && !overlay_drawn {
+                out.screen.commands.extend(frame.overlay.iter().cloned());
+                overlay_drawn = true;
+            }
             if !c.paint {
                 continue;
             }
@@ -1576,6 +1589,9 @@ impl ControlHost {
                     }
                 }
             }
+        }
+        if !overlay_drawn {
+            out.screen.commands.extend(frame.overlay.iter().cloned());
         }
         if let Some((id, selected)) = &self.choice {
             if let Some(c) = self.controls.iter().find(|c| &c.id == id) {
