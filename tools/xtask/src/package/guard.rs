@@ -54,6 +54,49 @@ impl Entry {
     }
 }
 
+/// Which of `needles` (this machine's folders, as the build could have named them) appear in
+/// `bytes`. A folder is looked for with either slash, in any case.
+#[must_use]
+pub fn local_paths_in(bytes: &[u8], needles: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    for needle in needles {
+        let forward = needle.replace('\\', "/");
+        let back = needle.replace('/', "\\");
+        let hit = [forward.as_str(), back.as_str()].iter().any(|n| {
+            !n.is_empty()
+                && bytes
+                    .windows(n.len())
+                    .any(|w| w.eq_ignore_ascii_case(n.as_bytes()))
+        });
+        if hit {
+            found.push(needle.clone());
+        }
+    }
+    found
+}
+
+/// This machine's folders a build could name: the workspace, the target folder, the home folder
+/// and cargo's.
+#[must_use]
+pub fn local_folders(ws: &Path) -> Vec<String> {
+    let mut out = vec![
+        ws.display().to_string(),
+        crate::util::target_dir().display().to_string(),
+    ];
+    for var in ["CARGO_HOME", "USERPROFILE", "HOME"] {
+        if let Some(v) = std::env::var_os(var) {
+            let v = std::path::PathBuf::from(v).display().to_string();
+            // A folder this short would match ordinary text.
+            if v.len() > 4 {
+                out.push(v);
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Why a name is refused, whatever the allowlist says: the game's data files and anything named
 /// like them, a server's world and databases, its private configuration, captures, and the
 /// recording folders a capture lives in before it is scrubbed.

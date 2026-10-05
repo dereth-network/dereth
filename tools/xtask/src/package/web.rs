@@ -25,7 +25,7 @@
 //! deny scan ([`super::guard`]) runs over the staged files and again over the written archive: a
 //! game data file, anything named like one, a database, a world pack or an oversized file fails it
 //! whatever its name. The module and scripts are also refused when they carry this machine's
-//! folders ([`local_paths_in`]).
+//! folders ([`guard::local_paths_in`]).
 
 use std::path::{Path, PathBuf};
 
@@ -171,44 +171,6 @@ pub fn entries(members: &[Member]) -> Vec<Entry> {
 pub fn scan(entries: &[Entry]) -> Vec<String> {
     let required: Vec<String> = FILES.iter().map(|f| (*f).to_owned()).collect();
     guard::scan_tree(entries, &required, &[], FILE_CAP, TOTAL_CAP)
-}
-
-/// Which of `needles` (this machine's folders, as the build could have named them) appear in
-/// `bytes`. A folder is looked for with either slash.
-#[must_use]
-pub fn local_paths_in(bytes: &[u8], needles: &[String]) -> Vec<String> {
-    let mut found = Vec::new();
-    for needle in needles {
-        let forward = needle.replace('\\', "/");
-        let back = needle.replace('/', "\\");
-        let hit = [forward.as_str(), back.as_str()].iter().any(|n| {
-            !n.is_empty()
-                && bytes
-                    .windows(n.len())
-                    .any(|w| w.eq_ignore_ascii_case(n.as_bytes()))
-        });
-        if hit {
-            found.push(needle.clone());
-        }
-    }
-    found
-}
-
-/// This machine's folders a build could name: the workspace, the home folder and cargo's.
-fn local_folders(ws: &Path) -> Vec<String> {
-    let mut out = vec![ws.display().to_string()];
-    for var in ["CARGO_HOME", "USERPROFILE", "HOME"] {
-        if let Some(v) = std::env::var_os(var) {
-            let v = PathBuf::from(v).display().to_string();
-            // A folder this short would match ordinary text.
-            if v.len() > 4 {
-                out.push(v);
-            }
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
 }
 
 /// The release's manifest: what a consumer reads to learn the newest web client and to check
@@ -367,9 +329,9 @@ fn build(ws: &Path, o: &Options) -> Result<PathBuf, String> {
     let www = ws.join(WWW);
     let members = stage(&listing(&www)?).map_err(|f| f.join("\n"))?;
     let mut findings = scan(&entries(&members));
-    let folders = local_folders(ws);
+    let folders = guard::local_folders(ws);
     for m in &members {
-        for folder in local_paths_in(&m.bytes, &folders) {
+        for folder in guard::local_paths_in(&m.bytes, &folders) {
             findings.push(format!("{}: names this machine's folder {folder}", m.name));
         }
     }
@@ -494,17 +456,6 @@ mod tests {
         let mut big = stage(&www()).expect("stages");
         big[0].bytes = vec![0; usize::try_from(FILE_CAP).unwrap() + 1];
         assert!(scan(&entries(&big)).iter().any(|f| f.contains("cap")));
-    }
-
-    #[test]
-    fn a_build_machine_folder_in_a_file_is_found_with_either_slash() {
-        let needles = vec![r"C:\Users\me".to_owned()];
-        assert_eq!(
-            local_paths_in(b"at c:/users/me/.cargo/x.rs", &needles),
-            needles
-        );
-        assert_eq!(local_paths_in(br"at C:\Users\me\src", &needles), needles);
-        assert!(local_paths_in(b"/cargo/registry/x.rs", &needles).is_empty());
     }
 
     /// The manifest names the version, the archive and every file with its size and hash, and

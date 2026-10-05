@@ -263,6 +263,33 @@ fn a_symbolic_link_in_the_staging_folder_is_reported_as_a_link() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn a_build_machine_folder_in_a_file_is_found_with_either_slash() {
+    let needles = vec![r"C:\Users\me".to_owned()];
+    assert_eq!(
+        guard::local_paths_in(b"at c:/users/me/.cargo/x.rs", &needles),
+        needles
+    );
+    assert_eq!(
+        guard::local_paths_in(br"at C:\Users\me\src", &needles),
+        needles
+    );
+    assert!(guard::local_paths_in(b"/cargo/registry/x.rs", &needles).is_empty());
+}
+
+/// The folders looked for include the target folder, wherever it is: build scripts write the
+/// source they generate there, and a program can carry its path.
+#[test]
+fn the_machine_folders_looked_for_include_the_workspace_and_the_target_folder() {
+    let ws = workspace_root();
+    let folders = guard::local_folders(&ws);
+    assert!(folders.contains(&ws.display().to_string()), "{folders:?}");
+    assert!(
+        folders.contains(&crate::util::target_dir().display().to_string()),
+        "{folders:?}"
+    );
+}
+
 // ---------------------------------------------------------------- archives
 
 fn members() -> Vec<Member> {
@@ -661,6 +688,21 @@ fn the_build_environment_stamps_the_commit_time_and_links_statically_on_windows(
         get(&mac, "MACOSX_DEPLOYMENT_TARGET").as_deref(),
         Some("11.0")
     );
+}
+
+/// A release build renames the target folder as well as the checkout, after it, so a target
+/// folder inside the checkout takes its own name and one outside it is not left out.
+#[test]
+fn a_release_build_renames_the_target_folder_after_the_checkout() {
+    let ws = workspace_root();
+    let remaps = local_remaps(&ws);
+    let at = |name: &str| remaps.iter().position(|(_, to)| *to == name);
+    assert_eq!(at("/dereth"), Some(0), "{remaps:?}");
+    let target = crate::util::target_dir();
+    if target != ws {
+        let i = at("/target").expect("the target folder is renamed");
+        assert_eq!(remaps[i].0, target);
+    }
 }
 
 /// The calendar conversion is right at the epoch, across a leap day and before 1970.

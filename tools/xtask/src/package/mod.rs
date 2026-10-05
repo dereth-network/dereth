@@ -295,11 +295,19 @@ fn host_triple() -> Result<String, String> {
         .ok_or_else(|| "rustc -vV named no host".to_owned())
 }
 
-/// The local folders a build would otherwise name in the binaries: the checkout, cargo's crate
-/// cache (`CARGO_HOME`, else `~/.cargo`) and the toolchain (`rustc --print sysroot`), whose
-/// library source the compiler names when it is installed.
+/// The local folders a build would otherwise name in the binaries: the checkout, the target
+/// folder (where build scripts write the source they generate, and which can be anywhere),
+/// cargo's crate cache (`CARGO_HOME`, else `~/.cargo`) and the toolchain (`rustc --print
+/// sysroot`), whose library source the compiler names when it is installed.
+///
+/// The compiler applies the last remap that matches, so the target folder, which is often inside
+/// the checkout, comes after it.
 fn local_remaps(ws: &Path) -> Vec<(PathBuf, &'static str)> {
     let mut remaps = vec![(ws.to_path_buf(), "/dereth")];
+    let target = target_dir();
+    if target != ws {
+        remaps.push((target, "/target"));
+    }
     let cargo_home = std::env::var("CARGO_HOME")
         .map(PathBuf::from)
         .ok()
@@ -640,11 +648,19 @@ fn package_target(
         ));
     }
 
-    // 5. The header checks.
+    // 5. The header checks, and no program naming this machine's folders.
+    let folders = guard::local_folders(ws);
     let mut described = Vec::new();
     for (bin, _, role) in BINARIES {
         let name = format!("{bin}{}", target.exe_suffix());
         let bytes = read(&stage.join(&name))?;
+        let named = guard::local_paths_in(&bytes, &folders);
+        if !named.is_empty() {
+            return Err(format!(
+                "the deny scan refused {name}: it names this machine's folder {}",
+                named.join(", ")
+            ));
+        }
         match headers::check_binary(&bytes, target, *role) {
             Ok(d) => {
                 println!("  {name}: {d}");

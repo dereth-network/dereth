@@ -29,6 +29,9 @@
 //! again over each written archive: a file that is not on the package's list, a game data file or
 //! anything named like one, a link, or a file over the cap fails the package. An AppImage is one
 //! file whose inside only the launcher's own build fills; its binaries are checked as built.
+//! A file that names one of this machine's folders (the checkout, the target folder, the home
+//! folder or cargo's) fails it too: the builds rename those folders, and the launcher's
+//! configuration names its files relative to the app's folder ([`bundle_config`]).
 //!
 //! **macOS** needs MoltenVK's macOS release unpacked (`--moltenvk <dir>` or `DERETH_MOLTENVK_DIR`):
 //! its `libMoltenVK.dylib` goes into the bundle, and its licence into the notices. The bundle is
@@ -716,25 +719,18 @@ impl Job<'_> {
         }
         // What the release adds to the app's configuration: the client beside the launcher (the
         // bundler takes it as `<name>-<target>` and drops the suffix), the notices, and on macOS
-        // MoltenVK, signed with the bundle ([`mac_signing`]).
-        let slash = |p: &Path| p.display().to_string().replace('\\', "/");
+        // MoltenVK, signed with the bundle ([`mac_signing`]). The launcher carries its whole
+        // configuration inside it, so these are named relative to the app's folder, never by
+        // where this machine keeps them ([`bundle_config`]).
         let client_base = client
             .parent()
             .unwrap_or(Path::new("."))
             .join("dereth-client");
-        let resources: serde_json::Map<String, serde_json::Value> = NOTICES
-            .iter()
-            .map(|n| (slash(&notices.join(n)), serde_json::Value::from(*n)))
-            .collect();
-        let mut bundle = serde_json::json!({
-            "externalBin": [slash(&client_base)],
-            "resources": resources,
-            "createUpdaterArtifacts": false,
-        });
+        let mut bundle = bundle_config(t, &tauri_dir, &client_base, notices)?;
         if t.os == Os::Mac {
             let (dylib, _) = self.moltenvk.ok_or("a macOS launcher needs MoltenVK")?;
             let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
-            bundle["macOS"] = mac_signing(slash(dylib), identity.as_deref());
+            bundle["macOS"] = mac_signing(relative_to(&tauri_dir, dylib)?, identity.as_deref());
         }
         // On Windows the whole C runtime is linked in (`crt-static`, as the client links it),
         // rather than the app builder's own mix of a static Visual C++ runtime over the system's
@@ -871,6 +867,11 @@ impl Job<'_> {
                 });
             }
         }
+        let named: Vec<(&str, &[u8])> = members
+            .iter()
+            .map(|m| (m.name.as_str(), m.bytes.as_slice()))
+            .collect();
+        self.refuse_machine_folders(dir, &named)?;
         let bytes = if t.os == Os::Windows {
             archive::zip_bytes(root, &members, self.facts.epoch)?
         } else {
@@ -915,6 +916,12 @@ impl Job<'_> {
             println!("  {name}: {d}");
             lines.push((name.to_owned(), bytes, d));
         }
+        // The AppImage compresses what it holds, so the two programs are looked at as built.
+        let named: Vec<(&str, &[u8])> = lines
+            .iter()
+            .map(|(n, b, _)| (n.as_str(), b.as_slice()))
+            .collect();
+        self.refuse_machine_folders(appimage, &named)?;
         let bytes = read(appimage)?;
         let file = release_file_name(t, self.version);
         let findings = check_appimage(&file, &bytes);
@@ -942,6 +949,29 @@ impl Job<'_> {
         lines.insert(0, (String::new(), bytes.clone(), "AppImage".to_owned()));
         self.write_manifest(&file, &lines)?;
         self.sign_launcher(&file, &bytes)
+    }
+
+    /// Refuse the package at `what` when any of `files` (name in the package, contents) names one
+    /// of this machine's folders: the checkout, the target folder, the home folder or cargo's.
+    fn refuse_machine_folders(&self, what: &Path, files: &[(&str, &[u8])]) -> Result<(), String> {
+        let folders = guard::local_folders(self.ws);
+        let findings: Vec<String> = files
+            .iter()
+            .flat_map(|(name, bytes)| {
+                guard::local_paths_in(bytes, &folders)
+                    .into_iter()
+                    .map(move |f| format!("{name}: names this machine's folder {f}"))
+            })
+            .collect();
+        if findings.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "the deny scan refused {}:\n  {}",
+                what.display(),
+                findings.join("\n  ")
+            ))
+        }
     }
 
     /// `<file>.manifest`: each member's size, SHA-256 and what the header check read.
@@ -1212,6 +1242,68 @@ fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Resu
     write(&dir.join("SHA256SUMS"), sums.as_bytes())?;
     println!("\nSHA256SUMS\n{sums}");
     Ok(())
+}
+
+/// The bundle section of the launcher's release configuration for `target`: the client, as the
+/// base name the bundler adds `-<target>` to, and the notices.
+///
+/// The launcher is built with its whole configuration compiled in, so a folder named here is
+/// carried by the program. Each is named relative to the app's folder `app_dir`, as the bundler
+/// reads it, so no machine's folder is. On Windows the launcher is not bundled (the archive is
+/// assembled from the files themselves, and the launcher finds the client beside it by name), so
+/// neither is named at all.
+pub fn bundle_config(
+    target: Target,
+    app_dir: &Path,
+    client_base: &Path,
+    notices: &Path,
+) -> Result<serde_json::Value, String> {
+    if target.os == Os::Windows {
+        return Ok(serde_json::json!({ "createUpdaterArtifacts": false }));
+    }
+    let mut resources = serde_json::Map::new();
+    for n in NOTICES {
+        resources.insert(
+            relative_to(app_dir, &notices.join(n))?,
+            serde_json::Value::from(*n),
+        );
+    }
+    Ok(serde_json::json!({
+        "externalBin": [relative_to(app_dir, client_base)?],
+        "resources": resources,
+        "createUpdaterArtifacts": false,
+    }))
+}
+
+/// `path` relative to the folder `base`, `/`-separated: `..` for each of `base`'s folders below
+/// what the two share. Both are absolute; a path on another drive has no such name.
+pub fn relative_to(base: &Path, path: &Path) -> Result<String, String> {
+    use std::path::Component;
+    let parts = |p: &Path| -> Vec<String> {
+        p.components()
+            .filter(|c| !matches!(c, Component::CurDir))
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect()
+    };
+    let (b, p) = (parts(base), parts(path));
+    let same = |x: &str, y: &str| {
+        if cfg!(windows) {
+            x.eq_ignore_ascii_case(y)
+        } else {
+            x == y
+        }
+    };
+    let shared = b.iter().zip(&p).take_while(|(x, y)| same(x, y)).count();
+    if shared == 0 || !base.is_absolute() || !path.is_absolute() {
+        return Err(format!(
+            "{} has no name relative to {}",
+            path.display(),
+            base.display()
+        ));
+    }
+    let mut out: Vec<&str> = vec![".."; b.len() - shared];
+    out.extend(p[shared..].iter().map(String::as_str));
+    Ok(out.join("/"))
 }
 
 /// The macOS signing the launcher's bundle gets, with MoltenVK among its frameworks.

@@ -247,6 +247,50 @@ fn the_windows_launcher_zip_holds_the_launcher_and_the_client_in_one_folder() {
     assert!(optional.is_empty());
 }
 
+/// The launcher's release configuration, which the launcher carries compiled in, names the
+/// client and the notices relative to the app's folder on the bundled platforms, and names no
+/// file at all on Windows, where nothing is bundled.
+#[test]
+fn the_launchers_release_configuration_names_no_machine_folder() {
+    let ws = workspace_root();
+    let app = ws.join("dereth").join("launcher");
+    let stage = ws.join("target").join("package").join("stage").join("x");
+    let client = stage.join("bin").join("dereth-client");
+    let notices = stage.join("notices");
+    let win = dereth::bundle_config(target(WINDOWS), &app, &client, &notices).unwrap();
+    assert_eq!(win, serde_json::json!({ "createUpdaterArtifacts": false }));
+    for t in [target(MAC_ARM), target(LINUX)] {
+        let c = dereth::bundle_config(t, &app, &client, &notices).unwrap();
+        assert_eq!(
+            c["externalBin"],
+            serde_json::json!(["../../target/package/stage/x/bin/dereth-client"])
+        );
+        assert_eq!(
+            c["resources"]["../../target/package/stage/x/notices/NOTICE.txt"],
+            "NOTICE.txt"
+        );
+        let text = c.to_string();
+        assert!(
+            guard::local_paths_in(text.as_bytes(), &[ws.display().to_string()]).is_empty(),
+            "{text}"
+        );
+    }
+}
+
+/// A path is named relative to a folder by climbing to what they share; a folder on another
+/// root has no such name.
+#[test]
+fn a_path_is_named_relative_to_a_folder_through_what_they_share() {
+    let root = workspace_root();
+    let a = root.join("x").join("y");
+    assert_eq!(
+        dereth::relative_to(&a, &root.join("z").join("f")).unwrap(),
+        "../../z/f"
+    );
+    assert_eq!(dereth::relative_to(&root, &a).unwrap(), "x/y");
+    assert!(dereth::relative_to(&a, std::path::Path::new("f")).is_err());
+}
+
 /// The macOS bundle carries the launcher and the client in `Contents/MacOS` and MoltenVK in
 /// `Contents/Frameworks`, the places the client and the launcher look; the AppImage is no archive.
 #[test]
