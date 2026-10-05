@@ -1091,7 +1091,7 @@ fn send_inventory(w: &mut World, this: ObjectGuid, player: ObjectGuid) {
 
 /// DeleteObject for every item and every side container's item. (Unused in ACE.)
 // ACE: Container.SendDeletesForMyInventory
-#[allow(dead_code)]
+#[allow(dead_code)] // unused in ACE too
 fn send_deletes_for_my_inventory(w: &mut World, this: ObjectGuid, player: ObjectGuid) {
     // send deleteobjects for all objects in this container's inventory to player
     let mut items_to_send: Vec<GameMessage> = Vec::new();

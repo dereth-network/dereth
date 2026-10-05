@@ -505,7 +505,7 @@ fn check_wield_requirement(
 
 // ACE: SkillAlterationDevice.CheckActivationRequirements
 /// Unused by ACE (its call in `CheckWieldedItems` is commented out).
-#[allow(dead_code)]
+#[allow(dead_code)] // unused in ACE: its one caller is commented out
 fn check_activation_requirements(
     w: &mut World,
     this: ObjectGuid,

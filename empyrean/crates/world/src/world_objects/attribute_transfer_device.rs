@@ -252,7 +252,7 @@ fn check_wield_requirement(
 // ACE: AttributeTransferDevice.CheckActivationRequirements
 /// Whether an equipped item has an activation requirement. ACE never calls it (its one use, in
 /// `CheckWieldedItems`, is commented out).
-#[allow(dead_code)]
+#[allow(dead_code)] // unused in ACE: its one caller is commented out
 fn check_activation_requirements(
     w: &mut World,
     player: ObjectGuid,

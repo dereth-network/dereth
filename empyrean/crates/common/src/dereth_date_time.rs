@@ -26,10 +26,10 @@ const DAY_TICKS: f64 = 7620.0;
 // ACE: DerethDateTime.hourTicks
 const HOUR_TICKS: f64 = DAY_TICKS / HOURS_IN_A_DAY as f64;
 // ACE: DerethDateTime.minuteTicks
-#[allow(dead_code)]
+#[allow(dead_code)] // unused in ACE too
 const MINUTE_TICKS: f64 = HOUR_TICKS / 60.0;
 // ACE: DerethDateTime.secondTicks
-#[allow(dead_code)]
+#[allow(dead_code)] // unused in ACE too
 const SECOND_TICKS: f64 = MINUTE_TICKS / 60.0;
 // ACE: DerethDateTime.monthTicks
 const MONTH_TICKS: f64 = DAY_TICKS * DAYS_IN_A_MONTH as f64;
