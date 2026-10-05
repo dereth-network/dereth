@@ -12,7 +12,8 @@ use dereth_client_shell::platform::host::Host;
 use crate::Product;
 
 /// The developer switch that draws the classic interface's text with the carried fonts on
-/// Windows: set to `carried`.
+/// Windows: set to `carried`, in a client built with the `carried-fonts` feature.
+#[cfg(all(windows, feature = "carried-fonts"))]
 pub const CLASSIC_FONTS: &str = "DERETH_CLASSIC_FONTS";
 
 /// The desktop, as the client shell's host, for product `P`.
@@ -52,15 +53,21 @@ impl<P: Product> Host for Desktop<P> {
     }
 
     /// The Windows font system on Windows; elsewhere the fonts the client carries, drawn as the
-    /// Windows font system draws them. `DERETH_CLASSIC_FONTS=carried` draws with the carried fonts
-    /// on Windows too, to compare the two.
+    /// Windows font system draws them. In a Windows client built with `carried-fonts`,
+    /// `DERETH_CLASSIC_FONTS=carried` draws with the carried fonts too, to compare the two.
     fn classic_fonts() -> Option<std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>> {
-        let carried = std::env::var_os(CLASSIC_FONTS).is_some_and(|v| v == "carried");
-        Some(if cfg!(windows) && !carried {
-            std::sync::Arc::new(dereth_classic_gdi::fonts::SystemFonts)
-        } else {
-            std::sync::Arc::new(dereth_classic_fonts::ShippedFonts)
-        })
+        #[cfg(windows)]
+        {
+            #[cfg(feature = "carried-fonts")]
+            if std::env::var_os(CLASSIC_FONTS).is_some_and(|v| v == "carried") {
+                return Some(std::sync::Arc::new(dereth_classic_fonts::ShippedFonts));
+            }
+            Some(std::sync::Arc::new(dereth_classic_gdi::fonts::SystemFonts))
+        }
+        #[cfg(not(windows))]
+        {
+            Some(std::sync::Arc::new(dereth_classic_fonts::ShippedFonts))
+        }
     }
 
     fn caret_blink_secs() -> f64 {

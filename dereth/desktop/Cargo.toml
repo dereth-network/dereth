@@ -9,6 +9,11 @@ publish = false
 # A stray tests/*.rs cannot become a test target silently.
 autotests = false
 
+[features]
+# Builds the carried classic fonts into a Windows client too, so `DERETH_CLASSIC_FONTS=carried`
+# can draw with them for comparison; a release leaves it off.
+carried-fonts = ["dep:dereth-classic-fonts"]
+
 [dependencies]
 dereth-primitives.workspace = true
 # The host trait this implements, and the shell's own halves of the window, pump, clipboard and
@@ -30,10 +35,10 @@ dereth-dat.workspace = true
 dereth-clipboard.workspace = true
 dereth-console.workspace = true
 # The classic interface's text: the Windows font system on Windows, the client's own fonts
-# elsewhere.
+# elsewhere (below). On Windows the carried fonts are built in only with `carried-fonts`.
 dereth-classic-dat.workspace = true
 dereth-classic-gdi.workspace = true
-dereth-classic-fonts.workspace = true
+dereth-classic-fonts = { workspace = true, optional = true }
 tracing.workspace = true
 # The one subscriber a product's `main` installs (`logging`).
 tracing-subscriber.workspace = true
@@ -50,6 +55,8 @@ windows = { version = "0.62", features = ["Foundation", "Globalization", "System
 
 # The same two host services off Windows.
 [target.'cfg(not(windows))'.dependencies]
+# The classic interface's fonts, carried by the client off Windows.
+dereth-classic-fonts.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 open = "5"
 

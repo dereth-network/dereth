@@ -27,6 +27,8 @@ embed-resource = "3"
 [features]
 # Fixture access through the client facade; ordinary clients leave this disabled.
 test-support = ["dereth-client-shell/test-support"]
+# The carried classic fonts in a Windows client too, for `DERETH_CLASSIC_FONTS=carried`.
+carried-fonts = ["dereth-desktop/carried-fonts"]
 default = ["vulkan", "d3d12", "wgpu"]
 vulkan = ["dereth-render/vulkan", "dereth-scene/vulkan", "dereth-client-shell/vulkan"]
 # `wgpu` forwards to dereth-render's third backend: Metal, Vulkan or Direct3D 12 through `wgpu`,
